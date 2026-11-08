@@ -161,6 +161,12 @@ export const readInputs = {
   listRecent: (skip: number) => ({ filters: {}, config: { take: 20, skip, order: { created_at: "DESC" }, relations: ["variants", "images"] } }),
   search: (term: string) => ({ filters: { q: term }, config: { take: 20 } }),
 } as const;
+/** Convex's 16 function permits when BENCH_ADMISSION=1; omitted keeps immediate refusal. */
+export const loadAdmission = process.env.BENCH_ADMISSION === "1" ? {
+  query: { maxActive: 8, maxQueued: 512, waitMilliseconds: 60_000 },
+  mutation: { maxActive: 16, maxQueued: 512, waitMilliseconds: 60_000 },
+} : undefined;
+
 export const loadPlan = (() => {
   const levels = (process.env.BENCH_CONCURRENCY ?? "1,16").split(",").map(Number);
   if (levels.some(level => !Number.isSafeInteger(level) || level < 1)) throw new Error("BENCH_CONCURRENCY must list positive integers");

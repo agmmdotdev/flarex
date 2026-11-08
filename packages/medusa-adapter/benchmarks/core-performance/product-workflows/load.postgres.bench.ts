@@ -8,7 +8,7 @@ import { productCreationOptions } from "../../../test/support/core-product-creat
 import { prepareCoreProductUpdate } from "../../../test/support/core-product-update-fixture";
 import { prepareCoreSalesChannelCreation } from "../../../test/support/core-sales-channel-creation-fixture";
 import { prepareCoreInventoryLevelUpdate } from "../../../test/support/core-inventory-level-update-fixture";
-import { benchmarkSettings, catalogSize, loadPlan, meterPgClient, productCreateInput, readInputs, runLoad, workflowInputs as inputs,
+import { benchmarkSettings, catalogSize, loadAdmission, loadPlan, meterPgClient, productCreateInput, readInputs, runLoad, workflowInputs as inputs,
   writeReport } from "./shared";
 
 const settings = benchmarkSettings();
@@ -21,7 +21,7 @@ const run = <A>(work: Effect.Effect<A, unknown>) => Effect.runPromise(work);
 let cases: Readonly<Record<string, (prefix: string) => (index: number) => Promise<unknown>>>;
 
 beforeAll(async () => {
-  const connected = await prepareCoreProductUpdate("postgres", close);
+  const connected = await prepareCoreProductUpdate("postgres", close, loadAdmission === undefined ? {} : { admission: loadAdmission });
   const creation = await run(prepareProductCreationWorkflow({ ...productCreationOptions(connected.creation), hooks: {} }));
   close(() => run(creation.close));
   for (let index = 0; index < catalogSize; index += 1)

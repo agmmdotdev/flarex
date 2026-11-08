@@ -1,17 +1,22 @@
 /** App-scoped reconstruction above the source committer's terminal stop rule. */
-import { Cause, Deferred, Effect, Exit, Fiber, Scope } from "effect";
+import { Cause, Context, Deferred, Effect, Exit, Fiber, Schema, Scope } from "effect";
+import { CoreAdmissionChannelsSchema, makeCoreAdmissionLimiter, type CoreAdmissionChannels, type CoreApplicationAdmissionError, type CoreApplicationFunctionKind } from "./admission";
 import { CoreTransactionError, type CoreDatabase, type CoreDatabaseOptions, type CoreError, type CoreRequestIdentity } from "./api";
 import type { CorePersistence } from "./contracts";
 import { openCoreDatabaseGeneration } from "./database";
 
 export type CoreApplicationGenerationPhase = "initial" | "recovery";
+/** Owners whose admitted root this fiber runs under; a nested root must not queue behind itself. */
+const admittedOwners = Context.Reference<ReadonlySet<object>>("flarex/CoreApplicationAdmittedOwners", { defaultValue: () => new Set() });
 export interface CoreApplicationMaintenance<Failure = never> {
   /** Trusted bounded metadata work; available after reconciliation, including during preparation. */
   readonly useDatabase: <A, E, R>(run: (database: CoreDatabase) => Effect.Effect<A, E, R | Scope.Scope>) =>
     Effect.Effect<A, E | CoreError | Failure, R>;
 }
 export interface CoreApplicationOwner<Value, Failure = never> extends CoreApplicationMaintenance<Failure> {
-  readonly use: <A, E, R>(run: (prepared: Value) => Effect.Effect<A, E, R | Scope.Scope>) => Effect.Effect<A, E | CoreError | Failure, R>;
+  /** With `admission` configured, an omitted kind takes the mutation channel. */
+  readonly use: <A, E, R>(run: (prepared: Value) => Effect.Effect<A, E, R | Scope.Scope>, kind?: CoreApplicationFunctionKind) =>
+    Effect.Effect<A, E | CoreError | Failure, R>;
   /** Outside an invocation: await reconstruction, without executing any caller callback. */
   readonly recover: Effect.Effect<void, CoreError | Failure>;
   readonly close: Effect.Effect<void>;
@@ -21,6 +26,9 @@ export function makeCoreApplicationOwner<Value, Failure, R>(input: Readonly<{
   persistence: CorePersistence;
   options: CoreDatabaseOptions;
   maximumRequests: number;
+  /** Bounded FIFO wait for `use`; omitted, a full request census refuses at once.
+   * Active permits across both channels must fit within `maximumRequests`. */
+  admission?: CoreAdmissionChannels;
   prepare: (database: CoreDatabase, phase: CoreApplicationGenerationPhase) => Effect.Effect<Value, Failure, R | Scope.Scope>;
   onKernelReady?: (maintenance: CoreApplicationMaintenance<Failure>, phase: CoreApplicationGenerationPhase) => Effect.Effect<void, Failure, R | Scope.Scope>;
 }>): Effect.Effect<CoreApplicationOwner<Value, Failure>, CoreError | Failure, R | Scope.Scope> {
@@ -31,10 +39,16 @@ export function makeCoreApplicationOwner<Value, Failure, R>(input: Readonly<{
     ...(input.options.indexCache === undefined ? {} : { indexCache: Object.freeze({ ...input.options.indexCache }) }) });
   return Effect.fn("CoreApplicationOwner.make")(function* () {
     if (!Number.isSafeInteger(maximumRequests) || maximumRequests < 1) return yield* new CoreTransactionError({ reason: "invalidValue" });
+    const admission = input.admission === undefined ? undefined : yield* Schema.decodeUnknownEffect(CoreAdmissionChannelsSchema)(input.admission)
+      .pipe(Effect.mapError(cause => new CoreTransactionError({ reason: "invalidValue", cause })));
+    if (admission !== undefined && admission.query.maxActive + admission.mutation.maxActive > maximumRequests)
+      return yield* new CoreTransactionError({ reason: "invalidValue", cause: "Admission exceeds the request census" });
+    const limiter = admission === undefined ? undefined : makeCoreAdmissionLimiter(admission);
+    const self = {};
     const context = yield* Effect.context<R>();
     const supervision = yield* Scope.make();
     type Kernel = Effect.Success<ReturnType<typeof openCoreDatabaseGeneration>>;
-    interface Invocation { readonly interrupt: Effect.Effect<void> }
+    interface Invocation { interrupt: Effect.Effect<void> }
     interface Generation { readonly scope: Scope.Closeable; readonly kernel: Kernel; readonly invocations: Set<Invocation>;
       prepared?: Readonly<{ value: Value }>; retired: boolean }
     let state: "opening" | "reconciling" | "preparing" | "ready" | "recovering" | "failed" | "closed" = "opening";
@@ -60,13 +74,15 @@ export function makeCoreApplicationOwner<Value, Failure, R>(input: Readonly<{
         const current = generation;
         if (current === undefined || current.retired || !allowed()) return yield* unavailable();
         if (current.invocations.size >= maximumRequests) return yield* new CoreTransactionError({ reason: "capacity", cause: "App invocation retention limit" });
-        yield* current.kernel.database.assertOpen;
-        const selected = select(current);
-        const fiber = yield* Effect.forkIn(Effect.interruptible(Effect.scoped(Effect.suspend<A, E | CoreError, Requirements | Scope.Scope>(() =>
-          generation !== current || current.retired || !allowed() ? Effect.fail(unavailable()) : run(selected)))), current.scope);
-        const invocation: Invocation = { interrupt: Fiber.interrupt(fiber).pipe(Effect.asVoid) };
+        // Reserved synchronously with the census check above; a later yield cannot overfill it.
+        const invocation: Invocation = { interrupt: Effect.void };
         current.invocations.add(invocation);
         return yield* Effect.ensuring(Effect.gen(function* () {
+          yield* current.kernel.database.assertOpen;
+          const selected = select(current);
+          const fiber = yield* Effect.forkIn(Effect.interruptible(Effect.scoped(Effect.suspend<A, E | CoreError, Requirements | Scope.Scope>(() =>
+            generation !== current || current.retired || !allowed() ? Effect.fail(unavailable()) : run(selected)))), current.scope);
+          invocation.interrupt = Fiber.interrupt(fiber).pipe(Effect.asVoid);
           const result = yield* Effect.exit(restore(Fiber.join(fiber)));
           const stopped = current.kernel.stoppedCause();
           if (Exit.isFailure(result)) return yield* Effect.failCause(current.retired && stopped !== undefined
@@ -75,14 +91,22 @@ export function makeCoreApplicationOwner<Value, Failure, R>(input: Readonly<{
           if (generation !== current || current.retired || !allowed()) return yield* unavailable();
           yield* current.kernel.database.assertOpen;
           return result.value;
-        }), Effect.andThen(invocation.interrupt, Effect.sync(() => { current.invocations.delete(invocation); })));
+        }), Effect.andThen(Effect.suspend(() => invocation.interrupt), Effect.sync(() => { current.invocations.delete(invocation); })));
       }));
     });
 
-    const use: CoreApplicationOwner<Value, Failure>["use"] = run => invoke(current => current.prepared, () => state === "ready", selected => Effect.gen(function* () {
-      if (selected === undefined) return yield* unavailable();
-      return yield* run(selected.value);
-    }));
+    const awaitReconstruction = Effect.suspend(() => rebuilding !== undefined || generation?.kernel.stoppedCause() !== undefined ? recover : Effect.void);
+    const refuseAdmission = (error: CoreApplicationAdmissionError) => error.reason === "closed" ? unavailable() : new CoreTransactionError({ reason: "capacity", cause: error });
+    const use: CoreApplicationOwner<Value, Failure>["use"] = (run, kind = "mutation") => Effect.gen(function* () {
+      const owners = yield* admittedOwners;
+      const invocation = (admitted: ReadonlySet<object>) => invoke(current => current.prepared, () => state === "ready", selected => Effect.gen(function* () {
+        if (selected === undefined) return yield* unavailable();
+        return yield* run(selected.value).pipe(Effect.provideService(admittedOwners, admitted));
+      }));
+      // A caller that queued before a stop must not see the reconstruction a later arrival would await.
+      return yield* limiter === undefined || owners.has(self) ? invocation(owners)
+        : limiter.withPermit(kind, Effect.andThen(awaitReconstruction, invocation(new Set([...owners, self]))), refuseAdmission);
+    });
     const useDatabase: CoreApplicationMaintenance<Failure>["useDatabase"] = run => invoke(current => current.kernel.database,
       () => state === "preparing" || state === "ready", run);
     const maintenance: CoreApplicationMaintenance<Failure> = Object.freeze({ useDatabase });
@@ -145,6 +169,7 @@ export function makeCoreApplicationOwner<Value, Failure, R>(input: Readonly<{
       if (closing !== undefined) return yield* Deferred.await(closing);
       const done = Deferred.makeUnsafe<void>(); closing = done;
       state = "closed";
+      if (limiter !== undefined) yield* limiter.stop;
       const result = yield* Effect.exit(Effect.gen(function* () {
         yield* Scope.close(supervision, Exit.void);
         if (generation !== undefined) yield* retire(generation);

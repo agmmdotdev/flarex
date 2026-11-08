@@ -4,6 +4,7 @@ import { Cause, Clock, Effect, Exit, Result, Scope, Semaphore } from "effect";
 import type { JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { commerceError, CommerceTransactionError, logicalCommerceBatchResources } from "@flarex/persistence-postgres/internal/commerce-values";
 import type { CoreDatabase, CoreDatabaseOptions, CoreError, CoreProgramDefinition } from "../../../persistence-postgres/src/core/api";
+import type { CoreAdmissionChannels } from "../../../persistence-postgres/src/core/admission";
 import { CorePersistenceError, type CorePersistence } from "../../../persistence-postgres/src/core/contracts";
 import { coreNativeRelationalRows, type CoreNativeDefinition } from "../../../persistence-postgres/src/core/nativePolicy";
 import { openCoreDatabase } from "../../../persistence-postgres/src/core/database";
@@ -47,6 +48,7 @@ export interface CoreNativeWorkflowFixtureOptions {
   readonly wrapPersistence?: (persistence: CorePersistence) => CorePersistence;
   readonly identityAndAccessPolicy?: JsonObject;
   readonly maximumRequests?: number;
+  readonly admission?: CoreAdmissionChannels;
   /** Shared index cache settings; omitted keeps the Source defaults (100 percent verification). */
   readonly indexCache?: CoreDatabaseOptions["indexCache"];
 }
@@ -207,6 +209,7 @@ export async function createCoreNativeWorkflowFixture(driver: "pglite" | "postgr
       }), database => database.close()));
       const facadeRuntime = yield* makePreparedHostRuntime({ maximumHosts: 32, maximumPreparedBytes: 8 * 1024 * 1024 });
       const owner = yield* makeCoreApplicationOwner({ persistence, options: databaseOptions, maximumRequests: input.maximumRequests ?? 32,
+        ...(input.admission === undefined ? {} : { admission: input.admission }),
         prepare: database => Effect.gen(function* () {
           observer = database;
           const generationScope = yield* Effect.scope;

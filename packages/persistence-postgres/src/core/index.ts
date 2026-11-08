@@ -1,6 +1,8 @@
 /** Trusted host composition only. User/adapter capabilities do not export this owner. */
 export { openCoreDatabase } from "./database";
 export { makeCoreApplicationOwner } from "./applicationOwner";
+export { CoreAdmissionChannelsSchema, CoreAdmissionPositiveCount, CoreApplicationAdmissionError, makeCoreAdmissionLimiter } from "./admission";
+export type { CoreAdmissionChannels, CoreApplicationFunctionKind } from "./admission";
 export type { CoreApplicationOwner, CoreApplicationMaintenance, CoreApplicationGenerationPhase } from "./applicationOwner";
 export { CORE_TRANSACTION_REFERENCE_LIMITS } from "./accounting";
 export { CoreTransactionError, CoreQueryInputError, CoreNativeReferenceError, CoreNativeForeignKeyError, isCoreDefinitiveCommitRefusal,

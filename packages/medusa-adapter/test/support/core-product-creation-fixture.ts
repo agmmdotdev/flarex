@@ -36,7 +36,7 @@ import { createCoreNativeWorkflowFixture, shareCoreNativeWorkflowPhysical, type 
 
 export const creationRevision = (name: string) => createHash("sha256").update(name).digest("hex");
 export interface CoreProductCreationFixtureOptions extends Pick<CoreNativeWorkflowFixtureOptions,
-  "physical" | "wrapPersistence" | "extraSources" | "programs" | "maximumRequests" | "indexCache"> {
+  "physical" | "wrapPersistence" | "extraSources" | "programs" | "maximumRequests" | "admission" | "indexCache"> {
   readonly target?: Readonly<{ scopeUuid: string; epochUuid: string }>;
   readonly includeSalesChannelLocationLink?: boolean;
 }
@@ -93,7 +93,8 @@ export async function makeCoreProductCreationFixture(driver: "pglite" | "postgre
     ...(options.extraSources === undefined ? {} : { extraSources: options.extraSources }),
     ...(options.programs === undefined ? {} : { programs: options.programs }),
     ...(options.indexCache === undefined ? {} : { indexCache: options.indexCache }),
-    ...(options.maximumRequests === undefined ? {} : { maximumRequests: options.maximumRequests }) });
+    ...(options.maximumRequests === undefined ? {} : { maximumRequests: options.maximumRequests }),
+    ...(options.admission === undefined ? {} : { admission: options.admission }) });
   close(fixture.close);
   const productReads = await openCoreProductReadHost(fixture, "product", Object.values(productRuntime.commands));
   const pricingReads = await openCoreProductReadHost(fixture, "pricing", pricingRuntime.commands);

@@ -6,6 +6,7 @@ import { compileCurrencyCoreDefinition } from "../../../medusa-adapter/src/modul
 import { compileProductCoreDefinition } from "../../../medusa-adapter/src/modules/product/schema";
 import { CoreTransactionError, type CoreDatabase, type CoreError, type CoreNativeOperations,
   type CoreRequestIdentity } from "../../src/core/api";
+import type { CoreAdmissionChannels } from "../../src/core/admission";
 import { makeCoreApplicationOwner, type CoreApplicationOwner, type CoreApplicationMaintenance } from "../../src/core/applicationOwner";
 import { openCoreDatabase } from "../../src/core/database";
 import { CorePersistenceError, type CorePersistence, type CoreWriteBatch } from "../../src/core/contracts";
@@ -272,6 +273,125 @@ export function registerApplicationOwnerScenarios(label: string, createFixture: 
       expect(invoked).toBe(false);
       yield* owner.close;
       expect(failure(yield* Effect.result(owner.recover))).toMatchObject({ reason: "closed" });
+    })), 90_000);
+
+    const channel = (maxActive: number, maxQueued: number, waitMilliseconds: number) => ({ maxActive, maxQueued, waitMilliseconds });
+    const openAdmitted = Effect.fn("ApplicationOwnerFixture.openAdmitted")(function* (fixture: CorePersistenceFixture, profile: Effect.Success<ReturnType<typeof install>>,
+      maximumRequests: number, admission?: CoreAdmissionChannels, persistence: CorePersistence = fixture.persistence) {
+      return yield* makeCoreApplicationOwner<Prepared, never, never>({ persistence, options: profile.options, maximumRequests, ...(admission === undefined ? {} : { admission }),
+        prepare: database => Effect.succeed({ database }) });
+    });
+    const hold = Effect.fn("ApplicationOwnerFixture.hold")(function* (owner: CoreApplicationOwner<Prepared>, kind?: "query" | "mutation") {
+      const entered = yield* Deferred.make<void>(), release = yield* Deferred.make<void>();
+      const fiber = yield* Effect.forkChild(Effect.exit(owner.use(() => Effect.andThen(Deferred.succeed(entered, undefined), Deferred.await(release)), kind)));
+      yield* Deferred.await(entered);
+      return { fiber, release: Deferred.succeed(release, undefined) };
+    });
+    const settleQueue = Effect.sleep("30 millis");
+
+    it("queues callers over the active bound in FIFO order and runs every one", run(fixture => Effect.gen(function* () {
+      const owner = yield* openAdmitted(fixture, yield* install(fixture), 4, { query: channel(2, 62, 30_000), mutation: channel(2, 62, 30_000) });
+      let running = 0, peak = 0;
+      const order: number[] = [];
+      const exits = yield* Effect.forEach(Array.from({ length: 64 }, (_, index) => index), index => Effect.exit(owner.use(() => Effect.gen(function* () {
+        running++; peak = Math.max(peak, running); order.push(index);
+        yield* Effect.sleep("1 millis");
+        running--;
+      }))), { concurrency: "unbounded" });
+      expect(exits.every(Exit.isSuccess)).toBe(true);
+      expect(peak).toBe(2);
+      expect(order).toEqual(order.toSorted((left, right) => left - right));
+      yield* owner.close;
+    })), 90_000);
+
+    it("refuses overflow and wait expiry without running the body and frees an interrupted waiter", run(fixture => Effect.gen(function* () {
+      const profile = yield* install(fixture);
+      const owner = yield* openAdmitted(fixture, profile, 4, { query: channel(1, 0, 0), mutation: channel(1, 1, 60_000) });
+      let invoked = false;
+      const body = () => Effect.sync(() => { invoked = true; });
+      const held = yield* hold(owner);
+      const waiter = yield* Effect.forkChild(Effect.exit(owner.use(body)));
+      yield* settleQueue;
+      expect(failure(yield* Effect.result(owner.use(body)))).toMatchObject({ reason: "capacity", cause: { reason: "overloaded", kind: "mutation" } });
+      expect(invoked).toBe(false);
+      yield* owner.use(() => Effect.void, "query");
+      yield* owner.useDatabase(database => database.publishedTimestamp);
+      yield* Fiber.interrupt(waiter);
+      expect(invoked).toBe(false);
+      const replacement = yield* Effect.forkChild(Effect.exit(owner.use(body)));
+      yield* settleQueue;
+      yield* held.release;
+      expect(Exit.isSuccess(yield* Fiber.join(held.fiber))).toBe(true);
+      expect(Exit.isSuccess(yield* Fiber.join(replacement))).toBe(true);
+      expect(invoked).toBe(true);
+      yield* owner.close;
+
+      const expiring = yield* openAdmitted(fixture, profile, 4, { query: channel(1, 0, 0), mutation: channel(1, 1, 10) });
+      invoked = false;
+      const occupied = yield* hold(expiring);
+      expect(failure(yield* Effect.result(expiring.use(body)))).toMatchObject({ reason: "capacity", cause: { reason: "waitExpired", kind: "mutation" } });
+      expect(invoked).toBe(false);
+      yield* occupied.release;
+      yield* Fiber.join(occupied.fiber);
+      yield* expiring.close;
+    })), 90_000);
+
+    it("never queues a nested root, which still answers to the request census", run(fixture => Effect.gen(function* () {
+      const owner = yield* openAdmitted(fixture, yield* install(fixture), 2, { query: channel(1, 4, 60_000), mutation: channel(1, 4, 60_000) });
+      expect(yield* owner.use(() => owner.use(() => Effect.succeed("nested")))).toBe("nested");
+      expect(failure(yield* Effect.result(owner.use(() => owner.use(() => owner.use(() => Effect.void))))))
+        .toMatchObject({ reason: "capacity", cause: "App invocation retention limit" });
+      yield* owner.close;
+    })), 90_000);
+
+    it("fails waiters on close, keeps refusing at once by default and rejects an admission over the census", run(fixture => Effect.gen(function* () {
+      const profile = yield* install(fixture);
+      const owner = yield* openAdmitted(fixture, profile, 4, { query: channel(1, 1, 60_000), mutation: channel(1, 1, 60_000) });
+      let invoked = false;
+      yield* hold(owner);
+      const waiter = yield* Effect.forkChild(Effect.result(owner.use(() => Effect.sync(() => { invoked = true; }))));
+      yield* settleQueue;
+      yield* owner.close;
+      expect(failure(yield* Fiber.join(waiter))).toMatchObject({ reason: "closed" });
+      expect(invoked).toBe(false);
+
+      const plain = yield* openAdmitted(fixture, profile, 1);
+      const held = yield* hold(plain);
+      expect(failure(yield* Effect.result(plain.use(() => Effect.void)))).toMatchObject({ reason: "capacity", cause: "App invocation retention limit" });
+      yield* held.release;
+      yield* Fiber.join(held.fiber);
+      yield* plain.close;
+
+      expect(failure(yield* Effect.result(openAdmitted(fixture, profile, 1, { query: channel(1, 0, 0), mutation: channel(1, 0, 0) })))).toMatchObject({ reason: "invalidValue" });
+      expect(failure(yield* Effect.result(openAdmitted(fixture, profile, 4, { query: channel(0, 0, 0), mutation: channel(1, 0, 0) })))).toMatchObject({ reason: "invalidValue" });
+    })), 90_000);
+
+    it("carries a queued caller through reconstruction onto the new generation", run(fixture => Effect.gen(function* () {
+      const profile = yield* install(fixture), table = profile.definition.tables[0]?.name;
+      if (table === undefined) return yield* Effect.die(new Error("Missing owner fixture table"));
+      let lose = false;
+      const persistence: CorePersistence = { ...fixture.persistence, write: (lease, batch) => Effect.gen(function* () {
+        yield* fixture.persistence.write(lease, batch);
+        if (lose && documents(batch).some(document => document.state === "committed")) {
+          lose = false; return yield* new CorePersistenceError({ reason: "uncertainWrite" });
+        }
+      }) };
+      const owner = yield* openAdmitted(fixture, profile, 4, { query: channel(1, 1, 60_000), mutation: channel(1, 1, 60_000) }, persistence);
+      const retired = yield* owner.use(prepared => Effect.succeed(prepared.database));
+      const claimed = yield* Deferred.make<void>(), proceed = yield* Deferred.make<void>();
+      lose = true;
+      const writing = yield* Effect.forkChild(Effect.result(write(owner, profile, "queued-loss", operations => operations.writeRows(table, "insert", [currency("xee")]),
+        () => {}, Effect.andThen(Deferred.succeed(claimed, undefined), Deferred.await(proceed)))));
+      yield* Deferred.await(claimed);
+      const seen: CoreDatabase[] = [];
+      const waiter = yield* Effect.forkChild(Effect.result(owner.use(prepared => Effect.sync(() => { seen.push(prepared.database); }))));
+      yield* settleQueue;
+      yield* Deferred.succeed(proceed, undefined);
+      expect(failure(yield* Fiber.join(writing))).toMatchObject({ reason: "uncertainWrite" });
+      expect(failure(yield* Fiber.join(waiter))).toBeUndefined();
+      expect(seen).toHaveLength(1);
+      expect(seen).not.toContain(retired);
+      yield* owner.close;
     })), 90_000);
   });
 }

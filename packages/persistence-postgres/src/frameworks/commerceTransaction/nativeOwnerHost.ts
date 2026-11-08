@@ -1,4 +1,5 @@
 import { Cause, Effect } from "effect";
+import type { CoreApplicationFunctionKind } from "../../core/admission";
 import type { CoreApplicationOwner } from "../../core/applicationOwner";
 import type { CoreError } from "../../core/api";
 import { PreparedHostRuntimeError, retainPreparedHost, type PreparedHostRuntime } from "../../execution/preparation/preparedHostRuntime";
@@ -24,9 +25,9 @@ export const makeNativeOwnerProfile = Effect.fn("NativeOwnerProfile.make")(funct
 ) {
   const { owner, hostRuntime, select, projectOwnerFailure } = input;
   let selectedHost: Host | undefined;
-  const use = <A>(work: (host: Host) => Effect.Effect<A, CommerceTransactionError>) =>
+  const use = <A>(work: (host: Host) => Effect.Effect<A, CommerceTransactionError>, kind?: CoreApplicationFunctionKind) =>
     owner.recover.pipe(Effect.andThen(owner.use(prepared => select(prepared).pipe(
-      Effect.tap(host => Effect.sync(() => { selectedHost = host; })), Effect.flatMap(work)))),
+      Effect.tap(host => Effect.sync(() => { selectedHost = host; })), Effect.flatMap(work)), kind)),
     Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectOwnerFailure))));
   const retained = yield* retainPreparedHost(hostRuntime, Effect.succeed({ use }))
     .pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectRetention))));
@@ -37,8 +38,8 @@ export const makeNativeOwnerProfile = Effect.fn("NativeOwnerProfile.make")(funct
     if (selectedHost !== undefined) yield* selectedHost.close;
     selectedHost = undefined;
   })));
-  return Object.freeze({ close, use: <A>(work: (host: Host) => Effect.Effect<A, CommerceTransactionError>) =>
-    retained.use(profile => profile.use(work)).pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectRetention)))) });
+  return Object.freeze({ close, use: <A>(work: (host: Host) => Effect.Effect<A, CommerceTransactionError>, kind?: CoreApplicationFunctionKind) =>
+    retained.use(profile => profile.use(work, kind)).pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectRetention)))) });
 });
 
 export const makeNativeOwnerHost = Effect.fn("CommerceNativeOwnerHost.make")(function* <Prepared, BuildFailure>(
@@ -47,7 +48,7 @@ export const makeNativeOwnerHost = Effect.fn("CommerceNativeOwnerHost.make")(fun
   const profile = yield* makeNativeOwnerProfile(input);
   return Object.freeze({ close: profile.close, newRequestKey: () => `commerce/${crypto.randomUUID()}`,
     run: (key, command, args) => profile.use(host => host.run(key, command, args)),
-    read: (command, args) => profile.use(host => host.read(command, args)),
+    read: (command, args) => profile.use(host => host.read(command, args), "query"),
     initialize: rows => profile.use(host => host.initialize(rows)),
   } satisfies CommerceHost);
 });
