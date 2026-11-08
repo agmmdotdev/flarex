@@ -124,3 +124,45 @@ export function writeReport(lane: "core" | "native", report: object) {
   writeFileSync(path, JSON.stringify({ lane, node: process.version, ...report }, null, 1));
   return path;
 }
+
+/** Concurrent load: `concurrency` workers drain `total` operations. Totals come from one
+ * meter window around the batch; latency is per operation. Failures keep their message. */
+export async function runLoad(meter: ReturnType<typeof meterPgClient>, name: string, concurrency: number, total: number,
+  operation: (index: number) => Promise<unknown>) {
+  const latencies: number[] = [], errors = new Map<string, number>();
+  let next = 0;
+  const worker = async () => {
+    for (let index = next++; index < total; index = next++) {
+      const started = performance.now();
+      try { await operation(index); latencies.push(performance.now() - started); } catch (cause) {
+        const detail = (value: unknown, depth = 0): string => typeof value !== "object" || value === null || depth > 3 ? "" : [
+          "reason" in value ? String(value.reason) : "", "_tag" in value ? String(value._tag) : "", "message" in value ? String(value.message) : "",
+          "cause" in value ? typeof value.cause === "string" ? value.cause : detail(value.cause, depth + 1) : ""].filter(part => part !== "").join(" ");
+        const message = `${String(cause)} ${detail(cause)}`.replace(/\s+/g, " ").slice(0, 300);
+        errors.set(message, (errors.get(message) ?? 0) + 1);
+      }
+    }
+  };
+  const window = await meter.measure(() => Promise.all(Array.from({ length: concurrency }, worker)));
+  const failures = total - latencies.length;
+  return { name, concurrency, ops: total, failures, opsPerSec: latencies.length / (window.wallMs / 1000),
+    latencyMs: { median: nearestRank(latencies, 0.5) ?? null, p95: nearestRank(latencies, 0.95) ?? null, max: latencies.length === 0 ? null : Math.max(...latencies) },
+    cpuMsPerOp: window.cpuMs / total, exchangesPerOp: window.exchanges / total,
+    errors: [...errors.entries()].sort((left, right) => right[1] - left[1]).slice(0, 3) };
+}
+
+/** Matched read and load cases. Reads use the genuine Product service methods on both lanes. */
+export const catalogSize = Number(process.env.BENCH_CATALOG ?? 200);
+export const readRelations = ["variants", "options", "images", "tags", "categories"];
+export const readInputs = {
+  retrieve: (id: string) => ({ id, config: { relations: readRelations } }),
+  listIds: (ids: readonly string[]) => ({ filters: { id: [...ids] }, config: { relations: readRelations } }),
+  // Core refuses `order: { created_at }` (unsupportedProfile); both lanes page by id.
+  listPage: (skip: number) => ({ filters: {}, config: { take: 20, skip, order: { id: "ASC" }, relations: ["variants", "images"] } }),
+  search: (term: string) => ({ filters: { q: term }, config: { take: 20 } }),
+} as const;
+export const loadPlan = (() => {
+  const levels = (process.env.BENCH_CONCURRENCY ?? "1,16").split(",").map(Number);
+  if (levels.some(level => !Number.isSafeInteger(level) || level < 1)) throw new Error("BENCH_CONCURRENCY must list positive integers");
+  return { levels, ops: (concurrency: number) => Math.max(Number(process.env.BENCH_LOAD_OPS ?? 100), concurrency * 8) };
+})();
