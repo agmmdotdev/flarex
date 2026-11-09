@@ -52,6 +52,22 @@ const nativeStoreApplicationDOImports = new Map([
     "@flarex/medusa-adapter/internal/system-test/store-request-read-catalog", "@flarex/medusa-adapter/internal/system-test/store-request-read-fixture",
   ])],
 ]);
+const nativeProductApplicationDOExports = new Map([
+  ["@flarex/medusa-adapter/internal/product-request", { name: "@flarex/medusa-adapter", path: "packages/medusa-adapter",
+    exported: "./internal/product-request", target: "packages/medusa-adapter/src/http/product-request.ts" }],
+  ["@flarex/medusa-adapter/internal/system-test/product-request-fixture", { name: "@flarex/medusa-adapter", path: "packages/medusa-adapter",
+    exported: "./internal/system-test/product-request-fixture", target: "packages/medusa-adapter/test/support/product-request-fixture.ts" }],
+  ["@flarex/medusa-http/admin-product-effect", { name: "@flarex/medusa-http", path: "packages/medusa-http", exported: "./admin-product-effect",
+    target: "packages/medusa-http/src/adminProductEffectHost.mts" }],
+]);
+const nativeProductApplicationDOImports = new Map([
+  ["apps/executor/test/adminProductApplicationDO.workerd.worker.ts", new Set([
+    "@flarex/medusa-adapter/internal/product-request", "@flarex/medusa-http/admin-product-effect", "@medusajs/deps/awilix-portable",
+  ])],
+  ["apps/executor/test/adminProductApplicationDO.postgres.test.ts", new Set([
+    "@flarex/medusa-adapter/internal/system-test/product-request-fixture",
+  ])],
+]);
 /** Only these native-ready, test-only app DO consumers borrow the verified
  * package exports. No production dependency/profile or neighboring test is admitted.
  * @param {import("./check-medusa-currency-promotion.mjs").Promotion | undefined} promotion
@@ -65,6 +81,16 @@ function hasNativeStoreApplicationDOExport(promotion, entry) {
 function admitsNativeStoreApplicationDOImport(promotion, relativePath, specifier) {
   const entry = nativeStoreApplicationDOExports.get(specifier);
   return nativeStoreApplicationDOImports.get(relativePath)?.has(specifier) === true
+    && entry !== undefined && hasNativeStoreApplicationDOExport(promotion, entry);
+}
+/** Product POST has its own exact fixture/exports; it inherits no adjacent
+ * Admin route or general production application admission.
+ * @param {import("./check-medusa-currency-promotion.mjs").Promotion | undefined} promotion
+ * @param {string} relativePath @param {string} specifier */
+function admitsNativeProductApplicationDOImport(promotion, relativePath, specifier) {
+  const entry = nativeProductApplicationDOExports.get(specifier)
+    ?? (specifier === "@medusajs/deps/awilix-portable" ? nativeStoreApplicationDOExports.get(specifier) : undefined);
+  return nativeProductApplicationDOImports.get(relativePath)?.has(specifier) === true
     && entry !== undefined && hasNativeStoreApplicationDOExport(promotion, entry);
 }
 /** @param {import("./check-medusa-currency-promotion.mjs").Promotion | undefined} promotion
@@ -739,6 +765,7 @@ export function analyzeMedusaSourceIslandBoundary(input) {
   );
 
   analyzeSources(input.rootSources, errors, (specifier, relativePath, node) => {
+    if (admitsNativeProductApplicationDOImport(promotion, relativePath, specifier)) return undefined;
     if (admitsNativeStoreApplicationDOImport(promotion, relativePath, specifier)) return undefined;
     if (admitsNativeBusinessOwner(promotion) && nativeBusinessImports.get(relativePath)?.has(specifier)) return undefined;
     if (admitsHistoricalCaptureImport(promotion, relativePath, specifier, node)) return undefined;

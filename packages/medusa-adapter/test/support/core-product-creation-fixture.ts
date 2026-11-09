@@ -5,30 +5,14 @@ import type { LogicalCommerceCallValidation } from "@flarex/persistence-postgres
 import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant } from "../../../persistence-postgres/src/frameworks/atomicCommerce/commands";
 import { defineCommerceEventContract } from "../../../persistence-postgres/src/frameworks/atomicCommerce/events";
 import { getCommerceCommand, type CommerceCommand } from "../../../persistence-postgres/src/frameworks/commerceTransaction/commands";
-import { compileCoreNativeEventStorageDefinition } from "../../../persistence-postgres/src/commit/events/coreDefinition";
 import { coreNativeRelationalRow } from "../../../persistence-postgres/src/core/nativeRelationalQuery";
-import { compileProductCoreDefinition } from "../../src/modules/product/schema";
-import { makeLocalProductCommands } from "../../src/modules/product/service";
-import { capturePricingMetadata, compilePricingCoreDefinition } from "../../src/modules/pricing/schema";
-import { makeLocalPricingCommands } from "../../src/modules/pricing/service";
+import { capturePricingMetadata } from "../../src/modules/pricing/schema";
 import { compilePriceListCreationContracts } from "../../src/modules/pricing/list-input";
 import { pricingListCreationPolicy } from "../../src/modules/pricing/list-creation-receipt";
-import { compileInventoryCoreDefinition } from "../../src/modules/inventory/schema";
-import { makeLocalInventoryCommands } from "../../src/modules/inventory/service";
-import { compileStockLocationCoreDefinition } from "../../src/modules/stock-location/schema";
-import { makeStockLocationCommands } from "../../src/modules/stock-location/service";
-import { compileSalesChannelCoreDefinition } from "../../src/modules/sales-channel/schema";
-import { makeLocalSalesChannelCommands } from "../../src/modules/sales-channel/service";
-import { compileShippingProfileCoreDefinition } from "../../src/modules/fulfillment/shipping-profile-schema";
-import { makeLocalShippingProfileCommands } from "../../src/modules/fulfillment/shipping-profile-service";
-import { compileProductLinksCoreDefinition } from "../../src/links/product-definition";
-import { prepareLocalProductLinks } from "../../src/links/product-service";
-import { compileVariantLinksCoreDefinition } from "../../src/links/variant-definition";
-import { prepareLocalVariantLinks } from "../../src/links/variant-service";
 import { compileSalesChannelLocationLinkCoreDefinition } from "../../src/links/sales-channel-location-schema";
 import { prepareSalesChannelLocationLink } from "../../src/links/sales-channel-location-service";
 import { prepareProductShippingProfileWorkflow } from "../../src/workflows/product/shipping-profile";
-import { prepareProductNativeLinkResource } from "../../src/links/product-resource";
+import { compileProductRequestCatalog } from "../../src/http/product-request";
 import { workflowModuleDefinition } from "../../src/workflow/module";
 import type { prepareProductCreationWorkflow } from "../../src/workflows/product/creation";
 import { createCoreNativeWorkflowFixture, shareCoreNativeWorkflowPhysical, type CoreNativeWorkflowFixture,
@@ -52,36 +36,24 @@ export async function openCoreProductReadHost(fixture: CoreNativeWorkflowFixture
 export async function makeCoreProductCreationFixture(driver: "pglite" | "postgres", close: (cleanup: () => Promise<void>) => void,
   options: CoreProductCreationFixtureOptions = {}) {
   const target = Object.freeze({ scopeUuid: options.target?.scopeUuid ?? randomUUID(), epochUuid: options.target?.epochUuid ?? randomUUID() });
-  const productRuntime = await Effect.runPromise(makeLocalProductCommands());
-  const pricingRuntime = await Effect.runPromise(makeLocalPricingCommands());
-  const inventoryRuntime = await Effect.runPromise(makeLocalInventoryCommands());
-  const stockRuntime = await Effect.runPromise(makeStockLocationCommands());
-  const salesRuntime = await Effect.runPromise(makeLocalSalesChannelCommands());
-  const shippingRuntime = await Effect.runPromise(makeLocalShippingProfileCommands());
-  const productLinksRuntime = await Effect.runPromise(prepareLocalProductLinks());
-  const variantLinksRuntime = await Effect.runPromise(prepareLocalVariantLinks());
+  const catalog = await Effect.runPromise(compileProductRequestCatalog(target));
+  const { product: productRuntime, pricing: pricingRuntime, inventory: inventoryRuntime, stock: stockRuntime, sales: salesRuntime,
+    fulfillment: shippingRuntime, productLinks: productLinksRuntime, variantLinks: variantLinksRuntime } = catalog.runtimes;
   const channelLocationsRuntime = options.includeSalesChannelLocationLink === true
     ? await Effect.runPromise(prepareSalesChannelLocationLink()) : undefined;
-  const productDefinition = await Effect.runPromise(compileProductCoreDefinition(target));
-  const pricingDefinition = await Effect.runPromise(compilePricingCoreDefinition(target));
-  const inventoryDefinition = await Effect.runPromise(compileInventoryCoreDefinition(target));
-  const stockDefinition = await Effect.runPromise(compileStockLocationCoreDefinition(target));
-  const salesDefinition = await Effect.runPromise(compileSalesChannelCoreDefinition(target));
-  const shippingDefinition = await Effect.runPromise(compileShippingProfileCoreDefinition(target));
-  const productLinksDefinition = await Effect.runPromise(compileProductLinksCoreDefinition(target, { salesChannel: true, shippingProfile: true }));
-  const variantLinksDefinition = await Effect.runPromise(compileVariantLinksCoreDefinition(target));
+  const definition = (name: string) => {
+    const selected = catalog.sources.find(source => source.name === name);
+    if (selected === undefined) throw new Error("Missing Product creation source: " + name);
+    return selected.definition;
+  };
+  const productDefinition = definition("product"), pricingDefinition = definition("pricing"), inventoryDefinition = definition("inventory"),
+    stockDefinition = definition("stock_location"), salesDefinition = definition("sales_channel"), shippingDefinition = definition("fulfillment"),
+    productLinksDefinition = definition("product_links"), variantLinksDefinition = definition("variant_links");
   const channelLocationsDefinition = channelLocationsRuntime === undefined ? undefined
     : await Effect.runPromise(compileSalesChannelLocationLinkCoreDefinition(target));
-  const eventDefinition = await Effect.runPromise(compileCoreNativeEventStorageDefinition(target));
+  const eventDefinition = catalog.eventDefinition;
   const sources: readonly CoreNativeWorkflowSource[] = [
-    { name: "product", definition: productDefinition, initialCommands: Object.values(productRuntime.commands), rows: [] },
-    { name: "pricing", definition: pricingDefinition, initialCommands: pricingRuntime.commands, rows: [] },
-    { name: "inventory", definition: inventoryDefinition, initialCommands: inventoryRuntime.commands, rows: [] },
-    { name: "stock_location", definition: stockDefinition, initialCommands: stockRuntime.commands, rows: [] },
-    { name: "sales_channel", definition: salesDefinition, initialCommands: salesRuntime.commands, rows: [] },
-    { name: "fulfillment", definition: shippingDefinition, initialCommands: shippingRuntime.commands, rows: [] },
-    { name: "product_links", definition: productLinksDefinition, initialCommands: productLinksRuntime.commands, rows: [] },
-    { name: "variant_links", definition: variantLinksDefinition, initialCommands: variantLinksRuntime.commands, rows: [] },
+    ...catalog.sources.map(source => ({ name: source.name, definition: source.definition, initialCommands: source.commands, rows: [] })),
     ...(channelLocationsDefinition === undefined || channelLocationsRuntime === undefined ? [] : [
       { name: "sales_channel_locations", definition: channelLocationsDefinition, initialCommands: channelLocationsRuntime.commands, rows: [] },
     ]),
@@ -119,8 +91,7 @@ export async function makeCoreProductCreationFixture(driver: "pglite" | "postgre
     stockLocation: { definition: stockDefinition, runtime: stockRuntime, source: fixture.source("stock_location"), reads: stockReads, host: stockReads },
     link: { definition: variantLinksDefinition, runtime: variantLinksRuntime, source: fixture.source("variant_links"), reads: variantLinksReads, host: variantLinksReads },
   };
-  const link = Result.getOrThrow(prepareProductNativeLinkResource([productLinksRuntime.nativeServices.sales,
-    productLinksRuntime.nativeServices.shipping, variantLinksRuntime.nativeServices.inventory, variantLinksRuntime.nativeServices.pricing]));
+  const link = catalog.link;
   const readTable = async (sourceName: string, tableName?: string): Promise<readonly JsonObject[]> => {
     const source = sources.find(source => source.name === (tableName === undefined ? "product" : sourceName));
     const table = source?.definition.tables.find(table => (table.localName ?? table.name) === (tableName ?? sourceName));

@@ -64,6 +64,7 @@ const httpSourceOwners = new Map([
 const relocatedHttpSources = new Map([
   ["packages/medusa-framework/src/http/fetch.ts", "packages/core/framework/src/http/adapters/fetch.ts"],
   ["packages/medusa-framework/src/http/utils/fetch-query.ts", "packages/core/framework/src/http/adapters/fetch.ts"],
+  ["packages/medusa-framework/src/http/utils/fetch-json-body.ts", "packages/core/framework/src/http/adapters/fetch.ts"],
   ["packages/medusa-framework/src/http/utils/field-parser.ts", "packages/core/framework/src/http/utils/field-filtering/field-parser.ts"],
   ["packages/medusa-http/src/api/utils/common-validators.ts", "packages/medusa/src/api/utils/common-validators/common.ts"],
   ["packages/medusa-http/scripts/generate-static-manifest.mjs", "packages/medusa/scripts/generate-static-http-manifest.mjs"],
@@ -72,6 +73,34 @@ const relocatedHttpSources = new Map([
 ]);
 const currencyRoutesDirectory = "packages/medusa-http/src/api/store/currencies/";
 const currencyHandlers = new Set(["route.ts", "[code]/route.ts"].map(name => currencyRoutesDirectory + name));
+const adminProductRoute = "packages/medusa-http/src/api/admin/products/route.ts";
+const productHttpSelections = new Set([
+  ...["helpers", "middlewares", "query-config", "route", "validators"].map(name =>
+    "packages/medusa-http/src/api/admin/products/" + name + ".ts"),
+  ...["fetch-json-body", "refetch-entities", "validate-body"].map(name =>
+    "packages/medusa-framework/src/http/utils/" + name + ".ts"),
+]);
+
+/** The admin module also contains GET. Promote only the pinned workflow ID and
+ * POST callback, allowing erased request and container types to differ.
+ * @param {string} native @param {string} promoted */
+export function verifyAdminProductPostSource(native, promoted) {
+  const parsed = ts.createSourceFile("route.ts", native, ts.ScriptTarget.ESNext, true);
+  const selected = ["createProductsWorkflowId", "POST"].map(name => {
+    const declarations = parsed.statements.filter(statement => ts.isVariableStatement(statement) &&
+      statement.declarationList.declarations.length === 1 &&
+      statement.declarationList.declarations[0]?.name.getText(parsed) === name);
+    if (declarations.length !== 1) throw new Error("Missing pinned Admin Product POST declaration: " + name);
+    return declarations[0].getText(parsed);
+  });
+  const imports = [
+    'import { refetchEntity } from "@medusajs/framework/http"',
+    'import { Modules } from "@medusajs/utils/modules-sdk/definition"',
+    'import { remapKeysForProduct, remapProductResponse } from "./helpers"',
+  ];
+  if (emitForkRuntime([...imports, ...selected].join("\n")) !== emitForkRuntime(promoted))
+    throw new Error("Changed native Admin Product POST behavior");
+}
 
 /** Relocate only the native utility import. Type-only annotations erase on emit.
  * @param {string} source @param {string} target @param {string} file */
@@ -1066,6 +1095,9 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
       throw new Error("Inventory confirmation adaptation outside its selected native source pair");
     if (file.classification === "storeHttpFork" && (file.source === undefined || file.source !== pinnedHttpSource(file.target)))
       throw new Error("Store HTTP adaptation must name its pinned source");
+    if (productHttpSelections.has(file.target) &&
+      (file.source !== pinnedHttpSource(file.target) || file.classification !== "selectedExportFacade"))
+      throw new Error("Admin Product HTTP selections must retain their pinned sources");
     if (file.target.startsWith(currencyRoutesDirectory) &&
       (file.source !== pinnedHttpSource(file.target) ||
         file.classification !== (currencyHandlers.has(file.target) ? "importRelocation" : "unchanged")))
@@ -1188,6 +1220,9 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
       if (currencyHandlers.has(file.target))
         verifyStoreCurrencyHandlerSource(readFileSync(path.join(root, file.source), "utf8"),
           readFileSync(path.join(root, file.target), "utf8"), file.target);
+      if (file.target === adminProductRoute)
+        verifyAdminProductPostSource(readFileSync(path.join(root, file.source), "utf8"),
+          readFileSync(path.join(root, file.target), "utf8"));
       if (file.classification === nativeBigNumberSourcePair.classification)
         verifyNativeBigNumberTypeSource(readFileSync(path.join(root, file.source), "utf8"),
           readFileSync(path.join(root, file.target), "utf8"), file.target);

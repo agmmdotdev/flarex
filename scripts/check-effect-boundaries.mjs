@@ -160,6 +160,8 @@ const allowedRunPromiseSites = new Map([
 
 /** @type {Map<string, number>} */
 const allowedRunPromiseExitSites = new Map([
+  // The native Admin Product Promise callbacks retain the settled workflow or read Cause.
+  [siteKey("packages/medusa-adapter/src/http/product-request.ts", "runProductRequestPromise"), 1],
   // Journal RPC owners retain full callback Cause across their Promise protocol.
   [siteKey("packages/executor/src/mutation/journal/applicationPointMutationJournalCapability.ts", "runJournalEffect"), 1],
   [siteKey("packages/executor/src/mutation/journal/pointMutationJournalRpc.ts", "PointMutationJournalRpcSessionStateV1.#run"), 1],

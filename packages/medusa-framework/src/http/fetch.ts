@@ -2,6 +2,8 @@ import { MedusaError } from "@medusajs/utils/common/errors"
 import { errorHandler } from "./middlewares/error-handler"
 import { matchStaticHttpPath } from "./utils/static-http-path-matcher"
 import { parseFetchQuery } from "./utils/fetch-query"
+import { parseFetchJsonBody, resolveJsonBodyLimit } from "./utils/fetch-json-body"
+import { verifyAndRecordPolicies, type PolicyVerifier } from "./utils/verified-policies"
 import { buildStaticHttpResources, sortHttpResources, type StaticHttpResourceManifest } from "./utils/static-http-resources"
 import type { MedusaRequest, MedusaResponse, MiddlewareDescriptor } from "./types"
 
@@ -9,6 +11,9 @@ export type FetchHttpAdapterOptions = {
   createRequestScope(request: Request): MedusaRequest["scope"]
   createSession?(request: Request): MedusaRequest["session"]
   prepareRequest?(request: MedusaRequest, fetchRequest: Request): Promise<void> | void
+  allowedMethods?: readonly ("GET" | "POST")[]
+  jsonBodyLimitBytes?: number
+  verifyPolicies?: PolicyVerifier
 }
 export type FetchHttpStaticHandler = {
   handle(request: Request): Promise<Response>
@@ -17,9 +22,15 @@ export type FetchHttpStaticHandler = {
 }
 export function createFetchHttpStaticHandler(options: FetchHttpAdapterOptions & { manifest: StaticHttpResourceManifest }): FetchHttpStaticHandler {
   const resources = buildStaticHttpResources(options.manifest)
-  // This profile deliberately admits bodyless Store reads only.
-  if (resources.routes.some((route) => route.method !== "GET")) throw new Error("The private static HTTP profile supports GET routes only")
+  const allowedMethods = options.allowedMethods ?? ["GET"]
+  if (allowedMethods.some((method) => method !== "GET" && method !== "POST") || resources.routes.some((route) => !allowedMethods.some((method) => method === route.method))) {
+    throw new Error("The private static HTTP profile contains an unadmitted HTTP method")
+  }
+  const jsonBodyLimit = resolveJsonBodyLimit(options.jsonBodyLimitBytes)
   const sorted = sortHttpResources(resources)
+  if (resources.middlewares.some((middleware) => middleware.policies !== undefined) && !options.verifyPolicies) {
+    throw new Error("Policy-bearing private HTTP routes require an injected verifier")
+  }
   const onError = resources.errorHandler || errorHandler()
   const isPathHandled = (pathname: string) => resources.routes.some((route) => matchStaticHttpPath(route.matcher, pathname) !== undefined)
   const handle = async (request: Request): Promise<Response> => {
@@ -41,6 +52,7 @@ export function createFetchHttpStaticHandler(options: FetchHttpAdapterOptions & 
       path: url.pathname, protocol: url.protocol.replace(/:$/, ""), params: {}, query: {},
       headers: Object.fromEntries(request.headers.entries()), get: (name) => request.headers.get(name) ?? undefined,
       scope: options.createRequestScope(request), session: options.createSession?.(request),
+      validatedBody: undefined,
       validatedQuery: {}, filterableFields: {}, allowedProperties: [], errors: [], listConfig: {}, retrieveConfig: {},
       queryConfig: { fields: [], pagination: { skip: 0 } }, remoteQueryConfig: { fields: [], pagination: { skip: 0 } }, context: {},
     }
@@ -49,10 +61,17 @@ export function createFetchHttpStaticHandler(options: FetchHttpAdapterOptions & 
       req.params = matchStaticHttpPath(route.matcher, url.pathname) ?? {}
       if (new TextEncoder().encode(url.search).byteLength > 16384) throw new MedusaError(MedusaError.Types.INVALID_DATA, "Query string exceeds the private HTTP limit")
       req.query = parseFetchQuery(url.searchParams)
+      const bodyParserDisabled = resources.bodyParserConfigRoutes.some((resource) => matchesResource(resource, request.method, url.pathname))
+      if (!bodyParserDisabled && request.method === "POST") req.body = await parseFetchJsonBody(request, jsonBodyLimit)
       await options.prepareRequest?.(req, request)
       let proceed = true
       for (const middleware of sorted.slice(0, routeIndex)) {
         if ("isRoute" in middleware || !matchesMiddleware(middleware, request.method, url.pathname)) continue
+        if (middleware.policies !== undefined) {
+          const verifier = options.verifyPolicies
+          if (!verifier) throw new Error("The private HTTP policy verifier is missing")
+          await verifyAndRecordPolicies(req, middleware.policies, verifier)
+        }
         let nextCalled = false
         let nextError: unknown
         await middleware.handler(req, res, (error) => { nextCalled = true; nextError = error })
@@ -70,7 +89,10 @@ export function createFetchHttpStaticHandler(options: FetchHttpAdapterOptions & 
   } }
 }
 function matchesMiddleware(middleware: MiddlewareDescriptor, method: string, pathname: string): boolean {
-  const methods = middleware.methods === undefined ? undefined : Array.isArray(middleware.methods) ? middleware.methods : [middleware.methods]
+  return matchesResource(middleware, method, pathname)
+}
+function matchesResource(resource: Pick<MiddlewareDescriptor, "matcher" | "methods" | "pathMatching">, method: string, pathname: string): boolean {
+  const methods = resource.methods === undefined ? undefined : Array.isArray(resource.methods) ? resource.methods : [resource.methods]
   return (!methods || methods.some((item) => item === "ALL" || item === "USE" || item === method.toUpperCase())) &&
-    matchStaticHttpPath(middleware.matcher, pathname, { partial: middleware.pathMatching === "prefix" }) !== undefined
+    matchStaticHttpPath(resource.matcher, pathname, { partial: resource.pathMatching === "prefix" }) !== undefined
 }

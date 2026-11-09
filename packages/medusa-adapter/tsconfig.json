@@ -26,6 +26,7 @@
     "test/**/*.ts",
     "vitest.config.ts",
     "vitest.store-request.config.ts",
+    "vitest.product-request.config.ts",
     "vitest.fulfillment-delivery.config.ts",
     "vitest.native-stock-sales.config.ts",
     "vitest.native-api-key.config.ts",

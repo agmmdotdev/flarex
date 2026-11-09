@@ -5,6 +5,7 @@ import { MedusaError } from "@medusajs/utils/common/errors"
 import { stringToSelectRelationObject } from "@medusajs/utils/common/string-to-select-relation-object"
 import type { DecodedQueryFields, MedusaRequest, QueryConfig } from "../types"
 import { FieldParser } from "./field-parser"
+import { hasVerifiedRequestPolicies } from "./verified-policies"
 
 export async function prepareListQuery<T extends DecodedQueryFields>(
   validated: T,
@@ -31,7 +32,7 @@ export async function prepareListQuery<T extends DecodedQueryFields>(
   const { fields: allFields, starFields } = parsedFields
 
   // RBAC is not part of the selected private Currency HTTP profile.
-  if (req?.policies?.length || restricted.length) {
+  if ((req?.policies?.length && !hasVerifiedRequestPolicies(req)) || restricted.length) {
     throw new MedusaError(MedusaError.Types.NOT_ALLOWED, "RBAC and restricted-field composition are not supported by the private Currency HTTP profile")
   }
 

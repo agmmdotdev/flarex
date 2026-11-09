@@ -4,6 +4,8 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./internal/product-request": "./src/http/product-request.ts",
+    "./internal/system-test/product-request-fixture": "./test/support/product-request-fixture.ts",
     "./internal/store-request-scope": "./src/http/store-request-scope.ts",
     "./internal/system-test/store-request-read-catalog": "./test/support/store-request-read-catalog.ts",
     "./internal/system-test/store-request-read-fixture": "./test/support/store-request-read-fixture.ts",
@@ -77,6 +79,7 @@
     "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.compatibility.json && tsc -p tsconfig.composite.json && tsc -p ../medusa-product/integration-tests/tsconfig.json && tsc -p ../medusa-sales-channel/integration-tests/tsconfig.json",
     "test": "vitest run --config vitest.config.ts",
     "test:store-request": "vitest run --config vitest.store-request.config.ts",
+    "test:product-request": "vitest run --config vitest.product-request.config.ts",
     "test:live": "vitest run --config vitest.live.config.ts",
     "test:product:upstream": "vitest run --config vitest.product-upstream.config.ts",
     "test:sales-channel": "vitest run --config vitest.sales-channel.config.ts",

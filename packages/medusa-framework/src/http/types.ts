@@ -17,6 +17,7 @@ export type AuthContext = {
   user_metadata: Record<string, unknown>
 }
 export type PublishableKeyContext = { key: string; sales_channel_ids: string[] }
+export type PolicyAction = { resource: string; operation: string | readonly string[] }
 export interface MedusaRequest<Body = unknown, QueryFields = Record<string, unknown>> {
   method: string
   url: string
@@ -29,7 +30,7 @@ export interface MedusaRequest<Body = unknown, QueryFields = Record<string, unkn
   get(name: string): string | undefined
   scope: { resolve<T = unknown>(key: string): T; createScope(): MedusaRequest["scope"] }
   body?: Body
-  validatedBody?: Body
+  validatedBody: Body
   validatedQuery: DecodedQueryFields & Record<string, unknown> & QueryFields
   filterableFields: QueryFields
   listConfig?: FindConfig<unknown>
@@ -46,8 +47,10 @@ export interface MedusaRequest<Body = unknown, QueryFields = Record<string, unkn
   publishable_key_context?: PublishableKeyContext
   session?: Record<string, unknown> & { auth_context?: AuthContext }
   restrictedFields?: { list(): string[] }
-  policies?: readonly unknown[]
+  policies?: readonly PolicyAction[]
+  additionalDataValidator?: AdditionalDataValidator
 }
+export type AuthenticatedMedusaRequest<Body = unknown, QueryFields = Record<string, unknown>> = MedusaRequest<Body, QueryFields> & { auth_context: AuthContext }
 export type MedusaStoreRequest<Body = unknown, QueryFields = Record<string, unknown>> = MedusaRequest<Body, QueryFields>
 export interface MedusaResponse<Body = unknown> {
   status(code: number): MedusaResponse<Body>
@@ -66,6 +69,7 @@ export type MiddlewareRoute = {
   matcher: string
   middlewares?: MiddlewareFunction[]
   bodyParser?: false
+  policies?: PolicyAction | PolicyAction[]
 }
 export type MiddlewaresConfig = { routes?: MiddlewareRoute[]; errorHandler?: MedusaErrorHandlerFunction | false }
 export type RouteDescriptor = {
@@ -85,6 +89,9 @@ export type MiddlewareDescriptor = {
   methods?: MiddlewareVerb | MiddlewareVerb[]
   pathMatching?: HttpPathMatching
   handler: MiddlewareFunction
+  policies?: PolicyAction | PolicyAction[]
 }
 export type QueryConfig = { defaults?: string[]; allowed?: string[]; defaultLimit?: number; isList?: boolean; entity?: string }
 export type QuerySchema = z.ZodType<DecodedQueryFields & Record<string, unknown>>
+export type BodySchema = z.ZodType<Record<string, unknown>>
+export type AdditionalDataValidator = z.ZodOptional<z.ZodNullable<z.ZodObject<z.ZodRawShape>>>

@@ -11,6 +11,10 @@ export async function bundleApplicationWorker(entry: URL): Promise<string> {
     return undefined;
   } };
   const output = await build({ configFile: false, logLevel: "silent", plugins: [workspaceResolution],
+    // The pinned Medusa Cloudflare host sets this same compile-time target in
+    // apps/medusa-cloudflare/vite.config.ts. Its native Inventory/Order seam
+    // retains ORM decorators for Node and excludes their loader in Workers.
+    define: { __MEDUSA_CLOUDFLARE_WORKER__: "true" },
     resolve: { conditions: ["workerd", ...defaultClientConditions] },
     build: { write: false, minify: false, target: "es2022", lib: { entry: fileURLToPath(entry), formats: ["es"], fileName: "worker" },
       rolldownOptions: { external: id => id.startsWith("cloudflare:") || builtins.has(id),

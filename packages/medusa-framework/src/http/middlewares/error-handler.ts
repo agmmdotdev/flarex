@@ -22,6 +22,7 @@ export function errorHandler(): MedusaErrorHandlerFunction {
       case "unauthorized": status = 401; break
       case "forbidden": status = 403; break
       case "payment_authorization_error": status = 422; break
+      case "payload_too_large": status = 413; break
       case "duplicate_error": status = 422; code = "invalid_request_error"; break
       case "not_allowed": case "invalid_data": status = 400; break
       case "not_found": status = 404; break

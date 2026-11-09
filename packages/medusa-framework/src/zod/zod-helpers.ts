@@ -1,5 +1,4 @@
 import { MedusaError } from "@medusajs/utils/common/errors"
-import type { DecodedQueryFields } from "../http/types"
 import {
   z,
   ZodError,
@@ -111,9 +110,9 @@ const formatError = (err: ZodError) => {
 }
 
 export async function zodValidator(
-  zodSchema: z.ZodType<DecodedQueryFields & Record<string, unknown>>,
+  zodSchema: z.ZodType<Record<string, unknown>>,
   body: unknown
-): Promise<DecodedQueryFields & Record<string, unknown>> {
+): Promise<Record<string, unknown>> {
   let strictSchema = zodSchema
   // ZodEffects doesn't support setting as strict, for all other schemas we want to enforce strictness.
   if (zodSchema instanceof z.ZodObject) {

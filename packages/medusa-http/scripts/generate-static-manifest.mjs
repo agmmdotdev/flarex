@@ -12,29 +12,24 @@ const scriptDirectory = path.dirname(fileURLToPath(import.meta.url))
 const medusaPackageRoot = path.resolve(scriptDirectory, "..")
 const projectRoot = path.resolve(medusaPackageRoot, "../..")
 const check = process.argv.includes("--check")
-const manifestInputPath = path.join(
-  projectRoot,
-  "packages/medusa-http/static-manifest.json"
-)
-
-const manifestSpec = await readManifestSpec(manifestInputPath)
-const outputPath = path.join(projectRoot, manifestSpec.outputPath)
-
-const generated = await renderManifest()
-
-if (check) {
-  const current = await fs.readFile(outputPath, "utf8")
-  if (current !== generated) {
-    throw new Error(
-      "Static HTTP manifest is stale. Run pnpm --filter @flarex/medusa-http generate."
-    )
+for (const input of ["static-manifest.json", "admin-product-static-manifest.json"]) {
+  const manifestSpec = await readManifestSpec(path.join(medusaPackageRoot, input))
+  const outputPath = path.join(projectRoot, manifestSpec.outputPath)
+  const generated = await renderManifest(manifestSpec)
+  if (check) {
+    const current = await fs.readFile(outputPath, "utf8")
+    if (current !== generated) {
+      throw new Error(
+        "Static HTTP manifest is stale. Run pnpm --filter @flarex/medusa-http generate."
+      )
+    }
+  } else {
+    await fs.mkdir(path.dirname(outputPath), { recursive: true })
+    await fs.writeFile(outputPath, generated)
   }
-} else {
-  await fs.mkdir(path.dirname(outputPath), { recursive: true })
-  await fs.writeFile(outputPath, generated)
 }
 
-async function renderManifest() {
+async function renderManifest(manifestSpec) {
   await validateListedFilesExist([
     ...manifestSpec.routes,
     ...manifestSpec.middlewares,

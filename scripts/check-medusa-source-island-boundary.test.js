@@ -34,6 +34,43 @@ const nativeControlPromotion = {
 };
 
 describe("Medusa source-island boundary checker", () => {
+  it("confines native Admin Product DO imports to their verified test-only package exports", () => {
+    const promotion = { sourceCommit: "test", buildFiles: [], testAliases: [], packages: [
+      { path: "packages/medusa-adapter", name: "@flarex/medusa-adapter", dependencies: {},
+        exports: ["./internal/product-request", "./internal/system-test/product-request-fixture"] },
+      { path: "packages/medusa-http", name: "@flarex/medusa-http", dependencies: {}, exports: ["./admin-product-effect"] },
+      { path: "packages/medusa-deps", name: "@medusajs/deps", dependencies: {}, exports: ["./awilix-portable"] },
+    ], files: ["packages/medusa-adapter/src/http/product-request.ts", "packages/medusa-adapter/test/support/product-request-fixture.ts",
+      "packages/medusa-http/src/adminProductEffectHost.mts", "packages/medusa-deps/src/awilix-portable.mjs"]
+      .map(target => ({ target, targetSha256: "pinned", classification: "authored" })) };
+    const worker = "apps/executor/test/adminProductApplicationDO.workerd.worker.ts";
+    const test = "apps/executor/test/adminProductApplicationDO.postgres.test.ts";
+    const imports = ["@flarex/medusa-adapter/internal/product-request", "@flarex/medusa-http/admin-product-effect", "@medusajs/deps/awilix-portable"];
+    const fixture = "@flarex/medusa-adapter/internal/system-test/product-request-fixture";
+    /** @param {string} relativePath @param {string[]} specifiers @param {typeof promotion} [selected] */
+    const check = (relativePath, specifiers, selected = promotion) => analyzeMedusaSourceIslandBoundary({
+      ...emptyInput, currencyPromotion: selected,
+      rootSources: [{ relativePath, text: specifiers.map(specifier => `import ${JSON.stringify(specifier)};`).join("\n") }],
+    }).errors;
+    expect(check(worker, imports)).toEqual([]);
+    expect(check(test, [fixture])).toEqual([]);
+    expect(check(test, imports).length).toBeGreaterThan(0);
+    expect(check(worker, [fixture]).length).toBeGreaterThan(0);
+    for (const importer of [worker.replace("adminProductApplicationDO", "adjacent"), test.replace("adminProductApplicationDO", "adjacent"),
+      worker.replace("/test/", "/src/"), test.replace("/test/", "/src/")])
+      expect(check(importer, [...imports, fixture]).length).toBeGreaterThan(0);
+    for (const specifier of imports) {
+      expect(check(worker, [specifier + ".ts"]).length).toBeGreaterThan(0);
+      expect(check(worker, [specifier.replace(/\/([^/]+)$/, "/./$1")]).length).toBeGreaterThan(0);
+    }
+    for (const altered of [
+      { ...promotion, files: [] }, { ...promotion, packages: [] },
+      { ...promotion, files: promotion.files.map(file => ({ ...file, classification: "exactCopy" })) },
+      { ...promotion, packages: promotion.packages.map(pkg => ({ ...pkg, exports: [] })) },
+      { ...promotion, packages: promotion.packages.map(pkg => ({ ...pkg, path: pkg.path + "-adjacent" })) },
+    ]) expect(check(worker, imports, altered).length).toBeGreaterThan(0);
+  });
+
   it("admits only the verified native-ready app DO fixtures and their exact test dependencies", () => {
     const owners = [
       { path: "packages/medusa-adapter", name: "@flarex/medusa-adapter", dependencies: {}, exports: [

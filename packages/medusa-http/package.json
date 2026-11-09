@@ -18,6 +18,16 @@
       "types": "./dist/static-manifest.generated.d.ts",
       "source": "./src/static-manifest.generated.ts",
       "default": "./dist/static-manifest.generated.js"
+    },
+    "./admin-product": {
+      "types": "./dist/admin-product.d.ts",
+      "source": "./src/admin-product.ts",
+      "default": "./dist/admin-product.js"
+    },
+    "./admin-product-effect": {
+      "types": "./dist/adminProductEffectHost.d.mts",
+      "source": "./src/adminProductEffectHost.mts",
+      "default": "./dist/adminProductEffectHost.mjs"
     }
   },
   "dependencies": {

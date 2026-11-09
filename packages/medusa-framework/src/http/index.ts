@@ -1,5 +1,7 @@
 export type * from "./types"
 export { validateAndTransformQuery } from "./utils/validate-query"
+export { validateAndTransformBody } from "./utils/validate-body"
+export { refetchEntity } from "./utils/refetch-entities"
 export { errorHandler } from "./middlewares/error-handler"
 export { applyLocale } from "./middlewares/apply-locale"
 export { ensurePublishableApiKeyMiddleware } from "./middlewares/ensure-publishable-api-key"

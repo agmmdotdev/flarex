@@ -1,0 +1,5 @@
+{
+  "extends": "./tsconfig.json",
+  "include": ["src/http/product-request.ts", "test/product-request.test.ts", "test/logical-product-creation-workflow.test.ts", "vitest.product-request.config.ts"],
+  "exclude": []
+}

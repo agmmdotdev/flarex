@@ -10,3 +10,13 @@ export const applyAndAndOrOperators = <T extends z.ZodObject<any>>(
     })
   )
 }
+
+export const booleanString = () =>
+  z
+    .union([z.boolean(), z.string()])
+    .refine((value) => {
+      return ["true", "false"].includes(value.toString().toLowerCase())
+    })
+    .transform((value) => {
+      return value.toString().toLowerCase() === "true"
+    })

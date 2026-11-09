@@ -3,7 +3,7 @@ import { createProductsWorkflow } from "@medusajs/core-flows/product/create-prod
 import type { AtomicCommerceEvents } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { compileProductDefinition } from "../../modules/product/definition";
-import { productCreationWorkflowEntry } from "./create-input";
+import { productCreationWorkflowInput } from "./create-input";
 import { ProductVariantInventoryOutput } from "./variant-inventory";
 import { commerceDecoder } from "../../value/decoder";
 import { captureCommerceInput } from "../../value/input";
@@ -75,11 +75,7 @@ export const prepareProductCreationWorkflow = Effect.fn("MedusaWorkflow.prepareP
   const metadata = yield* compileProductDefinition();
   const product = metadata.metadata.tables.find(table => table.name === "product");
   if (!product) return yield* Effect.fail(commerceError("unsupportedProfile"));
-  const Product = productCreationWorkflowEntry(product.columns.map(column => column.name));
-  const contract = Schema.Struct({ products: Schema.Array(Product).check(Schema.isLengthBetween(1, 4),
-    Schema.makeFilter(products => products.reduce((total, product) => total + (product.variants?.length ?? 0), 0) <= 4)),
-    additional_data: Schema.optionalKey(Schema.JsonObject),
-  });
+  const contract = productCreationWorkflowInput(product.columns.map(column => column.name));
   const registeredHooks = yield* Effect.fromResult(captureWorkflowRecord(options.hooks ?? {}));
   if (Object.keys(registeredHooks).some(name => name !== "productsCreated") ||
     registeredHooks.productsCreated !== undefined && typeof registeredHooks.productsCreated !== "function")

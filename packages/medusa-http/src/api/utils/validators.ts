@@ -1,5 +1,9 @@
 import { z } from "@medusajs/framework/zod"
 
+/** Selected native default additional-data branch; no route extension is admitted. */
+export const WithAdditionalData = <T extends z.AnyZodObject>(originalSchema: T) => () =>
+  originalSchema.extend({ additional_data: z.record(z.unknown()).nullish() })
+
 export const createSelectParams = () => {
   return z.object({
     fields: z.string().optional(),

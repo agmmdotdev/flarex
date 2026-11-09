@@ -57,3 +57,12 @@ export function productCreationWorkflowEntry(columns: readonly string[]) {
     shipping_profile_id: Schema.optionalKey(Id),
   });
 }
+
+/** One admission contract for the promoted standalone Product creation root. */
+export function productCreationWorkflowInput(columns: readonly string[]) {
+  const Product = productCreationWorkflowEntry(columns);
+  return Schema.Struct({ products: Schema.Array(Product).check(Schema.isLengthBetween(1, 4),
+    Schema.makeFilter(products => products.reduce((total, product) => total + (product.variants?.length ?? 0), 0) <= 4)),
+    additional_data: Schema.optionalKey(Schema.JsonObject),
+  });
+}
