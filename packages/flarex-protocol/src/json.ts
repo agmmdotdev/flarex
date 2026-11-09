@@ -200,6 +200,7 @@ export function measureCanonicalJsonUtf8Bytes(
   maximumBytes: number,
 ): CanonicalJsonUtf8Measurement {
   if (!isNonNegativeSafeInteger(maximumBytes)) return { kind: "invalid" };
+  if (value === null || typeof value !== "object") return measureCanonicalJsonScalar(value, maximumBytes);
   const ancestors = new WeakSet<object>();
   const memo = new WeakMap<object, number>();
   const pending = [measureCanonicalJsonValue(value, ancestors, memo, maximumBytes)];
@@ -220,27 +221,22 @@ type CanonicalJsonMeasurementWork = Generator<
   CanonicalJsonUtf8Measurement
 >;
 
+function measureCanonicalJsonScalar(value: unknown, maximumBytes: number): CanonicalJsonUtf8Measurement {
+  if (value === null) return measuredPrimitive(4, maximumBytes);
+  if (typeof value === "boolean") return measuredPrimitive(value ? 4 : 5, maximumBytes);
+  if (typeof value === "string") return measureCanonicalJsonString(value, maximumBytes);
+  if (typeof value === "number" && Number.isFinite(value)) return measuredPrimitive(JSON.stringify(value).length, maximumBytes);
+  return { kind: "invalid" };
+}
+
 function* measureCanonicalJsonValue(
   value: unknown,
   ancestors: WeakSet<object>,
   memo: WeakMap<object, number>,
   maximumBytes: number,
 ): CanonicalJsonMeasurementWork {
-  if (value === null) return measuredPrimitive(4, maximumBytes);
-  if (typeof value === "boolean") {
-    return measuredPrimitive(value ? 4 : 5, maximumBytes);
-  }
-  if (typeof value === "string") {
-    return measureCanonicalJsonString(value, maximumBytes);
-  }
-  if (typeof value === "number") {
-    if (!Number.isFinite(value)) return { kind: "invalid" };
-    const spelling = JSON.stringify(value);
-    return measuredPrimitive(spelling.length, maximumBytes);
-  }
-  if (typeof value !== "object" || ancestors.has(value)) {
-    return { kind: "invalid" };
-  }
+  if (value === null || typeof value !== "object") return measureCanonicalJsonScalar(value, maximumBytes);
+  if (ancestors.has(value)) return { kind: "invalid" };
   const prior = memo.get(value);
   if (prior !== undefined) return measuredPrimitive(prior, maximumBytes);
   let prototype: object | null;
@@ -434,9 +430,8 @@ function measureCanonicalJsonString(
     } else {
       next = 3;
     }
-    const nextBytes = checkedCanonicalByteAdd(bytes, next);
-    if (nextBytes === undefined) return { kind: "invalid" };
-    bytes = nextBytes;
+    // At six bytes per code unit, an engine-length string stays a safe integer.
+    bytes += next;
     if (bytes > maximumBytes) {
       return { kind: "exceeded", observed: bytes };
     }
