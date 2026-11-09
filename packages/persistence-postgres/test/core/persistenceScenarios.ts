@@ -79,6 +79,19 @@ export function registerCorePersistenceScenarios(
       expect(await Effect.runPromise(fixture.persistence.isFresh(lease))).toBe(false);
     }));
 
+    it("rolls back every chunk of a large batch after a late index failure", () => withFixture(async fixture => {
+      const persistence = fixture.persistence;
+      const lease = await Effect.runPromise(persistence.acquireLease());
+      const names = Array.from({ length: 1500 }, (_, offset) => `chunked-${String(offset).padStart(5, "0")}`);
+      const rejected = await Effect.runPromise(Effect.result(persistence.write(lease, {
+        documents: [document(1n, "chunked")], indexes: [...names, names[0] ?? ""].map(name => index(1n, name)),
+      })));
+      expect(Result.isFailure(rejected)).toBe(true);
+      const snapshot = await Effect.runPromise(persistence.readSnapshot(1n));
+      expect(await Effect.runPromise(snapshot.get(tableId, documentId))).toEqual(Option.none());
+      expect((await scan(snapshot)).entries).toEqual([]);
+    }));
+
     it("hydrates unchanged keys from the exact document revision and retains tombstones", () => withFixture(async fixture => {
       const persistence = fixture.persistence;
       const lease = await Effect.runPromise(persistence.acquireLease());
@@ -170,6 +183,23 @@ export function registerCorePersistenceScenarios(
         .toMatchObject({ _tag: "Failure", failure: { reason: "readOnly" } });
       await fixture.query(`DELETE FROM "${fixture.namespace}".read_only WHERE instance_name = $1`, [fixture.instanceName]);
       await Effect.runPromise(second.write(replacement, { documents: [document(1n, "current")], indexes: [] }));
+    }));
+
+    it("reports a lost lease before any constraint and inserts nothing for a stale owner", () => withFixture(async fixture => {
+      const first = fixture.persistence;
+      const lease = await Effect.runPromise(first.acquireLease());
+      await Effect.runPromise(first.write(lease, { documents: [document(1n, "kept")], indexes: [] }));
+      const second = await fixture.reopen();
+      const replacement = await Effect.runPromise(second.acquireLease());
+      const stale = await Effect.runPromise(Effect.result(first.write(lease, {
+        documents: [document(1n, "duplicate key"), document(2n, "other", resultId)], indexes: [index(2n, "stale")],
+      })));
+      expect(stale).toMatchObject({ _tag: "Failure", failure: { reason: "leaseLost" } });
+      const snapshot = await Effect.runPromise(second.readSnapshot(2n));
+      expect(await Effect.runPromise(snapshot.get(tableId, resultId))).toEqual(Option.none());
+      expect((await scan(snapshot)).entries).toEqual([]);
+      await Effect.runPromise(second.write(replacement, { documents: [], indexes: [index(2n, "index only")] }));
+      expect(await fixture.query(`SELECT 1 FROM "${fixture.namespace}".indexes WHERE instance_name = $1`, [fixture.instanceName])).toHaveLength(1);
     }));
 
     it("serves preloaded first pages exactly once with the ordinary scan result and retention check", async () => {

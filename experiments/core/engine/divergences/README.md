@@ -188,6 +188,7 @@ maintaining a competing completion log here.
 - [Native schema source composition](./native-schema-composition.md): one authenticated bundle before the existing Source lifecycle; selected fresh multi-source contract implemented.
 - [Confined native root participation](./native-root-participation.md): explicit source children over one kernel/lifetime/outcome; selected private mixed path implemented.
 - [Native prevalidation read batches](./native-prevalidation-read-batches.md): first pages of commit-time native index checks share one advisory statement; every check and refusal stays with the ordered loop.
+- [Opening lease fence and inserts in one statement](./native-fenced-insert-statement.md): folds the advisory fence and both inserts because `pg` cannot pipeline them; a stale owner still inserts nothing.
 - [Native root admission](./native-root-admission.md): bounded FIFO permits at the Core application owner, off by default; waiter counts are bounded where Convex leaves them unbounded.
 - [Native scope exclusion](./native-scope-exclusion.md): selected-callback exclusion with competing writer-settlement fencing implemented through trusted Core admission/settlement owners with paired owner, genuine native and complete selected consumer proof; wider hosting gates remain.
 - [Native relational row values](./native-relational-row-values.md): existing authenticated row semantics move to one shared value owner before Currency cutover; no additional physical schema or native runtime activation is implied.

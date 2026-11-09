@@ -59,7 +59,7 @@ describe.runIf(endpoints !== undefined)("ordinary-role PostgreSQL", () => {
       query: driver.query,
       transaction: run => driver.transaction(connection => run({
         query: (statement, parameters) => connection.query(statement, parameters).pipe(Effect.tap(() =>
-          statement.startsWith(`INSERT INTO "${fixture.namespace}"."documents"`)
+          statement.includes(`INSERT INTO "${fixture.namespace}"."documents"`)
             ? Effect.gen(function* () { yield* Deferred.succeed(paused, undefined); yield* Deferred.await(released); })
             : Effect.void,
         )),
