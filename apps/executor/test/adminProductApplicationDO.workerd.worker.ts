@@ -75,10 +75,14 @@ const NativeOwner = makeApplicationDurableObject<NativeProductEnv, NativeFixture
 
 /** A test-only native-ready application owner; production profiles stay unchanged. */
 export class NativeAdminProductApplicationFixture extends NativeOwner {
+  readonly #incarnation = crypto.randomUUID();
+
   override async fetch(request: Request): Promise<Response> {
-    if (new URL(request.url).pathname === "/__proof/close") {
+    const path = new URL(request.url).pathname;
+    if (path === "/__proof/close" || path === "/__proof/incarnation") {
       const admitted = admitExecutorRequest(request, this.env);
       if (Result.isFailure(admitted)) return admitted.failure;
+      if (path === "/__proof/incarnation") return Response.json({ incarnation: this.#incarnation });
       await this.close();
       return Response.json({ closed: true });
     }
