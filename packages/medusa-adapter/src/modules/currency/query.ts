@@ -22,9 +22,12 @@ const decodeFieldArray = commerceDecoder(Schema.Array(Schema.Unknown).check(
 const decodeFields = commerceDecoder(Schema.Array(Schema.Literals(currencyColumns)).check(Schema.isUnique()), "unsupportedProfile");
 const decodeOffset = commerceDecoder(QueryOffset, "limitExceeded");
 const decodeLimit = commerceDecoder(QueryLimit, "limitExceeded");
-const decodeOrder = commerceDecoder(Schema.Struct({ code: Schema.Literals(["ASC", "asc", "DESC", "desc"]) }), "unsupportedProfile");
+const orderColumns = ["code", "name", "symbol", "symbol_native", "decimal_digits", "rounding", "created_at", "updated_at", "deleted_at"] as const;
+const decodeOrder = commerceDecoder(Schema.Record(Schema.Literals(orderColumns), Schema.optionalKey(Schema.Literals(["ASC", "asc", "DESC", "desc"])))
+  .check(Schema.makeFilter(value => Object.keys(value).length === 1)), "unsupportedProfile");
 const decodeFilters = commerceDecoder(Schema.Struct({
-  softDeletable: Schema.Struct({ withDeleted: Schema.Boolean }),
+  softDeletable: Schema.optionalKey(Schema.Struct({ withDeleted: Schema.Boolean })),
+  freeTextSearch_Currency: Schema.optionalKey(Schema.Struct({ value: Schema.String, fromEntity: Schema.Literal("Currency") })),
 }), "unsupportedProfile");
 const decodeWhere = commerceDecoder(Schema.Struct({
   code: Schema.optionalKey(Schema.Unknown),
@@ -63,9 +66,19 @@ export function decodeCurrencyQuery(input: unknown): Result.Result<CurrencyQuery
     if (fields.includes("rounding") && !fields.includes("raw_rounding")) fields.push("raw_rounding");
     const skip = yield* decodeOffset(options.offset ?? 0);
     const take = yield* decodeLimit(options.limit ?? commerceLimits.catalogRows);
-    const ordering = options.orderBy === undefined ? { code: "ASC" } : yield* decodeOrder(options.orderBy);
-    const order = ordering.code === "DESC" || ordering.code === "desc" ? "desc" : "asc";
-    const withDeleted = options.filters === undefined ? false : (yield* decodeFilters(options.filters)).softDeletable.withDeleted;
-    return Object.freeze({ predicate: yield* compileWhere(value.where ?? {}, wherePolicy), fields: Object.freeze(fields), skip, take, order, withDeleted });
+    const ordering = yield* decodeOrder(options.orderBy ?? { code: "ASC" });
+    const orderColumn = orderColumns.find(column => Object.hasOwn(ordering, column)) ?? "code";
+    const direction = ordering[orderColumn];
+    const order = direction === "DESC" || direction === "desc" ? "desc" : "asc";
+    const filters = yield* decodeFilters(options.filters ?? {});
+    const withDeleted = filters.softDeletable?.withDeleted ?? false;
+    const predicate = yield* compileWhere(value.where ?? {}, wherePolicy);
+    // The native free-text filter searches the DML's searchable code/name
+    // columns with PostgreSQL ILIKE, retaining SQL wildcard/Unicode behavior.
+    const search = filters.freeTextSearch_Currency?.value;
+    return Object.freeze({ predicate: search ? { kind: "and" as const, children: [predicate,
+      { kind: "or" as const, children: ["code", "name"].map(column => ({ kind: "postgresText" as const,
+        column, operator: "ilike" as const, value: `%${search}%` })) }] } : predicate,
+      fields: Object.freeze(fields), skip, take, order, orderColumn, withDeleted });
   });
 }

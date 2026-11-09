@@ -1,0 +1,9 @@
+{
+  "extends": "../../tools/medusa/tsconfig.fork.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist",
+    "lib": ["ES2021", "DOM", "DOM.Iterable"]
+  },
+  "include": ["src/**/*.ts", "src/**/*.mts"]
+}

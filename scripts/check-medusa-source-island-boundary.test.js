@@ -34,6 +34,63 @@ const nativeControlPromotion = {
 };
 
 describe("Medusa source-island boundary checker", () => {
+  it("admits only the verified native-ready app DO fixtures and their exact test dependencies", () => {
+    const owners = [
+      { path: "packages/medusa-adapter", name: "@flarex/medusa-adapter", dependencies: {}, exports: [
+        "./internal/store-request-reads", "./internal/store-request-scope", "./internal/system-test/store-request-read-catalog",
+        "./internal/system-test/store-request-read-fixture",
+      ] },
+      { path: "packages/medusa-http", name: "@flarex/medusa-http", dependencies: {}, exports: ["./effect"] },
+      { path: "packages/medusa-deps", name: "@medusajs/deps", dependencies: {}, exports: ["./awilix-portable"] },
+    ];
+    const targets = ["packages/medusa-adapter/src/http/store-request-reads.ts", "packages/medusa-adapter/src/http/store-request-scope.ts",
+      "packages/medusa-adapter/test/support/store-request-read-catalog.ts", "packages/medusa-adapter/test/support/store-request-read-fixture.ts",
+      "packages/medusa-http/src/effectHost.mts", "packages/medusa-deps/src/awilix-portable.mjs"];
+    const promotion = { sourceCommit: "test", buildFiles: [], testAliases: [], packages: owners,
+      files: targets.map(target => ({ target, targetSha256: "pinned", classification: "authored" })) };
+    const worker = "apps/executor/test/storeCurrencyApplicationDO.workerd.worker.ts";
+    const test = "apps/executor/test/storeCurrencyApplicationDO.postgres.test.ts";
+    const workerImports = ["@flarex/medusa-adapter/internal/store-request-reads", "@flarex/medusa-adapter/internal/store-request-scope",
+      "@flarex/medusa-adapter/internal/system-test/store-request-read-catalog", "@flarex/medusa-http/effect", "@medusajs/deps/awilix-portable"];
+    const fixtureImports = ["@flarex/medusa-adapter/internal/system-test/store-request-read-catalog",
+      "@flarex/medusa-adapter/internal/system-test/store-request-read-fixture"];
+    /** @param {string} relativePath @param {string[]} imports @param {typeof promotion} [selected] */
+    const checkImports = (relativePath, imports, selected = promotion) => analyzeMedusaSourceIslandBoundary({
+      ...emptyInput, currencyPromotion: selected,
+      rootSources: [{ relativePath, text: imports.map(specifier => `import ${JSON.stringify(specifier)};`).join("\n") }],
+    }).errors;
+    expect(checkImports(worker, workerImports)).toEqual([]);
+    expect(checkImports(test, fixtureImports)).toEqual([]);
+    for (const importer of [worker.replace("storeCurrencyApplicationDO", "adjacent"), worker.replace("/test/", "/src/"),
+      test.replace("storeCurrencyApplicationDO", "adjacent"), test.replace("/test/", "/src/")])
+      expect(checkImports(importer, workerImports).length).toBeGreaterThan(0);
+    expect(checkImports(worker, [fixtureImports[1]])).not.toEqual([]);
+    for (const specifier of workerImports) {
+      expect(checkImports(worker, [specifier + ".ts"]).length).toBeGreaterThan(0);
+      expect(checkImports(worker, [specifier.replace(/\/([^/]+)$/, "/./$1")]).length).toBeGreaterThan(0);
+    }
+    for (const altered of [
+      { ...promotion, files: [] }, { ...promotion, packages: [] },
+      { ...promotion, files: promotion.files.map(file => ({ ...file, classification: "exactCopy" })) },
+      { ...promotion, packages: owners.map(owner => ({ ...owner, exports: [] })) },
+      { ...promotion, packages: owners.map(owner => ({ ...owner, path: owner.path + "-adjacent" })) },
+    ]) expect(checkImports(worker, workerImports, altered).length).toBeGreaterThan(0);
+
+    /** @param {string} relativePath @param {string} field @param {string} version @param {typeof promotion} [selected] */
+    const checkDependencies = (relativePath, field, version, selected = promotion) => analyzeMedusaSourceIslandBoundary({
+      ...emptyInput, currencyPromotion: selected,
+      rootManifests: [{ relativePath, manifest: { [field]: Object.fromEntries(owners.map(owner => [owner.name, version])) } }],
+    }).errors;
+    expect(checkDependencies("apps/executor/package.json", "devDependencies", "workspace:*")).toEqual([]);
+    for (const field of ["dependencies", "optionalDependencies", "peerDependencies"])
+      expect(checkDependencies("apps/executor/package.json", field, "workspace:*").length).toBeGreaterThan(0);
+    expect(checkDependencies("apps/backend/package.json", "devDependencies", "workspace:*").length).toBeGreaterThan(0);
+    expect(checkDependencies("apps/executor/package.json", "devDependencies", "workspace:^").length).toBeGreaterThan(0);
+    expect(checkDependencies("apps/executor/package.json", "devDependencies", "workspace:*", { ...promotion, files: [] }).length).toBeGreaterThan(0);
+    expect(checkDependencies("apps/executor/package.json", "devDependencies", "workspace:*",
+      { ...promotion, packages: owners.map(owner => ({ ...owner, exports: [] })) }).length).toBeGreaterThan(0);
+  });
+
   it("excludes only the exact native source proof tools while adjacent tooling remains denied", () => {
     const repoRoot = mkdtempSync(join(tmpdir(), "flarex-medusa-proof-boundary-"));
     const verifierPaths = ["scripts/check-medusa-shipping-option-source.mjs", "scripts/check-medusa-shipping-option-source.test.js",

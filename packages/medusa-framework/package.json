@@ -42,6 +42,31 @@
       "types": "./dist/utils/portable.d.ts",
       "source": "./src/utils/portable.ts",
       "default": "./dist/utils/portable.js"
+    },
+    "./http": {
+      "types": "./dist/http/index.d.ts",
+      "source": "./src/http/index.ts",
+      "default": "./dist/http/index.js"
+    },
+    "./http/fetch": {
+      "types": "./dist/http/fetch.d.ts",
+      "source": "./src/http/fetch.ts",
+      "default": "./dist/http/fetch.js"
+    },
+    "./http/static": {
+      "types": "./dist/http/static.d.ts",
+      "source": "./src/http/static.ts",
+      "default": "./dist/http/static.js"
+    },
+    "./zod": {
+      "types": "./dist/zod/index.d.ts",
+      "source": "./src/zod/index.ts",
+      "default": "./dist/zod/index.js"
+    },
+    "./build-tools/static-http-manifest": {
+      "types": "./dist/build-tools/static-http-manifest.d.ts",
+      "source": "./src/build-tools/static-http-manifest.ts",
+      "default": "./dist/build-tools/static-http-manifest.js"
     }
   },
   "license": "MIT",
@@ -52,6 +77,10 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run --config vitest.config.ts"
+  },
+  "devDependencies": {
+    "vitest": "catalog:"
   }
 }

@@ -1,0 +1,21 @@
+{
+  "exportName": "storeCurrencyHttpManifest",
+  "generatedBy": "pnpm --filter @flarex/medusa-http generate",
+  "manifestDirectory": "packages/medusa-http/src",
+  "outputPath": "packages/medusa-http/src/static-manifest.generated.ts",
+  "routeRoot": "packages/medusa-http/src/api",
+  "routes": [
+    {
+      "relativePath": "packages/medusa-http/src/api/store/currencies/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa-http/src/api/store/currencies/[code]/route.ts"
+    }
+  ],
+  "middlewares": [
+    {
+      "relativePath": "packages/medusa-http/src/api/store/currencies/middlewares.ts",
+      "exportName": "storeCurrencyRoutesMiddlewares"
+    }
+  ]
+}

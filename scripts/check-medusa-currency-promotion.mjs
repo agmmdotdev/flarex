@@ -53,6 +53,50 @@ import { cartCreateWorkflowSourcePairs, verifyCartCreateWorkflowSelection, verif
 
 const manifestPath = "roadmaps/flarexdb-framework-integration/preflight/medusa-currency-promotion.json";
 const sourcePrefix = "third_party/medusa/upstream/";
+// Worker adaptations of the pinned HTTP stack. The manifest authenticates the
+// source and destination bytes of each pair; the route handler algorithms live
+// at their original paths and carry only dependency/type relocations.
+const httpSourceOwners = new Map([
+  ["packages/medusa-framework/src/http/", "packages/core/framework/src/http/"],
+  ["packages/medusa-framework/src/zod/", "packages/core/framework/src/zod/"],
+  ["packages/medusa-http/src/api/", "packages/medusa/src/api/"],
+]);
+const relocatedHttpSources = new Map([
+  ["packages/medusa-framework/src/http/fetch.ts", "packages/core/framework/src/http/adapters/fetch.ts"],
+  ["packages/medusa-framework/src/http/utils/fetch-query.ts", "packages/core/framework/src/http/adapters/fetch.ts"],
+  ["packages/medusa-framework/src/http/utils/field-parser.ts", "packages/core/framework/src/http/utils/field-filtering/field-parser.ts"],
+  ["packages/medusa-http/src/api/utils/common-validators.ts", "packages/medusa/src/api/utils/common-validators/common.ts"],
+  ["packages/medusa-http/scripts/generate-static-manifest.mjs", "packages/medusa/scripts/generate-static-http-manifest.mjs"],
+  ["packages/medusa-utils/src/common/build-query.ts", "packages/core/utils/src/common/build-query.ts"],
+  ["packages/medusa-utils/src/common/remote-query-object-from-string.ts", "packages/core/utils/src/common/remote-query-object-from-string.ts"],
+]);
+const currencyRoutesDirectory = "packages/medusa-http/src/api/store/currencies/";
+const currencyHandlers = new Set(["route.ts", "[code]/route.ts"].map(name => currencyRoutesDirectory + name));
+
+/** Relocate only the native utility import. Type-only annotations erase on emit.
+ * @param {string} source @param {string} target @param {string} file */
+export function verifyStoreCurrencyHandlerSource(source, target, file) {
+  const members = file === currencyRoutesDirectory + "[code]/route.ts"
+    ? ["ContainerRegistrationKeys", "MedusaError", "remoteQueryObjectFromString"]
+    : ["ContainerRegistrationKeys", "remoteQueryObjectFromString"];
+  const paths = new Map([["ContainerRegistrationKeys", "container"], ["MedusaError", "errors"],
+    ["remoteQueryObjectFromString", "remote-query-object-from-string"]]);
+  const nativeImport = 'import {\n  ' + members.join(',\n  ') + ',\n} from "@medusajs/framework/utils"';
+  const portableImports = members.map(name => `import { ${name} } from "@medusajs/utils/common/${paths.get(name)}"`).join("\n");
+  const original = source.replaceAll("\r\n", "\n");
+  if (!currencyHandlers.has(file) || !original.includes(nativeImport) ||
+    emitForkRuntime(original.replace(nativeImport, portableImports)) !== emitForkRuntime(target))
+    throw new Error("Store Currency handler must preserve its pinned implementation");
+}
+/** @param {string} target */
+function pinnedHttpSource(target) {
+  const relocated = relocatedHttpSources.get(target);
+  if (relocated !== undefined) return sourcePrefix + relocated;
+  for (const [owner, original] of httpSourceOwners) {
+    if (target.startsWith(owner)) return sourcePrefix + original + target.slice(owner.length);
+  }
+  return undefined;
+}
 export const nativeBigNumberSourcePair = Object.freeze({
   source: sourcePrefix + "packages/core/utils/src/totals/big-number.ts",
   target: "packages/medusa-utils/src/totals/big-number.ts",
@@ -353,6 +397,7 @@ const owners = new Map([
   ["packages/medusa-types", "@medusajs/types"],
   ["packages/medusa-utils", "@medusajs/utils"],
   ["packages/medusa-framework", "@medusajs/framework"],
+  ["packages/medusa-http", "@flarex/medusa-http"],
   ["packages/medusa-modules-sdk", "@medusajs/modules-sdk"],
   ["packages/medusa-deps", "@medusajs/deps"],
   ["packages/medusa-test-utils", "@medusajs/test-utils"],
@@ -1019,7 +1064,13 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
       throw new Error("Cart creation workflow outside its exact pinned source pairs");
     if (file.classification === "inventoryConfirmationFork" && !inventoryConfirmationSourcePairs.some(pair => pair.target === file.target && pair.source === file.source && pair.classification === file.classification))
       throw new Error("Inventory confirmation adaptation outside its selected native source pair");
-    if (!["unchanged", "preserved", "unchangedTest", "importRelocation", "selectedExportFacade", "testHarnessPort", "testPort", "testFixturePort", "workflowFork", "linkFork", "productServiceFork", "inventoryServiceFork", "promotionServiceFork", "notificationServiceFork", "lockingServiceFork", "salesChannelTypeFork", "stockLocationTypeFork", "regionServiceFork", "pricingServiceFork", "nativeRepositoryFork", "storeTypeFork", "storeCreationTypeFork", "priceListCreationTypeFork", "shippingProfileWorkflowTypeFork", "csvNormalizerFork", "schemaCompilerFork", "variantItemPricingFork", "paymentJoinerFork", "workflowCacheFork", "customerSelectionFork", "cartContextReadFork", "inventoryConfirmationFork", "taxLinesFork", "taxRateCreationFork", "taxRegionCreationFork", "nativeDatabaseConstraintFork", "taxRuleCreationFork", "taxRuleDeletionFork", "taxRateDeletionFork", "taxRuleReplacementFork", "taxRateUpdateFork", "updateMetadataFork", "taxRuleCreatorTypeFork", "orderArchiveFork", "orderArchiveCompensationFork", "orderSummaryPrecisionFork", "orderCompleteFork", "orderChangeUpdateFork", "orderChangeCancellationFork", "orderChangeDeclineFork", "orderChangeDeletionFork", "orderChangeCancellationRestoreFork", "paymentSessionTypeFork", "paymentLifecycleFork", "paymentAccountingFork", "orderRefundValidationFork", "apiKeyFork", "nativeBigNumberTypeFork", "paymentCollectionWorkflowFork", "cartPaymentTotalsFork", "customerAddressUpdateFork", "cartCreationWorkflowFork", "authored"].includes(file.classification)) {
+    if (file.classification === "storeHttpFork" && (file.source === undefined || file.source !== pinnedHttpSource(file.target)))
+      throw new Error("Store HTTP adaptation must name its pinned source");
+    if (file.target.startsWith(currencyRoutesDirectory) &&
+      (file.source !== pinnedHttpSource(file.target) ||
+        file.classification !== (currencyHandlers.has(file.target) ? "importRelocation" : "unchanged")))
+      throw new Error("Store Currency routes and middleware must retain their pinned provenance");
+    if (!["unchanged", "preserved", "unchangedTest", "importRelocation", "selectedExportFacade", "storeHttpFork", "testHarnessPort", "testPort", "testFixturePort", "workflowFork", "linkFork", "productServiceFork", "inventoryServiceFork", "promotionServiceFork", "notificationServiceFork", "lockingServiceFork", "salesChannelTypeFork", "stockLocationTypeFork", "regionServiceFork", "pricingServiceFork", "nativeRepositoryFork", "storeTypeFork", "storeCreationTypeFork", "priceListCreationTypeFork", "shippingProfileWorkflowTypeFork", "csvNormalizerFork", "schemaCompilerFork", "variantItemPricingFork", "paymentJoinerFork", "workflowCacheFork", "customerSelectionFork", "cartContextReadFork", "inventoryConfirmationFork", "taxLinesFork", "taxRateCreationFork", "taxRegionCreationFork", "nativeDatabaseConstraintFork", "taxRuleCreationFork", "taxRuleDeletionFork", "taxRateDeletionFork", "taxRuleReplacementFork", "taxRateUpdateFork", "updateMetadataFork", "taxRuleCreatorTypeFork", "orderArchiveFork", "orderArchiveCompensationFork", "orderSummaryPrecisionFork", "orderCompleteFork", "orderChangeUpdateFork", "orderChangeCancellationFork", "orderChangeDeclineFork", "orderChangeDeletionFork", "orderChangeCancellationRestoreFork", "paymentSessionTypeFork", "paymentLifecycleFork", "paymentAccountingFork", "orderRefundValidationFork", "apiKeyFork", "nativeBigNumberTypeFork", "paymentCollectionWorkflowFork", "cartPaymentTotalsFork", "customerAddressUpdateFork", "cartCreationWorkflowFork", "authored"].includes(file.classification)) {
       throw new Error(`Unadmitted source transformation: ${file.target}`);
     }
     if (file.target === "packages/medusa-pricing/src/services/pricing-module.ts" || file.classification === "pricingServiceFork") {
@@ -1134,6 +1185,9 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
       noSymlinks(root, file.source);
       const hash = sha256(readFileSync(path.join(root, file.source)));
       if (hash !== file.sourceSha256) throw new Error(`Changed promotion source: ${file.source}`);
+      if (currencyHandlers.has(file.target))
+        verifyStoreCurrencyHandlerSource(readFileSync(path.join(root, file.source), "utf8"),
+          readFileSync(path.join(root, file.target), "utf8"), file.target);
       if (file.classification === nativeBigNumberSourcePair.classification)
         verifyNativeBigNumberTypeSource(readFileSync(path.join(root, file.source), "utf8"),
           readFileSync(path.join(root, file.target), "utf8"), file.target);
@@ -1270,7 +1324,8 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
   const buildFiles = new Set(promotion.buildFiles.map((file) => file.target));
   if (buildFiles.size !== promotion.buildFiles.length) throw new Error("Duplicate build target");
   for (const file of promotion.buildFiles) {
-    const expectedInput = file.target.replace("/dist/", "/src/").replace(/(?:\.d\.ts|\.js)(?:\.map)?$/, ".ts");
+    const expectedInput = file.target.replace("/dist/", "/src/").replace(/(?:\.d\.mts|\.mjs)(?:\.map)?$/, ".mts")
+      .replace(/(?:\.d\.ts|\.js)(?:\.map)?$/, ".ts");
     if (!validPath(file.target) || !file.target.includes("/dist/") || !files.has(file.input) || file.input !== expectedInput) {
       throw new Error(`Unadmitted build target: ${file.target}`);
     }

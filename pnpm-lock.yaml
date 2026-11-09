@@ -246,6 +246,15 @@ importers:
         specifier: ^8.22.0
         version: 8.22.0
     devDependencies:
+      '@flarex/medusa-adapter':
+        specifier: workspace:*
+        version: link:../../packages/medusa-adapter
+      '@flarex/medusa-http':
+        specifier: workspace:*
+        version: link:../../packages/medusa-http
+      '@medusajs/deps':
+        specifier: workspace:*
+        version: link:../../packages/medusa-deps
       '@flarex/application-definition':
         specifier: workspace:*
         version: link:../../packages/application-definition
@@ -1017,6 +1026,9 @@ importers:
         specifier: workspace:*
         version: link:../flarex-protocol
     devDependencies:
+      '@flarex/medusa-http':
+        specifier: workspace:*
+        version: link:../medusa-http
       '@flarex/application-schema-definition':
         specifier: workspace:*
         version: link:../application-schema-definition
@@ -1170,6 +1182,10 @@ importers:
       '@medusajs/utils':
         specifier: workspace:*
         version: link:../medusa-utils
+    devDependencies:
+      vitest:
+        specifier: 'catalog:'
+        version: 5.0.3(@types/node@24.13.2)(vite@8.3.3(@types/node@24.13.2)(esbuild@0.28.1)(tsx@4.22.4)(yaml@2.9.0))
 
   packages/medusa-fulfillment:
     dependencies:
@@ -1197,6 +1213,37 @@ importers:
       '@medusajs/utils':
         specifier: workspace:*
         version: link:../medusa-utils
+
+  packages/medusa-http:
+    dependencies:
+      '@medusajs/framework':
+        specifier: workspace:*
+        version: link:../medusa-framework
+      '@medusajs/utils':
+        specifier: workspace:*
+        version: link:../medusa-utils
+      effect:
+        specifier: 'catalog:'
+        version: 4.0.0-rc.112
+    devDependencies:
+      '@cloudflare/workers-types':
+        specifier: 'catalog:'
+        version: 4.20260613.1
+      '@medusajs/deps':
+        specifier: workspace:*
+        version: link:../medusa-deps
+      miniflare:
+        specifier: 'catalog:'
+        version: 4.20260611.0
+      typescript:
+        specifier: 'catalog:'
+        version: 7.1.0-beta
+      vite:
+        specifier: 'catalog:'
+        version: 8.3.3(@types/node@24.13.2)(esbuild@0.28.1)(tsx@4.22.4)(yaml@2.9.0)
+      vitest:
+        specifier: 'catalog:'
+        version: 5.0.3(@types/node@24.13.2)(vite@8.3.3(@types/node@24.13.2)(esbuild@0.28.1)(tsx@4.22.4)(yaml@2.9.0))
 
   packages/medusa-inventory:
     dependencies:

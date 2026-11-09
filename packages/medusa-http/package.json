@@ -1,0 +1,43 @@
+{
+  "name": "@flarex/medusa-http",
+  "version": "0.0.0",
+  "private": true,
+  "license": "MIT",
+  "exports": {
+    "./effect": {
+      "types": "./dist/effectHost.d.mts",
+      "source": "./src/effectHost.mts",
+      "default": "./dist/effectHost.mjs"
+    },
+    ".": {
+      "types": "./dist/index.d.ts",
+      "source": "./src/index.ts",
+      "default": "./dist/index.js"
+    },
+    "./static-manifest": {
+      "types": "./dist/static-manifest.generated.d.ts",
+      "source": "./src/static-manifest.generated.ts",
+      "default": "./dist/static-manifest.generated.js"
+    }
+  },
+  "dependencies": {
+    "effect": "catalog:",
+    "@medusajs/framework": "workspace:*",
+    "@medusajs/utils": "workspace:*"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "catalog:",
+    "@medusajs/deps": "workspace:*",
+    "miniflare": "catalog:",
+    "typescript": "catalog:",
+    "vite": "catalog:",
+    "vitest": "catalog:"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "generate": "node scripts/generate-static-manifest.mjs",
+    "check:generated": "node scripts/generate-static-manifest.mjs --check",
+    "test": "vitest run --config vitest.config.ts"
+  }
+}

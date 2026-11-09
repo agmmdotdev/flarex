@@ -2,13 +2,22 @@
 import { verifyPriceListDeleteSelection, verifyPriceListDeleteCallbacks, verifyPriceListUpdateCallbacks, verifyNativePriceListRuleBuilder, verifyPriceListCreateCallbacks, verifyPricePreferenceDeleteCallbacks, verifyPricePreferenceUpdateCallbacks, verifyPricePreferenceCreateCallbacks, verifySalesChannelProductLinkCallbacks, verifyTestPort, verifyPricingWorkflowSelection, verifyInventoryLevelDeleteCallbacks, verifyInventoryItemDeleteCallbacks, verifyInventoryLevelBatchCallbacks, verifyInventoryItemCreateCallbacks, verifyStoreDeleteCallbacks, verifyStoreCreateCallbacks, verifyStoreCreationTypes, verifyReservationLineItemDeletionCallbacks, verifyStoreUpdateCallbacks, verifyShippingProfileUpdateCallbacks, verifyShippingProfileCreateCallbacks, verifyShippingOptionRuleBatchCallbacks, verifyLocationFulfillmentSetCallbacks, verifyShippingProfileDeleteCallbacks, verifyShippingOptionTypeCreateCallbacks, verifyShippingOptionTypeUpdateCallbacks, verifyShippingOptionTypeDeleteCallbacks, verifyServiceZoneCreateCallbacks, verifyServiceZoneDeleteCallbacks, verifyFulfillmentSetDeleteCallbacks, verifyServiceZoneUpdateCallbacks, verifyNativeToManyInitialization, verifyNativeRelationScalarFields } from "./check-medusa-test-port.mjs";
 import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { admitsCurrencyImport, verifyCurrencyPromotion, verifyModuleTypeFork, verifyNativeBigNumberTypeSource, nativeBigNumberSourcePair, verifyStoreTypeFork, verifyInventoryReservationRestoreFork, verifyStoreCreationTypeFork, verifyPriceListCreationTypeFork, verifyShippingProfileWorkflowTypeFork, verifyLinkCascadeReturnMapFork } from "./check-medusa-currency-promotion.mjs";
+import { admitsCurrencyImport, verifyCurrencyPromotion, verifyStoreCurrencyHandlerSource, verifyModuleTypeFork, verifyNativeBigNumberTypeSource, nativeBigNumberSourcePair, verifyStoreTypeFork, verifyInventoryReservationRestoreFork, verifyStoreCreationTypeFork, verifyPriceListCreationTypeFork, verifyShippingProfileWorkflowTypeFork, verifyLinkCascadeReturnMapFork } from "./check-medusa-currency-promotion.mjs";
 import { analyzeMedusaSourceIslandBoundary } from "./check-medusa-source-island-boundary.mjs";
 import { verifyInventoryConfirmationPreparationTest } from "./check-medusa-inventory-confirmation-source.mjs";
 
 const root = process.cwd();
 const promotion = verifyCurrencyPromotion(root);
 const source = "packages/medusa-currency/src/models/currency.ts";
+
+describe("native Store Currency route promotion", () => {
+  it.each(["route.ts", "[code]/route.ts"])("rejects behavioral edits to %s", name => {
+    const target = "packages/medusa-http/src/api/store/currencies/" + name;
+    const original = readFileSync("third_party/medusa/upstream/packages/medusa/src/api/store/currencies/" + name, "utf8");
+    const changed = readFileSync(target, "utf8").replace('entryPoint: "currency"', 'entryPoint: "product"');
+    expect(() => verifyStoreCurrencyHandlerSource(original, changed, target)).toThrow("preserve its pinned implementation");
+  });
+});
 
 describe("native BigNumber constructor alias declaration provenance", () => {
   const pair = nativeBigNumberSourcePair;
@@ -1327,7 +1336,10 @@ describe("native Inventory Item creation callback provenance", () => {
 
 describe("exact Currency promotion", () => {
   it("authenticates source, transformed inputs, package exports, and available build outputs", () => {
-    expect(promotion.packages).toHaveLength(32);
+    expect(promotion.packages).toHaveLength(33);
+    expect(promotion.packages.find((pkg) => pkg.path === "packages/medusa-http")).toMatchObject({
+      name: "@flarex/medusa-http", exports: expect.arrayContaining([".", "./effect", "./static-manifest"]),
+    });
     expect(promotion.packages.some((pkg) => pkg.path === "packages/medusa-api-key")).toBe(true);
     expect(promotion.packages.some((pkg) => pkg.path === "packages/medusa-order")).toBe(true);
     expect(promotion.packages.some((pkg) => pkg.path === "packages/medusa-locking")).toBe(true);

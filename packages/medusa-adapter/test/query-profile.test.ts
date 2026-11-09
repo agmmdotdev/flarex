@@ -22,7 +22,7 @@ describe("Schema-decoded Medusa query profiles", () => {
   it("preserves distinct defaults, nullish defaults and zero-sized pages", async () => {
     expect(outcome(decodeCurrencyQuery({ where: null, options: null }))).toEqual({ value: {
       predicate: { kind: "and", children: [] }, fields: currencyColumns,
-      skip: 0, take: 256, order: "asc", withDeleted: false,
+      skip: 0, take: 256, order: "asc", orderColumn: "code", withDeleted: false,
     } });
     const product = await Effect.runPromise(Effect.fromResult(decodeProductQuery(catalog, { where: null, options: null })));
     expect(product.query).toMatchObject({ skip: 0, take: 15, order: { column: "id", direction: "asc" } });
@@ -39,7 +39,7 @@ describe("Schema-decoded Medusa query profiles", () => {
     });
     expect(outcome(result)).toEqual({ value: {
       predicate: { kind: "and", children: [{ kind: "in", column: "code", values: ["usd", "usd"] }] },
-      fields: ["rounding", "raw_rounding"], skip: 0, take: 256, order: "desc", withDeleted: true,
+      fields: ["rounding", "raw_rounding"], skip: 0, take: 256, order: "desc", orderColumn: "code", withDeleted: true,
     } });
     expect(Result.match(result, { onFailure: () => false, onSuccess: value =>
       Object.isFrozen(value) && Object.isFrozen(value.fields) && value.predicate.kind === "and" && Object.isFrozen(value.predicate.children) })).toBe(true);

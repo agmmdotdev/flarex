@@ -17,6 +17,23 @@ work with retained system consumers must be inventoried before removal.
 
 ## Status And Scope
 
+### Private Store HTTP and app registration
+
+The [private HTTP package](../../packages/medusa-http/README.md) serves Store
+Currency list and retrieve through Effect HTTP and a static Medusa manifest.
+The [read adapter](../../packages/medusa-adapter/src/http/store-request-reads.ts)
+binds Currency, publishable keys and Sales Channel Links to the ready Core
+generation. The [private app DO scenario](../../apps/executor/test/storeCurrencyApplicationDO.postgres.test.ts)
+opens an independently provisioned native catalog on ordinary-role PostgreSQL.
+Serving
+these routes on a registered app requires the app owner to authenticate both
+its Application deployment and the selected native sources in one generation.
+The ordinary [Application candidate](../../packages/persistence-postgres/src/core/applicationDeployment.ts)
+refuses native ownership. The [registration regression](../../packages/persistence-postgres/test/core/applicationRegistrationScenarios.ts)
+preserves the existing native table when registration refuses. A mixed activation
+profile must bind its source identities and preserve them across upgrades and
+recovery before ordinary app deployment can enable these routes.
+
 The [early cross-framework proof](../shared-logical-storage/README.md#early-cross-framework-proof)
 is a required shared-storage integration gate: include Medusa-origin references
 as well as Application/Payload references into commerce, with indexed traversal,

@@ -237,6 +237,11 @@
       "types": "./dist/cart/creation.d.ts",
       "source": "./src/cart/creation.ts",
       "default": "./dist/cart/creation.js"
+    },
+    "./http": {
+      "types": "./dist/http/index.d.ts",
+      "source": "./src/http/index.ts",
+      "default": "./dist/http/index.js"
     }
   },
   "license": "MIT",

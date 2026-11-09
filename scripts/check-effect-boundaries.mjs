@@ -104,6 +104,8 @@ const allowedRunPromiseSites = new Map([
   [siteKey("packages/flarex-dev/src/runtimeMaterializer.ts", "LocalMiniflareMaterializedExecutionArtifact.invoke"), 1],
   [siteKey("packages/flarex-protocol/src/auth.ts", "decodeAuthConfigPromise"), 1],
   [siteKey("packages/medusa-adapter/src/modules/currency/service.ts", "promise"), 1],
+  // The native Store graph/remoteQuery container callbacks require Promise reads.
+  [siteKey("packages/medusa-adapter/src/http/store-request-scope.ts", "runStoreRequestReadPromise"), 1],
   [siteKey("packages/persistence-postgres/src/storage/catalog/appSchemaPublication.ts", "runPreparedAppSchemaPublicationTransactionEffect"), 1],
   [siteKey("packages/persistence-postgres/src/storage/catalog/appSchemaCandidateValidation.ts", "startLocatedEffectTransaction"), 1],
   [siteKey("packages/persistence-postgres/src/storage/catalog/appTableDefinitionsArtifacts.ts", "runPreparedAppTableDefinitionsArtifactTransactionEffect"), 1],

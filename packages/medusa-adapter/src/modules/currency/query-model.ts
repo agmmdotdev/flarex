@@ -8,5 +8,6 @@ export interface CurrencyQuery {
   readonly skip: number;
   readonly take: number;
   readonly order: "asc" | "desc";
+  readonly orderColumn: CurrencyColumn;
   readonly withDeleted: boolean;
 }

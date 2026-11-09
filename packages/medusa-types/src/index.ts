@@ -97,6 +97,7 @@ export * as RegionTypes from "./region/index";
 export * from "./region/index";
 export * from "./fulfillment/index";
 export { RemoteQueryFunction } from "./modules-sdk/remote-query";
+export type { RemoteQueryObjectConfig, RemoteQueryObjectFromStringResult } from "./modules-sdk/remote-query-object-from-string";
 
 export type { CartDTO, CartLineItemDTO, LineItemAdjustmentDTO, LineItemTaxLineDTO } from "./cart/common";
 export type { CreateCartCreateLineItemDTO } from "./cart/workflows";

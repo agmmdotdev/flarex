@@ -4,6 +4,10 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./internal/store-request-scope": "./src/http/store-request-scope.ts",
+    "./internal/system-test/store-request-read-catalog": "./test/support/store-request-read-catalog.ts",
+    "./internal/system-test/store-request-read-fixture": "./test/support/store-request-read-fixture.ts",
+    "./internal/store-request-reads": "./src/http/store-request-reads.ts",
     "./internal/currency-schema": "./src/modules/currency/schema.ts",
     "./internal/currency": "./src/modules/currency/service.ts",
     "./internal/product-schema": "./src/modules/product/schema.ts",
@@ -59,6 +63,7 @@
     "@medusajs/promotion": "workspace:*"
   },
   "devDependencies": {
+    "@flarex/medusa-http": "workspace:*",
     "@flarex/application-schema-definition": "workspace:*",
     "@medusajs/framework": "workspace:*",
     "@medusajs/test-utils": "workspace:*",
@@ -71,6 +76,7 @@
     "build": "tsc -p tsconfig.json && tsc -p tsconfig.compatibility.json && tsc -p tsconfig.composite.json && tsc -p ../medusa-product/integration-tests/tsconfig.json && tsc -p ../medusa-sales-channel/integration-tests/tsconfig.json",
     "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.compatibility.json && tsc -p tsconfig.composite.json && tsc -p ../medusa-product/integration-tests/tsconfig.json && tsc -p ../medusa-sales-channel/integration-tests/tsconfig.json",
     "test": "vitest run --config vitest.config.ts",
+    "test:store-request": "vitest run --config vitest.store-request.config.ts",
     "test:live": "vitest run --config vitest.live.config.ts",
     "test:product:upstream": "vitest run --config vitest.product-upstream.config.ts",
     "test:sales-channel": "vitest run --config vitest.sales-channel.config.ts",

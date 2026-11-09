@@ -712,6 +712,36 @@
       "types": "./dist/translations/apply-translations-to-tax-lines.d.ts",
       "source": "./src/translations/apply-translations-to-tax-lines.ts",
       "default": "./dist/translations/apply-translations-to-tax-lines.js"
+    },
+    "./common/normalize-locale": {
+      "types": "./dist/common/normalize-locale.d.ts",
+      "source": "./src/common/normalize-locale.ts",
+      "default": "./dist/common/normalize-locale.js"
+    },
+    "./common/parse-cors-origins": {
+      "types": "./dist/common/parse-cors-origins.d.ts",
+      "source": "./src/common/parse-cors-origins.ts",
+      "default": "./dist/common/parse-cors-origins.js"
+    },
+    "./common/remote-query-object-from-string": {
+      "types": "./dist/common/remote-query-object-from-string.d.ts",
+      "source": "./src/common/remote-query-object-from-string.ts",
+      "default": "./dist/common/remote-query-object-from-string.js"
+    },
+    "./common/build-query": {
+      "types": "./dist/common/build-query.d.ts",
+      "source": "./src/common/build-query.ts",
+      "default": "./dist/common/build-query.js"
+    },
+    "./common/string-to-select-relation-object": {
+      "types": "./dist/common/string-to-select-relation-object.d.ts",
+      "source": "./src/common/string-to-select-relation-object.ts",
+      "default": "./dist/common/string-to-select-relation-object.js"
+    },
+    "./common/remove-undefined-properties": {
+      "types": "./dist/common/remove-undefined-properties.d.ts",
+      "source": "./src/common/remove-undefined-properties.ts",
+      "default": "./dist/common/remove-undefined-properties.js"
     }
   },
   "license": "MIT",

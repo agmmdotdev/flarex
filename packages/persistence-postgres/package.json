@@ -182,7 +182,9 @@
     "./internal/trusted-workflow-task-run-creation": "./src/tasks/trustedWorkflowTaskRunCreation.ts",
     "./internal/trusted-workflow-execution-subject": "./src/tasks/trustedWorkflowExecutionSubject.ts",
     "./internal/commit-event-eligibility": "./src/commit/events/eligibilityApi.ts",
-    "./internal/core-application-legacy-admission": "./src/application/coreApplicationLegacyAdmission.ts"
+    "./internal/core-application-legacy-admission": "./src/application/coreApplicationLegacyAdmission.ts",
+    "./internal/commerce-native": "./src/frameworks/commerceTransaction/commerceNative.ts",
+    "./internal/prepared-host-runtime": "./src/execution/preparation/preparedHostRuntime.ts"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",

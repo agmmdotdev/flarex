@@ -34,6 +34,9 @@
     "@flarex/analysis": "workspace:*"
   },
   "devDependencies": {
+    "@flarex/medusa-adapter": "workspace:*",
+    "@flarex/medusa-http": "workspace:*",
+    "@medusajs/deps": "workspace:*",
     "@flarex/system-test": "workspace:*",
     "@flarex/application-definition": "workspace:*",
     "@flarex/application-invocation": "workspace:*",

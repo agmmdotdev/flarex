@@ -1,0 +1,5 @@
+{
+  "extends": "./tsconfig.json",
+  "include": ["src/http/store-request-reads.ts", "test/store-request-reads.test.ts", "test/query-profile.test.ts", "vitest.store-request.config.ts"],
+  "exclude": []
+}
