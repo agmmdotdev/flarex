@@ -21,9 +21,19 @@ const decodeProduct = Schema.decodeUnknownSync(Schema.Struct({ product: Schema.S
   options: Schema.Array(Schema.Struct({ id: Schema.String, title: Schema.String,
     values: Schema.Array(Schema.Struct({ id: Schema.String, value: Schema.String })) })),
 }) }));
+const decodeVariants = Schema.decodeUnknownSync(Schema.Struct({ product: Schema.Struct({ variants: Schema.Array(Schema.Struct({
+  id: Schema.NonEmptyString, title: Schema.String, sku: Schema.String, manage_inventory: Schema.Boolean,
+  options: Schema.Array(Schema.Struct({ id: Schema.String, value: Schema.String, option_id: Schema.String })),
+})) }) }));
+const decodePriceLink = Schema.decodeUnknownSync(Schema.Struct({ variant_id: Schema.String, price_set_id: Schema.String }));
+const decodeInventoryLink = Schema.decodeUnknownSync(Schema.Struct({ variant_id: Schema.String, inventory_item_id: Schema.String,
+  required_quantity: Schema.Number }));
+const decodeDurableGraphSummary = Schema.decodeUnknownSync(Schema.Struct({ product_id: Schema.String, variant_id: Schema.String,
+  price_set_id: Schema.String, price_id: Schema.String, inventory_item_id: Schema.String, amount: Schema.String,
+  currency: Schema.String, sku: Schema.String, required_quantity: Schema.Number, publication_timestamp: Schema.String }));
 
 describe.runIf(endpoints !== undefined)("native-ready private Admin Product in the real application DO", () => {
-  it("rejects unauthorized/invalid requests without Product writes and independently reads the committed native workflow result after close", async () => {
+  it("rejects invalid requests and persists products, a managed variant, its price, inventory item and links after DO shutdown", async () => {
     if (endpoints === undefined) throw new Error("Admin Product app DO requires ordinary PostgreSQL");
     const physical = await createCorePostgresFixture(endpoints);
     let seed: Awaited<ReturnType<typeof prepareProductRequestFixture>> | undefined;
@@ -116,6 +126,76 @@ describe.runIf(endpoints !== undefined)("native-ready private Admin Product in t
       expect(persisted.options[0]).toMatchObject({ id: product.options[0]?.id, product_id: product.id, title: "Size" });
       expect(persisted.optionValues).toHaveLength(1);
       expect(persisted.optionValues[0]).toMatchObject({ id: product.options[0]?.values[0]?.id, value: "One", option_id: persisted.options[0]?.id });
+
+      start();
+      const managedInput = { title: "Real DO Managed Product", handle: "real-do-managed-product",
+        options: [{ title: "Size", values: ["One"] }], variants: [{ title: "Managed One", sku: "NATIVE-DO-MANAGED-ONE",
+          manage_inventory: true, options: { Size: "One" }, prices: [{ currency_code: "usd", amount: 2500 }] }] };
+      const managedResponse = await request(managedInput, { private: true, admin: adminCredential,
+        path: `${path},variants.id,variants.title,variants.sku,variants.manage_inventory,variants.options.id,variants.options.value,variants.options.option_id` });
+      expect(managedResponse.status, await managedResponse.clone().text()).toBe(200);
+      const managedBody: unknown = await managedResponse.json();
+      const managedProduct = decodeProduct(managedBody).product;
+      const variants = decodeVariants(managedBody).product.variants;
+      expect(managedProduct).toMatchObject({ title: managedInput.title, handle: managedInput.handle });
+      expect(managedProduct.id).toMatch(/^prod_/);
+      expect(managedProduct.options).toHaveLength(1);
+      const managedOption = managedProduct.options[0];
+      if (managedOption === undefined) throw new Error("Native HTTP response omitted its managed Product option");
+      expect(managedOption.values).toHaveLength(1);
+      const managedOptionValue = managedOption.values[0];
+      if (managedOptionValue === undefined) throw new Error("Native HTTP response omitted its managed Product option value");
+      expect(variants).toHaveLength(1);
+      const variant = variants[0];
+      if (variant === undefined) throw new Error("Native HTTP response omitted its created variant");
+      expect(variant).toMatchObject({ title: "Managed One", sku: "NATIVE-DO-MANAGED-ONE", manage_inventory: true,
+        options: [{ id: managedOptionValue.id, value: "One", option_id: managedOption.id }] });
+      await stop();
+
+      const managed = await observeProductRequestFixture({ physical, catalog: seed.catalog });
+      expect(managed.products).toHaveLength(2);
+      expect(managed.products.find(row => row.id === managedProduct.id)).toMatchObject({ title: managedInput.title, handle: managedInput.handle });
+      expect(managed.options).toHaveLength(2);
+      expect(managed.options.find(row => row.id === managedOption.id)).toMatchObject({ product_id: managedProduct.id, title: "Size" });
+      expect(managed.optionValues).toHaveLength(2);
+      expect(managed.optionValues.find(row => row.id === managedOptionValue.id)).toMatchObject({ option_id: managedOption.id, value: "One" });
+      expect(managed.variants).toHaveLength(1);
+      expect(managed.variants[0]).toMatchObject({ id: variant.id, product_id: managedProduct.id,
+        sku: "NATIVE-DO-MANAGED-ONE", manage_inventory: true });
+      expect(managed.variantOptions).toEqual([expect.objectContaining({ variant_id: variant.id,
+        option_value_id: managedOptionValue.id })]);
+
+      expect(managed.variantPriceSets).toHaveLength(1);
+      const priceLink = decodePriceLink(managed.variantPriceSets[0]);
+      expect(priceLink.variant_id).toBe(variant.id);
+      expect(managed.priceSets).toEqual([expect.objectContaining({ id: priceLink.price_set_id })]);
+      // Native BigNumber uses twenty significant digits for the persisted
+      // decimal and its authenticated raw companion; do not coerce to Number.
+      expect(managed.prices).toEqual([expect.objectContaining({ price_set_id: priceLink.price_set_id,
+        currency_code: "usd", amount: "2500.0000000000000000",
+        raw_amount: { value: "2500.0000000000000000", precision: 20 } })]);
+
+      expect(managed.variantInventoryItems).toHaveLength(1);
+      const inventoryLink = decodeInventoryLink(managed.variantInventoryItems[0]);
+      expect(inventoryLink).toMatchObject({ variant_id: variant.id, required_quantity: 1 });
+      expect(managed.inventoryItems).toEqual([expect.objectContaining({ id: inventoryLink.inventory_item_id, sku: "NATIVE-DO-MANAGED-ONE" })]);
+      const publications = managed.outcomes.filter(outcome => outcome.timestamp > persisted.publishedTimestamp
+        && outcome.value.kind === "nativeRoot" && outcome.value.state === "committed");
+      expect(publications).toHaveLength(1);
+      const publication = publications[0];
+      if (publication === undefined) throw new Error("Created variant has no durable native root outcome");
+      const changedRows = managed.businessRows.filter(row => row.timestamp > persisted.publishedTimestamp);
+      const tables = seed.catalog.productRuntime.metadata;
+      expect(changedRows.map(row => row.table).sort()).toEqual([tables.product.table.name, tables.option.table.name,
+        tables.value.table.name, tables.variant.table.name, tables.pivot.table.name, "price_set", "price", "inventory_item",
+        "product_variant_price_set", "product_variant_inventory_item"].sort());
+      expect(changedRows.every(row => row.timestamp === publication.timestamp)).toBe(true);
+      const summary = decodeDurableGraphSummary({ product_id: managed.products.find(row => row.id === managedProduct.id)?.id,
+        variant_id: managed.variants[0]?.id, price_set_id: priceLink.price_set_id, price_id: managed.prices[0]?.id,
+        inventory_item_id: inventoryLink.inventory_item_id, amount: managed.prices[0]?.amount, currency: managed.prices[0]?.currency_code,
+        sku: managed.inventoryItems[0]?.sku, required_quantity: inventoryLink.required_quantity,
+        publication_timestamp: publication.timestamp.toString() });
+      console.info("Native Product durable graph", JSON.stringify(summary));
     } catch (cause) { primary.push(cause); throw cause; }
     finally {
       const failures: unknown[] = [];

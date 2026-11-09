@@ -8381,7 +8381,7 @@
     {
       "target": "packages/medusa-adapter/test/support/product-request-fixture.ts",
       "classification": "authored",
-      "targetSha256": "9f1063fd90b05f16e5097c0e6546d0eeafa797427743207301b48cacf4e32395"
+      "targetSha256": "f661fcd9517c19288978ce97a5f91cfc5c0b5b69c18e79dd548214c44f6991c0"
     },
     {
       "target": "packages/medusa-adapter/test/support/product-scale-checks.ts",

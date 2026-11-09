@@ -40,12 +40,40 @@ export async function observeProductRequestFixture(input: Readonly<{ physical: C
     now: Clock.currentTimeMillis.pipe(Effect.map(value => BigInt(Math.floor(value)) * 1_000_000n)),
     randomBytes: length => Effect.sync(() => crypto.getRandomValues(new Uint8Array(length))), maxConcurrentSaves: 2,
   }), database => Effect.gen(function* () {
-    const inventory = yield* readCoreNativeFixtureInventory(database, persistence);
-    const rows = (name: string) => Effect.gen(function* () {
-      const table = input.catalog.productSource.definition.tables.find(table => table.localName === name || table.name === name);
-      return table === undefined ? [] : yield* Effect.forEach(inventory.rows.filter(row => row.table === table.name), row => Effect.fromResult(coreNativeRelationalRow(row.value)));
+    const publishedTimestamp = yield* database.publishedTimestamp;
+    const inventory = yield* readCoreNativeFixtureInventory(database, persistence, publishedTimestamp);
+    const trackedTables = new Map<string, string>();
+    const select = (sourceName: string, localName: string) => Effect.gen(function* () {
+      const sources = input.catalog.sources.filter(source => source.name === sourceName);
+      const source = sources[0];
+      if (sources.length !== 1 || source === undefined)
+        return yield* Effect.die(new Error(`Expected exactly one Product observer source: ${sourceName}`));
+      const tables = source.definition.tables.filter(table => table.localName === localName || table.name === localName);
+      const table = tables[0];
+      if (tables.length !== 1 || table === undefined)
+        return yield* Effect.die(new Error(`Expected exactly one Product observer table: ${sourceName}/${localName}`));
+      trackedTables.set(table.name, localName);
+      return yield* Effect.forEach(inventory.rows.filter(row => row.table === table.name), entry => Effect.fromResult(coreNativeRelationalRow(entry.value)));
     });
-    return { ...inventory, products: yield* rows("product"), options: yield* rows("product_option"), optionValues: yield* rows("product_option_value"),
-      variants: yield* rows("product_variant") };
+    const product = input.catalog.productRuntime.metadata;
+    const products = yield* select("product", product.product.table.name);
+    const options = yield* select("product", product.option.table.name);
+    const optionValues = yield* select("product", product.value.table.name);
+    const variants = yield* select("product", product.variant.table.name);
+    const variantOptions = yield* select("product", product.pivot.table.name);
+    const priceSets = yield* select("pricing", "price_set");
+    const prices = yield* select("pricing", "price");
+    const inventoryItems = yield* select("inventory", "inventory_item");
+    const variantPriceSets = yield* select("variant_links", "product_variant_price_set");
+    const variantInventoryItems = yield* select("variant_links", "product_variant_inventory_item");
+    // Every timestamp is the actual current document-version timestamp from
+    // this one fixed Core snapshot, suitable for comparison with its durable
+    // nativeRoot outcome. No commit or relationship logic is reconstructed.
+    const businessRows = inventory.rows.flatMap(entry => {
+      const table = trackedTables.get(entry.table);
+      return table === undefined ? [] : [{ table, timestamp: entry.timestamp }];
+    });
+    return { ...inventory, publishedTimestamp, businessRows, products, options, optionValues, variants, variantOptions,
+      priceSets, prices, inventoryItems, variantPriceSets, variantInventoryItems };
   }), database => database.close())));
 }
