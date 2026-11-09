@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { Effect, Option, Result } from "effect";
+import { Cause, Effect, Exit, Option, Result } from "effect";
 import { BTreeEx as BTree } from "sorted-btree/extended/index.js";
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { encodeDocumentId } from "flarex-protocol/document-id";
 import type { CoreTableDefinition } from "../../src/core/api";
-import type { CoreHydratedIndexEntry, CorePersistenceIndexEntry, CorePersistenceSnapshot, CoreWriteBatch } from "../../src/core/contracts";
+import { CorePersistenceError, type CoreHydratedIndexEntry, type CoreIndexScan, type CorePersistenceIndexEntry, type CorePersistenceSnapshot, type CoreWriteBatch } from "../../src/core/contracts";
 import { CoreIndexRegistry } from "../../src/core/indexRegistry";
 import type { CoreNativeRangeSlot } from "../../src/core/nativeObservations";
 import { prepareCoreNativeIndexes, validateCoreNativeIndexes, type CorePreparedNativeIndex } from "../../src/core/nativeValidation";
@@ -89,5 +89,49 @@ describe("native complete ordinary-index validation", () => {
       if (overflow) expect(Result.isFailure(result) && result.failure).toMatchObject({ reason: "capacity" });
       else expect(Result.getOrThrow(result)[0]?.entries.size).toBe(1);
     }
+  });
+
+  describe("batched first pages", () => {
+    const other: CoreNativeRangeSlot = { ...range(), interval: { start: key(40), end: key(50) } };
+    const stale: CoreNativeRangeSlot = { ...range(), index: { ...index, ref: { id: internalId(9) } } };
+    const counting = (preload: CorePersistenceSnapshot["preload"]) => {
+      const scans: CoreIndexScan[] = [];
+      const snapshot: CorePersistenceSnapshot = { timestamp: 1n, get: () => Effect.succeed(Option.none()), preload,
+        scan: request => { scans.push(request); return Effect.succeed({ entries: [], cursor: { kind: "end" } }); } };
+      return { scans, snapshot };
+    };
+
+    it("preloads exactly the current first-page scans and leaves a stale index to the ordered loop", async () => {
+      const preloaded: (readonly CoreIndexScan[])[] = [];
+      const { scans, snapshot } = counting(requests => Effect.sync(() => { preloaded.push(requests); }));
+      const result = await Effect.runPromise(Effect.result(prepareCoreNativeIndexes(snapshot, registry, [range(), other, stale], 256)));
+      expect(Result.isFailure(result) && result.failure).toMatchObject({ reason: "conflict", cause: "Native index generation changed" });
+      expect(preloaded).toHaveLength(1);
+      expect(preloaded[0]).toEqual(scans);
+      expect(scans.map(scan => scan.interval)).toEqual([range().interval, other.interval]);
+    });
+
+    it("does not batch one observation or more than the statement bound", async () => {
+      let preloads = 0;
+      const { scans, snapshot } = counting(() => Effect.sync(() => { preloads++; }));
+      await Effect.runPromise(prepareCoreNativeIndexes(snapshot, registry, [range()], 256));
+      await Effect.runPromise(prepareCoreNativeIndexes(snapshot, registry, Array.from({ length: 1025 }, () => range()), 256));
+      expect(preloads).toBe(0);
+      expect(scans).toHaveLength(1026);
+    });
+
+    it("lets every scan report its own outcome after a typed batch failure", async () => {
+      const { scans, snapshot } = counting(() => Effect.fail(new CorePersistenceError({ reason: "corruptData" })));
+      expect(await Effect.runPromise(prepareCoreNativeIndexes(snapshot, registry, [range(), other], 256))).toHaveLength(2);
+      expect(scans).toHaveLength(2);
+    });
+
+    it("propagates a defect or interruption from the batch", async () => {
+      const defect = new Error("preload defect");
+      const { scans, snapshot } = counting(() => Effect.die(defect));
+      const exit = await Effect.runPromiseExit(prepareCoreNativeIndexes(snapshot, registry, [range(), other], 256));
+      expect(Exit.isFailure(exit) && exit.cause.reasons.some(reason => Cause.isDieReason(reason) && reason.defect === defect)).toBe(true);
+      expect(scans).toHaveLength(0);
+    });
   });
 });

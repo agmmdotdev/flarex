@@ -4,6 +4,7 @@ import { CoreTransactionError, type CoreError } from "./api";
 import { CorePersistenceError, type CorePersistenceSnapshot, type CoreWriteBatch } from "./contracts";
 import type { CoreNativeIndexObservation } from "./nativeObservations";
 import { publicDocumentId, type CoreRegistry } from "./registry";
+import { advisoryPreload } from "./indexSnapshot";
 import { isCoreIndexEnabled } from "./indexState";
 import { keyInInterval } from "./writeLog";
 
@@ -13,6 +14,19 @@ export interface CorePreparedNativeIndex {
   readonly entries: ReadonlyMap<string, string>;
 }
 
+/** One statement and its retained first pages stay bounded; larger passes scan in turn. */
+const maxPreloadedObservations = 1024;
+const nativeIndexIsCurrent = (registry: CoreRegistry, { table, index }: CoreNativeIndexObservation): boolean => {
+  const currentTable = registry.tableByTablet(table.tabletId)?.definition;
+  const currentIndex = registry.indexes.records.get(encodeBytesToLowercaseHex(index.ref.id));
+  return currentTable !== undefined && currentTable.number === table.number && currentTable.state === "active"
+    && currentIndex !== undefined && isCoreIndexEnabled(currentIndex)
+    && bytesEqual(currentIndex.tableId, table.tabletId)
+    && currentIndex.ref.persistenceIndexId === index.ref.persistenceIndexId
+    && currentIndex.fields.length === index.fields.length
+    && currentIndex.fields.every((field, position) => field === index.fields[position]);
+};
+
 export const prepareCoreNativeIndexes = Effect.fn("CoreNativeValidation.prepare")(function* (
   snapshot: CorePersistenceSnapshot,
   registry: CoreRegistry,
@@ -20,17 +34,16 @@ export const prepareCoreNativeIndexes = Effect.fn("CoreNativeValidation.prepare"
   maxIdentities: number,
 ) {
   const prepared: CorePreparedNativeIndex[] = [];
+  const captureLimitOf = (observation: CoreNativeIndexObservation) => Math.min(maxIdentities, observation.maxIdentities ?? maxIdentities);
+  // First pages share one statement at this snapshot. The ordered loop still owns
+  // every check and refusal, so a stale index is left for it to report in turn.
+  if (observations.length > 1 && observations.length <= maxPreloadedObservations) yield* advisoryPreload(snapshot.preload(observations.filter(observation => nativeIndexIsCurrent(registry, observation))
+    .map(observation => ({ tableId: observation.table.tabletId, index: observation.index.ref, interval: observation.interval, order: "asc" as const,
+      maxResults: Math.min(128, captureLimitOf(observation) + 1) }))));
   for (const observation of observations) {
     const { table, index } = observation;
-    const captureLimit = Math.min(maxIdentities, observation.maxIdentities ?? maxIdentities);
-    const currentTable = registry.tableByTablet(table.tabletId)?.definition;
-    const currentIndex = registry.indexes.records.get(encodeBytesToLowercaseHex(index.ref.id));
-    if (currentTable === undefined || currentTable.number !== table.number || currentTable.state !== "active"
-      || currentIndex === undefined || !isCoreIndexEnabled(currentIndex)
-      || !bytesEqual(currentIndex.tableId, table.tabletId)
-      || currentIndex.ref.persistenceIndexId !== index.ref.persistenceIndexId
-      || currentIndex.fields.length !== index.fields.length
-      || currentIndex.fields.some((field, position) => field !== index.fields[position]))
+    const captureLimit = captureLimitOf(observation);
+    if (!nativeIndexIsCurrent(registry, observation))
       return yield* new CoreTransactionError({ reason: "conflict", cause: "Native index generation changed" });
     const entries = new Map<string, string>();
     let interval = observation.interval;

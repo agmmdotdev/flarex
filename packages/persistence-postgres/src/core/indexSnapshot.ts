@@ -64,6 +64,15 @@ function minimumEnd(a: Uint8Array | null, b: Uint8Array | null): Uint8Array | nu
   return a === null ? b : b === null ? a : compareBytesLexicographically(a, b) <= 0 ? a : b;
 }
 
+/** A preload only moves first pages into one statement. A typed failure drops the
+ * batch and leaves each ordinary scan to report its own outcome, in its own order. */
+export const advisoryPreload = Effect.fnUntraced(function* <E, R>(preload: Effect.Effect<void, E, R>): Effect.fn.Return<void, never, R> {
+  const preloaded = yield* Effect.exit(preload);
+  const propagated = Exit.isFailure(preloaded) ? preloaded.cause.reasons.filter((reason): reason is Cause.Die | Cause.Interrupt =>
+    Cause.isDieReason(reason) || Cause.isInterruptReason(reason)) : [];
+  if (propagated.length > 0) return yield* Effect.failCause(Cause.fromReasons<never>(propagated));
+});
+
 /** One operation's coverage. This never records user dependencies or charges user reads. */
 export function createCoreIndexSnapshot(input: Readonly<{
   snapshot: CorePersistenceSnapshot;
@@ -212,10 +221,7 @@ export function createCoreIndexSnapshot(input: Readonly<{
     });
     if (misses.length > 1) {
       const preload = input.snapshot.preload(misses);
-      const preloaded = yield* Effect.exit(options.withPermit === undefined ? preload : options.withPermit(preload));
-      const propagated = Exit.isFailure(preloaded) ? preloaded.cause.reasons.filter((reason): reason is Cause.Die | Cause.Interrupt =>
-        Cause.isDieReason(reason) || Cause.isInterruptReason(reason)) : [];
-      if (propagated.length > 0) return yield* Effect.failCause(Cause.fromReasons<never>(propagated));
+      yield* advisoryPreload(options.withPermit === undefined ? preload : options.withPermit(preload));
     }
     const fetched = yield* Effect.forEach(requests, (request, position) =>
       Effect.exit(fetch(request, options.withPermit, residents[position])),
