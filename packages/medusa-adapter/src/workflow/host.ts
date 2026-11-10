@@ -396,7 +396,7 @@ const prepareBoundWorkflowHost = Effect.fn("Workflow.prepareBoundHost")(function
 
 export const prepareAtomicWorkflowHost = Effect.fn("Workflow.prepareAtomicHost")(function* <Resources, Input extends Json, Output extends Json, EncodedInput extends Json>(input: WorkflowHostInput<Resources, Input, Output, EncodedInput, AtomicCommerceHost>) {
   const { host, prepared } = yield* prepareBoundWorkflowHost(input);
-  return Object.freeze({ newRequestKey: host.newRequestKey, close: host.close,
+  return Object.freeze({ newRequestKey: host.newRequestKey, close: host.close, decodeInput: prepared.decodeInput,
     run: Effect.fn("Workflow.run")((key: string, value: EncodedInput) => Effect.fromResult(captureCommerceInput(value)).pipe(
       Effect.flatMap(args => host.run(key, prepared.command, args)),
       Effect.flatMap(result => Effect.fromResult(prepared.decodeStoredOutput(result))),

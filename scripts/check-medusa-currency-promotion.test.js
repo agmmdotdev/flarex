@@ -43,15 +43,32 @@ describe("native Admin Product route promotion", () => {
     expect(() => verifyAdminProductPostSource(native, promoted.replace(original, change)))
       .toThrow("Changed native Admin Product POST behavior");
   });
-  it("preserves the native detail handler and its missing-product refusal", () => {
+  it("preserves both native detail handlers and leaves DELETE unselected", () => {
     const path = "src/api/admin/products/[id]/route.ts";
     const native = readFileSync("third_party/medusa/upstream/packages/medusa/" + path, "utf8");
     const promoted = readFileSync("packages/medusa-http/" + path, "utf8");
     expect(() => verifyAdminProductDetailSource(native, promoted)).not.toThrow();
     expect(() => verifyAdminProductDetailSource(native, promoted.replace("MedusaError.Types.NOT_FOUND", "MedusaError.Types.INVALID_DATA")))
-      .toThrow("Changed native Admin Product GET behavior");
-    expect(() => verifyAdminProductDetailSource(native, promoted + "\nexport const POST = GET"))
-      .toThrow("Changed native Admin Product GET behavior");
+      .toThrow("Changed native Admin Product detail GET/POST behavior");
+    expect(() => verifyAdminProductDetailSource(native, promoted + "\nexport const DELETE = POST"))
+      .toThrow("Changed native Admin Product detail GET/POST behavior");
+  });
+  it.each([
+    ['"update-products"', '"delete-products"'],
+    ['fields: ["id"]', 'fields: ["title"]'],
+    ['selector: { id: req.params.id }', 'selector: { title: req.params.id }'],
+    ['result[0].id', 'req.params.id'],
+    ['      additional_data,', '      additional_data: {},'],
+    ['if (!existingProduct)', 'if (false)'],
+    ['if (!product) throw new Error("Updated Product was not returned by native refetch")', ''],
+    ['`Product with id "${req.params.id}" not found`', '"Product not found"'],
+  ])("rejects changing native detail update %s", (original, change) => {
+    const path = "src/api/admin/products/[id]/route.ts";
+    const native = readFileSync("third_party/medusa/upstream/packages/medusa/" + path, "utf8");
+    const promoted = readFileSync("packages/medusa-http/" + path, "utf8");
+    expect(promoted).toContain(original);
+    expect(() => verifyAdminProductDetailSource(native, promoted.replace(original, change)))
+      .toThrow("Changed native Admin Product detail GET/POST behavior");
   });
 });
 

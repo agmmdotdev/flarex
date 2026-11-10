@@ -191,7 +191,10 @@ export function prepareLocalGraph(participants: readonly GraphParticipant[]): Re
       }
       catalog.set(alias, { ...entry, read: Object.freeze({ ...entry.read, paths: Object.freeze(expanded) }) });
     }
-    return Object.freeze({ entities: Object.freeze([...entries.keys()]), bind: (context): LocalGraphQuery => {
+    return Object.freeze({ entities: Object.freeze([...entries.keys()]),
+      admitProjection: (entity: string, fields: readonly string[]) =>
+        planQuery({ entity, fields, pagination: { take: 1 } }, entries, false, false).pipe(Result.map(() => undefined)),
+      bind: (context): LocalGraphQuery => {
       // Only newly originated planner/result failures enter refusal here. A
       // participant call already owns its full failure Cause and must propagate.
       const execute = Effect.fn("LocalGraph.query")(function* (input: unknown, service: boolean, native: boolean, options?: unknown) {

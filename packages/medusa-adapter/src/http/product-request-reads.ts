@@ -109,5 +109,6 @@ export const makeProductRequestReads = Effect.fn("ProductRequest.makeReads")(fun
       ? commerceError("adapterFailure", new MedusaError(MedusaError.Types.INVALID_DATA,
         "Product query is outside the private supported profile", undefined, undefined, { cause: error }))
       : error)))));
-  return Object.freeze({ graph, close: Effect.forEach(closures, close => close, { discard: true }) });
+  return Object.freeze({ graph, admitProductRefetchFields: (fields: readonly string[]) => prepared.graph.admitProjection("product", fields),
+    close: Effect.forEach(closures, close => close, { discard: true }) });
 });

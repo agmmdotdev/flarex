@@ -50,6 +50,8 @@ const NativeOwner = makeApplicationDurableObject<NativeProductEnv, NativeFixture
           app_metadata: {}, user_metadata: {} };
       },
       evaluateAdminPolicies: (principal, policies) => principal.actor_id === "user_native_product"
+        // Pinned native middleware applies this Product read policy to every
+        // /admin/products/* route, including the detail POST update route.
         && ((policies.length === 1 && policies[0]?.resource === "product" && policies[0]?.operation === "read")
           || (policies.length === 3 && policies.every((policy, index) => policy.resource === ["product", "inventory_item", "price"][index]
             && policy.operation === "create"))),

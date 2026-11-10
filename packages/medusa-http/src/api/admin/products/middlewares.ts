@@ -1,7 +1,7 @@
 import { maybeApplyLinkFilter, validateAndTransformBody, validateAndTransformQuery, type MiddlewareRoute } from "@medusajs/framework/http"
 import { FeatureFlag } from "@medusajs/utils/feature-flags/flag-router"
 import * as QueryConfig from "./query-config"
-import { AdminCreateProduct, AdminGetProductParams, AdminGetProductsParams } from "./validators"
+import { AdminCreateProduct, AdminGetProductParams, AdminGetProductsParams, AdminUpdateProduct } from "./validators"
 import { maybeApplyPriceListsFilter } from "./utils/maybe-apply-price-lists-filter"
 
 export const adminProductRoutesMiddlewares: MiddlewareRoute[] = [{
@@ -36,5 +36,12 @@ export const adminProductRoutesMiddlewares: MiddlewareRoute[] = [{
     { resource: "product", operation: "create" },
     { resource: "inventory_item", operation: "create" },
     { resource: "price", operation: "create" },
+  ],
+}, {
+  method: ["POST"],
+  matcher: "/admin/products/:id",
+  middlewares: [
+    validateAndTransformBody(AdminUpdateProduct),
+    validateAndTransformQuery(AdminGetProductParams, QueryConfig.retrieveProductQueryConfig),
   ],
 }]

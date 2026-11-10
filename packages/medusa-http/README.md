@@ -23,8 +23,8 @@ to verify the checked-in static imports against the framework renderer.
 ## Private Admin Products
 
 `@flarex/medusa-http/admin-product` exports `createAdminProductHttpHandler` for
-the selected pinned `POST /admin/products`, `GET /admin/products`, and
-`GET /admin/products/:id` handlers. The matching scoped Effect
+the selected pinned `POST /admin/products`, `GET /admin/products`,
+`GET /admin/products/:id`, and `POST /admin/products/:id` handlers. The matching scoped Effect
 namespace host is `@flarex/medusa-http/admin-product-effect`. The native manifest
 renderer builds the separate Admin Product manifest.
 
@@ -34,16 +34,25 @@ Product, Inventory Item and Price. An executor credential or an unverified token
 payload grants no admin access. This profile does not provide general RBAC or
 every native authentication method.
 
-The actual read owner supplies `admitProductRefetchFields`, which rejects
-unsupported projections before creation. Requests must explicitly select fields
-admitted by that owner, for example `?fields=id,title,handle,status`. The broader
-native default graph fails before the workflow runs. Native body validation and
-the existing Product workflow retain their own input rules and bounded support;
-title-only creation does not satisfy the native option rule.
+The actual graph owner supplies `admitProductRefetchFields`, which validates
+the complete response projection without reading storage before creation or
+update. Both operations accept native default fields, including variant prices,
+or an explicit supported selection. Native body validation and the existing
+Product workflows retain their own input rules and bounded support; title-only
+creation does not satisfy the native option rule.
 
 The handler awaits the native `create-products` workflow, then independently
 refetches through native `query.graph`. A later refetch failure cannot undo the
 already committed workflow. This layer does not retry creation.
+
+The detail POST retains the pinned existence check, `update-products` selector
+and update input, and subsequent independent graph refetch. It inherits the
+native `/admin/products/*` Product read policy; this promotion does not introduce
+a different authorization rule. The existing bounded update workflow owns
+Product reconciliation, variant pricing and supported relationship changes.
+Inventory links remain intact when an existing variant's price is changed.
+Unsupported update inputs refuse before mutation, and a later response-refetch
+failure cannot undo an already committed update. This layer does not retry it.
 
 Both reads require a verified native user and the native Product read policy.
 The detail route returns the native `Product not found` response when the graph

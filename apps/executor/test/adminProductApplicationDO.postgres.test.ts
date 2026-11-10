@@ -44,6 +44,8 @@ const readProduct = Schema.Struct({ id: Schema.NonEmptyString, title: Schema.Str
       variant_id: Schema.NonEmptyString, inventory_item_id: Schema.NonEmptyString, required_quantity: Schema.Number,
       inventory: Schema.Struct({ id: Schema.NonEmptyString, sku: Schema.String }) })) })) });
 const decodeReadProduct = Schema.decodeUnknownSync(Schema.Struct({ product: readProduct }));
+const decodeDefaultPrices = Schema.decodeUnknownSync(Schema.Struct({ product: Schema.Struct({ variants: Schema.Array(
+  Schema.Struct({ id: Schema.NonEmptyString, prices: Schema.Array(readPrice) })) }) }));
 const decodeReadProducts = Schema.decodeUnknownSync(Schema.Struct({ products: Schema.Array(readProduct),
   count: Schema.Number, offset: Schema.Number, limit: Schema.Number }));
 const readFields = "id,title,handle,status,variants.id,variants.sku,variants.manage_inventory,*variants.prices,*variants.inventory_items,*variants.inventory_items.inventory";
@@ -155,7 +157,6 @@ describe.runIf(endpoints !== undefined)("native-ready private Admin Product in t
       expect((await request(productInput, { private: true, admin: "invalid-admin" })).status).toBe(401);
       expect((await request(productInput, { private: true, admin: `${adminCredential}-without-policy` })).status).toBe(403);
       expect((await request({ title: 42 })).status).toBe(400);
-      expect((await request(productInput, { private: true, admin: adminCredential, path: "/admin/products" })).status).toBe(400);
       expect((await request(productInput, { private: true, admin: adminCredential, path: "/admin/products?fields=unsupported_field" })).status).toBe(400);
       const unsupported = await request({ ...productInput, variants: Array.from({ length: 5 }, (_, index) => ({
         title: `Variant ${index}`, options: { Size: "One" }, prices: [],
@@ -329,8 +330,7 @@ describe.runIf(endpoints !== undefined)("native-ready private Admin Product in t
       expect(defaultDetail.status, await defaultDetail.clone().text()).toBe(200);
       const defaultBody: unknown = await defaultDetail.json();
       expect(decodeProduct(defaultBody).product).toMatchObject({ id: first.id, title: first.title, handle: first.handle });
-      const defaultPrices = Schema.decodeUnknownSync(Schema.Struct({ product: Schema.Struct({ variants: Schema.Array(
-        Schema.Struct({ id: Schema.String, prices: Schema.Array(readPrice) })) }) }))(defaultBody);
+      const defaultPrices = decodeDefaultPrices(defaultBody);
       expect(defaultPrices.product.variants).toEqual([expect.objectContaining({ id: first.variantId,
         prices: [expect.objectContaining({ amount: first.amount, currency_code: "usd", variant_id: first.variantId })] })]);
       const defaultList = await fixture.get("/admin/products");
@@ -392,6 +392,159 @@ describe.runIf(endpoints !== undefined)("native-ready private Admin Product in t
     finally {
       try { await fixture.close(); }
       catch (cause) { throw new AggregateError([...primary, cause], "Admin Product read proof cleanup failed"); }
+    }
+  }, 240_000);
+
+  it("updates a native Product and its existing variant price with default responses, preserving both durable graphs after DO recreation", async () => {
+    const fixture = await createAdminProductDOFixture();
+    const primary: unknown[] = [];
+    try {
+      fixture.start();
+      const firstIncarnation = await fixture.probeIncarnation();
+      const inputs = [
+        { title: "Alpha Native Update Product", handle: "alpha-native-update-product", sku: "NATIVE-UPDATE-ALPHA", amount: 1357 },
+        { title: "Beta Native Update Product", handle: "beta-native-update-product", sku: "NATIVE-UPDATE-BETA", amount: 8642 },
+      ];
+      const created = [];
+      for (const input of inputs) {
+        const response = await fixture.request({ title: input.title, handle: input.handle,
+          options: [{ title: "Size", values: ["One"] }], variants: [{ title: `${input.title} One`, sku: input.sku,
+            manage_inventory: true, options: { Size: "One" }, prices: [{ currency_code: "usd", amount: input.amount }] }] },
+        { private: true, admin: adminCredential, path: "/admin/products" });
+        expect(response.status, await response.clone().text()).toBe(200);
+        const body: unknown = await response.json();
+        const product = decodeProduct(body).product;
+        const variants = decodeVariants(body).product.variants;
+        const pricedVariants = decodeDefaultPrices(body).product.variants;
+        expect(product).toMatchObject({ title: input.title, handle: input.handle, status: "draft" });
+        expect(variants).toHaveLength(1);
+        expect(pricedVariants).toHaveLength(1);
+        const variant = variants[0], pricedVariant = pricedVariants[0];
+        if (variant === undefined || pricedVariant === undefined) throw new Error("Default create response omitted its native variant");
+        expect(pricedVariant.prices).toHaveLength(1);
+        const price = pricedVariant.prices[0];
+        if (price === undefined) throw new Error("Default create response omitted its native price");
+        expect(price).toMatchObject({ amount: input.amount, currency_code: "usd", variant_id: variant.id });
+        expect(variant).toMatchObject({ sku: input.sku, manage_inventory: true });
+        created.push({ ...input, id: product.id, variantId: variant.id, priceId: price.id, priceSetId: price.price_set_id });
+      }
+      const first = created[0], second = created[1];
+      if (first === undefined || second === undefined) throw new Error("Expected two native Product update fixtures");
+      await fixture.stop();
+      const before = await fixture.observe();
+      for (const key of ["products", "options", "optionValues", "variants", "variantOptions", "priceSets", "prices",
+        "inventoryItems", "variantPriceSets", "variantInventoryItems"] as const) expect(before[key]).toHaveLength(2);
+      for (const expected of created) {
+        expect(before.products.find(row => row.id === expected.id)).toMatchObject({ title: expected.title, status: "draft" });
+        expect(before.variantPriceSets.find(row => row.variant_id === expected.variantId)).toMatchObject({ price_set_id: expected.priceSetId });
+        expect(before.prices.find(row => row.id === expected.priceId)).toMatchObject({ price_set_id: expected.priceSetId,
+          amount: `${expected.amount}.0000000000000000`, currency_code: "usd" });
+        const inventoryLink = decodeInventoryLink(before.variantInventoryItems.find(row => row.variant_id === expected.variantId));
+        expect(before.inventoryItems.find(row => row.id === inventoryLink.inventory_item_id)).toMatchObject({ sku: expected.sku });
+      }
+
+      fixture.start();
+      const updatePath = `/admin/products/${first.id}`;
+      const refusedUpdate = { title: "Must not be persisted", status: "published" };
+      expect((await fixture.request(refusedUpdate, { admin: adminCredential, path: updatePath })).status).toBe(401);
+      expect((await fixture.request(refusedUpdate, { private: true, path: updatePath })).status).toBe(401);
+      expect((await fixture.request(refusedUpdate, { private: true, admin: "invalid-admin", path: updatePath })).status).toBe(401);
+      expect((await fixture.request(refusedUpdate, { private: true, admin: `${adminCredential}-without-policy`, path: updatePath })).status).toBe(403);
+      const invalid = await fixture.request({ title: 42 }, { private: true, admin: adminCredential, path: updatePath });
+      expect(invalid.status, await invalid.clone().text()).toBe(400);
+      expect(await invalid.json()).toMatchObject({ type: "invalid_data" });
+      const unsupported = await fixture.request(refusedUpdate, { private: true, admin: adminCredential,
+        path: `${updatePath}?fields=unsupported_field` });
+      expect(unsupported.status, await unsupported.clone().text()).toBe(400);
+      expect(await unsupported.json()).toMatchObject({ type: "invalid_data" });
+      const missingId = "prod_missing_native_update";
+      const missing = await fixture.request(refusedUpdate, { private: true, admin: adminCredential, path: `/admin/products/${missingId}` });
+      expect(missing.status, await missing.clone().text()).toBe(404);
+      expect(await missing.json()).toMatchObject({ type: "not_found", message: `Product with id "${missingId}" not found` });
+      await fixture.stop();
+      const refused = await fixture.observe();
+      for (const key of ["rows", "revisions", "indexes", "outcomes", "businessRows", "products", "options", "optionValues", "variants",
+        "variantOptions", "priceSets", "prices", "inventoryItems", "variantPriceSets", "variantInventoryItems"] as const) {
+        expect(refused[key], `Refused native updates changed durable ${key}`).toEqual(before[key]);
+      }
+
+      fixture.start();
+      const updateIncarnation = await fixture.probeIncarnation();
+      expect(updateIncarnation).not.toBe(firstIncarnation);
+      const title = "Alpha Native Updated Product", amount = 4242;
+      const updated = await fixture.request({ title, status: "published", variants: [{ id: first.variantId,
+        prices: [{ id: first.priceId, currency_code: "usd", amount }] }] },
+      { private: true, admin: adminCredential, path: updatePath });
+      expect(updated.status, await updated.clone().text()).toBe(200);
+      const updatedBody: unknown = await updated.json();
+      expect(decodeProduct(updatedBody).product).toMatchObject({ id: first.id, title, handle: first.handle, status: "published" });
+      expect(decodeVariants(updatedBody).product.variants).toEqual([expect.objectContaining({ id: first.variantId,
+        sku: first.sku, manage_inventory: true })]);
+      expect(decodeDefaultPrices(updatedBody).product.variants).toEqual([expect.objectContaining({ id: first.variantId,
+        prices: [expect.objectContaining({ id: first.priceId, price_set_id: first.priceSetId, variant_id: first.variantId,
+          amount, currency_code: "usd" })] })]);
+      await fixture.stop();
+      const persisted = await fixture.observe();
+      expect(persisted.products).toHaveLength(2);
+      expect(persisted.variants).toHaveLength(2);
+      expect(persisted.priceSets).toHaveLength(2);
+      expect(persisted.prices).toHaveLength(2);
+      expect(persisted.products.find(row => row.id === first.id)).toMatchObject({ title, status: "published", handle: first.handle });
+      expect(persisted.prices.find(row => row.id === first.priceId)).toMatchObject({ price_set_id: first.priceSetId,
+        currency_code: "usd", amount: `${amount}.0000000000000000`, raw_amount: { value: `${amount}.0000000000000000`, precision: 20 } });
+      for (const key of ["options", "optionValues", "variantOptions", "inventoryItems", "variantPriceSets", "variantInventoryItems"] as const) {
+        expect(persisted[key], `Native update changed unrelated ${key}`).toEqual(before[key]);
+      }
+      for (const [key, id] of [["products", second.id], ["variants", second.variantId], ["prices", second.priceId],
+        ["priceSets", second.priceSetId]] as const) {
+        expect(persisted[key].find(row => row.id === id), `Native update changed the second Product's ${key}`)
+          .toEqual(before[key].find(row => row.id === id));
+      }
+      const publications = persisted.outcomes.filter(outcome => outcome.timestamp > refused.publishedTimestamp
+        && outcome.value.kind === "nativeRoot" && outcome.value.state === "committed");
+      expect(publications).toHaveLength(1);
+      const publication = publications[0];
+      if (publication === undefined) throw new Error("Updated Product has no durable native root outcome");
+      const revisions = persisted.revisions.filter(revision => revision.timestamp > refused.publishedTimestamp);
+      expect(revisions.length).toBeGreaterThanOrEqual(2);
+      expect(revisions.every(revision => revision.timestamp === publication.timestamp)).toBe(true);
+      expect(revisions).toEqual(expect.arrayContaining([
+        expect.objectContaining({ previous: expect.any(BigInt), deleted: false, value: expect.objectContaining({ id: first.id, title, status: "published" }) }),
+        expect.objectContaining({ previous: expect.any(BigInt), deleted: false,
+          value: expect.objectContaining({ id: first.priceId, amount: `${amount}.0000000000000000` }) }),
+      ]));
+
+      fixture.start();
+      expect(await fixture.probeIncarnation()).not.toBe(updateIncarnation);
+      const defaultRead = await fixture.get(updatePath);
+      expect(defaultRead.status, await defaultRead.clone().text()).toBe(200);
+      const defaultBody: unknown = await defaultRead.json();
+      expect(decodeProduct(defaultBody).product).toMatchObject({ id: first.id, title, status: "published" });
+      expect(decodeDefaultPrices(defaultBody).product.variants).toEqual([expect.objectContaining({ id: first.variantId,
+        prices: [expect.objectContaining({ id: first.priceId, price_set_id: first.priceSetId, amount })] })]);
+      for (const expected of created) {
+        const response = await fixture.get(`/admin/products/${expected.id}?fields=${readFields}`);
+        expect(response.status, await response.clone().text()).toBe(200);
+        const product = decodeReadProduct(await response.json()).product;
+        expect(product).toMatchObject({ id: expected.id, title: expected.id === first.id ? title : expected.title,
+          handle: expected.handle, status: expected.id === first.id ? "published" : "draft" });
+        const inventoryLink = decodeInventoryLink(persisted.variantInventoryItems.find(row => row.variant_id === expected.variantId));
+        expect(product.variants).toEqual([expect.objectContaining({ id: expected.variantId, sku: expected.sku, manage_inventory: true,
+          prices: [expect.objectContaining({ id: expected.priceId, price_set_id: expected.priceSetId, variant_id: expected.variantId,
+            amount: expected.id === first.id ? amount : expected.amount, currency_code: "usd" })],
+          inventory_items: [expect.objectContaining({ variant_id: expected.variantId, inventory_item_id: inventoryLink.inventory_item_id,
+            required_quantity: 1, inventory: { id: inventoryLink.inventory_item_id, sku: expected.sku } })] })]);
+      }
+      await fixture.stop();
+      const afterReads = await fixture.observe();
+      for (const key of ["rows", "revisions", "indexes", "businessRows", "products", "options", "optionValues", "variants", "variantOptions",
+        "priceSets", "prices", "inventoryItems", "variantPriceSets", "variantInventoryItems"] as const) {
+        expect(afterReads[key], `Restarted native reads changed durable ${key}`).toEqual(persisted[key]);
+      }
+    } catch (cause) { primary.push(cause); throw cause; }
+    finally {
+      try { await fixture.close(); }
+      catch (cause) { throw new AggregateError([...primary, cause], "Admin Product update proof cleanup failed"); }
     }
   }, 240_000);
 

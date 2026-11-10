@@ -109,3 +109,82 @@ export const AdminCreateProduct = WithAdditionalData(CreateProduct)
 
 
 export type AdminCreateProductBody = z.infer<ReturnType<typeof AdminCreateProduct>>
+
+export const UpdateProductOption = z.object({
+  id: z.string().optional(),
+  title: z.string().optional(),
+  values: z.array(z.string()).optional(),
+})
+
+export const AdminUpdateVariantPrice = z.object({
+  id: z.string().optional(),
+  currency_code: z.string().optional(),
+  amount: z.number().optional(),
+  min_quantity: z.number().nullish(),
+  max_quantity: z.number().nullish(),
+  rules: z.record(z.string(), z.string()).optional(),
+})
+
+export const UpdateProductVariant = z
+  .object({
+    id: z.string().optional(),
+    title: z.string().optional(),
+    prices: z.array(AdminUpdateVariantPrice).optional(),
+    sku: z.string().nullish(),
+    ean: z.string().nullish(),
+    upc: z.string().nullish(),
+    barcode: z.string().nullish(),
+    hs_code: z.string().nullish(),
+    mid_code: z.string().nullish(),
+    thumbnail: z.string().nullish(),
+    allow_backorder: booleanString().optional(),
+    manage_inventory: booleanString().optional(),
+    variant_rank: z.number().optional(),
+    weight: z.number().nullish(),
+    length: z.number().nullish(),
+    height: z.number().nullish(),
+    width: z.number().nullish(),
+    origin_country: z.string().nullish(),
+    material: z.string().nullish(),
+    metadata: z.record(z.unknown()).nullish(),
+    options: z.record(z.string()).optional(),
+  })
+  .strict()
+
+export const UpdateProduct = z
+  .object({
+    title: z.string().optional(),
+    discountable: booleanString().optional(),
+    is_giftcard: booleanString().optional(),
+    options: z.array(UpdateProductOption).optional(),
+    variants: z.array(UpdateProductVariant).optional(),
+    status: statusEnum.optional(),
+    subtitle: z.string().nullish(),
+    description: z.string().nullish(),
+    images: z
+      .array(z.object({ id: z.string().optional(), url: z.string() }))
+      .optional(),
+    thumbnail: z.string().nullish(),
+    handle: z.string().nullish(),
+    type_id: z.string().nullish(),
+    external_id: z.string().nullish(),
+    collection_id: z.string().nullish(),
+    categories: z.array(IdAssociation).optional(),
+    tags: z.array(IdAssociation).optional(),
+    sales_channels: z.array(z.object({ id: z.string() })).optional(),
+    shipping_profile_id: z.string().nullish(),
+    weight: z.number().nullish(),
+    length: z.number().nullish(),
+    height: z.number().nullish(),
+    width: z.number().nullish(),
+    hs_code: z.string().nullish(),
+    mid_code: z.string().nullish(),
+    origin_country: z.string().nullish(),
+    material: z.string().nullish(),
+    metadata: z.record(z.unknown()).nullish(),
+  })
+  .strict()
+
+export const AdminUpdateProduct = WithAdditionalData(UpdateProduct)
+
+export type AdminUpdateProductBody = z.infer<ReturnType<typeof AdminUpdateProduct>>

@@ -32,6 +32,18 @@ beforeAll(async () => {
 });
 
 describe("native local Graph Query contract", () => {
+  it("admits projections before binding using the same graph planner", async () => {
+    const fields = ["id", "options.values.value"];
+    expect(Result.isSuccess(prepared.admitProjection("product", fields))).toBe(true);
+    for (const [entity, selection] of [["product", ["id", "variants.secret"]], ["unknown", ["id"]], ["product", []]] as const) {
+      const calls: Json[] = [];
+      expect(prepared.admitProjection(entity, selection)).toMatchObject({ _tag: "Failure" });
+      expect(await runEffectFailure(prepared.bind(context([[], 0], calls)).graph(query(entity, [...selection]))))
+        .toMatchObject({ reason: "unsupportedProfile" });
+      expect(calls).toEqual([]);
+    }
+  });
+
   it("omits only selected native presentation fields while retaining stored-field completeness", async () => {
     const command = defineGraphReadCommand("nativePresentationRead", () => Effect.succeed([[], 0]));
     const optionalFields = ["requires_shipping", "is_discountable", "variant_option_values"];
@@ -150,7 +162,7 @@ describe("native local Graph Query contract", () => {
       { ...query("product"), filters: [] }, { ...query("product"), filters: { id: { $in: ["p"] } } },
       { ...query("product"), pagination: { take: -1 } }, { ...query("product"), pagination: { take: 257 } },
       { ...query("product"), pagination: { take: 1.2 } }, { ...query("product"), pagination: { take: Infinity } },
-      { ...query("product"), pagination: { take: 1, skip: 256 } }, { ...query("product"), pagination: { take: 1, order: { title: "ASC" } } },
+      { ...query("product"), pagination: { take: 1, skip: 256 } }, { ...query("product"), pagination: { take: 1, order: { description: "ASC" } } },
       { ...query("product"), pagination: { take: 1, cursor: "x" } },
     ]) expect(await runEffectFailure(graph.graph(input))).toHaveProperty("reason");
     expect(calls).toEqual([]);

@@ -1,7 +1,11 @@
 import { refetchEntity, type AuthenticatedMedusaRequest, type MedusaResponse } from "@medusajs/framework/http"
+import { Modules } from "@medusajs/utils/modules-sdk/definition"
 import { MedusaError } from "@medusajs/utils/common/errors"
 import type { ProductTypes } from "@medusajs/framework/types"
+import type { AdminUpdateProductBody } from "../validators"
 import { remapKeysForProduct, remapProductResponse } from "../helpers"
+
+const updateProductsWorkflowId = "update-products"
 
 export const GET = async (
   req: AuthenticatedMedusaRequest,
@@ -14,5 +18,58 @@ export const GET = async (
   if (!product) {
     throw new MedusaError(MedusaError.Types.NOT_FOUND, "Product not found")
   }
+  res.status(200).json({ product: remapProductResponse(product) })
+}
+
+type UpdateProductsWorkflowEngine = {
+  run(id: typeof updateProductsWorkflowId, options: {
+    input: {
+      selector: { id: string }
+      update: Omit<AdminUpdateProductBody, "additional_data">
+      additional_data?: AdminUpdateProductBody["additional_data"]
+    }
+  }): Promise<{ result: { id: string }[] }>
+}
+
+export const POST = async (
+  req: AuthenticatedMedusaRequest<AdminUpdateProductBody>,
+  res: MedusaResponse<{ product: ReturnType<typeof remapProductResponse> }>
+) => {
+  const { additional_data, ...update } = req.validatedBody
+
+  const existingProduct = await refetchEntity<ProductTypes.ProductDTO>({
+    entity: "product",
+    idOrFilter: req.params.id,
+    scope: req.scope,
+    fields: ["id"],
+  })
+  /**
+   * Check if the product exists with the id or not before calling the workflow.
+   */
+  if (!existingProduct) {
+    throw new MedusaError(
+      MedusaError.Types.NOT_FOUND,
+      `Product with id "${req.params.id}" not found`
+    )
+  }
+
+  const workflowEngine = req.scope.resolve<UpdateProductsWorkflowEngine>(Modules.WORKFLOW_ENGINE)
+  const { result } = await workflowEngine.run(updateProductsWorkflowId, {
+    input: {
+      selector: { id: req.params.id },
+      update,
+      additional_data,
+    },
+  })
+
+  const product = await refetchEntity<ProductTypes.ProductDTO>({
+    entity: "product",
+    idOrFilter: result[0].id,
+    scope: req.scope,
+    fields: remapKeysForProduct(req.queryConfig.fields ?? []),
+  })
+
+  if (!product) throw new Error("Updated Product was not returned by native refetch")
+
   res.status(200).json({ product: remapProductResponse(product) })
 }

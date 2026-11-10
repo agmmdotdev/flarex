@@ -1,4 +1,4 @@
-import { Cause, Effect, Exit } from "effect";
+import { Cause, Effect, Exit, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import { asValue, createContainer } from "@medusajs/deps/awilix-portable";
 import { MedusaError } from "@medusajs/utils/common/errors";
@@ -17,8 +17,9 @@ describe(`native Product HTTP data operations (${driver})`, () => {
         const scopes = yield* makeProductRequestScopeFactory({ operations, container: createContainer().register({ logger: asValue({ error() {}, info() {} }) }) });
         const scope = scopes.createRequestScope();
         operations.admitProductRefetchFields(fields);
-        expect(() => operations.admitProductRefetchFields(["id", "variants.price_set.prices.amount"]))
-          .toThrow("requires explicit supported Product fields");
+        operations.admitProductRefetchFields(["id", "variants.price_set.prices.amount"]);
+        expect(() => operations.admitProductRefetchFields(["id", "variants.price_set.unadmitted"]))
+          .toThrow("requires supported response fields");
         const engine = scope.resolve<{ run(name: string, input: { input: unknown }): Promise<{ result: Array<{ id: string }> }> }>(Modules.WORKFLOW_ENGINE);
         const created = yield* Effect.promise(() => engine.run("create-products", { input: { products: [{ title: "Core HTTP Product", handle: "core-http-product",
           options: [{ title: "Size", values: ["One"] }] }] } }));
@@ -31,6 +32,90 @@ describe(`native Product HTTP data operations (${driver})`, () => {
       const snapshot = await tested.fixture.snapshot();
       expect(snapshot.events.some(event => event.envelope.contract === "product.created")).toBe(true);
       expect((await tested.fixture.readRows("product")).filter(row => row.title === "Core HTTP Product")).toHaveLength(1);
+    } finally { await tested.fixture.close(); }
+  });
+
+  it("admits linked projections and updates real scalar, variant pricing and Sales Channel links while preserving Inventory links", async () => {
+    const tested = await prepareProductRequestFixture(driver);
+    try {
+      await tested.use(operations => Effect.gen(function* () {
+        const linkedFields = ["id", "title", "sales_channels.id", "variants.id", "variants.price_set.id",
+          "variants.price_set.prices.id", "variants.price_set.prices.amount", "variants.price_set.prices.currency_code",
+          "variants.inventory_items.*", "variants.inventory_items.inventory.*"];
+        operations.admitProductRefetchFields(linkedFields);
+        const sales = yield* prepareSalesChannelCreationWorkflow({ execution: tested.fixture.execution,
+          modules: { sales_channel: tested.catalog.modules.sales_channel }, revision: "d".repeat(64),
+          subscribers: [{ id: "product-request-update-channel", revision: "e".repeat(64) }] });
+        const channels = yield* sales.run(sales.newRequestKey(), { salesChannelsData: [{ name: "Old channel" }, { name: "New channel" }] });
+        const oldChannel = channels[0], newChannel = channels[1];
+        if (oldChannel === undefined || newChannel === undefined) return yield* Effect.die(new Error("Missing native Sales Channel IDs"));
+        const created = yield* operations.runWorkflow("create-products", { products: [{ title: "Before update", handle: "request-update",
+          sales_channels: [{ id: oldChannel.id }], options: [{ title: "Size", values: ["One"] }],
+          variants: [{ title: "Managed variant", sku: "request-update-managed", options: { Size: "One" },
+            prices: [{ amount: 1234, currency_code: "usd" }] }] }] });
+        const id = created.result[0]?.id;
+        if (id === undefined) return yield* Effect.die(new Error("Missing created Product ID"));
+        const query = { entity: "product", fields: linkedFields, filters: { id } };
+        const before = yield* operations.query.graph(query, { throwIfKeyNotFound: true });
+        const decode = Schema.decodeUnknownSync(Schema.Struct({ id: Schema.String, title: Schema.String,
+          sales_channels: Schema.Array(Schema.Struct({ id: Schema.String })),
+          variants: Schema.Array(Schema.Struct({ id: Schema.String,
+            price_set: Schema.Struct({ id: Schema.String, prices: Schema.Array(Schema.Struct({ id: Schema.String,
+              amount: Schema.Number, currency_code: Schema.String })) }),
+            inventory_items: Schema.Array(Schema.JsonObject),
+          })),
+        }));
+        const original = decode(before.data[0]), variant = original.variants[0], price = variant?.price_set.prices[0];
+        if (variant === undefined || price === undefined) return yield* Effect.die(new Error("Missing created native Variant/Price"));
+        expect(original.sales_channels).toEqual([{ id: oldChannel.id }]);
+        expect(variant.inventory_items).toEqual([expect.objectContaining({ required_quantity: 1,
+          inventory: expect.objectContaining({ sku: "request-update-managed" }) })]);
+        const scopes = yield* makeProductRequestScopeFactory({ operations, container: createContainer() });
+        const engine = scopes.createRequestScope().resolve<{ run(name: string, options: { input: unknown }): Promise<unknown> }>(Modules.WORKFLOW_ENGINE);
+        yield* Effect.promise(() => engine.run("update-products", { input: { selector: { id }, update: {
+          title: "After update", status: "published", sales_channels: [{ id: newChannel.id }],
+          variants: [{ id: variant.id, prices: [{ id: price.id, amount: 4242, currency_code: "usd" }] }],
+        }, additional_data: { trace: "native-http-update" } } }));
+        const updated = decode((yield* operations.query.graph(query, { throwIfKeyNotFound: true })).data[0]);
+        expect(updated.title).toBe("After update");
+        expect(updated.sales_channels).toEqual([{ id: newChannel.id }]);
+        expect(updated.variants).toEqual([{ ...variant, price_set: { ...variant.price_set,
+          prices: [{ ...price, amount: 4242 }] } }]);
+        yield* operations.runWorkflow("update-products", { products: [{ id, subtitle: "Native batch form" }] });
+        expect((yield* operations.query.graph({ entity: "product", fields: ["id", "subtitle"], filters: { id } })).data)
+          .toEqual([{ id, subtitle: "Native batch form" }]);
+        expect((yield* operations.query.graph(query)).data[0]).toMatchObject({ title: "After update", variants: [
+          expect.objectContaining({ id: variant.id, inventory_items: variant.inventory_items }),
+        ] });
+        yield* sales.close;
+      }));
+      const snapshot = await tested.fixture.snapshot();
+      expect(snapshot.events.some(event => event.envelope.contract === "product.updated")).toBe(true);
+      expect((await tested.fixture.readRows("product")).filter(row => row.title === "After update")).toHaveLength(1);
+    } finally { await tested.fixture.close(); }
+  });
+
+  it("rejects unknown workflows and malformed or over-bound updates before native mutation or durable outcomes", async () => {
+    const tested = await prepareProductRequestFixture(driver);
+    try {
+      const before = await tested.fixture.snapshot();
+      await tested.use(operations => Effect.gen(function* () {
+        for (const [name, input] of [
+          ["delete-products", { ids: ["prod_missing"] }],
+          ["update-products", { selector: { title: "not admitted" }, update: { title: "Forbidden" } }],
+          ["update-products", { selector: { id: "prod_missing" }, update: { variants: Array.from({ length: 5 }, () => ({ title: "Over bound" })) } }],
+          ["update-products", { products: [{ id: "prod_missing", created_at: "2020-01-01" }] }],
+        ] as const) {
+          const result = yield* Effect.exit(operations.runWorkflow(name, input));
+          expect(Exit.isFailure(result)).toBe(true);
+          if (Exit.isFailure(result)) expect(result.cause.reasons.some(reason => Cause.isFailReason(reason) &&
+            (name === "delete-products" ? reason.error.reason === "unsupportedProfile" : reason.error.reason === "adapterFailure" &&
+              reason.error.cause instanceof MedusaError && reason.error.cause.type === MedusaError.Types.INVALID_DATA))).toBe(true);
+        }
+        expect(() => operations.admitProductRefetchFields(["id", "variants.price_set.unadmitted"]))
+          .toThrow("requires supported response fields");
+      }));
+      expect(await tested.fixture.snapshot()).toEqual(before);
     } finally { await tested.fixture.close(); }
   });
 

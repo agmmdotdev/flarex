@@ -27,13 +27,16 @@ generation. The [private app DO scenario](../../apps/executor/test/storeCurrency
 opens an independently provisioned native catalog on ordinary-role PostgreSQL.
 The [Admin Product routes](../../packages/medusa-http/src/api/admin/products/route.ts)
 accept private `GET /admin/products`, `GET /admin/products/:id` and
-`POST /admin/products`. The host authenticates the admin user and checks the
+`POST /admin/products` and `POST /admin/products/:id`. The host authenticates the admin user and checks the
 native Product read policy or the Product, Inventory Item and Price creation policies. The
 [Product adapter](../../packages/medusa-adapter/src/http/product-request.ts)
-admits the requested response fields before running the native `create-products`
-workflow. After settlement the route refetches the product by its returned ID
-through a separate Core-backed read. The private profile requires explicit
-supported fields, which can include the product's own options and values.
+admits the requested response fields through the complete graph planner before
+running the native `create-products` or `update-products` workflow. Both accept
+native default response fields. After settlement the route refetches the product
+by its returned ID through a separate Core-backed read. Detail updates preserve
+the pinned existence check and inherited Product read policy. The existing native
+update profile owns bounded scalar, variant pricing and relationship changes;
+HTTP does not supply a second mutation or settlement path.
 
 The [Product read graph](../../packages/medusa-adapter/src/http/product-request-reads.ts)
 uses the existing native graph planner and Link metadata over protected Core

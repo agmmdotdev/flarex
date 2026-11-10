@@ -85,6 +85,8 @@ export interface LocalGraphQuery {
 }
 export interface PreparedLocalGraph {
   readonly entities: readonly string[];
+  /** Validate a counted graph projection without binding or reading storage. */
+  readonly admitProjection: (entity: string, fields: readonly string[]) => Result.Result<void, CommerceTransactionError>;
   readonly bind: <Context extends GraphReadContext>(context: Context) => LocalGraphQuery;
 }
 /** Both workflow roots and protected HTTP read groups provide exactly these
