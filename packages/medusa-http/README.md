@@ -64,6 +64,27 @@ Pricing and Link cleanup, and exclusive managed Inventory ownership checks;
 shared Inventory records remain subject to those native rules. The same Core
 source identities and atomic settlement owner serve creation, update and deletion.
 
+The same namespace also serves `GET /admin/products/:id/variants`,
+`GET /admin/products/:id/variants/:variant_id`, and
+`POST /admin/products/:id/variants`. The pinned handlers retain native query
+defaults, field/price remapping, pagination/counts and Product ownership filters.
+Collection creation runs `create-product-variants` and independently refetches
+the parent Product, with response fields admitted before mutation. The inherited
+Product read policy applies to every route; detail reads add Product Variant
+read and creation adds Product Variant create. A missing or wrong-parent detail
+retains the pinned HTTP 200 empty-object response.
+
+Variant list reads can request `inventory_quantity`. The selected native wrapper
+and availability utility compute total availability from rich Inventory links
+and native stocked/reserved level quantities. Unmanaged Variants omit the field.
+The read profile reuses the existing quantity serializer and protected Core
+read commands; native cache hints do not enable a separate cache. Variant ordering
+currently admits ID only, with the existing graph and workflow resource bounds.
+Inventory expansion and quantity requests retain an eight-Variant-ID and
+eight-Inventory-Item-ID cohort limit; larger cohorts return HTTP 400, including
+when a default list page exceeds those limits.
+Variant update and deletion routes remain unselected.
+
 Both reads require a verified native user and the native Product read policy.
 The detail route returns the native `Product not found` response when the graph
 contains no Product. The list route retains the pinned validators, default limit

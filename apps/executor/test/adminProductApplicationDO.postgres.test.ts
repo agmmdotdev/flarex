@@ -1,5 +1,5 @@
 import { createCorePostgresFixture } from "@flarex/persistence-postgres/internal/system-test/core-persistence-fixture";
-import { prepareProductRequestFixture, observeProductRequestFixture } from "@flarex/medusa-adapter/internal/system-test/product-request-fixture";
+import { prepareProductRequestFixture, observeProductRequestFixture, seedProductRequestInventory } from "@flarex/medusa-adapter/internal/system-test/product-request-fixture";
 import { Schema } from "effect";
 import { Miniflare } from "miniflare";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
@@ -49,6 +49,18 @@ const decodeDefaultPrices = Schema.decodeUnknownSync(Schema.Struct({ product: Sc
 const decodeReadProducts = Schema.decodeUnknownSync(Schema.Struct({ products: Schema.Array(readProduct),
   count: Schema.Number, offset: Schema.Number, limit: Schema.Number }));
 const readFields = "id,title,handle,status,variants.id,variants.sku,variants.manage_inventory,*variants.prices,*variants.inventory_items,*variants.inventory_items.inventory";
+const nativeVariant = Schema.Struct({ id: Schema.NonEmptyString, product_id: Schema.NonEmptyString, title: Schema.String,
+  sku: Schema.String, manage_inventory: Schema.Boolean, prices: Schema.Array(readPrice),
+  options: Schema.Array(Schema.Struct({ id: Schema.NonEmptyString, value: Schema.String, option_id: Schema.NonEmptyString })) });
+const decodeNativeVariant = Schema.decodeUnknownSync(Schema.Struct({ variant: nativeVariant }));
+const decodeNativeVariants = Schema.decodeUnknownSync(Schema.Struct({ variants: Schema.Array(nativeVariant),
+  count: Schema.Number, offset: Schema.Number, limit: Schema.Number }));
+const decodeVariantInventory = Schema.decodeUnknownSync(Schema.Struct({ variants: Schema.Array(Schema.Struct({
+  id: Schema.NonEmptyString, inventory_items: Schema.Array(Schema.Struct({ id: Schema.NonEmptyString,
+    variant_id: Schema.NonEmptyString, inventory_item_id: Schema.NonEmptyString, required_quantity: Schema.Number,
+    inventory: Schema.Struct({ id: Schema.NonEmptyString, sku: Schema.String }) })) })) }));
+const decodeVariantQuantities = Schema.decodeUnknownSync(Schema.Struct({ variants: Schema.Array(Schema.Struct({
+  id: Schema.NonEmptyString, manage_inventory: Schema.Boolean, inventory_quantity: Schema.optionalKey(Schema.Number) })) }));
 
 /** A fresh native-ready tenant per test. The benchmark keeps its one runtime
  * open throughout warmup and measurement; independent observation requires close. */
@@ -90,6 +102,10 @@ async function createAdminProductDOFixture() {
       if (runtime !== undefined) throw new Error("The Product DO must drain before independent observation");
       return observeProductRequestFixture({ physical, catalog });
     };
+    const seedInventory = (input: Pick<Parameters<typeof seedProductRequestInventory>[0], "stocking" | "reservationBatches">) => {
+      if (runtime !== undefined) throw new Error("The Product DO must drain before native Inventory fixture seeding");
+      return seedProductRequestInventory({ physical, catalog, ...input });
+    };
     const initial = await observe();
     const worker = await bundleApplicationWorker(new URL("./adminProductApplicationDO.workerd.worker.ts", import.meta.url));
     const base = executorApplicationProfileFixture();
@@ -128,7 +144,7 @@ async function createAdminProductDOFixture() {
       if (!response.ok) throw new Error(`Incarnation probe returned HTTP ${response.status}`);
       return Schema.decodeUnknownSync(Schema.Struct({ incarnation: Schema.NonEmptyString }))(await response.json()).incarnation;
     };
-    return { initial, catalog, start, stop, close, request, get, remove, observe, probeIncarnation };
+    return { initial, catalog, start, stop, close, request, get, remove, observe, seedInventory, probeIncarnation };
   } catch (cause) {
     try { await close(); } catch (cleanup) { throw new AggregateError([cause, cleanup], "Product fixture setup and cleanup failed"); }
     throw cause;
@@ -717,6 +733,229 @@ describe.runIf(endpoints !== undefined)("native-ready private Admin Product in t
       catch (cause) { throw new AggregateError([...primary, cause], "Admin Product delete proof cleanup failed"); }
     }
   }, 240_000);
+
+  it("creates native variants and reads their own prices, options, inventory and parent scope across DO recreation", async () => {
+    const fixture = await createAdminProductDOFixture();
+    const primary: unknown[] = [];
+    try {
+      fixture.start();
+      const parentResponse = await fixture.request({ title: "Native Variant Parent", handle: "native-variant-parent",
+        options: [{ title: "Size", values: ["Small", "Large"] }] }, { private: true, admin: adminCredential, path: "/admin/products" });
+      expect(parentResponse.status, await parentResponse.clone().text()).toBe(200);
+      const parentBody: unknown = await parentResponse.json();
+      const parent = decodeProduct(parentBody).product;
+      expect(decodeVariants(parentBody).product.variants).toEqual([]);
+      const otherResponse = await fixture.request({ title: "Other Variant Parent", handle: "other-variant-parent",
+        options: [{ title: "Size", values: ["One"] }], variants: [{ title: "Other Unmanaged", sku: "NATIVE-VARIANT-OTHER",
+          manage_inventory: false, options: { Size: "One" }, prices: [{ currency_code: "usd", amount: 9999 }] }] },
+      { private: true, admin: adminCredential, path: "/admin/products" });
+      expect(otherResponse.status, await otherResponse.clone().text()).toBe(200);
+      const otherBody: unknown = await otherResponse.json();
+      const other = decodeProduct(otherBody).product;
+      const otherVariant = decodeVariants(otherBody).product.variants[0];
+      if (otherVariant === undefined) throw new Error("Other Product omitted its native variant");
+      await fixture.stop();
+      const before = await fixture.observe();
+      const collection = `/admin/products/${parent.id}/variants`;
+      const validInput = { title: "Managed Small", sku: "NATIVE-VARIANT-SMALL", manage_inventory: true,
+        options: { Size: "Small" }, prices: [{ currency_code: "usd", amount: 1234 }] };
+
+      fixture.start();
+      for (const target of [collection, `${collection}/${otherVariant.id}`]) {
+        expect((await fixture.get(target, { admin: adminCredential })).status).toBe(401);
+        expect((await fixture.get(target, { private: true })).status).toBe(401);
+        expect((await fixture.get(target, { private: true, admin: "invalid-admin" })).status).toBe(401);
+        expect((await fixture.get(target, { private: true, admin: `${adminCredential}-without-policy` })).status).toBe(403);
+        expect((await fixture.get(`${target}?fields=unsupported_field`)).status).toBe(400);
+      }
+      const create = (body: unknown, admin = adminCredential, target = collection) =>
+        fixture.request(body, { private: true, admin, path: target });
+      expect((await fixture.request(validInput, { admin: adminCredential, path: collection })).status).toBe(401);
+      expect((await fixture.request(validInput, { private: true, path: collection })).status).toBe(401);
+      expect((await create(validInput, "invalid-admin")).status).toBe(401);
+      expect((await create(validInput, `${adminCredential}-without-policy`)).status).toBe(403);
+      // The reader passes the inherited Product read check but lacks the native
+      // Product Variant create policy on the collection route.
+      expect((await create(validInput, `${adminCredential}-read-only`)).status).toBe(403);
+      expect((await create({ ...validInput, title: 42 })).status).toBe(400);
+      expect((await create(validInput, adminCredential, `${collection}?fields=unsupported_field`)).status).toBe(400);
+      expect((await fixture.get(`${collection}?limit=invalid`)).status).toBe(400);
+      await fixture.stop();
+      expect(await fixture.observe()).toEqual(before);
+
+      fixture.start();
+      for (const target of [collection, "/admin/products/prod_missing_native_variant/variants"]) {
+        const invalid = await create({ ...validInput, options: { Unknown: "Small" } }, adminCredential, target);
+        expect(invalid.status, await invalid.clone().text()).toBe(400);
+        expect(await invalid.json()).toMatchObject({ type: "invalid_data" });
+      }
+      await fixture.stop();
+      const failed = await fixture.observe();
+      for (const key of ["businessRows", "products", "options", "optionValues", "variants", "variantOptions", "priceSets", "prices",
+        "inventoryItems", "variantPriceSets", "variantInventoryItems"] as const) expect(failed[key]).toEqual(before[key]);
+
+      const created: Array<{ id: string; title: string; sku: string; size: string; amount: number }> = [];
+      let previous = failed;
+      for (const input of [{ ...validInput, size: "Small", amount: 1234 },
+        { title: "Managed Large", sku: "NATIVE-VARIANT-LARGE", manage_inventory: true,
+          options: { Size: "Large" }, prices: [{ currency_code: "usd", amount: 5678 }], size: "Large", amount: 5678 }]) {
+        fixture.start();
+        const { size, amount, ...body } = input;
+        const response = await create(body);
+        expect(response.status, await response.clone().text()).toBe(200);
+        const result: unknown = await response.json();
+        // Native collection POST returns the default parent Product response.
+        expect(decodeProduct(result).product).toMatchObject({ id: parent.id, title: parent.title });
+        const variants = decodeVariants(result).product.variants;
+        const variant = variants.find(value => value.sku === input.sku);
+        if (variant === undefined) throw new Error("Native Variant POST omitted its created variant from the parent");
+        expect(variants).toHaveLength(created.length + 1);
+        expect(variant).toMatchObject({ title: input.title, manage_inventory: true });
+        const option = parent.options.find(value => value.title === "Size");
+        const optionValue = option?.values.find(value => value.value === size);
+        if (option === undefined || optionValue === undefined) throw new Error("Parent omitted its native Size option");
+        expect(variant.options).toEqual([{ id: optionValue.id, option_id: option.id, value: size }]);
+        expect(decodeDefaultPrices(result).product.variants.find(value => value.id === variant.id)?.prices)
+          .toEqual([expect.objectContaining({ variant_id: variant.id, amount, currency_code: "usd" })]);
+        created.push({ id: variant.id, title: input.title, sku: input.sku, size, amount });
+        await fixture.stop();
+        const current = await fixture.observe();
+        const publications = current.outcomes.filter(outcome => outcome.timestamp > previous.publishedTimestamp
+          && outcome.value.kind === "nativeRoot" && outcome.value.state === "committed");
+        expect(publications).toHaveLength(1);
+        const publication = publications[0];
+        if (publication === undefined) throw new Error("Variant creation omitted its committed native root outcome");
+        const changed = current.businessRows.filter(row => row.timestamp > previous.publishedTimestamp);
+        const tables = fixture.catalog.productRuntime.metadata;
+        expect(changed.map(row => row.table).sort()).toEqual([tables.variant.table.name, tables.pivot.table.name,
+          "price_set", "price", "inventory_item", "product_variant_price_set", "product_variant_inventory_item"].sort());
+        expect(changed.every(row => row.timestamp === publication.timestamp)).toBe(true);
+        expect(current.products).toEqual(before.products);
+        expect(current.options).toEqual(before.options);
+        expect(current.optionValues).toEqual(before.optionValues);
+        expect(current.variants.find(row => row.id === variant.id)).toMatchObject({ product_id: parent.id, sku: input.sku });
+        expect(current.variantOptions).toContainEqual(expect.objectContaining({ variant_id: variant.id, option_value_id: optionValue.id }));
+        const priceLink = decodePriceLink(current.variantPriceSets.find(row => row.variant_id === variant.id));
+        expect(current.priceSets).toContainEqual(expect.objectContaining({ id: priceLink.price_set_id }));
+        expect(current.prices).toContainEqual(expect.objectContaining({ price_set_id: priceLink.price_set_id, currency_code: "usd",
+          amount: `${amount}.0000000000000000`, raw_amount: { value: `${amount}.0000000000000000`, precision: 20 } }));
+        const inventoryLink = decodeInventoryLink(current.variantInventoryItems.find(row => row.variant_id === variant.id));
+        expect(inventoryLink.required_quantity).toBe(1);
+        expect(current.inventoryItems).toContainEqual(expect.objectContaining({ id: inventoryLink.inventory_item_id, sku: input.sku }));
+        previous = current;
+      }
+      const persisted = previous;
+      fixture.start();
+      const incarnation = await fixture.probeIncarnation();
+      const listResponse = await fixture.get(collection, { private: true, admin: `${adminCredential}-read-only` });
+      expect(listResponse.status, await listResponse.clone().text()).toBe(200);
+      const list = decodeNativeVariants(await listResponse.json());
+      expect(list).toMatchObject({ count: 2, offset: 0, limit: 50 });
+      expect(list.variants.map(variant => variant.id).sort()).toEqual(created.map(variant => variant.id).sort());
+      const assertVariant = (variant: typeof nativeVariant.Type) => {
+        const expected = created.find(row => row.id === variant.id);
+        if (expected === undefined) throw new Error("Variant read crossed its Product boundary");
+        expect(variant).toMatchObject({ product_id: parent.id, title: expected.title, sku: expected.sku, manage_inventory: true });
+        expect(variant.options).toEqual([expect.objectContaining({ value: expected.size })]);
+        const priceLink = decodePriceLink(persisted.variantPriceSets.find(row => row.variant_id === variant.id));
+        const price = persisted.prices.find(row => row.price_set_id === priceLink.price_set_id);
+        if (typeof price?.id !== "string") throw new Error("Persisted Variant price omitted its ID");
+        expect(variant.prices).toEqual([expect.objectContaining({ id: price.id, price_set_id: priceLink.price_set_id,
+          variant_id: variant.id, amount: expected.amount, currency_code: "usd" })]);
+      };
+      list.variants.forEach(assertVariant);
+      for (const expected of created) {
+        const detail = await fixture.get(`${collection}/${expected.id}`);
+        expect(detail.status, await detail.clone().text()).toBe(200);
+        assertVariant(decodeNativeVariant(await detail.json()).variant);
+      }
+      const rich = await fixture.get(`${collection}?fields=id,*inventory_items,*inventory_items.inventory`);
+      expect(rich.status, await rich.clone().text()).toBe(200);
+      const richVariants = decodeVariantInventory(await rich.json()).variants;
+      expect(richVariants).toHaveLength(2);
+      for (const variant of richVariants) {
+        const expected = created.find(row => row.id === variant.id);
+        if (expected === undefined) throw new Error("Rich Variant read crossed its Product boundary");
+        const link = persisted.variantInventoryItems.find(row => row.variant_id === variant.id);
+        if (typeof link?.id !== "string") throw new Error("Persisted Variant inventory link omitted its ID");
+        const inventory = decodeInventoryLink(link);
+        expect(variant.inventory_items).toEqual([expect.objectContaining({ id: link.id, ...inventory,
+          inventory: { id: inventory.inventory_item_id, sku: expected.sku } })]);
+      }
+      const quantities = await fixture.get(`${collection}?fields=id,manage_inventory,inventory_quantity`);
+      expect(quantities.status, await quantities.clone().text()).toBe(200);
+      expect(decodeVariantQuantities(await quantities.json()).variants).toEqual(expect.arrayContaining(created.map(variant => ({
+        id: variant.id, manage_inventory: true, inventory_quantity: 0 }))));
+      const otherList = await fixture.get(`/admin/products/${other.id}/variants?fields=id,manage_inventory,inventory_quantity`);
+      expect(otherList.status, await otherList.clone().text()).toBe(200);
+      expect(decodeVariantQuantities(await otherList.json()).variants).toEqual([{ id: otherVariant.id, manage_inventory: false }]);
+      const wrongParent = await fixture.get(`${collection}/${otherVariant.id}`);
+      expect(wrongParent.status, await wrongParent.clone().text()).toBe(200);
+      // Pinned remapVariantResponse(undefined) is omitted by JSON serialization.
+      expect(await wrongParent.json()).toEqual({});
+      const absent = await fixture.get("/admin/products/prod_missing_native_variant/variants");
+      expect(absent.status, await absent.clone().text()).toBe(200);
+      expect(await absent.json()).toEqual({ variants: [], count: 0, offset: 0, limit: 50 });
+      expect((await fixture.get(`${collection}?order=sku`)).status).toBe(400);
+      const page = await fixture.get(`${collection}?order=id&offset=1&limit=1`);
+      expect(page.status, await page.clone().text()).toBe(200);
+      expect(decodeNativeVariants(await page.json())).toMatchObject({ count: 2, offset: 1, limit: 1,
+        variants: [expect.objectContaining({ id: created.map(variant => variant.id).sort()[1] })] });
+      await fixture.stop();
+      fixture.start();
+      expect(await fixture.probeIncarnation()).not.toBe(incarnation);
+      for (const expected of created) {
+        const detail = await fixture.get(`${collection}/${expected.id}`);
+        expect(detail.status, await detail.clone().text()).toBe(200);
+        assertVariant(decodeNativeVariant(await detail.json()).variant);
+      }
+      const retained = await fixture.get(`${collection}?fields=id,*inventory_items,*inventory_items.inventory`);
+      expect(retained.status, await retained.clone().text()).toBe(200);
+      expect(decodeVariantInventory(await retained.json()).variants).toEqual(richVariants);
+      await fixture.stop();
+      const afterReads = await fixture.observe();
+      for (const key of ["rows", "revisions", "indexes", "businessRows", "products", "options", "optionValues", "variants", "variantOptions",
+        "priceSets", "prices", "inventoryItems", "variantPriceSets", "variantInventoryItems"] as const) {
+        expect(afterReads[key], `Variant reads changed durable ${key}`).toEqual(persisted[key]);
+      }
+      const stocked = created.map((variant, index) => ({ ...variant,
+        inventory: decodeInventoryLink(persisted.variantInventoryItems.find(row => row.variant_id === variant.id)),
+        stockedQuantity: index === 0 ? 20 : 9, reservedQuantity: index === 0 ? 3 : 1, availableQuantity: index === 0 ? 17 : 8 }));
+      await fixture.seedInventory({ stocking: { locations: [{ id: "variant-quantity-location", name: "Variant quantity" }],
+        inventory_levels: stocked.map(variant => ({ inventory_item_id: variant.inventory.inventory_item_id,
+          location_index: 0, stocked_quantity: variant.stockedQuantity })) },
+      reservationBatches: stocked.map(variant => [{ inventory_item_id: variant.inventory.inventory_item_id,
+        location_id: "variant-quantity-location", quantity: variant.reservedQuantity }]) });
+      const seeded = await fixture.observe();
+      expect(seeded.inventoryLevels).toHaveLength(2);
+      expect(seeded.reservations).toHaveLength(2);
+      const decodeLevelQuantities = Schema.decodeUnknownSync(Schema.Struct({ stocked_quantity: Schema.FiniteFromString,
+        reserved_quantity: Schema.FiniteFromString }));
+      for (const variant of stocked) {
+        const level = seeded.inventoryLevels.find(row => row.inventory_item_id === variant.inventory.inventory_item_id);
+        expect(level).toMatchObject({ location_id: "variant-quantity-location" });
+        expect(decodeLevelQuantities(level)).toEqual({ stocked_quantity: variant.stockedQuantity, reserved_quantity: variant.reservedQuantity });
+        expect(seeded.reservations).toContainEqual(expect.objectContaining({ inventory_item_id: variant.inventory.inventory_item_id,
+          location_id: "variant-quantity-location" }));
+      }
+      fixture.start();
+      expect(await fixture.probeIncarnation()).not.toBe(incarnation);
+      const available = await fixture.get(`${collection}?fields=id,manage_inventory,inventory_quantity`);
+      expect(available.status, await available.clone().text()).toBe(200);
+      expect(decodeVariantQuantities(await available.json()).variants).toEqual(expect.arrayContaining(stocked.map(variant => ({
+        id: variant.id, manage_inventory: true, inventory_quantity: variant.availableQuantity }))));
+      await fixture.stop();
+      const afterAvailability = await fixture.observe();
+      for (const key of ["rows", "revisions", "indexes", "businessRows", "products", "options", "optionValues", "variants", "variantOptions",
+        "priceSets", "prices", "inventoryItems", "inventoryLevels", "reservations", "variantPriceSets", "variantInventoryItems"] as const) {
+        expect(afterAvailability[key], `Native availability read changed durable ${key}`).toEqual(seeded[key]);
+      }
+    } catch (cause) { primary.push(cause); throw cause; }
+    finally {
+      try { await fixture.close(); }
+      catch (cause) { throw new AggregateError([...primary, cause], "Admin Product variant proof cleanup failed"); }
+    }
+  }, 360_000);
 
   it.runIf(benchmarkEnabled)("warm DO closed-loop Product benchmark", async () => {
     const fixture = await createAdminProductDOFixture();

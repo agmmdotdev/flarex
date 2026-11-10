@@ -2,6 +2,8 @@
 import type { StaticHttpResourceManifest } from "@medusajs/framework/http/static"
 import * as adminProductsRoute from "./api/admin/products/route"
 import * as adminProductsByIdRoute from "./api/admin/products/[id]/route"
+import * as adminProductsByIdVariantsRoute from "./api/admin/products/[id]/variants/route"
+import * as adminProductsByIdVariantsByVariant_idRoute from "./api/admin/products/[id]/variants/[variant_id]/route"
 import { adminProductRoutesMiddlewares } from "./api/admin/products/middlewares"
 
 export const adminProductHttpManifest = {
@@ -15,6 +17,16 @@ export const adminProductHttpManifest = {
       route: "/admin/products/:id",
       module: adminProductsByIdRoute,
       relativePath: "packages/medusa-http/src/api/admin/products/[id]/route.ts",
+    },
+    {
+      route: "/admin/products/:id/variants",
+      module: adminProductsByIdVariantsRoute,
+      relativePath: "packages/medusa-http/src/api/admin/products/[id]/variants/route.ts",
+    },
+    {
+      route: "/admin/products/:id/variants/:variant_id",
+      module: adminProductsByIdVariantsByVariant_idRoute,
+      relativePath: "packages/medusa-http/src/api/admin/products/[id]/variants/[variant_id]/route.ts",
     },
   ],
   middlewares: [

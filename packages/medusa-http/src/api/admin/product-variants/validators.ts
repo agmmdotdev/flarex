@@ -1,6 +1,9 @@
 import { z } from "@medusajs/framework/zod"
-import { booleanString } from "../../utils/common-validators"
-import { createOperatorMap } from "../../utils/validators"
+import {
+  applyAndAndOrOperators,
+  booleanString,
+} from "../../utils/common-validators"
+import { createFindParams, createOperatorMap } from "../../utils/validators"
 
 export const AdminGetProductVariantsParamsFields = z.object({
   q: z.string().optional(),
@@ -14,3 +17,13 @@ export const AdminGetProductVariantsParamsFields = z.object({
   updated_at: createOperatorMap().optional(),
   deleted_at: createOperatorMap().optional(),
 })
+
+export type AdminGetProductVariantsParamsType = z.infer<
+  typeof AdminGetProductVariantsParams
+>
+export const AdminGetProductVariantsParams = createFindParams({
+  offset: 0,
+  limit: 50,
+})
+  .merge(AdminGetProductVariantsParamsFields)
+  .merge(applyAndAndOrOperators(AdminGetProductVariantsParamsFields))

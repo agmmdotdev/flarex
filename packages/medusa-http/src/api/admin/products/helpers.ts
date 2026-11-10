@@ -74,13 +74,15 @@ export const remapProductResponse = (
 ): ProductDTO => {
   return {
     ...product,
-    variants: product.variants?.map(remapVariantResponse),
+    variants: product.variants?.map<ProductVariantDTO>(remapVariantResponse),
   }
 }
 
-export const remapVariantResponse = (
-  variant: ProductVariantDTO
-): ProductVariantDTO => {
+export function remapVariantResponse(variant: ProductVariantDTO): ProductVariantDTO
+export function remapVariantResponse(variant: ProductVariantDTO | null | undefined): ProductVariantDTO | null | undefined
+export function remapVariantResponse(
+  variant: ProductVariantDTO | null | undefined
+): ProductVariantDTO | null | undefined {
   if (!variant) {
     return variant
   }

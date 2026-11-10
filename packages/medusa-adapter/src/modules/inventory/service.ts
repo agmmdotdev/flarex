@@ -31,7 +31,7 @@ import { inventoryCreateEventPolicy } from "./events";
 import { ScalarId, ScalarIdRead, scalarIdWhere } from "../../repository/scalar-id-read";
 import { InventoryLevelsInput, InventoryLevelsOutput } from "./level-input";
 import { prepareInventoryQuantityRepository, inventoryQuantityProjection, inventoryLevelWhere } from "./quantity-repository";
-import { InventoryVariantPriceCalculationItemRead, InventoryVariantPriceCalculationLevelRead } from "./variant-price-calculation-read";
+import { InventoryVariantPriceCalculationItemRead, InventoryVariantPriceCalculationLevelRead, inventoryVariantPriceCalculationLevelConfig } from "./variant-price-calculation-read";
 import { Adjustments, ReservationCreates, ReservationUpdates, ReservationIds, ReservationRead, ReservationOutput } from "./reservation-input";
 import { inventoryStockEventPolicy } from "./stock-events";
 import { InventoryDeletionSelection, InventoryDeletionConfig, decodeInventoryDeletionInput, inventoryItemLifecycle } from "./deletion-lifecycle";
@@ -214,14 +214,16 @@ const makeInventoryVariantPriceCalculationCommands = Effect.fn("InventoryAdapter
     const count = commands.read("inventoryCountForVariantPriceCalculation", prepare(commerceDecoder(InventoryVariantPriceCalculationItemRead, "unsupportedProfile")),
       ({ service, context }, args) => service.listAndCountInventoryItems(args.filters, args.config as FindConfig<InventoryTypes.InventoryItemDTO> | undefined, context));
     const countLevels = commands.read("inventoryLevelCountForVariantPriceCalculation", prepare(commerceDecoder(InventoryVariantPriceCalculationLevelRead, "unsupportedProfile")),
-      ({ service, context }, args) => service.listAndCountInventoryLevels(args.filters, args.config as FindConfig<InventoryTypes.InventoryLevelDTO> | undefined, context));
+      ({ service, context }, args) => service.listAndCountInventoryLevels(args.filters,
+        inventoryVariantPriceCalculationLevelConfig(args.config) as FindConfig<InventoryTypes.InventoryLevelDTO> | undefined, context));
     const joiner = inventoryStaticResources.joinerConfig;
     if (joiner === undefined) return yield* Result.fail(commerceError("unsupportedProfile"));
     const aliases = yield* moduleAliases(joiner);
     const items = yield* scalarGraphDefinition(aliases.filter(alias => alias.model === "InventoryItem"), "InventoryItem", count, prepared.table);
     const inventoryLevels = yield* scalarGraphDefinition(aliases.filter(alias => alias.model === "InventoryLevel"), "InventoryLevel", countLevels, levels.table);
     const graph = { aliases: [...items.aliases, ...inventoryLevels.aliases],
-      reads: [...items.reads, ...inventoryLevels.reads].map(read => ({ ...read, selectedFieldsOnly: true as const })) };
+      reads: [...items.reads, ...inventoryLevels.reads.map(read => ({ ...read,
+        presentation: { columns: ["available_quantity"], companions: {} } }))].map(read => ({ ...read, selectedFieldsOnly: true as const })) };
     const admitted = [count, countLevels];
     const workflow = yield* defineWorkflowModule({ name: Modules.INVENTORY, source: module.description, methods: {}, graph,
       logical: { ...policy(), commands: admitted } });

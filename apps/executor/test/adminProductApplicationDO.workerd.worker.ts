@@ -38,7 +38,9 @@ const NativeOwner = makeApplicationDurableObject<NativeProductEnv, NativeFixture
       identityAndAccessPolicy: { profile: "native-admin-product-private-do-fixture" }, revision: "d".repeat(64),
       subscribers: [{ id: "native-admin-product-request", revision: "e".repeat(64) }] });
     const container = createContainer().register({
-      logger: asValue({ error() {}, info() {} }), configModule: asValue({ projectConfig: { http: {} } }),
+      logger: asValue({ error(error: unknown) {
+        console.error("Native Product HTTP fixture failed", error instanceof Error && Cause.isCause(error.cause) ? Cause.pretty(error.cause) : error);
+      }, info() {} }), configModule: asValue({ projectConfig: { http: {} } }),
     });
     const scopes = yield* makeProductRequestScopeFactory({ operations, container });
     const http = yield* makeAdminProductEffectHttpHandler({ adminCors: "https://admin.test", ...scopes,
@@ -51,12 +53,14 @@ const NativeOwner = makeApplicationDurableObject<NativeProductEnv, NativeFixture
           app_metadata: {}, user_metadata: {} };
       },
       evaluateAdminPolicies: (principal, policies) => {
-        // Pinned native middleware applies Product read to every detail route;
-        // DELETE independently requires Product delete after that first check.
+        // Pinned native middleware applies Product read to every child route;
+        // variant creation and deletion add their own exact policy afterward.
         const productRead = policies.length === 1 && policies[0]?.resource === "product" && policies[0]?.operation === "read";
         if (principal.actor_id === "user_native_product_reader") return productRead;
         return principal.actor_id === "user_native_product" && (productRead
           || (policies.length === 1 && policies[0]?.resource === "product" && policies[0]?.operation === "delete")
+          || (policies.length === 1 && policies[0]?.resource === "product_variant" && policies[0]?.operation === "create")
+          || (policies.length === 1 && policies[0]?.resource === "product_variant" && policies[0]?.operation === "read")
           || (policies.length === 3 && policies.every((policy, index) => policy.resource === ["product", "inventory_item", "price"][index]
             && policy.operation === "create")));
       },

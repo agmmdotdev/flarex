@@ -44,6 +44,19 @@ policies. Native soft deletion, Pricing/Link cascades and managed Inventory
 ownership rules remain workflow-owned. Missing or repeated IDs retain native
 success; normal subsequent Product reads hide soft-deleted products.
 
+The nested Product Variant collection serves native list and creation; its
+detail serves native retrieval. Creation runs the existing managed Variant,
+Pricing, Inventory and Link workflow over the same catalog sources. List/detail
+retain native field remapping, Product ownership filters and count/page metadata;
+the pinned missing-detail response remains HTTP 200 with an empty object.
+The optional list `inventory_quantity` branch uses the promoted native total
+availability utility, existing Inventory quantity serialization and protected
+Core reads of Inventory levels/reservations. Cache hints remain advisory; the
+profile reads Core and admits ID ordering. Inventory expansion/quantity cohorts
+retain the existing eight Variant and Inventory Item ID bounds; larger cohorts
+refuse, including a native default page that exceeds those bounds. Variant update/deletion remain separate
+promotion slices.
+
 The [Product read graph](../../packages/medusa-adapter/src/http/product-request-reads.ts)
 uses the existing native graph planner and Link metadata over protected Core
 read commands. Detail and list retain native field selection and response

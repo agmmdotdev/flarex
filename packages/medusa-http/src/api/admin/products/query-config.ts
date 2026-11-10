@@ -1,3 +1,21 @@
+import { defaultAdminProductVariantFields } from "../product-variants/query-config"
+
+export const defaultAdminProductsVariantFields =
+  defaultAdminProductVariantFields.filter((field) => field !== "*product")
+
+export const retrieveVariantConfig = {
+  defaults: defaultAdminProductsVariantFields,
+  isList: false,
+  entity: "product_variant",
+}
+
+export const listVariantConfig = {
+  ...retrieveVariantConfig,
+  defaultLimit: 50,
+  isList: true,
+  entity: "product_variant",
+}
+
 export const defaultAdminProductFields = [
   "id",
   "title",

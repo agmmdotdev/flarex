@@ -45,6 +45,8 @@ describe("Inventory reads for native Variant price calculation", () => {
       { filters: { id: ["id"] }, config: { order: { id: "DESC" } } }, { filters: { location_id: ["location"] } },
     ]) expect(decode(value)).toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedProfile" } });
     expect(item({ filters: { inventory_item_id: ["item"] } })).toMatchObject({ _tag: "Failure" });
+    expect(level({ filters: { inventory_item_id: Array.from({ length: 9 }, (_, index) => "item-" + index) } }))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedProfile" } });
   });
 
   it("keeps the existing Item profile and independently issued command tokens intact", async () => {

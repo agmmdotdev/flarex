@@ -71,17 +71,26 @@ const relocatedHttpSources = new Map([
   ["packages/medusa-http/scripts/generate-static-manifest.mjs", "packages/medusa/scripts/generate-static-http-manifest.mjs"],
   ["packages/medusa-utils/src/common/build-query.ts", "packages/core/utils/src/common/build-query.ts"],
   ["packages/medusa-utils/src/common/remote-query-object-from-string.ts", "packages/core/utils/src/common/remote-query-object-from-string.ts"],
+  ["packages/medusa-utils/src/product/get-variant-availability.ts", "packages/core/utils/src/product/get-variant-availability.ts"],
 ]);
 const currencyRoutesDirectory = "packages/medusa-http/src/api/store/currencies/";
 const currencyHandlers = new Set(["route.ts", "[code]/route.ts"].map(name => currencyRoutesDirectory + name));
 const adminProductRoute = "packages/medusa-http/src/api/admin/products/route.ts";
 const adminProductDetailRoute = "packages/medusa-http/src/api/admin/products/[id]/route.ts";
+const adminProductVariantRoute = "packages/medusa-http/src/api/admin/products/[id]/variants/route.ts";
+const adminProductVariantDetailRoute = "packages/medusa-http/src/api/admin/products/[id]/variants/[variant_id]/route.ts";
+const adminVariantInventoryWrapper = "packages/medusa-http/src/api/utils/middlewares/products/variant-inventory-quantity.ts";
+const variantAvailabilityUtility = "packages/medusa-utils/src/product/get-variant-availability.ts";
 const productHttpSelections = new Set([
   ...["helpers", "middlewares", "query-config", "route", "validators"].map(name =>
     "packages/medusa-http/src/api/admin/products/" + name + ".ts"),
   ...["fetch-json-body", "refetch-entities", "validate-body"].map(name =>
     "packages/medusa-framework/src/http/utils/" + name + ".ts"),
   adminProductDetailRoute,
+  adminProductVariantRoute,
+  adminProductVariantDetailRoute,
+  adminVariantInventoryWrapper,
+  "packages/medusa-http/src/api/admin/product-variants/query-config.ts",
   "packages/medusa-framework/src/http/utils/maybe-apply-link-filter.ts",
   "packages/medusa-http/src/api/admin/product-variants/validators.ts",
   "packages/medusa-http/src/api/admin/products/utils/maybe-apply-price-lists-filter.ts",
@@ -149,6 +158,48 @@ export function verifyAdminProductDetailSource(native, promoted) {
   selected[3] = selected[3].replace(result, guard + "\n" + result);
   if (productRouteRuntime([...imports, ...selected].join("\n")) !== productRouteRuntime(promoted))
     throw new Error("Changed native Admin Product detail GET/POST/DELETE behavior");
+}
+
+/** Exact selected native collection GET/POST, with the existing post-write
+ * missing-parent invariant; detail exposes only GET.
+ * @param {string} native @param {string} promoted @param {boolean} detail */
+export function verifyAdminProductVariantSource(native, promoted, detail = false) {
+  const imports = detail ? [
+    'import { refetchEntity } from "@medusajs/framework/http"',
+    'import { remapKeysForVariant, remapVariantResponse } from "../../../helpers"',
+  ] : [
+    'import { Modules } from "@medusajs/utils/modules-sdk/definition"',
+    'import { wrapVariantsWithTotalInventoryQuantity } from "../../../../utils/middlewares/products/variant-inventory-quantity"',
+    'import { refetchEntities, refetchEntity } from "@medusajs/framework/http"',
+    'import { remapKeysForProduct, remapKeysForVariant, remapProductResponse, remapVariantResponse } from "../../helpers"',
+  ];
+  let selected = selectProductRouteDeclarations(native, detail ? ["GET"] : ["createProductVariantsWorkflowId", "GET", "POST"]).join("\n");
+  if (!detail) {
+    const result = 'res.status(200).json({ product: remapProductResponse(product) })';
+    if (selected.split(result).length !== 2) throw new Error("Missing pinned variant create parent response");
+    selected = selected.replace(result, 'if (!product) throw new Error("Created Product variants parent was not returned by native refetch")\n' + result);
+  }
+  if (productRouteRuntime([...imports, selected].join("\n")) !== productRouteRuntime(promoted))
+    throw new Error("Changed native Admin Product variant behavior");
+}
+
+/** The Admin wrapper closure excludes the unselected Store sales-channel branch.
+ * @param {string} native @param {string} promoted */
+export function verifyAdminVariantInventoryWrapperSource(native, promoted) {
+  const imports = [
+    'import { ContainerRegistrationKeys } from "@medusajs/utils/common/container"',
+    'import { getTotalVariantAvailability } from "@medusajs/utils/product/get-variant-availability"',
+  ];
+  const selected = selectProductRouteDeclarations(native, ["wrapVariantsWithTotalInventoryQuantity", "wrapVariants"]);
+  if (productRouteRuntime([...imports, ...selected].join("\n")) !== productRouteRuntime(promoted))
+    throw new Error("Changed native Admin variant inventory wrapper behavior");
+}
+
+/** Both total and sales-channel pure utility branches retain native runtime.
+ * @param {string} native @param {string} promoted */
+export function verifyVariantAvailabilityUtilitySource(native, promoted) {
+  if (productRouteRuntime(native) !== productRouteRuntime(promoted))
+    throw new Error("Changed native variant availability utility behavior");
 }
 
 /** Relocate only the native utility import. Type-only annotations erase on emit.
@@ -1147,6 +1198,9 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
     if (productHttpSelections.has(file.target) &&
       (file.source !== pinnedHttpSource(file.target) || file.classification !== "selectedExportFacade"))
       throw new Error("Admin Product HTTP selections must retain their pinned sources");
+    if (file.target === variantAvailabilityUtility &&
+      (file.source !== pinnedHttpSource(file.target) || file.classification !== "importRelocation"))
+      throw new Error("Variant availability utility must retain its pinned source");
     if (file.target.startsWith(currencyRoutesDirectory) &&
       (file.source !== pinnedHttpSource(file.target) ||
         file.classification !== (currencyHandlers.has(file.target) ? "importRelocation" : "unchanged")))
@@ -1274,6 +1328,15 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
           readFileSync(path.join(root, file.target), "utf8"));
       if (file.target === adminProductDetailRoute)
         verifyAdminProductDetailSource(readFileSync(path.join(root, file.source), "utf8"),
+          readFileSync(path.join(root, file.target), "utf8"));
+      if (file.target === adminProductVariantRoute || file.target === adminProductVariantDetailRoute)
+        verifyAdminProductVariantSource(readFileSync(path.join(root, file.source), "utf8"),
+          readFileSync(path.join(root, file.target), "utf8"), file.target === adminProductVariantDetailRoute);
+      if (file.target === adminVariantInventoryWrapper)
+        verifyAdminVariantInventoryWrapperSource(readFileSync(path.join(root, file.source), "utf8"),
+          readFileSync(path.join(root, file.target), "utf8"));
+      if (file.target === variantAvailabilityUtility)
+        verifyVariantAvailabilityUtilitySource(readFileSync(path.join(root, file.source), "utf8"),
           readFileSync(path.join(root, file.target), "utf8"));
       if (file.classification === nativeBigNumberSourcePair.classification)
         verifyNativeBigNumberTypeSource(readFileSync(path.join(root, file.source), "utf8"),

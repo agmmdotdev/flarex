@@ -30,6 +30,7 @@ import { prepareProductDeletionLinkResource } from "../links/product-deletion-re
 import { prepareProductCreationWorkflow } from "../workflows/product/creation";
 import { prepareProductUpdateWorkflow } from "../workflows/product/update";
 import { prepareProductDeletionWorkflow } from "../workflows/product/deletion";
+import { prepareProductVariantInventoryWorkflow } from "../workflows/product/variant-inventory";
 import { captureCommerceInput } from "../value/input";
 import type { AtomicWorkflowExecution } from "../workflow/host";
 import { makeProductRequestReads } from "./product-request-reads";
@@ -40,6 +41,7 @@ export const compileProductRequestCatalog = Effect.fn("ProductRequest.compileCat
   target: Readonly<{ scopeUuid: string; epochUuid: string }>,
 ) {
   const product = yield* makeLocalProductCommands(), pricing = yield* makeLocalPricingCommands(), inventory = yield* makeLocalInventoryCommands();
+  const inventoryReads = yield* makeLocalInventoryCommands("variant-price-calculation");
   const stock = yield* makeStockLocationCommands(), sales = yield* makeLocalSalesChannelCommands(), fulfillment = yield* makeLocalShippingProfileCommands();
   const productLinks = yield* prepareLocalProductLinks(), variantLinks = yield* prepareLocalVariantLinks();
   const updatePricing = yield* makeLocalPricingCommands("product-updates");
@@ -86,7 +88,7 @@ export const compileProductRequestCatalog = Effect.fn("ProductRequest.compileCat
     shipping: deletionProductLinks.nativeServices.shipping, inventory: deletionVariantLinks.nativeServices.inventory,
     pricing: deletionVariantLinks.nativeServices.pricing }, updatePricing.workflow));
   return Object.freeze({ target: Object.freeze({ ...target }), sources, productSource, productRuntime: product,
-    runtimes: Object.freeze({ product, pricing, inventory, stock, sales, fulfillment, productLinks, variantLinks }), modules, link, updateModules, updateLink,
+    runtimes: Object.freeze({ product, pricing, inventory, inventoryReads, stock, sales, fulfillment, productLinks, variantLinks }), modules, link, updateModules, updateLink,
     deletionModules, deletionLink, bundle, eventDefinition });
 });
 export type ProductRequestCatalog = Effect.Success<ReturnType<typeof compileProductRequestCatalog>>;
@@ -109,6 +111,10 @@ export const makeProductRequestOperations = Effect.fn("ProductRequest.makeOperat
     link: input.catalog.updateLink, revision: input.revision, subscribers: input.subscribers });
   const deletion = yield* prepareProductDeletionWorkflow({ execution, modules: input.catalog.deletionModules,
     link: input.catalog.deletionLink, revision: input.revision, subscribers: input.subscribers });
+  const variantCreation = yield* prepareProductVariantInventoryWorkflow({ execution, modules: {
+    product: input.catalog.modules.product, pricing: input.catalog.modules.pricing, inventory: input.catalog.modules.inventory,
+    stock_location: input.catalog.modules.stock_location, link: input.catalog.modules.variant_links,
+  }, revision: input.revision, subscribers: input.subscribers });
   const read = yield* makeProductRequestReads(input);
   const admitProductRefetchFields = (fields: readonly string[]): void => {
     Result.getOrThrowWith(read.admitProductRefetchFields(fields), cause => new MedusaError(MedusaError.Types.INVALID_DATA,
@@ -134,12 +140,17 @@ export const makeProductRequestOperations = Effect.fn("ProductRequest.makeOperat
         const args = yield* Effect.fromResult(captureCommerceInput(value).pipe(Result.flatMap(deletion.decodeInput), Result.mapError(refusal)));
         return { result: yield* deletion.run(deletion.newRequestKey(), args) };
       }
+      case "create-product-variants": {
+        const args = yield* Effect.fromResult(captureCommerceInput(value).pipe(Result.flatMap(variantCreation.decodeInput), Result.mapError(refusal)));
+        return { result: yield* variantCreation.run(variantCreation.newRequestKey(), args) };
+      }
       default: return yield* commerceError("unsupportedProfile");
     }
   });
   function runWorkflow(name: "create-products", value: unknown): Effect.Effect<{ result: Effect.Success<ReturnType<typeof workflow.run>> }, CommerceTransactionError>;
   function runWorkflow(name: "update-products", value: unknown): Effect.Effect<{ result: Effect.Success<ReturnType<typeof update.run>> }, CommerceTransactionError>;
   function runWorkflow(name: "delete-products", value: unknown): Effect.Effect<{ result: null }, CommerceTransactionError>;
+  function runWorkflow(name: "create-product-variants", value: unknown): Effect.Effect<{ result: Effect.Success<ReturnType<typeof variantCreation.run>> }, CommerceTransactionError>;
   function runWorkflow(name: string, value: unknown): ReturnType<typeof executeWorkflow>;
   function runWorkflow(name: string, value: unknown): ReturnType<typeof executeWorkflow> { return executeWorkflow(name, value); }
   const index = Effect.fn("ProductRequest.unsupportedIndex")(() => Effect.fail(commerceError("adapterFailure",
@@ -147,7 +158,7 @@ export const makeProductRequestOperations = Effect.fn("ProductRequest.makeOperat
   const remoteQuery = Effect.fn("ProductRequest.unsupportedRemoteQuery")((_value: unknown) => Effect.fail(commerceError("adapterFailure",
     new MedusaError(MedusaError.Types.INVALID_DATA, "Remote Product filters are outside the private supported profile"))));
   return Object.freeze({ runWorkflow, query: Object.freeze({ graph: read.graph, index }), remoteQuery, admitProductRefetchFields,
-    close: workflow.close.pipe(Effect.ensuring(update.close), Effect.ensuring(deletion.close), Effect.ensuring(read.close)) });
+    close: workflow.close.pipe(Effect.ensuring(update.close), Effect.ensuring(deletion.close), Effect.ensuring(variantCreation.close), Effect.ensuring(read.close)) });
 });
 export type ProductRequestOperations = Effect.Success<ReturnType<typeof makeProductRequestOperations>>;
 
@@ -156,7 +167,9 @@ export type ProductRequestOperations = Effect.Success<ReturnType<typeof makeProd
  * status. Defects, interruption, mixed failures and uncertainty remain unknown. */
 async function runProductRequestPromise<A, E>(work: Effect.Effect<A, E>): Promise<A> {
   const exit = await Effect.runPromiseExit(work);
-  if (Exit.isSuccess(exit)) return exit.value;
+  // Native middleware mutates its DTOs (for example inventory_quantity). The
+  // foreign HTTP caller owns a detached copy, never Core's immutable values.
+  if (Exit.isSuccess(exit)) return structuredClone(exit.value);
   const presentations: MedusaError[] = [];
   const expected = exit.cause.reasons.every(reason => {
     if (!Cause.isFailReason(reason) || !(reason.error instanceof CommerceTransactionError)) return false;

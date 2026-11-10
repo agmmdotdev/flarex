@@ -8,6 +8,7 @@ import { AdminGetProductVariantsParamsFields } from "../product-variants/validat
 const statusEnum = z.nativeEnum(ProductStatus)
 
 export const AdminGetProductParams = createSelectParams()
+export const AdminGetProductVariantParams = createSelectParams()
 
 export const AdminGetProductsParamsDirectFields = z.object({
   variants: AdminGetProductVariantsParamsFields.omit({ q: true })
@@ -188,3 +189,5 @@ export const UpdateProduct = z
 export const AdminUpdateProduct = WithAdditionalData(UpdateProduct)
 
 export type AdminUpdateProductBody = z.infer<ReturnType<typeof AdminUpdateProduct>>
+
+export const AdminCreateProductVariant = WithAdditionalData(CreateProductVariant)

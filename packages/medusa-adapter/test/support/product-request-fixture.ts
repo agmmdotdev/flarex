@@ -1,12 +1,19 @@
-import { Clock, Effect, type Scope } from "effect";
+import { Clock, Effect, Scope } from "effect";
 import { makePreparedHostRuntime } from "@flarex/persistence-postgres/internal/prepared-host-runtime";
-import { openCoreDatabase } from "@flarex/persistence-postgres/internal/core";
+import { openCoreDatabase, type CoreDatabase } from "@flarex/persistence-postgres/internal/core";
+import { makeAtomicCommerceNativeHost } from "@flarex/persistence-postgres/internal/commerce-native";
 import { coreNativeRelationalRow } from "../../../persistence-postgres/src/core/nativeRelationalQuery";
 import { readCoreNativeFixtureInventory } from "../../../persistence-postgres/test/core/nativeFixtureInventory";
 import { CORE_SCHEMA_WORKER_TEST_OPTIONS } from "../../../persistence-postgres/test/core/schemaFixture";
 import type { CorePersistenceFixture } from "../../../persistence-postgres/test/core/fixture";
 import { compileProductRequestCatalog, makeProductRequestOperations, type ProductRequestCatalog, type ProductRequestOperations } from "../../src/http/product-request";
 import { createCoreNativeWorkflowFixture } from "./core-native-workflow-fixture";
+import { makeLocalInventoryCommands } from "../../src/modules/inventory/service";
+import { makeStockLocationCommands } from "../../src/modules/stock-location/service";
+import { InventoryStockingInput, prepareInventoryStockingWorkflow } from "../../src/workflows/inventory/stock";
+import { prepareCreateReservationWorkflow } from "../../src/workflows/inventory/adjust-and-reserve";
+import type { ReservationCreates } from "../../src/modules/inventory/reservation-input";
+import type { AtomicWorkflowExecution } from "../../src/workflow/host";
 
 const productRequestTarget = Object.freeze({
   scopeUuid: "f0000000-0000-4000-8000-000000000001",
@@ -33,13 +40,20 @@ export async function prepareProductRequestFixture(driver: "pglite" | "postgres"
 
 /** Use only after the prior app owner has fully drained. This independently
  * reopens the same durable instance and observes genuine Core rows/outcomes. */
-export async function observeProductRequestFixture(input: Readonly<{ physical: CorePersistenceFixture; catalog: ProductRequestCatalog }>) {
+type ProductRequestDatabaseInput = Readonly<{ physical: CorePersistenceFixture; catalog: ProductRequestCatalog }>;
+
+async function useProductRequestDatabase<A, E>(input: ProductRequestDatabaseInput,
+  work: (database: CoreDatabase, persistence: CorePersistenceFixture["persistence"]) => Effect.Effect<A, E, Scope.Scope>) {
   const persistence = await input.physical.reopen();
   return Effect.runPromise(Effect.scoped(Effect.acquireUseRelease(openCoreDatabase(persistence, {
     schemaBundles: [input.catalog.bundle], schemaWorker: CORE_SCHEMA_WORKER_TEST_OPTIONS,
     now: Clock.currentTimeMillis.pipe(Effect.map(value => BigInt(Math.floor(value)) * 1_000_000n)),
     randomBytes: length => Effect.sync(() => crypto.getRandomValues(new Uint8Array(length))), maxConcurrentSaves: 2,
-  }), database => Effect.gen(function* () {
+  }), database => work(database, persistence), database => database.close())));
+}
+
+export async function observeProductRequestFixture(input: ProductRequestDatabaseInput) {
+  return useProductRequestDatabase(input, (database, persistence) => Effect.gen(function* () {
     const publishedTimestamp = yield* database.publishedTimestamp;
     const inventory = yield* readCoreNativeFixtureInventory(database, persistence, publishedTimestamp);
     const trackedTables = new Map<string, string>();
@@ -64,6 +78,8 @@ export async function observeProductRequestFixture(input: Readonly<{ physical: C
     const priceSets = yield* select("pricing", "price_set");
     const prices = yield* select("pricing", "price");
     const inventoryItems = yield* select("inventory", "inventory_item");
+    const inventoryLevels = yield* select("inventory", "inventory_level");
+    const reservations = yield* select("inventory", "reservation_item");
     const variantPriceSets = yield* select("variant_links", "product_variant_price_set");
     const variantInventoryItems = yield* select("variant_links", "product_variant_inventory_item");
     // Every timestamp is the actual current document-version timestamp from
@@ -74,6 +90,37 @@ export async function observeProductRequestFixture(input: Readonly<{ physical: C
       return table === undefined ? [] : [{ table, timestamp: entry.timestamp }];
     });
     return { ...inventory, publishedTimestamp, businessRows, products, options, optionValues, variants, variantOptions,
-      priceSets, prices, inventoryItems, variantPriceSets, variantInventoryItems };
-  }), database => database.close())));
+      priceSets, prices, inventoryItems, inventoryLevels, reservations, variantPriceSets, variantInventoryItems };
+  }));
+}
+
+/** Trusted fixture seeding through the existing native Stock and Reservation
+ * workflows, after the HTTP/DO owner has drained. No quantity logic lives here. */
+export async function seedProductRequestInventory(input: ProductRequestDatabaseInput & Readonly<{
+  stocking: typeof InventoryStockingInput.Type;
+  reservationBatches?: readonly (typeof ReservationCreates.Type)[];
+}>) {
+  return useProductRequestDatabase(input, database => Effect.gen(function* () {
+    const hostRuntime = yield* makePreparedHostRuntime({ maximumHosts: 8, maximumPreparedBytes: 8 * 1024 * 1024 });
+    const generationScope = yield* Effect.scope;
+    const execution: AtomicWorkflowExecution = {
+      identityAndAccessPolicy: { profile: "native-product-inventory-fixture" },
+      prepare: composition => Scope.provide(generationScope)(Effect.acquireRelease(makeAtomicCommerceNativeHost({ ...composition, database, hostRuntime,
+        bundle: input.catalog.bundle, sources: input.catalog.sources, eventStorage: { definition: input.catalog.eventDefinition } }), host => host.close)),
+    };
+    const inventory = yield* makeLocalInventoryCommands("stock");
+    const stock = yield* makeStockLocationCommands("create");
+    const member = { module: inventory.workflow, nativeStorage: input.catalog.modules.inventory.nativeStorage };
+    const options = { execution, revision: "a".repeat(64), subscribers: [{ id: "variant-quantity-fixture", revision: "b".repeat(64) }] };
+    const stocking = yield* prepareInventoryStockingWorkflow({ ...options, modules: { inventory: member,
+      stock_location: { module: stock.workflow, nativeStorage: input.catalog.modules.stock_location.nativeStorage } } });
+    const result = yield* stocking.run(stocking.newRequestKey(), input.stocking);
+    if (input.reservationBatches !== undefined && input.reservationBatches.length > 0) {
+      const reservations = yield* prepareCreateReservationWorkflow({ ...options, inventory: member });
+      for (const batch of input.reservationBatches) {
+        yield* reservations.run(reservations.newRequestKey(), { reservations: batch });
+      }
+    }
+    return result;
+  }));
 }

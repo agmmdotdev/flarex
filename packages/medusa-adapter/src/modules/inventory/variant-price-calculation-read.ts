@@ -21,3 +21,11 @@ export const InventoryVariantPriceCalculationLevelRead = Schema.Struct({
     .check(Schema.makeFilter(filters => filters.id !== undefined || filters.inventory_item_id !== undefined)),
   config: Config,
 });
+
+/** The native quantity serializer owns available_quantity. Its computed field
+ * is selected from the real stocked/reserved pair, never from stored columns. */
+export function inventoryVariantPriceCalculationLevelConfig(config: typeof InventoryVariantPriceCalculationLevelRead.Type["config"]) {
+  if (config?.select?.includes("available_quantity") !== true) return config;
+  return { ...config, select: [...new Set([...config.select.filter(field => field !== "available_quantity"),
+    "stocked_quantity", "reserved_quantity"])] };
+}

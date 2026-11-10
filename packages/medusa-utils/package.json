@@ -742,6 +742,11 @@
       "types": "./dist/common/remove-undefined-properties.d.ts",
       "source": "./src/common/remove-undefined-properties.ts",
       "default": "./dist/common/remove-undefined-properties.js"
+    },
+    "./product/get-variant-availability": {
+      "types": "./dist/product/get-variant-availability.d.ts",
+      "source": "./src/product/get-variant-availability.ts",
+      "default": "./dist/product/get-variant-availability.js"
     }
   },
   "license": "MIT",

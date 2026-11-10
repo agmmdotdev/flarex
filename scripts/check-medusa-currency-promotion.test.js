@@ -2,7 +2,7 @@
 import { verifyPriceListDeleteSelection, verifyPriceListDeleteCallbacks, verifyPriceListUpdateCallbacks, verifyNativePriceListRuleBuilder, verifyPriceListCreateCallbacks, verifyPricePreferenceDeleteCallbacks, verifyPricePreferenceUpdateCallbacks, verifyPricePreferenceCreateCallbacks, verifySalesChannelProductLinkCallbacks, verifyTestPort, verifyPricingWorkflowSelection, verifyInventoryLevelDeleteCallbacks, verifyInventoryItemDeleteCallbacks, verifyInventoryLevelBatchCallbacks, verifyInventoryItemCreateCallbacks, verifyStoreDeleteCallbacks, verifyStoreCreateCallbacks, verifyStoreCreationTypes, verifyReservationLineItemDeletionCallbacks, verifyStoreUpdateCallbacks, verifyShippingProfileUpdateCallbacks, verifyShippingProfileCreateCallbacks, verifyShippingOptionRuleBatchCallbacks, verifyLocationFulfillmentSetCallbacks, verifyShippingProfileDeleteCallbacks, verifyShippingOptionTypeCreateCallbacks, verifyShippingOptionTypeUpdateCallbacks, verifyShippingOptionTypeDeleteCallbacks, verifyServiceZoneCreateCallbacks, verifyServiceZoneDeleteCallbacks, verifyFulfillmentSetDeleteCallbacks, verifyServiceZoneUpdateCallbacks, verifyNativeToManyInitialization, verifyNativeRelationScalarFields } from "./check-medusa-test-port.mjs";
 import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { admitsCurrencyImport, verifyCurrencyPromotion, verifyStoreCurrencyHandlerSource, verifyAdminProductPostSource, verifyAdminProductDetailSource, verifyModuleTypeFork, verifyNativeBigNumberTypeSource, nativeBigNumberSourcePair, verifyStoreTypeFork, verifyInventoryReservationRestoreFork, verifyStoreCreationTypeFork, verifyPriceListCreationTypeFork, verifyShippingProfileWorkflowTypeFork, verifyLinkCascadeReturnMapFork } from "./check-medusa-currency-promotion.mjs";
+import { admitsCurrencyImport, verifyCurrencyPromotion, verifyStoreCurrencyHandlerSource, verifyAdminProductPostSource, verifyAdminProductDetailSource, verifyAdminProductVariantSource, verifyAdminVariantInventoryWrapperSource, verifyVariantAvailabilityUtilitySource, verifyModuleTypeFork, verifyNativeBigNumberTypeSource, nativeBigNumberSourcePair, verifyStoreTypeFork, verifyInventoryReservationRestoreFork, verifyStoreCreationTypeFork, verifyPriceListCreationTypeFork, verifyShippingProfileWorkflowTypeFork, verifyLinkCascadeReturnMapFork } from "./check-medusa-currency-promotion.mjs";
 import { analyzeMedusaSourceIslandBoundary } from "./check-medusa-source-island-boundary.mjs";
 import { verifyInventoryConfirmationPreparationTest } from "./check-medusa-inventory-confirmation-source.mjs";
 
@@ -2694,5 +2694,45 @@ describe("native ShippingOptionRule batch callback provenance", () => {
     expect(() => verifyCurrencyPromotion(root, { ...promotion, files: promotion.files.map(entry =>
       entry.target === "packages/medusa-core-flows/src/" + file ? { ...entry, ...mutation } : entry) }))
       .toThrow("ShippingOptionRule batch adaptation outside its exact pinned source pair");
+  });
+});
+
+
+describe("native Admin Product variant source guards", () => {
+  const pairs = [
+    ["packages/medusa/src/api/admin/products/[id]/variants/route.ts", "packages/medusa-http/src/api/admin/products/[id]/variants/route.ts", (native, promoted) => verifyAdminProductVariantSource(native, promoted)],
+    ["packages/medusa/src/api/admin/products/[id]/variants/[variant_id]/route.ts", "packages/medusa-http/src/api/admin/products/[id]/variants/[variant_id]/route.ts", (native, promoted) => verifyAdminProductVariantSource(native, promoted, true)],
+    ["packages/medusa/src/api/utils/middlewares/products/variant-inventory-quantity.ts", "packages/medusa-http/src/api/utils/middlewares/products/variant-inventory-quantity.ts", verifyAdminVariantInventoryWrapperSource],
+    ["packages/core/utils/src/product/get-variant-availability.ts", "packages/medusa-utils/src/product/get-variant-availability.ts", verifyVariantAvailabilityUtilitySource],
+  ];
+  it.each(pairs)("keeps the selected runtime and rejects module side effects: %s", (source, target, verify) => {
+    const native = readFileSync("third_party/medusa/upstream/" + source, "utf8");
+    const promoted = readFileSync(target, "utf8");
+    expect(() => verify(native, promoted)).not.toThrow();
+    expect(() => verify(native, promoted + "\nglobalThis.variantPromotionDrift = true")).toThrow("Changed native");
+  });
+  it.each([
+    [0, 'product_id: productId', 'product_id: "other"'],
+    [0, '"create-product-variants"', '"update-product-variants"'],
+    [0, 'product_variants: input, additional_data', 'product_variants: [], additional_data'],
+    [0, 'count: metadata.count', 'count: 0'],
+    [0, 'field.includes("inventory_quantity")', 'false'],
+    [0, 'await wrapVariantsWithTotalInventoryQuantity', 'wrapVariantsWithTotalInventoryQuantity'],
+    [0, 'Created Product variants parent was not returned by native refetch', 'Different invariant'],
+    [1, 'id: variantId, product_id: productId', 'id: variantId'],
+    [1, 'remapVariantResponse(variant)', 'variant'],
+    [2, 'if (!variant.manage_inventory)', 'if (false)'],
+    [2, 'variant_ids: variantIds', 'variant_ids: []'],
+    [3, 'Math.floor(', 'Math.ceil('],
+    [3, 'Math.min(...inventoryQuantities)', 'Math.max(...inventoryQuantities)'],
+    [3, 'availableQuantity / requiredQuantity', 'availableQuantity'],
+    [3, 'enable: true', 'enable: false'],
+    [3, '"inventory.location_levels.*"', '"inventory.*"'],
+  ])("rejects native variant mutation %s %s", (index, original, change) => {
+    const [source, target, verify] = pairs[index];
+    const native = readFileSync("third_party/medusa/upstream/" + source, "utf8");
+    const promoted = readFileSync(target, "utf8");
+    expect(promoted).toContain(original);
+    expect(() => verify(native, promoted.replace(original, change))).toThrow("Changed native");
   });
 });
