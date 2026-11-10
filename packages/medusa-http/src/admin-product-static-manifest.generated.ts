@@ -4,9 +4,25 @@ import * as adminProductsRoute from "./api/admin/products/route"
 import * as adminProductsByIdRoute from "./api/admin/products/[id]/route"
 import * as adminProductsByIdVariantsRoute from "./api/admin/products/[id]/variants/route"
 import * as adminProductsByIdVariantsByVariant_idRoute from "./api/admin/products/[id]/variants/[variant_id]/route"
+import * as adminProductsByIdVariantsByVariant_idImagesBatchRoute from "./api/admin/products/[id]/variants/[variant_id]/images/batch/route"
+import * as adminProductsByIdImagesByImage_idVariantsBatchRoute from "./api/admin/products/[id]/images/[image_id]/variants/batch/route"
 import * as adminProductsByIdOptionsRoute from "./api/admin/products/[id]/options/route"
 import * as adminProductsByIdOptionsByOption_idRoute from "./api/admin/products/[id]/options/[option_id]/route"
+import * as adminProductTypesRoute from "./api/admin/product-types/route"
+import * as adminProductTypesByIdRoute from "./api/admin/product-types/[id]/route"
+import * as adminProductTagsRoute from "./api/admin/product-tags/route"
+import * as adminProductTagsByIdRoute from "./api/admin/product-tags/[id]/route"
+import * as adminProductCategoriesRoute from "./api/admin/product-categories/route"
+import * as adminProductCategoriesByIdRoute from "./api/admin/product-categories/[id]/route"
+import * as adminProductCategoriesByIdProductsRoute from "./api/admin/product-categories/[id]/products/route"
+import * as adminCollectionsRoute from "./api/admin/collections/route"
+import * as adminCollectionsByIdRoute from "./api/admin/collections/[id]/route"
+import * as adminCollectionsByIdProductsRoute from "./api/admin/collections/[id]/products/route"
 import { adminProductRoutesMiddlewares } from "./api/admin/products/middlewares"
+import { adminProductTypeRoutesMiddlewares } from "./api/admin/product-types/middlewares"
+import { adminProductTagRoutesMiddlewares } from "./api/admin/product-tags/middlewares"
+import { adminProductCategoryRoutesMiddlewares } from "./api/admin/product-categories/middlewares"
+import { adminCollectionRoutesMiddlewares } from "./api/admin/collections/middlewares"
 
 export const adminProductHttpManifest = {
   routes: [
@@ -31,6 +47,16 @@ export const adminProductHttpManifest = {
       relativePath: "packages/medusa-http/src/api/admin/products/[id]/variants/[variant_id]/route.ts",
     },
     {
+      route: "/admin/products/:id/variants/:variant_id/images/batch",
+      module: adminProductsByIdVariantsByVariant_idImagesBatchRoute,
+      relativePath: "packages/medusa-http/src/api/admin/products/[id]/variants/[variant_id]/images/batch/route.ts",
+    },
+    {
+      route: "/admin/products/:id/images/:image_id/variants/batch",
+      module: adminProductsByIdImagesByImage_idVariantsBatchRoute,
+      relativePath: "packages/medusa-http/src/api/admin/products/[id]/images/[image_id]/variants/batch/route.ts",
+    },
+    {
       route: "/admin/products/:id/options",
       module: adminProductsByIdOptionsRoute,
       relativePath: "packages/medusa-http/src/api/admin/products/[id]/options/route.ts",
@@ -39,6 +65,56 @@ export const adminProductHttpManifest = {
       route: "/admin/products/:id/options/:option_id",
       module: adminProductsByIdOptionsByOption_idRoute,
       relativePath: "packages/medusa-http/src/api/admin/products/[id]/options/[option_id]/route.ts",
+    },
+    {
+      route: "/admin/product-types",
+      module: adminProductTypesRoute,
+      relativePath: "packages/medusa-http/src/api/admin/product-types/route.ts",
+    },
+    {
+      route: "/admin/product-types/:id",
+      module: adminProductTypesByIdRoute,
+      relativePath: "packages/medusa-http/src/api/admin/product-types/[id]/route.ts",
+    },
+    {
+      route: "/admin/product-tags",
+      module: adminProductTagsRoute,
+      relativePath: "packages/medusa-http/src/api/admin/product-tags/route.ts",
+    },
+    {
+      route: "/admin/product-tags/:id",
+      module: adminProductTagsByIdRoute,
+      relativePath: "packages/medusa-http/src/api/admin/product-tags/[id]/route.ts",
+    },
+    {
+      route: "/admin/product-categories",
+      module: adminProductCategoriesRoute,
+      relativePath: "packages/medusa-http/src/api/admin/product-categories/route.ts",
+    },
+    {
+      route: "/admin/product-categories/:id",
+      module: adminProductCategoriesByIdRoute,
+      relativePath: "packages/medusa-http/src/api/admin/product-categories/[id]/route.ts",
+    },
+    {
+      route: "/admin/product-categories/:id/products",
+      module: adminProductCategoriesByIdProductsRoute,
+      relativePath: "packages/medusa-http/src/api/admin/product-categories/[id]/products/route.ts",
+    },
+    {
+      route: "/admin/collections",
+      module: adminCollectionsRoute,
+      relativePath: "packages/medusa-http/src/api/admin/collections/route.ts",
+    },
+    {
+      route: "/admin/collections/:id",
+      module: adminCollectionsByIdRoute,
+      relativePath: "packages/medusa-http/src/api/admin/collections/[id]/route.ts",
+    },
+    {
+      route: "/admin/collections/:id/products",
+      module: adminCollectionsByIdProductsRoute,
+      relativePath: "packages/medusa-http/src/api/admin/collections/[id]/products/route.ts",
     },
   ],
   middlewares: [
@@ -49,6 +125,38 @@ export const adminProductHttpManifest = {
         },
       },
       source: "packages/medusa-http/src/api/admin/products/middlewares.ts",
+    },
+    {
+      module: {
+        default: {
+          routes: adminProductTypeRoutesMiddlewares,
+        },
+      },
+      source: "packages/medusa-http/src/api/admin/product-types/middlewares.ts",
+    },
+    {
+      module: {
+        default: {
+          routes: adminProductTagRoutesMiddlewares,
+        },
+      },
+      source: "packages/medusa-http/src/api/admin/product-tags/middlewares.ts",
+    },
+    {
+      module: {
+        default: {
+          routes: adminProductCategoryRoutesMiddlewares,
+        },
+      },
+      source: "packages/medusa-http/src/api/admin/product-categories/middlewares.ts",
+    },
+    {
+      module: {
+        default: {
+          routes: adminCollectionRoutesMiddlewares,
+        },
+      },
+      source: "packages/medusa-http/src/api/admin/collections/middlewares.ts",
     },
   ],
 } satisfies StaticHttpResourceManifest

@@ -25,6 +25,7 @@ function fixture(options: { anonymous?: boolean; deny?: string; missing?: boolea
     resolveAdminPrincipal: () => options.anonymous ? undefined : user,
     evaluateAdminPolicies: evaluate,
     admitProductRefetchFields: admission,
+    admitCatalogRefetchFields: () => undefined,
     createRequestScope: () => createContainer().register({ workflows: asValue({ run }), query: asValue({ graph }), logger: asValue({ error() {}, info() {} }) }),
   })
   return { handler, run, graph, admission, evaluate }
@@ -190,10 +191,10 @@ describe("selected pinned Admin Product option GET/POST routes", () => {
     }
   })
 
-  it("keeps option DELETE and PATCH unselected", async () => {
+  it("keeps collection DELETE and all option PATCH unselected", async () => {
     const f = fixture()
     for (const path of ["", `/${option.id}`]) {
-      for (const method of ["DELETE", "PATCH"]) expect((await f.handler.handle(request(path, "", undefined, method))).status).toBe(404)
+      for (const method of path ? ["PATCH"] : ["DELETE", "PATCH"]) expect((await f.handler.handle(request(path, "", undefined, method))).status).toBe(404)
     }
     expect(f.run).not.toHaveBeenCalled()
     expect(f.graph).not.toHaveBeenCalled()

@@ -68,7 +68,7 @@ export type MiddlewareRoute = {
   methods?: MiddlewareVerb[]
   matcher: string
   middlewares?: MiddlewareFunction[]
-  bodyParser?: false
+  bodyParser?: false | { sizeLimit?: string | number | undefined }
   policies?: PolicyAction | PolicyAction[]
 }
 export type MiddlewaresConfig = { routes?: MiddlewareRoute[]; errorHandler?: MedusaErrorHandlerFunction | false }

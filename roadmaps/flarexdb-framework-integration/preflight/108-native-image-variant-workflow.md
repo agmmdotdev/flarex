@@ -86,10 +86,14 @@ not remove those preparation reads. Preserve complete cohorts and existing
 option/pivot identities instead of bypassing the native method.
 
 The native assignment service has an explicit TODO for validating that Image
-and Variant belong to the same Product. Native execution accepts otherwise
-valid cross-Product pairs. The Image's parent need not be a thumbnail-preparation
-parent; do not introduce same-Product enforcement or count an unread Image
-parent as a native preparation dependency.
+and Variant belong to the same Product. Unscoped native execution accepts otherwise
+valid cross-Product pairs. Preserve that retained private behavior: the Image's
+parent need not be a thumbnail-preparation parent, and an unread Image parent is
+not a native preparation dependency. The explicitly parent-qualified HTTP fork
+carries its URL Product through both native workflows, assignment steps and
+thumbnail selectors. The actual Product service checks both active endpoints
+under that same Product and shared context before mutation; unscoped calls omit
+those endpoint-parent queries.
 
 Native additions preserve duplicate pairs and already-present pairs by creating
 distinct assignment identities. Removal selects the complete requested-pair
@@ -119,7 +123,8 @@ produce a dangling native assignment. The selected portable DML/core retains
 both declared endpoint FKs and its missing-Variant refusal. Do not weaken that
 existing storage contract to imitate a missing upstream constraint. Native
 soft-deleted endpoint additions retain their rows because physical FKs still
-resolve; the connected boundary retains those inactive-endpoint additions.
+resolve; the unscoped connected boundary retains those inactive-endpoint additions.
+The explicit parent-qualified boundary refuses inactive endpoints.
 
 Native ORM full-row assignment removal joins both Image and Variant with
 `deleted_at IS NULL`; a missing or inactive endpoint hides the assignment.
@@ -251,17 +256,65 @@ reads and mutation receipts when expanding the profile.
 Profile changes require explicit admission, never pagination, omitted native
 preparation or silent result truncation.
 
-Default OCC and event/byte/working-set limits remain unchanged. Native thumbnail
-preparation exceeds the ordinary 64-call allowance. Only the authenticated
+Default OCC and event/byte/working-set limits remain unchanged. The selected
+native thumbnail preparation cohorts can exceed the ordinary 64-call allowance. The authenticated
 Image-to-Variants facade selects a named 128-call allowance through the existing
 trusted composition API. Its complete maximum witnesses fit that allowance.
-The named workflow selects the existing queued operation profile for genuine
+The inverse workflow selects the existing queued operation profile for genuine
 sibling execution within one outer lifetime. A facade bound
 alone does not prove preparation bounds. The complete selected cohort must be
 observed and refused at its existing owner before mutation when it exceeds the
 named profile. If a later native preparation exceeds a bound after earlier
 assignment writes, prove sticky refusal and whole-root rollback. No global
 resource increase follows from this profile.
+
+The HTTP Variant-to-Images boundary selects a separate constructor-time
+`admission: "parent-qualified"` on `prepareVariantImagesWorkflow`. It requires
+`product_id`, admits at most four raw additions and four raw removals, and
+retains the forward workflow's unique/disjoint input rule and sequential
+operation scheduling. Its authentic module view is
+`public.parent-qualified-variant-image-workflows`. Both its root request and
+Product participant use the existing `productImageVariantResources` 128-call
+allowance. The retained unscoped constructor keeps its original 128-ID body
+bound, ordinary module view and 64-call allowance.
+
+The parent-qualified forward view reuses the complete selection owner with
+sixteen siblings, four total Options, four Values per Option, four pivots per
+Variant and eight matching assignment identities. It preserves forward
+assignment visibility; the inverse workflow's joined active-endpoint predicate
+is confined to the inverse view. Native parent checks still require both active
+endpoints for every constrained pair before mutation. The semantic parent
+constraint never becomes an assignment column.
+
+The forward maximum uses one Product, sixteen siblings, four Options, sixteen
+Values, sixty-four pivots and eight Images. Four distinct removal pairs match
+eight existing assignments, while four distinct additions create four rows.
+The complete root clears the selected thumbnail and preserves every other
+Variant, Option, Value and pivot. It charges 76 bounded entries and creates
+thirteen revisions, one native module event and one durable root outcome under
+the unchanged 128-identity working set. This executing cohort establishes fit;
+it does not admit arbitrary larger graphs. Fifth raw inputs, seventeenth
+siblings, fifth Options/Values/pivots and ninth matching assignments are refused
+with whole-root rollback, including earlier assignment changes.
+
+The existing native normalizers own the parent-qualified filter objects. Each
+workflow retains its pre-existing guarded extractor as a filter-returning
+callback. Optional parent propagation adds no unconditional transform callbacks:
+each such callback would charge two captures even without a parent constraint.
+The retained unscoped add/remove/thumbnail operation completes at 62 bounded
+entries under its ordinary 64-call allowance, with three revisions, one module
+event and one durable root outcome. Its replay performs no further business
+writes or event publication.
+
+The smaller parent-qualified removal with one sibling, one Option and one Value
+completes at 69 entries. Parent checks add two native endpoint reads and four
+charged entries. Both request and participant allowances must therefore belong
+to the explicitly selected 128-call profile. A forced 64-call execution remains
+a whole-root rollback witness. These executing cohorts establish resource fit
+on PGlite and ordinary-role PostgreSQL; they do not admit arbitrary larger
+graphs or guarantee that every structurally admitted body fits every finite
+resource ceiling. Working-set and all other ceilings continue to refuse excess
+work atomically.
 
 ## Coverage And Remaining Admissions
 

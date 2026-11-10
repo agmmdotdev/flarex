@@ -30,9 +30,10 @@ export const changeProductLifecycle = Effect.fn("ProductAdapter.lifecycle")(func
     return yield* Effect.fail(commerceError("unsupportedProfile"));
   if (operation === "delete" && ![catalog.product, catalog.tag, catalog.type, catalog.collection, catalog.category, catalog.option, catalog.assignment].includes(entity)) return yield* Effect.fail(commerceError("unsupportedProfile"));
   const captured = yield* Effect.fromResult(captureCommerceInput(input, ctx.resources));
-  // Native MedusaService wraps a filter object in a one-element array. Only
-  // this named Variant soft-delete profile admits that exact parent selector.
-  const scoped = admission === "product-deletions" && operation === "softDelete" && entity === catalog.variant &&
+  // Native MedusaService wraps a filter object in a one-element array. These
+  // named child soft-delete profiles admit the exact same parent selector.
+  const scoped = operation === "softDelete" && (admission === "product-deletions" && entity === catalog.variant ||
+    admission === "option-workflows" && entity === catalog.option) &&
     Array.isArray(captured) && captured.length === 1 && typeof captured[0] === "object"
     ? (yield* Effect.fromResult(decodeVariantDeletionRepositorySelection(captured)))[0] : undefined;
   const selected = scoped !== undefined ? scoped.id : operation === "delete" ? (yield* Effect.fromResult(decodeDelete(captured))).$or.map(row => row.id)

@@ -51,6 +51,7 @@ export type UpdateProductOptionInput = ProductTypes.UpdateProductOptionDTO & {
 export type VariantImageInput = {
   image_id: string
   variant_id: string
+  product_id?: string
 }
 
 export type VariantImageInputArray = VariantImageInput[]

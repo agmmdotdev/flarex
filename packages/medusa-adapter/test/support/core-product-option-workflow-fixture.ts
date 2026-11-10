@@ -12,7 +12,7 @@ import { prepareProductOptionCreationWorkflow, prepareProductOptionUpdateWorkflo
 /** Seeds and cleanup call genuine existing native commands. This fixture adds
  * no graph replacement, cascade, mutation or settlement implementation. */
 export async function prepareCoreProductOption(driver: "pglite" | "postgres", registerCleanup: (close: () => Promise<void>) => void,
-  selectedFixture?: CoreProductWorkflowFixture) {
+  selectedFixture?: Pick<CoreProductWorkflowFixture, "fixture" | "product" | "execution">) {
   const base = selectedFixture ?? await createCoreProductWorkflowFixture(driver, registerCleanup);
   const { fixture, product, execution } = base;
   const reads = product.reads;

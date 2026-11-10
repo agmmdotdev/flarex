@@ -206,15 +206,19 @@ export function productLogicalVariantChangeEventPolicy(catalog: ProductRuntimeMe
 /** The native image workflow writes silent assignment rows and may separately
  * clear a Variant thumbnail. Match each call to its own charged attempt range. */
 export function productLogicalVariantImagesEventPolicy(catalog: ProductRuntimeMetadata,
-  profile: "variantImages" | "imageVariants" = "variantImages") {
+  profile: "variantImages" | "imageVariants" | "parentVariantImages" = "variantImages") {
   const capture = productModuleEventCapture(catalog, defaultCommerceResources);
   const decodePairs = Schema.decodeUnknownEffect(VariantImagePairs, { onExcessProperty: "error" });
   const decodeCreated = Schema.decodeUnknownEffect(Schema.Array(Schema.Struct({ id: EventId })),
     { onExcessProperty: "error" });
   const mismatch = () => commerceError("receiptMismatch");
   const imageVariants = profile === "imageVariants";
+  const parentVariantImages = profile === "parentVariantImages";
+  const complete = imageVariants || parentVariantImages;
   const commandNames = imageVariants ? { create: "productImageWorkflowCreateAssignment", remove: "productImageWorkflowDeleteAssignment",
-    update: "productImageWorkflowUpdateVariantsBySelector" } : { create: "productCreateassignment", remove: "productDeleteassignment",
+    update: "productImageWorkflowUpdateVariantsBySelector" } : parentVariantImages ? {
+      create: "productParentVariantImageCreateAssignment", remove: "productParentVariantImageDeleteAssignment",
+      update: "productParentVariantImageUpdateVariantsBySelector" } : { create: "productCreateassignment", remove: "productDeleteassignment",
     update: "productUpdateVariantsBySelector" };
   const encoder = new TextEncoder();
   const compareRows = (left: JsonObject, right: JsonObject) =>
@@ -237,25 +241,34 @@ export function productLogicalVariantImagesEventPolicy(catalog: ProductRuntimeMe
     }
     return rows;
   };
+  const parentMatches = (pair: typeof VariantImagePairs.Type[number], activity: Activity) => {
+    if (pair.product_id === undefined) return true;
+    const image = initialRows(activity, catalog.image.table.name).get(pair.image_id);
+    const variant = initialRows(activity, catalog.variant.table.name).get(pair.variant_id);
+    return image?.product_id === pair.product_id && image.deleted_at === null &&
+      variant?.product_id === pair.product_id && variant.deleted_at === null;
+  };
   const validateLogicalCall: LogicalCallReceiptValidation = Effect.fn("ProductEvents.validateLogicalVariantImages")(
     function* (call, activity) {
       const { mutations: attempts, lifecycle } = activity;
       if (lifecycle.length !== 0) return yield* Effect.fail(mismatch());
-      if (imageVariants && (call.mode !== "write" || activity.setNull.length !== 0 || activity.referenceReplacements.length !== 0 ||
+      if (complete && (call.mode !== "write" || activity.setNull.length !== 0 || activity.referenceReplacements.length !== 0 ||
         attempts.some((mutation, index) => mutation.ordinal !== index))) return yield* Effect.fail(mismatch());
         if (call.commandName === commandNames.create) {
           const pairs = yield* decodePairs(call.input).pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
           const created = yield* decodeCreated(call.result).pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
-          if (call.events.length !== 0 || pairs.length !== attempts.length || created.length !== attempts.length)
+          if (call.events.length !== 0 || pairs.length !== attempts.length || created.length !== attempts.length ||
+            pairs.some(pair => !parentMatches(pair, activity)))
             return yield* Effect.fail(mismatch());
-          if (imageVariants && (pairs.length > 4 || new Set(pairs.map(pair => pair.image_id)).size > 1 ||
+          if (parentVariantImages && pairs.some(pair => pair.product_id === undefined)) return yield* Effect.fail(mismatch());
+          if (complete && (pairs.length > 4 || new Set(pairs.map(pair => imageVariants ? pair.image_id : pair.variant_id)).size > 1 ||
             new Set(created.map(row => row.id)).size !== created.length)) return yield* Effect.fail(mismatch());
           for (const [index, mutation] of attempts.entries()) {
             const row = mutation?.after, pair = pairs[index], result = created[index];
             if (mutation?.table !== catalog.assignment.table.name || mutation.operation !== "insert" ||
               mutation.before !== null || row === null || pair === undefined || result === undefined ||
               row.id !== result.id || row.variant_id !== pair.variant_id || row.image_id !== pair.image_id ||
-              imageVariants && row.deleted_at !== null)
+              complete && row.deleted_at !== null)
               return yield* Effect.fail(mismatch());
           }
           return;
@@ -263,13 +276,14 @@ export function productLogicalVariantImagesEventPolicy(catalog: ProductRuntimeMe
         if (call.commandName === commandNames.remove) {
           const pairs = yield* decodePairs(call.input).pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
           const requested = new Set(pairs.map(pair => JSON.stringify([pair.variant_id, pair.image_id])));
-          if (call.events.length !== 0 || call.result !== null || attempts.some(mutation =>
+          if (call.events.length !== 0 || call.result !== null || pairs.some(pair => !parentMatches(pair, activity)) || attempts.some(mutation =>
             mutation.table !== catalog.assignment.table.name || mutation.operation !== "delete" ||
             mutation.before === null || mutation.after !== null ||
             !requested.has(JSON.stringify([mutation.before.variant_id, mutation.before.image_id]))))
             return yield* Effect.fail(mismatch());
-          if (imageVariants) {
-            if (pairs.length > 4 || new Set(pairs.map(pair => pair.image_id)).size > 1) return yield* Effect.fail(mismatch());
+          if (complete) {
+            if (pairs.length > 4 || new Set(pairs.map(pair => imageVariants ? pair.image_id : pair.variant_id)).size > 1 ||
+              parentVariantImages && pairs.some(pair => pair.product_id === undefined)) return yield* Effect.fail(mismatch());
             // Native full-row assignment reads join both required endpoints
             // through their default active-row filters. Earlier observations
             // of an assignment do not grant visibility to an inactive or
@@ -279,7 +293,8 @@ export function productLogicalVariantImagesEventPolicy(catalog: ProductRuntimeMe
             const active = (rows: ReadonlyMap<string, JsonObject>, id: JsonObject[string] | undefined) =>
               typeof id === "string" && rows.get(id)?.deleted_at === null;
             const selected = [...initialRows(activity, catalog.assignment.table.name).values()].filter(row => row.deleted_at === null &&
-              requested.has(JSON.stringify([row.variant_id, row.image_id])) && active(images, row.image_id) && active(variants, row.variant_id))
+              requested.has(JSON.stringify([row.variant_id, row.image_id])) &&
+              (!imageVariants || active(images, row.image_id) && active(variants, row.variant_id)))
               .toSorted(compareRows);
             if (selected.length > 8 || selected.length !== attempts.length) return yield* Effect.fail(mismatch());
             for (const [index, row] of selected.entries()) {
@@ -293,11 +308,13 @@ export function productLogicalVariantImagesEventPolicy(catalog: ProductRuntimeMe
         if (call.commandName === commandNames.update) {
           const input = yield* Effect.fromResult(decodeVariantThumbnailUpdate(call.input))
             .pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
+          if (parentVariantImages && input.selector.product_id === undefined) return yield* Effect.fail(mismatch());
           if (imageVariants) {
             const selector = input.selector;
             const ids = new Set(typeof selector.id === "string" ? [selector.id] : selector.id);
             const selected = [...initialRows(activity, catalog.variant.table.name).values()].filter(row => row.deleted_at === null &&
-              ids.has(String(row.id)) && (!("thumbnail" in selector) || row.thumbnail === selector.thumbnail)).toSorted(compareRows);
+              ids.has(String(row.id)) && (selector.product_id === undefined || row.product_id === selector.product_id) &&
+              (!("thumbnail" in selector) || row.thumbnail === selector.thumbnail)).toSorted(compareRows);
             const ordered = preservePrimaryKeyOrFilterOrder(selected, buildQuery(selector, { order: { id: "ASC" } }).where,
               ["id"], [["id", "ASC"]]);
             const results = call.result;
@@ -328,12 +345,26 @@ export function productLogicalVariantImagesEventPolicy(catalog: ProductRuntimeMe
             }
             return;
           }
-          if (attempts.length > 1 || attempts.some(mutation =>
+          if (typeof input.selector.id !== "string" || attempts.length > 1 || attempts.some(mutation =>
             mutation.table !== catalog.variant.table.name ||
             (mutation.operation !== "patch" && mutation.operation !== "replace") ||
             mutation.before === null || mutation.after === null || mutation.before.id !== input.selector.id ||
             mutation.after.id !== input.selector.id || mutation.before.product_id !== mutation.after.product_id ||
+            input.selector.product_id !== undefined && mutation.before.product_id !== input.selector.product_id ||
             mutation.after.thumbnail !== null)) return yield* Effect.fail(mismatch());
+          if (parentVariantImages) {
+            const selector = input.selector;
+            const selected = [...initialRows(activity, catalog.variant.table.name).values()].filter(row =>
+              row.id === selector.id && row.product_id === selector.product_id && row.deleted_at === null);
+            if (attempts.length !== selected.length || !Array.isArray(call.result) || call.result.length !== attempts.length)
+              return yield* Effect.fail(mismatch());
+            const matchesResult = productResultGraphMatcher(catalog, catalog.variant.table.name, activity);
+            for (const [index, mutation] of attempts.entries()) {
+              const result = call.result[index], before = selected[index];
+              if (before === undefined || mutation.before === null || mutation.after === null || result === undefined ||
+                !jsonEqual(before, mutation.before) || !matchesResult(mutation.after, result)) return yield* Effect.fail(mismatch());
+            }
+          }
           for (const mutation of attempts) {
             if (mutation.before === null || mutation.after === null) return yield* Effect.fail(mismatch());
             const before = mutation.before, after = mutation.after;

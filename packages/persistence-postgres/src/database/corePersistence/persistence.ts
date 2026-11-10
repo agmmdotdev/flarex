@@ -1,6 +1,7 @@
-import { Clock, Effect, Option, Schema, Stream } from "effect";
+import { Effect, Option, Schema, Stream } from "effect";
 import { bytesEqual, compareBytesLexicographically, copyBytes } from "@flarex/utils/bytes";
 import { MAX_INDEX_KEY_PREFIX_BYTES, splitIndexKey } from "flarex-protocol/index-key";
+import { POSTGRES_SIGNED_BIGINT_MAX } from "flarex-protocol/internal/postgres-bigint";
 import {
   CorePersistenceError,
   type CoreDocumentLogEntry,
@@ -91,6 +92,7 @@ const decodePreviousQueries = Schema.decodeUnknownEffect(Schema.Array(Schema.Str
 const decodeGlobals = makeStoredRowsDecoder(globalsSchema);
 const decodeLatest = makeStoredRowsDecoder(latestSchema);
 const decodeFreshness = makeStoredRowsDecoder(freshnessSchema);
+const decodeLeaseRows = makeStoredRowsDecoder(Schema.Array(Schema.Struct({ ts: timestampSchema })));
 const jsonNull = new TextEncoder().encode("null");
 
 function invalid(cause: unknown): CorePersistenceError {
@@ -130,7 +132,7 @@ export const createCorePersistence = Effect.fn("CorePersistence.create")(
   function* (
     target: CorePersistenceTarget,
     instanceInput: string,
-    options: Readonly<{ sqlPageSize?: number; leaseTimestamp?: Effect.Effect<bigint> }> = {},
+    options: Readonly<{ sqlPageSize?: number }> = {},
   ): Effect.fn.Return<CorePersistence, CorePersistenceError> {
     const captured = inspectCorePersistenceTarget(target);
     if (captured === undefined) return yield* Effect.fail(new CorePersistenceError({ reason: "invalidTarget" }));
@@ -574,15 +576,24 @@ export const createCorePersistence = Effect.fn("CorePersistence.create")(
         }));
       }),
       acquireLease: Effect.fn("CorePersistence.acquireLease")(function* () {
-        const token = yield* options.leaseTimestamp ?? Clock.currentTimeNanos;
-        yield* decodeTimestamp(token).pipe(Effect.mapError(invalid));
         yield* driver.query(`INSERT INTO ${table("leases")} (instance_name, ts) VALUES ($1, 0) ON CONFLICT DO NOTHING`, [instance]);
-        const rows = yield* driver.query(`UPDATE ${table("leases")} SET ts = $2 WHERE instance_name = $1 AND ts < $2
-          AND NOT EXISTS (SELECT 1 FROM ${table("read_only")} WHERE instance_name = $1) RETURNING ts`, [instance, token]);
+        const observed = yield* decodeLeaseRows(yield* driver.query(`SELECT ts::text AS ts FROM ${table("leases")}
+          WHERE instance_name = $1`, [instance]));
+        const predecessor = observed[0]?.ts;
+        if (observed.length !== 1 || predecessor === undefined)
+          return yield* new CorePersistenceError({ reason: "corruptData" });
+        if (predecessor === POSTGRES_SIGNED_BIGINT_MAX)
+          return yield* new CorePersistenceError({ reason: "leaseLost", cause: "Lease generation exhausted signed int64" });
+        const token = predecessor + 1n;
+        // One observation, one CAS. A delayed contender may not replace a newer
+        // owner by reobserving/retrying; host clocks do not order generations.
+        const rows = yield* decodeLeaseRows(yield* driver.query(`UPDATE ${table("leases")} SET ts = $2 WHERE instance_name = $1 AND ts = $3
+          AND NOT EXISTS (SELECT 1 FROM ${table("read_only")} WHERE instance_name = $1) RETURNING ts::text AS ts`, [instance, token, predecessor]));
         if (rows.length !== 1) {
           const readOnly = yield* driver.query(`SELECT 1 FROM ${table("read_only")} WHERE instance_name = $1`, [instance]);
           return yield* Effect.fail(new CorePersistenceError({ reason: readOnly.length > 0 ? "readOnly" : "leaseLost" }));
         }
+        if (rows[0]?.ts !== token) return yield* new CorePersistenceError({ reason: "corruptData" });
         const lease = Object.freeze({ token });
         issuedLeases.add(lease);
         return lease;

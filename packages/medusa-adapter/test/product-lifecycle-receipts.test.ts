@@ -79,19 +79,24 @@ describe("Product lifecycle receipt root coverage", () => {
     await refused(policy, call, { ...activity, lifecycle: [] });
   });
 
-  it("binds scoped Variant deletion receipts to the authoritative parent before and after their lifecycle transition", async () => {
-    const change = transition(catalog.variant, { id: "variant", product_id: "product", deleted_at: null });
-    const activity = activityFor(change), command = "productSoftDeleteVariantsForWorkflow";
-    const policy = productLogicalLifecycleEventPolicy(catalog, "softDelete", "variant", command).validateLogicalCall;
+  it.each(["variant", "option"] as const)("binds scoped %s deletion receipts to the authoritative root parent while retaining child ownership", async target => {
+    const entity = target === "variant" ? catalog.variant : catalog.option;
+    const change = transition(entity, { id: "variant", product_id: "product", deleted_at: null });
+    const child = transition(catalog.value, { id: "value", option_id: "variant", deleted_at: null }, "softDelete", 1);
+    const activity = activityFor(change, ...(target === "option" ? [child] : []));
+    const command = target === "variant" ? "productSoftDeleteVariantsForWorkflow" : "productSoftDeleteOptionsForWorkflow";
+    const policy = productLogicalLifecycleEventPolicy(catalog, "softDelete", target, command).validateLogicalCall;
     const call = receipt(command, { id: ["variant", "variant"], product_id: "product" },
-      { variant_id: ["variant"], product_variant_id: ["variant"] }, activity, [event(catalog.variant, "variant")]);
+      target === "variant" ? { variant_id: ["variant"], product_variant_id: ["variant"] }
+        : { product_option_id: ["variant"], product_option_value_id: ["value"] }, activity,
+      [event(entity, "variant"), ...(target === "option" ? [event(catalog.value, "value")] : [])]);
     await Effect.runPromise(policy(call, activity));
     await refused(policy, { ...call, input: { id: ["variant"], product_id: "foreign" } }, activity);
-    await refused(policy, call, { ...activity, mutations: [{ ...change.mutation,
-      after: { ...change.mutation.after, product_id: "foreign" } }] });
-    await refused(policy, call, { ...activity, mutations: [{ ...change.mutation,
-      before: { ...change.mutation.before, product_id: "foreign" } }] });
-    const observed: Activity = { ...empty(), observedRows: [{ table: catalog.variant.table.name,
+    await refused(policy, call, { ...activity, mutations: activity.mutations.map((mutation, index) => index === 0
+      ? { ...mutation, after: { ...change.mutation.after, product_id: "foreign" } } : mutation) });
+    await refused(policy, call, { ...activity, mutations: activity.mutations.map((mutation, index) => index === 0
+      ? { ...mutation, before: { ...change.mutation.before, product_id: "foreign" } } : mutation) });
+    const observed: Activity = { ...empty(), observedRows: [{ table: entity.table.name,
       row: { id: "variant", product_id: "foreign", deleted_at: null } }] };
     await refused(policy, receipt(command, { id: ["variant"], product_id: "product" }, {}, observed), observed);
   });

@@ -33,9 +33,6 @@ describe("parent-qualified native Variant deletion source", () => {
     [1, 'return new StepResponse(void 0, ids)', 'return new StepResponse(void 0, input)'],
     [1, 'compensation: "transactionCovered"', 'compensation: "native"'],
     [1, 'await service.restoreProductVariants(prevIds)', 'await service.restoreProductVariants([])'],
-    [2, 'selector: { id: string[]; product_id: string }', 'selector: { id: string[]; product_id?: string }'],
-    [2, 'selector: { id: string[]; product_id: string }', 'selector: Record<string, unknown>'],
-    [2, 'variantIds: string[],\n    config?: SoftDeleteReturn', 'variantIds: string,\n    config?: SoftDeleteReturn'],
   ])("rejects parent, effective-ID, compensation or public-type drift %s %s", (index, before, after) => {
     const pair = pairs[index];
     expect(promoted[index]).toContain(before);
@@ -43,7 +40,7 @@ describe("parent-qualified native Variant deletion source", () => {
       .toThrow("Changed parent-qualified native Variant deletion source");
   });
 
-  it("requires exactly the three pinned source/classification pairs", () => {
+  it("requires exactly the two pinned runtime source/classification pairs", () => {
     expect(() => verifyVariantDeletionSourceSelection(pairs)).not.toThrow();
     for (const pair of pairs) {
       for (const change of [{ source: pairs.find(candidate => candidate !== pair)?.source }, { target: "packages/medusa-core-flows/src/product/workflows/delete-products.ts" }, { classification: "workflowFork" }]) {

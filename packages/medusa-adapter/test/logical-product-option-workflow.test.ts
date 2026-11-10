@@ -7,6 +7,10 @@ import { ExecutionDiagnostics, type ExecutionDiagnosticPolicy } from "@flarex/pe
 import { productOptionCreationResources, productOptionUpdateResources, productOptionDeletionResources } from "../src/workflow/policy";
 import { createCoreProductWorkflowFixture } from "./support/core-product-workflow-fixture";
 import { prepareCoreProductOption } from "./support/core-product-option-workflow-fixture";
+import { makeCoreProductCreationFixture } from "./support/core-product-creation-fixture";
+import { prepareProductCreateWorkflow } from "../src/workflows/product/create";
+import { prepareProductVariantInventoryWorkflow } from "../src/workflows/product/variant-inventory";
+import { defineCommerceCommand } from "@flarex/persistence-postgres/internal/commerce-adapter";
 
 const driver = Schema.decodeUnknownSync(Schema.Literals(["pglite", "postgres"]))(process.env.FLAREX_TEST_DRIVER ?? "pglite");
 const cleanup: Array<() => Promise<void>> = [];
@@ -190,9 +194,11 @@ describe("native Product Option workflows on shared logical storage", () => {
     const product = await Effect.runPromise(connected.listProducts([graph.productId]));
     const variants = readRows(await Effect.runPromise(connected.listVariants(graph.productId)));
     const nativeDelete = vi.spyOn(ProductModuleService.prototype, "softDeleteProductOptions"), nativeLink = vi.spyOn(Link.prototype, "delete");
+    const nativeCount = vi.spyOn(ProductModuleService.prototype, "listAndCountProductOptions");
     const trace: string[] = [], count = { calls: 0 }, ids = [id, "missing-option", id];
     const host = await connected.prepareDelete({ productOptionsDeleted: async (input, context) => {
-      expect(input.ids).toEqual(ids); expect(trace).toEqual([]); expect(nativeLink).not.toHaveBeenCalled(); trace.push("hook");
+      expect(input.ids).toEqual(ids); expect(trace).toEqual([]); expect(nativeLink).not.toHaveBeenCalled();
+      expect(nativeCount).not.toHaveBeenCalled(); trace.push("hook");
       const pending = await context.resources.query.graph({ entity: "product_option", fields: ["id"], filters: { id }, pagination: { take: 1 } });
       expect(pending.data).toEqual([]);
     } });
@@ -240,14 +246,102 @@ describe("native Product Option workflows on shared logical storage", () => {
     process.stdout.write(JSON.stringify({ optionMaximumDeletion: { boundedEntries: count.calls, events: emitted.length } }) + "\n");
   }, 180_000);
 
-  it("retimestamps already-deleted owned Values on Option soft-delete without removing their pivots", async () => {
-    const graph = await seedGraph("option-deleted-child", 2, 2, 2), id = first(graph.options).id;
+  it("confines scoped Option deletion, preserves matching duplicate order and rolls back a failing scoped hook", async () => {
+    const selected = await seedGraph("option-parent-selected", 2, 2, 2);
+    const outside = await seedGraph("option-parent-outside", 1, 2, 2);
+    const id = first(selected.options).id, foreign = first(outside.options).id;
+    const outsideBefore = await Effect.runPromise(connected.listOptions([foreign]));
+    const hook = vi.fn(), host = await connected.prepareDelete({ productOptionsDeleted: hook });
+    const before = await snapshot();
+    expect(await Effect.runPromise(host.run(host.newRequestKey(), { ids: [foreign], product_id: selected.productId }))).toBeNull();
+    expect(hook.mock.calls[0]?.[0]).toEqual({ ids: [] });
+    const { outcomes: _beforeOutcomes, ...beforeBusiness } = before;
+    const { outcomes: _afterOutcomes, ...afterBusiness } = await snapshot();
+    expect(afterBusiness).toEqual(beforeBusiness);
+    const error = new Error("Scoped Option hook failed"), rejected = await connected.prepareDelete({ productOptionsDeleted: () => { throw error; } });
+    const beforeFailure = await snapshot();
+    expectWorkflowDefect(await Effect.runPromise(Effect.exit(rejected.run(rejected.newRequestKey(), { ids: [id], product_id: selected.productId }))), error);
+    expect(await snapshot()).toEqual(beforeFailure);
+    const beforeDelete = await events();
+    expect(await Effect.runPromise(host.run(host.newRequestKey(), { ids: [foreign, id, "missing-scoped-option", id], product_id: selected.productId }))).toBeNull();
+    expect(hook.mock.calls[1]?.[0]).toEqual({ ids: [id, id] });
+    expect((await events()).slice(beforeDelete.length).filter(row => row.envelope.contract === "product-option.deleted")
+      .map(row => row.envelope.message)).toEqual([id, id].map(id => expect.objectContaining({ data: { id } })));
+    expect(await Effect.runPromise(connected.listOptions([foreign]))).toEqual(outsideBefore);
+    const beforeRepeat = await snapshot();
+    expect(await Effect.runPromise(host.run(host.newRequestKey(), { ids: [id, id], product_id: selected.productId }))).toBeNull();
+    expect(hook.mock.calls[2]?.[0]).toEqual({ ids: [] });
+    expect(await rows()).toEqual(beforeRepeat.rows); expect(await events()).toEqual(beforeRepeat.events);
+  }, 180_000);
+
+  it("scopes the four-Option sixteen-Value maximum while retaining thirty-two pivots and every managed Variant commerce graph", async () => {
+    const localCleanup: Array<() => Promise<void>> = [];
+    try {
+      const creation = await makeCoreProductCreationFixture(driver, close => localCleanup.push(close));
+      const local = await prepareCoreProductOption(driver, close => localCleanup.push(close), creation);
+      const product = await Effect.runPromise(prepareProductCreateWorkflow({ execution: local.execution, modules: {
+        product: { module: creation.product.runtime.workflow, nativeStorage: creation.product.source },
+      }, revision: "a".repeat(64), subscribers: local.options.subscribers }));
+      localCleanup.push(() => Effect.runPromise(product.close));
+      const parent = first((await Effect.runPromise(product.run(product.newRequestKey(), { products: [{ id: "option-scoped-max-product", title: "Scoped maximum" }] }))).products);
+      const create = await local.prepareCreate();
+      const selected = await Effect.runPromise(create.run(create.newRequestKey(), { product_options: Array.from({ length: 4 }, (_, index) => ({
+        id: "option-scoped-max-" + index, title: "Option " + index, product_id: parent.id, values: ["a", "b", "c", "d"],
+      })) }));
+      const variants = await Effect.runPromise(prepareProductVariantInventoryWorkflow({ execution: local.execution, modules: {
+        product: { module: creation.product.runtime.workflow, nativeStorage: creation.product.source },
+        pricing: { module: creation.pricing.runtime.workflow, nativeStorage: creation.pricing.source },
+        inventory: { module: creation.inventory.inventory.runtime.workflow, nativeStorage: creation.inventory.inventory.source },
+        stock_location: { module: creation.inventory.stockLocation.runtime.workflow, nativeStorage: creation.inventory.stockLocation.source },
+        link: { module: creation.inventory.link.runtime.workflow, nativeStorage: creation.inventory.link.source },
+      }, revision: "b".repeat(64), subscribers: local.options.subscribers }));
+      localCleanup.push(() => Effect.runPromise(variants.close));
+      for (let offset = 0; offset < 8; offset += 4) await Effect.runPromise(variants.run(variants.newRequestKey(), {
+        product_variants: Array.from({ length: 4 }, (_, index) => {
+          const ordinal = offset + index;
+          return { id: "option-scoped-max-variant-" + ordinal, product_id: parent.id, title: "Managed " + ordinal,
+            sku: "OPTION-SCOPED-MAX-" + ordinal, options: Object.fromEntries(selected.map((option, optionIndex) => [option.title,
+              ["a", "b", "c", "d"][(ordinal + (ordinal >= 4 ? optionIndex : 0)) % 4]!])),
+            prices: [{ currency_code: "usd", amount: 1000 + ordinal }] };
+        }),
+      }));
+      const before = await local.fixture.snapshot();
+      const unchangedSources = await Promise.all(["pricing", "inventory", "variant_links"].map(async name => ({ name, rows: await local.fixture.readRows(name) })));
+      expect(unchangedSources.find(source => source.name === "pricing")?.rows.filter(row => typeof row.amount === "string")).toHaveLength(8);
+      expect(unchangedSources.find(source => source.name === "inventory")?.rows.filter(row => typeof row.sku === "string")).toHaveLength(8);
+      const links = unchangedSources.find(source => source.name === "variant_links")?.rows;
+      expect(links?.filter(row => typeof row.price_set_id === "string")).toHaveLength(8);
+      expect(links?.filter(row => typeof row.inventory_item_id === "string")).toHaveLength(8);
+      const metadata = creation.product.runtime.metadata;
+      const retainedTables = [metadata.product.table.name, metadata.variant.table.name, metadata.pivot.table.name];
+      const retained = await Promise.all(retainedTables.map(async name => ({ name, rows: await creation.readTable(name) })));
+      expect(retained.find(table => table.name === metadata.pivot.table.name)?.rows).toHaveLength(32);
+      expect(retained.find(table => table.name === metadata.variant.table.name)?.rows).toHaveLength(8);
+      let calls = 0;
+      const host = await local.prepareDelete();
+      expect(await Effect.runPromise(host.run(host.newRequestKey(), { ids: selected.map(row => row.id), product_id: parent.id }).pipe(
+        Effect.provideService(ExecutionDiagnostics, { observe: (name, work) => Effect.sync(() => { if (name === "BoundedRequest.enter") calls++; }).pipe(Effect.andThen(work)) }),
+      ))).toBeNull();
+      expect(calls).toBeGreaterThan(0); expect(calls).toBeLessThanOrEqual(productOptionDeletionResources.calls);
+      const after = await local.fixture.snapshot();
+      expect(after.revisions).toHaveLength(before.revisions.length + 20);
+      for (const table of retained) expect(await creation.readTable(table.name)).toEqual(table.rows);
+      for (const source of unchangedSources) expect(await local.fixture.readRows(source.name)).toEqual(source.rows);
+      const deleted = readRows(await Effect.runPromise(local.listOptions(selected.map(row => row.id), true)));
+      expect(deleted).toHaveLength(4);
+      expect(deleted.every(row => typeof row.deleted_at === "string" && decodeValues(row.values).length === 4)).toBe(true);
+      expect(after.events.length - before.events.length).toBeLessThanOrEqual(productOptionDeletionResources.eventMessages);
+    } finally { for (const close of localCleanup.reverse()) await close(); }
+  }, 240_000);
+
+  it.each([false, true])("retimestamps already-deleted owned Values on Option soft-delete without removing their pivots (parent scoped: %s)", async scoped => {
+    const graph = await seedGraph("option-deleted-child-" + scoped, 2, 2, 2), id = first(graph.options).id;
     const value = first(decodeValues(first(readRows(await Effect.runPromise(connected.listOptions([id])))).values));
     await connected.arrangeDeletedValue(value.id);
     const beforeValue = decodeValues(first(readRows(await Effect.runPromise(connected.listOptions([id], true)))).values).find(row => row.id === value.id);
     if (beforeValue === undefined) throw new Error("Missing arranged deleted native Value");
     const tombstones = (await revisions()).filter(row => row.deleted).length, before = await snapshot(), deletion = await connected.prepareDelete();
-    await Effect.runPromise(deletion.run(deletion.newRequestKey(), { ids: [id] }));
+    await Effect.runPromise(deletion.run(deletion.newRequestKey(), { ids: [id], ...(scoped ? { product_id: graph.productId } : {}) }));
     const afterValue = decodeValues(first(readRows(await Effect.runPromise(connected.listOptions([id], true)))).values).find(row => row.id === value.id);
     expect(afterValue?.deleted_at).not.toEqual(beforeValue.deleted_at); expect(typeof afterValue?.deleted_at).toBe("string");
     expect((await revisions()).filter(row => row.deleted)).toHaveLength(tombstones);
@@ -428,7 +522,55 @@ describe("native Product Option workflows on shared logical storage", () => {
     } finally { finish?.(); }
   }, 120_000);
 
-  it("confines matching Option/Product identities and request keys to each shop", async () => {
+  it.each(["before-final-mutation", "after-final-mutation"] as const)("refuses scoped Option deletion after trusted parent movement %s without callback replay", async timing => {
+    const [parent, destination] = await connected.seedProducts("option-parent-race-" + timing, 2);
+    if (parent === undefined || destination === undefined) throw new Error("Missing trusted parent race endpoints");
+    const create = await connected.prepareCreate();
+    const option = first(await Effect.runPromise(create.run(create.newRequestKey(), { product_options: [{ title: "Moving", product_id: parent, values: ["one", "two"] }] })));
+    const table = connected.product.runtime.metadata.option.table.name;
+    // Public Option updates refuse product_id. This trusted fixture stimulus
+    // commits through actual Core FK/OCC owners, without a public reparent API.
+    const move = defineCommerceCommand("testTrustedOptionParentMovement", "write", Effect.fn("Test.moveOptionParent")(function* (ctx) {
+      return yield* (yield* ctx.table(table)).write(ctx.manager, "update", [{ id: option.id, product_id: destination }]);
+    }));
+    const writer = await connected.fixture.run(connected.fixture.openWriteHost("product", [move]));
+    const reached = Deferred.makeUnsafe<void>(), release = Deferred.makeUnsafe<void>();
+    const original = ProductModuleService.prototype.softDeleteProductOptions;
+    const native = vi.spyOn(ProductModuleService.prototype, "softDeleteProductOptions").mockImplementation(async function (this: ProductModuleService, ...args) {
+      if (timing === "before-final-mutation") {
+        await Effect.runPromise(Deferred.succeed(reached, undefined)); await Effect.runPromise(Deferred.await(release));
+      }
+      const result = await Reflect.apply(original, this, args);
+      if (timing === "after-final-mutation") {
+        await Effect.runPromise(Deferred.succeed(reached, undefined)); await Effect.runPromise(Deferred.await(release));
+      }
+      return result;
+    });
+    const hook = vi.fn(), host = await connected.prepareDelete({ productOptionsDeleted: hook });
+    try {
+      const before = await snapshot(), key = host.newRequestKey();
+      const outcome = await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+        const pending = yield* Effect.forkChild(Effect.exit(host.run(key, { ids: [option.id], product_id: parent })));
+        yield* Deferred.await(reached).pipe(Effect.timeout(30_000));
+        yield* writer.run(writer.newRequestKey(), move, null).pipe(Effect.ensuring(Deferred.succeed(release, undefined)));
+        return yield* Fiber.join(pending);
+      })));
+      expect(outcome._tag).toBe("Failure");
+      if (outcome._tag === "Failure") expect(failurePath(outcome.cause)).toContain("writeConflict");
+      expect(native).toHaveBeenCalledExactlyOnceWith({ id: [option.id], product_id: parent }, {}, expect.anything());
+      expect(hook).toHaveBeenCalledTimes(1);
+      const after = await snapshot();
+      expect(after.events).toEqual(before.events);
+      expect(after.revisions).toHaveLength(before.revisions.length + 1);
+      expect(after.outcomes).toHaveLength(before.outcomes.length + 1);
+      expect(after.revisions.filter(row => row.timestamp > before.outcomes.at(-1)!.timestamp))
+        .toEqual([expect.objectContaining({ deleted: false, value: expect.objectContaining({ id: option.id, product_id: destination, deleted_at: null }) })]);
+      expect(readRows(await Effect.runPromise(connected.listOptions([option.id])))).toMatchObject([{ product_id: destination, deleted_at: null,
+        values: option.values.map(value => expect.objectContaining({ id: value.id, deleted_at: null })) }]);
+    } finally { await Effect.runPromise(Deferred.succeed(release, undefined)); native.mockRestore(); await Effect.runPromise(writer.close); }
+  }, 180_000);
+
+  it.each([false, true])("confines matching Option/Product identities and request keys to each shop (parent scoped: %s)", async scoped => {
     const fixture = await createCoreProductWorkflowFixture(driver, close => cleanup.push(close), { physical: connected.fixture.physical });
     const other = await prepareCoreProductOption(driver, close => cleanup.push(close), fixture);
     const product_id = first(await connected.seedProducts("option-scope")); expect(await other.seedProducts("option-scope")).toEqual([product_id]);
@@ -441,7 +583,7 @@ describe("native Product Option workflows on shared logical storage", () => {
     expect(readRows(await Effect.runPromise(connected.listOptions([left.id])))).toMatchObject([{ metadata: { scope: "left" } }]);
     expect(readRows(await Effect.runPromise(other.listOptions([right.id])))).toMatchObject([{ metadata: null }]);
     expect(await Effect.runPromise(create.run(key, input))).toEqual([left]); expect(await Effect.runPromise(otherCreate.run(key, input))).toEqual([right]);
-    const deletion = await connected.prepareDelete(); await Effect.runPromise(deletion.run(deletion.newRequestKey(), { ids: [left.id] }));
+    const deletion = await connected.prepareDelete(); await Effect.runPromise(deletion.run(deletion.newRequestKey(), { ids: [left.id], ...(scoped ? { product_id } : {}) }));
     expect(await Effect.runPromise(connected.listOptions([left.id]))).toEqual([]);
     expect(readRows(await Effect.runPromise(other.listOptions([right.id])))).toMatchObject([{ id: right.id }]);
   }, 180_000);

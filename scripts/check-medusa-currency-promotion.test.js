@@ -2,7 +2,7 @@
 import { verifyPriceListDeleteSelection, verifyPriceListDeleteCallbacks, verifyPriceListUpdateCallbacks, verifyNativePriceListRuleBuilder, verifyPriceListCreateCallbacks, verifyPricePreferenceDeleteCallbacks, verifyPricePreferenceUpdateCallbacks, verifyPricePreferenceCreateCallbacks, verifySalesChannelProductLinkCallbacks, verifyTestPort, verifyPricingWorkflowSelection, verifyInventoryLevelDeleteCallbacks, verifyInventoryItemDeleteCallbacks, verifyInventoryLevelBatchCallbacks, verifyInventoryItemCreateCallbacks, verifyStoreDeleteCallbacks, verifyStoreCreateCallbacks, verifyStoreCreationTypes, verifyReservationLineItemDeletionCallbacks, verifyStoreUpdateCallbacks, verifyShippingProfileUpdateCallbacks, verifyShippingProfileCreateCallbacks, verifyShippingOptionRuleBatchCallbacks, verifyLocationFulfillmentSetCallbacks, verifyShippingProfileDeleteCallbacks, verifyShippingOptionTypeCreateCallbacks, verifyShippingOptionTypeUpdateCallbacks, verifyShippingOptionTypeDeleteCallbacks, verifyServiceZoneCreateCallbacks, verifyServiceZoneDeleteCallbacks, verifyFulfillmentSetDeleteCallbacks, verifyServiceZoneUpdateCallbacks, verifyNativeToManyInitialization, verifyNativeRelationScalarFields } from "./check-medusa-test-port.mjs";
 import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { admitsCurrencyImport, verifyCurrencyPromotion, verifyStoreCurrencyHandlerSource, verifyAdminProductPostSource, verifyAdminProductDetailSource, verifyAdminProductVariantSource, verifyAdminProductOptionSource, verifyAdminVariantInventoryWrapperSource, verifyVariantAvailabilityUtilitySource, verifyModuleTypeFork, verifyNativeBigNumberTypeSource, nativeBigNumberSourcePair, verifyStoreTypeFork, verifyInventoryReservationRestoreFork, verifyStoreCreationTypeFork, verifyPriceListCreationTypeFork, verifyShippingProfileWorkflowTypeFork, verifyLinkCascadeReturnMapFork } from "./check-medusa-currency-promotion.mjs";
+import { admitsCurrencyImport, verifyCurrencyPromotion, verifyStoreCurrencyHandlerSource, verifyAdminProductPostSource, verifyAdminProductDetailSource, verifyAdminProductVariantSource, verifyAdminProductOptionSource, adminProductCatalogHttpTargets, verifyAdminProductCatalogHttpSource, verifyAdminProductCatalogHttpSelection, verifyAdminProductLinkBodySource, verifyAdminVariantInventoryWrapperSource, verifyVariantAvailabilityUtilitySource, verifyModuleTypeFork, verifyNativeBigNumberTypeSource, nativeBigNumberSourcePair, verifyStoreTypeFork, verifyInventoryReservationRestoreFork, verifyStoreCreationTypeFork, verifyPriceListCreationTypeFork, verifyShippingProfileWorkflowTypeFork, verifyLinkCascadeReturnMapFork } from "./check-medusa-currency-promotion.mjs";
 import { analyzeMedusaSourceIslandBoundary } from "./check-medusa-source-island-boundary.mjs";
 import { verifyInventoryConfirmationPreparationTest } from "./check-medusa-inventory-confirmation-source.mjs";
 
@@ -2760,7 +2760,7 @@ describe("native Admin Product option source guards", () => {
     expect(() => verifyAdminProductOptionSource(native, promoted, detail)).not.toThrow();
     expect(() => verifyAdminProductOptionSource(native, promoted + "\nglobalThis.optionPromotionDrift = true", detail))
       .toThrow("Changed native Admin Product option behavior");
-    expect(() => verifyAdminProductOptionSource(native, promoted + "\nexport const DELETE = POST", detail))
+    expect(() => verifyAdminProductOptionSource(native, promoted + "\nexport const PATCH = POST", detail))
       .toThrow("Changed native Admin Product option behavior");
   });
   it.each([
@@ -2782,6 +2782,9 @@ describe("native Admin Product option source guards", () => {
     [1, 'remapProductResponse(product)', 'product'],
     [1, 'product_option: productOption', 'product_option: null'],
     [1, 'Updated Product option parent was not returned by native refetch', 'Different invariant'],
+    [1, 'const deleteProductOptionsWorkflowId = "delete-product-options"', 'const deleteProductOptionsWorkflowId = "delete-products"'],
+    [1, 'input: { ids: [optionId], product_id: productId }', 'input: { ids: [optionId] }'],
+    [1, '    parent: product,', '    parent: remapProductResponse(product),'],
   ])("rejects native option runtime mutation %s %s", (index, before, after) => {
     const relative = paths[index];
     const native = readFileSync("third_party/medusa/upstream/packages/medusa/src/api/admin/products/" + relative, "utf8");
@@ -2797,5 +2800,247 @@ describe("native Admin Product option source guards", () => {
     expect(() => verifyCurrencyPromotion(root, { ...promotion, files: promotion.files.map(entry =>
       entry.target === "packages/medusa-http/src/api/admin/products/" + relative ? { ...entry, ...mutation } : entry) }))
       .toThrow("Admin Product HTTP selections must retain their pinned sources");
+  });
+});
+
+describe("native Admin Product catalog HTTP provenance", () => {
+  const pairs = adminProductCatalogHttpTargets.map(target => ({ target,
+    source: target.replace("packages/medusa-http/", "third_party/medusa/upstream/packages/medusa/"),
+    classification: "selectedExportFacade" }));
+  /** @param {string} relative */
+  const pair = relative => pairs.find(entry => entry.target.endsWith("/" + relative));
+  /** @param {string} relative */
+  const sources = relative => {
+    const selected = pair(relative);
+    if (!selected) throw new Error("Missing catalog source fixture " + relative);
+    return { ...selected, native: readFileSync(selected.source, "utf8"), promoted: readFileSync(selected.target, "utf8") };
+  };
+  it.each(pairs)("preserves the complete native module $target", ({ source, target }) => {
+    const native = readFileSync(source, "utf8");
+    const promoted = readFileSync(target, "utf8");
+    expect(() => verifyAdminProductCatalogHttpSource(native, promoted, target)).not.toThrow();
+    expect(() => verifyAdminProductCatalogHttpSource(native, promoted + "\nthrow new Error('extra runtime');", target))
+      .toThrow("Changed native Admin Product catalog HTTP behavior");
+    expect(() => verifyAdminProductCatalogHttpSource(native, promoted, target + ".adjacent"))
+      .toThrow("unselected target");
+  });
+  it.each(["product-types", "product-tags"].flatMap(family => {
+    const name = family === "product-types" ? "Type" : "Tag";
+    const entity = family === "product-types" ? "product_type" : "product_tag";
+    return [
+      [family + "/route.ts", '"create-' + family + '"', '"delete-' + family + '"'],
+      [family + "/route.ts", entity + "s: input", entity + "s: []"],
+      [family + "/route.ts", "req.filterableFields", "{}"],
+      [family + "/route.ts", "count: metadata.count", "count: 0"],
+      [family + "/route.ts", "res.status(200)", "res.status(201)"],
+      [family + "/route.ts", "result[0].id", "req.params.id"],
+      [family + "/[id]/route.ts", '"update-' + family + '"', '"delete-' + family + '"'],
+      [family + "/[id]/route.ts", '"delete-' + family + '"', '"update-' + family + '"'],
+      [family + "/[id]/route.ts", "MedusaError.Types.NOT_FOUND", "MedusaError.Types.INVALID_DATA"],
+      [family + "/[id]/route.ts", "if (!existingProduct" + name + ")", "if (false)"],
+      [family + "/[id]/route.ts", '["id"]', '["value"]'],
+      [family + "/[id]/route.ts", "selector: { id: req.params.id }", "selector: { value: req.params.id }"],
+      [family + "/[id]/route.ts", "update: req.validatedBody", "update: {}"],
+      [family + "/[id]/route.ts", "input: { ids: [id] }", "input: { ids: [] }"],
+      [family + "/[id]/route.ts", "const id = req.params.id", 'const id = "another_id"'],
+      [family + "/[id]/route.ts", "deleted: true", "deleted: false"],
+      [family + "/[id]/route.ts", 'object: "' + entity + '"', 'object: "product"'],
+      [family + "/[id]/route.ts", "await workflowEngine.run", "workflowEngine.run"],
+      [family + "/[id]/route.ts", "Modules.WORKFLOW_ENGINE", "Modules.PRODUCT"],
+      [family + "/middlewares.ts", 'operation: "create"', 'operation: "read"'],
+      [family + "/middlewares.ts", 'operation: "update"', 'operation: "read"'],
+      [family + "/middlewares.ts", 'operation: "delete"', 'operation: "read"'],
+      [family + "/middlewares.ts", "validateAndTransformBody(AdminCreateProduct" + name + "),", ""],
+      [family + "/middlewares.ts", "validateAndTransformBody(AdminUpdateProduct" + name + "),", ""],
+      [family + "/middlewares.ts", "AdminGetProduct" + name + "sParams,", "AdminGetProduct" + name + "Params,"],
+      [family + "/validators.ts", ".strict()", ".passthrough()"],
+      [family + "/validators.ts", "value: z.string(),", "value: z.string().optional(),"],
+      [family + "/validators.ts", "metadata: z.record(z.unknown()).nullish()", "metadata: z.record(z.unknown()).optional()"],
+      [family + "/validators.ts", family === "product-types" ? "limit: 10" : "limit: 20", "limit: 50"],
+      [family + "/query-config.ts", "defaultLimit: 20", "defaultLimit: 50"],
+      [family + "/query-config.ts", '"metadata",', '"products",'],
+    ];
+  }).concat([
+    ["product-types/helpers.ts", "filters: { id: productTypeId }", "filters: {}"],
+    ["product-types/helpers.ts", "return productTypes[0]", "return productTypes"],
+    ["product-tags/[id]/route.ts", "workflowEngine.run(updateProductTagsWorkflowId,", "workflowEngine.run(deleteProductTagsWorkflowId,"],
+    ["product-tags/[id]/route.ts", "workflowEngine.run(deleteProductTagsWorkflowId,", "workflowEngine.run(updateProductTagsWorkflowId,"],
+  ]))("refuses runtime mutation %s %s", (relative, before, after) => {
+    const { native, promoted, target } = sources(relative);
+    expect(promoted).toContain(before);
+    expect(() => verifyAdminProductCatalogHttpSource(native, promoted.replaceAll(before, after), target))
+      .toThrow("Changed native Admin Product catalog HTTP behavior");
+  });
+  it("requires exactly all twenty-four catalog source selections", () => {
+    expect(pairs).toHaveLength(24);
+    expect(() => verifyAdminProductCatalogHttpSelection(pairs)).not.toThrow();
+    const tag = sources("product-tags/[id]/route.ts");
+    expect(() => verifyAdminProductCatalogHttpSource(tag.native, tag.native, tag.target))
+      .toThrow("Changed native Admin Product catalog HTTP behavior");
+  });
+  it.each(pairs)("refuses missing, duplicate or displaced source selection $target", selected => {
+    for (const mutation of [{ source: selected.source + ".adjacent" }, { classification: "authored" }, { target: selected.target + ".adjacent" }]) {
+      expect(() => verifyAdminProductCatalogHttpSelection(pairs.map(entry => entry === selected ? { ...entry, ...mutation } : entry)))
+        .toThrow("Admin Product catalog HTTP selections must retain their exact pinned sources");
+    }
+    expect(() => verifyAdminProductCatalogHttpSelection(pairs.filter(entry => entry !== selected)))
+      .toThrow("Admin Product catalog HTTP selections must retain their exact pinned sources");
+    expect(() => verifyAdminProductCatalogHttpSelection([...pairs, selected]))
+      .toThrow("Admin Product catalog HTTP selections must retain their exact pinned sources");
+  });
+});
+
+describe("native Admin Product Categories and Collections HTTP provenance", () => {
+  /** @param {string} relative */
+  const sources = relative => {
+    const target = "packages/medusa-http/src/api/admin/" + relative;
+    const source = "third_party/medusa/upstream/packages/medusa/src/api/admin/" + relative;
+    return { target, native: readFileSync(source, "utf8"), promoted: readFileSync(target, "utf8") };
+  };
+  it.each(["product-categories", "collections"].flatMap(family => {
+    const category = family === "product-categories";
+    const entity = category ? "product_category" : "product_collection";
+    const name = category ? "ProductCategory" : "Collection";
+    const defaults = category ? "defaults" : "defaultAdminCollectionFields";
+    return [
+      [family + "/route.ts", '"create-' + family + '"', '"delete-' + family + '"'],
+      [family + "/route.ts", "count: metadata.count", "count: 0"],
+      [family + "/route.ts", "offset: metadata.skip", "offset: 0"],
+      [family + "/route.ts", "limit: metadata.take", "limit: 0"],
+      [family + "/route.ts", "req.filterableFields", "{}"],
+      [family + "/route.ts", "result[0].id", "req.params.id"],
+      [family + "/route.ts", "res.status(200)", "res.status(201)"],
+      [family + "/route.ts", category ? "product_categories: [req.validatedBody]" : "collections: [rest], additional_data", category ? "product_categories: []" : "collections: [req.validatedBody]"],
+      [family + "/[id]/route.ts", '"update-' + family + '"', '"delete-' + family + '"'],
+      [family + "/[id]/route.ts", '"delete-' + family + '"', '"update-' + family + '"'],
+      [family + "/[id]/route.ts", "MedusaError.Types.NOT_FOUND", "MedusaError.Types.INVALID_DATA"],
+      [family + "/[id]/route.ts", category ? "if (!category)" : "if (!existingCollection)", "if (false)"],
+      [family + "/[id]/route.ts", category ? "selector: { id }" : "selector: { id: req.params.id }", category ? 'selector: { id: "other" }' : 'selector: { id: "other" }'],
+      [family + "/[id]/route.ts", category ? "update: req.validatedBody" : "update: rest", "update: {}"],
+      [family + "/[id]/route.ts", category ? "input: [id]" : "input: { ids: [id] }", "input: []"],
+      [family + "/[id]/route.ts", "deleted: true", "deleted: false"],
+      [family + "/[id]/route.ts", 'object: "' + (category ? entity : "collection") + '"', 'object: "product"'],
+      [family + "/[id]/route.ts", "await workflowEngine.run", "workflowEngine.run"],
+      [family + "/[id]/route.ts", "Modules.WORKFLOW_ENGINE", "Modules.PRODUCT"],
+      [family + "/[id]/products/route.ts", category ? '"batch-link-products-to-category"' : '"batch-link-products-collection"', '"update-products"'],
+      [family + "/[id]/products/route.ts", "await workflowEngine.run", "workflowEngine.run"],
+      [family + "/[id]/products/route.ts", category ? "input: { id, ...req.validatedBody }" : "      add,", category ? "input: { id }" : "      add: [],"],
+      [family + "/[id]/products/route.ts", category ? "idOrFilter: id" : "    req.params.id,", category ? 'idOrFilter: "other"' : '    "other",'],
+      [family + "/[id]/products/route.ts", "req.queryConfig.fields", '["id"]'],
+      [family + "/[id]/products/route.ts", "res.status(200)", "res.status(201)"],
+      [family + "/[id]/products/route.ts", category ? "json({ product_category: category })" : "    collection,", category ? "json({ product_category: undefined })" : "    collection: undefined,"],
+      [family + "/middlewares.ts", 'matcher: "/admin/' + family + '/*"', 'matcher: "/admin/unrelated/*"'],
+      [family + "/middlewares.ts", 'operation: "read"', 'operation: "create"'],
+      [family + "/middlewares.ts", 'operation: "create"', 'operation: "read"'],
+      [family + "/middlewares.ts", 'operation: "update"', 'operation: "read"'],
+      [family + "/middlewares.ts", 'operation: "delete"', 'operation: "read"'],
+      [family + "/middlewares.ts", "validateAndTransformBody(AdminCreate" + name + "),", ""],
+      [family + "/middlewares.ts", "validateAndTransformBody(AdminUpdate" + name + "),", ""],
+      [family + "/middlewares.ts", "validateAndTransformBody(createLinkBody()),", ""],
+      [family + "/middlewares.ts", 'matcher: "/admin/' + family + '/:id/products"', 'matcher: "/admin/' + family + '/:id/unrelated"'],
+      [family + "/middlewares.ts", category ? "QueryConfig.listProductCategoryConfig" : "QueryConfig.listTransformQueryConfig", category ? "QueryConfig.retrieveProductCategoryConfig" : "QueryConfig.retrieveTransformQueryConfig"],
+      [family + "/query-config.ts", "defaultLimit: " + (category ? 50 : 10), "defaultLimit: 20"],
+      [family + "/query-config.ts", category ? "  defaults," : "defaults: " + defaults + ",", "defaults: [],"],
+      [family + "/query-config.ts", "isList: true", "isList: false"],
+      [family + "/query-config.ts", "entity: Entities." + entity, 'entity: "product"'],
+      [family + "/validators.ts", "limit: " + (category ? 50 : 10), "limit: 20"],
+      [family + "/validators.ts", category ? "name: z.string()," : "title: z.string(),", category ? "name: z.string().optional()," : "title: z.string().optional(),"],
+      [family + "/validators.ts", "metadata: z.record(z.unknown()).nullish()", "metadata: z.record(z.unknown()).optional()"],
+      [family + "/validators.ts", "WithAdditionalData(", "Object.assign("],
+    ];
+  }).concat([
+    ["product-categories/route.ts", "idOrFilter: { id: result[0].id, ...req.filterableFields }", "idOrFilter: { id: result[0].id }"],
+    ["product-categories/route.ts", "pagination: req.queryConfig.pagination", "pagination: undefined"],
+    ["product-categories/[id]/route.ts", "  const { id } = req.params", '  await req.scope.resolve("query").graph({ entity: "product_category", fields: ["id"], filters: { id: req.params.id } })\n  const { id } = req.params'],
+    ["product-categories/[id]/route.ts", "idOrFilter: { id, ...req.filterableFields }", "idOrFilter: { id }"],
+    ["product-categories/[id]/products/route.ts", "await refetchEntity<ProductTypes.ProductCategoryDTO>({", "await Promise.resolve({"],
+    ["product-categories/query-config.ts", '"*parent_category",', '"parent_category_id",'],
+    ["product-categories/query-config.ts", '"*category_children",', '"category_children.id",'],
+    ["product-categories/query-config.ts", '"translations",', '"unrelated",'],
+    ["product-categories/validators.ts", ".strict()", ".strip()"],
+    ["product-categories/validators.ts", "rank: z.number().nonnegative().optional()", "rank: z.number().int().nonnegative().optional()"],
+    ["product-categories/validators.ts", "parent_category_id: z.string().nullish()", "parent_category_id: z.string().optional()"],
+    ["product-categories/validators.ts", "include_ancestors_tree: booleanString().optional()", "include_ancestors_tree: z.boolean().optional()"],
+    ["collections/route.ts", "const { additional_data, ...rest } = req.validatedBody", "const additional_data = undefined; const rest = req.validatedBody"],
+    ["collections/[id]/route.ts", '    "id",', '    "title",'],
+    ["collections/[id]/route.ts", "      additional_data,", "      additional_data: undefined,"],
+    ["collections/[id]/route.ts", "const { additional_data, ...rest } = req.validatedBody", "const additional_data = undefined; const rest = req.validatedBody"],
+    ["collections/[id]/products/route.ts", "const { add = [], remove = [] }", "const { add, remove }"],
+    ["collections/[id]/products/route.ts", "      remove,", "      remove: [],"],
+    ["collections/[id]/products/route.ts", "const collection = await refetchCollection(", "const collection = await Promise.resolve("],
+    ["collections/validators.ts", "export const CreateCollection = z.object({", "export const CreateCollection = z.object({ unknown: z.unknown(),"],
+    ["collections/helpers.ts", 'entryPoint: "product_collection"', 'entryPoint: "product"'],
+    ["collections/helpers.ts", "filters: { id: collectionId }", "filters: {}"],
+    ["collections/helpers.ts", "return collections[0]", "return collections"],
+  ]))("rejects changed category/collection contract %s %s", (relative, before, after) => {
+    const { target, native, promoted } = sources(relative);
+    expect(promoted).toContain(before);
+    expect(() => verifyAdminProductCatalogHttpSource(native, promoted.replaceAll(before, after), target))
+      .toThrow("Changed native Admin Product catalog HTTP behavior");
+  });
+  it.each(["product-categories", "collections"])("rejects removal of only the membership policy and response refetch in %s", family => {
+    const middleware = sources(family + "/middlewares.ts");
+    const marker = 'matcher: "/admin/' + family + '/:id/products"';
+    const start = middleware.promoted.indexOf(marker);
+    expect(start).toBeGreaterThan(0);
+    const membership = middleware.promoted.slice(start);
+    expect(membership).toContain('operation: "update"');
+    const changed = middleware.promoted.slice(0, start) + membership.replace('operation: "update"', 'operation: "read"');
+    expect(() => verifyAdminProductCatalogHttpSource(middleware.native, changed, middleware.target)).toThrow("Changed native Admin Product catalog HTTP behavior");
+    const route = sources(family + "/[id]/products/route.ts");
+    const offset = route.promoted.indexOf(family === "collections" ? "  const collection = await refetchCollection(" : "  const category = await refetchEntity<");
+    const end = route.promoted.indexOf("  res.status(200)", offset);
+    expect(offset).toBeGreaterThan(0);
+    expect(end).toBeGreaterThan(offset);
+    const removed = route.promoted.slice(0, offset) + route.promoted.slice(end);
+    expect(() => verifyAdminProductCatalogHttpSource(route.native, removed, route.target)).toThrow("Changed native Admin Product catalog HTTP behavior");
+  });
+  it("rejects an added missing-Collection GET check before the native empty envelope", () => {
+    const { target, native, promoted } = sources("collections/[id]/route.ts");
+    const before = "  res.status(200).json({ collection })";
+    expect(promoted).toContain(before);
+    expect(() => verifyAdminProductCatalogHttpSource(native, promoted.replace(before, '  if (!collection) throw new MedusaError(MedusaError.Types.NOT_FOUND, "Missing")\n' + before), target))
+      .toThrow("Changed native Admin Product catalog HTTP behavior");
+  });
+});
+
+describe("native Admin Product link body helper provenance", () => {
+  const target = "packages/medusa-http/src/api/utils/validators.ts";
+  const native = readFileSync("third_party/medusa/upstream/packages/medusa/src/api/utils/validators.ts", "utf8");
+  const promoted = readFileSync(target, "utf8");
+  it("preserves the exact native declaration in the existing selected validator module", () => {
+    expect(() => verifyAdminProductLinkBodySource(native, promoted)).not.toThrow();
+  });
+  it.each([
+    ["optional additions", "add: z.array(z.string()).optional()", "add: z.array(z.string())"],
+    ["optional removals", "remove: z.array(z.string()).optional()", "remove: z.array(z.string())"],
+    ["addition values", "add: z.array(z.string())", "add: z.array(z.unknown())"],
+    ["removal values", "remove: z.array(z.string())", "remove: z.array(z.unknown())"],
+    ["unknown-key schema policy", "remove: z.array(z.string()).optional(),\n  })", "remove: z.array(z.string()).optional(),\n  }).strict()"],
+    ["addition default", "add: z.array(z.string()).optional()", "add: z.array(z.string()).default([])"],
+    ["schema owner", 'from "@medusajs/framework/zod"', 'from "another-zod"'],
+    ["export", "export const createLinkBody", "const createLinkBody"],
+  ])("refuses changed link helper %s", (_label, before, after) => {
+    expect(promoted).toContain(before);
+    expect(() => verifyAdminProductLinkBodySource(native, promoted.replace(before, after))).toThrow();
+  });
+  it("refuses missing or duplicate native/promoted helper declarations", () => {
+    const before = "export const createLinkBody";
+    expect(() => verifyAdminProductLinkBodySource(native.replace(before, "export const otherLinkBody"), promoted)).toThrow();
+    expect(() => verifyAdminProductLinkBodySource(native, promoted.replace(before, "export const otherLinkBody"))).toThrow();
+    const duplicate = "\nexport const createLinkBody = () => ({})\n";
+    expect(() => verifyAdminProductLinkBodySource(native + duplicate, promoted)).toThrow();
+    expect(() => verifyAdminProductLinkBodySource(native, promoted + duplicate)).toThrow();
+  });
+  it.each(["\nthrow new Error('side effect')\n", "\nexport const extraHelper = true\n", '\nimport "another-zod"\n'])
+    ("refuses extra module initialization or runtime exports %s", suffix => {
+      expect(() => verifyAdminProductLinkBodySource(native, promoted + suffix)).toThrow("Changed native Admin Product link body helper");
+    });
+  it.each(["classification", "source"])("retains the existing helper %s", field => {
+    expect(() => verifyCurrencyPromotion(root, { ...promotion, files: promotion.files.map(file => file.target === target ?
+      { ...file, [field]: field === "classification" ? "selectedExportFacade" : "third_party/medusa/upstream/packages/medusa/src/api/utils/common-validators/common.ts" } : file) }))
+      .toThrow(field === "classification"
+        ? "Admin Product validator helpers must retain their pinned source and classification"
+        : "Store HTTP adaptation must name its pinned source");
   });
 });

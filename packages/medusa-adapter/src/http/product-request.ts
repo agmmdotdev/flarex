@@ -27,12 +27,25 @@ import { prepareLocalVariantLinks } from "../links/variant-service";
 import { prepareProductNativeLinkResource } from "../links/product-resource";
 import { prepareProductUpdateLinkResource } from "../links/product-update-resource";
 import { prepareProductDeletionLinkResource } from "../links/product-deletion-resource";
+import { prepareProductOptionDeletionLinkResource } from "../links/product-option-resource";
+import { prepareProductTypeDeletionLinkResource } from "../links/product-type-resource";
+import { prepareProductCategoryDeletionLinkResource } from "../links/product-category-resource";
+import { prepareProductCollectionDeletionLinkResource } from "../links/product-collection-resource";
+import { prepareProductCategoryCreationWorkflow, prepareProductCategoryUpdateWorkflow, prepareProductCategoryDeletionWorkflow } from "../workflows/product/category-workflows";
+import { prepareProductCollectionCreationWorkflow, prepareProductCollectionUpdateWorkflow, prepareProductCollectionDeletionWorkflow } from "../workflows/product/collection-workflows";
+import { prepareProductCategoryMembershipWorkflow } from "../workflows/product/category";
+import { prepareProductCollectionMembershipWorkflow } from "../workflows/product/collection";
+import { prepareProductTypeCreationWorkflow, prepareProductTypeUpdateWorkflow, prepareProductTypeDeletionWorkflow } from "../workflows/product/type";
+import { prepareProductTagWorkflow } from "../workflows/product/tag";
+import { prepareProductTagUpdateWorkflow } from "../workflows/product/tag-update";
+import { prepareProductTagDeleteWorkflow } from "../workflows/product/tag-delete";
 import { prepareProductCreationWorkflow } from "../workflows/product/creation";
 import { prepareProductUpdateWorkflow } from "../workflows/product/update";
 import { prepareProductDeletionWorkflow, prepareProductVariantDeletionWorkflow } from "../workflows/product/deletion";
 import { prepareProductVariantInventoryWorkflow } from "../workflows/product/variant-inventory";
 import { prepareProductVariantUpdateWorkflow } from "../workflows/product/variant-update";
-import { prepareProductOptionCreationWorkflow, prepareProductOptionUpdateWorkflow } from "../workflows/product/option-workflows";
+import { prepareProductOptionCreationWorkflow, prepareProductOptionUpdateWorkflow, prepareProductOptionDeletionWorkflow } from "../workflows/product/option-workflows";
+import { prepareVariantImagesWorkflow, prepareImageVariantsWorkflow } from "../workflows/product/variant-images";
 import { captureCommerceInput } from "../value/input";
 import type { AtomicWorkflowExecution } from "../workflow/host";
 import { makeProductRequestReads } from "./product-request-reads";
@@ -95,9 +108,18 @@ export const compileProductRequestCatalog = Effect.fn("ProductRequest.compileCat
     pricing: { module: variantUpdatePricing.workflow, nativeStorage: pricingSource.source },
     variant_links: { module: variantUpdateLinks.workflow, nativeStorage: variantLinksSource.source } });
   const optionModules = Object.freeze({ product: { module: product.productOptionWorkflow, nativeStorage: productSource.source } });
+  const optionDeletionLink = yield* Effect.fromResult(prepareProductOptionDeletionLinkResource());
+  const typeModules = Object.freeze({ product: { module: product.productTypeWorkflow, nativeStorage: productSource.source } });
+  const typeDeletionLink = yield* Effect.fromResult(prepareProductTypeDeletionLinkResource());
+  const categoryModules = Object.freeze({ product: { module: product.productCategoryWorkflow, nativeStorage: productSource.source } });
+  const categoryDeletionLink = yield* Effect.fromResult(prepareProductCategoryDeletionLinkResource());
+  const collectionModules = Object.freeze({ product: { module: product.productCollectionWorkflow, nativeStorage: productSource.source } });
+  const collectionDeletionLink = yield* Effect.fromResult(prepareProductCollectionDeletionLinkResource());
+  const variantImageModules = Object.freeze({ product: { module: product.productVariantImageWorkflow, nativeStorage: productSource.source } });
+  const imageVariantModules = Object.freeze({ product: { module: product.productImageVariantWorkflow, nativeStorage: productSource.source } });
   return Object.freeze({ target: Object.freeze({ ...target }), sources, productSource, productRuntime: product,
     runtimes: Object.freeze({ product, pricing, inventory, inventoryReads, stock, sales, fulfillment, productLinks, variantLinks }), modules, link, updateModules, updateLink,
-    deletionModules, deletionLink, variantUpdateModules, variantUpdateNativeLinks: variantUpdateLinks.nativeServices, optionModules, bundle, eventDefinition });
+    deletionModules, deletionLink, variantUpdateModules, variantUpdateNativeLinks: variantUpdateLinks.nativeServices, optionModules, optionDeletionLink, typeModules, typeDeletionLink, categoryModules, categoryDeletionLink, collectionModules, collectionDeletionLink, variantImageModules, imageVariantModules, bundle, eventDefinition });
 });
 export type ProductRequestCatalog = Effect.Success<ReturnType<typeof compileProductRequestCatalog>>;
 
@@ -131,10 +153,48 @@ export const makeProductRequestOperations = Effect.fn("ProductRequest.makeOperat
     revision: input.revision, subscribers: input.subscribers });
   const optionUpdate = yield* prepareProductOptionUpdateWorkflow({ execution, modules: input.catalog.optionModules,
     revision: input.revision, subscribers: input.subscribers });
+  const optionDeletion = yield* prepareProductOptionDeletionWorkflow({ execution, modules: input.catalog.optionModules,
+    link: input.catalog.optionDeletionLink, revision: input.revision, subscribers: input.subscribers });
+  const variantImages = yield* prepareVariantImagesWorkflow({ execution, admission: "parent-qualified", modules: input.catalog.variantImageModules,
+    revision: input.revision, subscribers: input.subscribers });
+  const imageVariants = yield* prepareImageVariantsWorkflow({ execution, modules: input.catalog.imageVariantModules,
+    revision: input.revision, subscribers: input.subscribers });
+  const typeCreation = yield* prepareProductTypeCreationWorkflow({ execution, modules: input.catalog.typeModules,
+    revision: input.revision, subscribers: input.subscribers });
+  const typeUpdate = yield* prepareProductTypeUpdateWorkflow({ execution, modules: input.catalog.typeModules,
+    revision: input.revision, subscribers: input.subscribers });
+  const typeDeletion = yield* prepareProductTypeDeletionWorkflow({ execution, modules: input.catalog.typeModules,
+    link: input.catalog.typeDeletionLink, revision: input.revision, subscribers: input.subscribers });
+  const tagCreation = yield* prepareProductTagWorkflow({ execution, modules: { product: input.catalog.modules.product },
+    revision: input.revision, subscribers: input.subscribers });
+  const tagUpdate = yield* prepareProductTagUpdateWorkflow({ execution, modules: { product: input.catalog.modules.product },
+    revision: input.revision, subscribers: input.subscribers });
+  const tagDeletion = yield* prepareProductTagDeleteWorkflow({ execution, modules: { product: input.catalog.modules.product },
+    revision: input.revision, subscribers: input.subscribers });
+  const categoryCreation = yield* prepareProductCategoryCreationWorkflow({ execution, modules: input.catalog.categoryModules,
+    revision: input.revision, subscribers: input.subscribers });
+  const categoryUpdate = yield* prepareProductCategoryUpdateWorkflow({ execution, modules: input.catalog.categoryModules,
+    revision: input.revision, subscribers: input.subscribers });
+  const categoryDeletion = yield* prepareProductCategoryDeletionWorkflow({ execution, modules: input.catalog.categoryModules,
+    link: input.catalog.categoryDeletionLink, revision: input.revision, subscribers: input.subscribers });
+  const collectionCreation = yield* prepareProductCollectionCreationWorkflow({ execution, modules: input.catalog.collectionModules,
+    revision: input.revision, subscribers: input.subscribers });
+  const collectionUpdate = yield* prepareProductCollectionUpdateWorkflow({ execution, modules: input.catalog.collectionModules,
+    revision: input.revision, subscribers: input.subscribers });
+  const collectionDeletion = yield* prepareProductCollectionDeletionWorkflow({ execution, modules: input.catalog.collectionModules,
+    link: input.catalog.collectionDeletionLink, revision: input.revision, subscribers: input.subscribers });
+  const categoryMembership = yield* prepareProductCategoryMembershipWorkflow({ execution, modules: { product: input.catalog.modules.product },
+    revision: input.revision, subscribers: input.subscribers });
+  const collectionMembership = yield* prepareProductCollectionMembershipWorkflow({ execution, modules: { product: input.catalog.modules.product },
+    revision: input.revision, subscribers: input.subscribers });
   const read = yield* makeProductRequestReads(input);
   const admitProductRefetchFields = (fields: readonly string[]): void => {
     Result.getOrThrowWith(read.admitProductRefetchFields(fields), cause => new MedusaError(MedusaError.Types.INVALID_DATA,
       "The private Product profile requires supported response fields before execution.", undefined, undefined, { cause }));
+  };
+  const admitCatalogRefetchFields = (entity: "product_type" | "product_tag" | "product_category" | "product_collection", fields: readonly string[]): void => {
+    Result.getOrThrowWith(read.admitCatalogRefetchFields(entity, fields), cause => new MedusaError(MedusaError.Types.INVALID_DATA,
+      "The private catalog profile requires supported response fields before execution.", undefined, undefined, { cause }));
   };
   const executeWorkflow = Effect.fn("ProductRequest.runWorkflow")(function* (name: string, value: unknown) {
     // This exact decoder runs before acquiring any atomic request/claim. Its
@@ -176,6 +236,74 @@ export const makeProductRequestOperations = Effect.fn("ProductRequest.makeOperat
         const args = yield* Effect.fromResult(captureCommerceInput(value).pipe(Result.flatMap(optionUpdate.decodeInput), Result.mapError(refusal)));
         return { result: yield* optionUpdate.run(optionUpdate.newRequestKey(), args) };
       }
+      case "delete-product-options": {
+        const args = yield* Effect.fromResult(captureCommerceInput(value).pipe(Result.flatMap(optionDeletion.decodeInput), Result.mapError(refusal)));
+        return { result: yield* optionDeletion.run(optionDeletion.newRequestKey(), args) };
+      }
+      case "batch-variant-images": {
+        const args = yield* Effect.fromResult(captureCommerceInput(value).pipe(Result.flatMap(variantImages.decodeInput), Result.mapError(refusal)));
+        return { result: yield* variantImages.run(variantImages.newRequestKey(), args) };
+      }
+      case "batch-image-variants": {
+        const args = yield* Effect.fromResult(captureCommerceInput(value).pipe(Result.flatMap(imageVariants.decodeInput), Result.mapError(refusal)));
+        return { result: yield* imageVariants.run(imageVariants.newRequestKey(), args) };
+      }
+      case "create-product-types": {
+        const args = yield* Effect.fromResult(captureCommerceInput(value).pipe(Result.flatMap(typeCreation.decodeInput), Result.mapError(refusal)));
+        return { result: yield* typeCreation.run(typeCreation.newRequestKey(), args) };
+      }
+      case "update-product-types": {
+        const args = yield* Effect.fromResult(captureCommerceInput(value).pipe(Result.flatMap(typeUpdate.decodeInput), Result.mapError(refusal)));
+        return { result: yield* typeUpdate.run(typeUpdate.newRequestKey(), args) };
+      }
+      case "delete-product-types": {
+        const args = yield* Effect.fromResult(captureCommerceInput(value).pipe(Result.flatMap(typeDeletion.decodeInput), Result.mapError(refusal)));
+        return { result: yield* typeDeletion.run(typeDeletion.newRequestKey(), args) };
+      }
+      case "create-product-tags": {
+        const args = yield* Effect.fromResult(captureCommerceInput(value).pipe(Result.flatMap(tagCreation.decodeInput), Result.mapError(refusal)));
+        return { result: yield* tagCreation.run(tagCreation.newRequestKey(), args) };
+      }
+      case "update-product-tags": {
+        const args = yield* Effect.fromResult(captureCommerceInput(value).pipe(Result.flatMap(tagUpdate.decodeInput), Result.mapError(refusal)));
+        return { result: yield* tagUpdate.run(tagUpdate.newRequestKey(), args) };
+      }
+      case "delete-product-tags": {
+        const args = yield* Effect.fromResult(captureCommerceInput(value).pipe(Result.flatMap(tagDeletion.decodeInput), Result.mapError(refusal)));
+        return { result: yield* tagDeletion.run(tagDeletion.newRequestKey(), args) };
+      }
+      case "create-product-categories": {
+        const args = yield* Effect.fromResult(captureCommerceInput(value).pipe(Result.flatMap(categoryCreation.decodeInput), Result.mapError(refusal)));
+        return { result: yield* categoryCreation.run(categoryCreation.newRequestKey(), args) };
+      }
+      case "update-product-categories": {
+        const args = yield* Effect.fromResult(captureCommerceInput(value).pipe(Result.flatMap(categoryUpdate.decodeInput), Result.mapError(refusal)));
+        return { result: yield* categoryUpdate.run(categoryUpdate.newRequestKey(), args) };
+      }
+      case "delete-product-categories": {
+        const args = yield* Effect.fromResult(captureCommerceInput(value).pipe(Result.flatMap(categoryDeletion.decodeInput), Result.mapError(refusal)));
+        return { result: yield* categoryDeletion.run(categoryDeletion.newRequestKey(), args) };
+      }
+      case "batch-link-products-to-category": {
+        const args = yield* Effect.fromResult(captureCommerceInput(value).pipe(Result.flatMap(categoryMembership.decodeInput), Result.mapError(refusal)));
+        return { result: yield* categoryMembership.run(categoryMembership.newRequestKey(), args) };
+      }
+      case "create-collections": {
+        const args = yield* Effect.fromResult(captureCommerceInput(value).pipe(Result.flatMap(collectionCreation.decodeInput), Result.mapError(refusal)));
+        return { result: yield* collectionCreation.run(collectionCreation.newRequestKey(), args) };
+      }
+      case "update-collections": {
+        const args = yield* Effect.fromResult(captureCommerceInput(value).pipe(Result.flatMap(collectionUpdate.decodeInput), Result.mapError(refusal)));
+        return { result: yield* collectionUpdate.run(collectionUpdate.newRequestKey(), args) };
+      }
+      case "delete-collections": {
+        const args = yield* Effect.fromResult(captureCommerceInput(value).pipe(Result.flatMap(collectionDeletion.decodeInput), Result.mapError(refusal)));
+        return { result: yield* collectionDeletion.run(collectionDeletion.newRequestKey(), args) };
+      }
+      case "batch-link-products-collection": {
+        const args = yield* Effect.fromResult(captureCommerceInput(value).pipe(Result.flatMap(collectionMembership.decodeInput), Result.mapError(refusal)));
+        return { result: yield* collectionMembership.run(collectionMembership.newRequestKey(), args) };
+      }
       default: return yield* commerceError("unsupportedProfile");
     }
   });
@@ -187,15 +315,36 @@ export const makeProductRequestOperations = Effect.fn("ProductRequest.makeOperat
   function runWorkflow(name: "update-product-variants", value: unknown): Effect.Effect<{ result: Effect.Success<ReturnType<typeof variantUpdate.run>> }, CommerceTransactionError>;
   function runWorkflow(name: "create-product-options", value: unknown): Effect.Effect<{ result: Effect.Success<ReturnType<typeof optionCreation.run>> }, CommerceTransactionError>;
   function runWorkflow(name: "update-product-options", value: unknown): Effect.Effect<{ result: Effect.Success<ReturnType<typeof optionUpdate.run>> }, CommerceTransactionError>;
+  function runWorkflow(name: "delete-product-options", value: unknown): Effect.Effect<{ result: null }, CommerceTransactionError>;
+  function runWorkflow(name: "batch-variant-images", value: unknown): Effect.Effect<{ result: Effect.Success<ReturnType<typeof variantImages.run>> }, CommerceTransactionError>;
+  function runWorkflow(name: "batch-image-variants", value: unknown): Effect.Effect<{ result: Effect.Success<ReturnType<typeof imageVariants.run>> }, CommerceTransactionError>;
+  function runWorkflow(name: "create-product-types", value: unknown): Effect.Effect<{ result: Effect.Success<ReturnType<typeof typeCreation.run>> }, CommerceTransactionError>;
+  function runWorkflow(name: "update-product-types", value: unknown): Effect.Effect<{ result: Effect.Success<ReturnType<typeof typeUpdate.run>> }, CommerceTransactionError>;
+  function runWorkflow(name: "delete-product-types", value: unknown): Effect.Effect<{ result: Effect.Success<ReturnType<typeof typeDeletion.run>> }, CommerceTransactionError>;
+  function runWorkflow(name: "create-product-tags", value: unknown): Effect.Effect<{ result: Effect.Success<ReturnType<typeof tagCreation.run>> }, CommerceTransactionError>;
+  function runWorkflow(name: "update-product-tags", value: unknown): Effect.Effect<{ result: Effect.Success<ReturnType<typeof tagUpdate.run>> }, CommerceTransactionError>;
+  function runWorkflow(name: "delete-product-tags", value: unknown): Effect.Effect<{ result: Effect.Success<ReturnType<typeof tagDeletion.run>> }, CommerceTransactionError>;
+  function runWorkflow(name: "create-product-categories", value: unknown): Effect.Effect<{ result: Effect.Success<ReturnType<typeof categoryCreation.run>> }, CommerceTransactionError>;
+  function runWorkflow(name: "update-product-categories", value: unknown): Effect.Effect<{ result: Effect.Success<ReturnType<typeof categoryUpdate.run>> }, CommerceTransactionError>;
+  function runWorkflow(name: "delete-product-categories", value: unknown): Effect.Effect<{ result: Effect.Success<ReturnType<typeof categoryDeletion.run>> }, CommerceTransactionError>;
+  function runWorkflow(name: "batch-link-products-to-category", value: unknown): Effect.Effect<{ result: Effect.Success<ReturnType<typeof categoryMembership.run>> }, CommerceTransactionError>;
+  function runWorkflow(name: "create-collections", value: unknown): Effect.Effect<{ result: Effect.Success<ReturnType<typeof collectionCreation.run>> }, CommerceTransactionError>;
+  function runWorkflow(name: "update-collections", value: unknown): Effect.Effect<{ result: Effect.Success<ReturnType<typeof collectionUpdate.run>> }, CommerceTransactionError>;
+  function runWorkflow(name: "delete-collections", value: unknown): Effect.Effect<{ result: Effect.Success<ReturnType<typeof collectionDeletion.run>> }, CommerceTransactionError>;
+  function runWorkflow(name: "batch-link-products-collection", value: unknown): Effect.Effect<{ result: Effect.Success<ReturnType<typeof collectionMembership.run>> }, CommerceTransactionError>;
   function runWorkflow(name: string, value: unknown): ReturnType<typeof executeWorkflow>;
   function runWorkflow(name: string, value: unknown): ReturnType<typeof executeWorkflow> { return executeWorkflow(name, value); }
   const index = Effect.fn("ProductRequest.unsupportedIndex")(() => Effect.fail(commerceError("adapterFailure",
     new MedusaError(MedusaError.Types.NOT_ALLOWED, "Index engine is outside the admitted Product profile"))));
-  const remoteQuery = Effect.fn("ProductRequest.unsupportedRemoteQuery")((_value: unknown) => Effect.fail(commerceError("adapterFailure",
-    new MedusaError(MedusaError.Types.INVALID_DATA, "Remote Product filters are outside the private supported profile"))));
-  return Object.freeze({ runWorkflow, query: Object.freeze({ graph: read.graph, index }), remoteQuery, admitProductRefetchFields,
+  return Object.freeze({ runWorkflow, query: Object.freeze({ graph: read.graph, index }), remoteQuery: read.remoteQuery,
+    admitProductRefetchFields, admitCatalogRefetchFields,
     close: workflow.close.pipe(Effect.ensuring(update.close), Effect.ensuring(deletion.close), Effect.ensuring(variantDeletion.close), Effect.ensuring(variantCreation.close), Effect.ensuring(variantUpdate.close),
-      Effect.ensuring(optionCreation.close), Effect.ensuring(optionUpdate.close), Effect.ensuring(read.close)) });
+      Effect.ensuring(optionCreation.close), Effect.ensuring(optionUpdate.close), Effect.ensuring(optionDeletion.close),
+      Effect.ensuring(variantImages.close), Effect.ensuring(imageVariants.close),
+      Effect.ensuring(typeCreation.close), Effect.ensuring(typeUpdate.close), Effect.ensuring(typeDeletion.close),
+      Effect.ensuring(tagCreation.close), Effect.ensuring(tagUpdate.close), Effect.ensuring(tagDeletion.close)).pipe(
+      Effect.ensuring(categoryCreation.close), Effect.ensuring(categoryUpdate.close), Effect.ensuring(categoryDeletion.close), Effect.ensuring(categoryMembership.close),
+      Effect.ensuring(collectionCreation.close), Effect.ensuring(collectionUpdate.close), Effect.ensuring(collectionDeletion.close), Effect.ensuring(collectionMembership.close), Effect.ensuring(read.close)) });
 });
 export type ProductRequestOperations = Effect.Success<ReturnType<typeof makeProductRequestOperations>>;
 

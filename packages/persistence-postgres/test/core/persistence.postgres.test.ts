@@ -6,6 +6,7 @@ import { Pool } from "pg";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { createCorePostgresFixture } from "./fixture";
 import { registerCorePersistenceScenarios } from "./persistenceScenarios";
+import { registerCoreLeaseHandoffScenarios } from "./leaseHandoffScenarios";
 import { makeCorePostgresDriver, type CorePostgresClient, type CoreSqlDriver } from "../../src/database/corePersistence/driver";
 import { createCorePersistence } from "../../src/database/corePersistence/persistence";
 import { loadCorePersistenceTarget } from "../../src/database/corePersistence/target";
@@ -20,6 +21,8 @@ const endpoints = path === undefined ? undefined : Schema.decodeUnknownSync(Sche
 
 describe.runIf(endpoints !== undefined)("ordinary-role PostgreSQL", () => {
   if (endpoints !== undefined) registerCorePersistenceScenarios("PostgreSQL", options =>
+    createCorePostgresFixture({ ...endpoints, ...options }));
+  if (endpoints !== undefined) registerCoreLeaseHandoffScenarios("PostgreSQL", options =>
     createCorePostgresFixture({ ...endpoints, ...options }));
 
   it("rolls back a synchronous callback-factory defect before releasing the checkout", async () => {
@@ -68,14 +71,14 @@ describe.runIf(endpoints !== undefined)("ordinary-role PostgreSQL", () => {
     let writing: Promise<Exit.Exit<void, unknown>> | undefined;
     try {
       const target = await Effect.runPromise(loadCorePersistenceTarget(pausing, fixture.namespace));
-      const first = await Effect.runPromise(createCorePersistence(target, fixture.instanceName, { leaseTimestamp: Effect.succeed(1n) }));
+      const first = await Effect.runPromise(createCorePersistence(target, fixture.instanceName));
       const lease = await Effect.runPromise(first.acquireLease());
       const id = new Uint8Array(16).fill(1);
       writing = Effect.runPromiseExit(first.write(lease, { documents: [{ ts: 1n, tableId: id, id,
         jsonValue: new TextEncoder().encode("{}"), deleted: false, prevTs: null }], indexes: [] }));
       await Effect.runPromise(Deferred.await(paused));
       const replacementTarget = await Effect.runPromise(loadCorePersistenceTarget(driver, fixture.namespace));
-      const replacement = await Effect.runPromise(createCorePersistence(replacementTarget, fixture.instanceName, { leaseTimestamp: Effect.succeed(2n) }));
+      const replacement = await Effect.runPromise(createCorePersistence(replacementTarget, fixture.instanceName));
       await Effect.runPromise(replacement.acquireLease());
       await Effect.runPromise(Deferred.succeed(released, undefined));
       const result = await writing;
@@ -87,6 +90,65 @@ describe.runIf(endpoints !== undefined)("ordinary-role PostgreSQL", () => {
       await writing;
       await pool.end();
       await fixture.close();
+    }
+  });
+
+  it("commits a final-share-lock holder before a successor can acquire its generation", async () => {
+    if (endpoints === undefined) throw new Error("Missing owned PostgreSQL endpoints");
+    const fixture = await createCorePostgresFixture(endpoints);
+    const pool = new Pool({ connectionString: endpoints.connectionString, max: 4, statement_timeout: 30_000 });
+    const driver = makeCorePostgresDriver(pool);
+    const locked = await Effect.runPromise(Deferred.make<void>());
+    const release = await Effect.runPromise(Deferred.make<void>());
+    const acquiring = await Effect.runPromise(Deferred.make<void>());
+    let pause = true;
+    let updating = false;
+    const pausing: CoreSqlDriver = { ...driver,
+      transaction: run => driver.transaction(connection => run({
+        query: (statement, parameters) => connection.query(statement, parameters).pipe(Effect.tap(() => {
+          if (!pause || !statement.endsWith(" FOR SHARE")) return Effect.void;
+          pause = false;
+          return Effect.gen(function* () { yield* Deferred.succeed(locked, undefined); yield* Deferred.await(release); });
+        })),
+      })),
+      query: (statement, parameters) => Effect.gen(function* () {
+        if (updating && statement.startsWith("UPDATE ") && statement.includes("RETURNING ts"))
+          yield* Deferred.succeed(acquiring, undefined);
+        return yield* driver.query(statement, parameters);
+      }),
+    };
+    let writing: Promise<void> | undefined;
+    let replacement: Promise<unknown> | undefined;
+    try {
+      const target = await Effect.runPromise(loadCorePersistenceTarget(pausing, fixture.namespace));
+      const first = await Effect.runPromise(createCorePersistence(target, fixture.instanceName));
+      const lease = await Effect.runPromise(first.acquireLease());
+      writing = Effect.runPromise(first.putGlobal(lease, "share-lock-holder", Uint8Array.of(1)));
+      await Effect.runPromise(Deferred.await(locked));
+      const successor = await Effect.runPromise(createCorePersistence(target, fixture.instanceName));
+      updating = true;
+      let completed = false;
+      replacement = Effect.runPromise(successor.acquireLease()).then(value => { completed = true; return value; });
+      await Effect.runPromise(Deferred.await(acquiring));
+      const decodeWaiting = Schema.decodeUnknownSync(Schema.Array(Schema.Struct({ waiting: Schema.Boolean })));
+      let waiting = false;
+      for (let observation = 0; observation < 100 && !waiting; observation += 1) {
+        const rows = await Effect.runPromise(driver.query(`SELECT EXISTS (SELECT 1 FROM pg_stat_activity
+          WHERE pid <> pg_backend_pid() AND state='active' AND wait_event_type='Lock' AND query LIKE $1) AS waiting`,
+        [`UPDATE "${fixture.namespace}".%`]));
+        waiting = decodeWaiting(rows)[0]?.waiting === true;
+      }
+      expect(waiting).toBe(true);
+      expect(completed).toBe(false);
+      await Effect.runPromise(Deferred.succeed(release, undefined));
+      await writing;
+      await replacement;
+      expect(await Effect.runPromise(successor.getGlobal("share-lock-holder"))).toEqual(Option.some(Uint8Array.of(1)));
+      expect(await Effect.runPromise(Effect.result(first.putGlobal(lease, "late", Uint8Array.of(2)))))
+        .toMatchObject({ _tag: "Failure", failure: { reason: "leaseLost" } });
+    } finally {
+      await Effect.runPromise(Deferred.succeed(release, undefined));
+      try { await Promise.allSettled([writing, replacement]); } finally { await pool.end(); await fixture.close(); }
     }
   });
 

@@ -21,7 +21,7 @@ export const SimpleVariantInput = Schema.Struct({
     required_quantity: Schema.optionalKey(Schema.Number.check(Schema.isInt(), Schema.isBetween({ minimum: -2147483648, maximum: 2147483647 }))),
   })).check(Schema.isMaxLength(2))),
 });
-export const VariantSelector = Schema.Struct({ id: Id });
+export const VariantSelector = Schema.Struct({ id: Id, product_id: Schema.optionalKey(Id) });
 export const VariantUpdateSelector = Schema.Struct({
   id: Schema.Union([Id, Schema.Array(Id).check(Schema.isMaxLength(4))]),
   product_id: Schema.optionalKey(Id),
@@ -45,23 +45,33 @@ export const VariantThumbnailUpdate = Schema.Struct({ thumbnail: Schema.Null });
 /** The inverse Image workflow clears only requested Variants whose current
  * thumbnail equals this Image URL. The existing scalar selector stays valid. */
 export const VariantThumbnailSelector = Schema.Union([VariantSelector, Schema.Struct({
-  id: Schema.Array(Id).check(Schema.isMaxLength(4)), thumbnail: Schema.String,
+  id: Schema.Array(Id).check(Schema.isMaxLength(4)), thumbnail: Schema.String, product_id: Schema.optionalKey(Id),
 })]);
 export const decodeVariantThumbnailUpdate = commerceDecoder(Schema.Struct({
   selector: VariantThumbnailSelector, update: VariantThumbnailUpdate,
 }), "invalidInput");
-export const VariantImagePairs = Schema.Array(Schema.Struct({ variant_id: Id, image_id: Id })).check(Schema.isMaxLength(256));
-export const VariantImagesWorkflowInput = Schema.Struct({ variant_id: Id,
-  add: Schema.optionalKey(ProductLifecycleIds), remove: Schema.optionalKey(ProductLifecycleIds),
-}).check(Schema.makeFilter(value => {
+export const VariantImagePairs = Schema.Array(Schema.Struct({ variant_id: Id, image_id: Id, product_id: Schema.optionalKey(Id) })).check(Schema.isMaxLength(256));
+const disjointImageChanges = Schema.makeFilter((value: { readonly add?: readonly string[]; readonly remove?: readonly string[] }) => {
   const add = value.add ?? [], remove = value.remove ?? [];
   return new Set(add).size === add.length && new Set(remove).size === remove.length && !add.some(id => remove.includes(id));
-}));
+});
+export const VariantImagesWorkflowInput = Schema.Struct({ variant_id: Id, product_id: Schema.optionalKey(Id),
+  add: Schema.optionalKey(ProductLifecycleIds), remove: Schema.optionalKey(ProductLifecycleIds),
+}).check(disjointImageChanges);
+/** Constructor-selected HTTP admission. The portable forward contract above
+ * retains its original body bound and default request resources. */
+export const ParentQualifiedVariantImagesWorkflowInput = Schema.Struct({ ...VariantImagesWorkflowInput.fields,
+  product_id: Id, add: Schema.optionalKey(ProductLifecycleIds.check(Schema.isMaxLength(4))),
+  remove: Schema.optionalKey(ProductLifecycleIds.check(Schema.isMaxLength(4))),
+}).check(disjointImageChanges);
+export const ParentQualifiedVariantImagePairs = Schema.Array(Schema.Struct({ ...VariantImagePairs.value.fields,
+  product_id: Id,
+})).check(Schema.isMaxLength(4));
 export const VariantImagesWorkflowOutput = Schema.Struct({ added: ProductLifecycleIds, removed: ProductLifecycleIds });
 const ImageVariantIds = Schema.Array(Id).check(Schema.isMaxLength(4));
 /** This native entry point returns raw requested IDs. Duplicate/intersecting
  * requests retain their native service outcomes rather than facade filtering. */
-export const ImageVariantsWorkflowInput = Schema.Struct({ image_id: Id,
+export const ImageVariantsWorkflowInput = Schema.Struct({ image_id: Id, product_id: Schema.optionalKey(Id),
   add: Schema.optionalKey(ImageVariantIds), remove: Schema.optionalKey(ImageVariantIds),
 });
 export const ImageVariantsWorkflowOutput = Schema.Struct({ added: ImageVariantIds, removed: ImageVariantIds });

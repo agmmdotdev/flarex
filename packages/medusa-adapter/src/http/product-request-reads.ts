@@ -9,8 +9,14 @@ import { commerceCommandIdentity, defineAtomicCommerceParticipant, type AtomicCo
 import { commerceError, commerceLimits, isJsonObject, type CommerceTransactionError, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
 import { localGraphDirectPath, nativeLinkGraphDirectPaths } from "../local-graph/direct-paths";
 import { nativeLinkGraphPaths } from "../local-graph/links";
-import type { GraphModuleDefinition, GraphParticipant, GraphReadContext } from "../local-graph/model";
-import { prepareLocalGraph } from "../local-graph/query";
+import type { GraphModuleDefinition, GraphParticipant, GraphReadContext, GraphReadDefinition } from "../local-graph/model";
+import { decodeGraphCount, decodeGraphList, prepareLocalGraph } from "../local-graph/query";
+import { planGraphFields } from "../local-graph/fields";
+import { projectRows } from "../query/projection";
+import { prepareGraphKeys, prepareGraphKeyValidation, validateGraphKeys, validateGraphPrimaryKey } from "../local-graph/key-validation";
+import { decodeCategoryProjection } from "../modules/product/category-projection";
+import { decodeProductCategoryRead, decodeProductCollectionRead } from "../modules/product/service-input";
+import type { ProductRuntimeMetadata } from "../modules/product/runtime-metadata";
 import { commerceDecoder } from "../value/decoder";
 import { captureCommerceInput } from "../value/input";
 import { QueryLimit, QueryOffset } from "../query/decoder";
@@ -19,7 +25,7 @@ import { captureInventoryMetadata } from "../modules/inventory/schema";
 import type { ProductRequestCatalog } from "./product-request";
 
 const decodeQuery = commerceDecoder(Schema.Struct({
-  entity: Schema.Literals(["product", "product_sales_channel", "product_option", "variant", "product_variant_inventory_items"]),
+  entity: Schema.Literals(["product", "product_sales_channel", "product_option", "variant", "product_variant_inventory_items", "product_type", "product_tag", "product_category", "product_collection"]),
   fields: Schema.Array(Schema.String.check(Schema.isLengthBetween(1, 256))).check(Schema.isLengthBetween(1, 256)),
   filters: Schema.optionalKey(Schema.JsonObject),
   pagination: Schema.optionalKey(Schema.Struct({ take: Schema.optionalKey(QueryLimit), skip: Schema.optionalKey(QueryOffset),
@@ -29,6 +35,120 @@ const decodeQuery = commerceDecoder(Schema.Struct({
 const decodeOptions = commerceDecoder(Schema.Struct({ throwIfKeyNotFound: Schema.optionalKey(Schema.Boolean),
   cache: Schema.optionalKey(Schema.Struct({ enable: Schema.Boolean })),
 }), "unsupportedProfile");
+
+const CatalogEntity = Schema.Literals(["product_type", "product_tag", "product_category", "product_collection"]);
+const ScalarField = Schema.String.check(Schema.isLengthBetween(1, 256), Schema.isPattern(/^[a-zA-Z_][a-zA-Z0-9_]*$/));
+const RemoteFields = Schema.Array(Schema.Union([ScalarField, Schema.Literal("*")])).check(Schema.isMaxLength(256), Schema.isUnique());
+const RemoteArguments = Schema.Struct({ filters: Schema.optionalKey(Schema.JsonObject),
+    skip: Schema.optionalKey(QueryOffset), take: Schema.optionalKey(QueryLimit),
+    order: Schema.optionalKey(Schema.Record(ScalarField, Schema.Literals(["ASC", "DESC"]))),
+});
+const decodeCatalogRemoteQuery = commerceDecoder(Schema.Union([
+  Schema.Struct({ __value: Schema.Struct({ product_type: Schema.Struct({ fields: RemoteFields,
+    isServiceAccess: Schema.Literal(false), __args: RemoteArguments }) }) }),
+  // This is the actual remoteQueryObjectFromString producer's bounded local
+  // Collection->Products shape. Nested arguments/filters are not admitted.
+  Schema.Struct({ __value: Schema.Struct({ product_collection: Schema.Struct({ fields: RemoteFields,
+    isServiceAccess: Schema.Literal(false), __args: RemoteArguments,
+    products: Schema.optionalKey(Schema.Struct({ fields: RemoteFields.check(Schema.isMinLength(1)) })),
+  }) }) }),
+]), "unsupportedProfile");
+const decodeCategoryOrder = commerceDecoder(Schema.Struct({ id: Schema.optionalKey(Schema.Literals(["ASC", "DESC"])),
+  rank: Schema.optionalKey(Schema.Literals(["ASC", "DESC"])) }), "unsupportedProfile");
+const decodeCollectionOrder = commerceDecoder(Schema.Struct({ id: Schema.optionalKey(Schema.Literals(["ASC", "DESC"])) }), "unsupportedProfile");
+const decodeCategoryToOne = commerceDecoder(Schema.NullOr(Schema.JsonObject), "storedCorruption");
+
+export const decodeProductCatalogRemoteQuery = (input: unknown) => Result.gen(function* () {
+  const captured = yield* captureCommerceInput(input);
+  const remote = (yield* decodeCatalogRemoteQuery(captured)).__value;
+  const entity = "product_type" in remote ? "product_type" : "product_collection";
+  const node = "product_type" in remote ? remote.product_type : remote.product_collection;
+  const products = "product_collection" in remote ? remote.product_collection.products : undefined;
+  return { entity, args: node.__args, fields: [...node.fields, ...products?.fields.map(field => "products." + field) ?? []] };
+});
+
+/** Category's native service owns tree hydration and its projected recursive
+ * DTO. RemoteJoiner preserves a nested wildcard verbatim, while selected root
+ * scalars still mask implicit hydration (e.g. parent_category_id alone). */
+export function prepareCategoryRequestRead(read: GraphReadDefinition, participant: AtomicCommerceParticipant, metadata: ProductRuntimeMetadata) {
+  const productJsonFields = metadata.product.table.columns.filter(column => column.type === "json").map(column => column.name);
+  // The existing graph read's checked table/path metadata owns every field,
+  // including Product scalars and the two service-hydrated Category relations.
+  const admitProjection = (fields: readonly string[]) => decodeQuery({ entity: "product_category", fields }).pipe(
+    Result.flatMap(selected => planGraphFields(read, selected.fields)), Result.map(() => undefined));
+  const execute = Effect.fn("ProductRequest.categoryRead")(function* (context: GraphReadContext,
+    query: Result.Result.Success<ReturnType<typeof decodeQuery>>, options?: unknown) {
+    const fields = query.fields;
+    const plan = yield* Effect.fromResult(planGraphFields(read, fields));
+    const filters = (yield* Effect.fromResult(decodeProductCategoryRead({ filters: query.filters ?? {} }))).filters ?? {};
+    const order = query.pagination?.order === undefined ? undefined : yield* Effect.fromResult(decodeCategoryOrder(query.pagination.order));
+    if (query.withDeleted === true) return yield* commerceError("unsupportedProfile");
+    const keyPlan = yield* Effect.fromResult(prepareGraphKeyValidation(read, filters, options));
+    if (keyPlan !== undefined) yield* validateGraphPrimaryKey(keyPlan);
+    const keys = keyPlan === undefined ? undefined : yield* Effect.fromResult(prepareGraphKeys(keyPlan));
+    const skip = query.pagination?.skip ?? 0, take = query.pagination?.take ?? commerceLimits.catalogRows;
+    if (keyPlan !== undefined && skip !== 0) return yield* commerceError("unsupportedProfile");
+    const select = fields.includes("*") ? undefined : [...new Set([...fields, ...(keyPlan === undefined ? [] : [keyPlan.pkField])])];
+    const hydratesTrees = filters.include_ancestors_tree === true || filters.include_descendants_tree === true ||
+      plan.relations.some(path => path === "parent_category" || path === "category_children") || select?.includes("parent_category_id") === true;
+    const nativeTreeScalars = new Set(["id", "mpath", "parent_category_id", ...fields.filter(field => !field.includes("."))]);
+    const value = yield* context.call(participant, read.command, { filters, config: {
+      ...(select === undefined ? {} : { select }), relations: plan.relations, skip, take,
+      ...(order === undefined ? {} : { order }),
+    } });
+    // The command validates/restores the native undefined representation. JSON
+    // HTTP responses omit those own undefined properties exactly as JSON.stringify.
+    const decoded = yield* Effect.fromResult(decodeCategoryProjection(value));
+    const captured = yield* Effect.fromResult(captureCommerceInput(decoded, undefined, () => {}));
+    const [rows, count] = yield* Effect.fromResult(decodeGraphCount(captured));
+    if (rows.length !== Math.min(take, Math.max(0, count - skip))) return yield* commerceError("storedCorruption");
+    if (keyPlan !== undefined) {
+      if (rows.length !== count) return yield* commerceError("unsupportedProfile");
+      yield* validateGraphKeys({ uniqueIds: keys, resData: rows, expand: { serviceConfig: keyPlan.serviceConfig },
+        pkField: keyPlan.pkField, options: keyPlan.options });
+    }
+    const masked = fields.includes("*") ? rows : yield* Effect.fromResult(planGraphFields(read, fields.filter(field => !field.includes("."))).pipe(
+      Result.flatMap(mask => mask.project(rows))));
+    const projected = masked.map(row => ({ ...row }));
+    for (let index = 0; index < rows.length; index++) {
+      const source = rows[index], target = projected[index];
+      if (source === undefined || target === undefined) return yield* commerceError("storedCorruption");
+      for (const child of plan.node.children) {
+        const value = source[child.name];
+        if (value === undefined && child.optional === true) continue;
+        const related = child.many ? yield* Effect.fromResult(decodeGraphList(value))
+          : yield* Effect.fromResult(decodeCategoryToOne(value));
+        if (fields.includes(child.name + ".*") || related === null) { target[child.name] = related; continue; }
+        // Native Category projection can omit a requested child scalar: tree
+        // projection draws its scalars from the root select, and Product
+        // unwrapping drops object-valued fields during tree hydration. The
+        // native joiner's mask skips those absent fields rather than failing.
+        const optionalFields = child.name === "products" ? hydratesTrees ? productJsonFields : []
+          : fields.includes("*") ? [] : [...child.node.fields].filter(field => !nativeTreeScalars.has(field));
+        const selections = yield* Effect.fromResult(projectRows(Array.isArray(related) ? related : [related],
+          { ...child.node, optionalFields }));
+        if (child.many) target[child.name] = selections.map(row => Object.keys(row).length === 0 ? null : row);
+        else {
+          const selected = selections[0];
+          if (selected === undefined) return yield* commerceError("storedCorruption");
+          if (Object.keys(selected).length === 0) delete target[child.name];
+          else target[child.name] = selected;
+        }
+      }
+    }
+    return { data: projected, metadata: { count, skip, take } };
+  });
+  return { admitProjection, execute };
+}
+
+/** Preserve the complete read Cause while projecting admitted query refusals to HTTP. */
+function presentProductReadFailure<A, R>(work: Effect.Effect<A, CommerceTransactionError, R>) {
+  return work.pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, error =>
+    error.reason === "unsupportedProfile" || error.reason === "invalidInput" || error.reason === "limitExceeded"
+      ? commerceError("adapterFailure", new MedusaError(MedusaError.Types.INVALID_DATA,
+        "Product query is outside the private supported profile", undefined, undefined, { cause: error }))
+      : error))));
+}
 
 /** Reuse the same native Link metadata and local graph planner as workflow
  * Query. Every row is returned by its original module's registered command. */
@@ -100,6 +220,10 @@ export const makeProductRequestReads = Effect.fn("ProductRequest.makeReads")(fun
 }>) {
   const prepared = yield* prepareProductRequestReadGraph(input.catalog);
   const variants = yield* prepareProductRequestReadGraph(input.catalog, true);
+  const productMember = prepared.members.find(member => member.source.name === "product");
+  const categoryRead = input.catalog.runtimes.product.graph.reads.find(read => read.model === input.catalog.runtimes.product.metadata.category.model);
+  if (productMember === undefined || categoryRead === undefined) return yield* commerceError("invalidAuthority");
+  const categories = prepareCategoryRequestRead(categoryRead, productMember.participant, input.catalog.runtimes.product.metadata);
   const hosts = new Map<AtomicCommerceParticipant, { readonly commands: ReadonlySet<CommerceCommand>;
     readonly read: (command: CommerceCommand, args: Json) => Effect.Effect<Json, CommerceTransactionError> }>();
   const closures: Effect.Effect<void>[] = [];
@@ -121,6 +245,10 @@ export const makeProductRequestReads = Effect.fn("ProductRequest.makeReads")(fun
     const query = yield* Effect.fromResult(captureCommerceInput(value).pipe(Result.flatMap(decodeQuery)));
     const checkedOptions = options === undefined ? undefined
       : yield* Effect.fromResult(captureCommerceInput(options).pipe(Result.flatMap(decodeOptions)));
+    if (query.entity === "product_collection") {
+      yield* Effect.fromResult(decodeProductCollectionRead({ filters: query.filters ?? {} }));
+      if (query.pagination?.order !== undefined) yield* Effect.fromResult(decodeCollectionOrder(query.pagination.order));
+    }
     // This owner has no untrusted callback or finalizer. A failed native read
     // stops the sequential graph, preserving the complete original Cause.
     let failure: Cause.Cause<CommerceTransactionError> | undefined;
@@ -137,17 +265,29 @@ export const makeProductRequestReads = Effect.fn("ProductRequest.makeReads")(fun
           ...(query.withDeleted === undefined ? {} : { withDeleted: query.withDeleted }) } });
       }),
     };
+    const keyOptions = checkedOptions?.throwIfKeyNotFound === true ? { throwIfKeyNotFound: true } : undefined;
+    if (query.entity === "product_category") return yield* categories.execute(context, query, keyOptions);
     const selected = query.entity === "variant" || query.entity === "product_variant_inventory_items" ? variants : prepared;
     // Native cache options are advisory. These protected reads always use Core.
     return yield* selected.graph.bind(context).graph({ entity: query.entity, fields: query.fields,
       filters: query.filters ?? {}, pagination: { take: query.pagination?.take ?? commerceLimits.catalogRows,
         skip: query.pagination?.skip ?? 0, ...(query.pagination?.order === undefined ? {} : { order: query.pagination.order }) } },
-      checkedOptions?.throwIfKeyNotFound === true ? { throwIfKeyNotFound: true } : undefined);
-  }, work => work.pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, error =>
-    error.reason === "unsupportedProfile" || error.reason === "invalidInput" || error.reason === "limitExceeded"
-      ? commerceError("adapterFailure", new MedusaError(MedusaError.Types.INVALID_DATA,
-        "Product query is outside the private supported profile", undefined, undefined, { cause: error }))
-      : error)))));
-  return Object.freeze({ graph, admitProductRefetchFields: (fields: readonly string[]) => prepared.graph.admitProjection("product", fields),
+      keyOptions);
+  }, presentProductReadFailure);
+  const remoteQuery = Effect.fn("ProductRequest.remoteCatalogQuery")(function* (value: unknown) {
+    const { entity, args, fields } = yield* Effect.fromResult(decodeProductCatalogRemoteQuery(value));
+    const selected = yield* graph({ entity, fields, filters: args.filters ?? {},
+      pagination: { take: args.take ?? commerceLimits.catalogRows, skip: args.skip ?? 0,
+        ...(args.order === undefined ? {} : { order: args.order }) } });
+    if (args.take !== undefined || args.skip !== undefined) return { rows: selected.data, metadata: selected.metadata };
+    // Callable native refetches have no paging envelope. Refuse an incomplete
+    // result instead of silently presenting one page as the entire selection.
+    if (selected.data.length !== selected.metadata.count) return yield* commerceError("unsupportedProfile");
+    return selected.data;
+  }, presentProductReadFailure);
+  return Object.freeze({ graph, remoteQuery,
+    admitCatalogRefetchFields: (entity: typeof CatalogEntity.Type, fields: readonly string[]) => entity === "product_category"
+      ? categories.admitProjection(fields) : prepared.graph.admitProjection(entity, fields),
+    admitProductRefetchFields: (fields: readonly string[]) => prepared.graph.admitProjection("product", fields),
     close: Effect.forEach(closures, close => close, { discard: true }) });
 });

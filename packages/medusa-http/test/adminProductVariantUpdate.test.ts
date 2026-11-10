@@ -25,6 +25,7 @@ function fixture(options: { principal?: AuthContext; deny?: string; workflowErro
     resolveAdminPrincipal: request => request.headers.has("x-verified-admin") ? options.principal ?? user : undefined,
     evaluateAdminPolicies: evaluate,
     admitProductRefetchFields: admission,
+    admitCatalogRefetchFields: () => undefined,
     createRequestScope: () => createContainer().register({ workflows: asValue({ run }), query: asValue({ graph }), logger: asValue({ error() {}, info() {} }) }),
   })
   return { handler, run, graph, evaluate, admission }

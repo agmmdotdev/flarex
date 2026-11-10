@@ -3,7 +3,8 @@ import type { FindConfig, ProductTypes } from "@medusajs/framework/types";
 import { commerceServiceCommands, commerceCommandPreparation } from "../../../module/commands";
 import { commerceDecoder } from "../../../value/decoder";
 import type { ProductCommandServices } from "./services";
-import { ProductOptionCreateInput, ProductOptionReadInput, decodeProductOptionUpdateInput, decodeProductOptionIds } from "../option-input";
+import { ProductOptionCreateInput, ProductOptionReadInput, decodeProductOptionUpdateInput } from "../option-input";
+import { decodeVariantDeletionSelection } from "../lifecycle";
 
 /** Native Product methods own string normalization and Value replacement;
  * the named repository profile bounds their complete preparation selections. */
@@ -39,7 +40,7 @@ export function productOptionCommands({ metadata, withOptionWorkflowService }: P
       service.listProductOptions(input.filters, input.config as FindConfig<ProductTypes.ProductOptionDTO>, context)),
     updateOptionsBySelector: commands.write("productUpdateOptionsBySelector", updateInput, ({ service, context }, input) =>
       service.updateProductOptions(input.selector, input.update, context)),
-    softDeleteOptions: commands.write("productSoftDeleteOptionsForWorkflow", prepare(decodeProductOptionIds), async ({ service, context }, ids) =>
-      (await service.softDeleteProductOptions([...ids], {}, context)) ?? null),
+    softDeleteOptions: commands.write("productSoftDeleteOptionsForWorkflow", prepare(decodeVariantDeletionSelection), async ({ service, context }, selection) =>
+      (await service.softDeleteProductOptions("id" in selection ? { ...selection, id: [...selection.id] } : [...selection], {}, context)) ?? null),
   };
 }

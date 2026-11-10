@@ -24,6 +24,7 @@ function fixture(options: { anonymous?: boolean; deny?: string; workflowError?: 
     resolveAdminPrincipal: () => options.anonymous ? undefined : user,
     evaluateAdminPolicies: evaluate,
     admitProductRefetchFields: admission,
+    admitCatalogRefetchFields: () => undefined,
     createRequestScope,
   })
   return { handler, run, graph, admission, evaluate, createRequestScope }

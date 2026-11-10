@@ -4,7 +4,6 @@ import { commerceError } from "@flarex/persistence-postgres/internal/commerce-va
 import type { AtomicCommerceEvents } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceDecoder } from "../../value/decoder";
 import { ProductTagWorkflowInput, ProductTagWorkflowResult, decodeProductTagWorkflowResult, type ProductWorkflowModule } from "../../modules/product/workflow";
-import type { CurrencyWorkflowModule } from "../../modules/currency/service";
 import { prepareWorkflowResources, type NativeWorkflowContext, type NativeWorkflowResources } from "../../workflow/resources";
 import { prepareAtomicWorkflowHost, type AtomicWorkflowExecution, type InstalledWorkflowModule, captureInstalledWorkflowModules } from "../../workflow/host";
 import { captureWorkflowRecord } from "../../workflow/configuration";
@@ -17,7 +16,6 @@ const WorkflowInput = Schema.Struct({ product_tags: ProductTagWorkflowInput,
 const decodeInput = commerceDecoder(WorkflowInput, "invalidInput");
 type ProductTagSelections = {
   readonly product: { readonly module: ProductWorkflowModule; readonly methods: readonly ["createProductTags"]; readonly graph: true };
-  readonly currency: { readonly module: CurrencyWorkflowModule; readonly methods: readonly []; readonly graph: true };
 };
 export type ProductTagResources = NativeWorkflowResources<ProductTagSelections, true>;
 type MedusaHooks = NonNullable<Parameters<typeof createProductTagsWorkflow.prepare>[0]>;
@@ -38,22 +36,20 @@ export const decodeCreatedProductTagHook = (value: unknown) => captureCommerceIn
  * Shared assembly derives every wrapper, participant, graph and event binding. */
 export const prepareProductTagWorkflow = Effect.fn("MedusaWorkflow.prepareProductTags")(function* (input: {
   readonly execution: AtomicWorkflowExecution;
-  readonly modules: { readonly product: InstalledWorkflowModule<ProductWorkflowModule>;
-    readonly currency: InstalledWorkflowModule<CurrencyWorkflowModule> };
+  readonly modules: { readonly product: InstalledWorkflowModule<ProductWorkflowModule> };
   readonly revision: string;
   readonly subscribers: AtomicCommerceEvents["subscribers"];
   readonly hooks?: ProductTagWorkflowHooks;
 }) {
   const options = yield* Effect.fromResult(captureWorkflowRecord(input));
   const registrations = yield* Effect.fromResult(captureWorkflowRecord(options.modules));
-  const modules = yield* Effect.fromResult(captureInstalledWorkflowModules(registrations, ["product", "currency"]));
-  if (Object.keys(registrations).length !== 2) return yield* Effect.fail(commerceError("unsupportedProfile"));
+  const modules = yield* Effect.fromResult(captureInstalledWorkflowModules(registrations, ["product"]));
+  if (Object.keys(registrations).length !== 1) return yield* Effect.fail(commerceError("unsupportedProfile"));
   const registeredHooks = yield* Effect.fromResult(captureWorkflowRecord(options.hooks ?? {}));
   if (Object.keys(registeredHooks).some(name => name !== "productTagsCreated")
     || (registeredHooks.productTagsCreated !== undefined && typeof registeredHooks.productTagsCreated !== "function")) return yield* Effect.fail(commerceError("unsupportedProfile"));
   const resources = yield* Effect.fromResult(prepareWorkflowResources({
     product: { module: modules.product.module, methods: ["createProductTags"], graph: true },
-    currency: { module: modules.currency.module, methods: [], graph: true },
   }, true));
   const handler = registeredHooks.productTagsCreated;
   // Decode the native hook view rather than inheriting Medusa's full DTO types

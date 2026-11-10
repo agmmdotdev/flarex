@@ -51,6 +51,7 @@
     "vitest.product-failure.config.ts",
     "vitest.product-types.config.ts",
     "vitest.product-tags.config.ts",
+    "vitest.native-product-tags.config.ts",
     "vitest.product-collections.config.ts",
     "vitest.product-variants.config.ts",
     "vitest.product-categories.config.ts",

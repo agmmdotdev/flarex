@@ -1,4 +1,4 @@
-import type { MiddlewaresConfig, MiddlewareDescriptor, RouteDescriptor } from "../types"
+import type { MiddlewaresConfig, MiddlewareDescriptor, MiddlewareRoute, RouteDescriptor } from "../types"
 import { RoutesSorter } from "../routes-sorter"
 import { buildStaticRouteDescriptors } from "./static-route-descriptors"
 import { createRoutePathFromRelativePath } from "./route-path"
@@ -11,7 +11,7 @@ export type HttpResourceSet = {
   routes: RouteDescriptor[]
   middlewares: MiddlewareDescriptor[]
   errorHandler?: MiddlewaresConfig["errorHandler"]
-  bodyParserConfigRoutes: { matcher: string; methods?: MiddlewareDescriptor["methods"]; pathMatching: "exact" | "prefix"; config: false }[]
+  bodyParserConfigRoutes: { matcher: string; methods?: MiddlewareDescriptor["methods"]; pathMatching: "exact" | "prefix"; config: NonNullable<MiddlewareRoute["bodyParser"]> }[]
 }
 export function buildStaticHttpResources(manifest: StaticHttpResourceManifest): HttpResourceSet {
   const middlewares: MiddlewareDescriptor[] = []
@@ -23,7 +23,7 @@ export function buildStaticHttpResources(manifest: StaticHttpResourceManifest): 
     for (const route of config.routes ?? []) {
       const methods = route.methods ?? route.method
       const pathMatching = route.matcher.includes("*") || !methods ? "prefix" : "exact"
-      if (route.bodyParser === false) bodyParserConfigRoutes.push({ matcher: route.matcher, methods, pathMatching, config: false })
+      if (route.bodyParser !== undefined) bodyParserConfigRoutes.push({ matcher: route.matcher, methods, pathMatching, config: route.bodyParser })
       const handlers = route.middlewares?.length ? route.middlewares : route.policies ? [noopMiddleware] : []
       for (const handler of handlers) {
         middlewares.push({ matcher: route.matcher, methods, pathMatching, handler, policies: route.policies })

@@ -29,6 +29,7 @@ function fixture(options: { missing?: boolean; nullData?: boolean; deny?: string
     resolveAdminPrincipal: () => options.anonymous ? undefined : user,
     evaluateAdminPolicies: evaluate,
     admitProductRefetchFields: admission,
+    admitCatalogRefetchFields: () => undefined,
     createRequestScope: () => createContainer().register({ query: asValue({ graph }), workflows: asValue({ run }), logger: asValue({ error() {}, info() {} }) }),
   })
   return { handler, graph, run, admission, evaluate }

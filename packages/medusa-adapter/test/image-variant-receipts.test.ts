@@ -1,6 +1,7 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { Effect } from "effect";
 import type { Json, JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
+import { isJsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import type { LogicalCallReceiptValidation } from "../src/repository/call-receipt";
 import { captureProductSchema } from "../src/modules/product/schema";
 import { productRuntimeMetadata, type ProductRuntimeMetadata } from "../src/modules/product/runtime-metadata";
@@ -79,6 +80,38 @@ describe("native Image-to-Variants call receipts", () => {
     await Effect.runPromise(productCallReceipts(catalog).validateLogicalCall(fixed.call, fixed.activity));
   });
 
+  it.each(["variantImages", "imageVariants"] as const)("binds scoped %s assignment creation and deletion to both observed endpoint parents", async profile => {
+    const validate = productLogicalVariantImagesEventPolicy(catalog, profile).validateLogicalCall;
+    const created = creation();
+    if (!Array.isArray(created.call.input)) throw new Error("Missing native pair inputs");
+    const input = created.call.input.map(pair => {
+      if (pair === null || typeof pair !== "object" || Array.isArray(pair)) throw new Error("Invalid fixed pair");
+      return { ...pair, product_id: "product-a" };
+    });
+    const endpoints = [{ table: catalog.image.table.name, row: image() },
+      ...["variant-a", "variant-b", "variant-c"].map(id => ({ table: catalog.variant.table.name, row: variant(id) }))];
+    const createdActivity = { ...created.activity, observedRows: endpoints };
+    const createdCall = { ...created.call, commandName: profile === "imageVariants" ? "productImageWorkflowCreateAssignment" : "productCreateassignment", input };
+    await Effect.runPromise(validate(createdCall, createdActivity));
+    for (const table of [catalog.image.table.name, catalog.variant.table.name]) {
+      await refused(validate, createdCall, { ...createdActivity, observedRows: endpoints.map(observation => observation.table === table
+        ? { ...observation, row: { ...observation.row, product_id: "foreign" } } : observation) });
+      await refused(validate, createdCall, { ...createdActivity, observedRows: endpoints.filter(observation => observation.table !== table) });
+      await refused(validate, createdCall, { ...createdActivity, observedRows: endpoints.map(observation => observation.table === table
+        ? { ...observation, row: { ...observation.row, deleted_at: stamp } } : observation) });
+    }
+    const removed = deletion(2);
+    if (!Array.isArray(removed.call.input)) throw new Error("Missing native deletion pairs");
+    const removedCall = { ...removed.call, commandName: profile === "imageVariants" ? "productImageWorkflowDeleteAssignment" : "productDeleteassignment",
+      input: removed.call.input.map(pair => {
+        if (pair === null || typeof pair !== "object" || Array.isArray(pair)) throw new Error("Invalid fixed pair");
+        return { ...pair, product_id: "product-a" };
+      }) };
+    await Effect.runPromise(validate(removedCall, removed.activity));
+    await refused(validate, removedCall, { ...removed.activity, observedRows: removed.activity.observedRows.map(observation => observation.table === catalog.variant.table.name
+      ? { ...observation, row: { ...observation.row, product_id: "foreign" } } : observation) });
+  });
+
   it("binds every create result and mutation to its requested pair and refuses duplicate identities", async () => {
     const fixed = creation(), validate = policy();
     await refused(validate, { ...fixed.call, result: [{ id: "assignment-a" }, { id: "assignment-a" }, { id: "assignment-c" }, { id: "assignment-d" }] }, fixed.activity);
@@ -88,6 +121,31 @@ describe("native Image-to-Variants call receipts", () => {
         ? { ...mutation, after: { ...mutation.after, [field]: "foreign" } } : mutation);
       await refused(validate, fixed.call, { ...fixed.activity, mutations });
     }
+  });
+
+  it("authenticates the parent-qualified forward pair axis and complete deletions without inverse endpoint visibility", async () => {
+    const validate = productLogicalVariantImagesEventPolicy(catalog, "parentVariantImages").validateLogicalCall;
+    const pairs = [0, 1, 2, 3].map(index => ({ variant_id: "variant-a", image_id: "image-" + index, product_id: "product-a" }));
+    const endpoints = [{ table: catalog.variant.table.name, row: variant("variant-a") },
+      ...pairs.map(pair => ({ table: catalog.image.table.name, row: { ...image(), id: pair.image_id } }))];
+    const inserted: Mutation[] = pairs.map((pair, ordinal) => ({ ordinal, table: catalog.assignment.table.name, operation: "insert",
+      before: null, after: assignment("created-" + ordinal, pair.variant_id, pair.image_id) }));
+    const created = call("productParentVariantImageCreateAssignment", pairs, inserted.map(row => ({ id: row.after?.id ?? null })), inserted);
+    await Effect.runPromise(validate(created, activity(inserted, endpoints)));
+    await Effect.runPromise(productCallReceipts(catalog).validateLogicalCall(created, activity(inserted, endpoints)));
+    await refused(validate, { ...created, input: pairs.map(pair => ({ ...pair, product_id: "foreign" })) }, activity(inserted, endpoints));
+    await refused(validate, { ...created, input: pairs.map(({ image_id, variant_id }) => ({ image_id, variant_id })) }, activity(inserted, endpoints));
+    await refused(validate, { ...created, input: pairs.map((pair, index) => ({ ...pair, variant_id: index ? pair.variant_id : "other" })) }, activity(inserted, endpoints));
+    const persisted = Array.from({ length: 8 }, (_, index) => assignment("old-" + index, "variant-a", "image-" + index % 4));
+    const deleted: Mutation[] = persisted.map((before, ordinal) => ({ ordinal, table: catalog.assignment.table.name, operation: "delete", before, after: null }));
+    const evidence = activity(deleted, [...endpoints, ...persisted.map(row => ({ table: catalog.assignment.table.name, row }))]);
+    const removed = call("productParentVariantImageDeleteAssignment", pairs, null, deleted);
+    await Effect.runPromise(validate(removed, evidence));
+    await refused(validate, { ...removed, toAttempt: 7 }, { ...evidence, mutations: deleted.slice(0, 7) });
+    await refused(validate, removed, { ...evidence, observedRows: evidence.observedRows.map(row => row.table === catalog.image.table.name
+      ? { ...row, row: { ...row.row, product_id: "foreign" } } : row) });
+    const ninth = assignment("old-8", "variant-a", "image-0");
+    await refused(validate, removed, { ...evidence, observedRows: [...evidence.observedRows, { table: catalog.assignment.table.name, row: ninth }] });
   });
 
   it("refuses create graphs beyond four raw entries or spanning different Images", async () => {
@@ -168,6 +226,25 @@ describe("native Image-to-Variants call receipts", () => {
     const fixed = thumbnails();
     await Effect.runPromise(policy()(fixed.call, fixed.activity));
     await Effect.runPromise(productCallReceipts(catalog).validateLogicalCall(fixed.call, fixed.activity));
+  });
+
+  it("binds both scoped thumbnail selectors to the original and resulting Variant parent", async () => {
+    const fixed = thumbnails();
+    if (!isJsonObject(fixed.call.input)) throw new Error("Missing selector input");
+    const selector = fixed.call.input.selector;
+    if (selector === undefined || !isJsonObject(selector)) throw new Error("Missing native selector");
+    const qualified = { ...fixed.call, input: { ...fixed.call.input, selector: { ...selector, product_id: "product-a" } } };
+    await Effect.runPromise(policy()(qualified, fixed.activity));
+    await refused(policy(), { ...qualified, input: { ...fixed.call.input, selector: { ...selector, product_id: "foreign" } } }, fixed.activity);
+    const mutation = fixed.mutations[0];
+    if (mutation === undefined || mutation.after === null) throw new Error("Missing actual thumbnail transition");
+    const scalarActivity = activity([mutation], fixed.activity.observedRows);
+    const scalar = call("productUpdateVariantsBySelector", { selector: { id: "variant-c", product_id: "product-a" }, update: { thumbnail: null } },
+      [mutation.after], [mutation], [updated("variant-c")]);
+    const validate = productLogicalVariantImagesEventPolicy(catalog).validateLogicalCall;
+    await Effect.runPromise(validate(scalar, scalarActivity));
+    await refused(validate, { ...scalar, input: { selector: { id: "variant-c", product_id: "foreign" }, update: { thumbnail: null } } }, scalarActivity);
+    await refused(validate, scalar, { ...scalarActivity, mutations: [{ ...mutation, after: { ...mutation.after, product_id: "foreign" } }] });
   });
 
   it("refuses a vacuous thumbnail result when an observed matching root exists", async () => {

@@ -59,7 +59,7 @@ const readOnlyModules = () => {
     currency: modules.currency };
 };
 const assemble = async (hooks?: ProductTagWorkflowHooks, suffix = "standard") => {
-  const input = { execution: execution(), modules: installedModules(), revision: createHash("sha256").update(revision).update(suffix).digest("hex"),
+  const input = { execution: execution(), modules: { product: installedModules().product }, revision: createHash("sha256").update(revision).update(suffix).digest("hex"),
     subscribers, ...(hooks === undefined ? {} : { hooks }) };
   return { input, host: await runEffect(prepareProductTagWorkflow(input)) };
 };
@@ -103,8 +103,6 @@ describe("native Medusa Product-tag workflow and committed events", () => {
       const query = resources.query;
       const tags = await query.graph({ entity: "product_tag", fields: ["id", "value"], filters: { id: input.product_tags.map(tag => tag.id) }, pagination: { take: 1 } });
       expect(tags).toMatchObject({ data: [{ value: "workflow-created" }] });
-      const currencies = await query.graph({ entity: "currency", fields: ["code"], filters: { code: "usd" }, pagination: { take: 1 } });
-      expect(currencies).toMatchObject({ data: [{ code: "usd" }] });
       // Ordinary PostgreSQL uses another connection here. Pending rows visible
       // through the hook's graph must remain invisible to a future subscriber.
       if (driver === "postgres") expect(await inventory()).toEqual(before);
@@ -607,7 +605,7 @@ describe("native Medusa Product-tag workflow and committed events", () => {
       methods: modules.product.module.methods, logical: description.logical,
       graph: { ...description.graph, reads: description.graph.reads.map(read => ({ ...read, decode: () => { decoderCalls++; throw defect; } })) },
     }));
-    const host = await runEffect(prepareProductTagWorkflow({ execution: execution(), modules: { ...modules, product: { ...modules.product, module } }, revision, subscribers,
+    const host = await runEffect(prepareProductTagWorkflow({ execution: execution(), modules: { product: { ...modules.product, module } }, revision, subscribers,
       hooks: { productTagsCreated: async (_input, { resources }) => {
         await expect(resources.query.graph({ entity: "product_tag", fields: ["id"], pagination: { take: 256 } })).rejects.toBeDefined();
       } },
@@ -623,10 +621,10 @@ describe("native Medusa Product-tag workflow and committed events", () => {
   it("captures nested Product bindings without invoking registration accessors", async () => {
     let reads = 0;
     const installed = installedModules();
-    const modules = Object.defineProperty({ ...installed }, "product", { enumerable: true, get: () => { reads++; return installed.product; } });
+    const modules = Object.defineProperty({ product: installed.product }, "product", { enumerable: true, get: () => { reads++; return installed.product; } });
     expect(Exit.isFailure(await runEffect(Effect.exit(prepareProductTagWorkflow({ execution: execution(), modules, revision, subscribers }))))).toBe(true);
     const binding = Object.defineProperty({ ...installed.product }, "module", { enumerable: true, get: () => { reads++; return installed.product.module; } });
-    expect(Exit.isFailure(await runEffect(Effect.exit(prepareProductTagWorkflow({ execution: execution(), modules: { ...installed, product: binding }, revision, subscribers }))))).toBe(true);
+    expect(Exit.isFailure(await runEffect(Effect.exit(prepareProductTagWorkflow({ execution: execution(), modules: { product: binding }, revision, subscribers }))))).toBe(true);
     expect(reads).toBe(0);
   });
 

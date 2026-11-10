@@ -17,9 +17,9 @@ export const addImageToVariantsStepId = "add-image-to-variants"
  */
 export const addImageToVariantsStep = createStep(
   { name: addImageToVariantsStepId, compensation: "transactionCovered" },
-  async (input: { image_id: string; add: string[] }, { container }) => {
+  async (input: { image_id: string; add: string[]; product_id?: string }, { container }) => {
     if (!input.add.length) {
-      return new StepResponse([], { added: [], image_id: input.image_id })
+      return new StepResponse([], { added: [], image_id: input.image_id, ...(input.product_id === undefined ? {} : { product_id: input.product_id }) })
     }
 
     const productModuleService = container.resolve<IProductModuleService>(
@@ -28,6 +28,7 @@ export const addImageToVariantsStep = createStep(
 
     const data = input.add.map((variant_id) => ({
       image_id: input.image_id,
+      ...(input.product_id === undefined ? {} : { product_id: input.product_id }),
       variant_id,
     }))
 
@@ -36,10 +37,11 @@ export const addImageToVariantsStep = createStep(
     return new StepResponse(input.add, {
       added: input.add,
       image_id: input.image_id,
+      ...(input.product_id === undefined ? {} : { product_id: input.product_id }),
     })
   },
   async (
-    compensationData: { added: string[]; image_id: string } | undefined,
+    compensationData: { added: string[]; image_id: string; product_id?: string } | undefined,
     { container }
   ) => {
     if (!compensationData?.added?.length || !compensationData?.image_id) {
@@ -52,6 +54,7 @@ export const addImageToVariantsStep = createStep(
 
     const data = compensationData.added.map((variant_id) => ({
       image_id: compensationData.image_id,
+      ...(compensationData.product_id === undefined ? {} : { product_id: compensationData.product_id }),
       variant_id,
     }))
 

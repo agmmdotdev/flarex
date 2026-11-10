@@ -22,7 +22,7 @@ import { changeProductLifecycle } from "./lifecycle";
 import { optionWorkflowReadProjection } from "./read-profile";
 import { productImageVariantReadProfile } from "./image-variant-profile";
 
-export type ProductRepositoryProfile = "public" | "collectionMembership" | "categoryProjection" | "internalProduct" | "deletion" | "typeWorkflow" | "collectionWorkflow" | "categoryWorkflow" | "optionWorkflow" | "imageVariantWorkflow";
+export type ProductRepositoryProfile = "public" | "collectionMembership" | "categoryProjection" | "internalProduct" | "deletion" | "typeWorkflow" | "collectionWorkflow" | "categoryWorkflow" | "optionWorkflow" | "imageVariantWorkflow" | "variantImageWorkflow";
 const decodeCollectionReplacement = commerceDecoder(Schema.Array(Schema.Struct({
   id: ProductRelationshipId, productIds: ProductRelationshipIds,
 })).check(Schema.isLengthBetween(1, 1)), "invalidInput");
@@ -32,7 +32,7 @@ export function productRepository(root: CommerceCommandContext, owner: CommerceP
   const collectionMembership = profile === "collectionMembership" || profile === "collectionWorkflow";
   const categoryProjection = profile === "categoryProjection";
   const internalProduct = profile === "internalProduct";
-  const imageVariant = profile === "imageVariantWorkflow" ? productImageVariantReadProfile(metadata) : undefined;
+  const imageVariant = profile === "imageVariantWorkflow" || profile === "variantImageWorkflow" ? productImageVariantReadProfile(metadata) : undefined;
   const bridge = commerceRepositoryContext(root, owner);
   const events = commerceMutationEvents(owner);
   const categoryIdentities = new Set<string>();
@@ -149,7 +149,7 @@ export function productRepository(root: CommerceCommandContext, owner: CommerceP
         ...(imageVariant === undefined ? {} : { complete: true,
           ...(entity === metadata.variant ? { nativeFilterOrder: true, where: imageVariant.where } : {}),
           ...(entity === metadata.option ? { projection: optionWorkflowReadProjection } : {}),
-          ...(entity === metadata.assignment ? { relationFilters: imageVariant.assignmentFilters } : {}),
+          ...(entity === metadata.assignment && profile === "imageVariantWorkflow" ? { relationFilters: imageVariant.assignmentFilters } : {}),
         }),
         ...(profile === "optionWorkflow" && entity === metadata.option ? { projection: optionWorkflowReadProjection } : {}) }).pipe(Effect.flatMap(result => {
       // Native selector update performs its own full list before keyed

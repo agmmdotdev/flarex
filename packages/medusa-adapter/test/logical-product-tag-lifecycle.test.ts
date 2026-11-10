@@ -2,9 +2,8 @@ import { expectWorkflowRefusal } from "./support/workflow-failure-assertions";
 import { withWorkflowPolicy } from "./support/workflow-policy-fixture";
 import { createHash } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { Cause, Effect, Exit, Result } from "effect";
+import { Cause, Effect, Exit } from "effect";
 import { isJsonObject } from "flarex-protocol/json";
-import { currencyWorkflowModule } from "../src/modules/currency/service";
 
 import { prepareProductTagWorkflow } from "../src/workflows/product/tag";
 import { prepareProductTagUpdateWorkflow } from "../src/workflows/product/tag-update";
@@ -30,7 +29,7 @@ function forgeModuleId(policy: import("../src/workflow/module").WorkflowLogicalP
 
 describe("native Product-tag lifecycle on logical Product storage", () => {
   beforeAll(async () => {
-    currency = await createCoreProductWorkflowFixture(driver, close => cleanup.push(close), { includeCurrency: true });
+    currency = await createCoreProductWorkflowFixture(driver, close => cleanup.push(close));
     product = currency.product;
 
   }, 180_000);
@@ -44,8 +43,7 @@ describe("native Product-tag lifecycle on logical Product storage", () => {
     const execution: AtomicWorkflowExecution = { identityAndAccessPolicy: currency.execution.identityAndAccessPolicy,
       prepare: composition => currency.execution.prepare(composition) };
     const create = await Effect.runPromise(prepareProductTagWorkflow({ execution,
-      modules: { product: { module: product.runtime.workflow, nativeStorage: product.source }, currency: { module: Result.getOrThrow(currencyWorkflowModule),
-          nativeStorage: currency.fixture.source("currency") } }, revision, subscribers }));
+      modules: { product: { module: product.runtime.workflow, nativeStorage: product.source } }, revision, subscribers }));
     let hookCalls = 0;
     const update = await Effect.runPromise(prepareProductTagUpdateWorkflow({ execution,
       modules: { product: { module: product.runtime.workflow, nativeStorage: product.source } }, revision, subscribers,
@@ -122,8 +120,7 @@ describe("native Product-tag lifecycle on logical Product storage", () => {
     const execution: AtomicWorkflowExecution = { identityAndAccessPolicy: currency.execution.identityAndAccessPolicy,
       prepare: composition => currency.execution.prepare(composition) };
     const create = await Effect.runPromise(prepareProductTagWorkflow({ execution,
-      modules: { product: { module: product.runtime.workflow, nativeStorage: product.source },
-        currency: { module: Result.getOrThrow(currencyWorkflowModule), nativeStorage: currency.fixture.source("currency") } },
+      modules: { product: { module: product.runtime.workflow, nativeStorage: product.source } },
       revision, subscribers }));
     const update = await Effect.runPromise(prepareProductTagUpdateWorkflow({ execution,
       modules: { product: { module: withWorkflowPolicy(product.runtime.workflow, forgeModuleId), nativeStorage: product.source } }, revision, subscribers }));
@@ -156,8 +153,7 @@ describe("native Product-tag lifecycle on logical Product storage", () => {
     const execution: AtomicWorkflowExecution = { identityAndAccessPolicy: currency.execution.identityAndAccessPolicy,
       prepare: composition => currency.execution.prepare(composition) };
     const create = await Effect.runPromise(prepareProductTagWorkflow({ execution,
-      modules: { product: { module: product.runtime.workflow, nativeStorage: product.source },
-        currency: { module: Result.getOrThrow(currencyWorkflowModule), nativeStorage: currency.fixture.source("currency") } },
+      modules: { product: { module: product.runtime.workflow, nativeStorage: product.source } },
       revision, subscribers }));
     const remove = await Effect.runPromise(prepareProductTagDeleteWorkflow({ execution,
       modules: { product: { module: product.runtime.workflow, nativeStorage: product.source } }, revision, subscribers }));

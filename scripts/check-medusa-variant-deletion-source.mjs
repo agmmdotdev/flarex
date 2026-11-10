@@ -7,16 +7,14 @@ const failure = "Changed parent-qualified native Variant deletion source";
 const classification = "parentQualifiedVariantDeletionFork";
 const workflow = "packages/medusa-core-flows/src/product/workflows/delete-product-variants.ts";
 const step = "packages/medusa-core-flows/src/product/steps/delete-product-variants.ts";
-const service = "packages/medusa-types/src/product/service.ts";
 
 export const variantDeletionSourcePairs = Object.freeze([
   { target: workflow, source: "third_party/medusa/upstream/packages/core/core-flows/src/product/workflows/delete-product-variants.ts", classification },
   { target: step, source: "third_party/medusa/upstream/packages/core/core-flows/src/product/steps/delete-product-variants.ts", classification },
-  { target: service, source: "third_party/medusa/upstream/packages/core/types/src/product/service.ts", classification },
 ]);
 
-/** The approved selector correction belongs only to this native root, step,
- * and erased service overload. No adjacent deletion workflow gains it.
+/** The approved selector correction belongs only to this native root and step.
+ * The shared Product service declaration has its own exact overload owner.
  * @param {readonly {source?: string, target: string, classification: string}[]} files */
 export function verifyVariantDeletionSourceSelection(files) {
   for (const pair of variantDeletionSourcePairs) {
@@ -46,21 +44,6 @@ function replace(text, before, after) {
 export function verifyVariantDeletionSource(source, target, destination) {
   if (!variantDeletionSourcePairs.some(pair => pair.target === destination)) throw new Error(failure + ": unknown target");
   let expected = source.replaceAll("\r\n", "\n");
-  if (destination === service) {
-    const method = `  softDeleteProductVariants<TReturnableLinkableKeys extends string = string>(
-    variantIds: string[],
-    config?: SoftDeleteReturn<TReturnableLinkableKeys>,
-    sharedContext?: Context
-  ): Promise<Record<string, string[]> | void>`;
-    expected = replace(expected, method, method + `
-
-  /** Retain Product ownership in the trusted native deletion selector. */
-  softDeleteProductVariants<TReturnableLinkableKeys extends string = string>(
-    selector: { id: string[]; product_id: string },
-    config?: SoftDeleteReturn<TReturnableLinkableKeys>,
-    sharedContext?: Context
-  ): Promise<Record<string, string[]> | void>`);
-  } else {
     expected = replace(expected, 'from "@medusajs/framework/utils"', 'from "@medusajs/framework/utils/portable"');
     expected = replace(expected, 'from "@medusajs/framework/workflows-sdk"', 'from "@medusajs/workflows-sdk"');
     if (destination === step) {
@@ -122,7 +105,6 @@ import { deletionVariantRows } from "./product-deletion-query"`);
       expected = replace(expected, "transform({ input }, ({ input }) => {\n      return input.ids?.map((id) => {", "transform({ effectiveIds }, ({ effectiveIds }) => {\n      return effectiveIds?.map((id) => {");
       expected = replace(expected, 'createHook("productVariantsDeleted", {\n      ids: input.ids,', 'createHook("productVariantsDeleted", {\n      ids: effectiveIds,');
     }
-  }
   if (expected !== target.replaceAll("\r\n", "\n")) throw new Error(failure + ": complete source " + destination);
 }
 

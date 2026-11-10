@@ -10,6 +10,7 @@ import { commerceDecoder } from "../../value/decoder";
 import { defineWorkflowMethod, defineWorkflowModule, type WorkflowLogicalPolicy } from "../../workflow/module";
 import { ProductNamedFilters } from "./service-input";
 import { ProductTagUpdateData } from "./tag-update-input";
+import { NativePreimageConfig, nativePreimageSelection } from "../../workflow/preimage";
 import { ProductLifecycleIds } from "./lifecycle";
 import { VariantThumbnailSelector, VariantThumbnailUpdate, VariantImagePairs, SimpleVariantInput } from "./variant-workflow-input";
 
@@ -24,9 +25,7 @@ const decodeCreatedProducts = commerceDecoder(Schema.Array(Schema.StructWithRest
   Schema.Struct({ id: Schema.String, title: Schema.String }), [Schema.Record(Schema.String, Schema.Json)],
 )).check(Schema.isMaxLength(256)), "storedCorruption");
 const decodeArguments = commerceDecoder(Schema.Tuple([ProductTagWorkflowInput]), "invalidInput");
-const decodeListArguments = commerceDecoder(Schema.Tuple([ProductNamedFilters,
-  Schema.Struct({ select: Schema.Array(Schema.String), relations: Schema.Array(Schema.String) }),
-]), "invalidInput");
+const decodeListArguments = commerceDecoder(Schema.Tuple([ProductNamedFilters, NativePreimageConfig]), "invalidInput");
 const decodeListResult = commerceDecoder(Schema.Array(Schema.JsonObject).check(Schema.isMaxLength(256)), "storedCorruption");
 const decodeUpdateArguments = commerceDecoder(Schema.Tuple([ProductNamedFilters, ProductTagUpdateData]), "invalidInput");
 const decodeDeleteArguments = commerceDecoder(Schema.Tuple([ProductLifecycleIds]), "invalidInput");
@@ -48,7 +47,8 @@ export function productWorkflowModule(source: CommerceModuleDescription,
   logical: WorkflowLogicalPolicy) {
   return Result.gen(function* () {
     const table = graph.reads.find(read => read.model === "Product")?.table;
-    if (!table) return yield* Result.fail(commerceError("unsupportedProfile"));
+    const tagRead = graph.reads.find(read => read.model === "ProductTag");
+    if (!table || tagRead === undefined) return yield* Result.fail(commerceError("unsupportedProfile"));
     const decodeCreateProductsArguments = commerceDecoder(Schema.Tuple([Schema.Array(productCreationInput(table.columns)).check(Schema.isMaxLength(256))]), "invalidInput");
     const createProducts = yield* defineWorkflowMethod({ command: commands.create, arguments: decodeCreateProductsArguments,
       encode: ([products]) => products, output: decodeCreatedProducts,
@@ -58,7 +58,7 @@ export function productWorkflowModule(source: CommerceModuleDescription,
     const createProductTags = yield* defineWorkflowMethod({ command: commands.createTags, arguments: decodeArguments,
       encode: ([tags]) => tags, output: decodeProductTagWorkflowResult, moduleEvents: [events.created] });
     const listProductTags = yield* defineWorkflowMethod({ command: commands.listTags, arguments: decodeListArguments,
-      encode: ([filters, config]) => ({ filters, config }), output: decodeListResult });
+      encode: ([filters, config]) => ({ filters, config: nativePreimageSelection(config, tagRead) }), output: decodeListResult });
     const updateProductTags = yield* defineWorkflowMethod({ command: commands.updateTagsBySelector, arguments: decodeUpdateArguments,
       encode: ([selector, update]) => ({ selector, update }), output: decodeProductTagWorkflowResult, moduleEvents: [events.updated] });
     const softDeleteProductTags = yield* defineWorkflowMethod({ command: commands.softDeleteTags, arguments: decodeDeleteArguments,

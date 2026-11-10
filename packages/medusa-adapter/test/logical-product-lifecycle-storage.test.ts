@@ -15,13 +15,13 @@ import { prepareVariantImagesWorkflow, variantImagesWorkflowEvents } from "../sr
 import { VariantImagesWorkflowInput } from "../src/modules/product/variant-workflow-input";
 import { prepareAtomicWorkflowHost } from "../src/workflow/host";
 import { prepareWorkflowResources } from "../src/workflow/resources";
-import { currencyWorkflowModule } from "../src/modules/currency/service";
 import { captureProductSchema } from "../src/modules/product/schema";
 import { productRuntimeMetadata } from "../src/modules/product/runtime-metadata";
 import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant } from "../../persistence-postgres/src/frameworks/atomicCommerce/commands";
 import { defineCommerceEventContract } from "../../persistence-postgres/src/frameworks/atomicCommerce/events";
 import { defineCommerceCommand } from "../../persistence-postgres/src/frameworks/commerceTransaction/commands";
 import { commerceError, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
+import { ExecutionDiagnostics } from "@flarex/persistence-postgres/internal/execution-diagnostics";
 import { createCoreProductWorkflowFixture, openCoreProductCommandHost, type CoreProductWorkflowFixture } from "./support/core-product-workflow-fixture";
 
 const driver = process.env.FLAREX_TEST_DRIVER ?? "pglite";
@@ -84,8 +84,7 @@ async function tagHost() {
   return Effect.runPromise(prepareProductTagWorkflow({
     execution: { identityAndAccessPolicy: currency.execution.identityAndAccessPolicy,
       prepare: composition => currency.execution.prepare(composition) },
-    modules: { product: { module: product.runtime.workflow, nativeStorage: product.source },
-    currency: { module: Result.getOrThrow(currencyWorkflowModule), nativeStorage: currency.fixture.source("currency") } },
+    modules: { product: { module: product.runtime.workflow, nativeStorage: product.source } },
     revision: createHash("sha256").update("logical-product-membership-tag").digest("hex"),
     subscribers: [{ id: "logical-product-membership", revision: "a".repeat(64) }],
   }));
@@ -271,10 +270,15 @@ describe("native Product lifecycle on shared logical storage", () => {
       }));
       const beforeRows = await coreRows();
       const beforeEvents = await committedEvents();
+      const beforeRevisions = await coreRevisions(), beforeOutcomes = await coreOutcomes();
       const key = images.newRequestKey();
       const input = { variant_id: "pvar_logical_images", add: ["img_logical_images_new"],
         remove: ["img_logical_images_old"] };
-      const result = await Effect.runPromise(images.run(key, input));
+      let entries = 0;
+      const result = await Effect.runPromise(images.run(key, input).pipe(Effect.provideService(ExecutionDiagnostics, {
+        observe: (name, work) => Effect.sync(() => { if (name === "BoundedRequest.enter") entries++; }).pipe(Effect.andThen(work)),
+      })));
+      expect(entries).toBeLessThanOrEqual(64);
       expect(result).toEqual({ added: ["img_logical_images_new"], removed: ["img_logical_images_old"] });
       const afterRows = await coreRows();
       expect(afterRows).not.toEqual(beforeRows);
@@ -297,6 +301,9 @@ describe("native Product lifecycle on shared logical storage", () => {
         expect.objectContaining({ id: "img_logical_images_new" }),
       ]) });
       const afterEvents = await committedEvents();
+      expect(await coreRevisions()).toHaveLength(beforeRevisions.length + 3);
+      expect(await coreOutcomes()).toHaveLength(beforeOutcomes.length + 1);
+      process.stdout.write(JSON.stringify({ retainedLegacyForward: { boundedEntries: entries, revisions: 3, events: 1, outcomes: 1 } }) + "\n");
       expect(afterEvents.slice(beforeEvents.length).map(event => event.envelope)).toMatchObject([{
         contract: catalog.variant.updatedEvent, internal: true, group: key,
         message: { data: { id: "pvar_logical_images" } },

@@ -2,7 +2,6 @@ import { createHash } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Cause, Deferred, Effect, Exit, Fiber, Result, Schema } from "effect";
 import { deleteProductTagsWorkflow } from "@medusajs/core-flows/product/delete-product-tags";
-import { currencyWorkflowModule } from "../src/modules/currency/service";
 
 import { prepareProductCreateWorkflow } from "../src/workflows/product/create";
 import { prepareProductTagWorkflow } from "../src/workflows/product/tag";
@@ -42,9 +41,7 @@ async function hosts(options?: {
   const execution = currency.execution;
   const selected = { module: product.runtime.workflow, nativeStorage: product.source };
   const create = await Effect.runPromise(prepareProductTagWorkflow({ execution,
-    modules: { product: { ...selected },
-      currency: { module: Result.getOrThrow(currencyWorkflowModule),
-        nativeStorage: currency.fixture.source("currency") } },
+    modules: { product: { ...selected } },
     revision, subscribers }));
   const update = await Effect.runPromise(prepareProductTagUpdateWorkflow({ execution,
     modules: { product: { ...selected } },
@@ -224,7 +221,7 @@ describe("native Product-tag update/delete on logical storage", () => {
       for (const [field, value] of [["selector", { q: "search" }],
         ["selector", { value: ["tag-retire-invalid-a"] }],
         ["selector", { id: Array.from({ length: 257 }, () => id) }],
-        ["update", {}], ["update", { value: "changed", id }],
+        ["update", { value: null }], ["update", { value: "changed", id }],
         ["additional_data", null]] as const) {
         const input = Object.defineProperty(updateInput(id), field, { value });
         await expect(Effect.runPromise(flow.update.run(flow.update.newRequestKey(), input)))

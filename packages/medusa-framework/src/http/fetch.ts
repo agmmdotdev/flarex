@@ -1,5 +1,6 @@
 import { MedusaError } from "@medusajs/utils/common/errors"
 import { errorHandler } from "./middlewares/error-handler"
+import { RoutesSorter } from "./routes-sorter"
 import { matchStaticHttpPath } from "./utils/static-http-path-matcher"
 import { parseFetchQuery } from "./utils/fetch-query"
 import { parseFetchJsonBody, resolveJsonBodyLimit } from "./utils/fetch-json-body"
@@ -28,6 +29,7 @@ export function createFetchHttpStaticHandler(options: FetchHttpAdapterOptions & 
   }
   const jsonBodyLimit = resolveJsonBodyLimit(options.jsonBodyLimitBytes)
   const sorted = sortHttpResources(resources)
+  const bodyParserConfigRoutes = new RoutesSorter(resources.bodyParserConfigRoutes).sort(["static", "params", "regex", "wildcard", "global"])
   if (resources.middlewares.some((middleware) => middleware.policies !== undefined) && !options.verifyPolicies) {
     throw new Error("Policy-bearing private HTTP routes require an injected verifier")
   }
@@ -61,7 +63,10 @@ export function createFetchHttpStaticHandler(options: FetchHttpAdapterOptions & 
       req.params = matchStaticHttpPath(route.matcher, url.pathname) ?? {}
       if (new TextEncoder().encode(url.search).byteLength > 16384) throw new MedusaError(MedusaError.Types.INVALID_DATA, "Query string exceeds the private HTTP limit")
       req.query = parseFetchQuery(url.searchParams)
-      const bodyParserDisabled = resources.bodyParserConfigRoutes.some((resource) => matchesResource(resource, request.method, url.pathname))
+      // The pinned Fetch host retains sizeLimit metadata without interpreting
+      // it. This private host additionally enforces its configured hard cap.
+      const bodyParserConfig = bodyParserConfigRoutes.find((resource) => matchesResource(resource, request.method, url.pathname))
+      const bodyParserDisabled = bodyParserConfig?.config === false
       if (!bodyParserDisabled && request.method === "POST") req.body = await parseFetchJsonBody(request, jsonBodyLimit)
       await options.prepareRequest?.(req, request)
       let proceed = true

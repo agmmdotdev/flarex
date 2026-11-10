@@ -5,7 +5,7 @@ import { StepResponse, createStep } from "@medusajs/workflows-sdk"
 /**
  * The IDs of the product options to delete.
  */
-export type DeleteProductOptionsStepInput = string[]
+export type DeleteProductOptionsStepInput = string[] | { id: string[]; product_id: string }
 
 export const deleteProductOptionsStepId = "delete-product-options"
 /**
@@ -13,10 +13,15 @@ export const deleteProductOptionsStepId = "delete-product-options"
  */
 export const deleteProductOptionsStep = createStep(
   { name: deleteProductOptionsStepId, compensation: "transactionCovered" },
-  async (ids: DeleteProductOptionsStepInput, { container }) => {
+  async (input: DeleteProductOptionsStepInput, { container }) => {
     const service = container.resolve<IProductModuleService>(Modules.PRODUCT)
 
-    await service.softDeleteProductOptions(ids)
+    const ids = Array.isArray(input) ? input : input.id
+    if (Array.isArray(input)) {
+      await service.softDeleteProductOptions(input)
+    } else {
+      await service.softDeleteProductOptions(input)
+    }
     return new StepResponse(void 0, ids)
   },
   async (prevIds, { container }) => {

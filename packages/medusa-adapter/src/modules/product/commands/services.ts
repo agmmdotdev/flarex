@@ -23,6 +23,7 @@ export const prepareProductCommandServices = Effect.fn("ProductAdapter.prepareCo
   const categoryWorkflow = yield* Effect.fromResult(defineProductModule(metadata, "categoryWorkflow"));
   const optionWorkflow = yield* Effect.fromResult(defineProductModule(metadata, "optionWorkflow"));
   const imageVariantWorkflow = yield* Effect.fromResult(defineProductModule(metadata, "imageVariantWorkflow"));
+  const variantImageWorkflow = yield* Effect.fromResult(defineProductModule(metadata, "variantImageWorkflow"));
   const withService = standard.use;
   const withCategoryReadService = category.use;
   const withCollectionService = collection.use;
@@ -34,7 +35,7 @@ export const prepareProductCommandServices = Effect.fn("ProductAdapter.prepareCo
     internal.use(ctx, async value => value.capture(await work(value))));
   return { metadata, description: standard.description, withService, withDeletionService: deletion.use, withTypeWorkflowService: typeWorkflow.use,
     withCollectionWorkflowService: collectionWorkflow.use, withCategoryWorkflowService: categoryWorkflow.use, withOptionWorkflowService: optionWorkflow.use,
-    withImageVariantWorkflowService: imageVariantWorkflow.use, withCategoryReadService,
+    withImageVariantWorkflowService: imageVariantWorkflow.use, withVariantImageWorkflowService: variantImageWorkflow.use, withCategoryReadService,
     withCollectionService, withInternalCategory, withInternalProduct };
 });
 export type ProductCommandServices = Effect.Success<ReturnType<typeof prepareProductCommandServices>>;

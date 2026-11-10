@@ -120,7 +120,8 @@ export function productLogicalLifecycleEventPolicy(catalog: ProductRuntimeMetada
   const validateLogicalCall: LogicalCallReceiptValidation = Effect.fn("ProductEvents.validateLogicalLifecycle")(function* (call, activity) {
       const { mutations, lifecycle } = activity;
     if (call.commandName !== commandName || call.mode !== "write") return yield* Effect.fail(commerceError("receiptMismatch"));
-    const selection = target === "variant" && commandName === "productSoftDeleteVariantsForWorkflow"
+    const selection = (target === "variant" && commandName === "productSoftDeleteVariantsForWorkflow" ||
+      target === "option" && commandName === "productSoftDeleteOptionsForWorkflow")
       ? yield* Effect.fromResult(decodeVariantDeletionSelection(call.input)).pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause))) : undefined;
     const parent = selection !== undefined && "id" in selection ? selection.product_id : undefined;
     const requested = selection !== undefined ? "id" in selection ? selection.id : selection : yield* Effect.fromResult(decodeProductLifecycleIds(call.input))
@@ -137,7 +138,7 @@ export function productLogicalLifecycleEventPolicy(catalog: ProductRuntimeMetada
       .filter(([, row]) => { const parent = row[catalog.foreignKeys.value]; return typeof parent === "string" && selected.has(parent); })
       .map(([id]) => id) : []);
     if (target === "option") {
-      if (operation !== "softDelete" || !Array.isArray(call.input) || call.input.length > 4 ||
+      if (operation !== "softDelete" ||
         activity.setNull.length !== 0 || activity.referenceReplacements.length !== 0 || !isJsonObject(call.result))
         return yield* Effect.fail(commerceError("receiptMismatch"));
       const result = call.result;
@@ -207,7 +208,7 @@ export function productLogicalLifecycleEventPolicy(catalog: ProductRuntimeMetada
           (operation === "restore" && observation.beforeDeletedAt === null)) return yield* Effect.fail(commerceError("receiptMismatch"));
         matchedAttempts.add(observation.attemptOrdinal);
         row = mutation.before;
-        if (parent !== undefined && (row.product_id !== parent || mutation.after.product_id !== parent))
+        if (parent !== undefined && observation.table === rootTable && (row.product_id !== parent || mutation.after.product_id !== parent))
           return yield* Effect.fail(commerceError("receiptMismatch"));
       }
       if (target === "product" && entity !== catalog.product) {

@@ -1,4 +1,4 @@
-import { Effect, Schema } from "effect";
+import { Effect, Result, Schema } from "effect";
 import type { CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError, type Json, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import type { ProductRuntimeMetadata } from "./runtime-metadata";
@@ -6,7 +6,7 @@ import { commerceDecoder } from "../../value/decoder";
 import { captureCommerceInput } from "../../value/input";
 import { QueryEnvelope, QueryOffset } from "../../query/decoder";
 import { readCommerceRelationRows } from "../../query/relations";
-import { compileProjection } from "../../query/projection";
+import { compileProjection, type ProjectionPolicy } from "../../query/projection";
 import { categoryReadProjection } from "./read-profile";
 import { executeRead, type CatalogSelection } from "../../query/read";
 import { valuePredicate } from "../../query/predicate";
@@ -36,6 +36,18 @@ const decodeRank = commerceDecoder(Schema.Number.check(Schema.isInt(), Schema.is
 const decodeManagedRank = commerceDecoder(Schema.Number.check(Schema.isInt(),
   Schema.isBetween({ minimum: Number.MIN_SAFE_INTEGER, maximum: Number.MAX_SAFE_INTEGER })), "invalidInput");
 const encoder = new TextEncoder();
+const nativeCategoryProjection: ProjectionPolicy = { ...categoryReadProjection,
+  nested: new Map([...categoryReadProjection.nested].map(([name, policy]) => [name, { ...policy, allowWildcard: true }])),
+};
+
+export const compileCategoryReadProjection = (metadata: ProductRuntimeMetadata, fields: readonly string[] | undefined,
+  relations: readonly string[]) => Result.gen(function* () {
+  const category = yield* metadata.readCatalog.table(metadata.category.table.name);
+  const treeFields = new Set(["parent_category", "category_children"].flatMap(path =>
+    [...category.columns, "*"].map(field => path + "." + field)));
+  return yield* compileProjection(metadata.readCatalog, metadata.category.table.name,
+    fields?.filter(field => !treeFields.has(field)), relations, nativeCategoryProjection);
+});
 
 /** The original service owns tree hydration. Its repository reads a complete,
  * scoped and bounded catalog before applying pagination and field projection. */
@@ -49,7 +61,11 @@ export const findCategoryRows = Effect.fn("ProductCategory.find")(function* (ctx
   // The pinned service hydrates these exact tree hints after the DAL read.
   const relations = (options.populate ?? []).filter(path => path !== "parent_category" && path !== "category_children");
   if (relations.some(path => path !== "products")) return yield* Effect.fail(commerceError("unsupportedProfile"));
-  const projection = yield* Effect.fromResult(compileProjection(metadata.readCatalog, metadata.category.table.name, options.fields, relations, categoryReadProjection));
+  // Native RemoteQuery forwards tree selections in `fields`; the Category
+  // service consumes those after the DAL returns and owns all tree hydration.
+  // Keep the original options visible to that service, selecting only actual
+  // storage/Product paths in this repository.
+  const projection = yield* Effect.fromResult(compileCategoryReadProjection(metadata, options.fields, relations));
   const children: Json[] = [{ kind: "isNull", column: "deleted_at" }];
   for (const [column, value] of Object.entries(where)) children.push(valuePredicate(column, value));
   let complete: readonly JsonObject[] = [];

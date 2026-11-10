@@ -19,6 +19,20 @@ Active source baseline: `db914cf06e2b06ee985646611b9e12ed7a770318`, with
 must refresh their independent source challenge and divergence assessment;
 previous checks retain their original source identity and status.
 
+## Authorized lease-handoff prerequisite
+
+The Product HTTP goal now explicitly authorizes diagnosis and, if confirmed,
+correction of Core lease acquisition for serialized Node/Workerd owner handoffs.
+The [focused slice](./slices/16c-lease-generation-handoff.md) records independent
+current-owner, accepted-direction and pinned-Convex challenge, peer convergence,
+ownership, counterexamples and paired/actual-host gates. Its
+[mechanism divergence](./divergences/lease-generation-handoff.md) selects a
+single observed-predecessor CAS without retry, preserving strict stale-writer
+fencing and canonical-host eligibility. Controlled diagnosis and the bounded
+Core implementation have paired owner proof and actual serialized Node/Workerd
+reconstruction with Option deletion and Variant/Inventory consumers. Final
+review and delivery remain required. This adds no general leader-election or
+managed-host acceptance.
 ## Finish line
 
 Translate pinned Convex core logic and its physical persistence schema into

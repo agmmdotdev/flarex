@@ -40,6 +40,30 @@ compensation data. The public Product service declaration admits the exact
 parent selector already supported by the executing service, without broadening
 other methods or inserting unchecked casts.
 
+## Option deletion contract
+
+Option deletion uses the same optional parent request and exact parent-qualified
+final selector, but its native unscoped workflow performs no prequery. Execute
+the Option ownership query only within the SDK's scoped conditional branch.
+Use the matching requested IDs, preserving order and duplicates, for final
+soft deletion, the `{ ids }` hook, Link dispatch and workflow events. Preserve
+the native order: soft deletion, hook, then parallel Link dispatch and events.
+
+The existing Option graph, lifecycle and event owners authenticate Option roots
+against their actual Product before planning transitions. Values belong to
+Options through `option_id`; apply Product checks to root rows and retain the
+existing selected-Option checks for Value rows. Preserve native soft deletion
+and retimestamping of already-deleted Values, including their updated events.
+Product and Variant rows, Variant/Value pivots and Pricing/Inventory links are
+retained. The existing native `Link([])` router still owns dispatch because
+this profile has no stored external Option Link family.
+
+The bounded profile retains four Options, four Values per Option, sixteen
+Values in total and its existing call/event budgets. Both public service
+overloads are authenticated together by one exact source guard on their shared
+declaration file. The Variant and Option workflow/step adaptations retain their
+own exact source pairs; the service file is not duplicated under classifications.
+
 ## Observable HTTP behavior
 
 The nested DELETE passes both route identities. Product read, Variant read and
@@ -54,17 +78,55 @@ it is not evidence that a row transitioned on this call. An empty root outcome
 may still settle. A later response-refetch failure cannot undo a committed
 workflow and must not cause an HTTP-layer retry.
 
+Option DELETE follows the same scoped no-op and policy rules, with native
+Product read, Option read and Option delete policies. Its native envelope is
+`{ id, object: "product_option", deleted: true, parent: product }`. The parent
+is deliberately not passed through `remapProductResponse`, even though its
+refetch fields use `remapKeysForProduct`. Rich price/inventory responses must
+preserve that executing native shape.
+
+## Image and Variant associations
+
+Both native association workflows accept an optional Product constraint. Every
+add/remove Step carries it to the actual Product service, which checks both
+Image and Variant ownership under the same shared context before assignment
+operations. The constraint is then removed from the unchanged persisted pair
+shape. Constrained foreign, missing or inactive endpoints refuse the atomic
+root, including any other branch's pending assignment and thumbnail changes.
+The workflow's thumbnail queries and final update selectors also retain the
+Product. Receipts authenticate endpoint parents and thumbnail selections from
+authoritative observations and mutations.
+
+Unscoped private callers retain native same-tenant cross-Product behavior.
+Empty operations keep native empty results without endpoint existence checks.
+Variant-to-Images retains sequential add/remove and its existing refusal of
+duplicate or intersecting request arrays. Image-to-Variants retains native
+parallel branches, raw duplicate/intersection semantics and its separate
+bounded complete-preparation profile. Native insert identities, raw removal
+results and URL-based thumbnail decisions are retained. No universal
+association engine, stored parent column or additional transaction is added.
+
+The HTTP handlers always supply the URL Product and keep native validators,
+policies and `{ added, removed }` envelopes. They perform no HTTP existence
+read or Product refetch. Native parser size metadata is kept without widening
+the private Fetch ceiling; the pinned Fetch host itself does not interpret
+`sizeLimit`.
+
 ## Remaining scope and gates
 
-Option deletion, Image/Variant associations, Variant Inventory Links and
-Variant batch deletion require the same owner-level analysis and their own
-connected corrections. A corrected Variant route does not complete them.
+Image/Variant associations and scoped Option deletion have bounded actual DO
+acceptance, including durable graph checks across serialized owner recreation.
+The Core lease-handoff prerequisite is resolved for that host contract. Variant
+Inventory Links and Variant batch deletion still require their own connected
+corrections; general managed-host election remains separate.
 
 Preserve unscoped workflow and batch regressions. Prove scoped wrong-parent and
 mixed-ID behavior, complete valid deletion, shared Inventory rules, late
 failure rollback, matching identities in different tenants and parent-change
 conflicts around the final mutation on PGlite and ordinary-role PostgreSQL.
-Prove the HTTP path and durable graph after recreation in actual Workerd/DO.
+Prove Option's unscoped no-query sequence, complete Value events, retained pivots
+and raw parent response. Prove the HTTP paths and durable graphs after
+recreation in actual Workerd/DO.
 Source-guard mutations must reject removal of the parent constraint or use of
 raw request IDs in a scoped cascade, event or hook. Production activation and
 performance acceptance retain their separate gates.

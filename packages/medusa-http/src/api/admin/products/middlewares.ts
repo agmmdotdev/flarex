@@ -1,7 +1,7 @@
 import { maybeApplyLinkFilter, validateAndTransformBody, validateAndTransformQuery, type MiddlewareRoute } from "@medusajs/framework/http"
 import { FeatureFlag } from "@medusajs/utils/feature-flags/flag-router"
 import * as QueryConfig from "./query-config"
-import { AdminCreateProduct, AdminCreateProductOption, AdminCreateProductVariant, AdminGetProductOptionParams, AdminGetProductOptionsParams, AdminGetProductParams, AdminGetProductVariantParams, AdminGetProductsParams, AdminUpdateProduct, AdminUpdateProductOption, AdminUpdateProductVariant } from "./validators"
+import { AdminBatchImageVariant, AdminBatchVariantImages, AdminCreateProduct, AdminCreateProductOption, AdminCreateProductVariant, AdminGetProductOptionParams, AdminGetProductOptionsParams, AdminGetProductParams, AdminGetProductVariantParams, AdminGetProductsParams, AdminUpdateProduct, AdminUpdateProductOption, AdminUpdateProductVariant } from "./validators"
 import { AdminGetProductVariantsParams } from "../product-variants/validators"
 import { maybeApplyPriceListsFilter } from "./utils/maybe-apply-price-lists-filter"
 
@@ -37,9 +37,24 @@ export const adminProductRoutesMiddlewares: MiddlewareRoute[] = [{
     validateAndTransformQuery(AdminGetProductParams, QueryConfig.retrieveProductQueryConfig),
   ],
 }, {
+  method: ["DELETE"],
+  matcher: "/admin/products/:id/options/:option_id",
+  middlewares: [validateAndTransformQuery(AdminGetProductParams, QueryConfig.retrieveProductQueryConfig)],
+  policies: [{ resource: "product_option", operation: "delete" }],
+}, {
   method: ["GET"],
   matcher: "/admin/products/:id/variants",
   middlewares: [validateAndTransformQuery(AdminGetProductVariantsParams, QueryConfig.listVariantConfig)],
+}, {
+  method: ["POST"],
+  matcher: "/admin/products/:id/images/:image_id/variants/batch",
+  bodyParser: { sizeLimit: "2mb" },
+  middlewares: [validateAndTransformBody(AdminBatchImageVariant)],
+}, {
+  method: ["POST"],
+  matcher: "/admin/products/:id/variants/:variant_id/images/batch",
+  bodyParser: { sizeLimit: "2mb" },
+  middlewares: [validateAndTransformBody(AdminBatchVariantImages)],
 }, {
   method: ["GET"],
   matcher: "/admin/products/:id/variants/:variant_id",

@@ -131,7 +131,7 @@ export function registerCorePhysicalMaintenanceScenarios(name: string, createFix
       const fixture = await createFixture();
       try { await Effect.runPromise(Effect.gen(function* () {
         const installed = yield* installCorePersistence(fixture.maintenance, fixture.namespace);
-        const predecessor = yield* createCorePersistence(installed, "app", { leaseTimestamp: Effect.succeed(1n) });
+        const predecessor = yield* createCorePersistence(installed, "app");
         const previousLease = yield* predecessor.acquireLease();
         // Same layout/format as c554; remove only the new management record.
         // No SQL or worker work remains in flight at this maintenance boundary.
@@ -139,7 +139,7 @@ export function registerCorePhysicalMaintenanceScenarios(name: string, createFix
         const adopted = yield* adoptCorePersistenceAfterDrain(fixture.maintenance, fixture.namespace);
         const stale = yield* Effect.result(predecessor.putGlobal(previousLease, "must-not-write", Uint8Array.of(1)));
         expect(stale).toMatchObject({ failure: { reason: "leaseLost" } });
-        const current = yield* createCorePersistence(adopted, "app", { leaseTimestamp: Effect.succeed(3n) });
+        const current = yield* createCorePersistence(adopted, "app");
         const currentLease = yield* current.acquireLease();
         yield* adoptCorePersistenceAfterDrain(fixture.maintenance, fixture.namespace);
         yield* current.putGlobal(currentLease, "live", Uint8Array.of(2));
@@ -174,9 +174,7 @@ export function registerCorePhysicalMaintenanceScenarios(name: string, createFix
           .toEqual(globals(before.persistence_globals));
         yield* fixture.grantServing();
         const target = yield* loadCorePersistenceTarget(fixture.serving, fixture.namespace);
-        const tokens = yield* leaseState(fixture);
-        const nextLease = tokens.reduce((maximum, row) => BigInt(row.token) > maximum ? BigInt(row.token) : maximum, 0n) + 1n;
-        const persistence = yield* createCorePersistence(target, store.instance, { leaseTimestamp: Effect.succeed(nextLease) });
+        const persistence = yield* createCorePersistence(target, store.instance);
         const database = yield* openCoreDatabase(persistence, { schemaWorker: CORE_SCHEMA_WORKER_TEST_OPTIONS,
           now: Effect.succeed(BigInt(store.latest.$bigint) + 1n), randomBytes: (length: 16 | 32) => Effect.sync(() => randomBytes(length)) });
         expect((yield* database.selectProgram(store.requestIdentity.program.functionPath))).toMatchObject({
@@ -216,8 +214,7 @@ export function registerCorePhysicalMaintenanceScenarios(name: string, createFix
         expect(oldLogical).toMatchObject({ failure: { reason: "outOfRetention" } });
         yield* database.close();
         const reopenedTarget = yield* loadCorePersistenceTarget(fixture.serving, fixture.namespace);
-        const reopenedPersistence = yield* createCorePersistence(reopenedTarget, store.instance,
-          { leaseTimestamp: Effect.succeed(nextLease + 1n) });
+        const reopenedPersistence = yield* createCorePersistence(reopenedTarget, store.instance);
         const reopened = yield* openCoreDatabase(reopenedPersistence, { schemaWorker: CORE_SCHEMA_WORKER_TEST_OPTIONS,
           now: Effect.succeed(BigInt(store.latest.$bigint) + 100n), randomBytes: (length: 16 | 32) => Effect.sync(() => randomBytes(length)) });
         expect((yield* reopened.selectProgram(store.requestIdentity.program.functionPath)).identity).toEqual(store.requestIdentity.program);
@@ -326,7 +323,7 @@ export function registerCorePhysicalMaintenanceScenarios(name: string, createFix
         expect(committed.version).toBe(2);
         expect(yield* leaseState(fixture)).toEqual([{ instance_name: "app", token: "8" }]);
         const target = yield* loadCorePersistenceTarget(fixture.maintenance, fixture.namespace);
-        const successor = yield* createCorePersistence(target, "app", { leaseTimestamp: Effect.succeed(10n) });
+        const successor = yield* createCorePersistence(target, "app");
         const successorLease = yield* successor.acquireLease();
         yield* upgradeCorePersistenceAfterDrain(fixture.maintenance, fixture.namespace);
         expect(Option.getOrThrow(yield* readCorePhysicalBaseline(fixture.maintenance, fixture.namespace))).toEqual(committed);

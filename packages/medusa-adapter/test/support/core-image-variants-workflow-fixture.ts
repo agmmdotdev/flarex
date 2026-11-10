@@ -10,8 +10,8 @@ import type { ProductWorkflowModule } from "../../src/modules/product/workflow";
 import type { AtomicWorkflowExecution } from "../../src/workflow/host";
 
 type ImageWorkflowOptions = Parameters<typeof prepareImageVariantsWorkflow>[0];
-interface SeedInput { readonly parents?: number; readonly siblings?: number; readonly options?: number; readonly values?: number; readonly imageUrl?: string | null }
-interface SeedGraph { readonly productIds: string[]; readonly imageId: string; readonly variantIds: string[]; readonly optionIds: string[] }
+interface SeedInput { readonly parents?: number; readonly siblings?: number; readonly options?: number; readonly values?: number; readonly imageUrl?: string | null; readonly images?: number }
+interface SeedGraph { readonly productIds: string[]; readonly imageId: string; readonly imageIds: string[]; readonly variantIds: string[]; readonly optionIds: string[] }
 type ReadRows = Effect.Effect<Json, CommerceTransactionError>;
 export interface CoreImageVariantsFixture {
   readonly fixture: CoreProductWorkflowFixture["fixture"];
@@ -60,7 +60,7 @@ export async function prepareCoreImageVariants(driver: "pglite" | "postgres", re
   const seededProducts = new Set<string>(), seededVariants = new Set<string>(), seededImages = new Set<string>();
   const runNative = async (command: CommerceCommand, input: Json) => {
     if (![product.runtime.commands.create, product.runtime.commands.createOptions, product.runtime.commands.createVariants,
-      product.runtime.commands.addImageToVariant, product.runtime.commands.removeImageFromVariant,
+      product.runtime.commands.addImageToVariant, product.runtime.commands.removeImageFromVariant, product.runtime.commands.createImages,
       product.runtime.commands.delete].includes(command)) throw new Error("Unselected image fixture command");
     const participant = defineAtomicCommerceParticipant("product");
     const selected = metadata.entities.flatMap(entity => [entity.createdEvent, entity.updatedEvent, entity.deletedEvent])
@@ -88,12 +88,20 @@ export async function prepareCoreImageVariants(driver: "pglite" | "postgres", re
     const parentCount = input.parents ?? 1, siblingCount = input.siblings ?? 4;
     const optionCount = input.options ?? 1, valueCount = input.values ?? 4;
     const productIds = Array.from({ length: parentCount }, (_, n) => prefix + "-product-" + n), imageId = prefix + "-image";
-    const variantIds: string[] = [], optionIds: string[] = [];
+    const variantIds: string[] = [], optionIds: string[] = [], imageIds = [imageId];
     for (const [parent, productId] of productIds.entries()) {
       await runNative(product.runtime.commands.create, [{ id: productId, title: prefix + parent, handle: prefix + "-handle-" + parent,
         ...(parent === 0 ? { images: [{ id: imageId, url: input.imageUrl === undefined ? "image-url" : input.imageUrl }] } : {}) }]);
       seededProducts.add(productId);
       if (parent === 0) seededImages.add(imageId);
+      if (parent === 0) {
+        const extraImages = Array.from({ length: (input.images ?? 1) - 1 }, (_, n) => ({
+          id: prefix + "-image-" + (n + 1), product_id: productId, url: "extra-image-url-" + (n + 1),
+        }));
+        for (let offset = 0; offset < extraImages.length; offset += 4)
+          await runNative(product.runtime.commands.createImages, extraImages.slice(offset, offset + 4));
+        for (const image of extraImages) { imageIds.push(image.id); seededImages.add(image.id); }
+      }
       const localOptions = parent === 0 ? Array.from({ length: optionCount }, (_, n) => ({ id: prefix + "-option-" + n,
         title: "Option " + n, product_id: productId, values: Array.from({ length: valueCount }, (_, value) => "value-" + value) })) : [];
       if (localOptions.length > 0) await runNative(product.runtime.commands.createOptions, localOptions);
@@ -107,7 +115,7 @@ export async function prepareCoreImageVariants(driver: "pglite" | "postgres", re
       variantIds.push(...variants.map(value => value.id));
       for (const row of variants) seededVariants.add(row.id);
     }
-    return { productIds, imageId, variantIds, optionIds };
+    return { productIds, imageId, imageIds, variantIds, optionIds };
   };
   const assign = (imageId: string, variantIds: readonly string[]) => runNative(product.runtime.commands.addImageToVariant,
     variantIds.map(variant_id => ({ image_id: imageId, variant_id })));

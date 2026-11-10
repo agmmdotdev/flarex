@@ -3,17 +3,23 @@ import { describe, expect, it, vi } from "vitest";
 import { Deferred, Effect, Result, Schema } from "effect";
 import type { PreparedWorkflow, WorkflowContainer } from "@medusajs/workflows-sdk";
 import { batchImageVariantsWorkflow } from "@medusajs/core-flows/product/batch-image-variants";
+import { batchVariantImagesWorkflow } from "@medusajs/core-flows/product/batch-variant-images";
 import type { WorkflowGraphResource } from "@medusajs/core-flows/common/use-query-graph";
 import type { AtomicCommerceContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { commerceDecoder } from "../src/value/decoder";
 import { runNativeMedusaWorkflow } from "../src/workflow/runtime";
+import { prepareWorkflowResources, registerWorkflowResourceContext } from "../src/workflow/resources";
 import { ImageVariantsWorkflowInput, ImageVariantsWorkflowOutput, VariantImagesWorkflowInput,
   VariantThumbnailSelector, VariantUpdateSelector, decodeVariantThumbnailUpdate } from "../src/modules/product/variant-workflow-input";
 
 /** Fixed native method responses prove composer ABI and scheduling. Database
  * assignments, endpoint admission and settlement belong to connected tests. */
 function nativePort(services: Readonly<Record<string, object>>) {
+  // This fixed-response port carries no module commands or storage authority.
+  // Register its empty selection so actual SDK child containers can borrow
+  // the same admitted callback context, then revoke it after each execution.
+  const resources = Result.getOrThrow(prepareWorkflowResources({}, false));
   const resolve = vi.fn((name: string): unknown => {
     const value: unknown = Object.getOwnPropertyDescriptor(services, name)?.value;
     if (value === undefined) throw new Error("Unselected native Image-Variant resource: " + name);
@@ -31,15 +37,17 @@ function nativePort(services: Readonly<Record<string, object>>) {
     call: () => Effect.fail(commerceError("unsupportedProfile")), emit: () => Effect.fail(commerceError("unadmittedEvent")),
     refuse: error => Effect.fail(error),
   };
-  return { resolve, run: (prepared: PreparedWorkflow, input: unknown) =>
-    runNativeMedusaWorkflow(prepared, context, input, () => container),
+  return { resolve, run: (prepared: PreparedWorkflow, input: unknown) => Effect.suspend(() => {
+    const unregister = registerWorkflowResourceContext(container, resources, {}, error => { throw error; });
+    return runNativeMedusaWorkflow(prepared, context, input, () => container).pipe(Effect.ensuring(Effect.sync(unregister)));
+  }),
   };
 }
 
 function queryPort(image: typeof Schema.JsonObject.Type | undefined, variants: readonly (typeof Schema.JsonObject.Type)[] = []) {
   const graph = vi.fn<WorkflowGraphResource["graph"]>(async input => {
-    if (!["variants", "product_image"].includes(input.entity)) throw new Error("Unexpected native image-workflow query");
-    const data = input.entity === "variants" ? variants : image === undefined ? [] : [image];
+    if (!["variant", "variants", "product_image"].includes(input.entity)) throw new Error("Unexpected native image-workflow query");
+    const data = input.entity === "product_image" ? image === undefined ? [] : [image] : variants;
     return { data, metadata: { count: data.length, skip: 0, take: input.pagination.take } };
   });
   return { maxPageSize: 4, graph } satisfies WorkflowGraphResource;
@@ -146,6 +154,51 @@ describe("genuine native inverse Image-Variant composition", () => {
     expect(update).toHaveBeenCalledExactlyOnceWith({ id: ["missing"], thumbnail: imageUrl }, { thumbnail: null });
   });
 
+  it("retains the optional parent in native pairs, graph filters and the final thumbnail selector", async () => {
+    const product_id = "product", image_id = "image", imageUrl = "scoped-url";
+    const add = vi.fn(async (_input: unknown) => [{ id: "assignment" }]), remove = vi.fn(async (_input: unknown) => undefined);
+    const list = vi.fn(async (_selector: unknown, _config: unknown) => [{ id: "old", thumbnail: imageUrl }]);
+    const update = vi.fn(async (_selector: unknown, _update: unknown) => [{ id: "old", thumbnail: null }]);
+    const query = queryPort({ id: image_id, url: imageUrl });
+    const native = nativePort({ product: { addImageToVariant: add, removeImageFromVariant: remove,
+      listProductVariants: list, updateProductVariants: update }, query });
+    expect(await Effect.runPromise(native.run(Result.getOrThrow(batchImageVariantsWorkflow.prepare()), {
+      image_id, product_id, add: ["new"], remove: ["old"],
+    }))).toEqual({ added: ["new"], removed: ["old"] });
+    expect(add).toHaveBeenCalledExactlyOnceWith([{ image_id, variant_id: "new", product_id }]);
+    expect(remove).toHaveBeenCalledExactlyOnceWith([{ image_id, variant_id: "old", product_id }]);
+    expect(query.graph).toHaveBeenNthCalledWith(1, { entity: "variants", fields: ["id", "thumbnail"],
+      filters: { id: ["old"], product_id }, pagination: { take: 4 } });
+    expect(query.graph).toHaveBeenNthCalledWith(2, { entity: "product_image", fields: ["id", "url"],
+      filters: { id: image_id, product_id }, pagination: { take: 4 } });
+    expect(list).toHaveBeenCalledExactlyOnceWith({ id: ["old"], thumbnail: imageUrl, product_id }, { select: ["thumbnail"], relations: [] });
+    expect(update).toHaveBeenCalledExactlyOnceWith({ id: ["old"], thumbnail: imageUrl, product_id }, { thumbnail: null });
+  });
+
+  it.each([false, true])("reuses forward native filters without new callbacks and retains sequential pairs (scoped:%s)", async scoped => {
+    const parent = scoped ? { product_id: "product" } : {}, variant_id = "variant", trace: string[] = [];
+    const add = vi.fn(async (_input: unknown) => { trace.push("add"); return [{ id: "assignment" }]; });
+    const remove = vi.fn(async (_input: unknown) => { trace.push("remove"); });
+    const list = vi.fn(async (_selector: unknown, _config: unknown) => [{ id: variant_id, thumbnail: "image-url" }]);
+    const update = vi.fn(async (_selector: unknown, _update: unknown) => [{ id: variant_id, thumbnail: null }]);
+    const query = queryPort({ id: "old", url: "image-url" }, [{ id: variant_id, thumbnail: "image-url" }]);
+    const native = nativePort({ product: { addImageToVariant: add, removeImageFromVariant: remove,
+      listProductVariants: list, updateProductVariants: update }, query });
+    const prepared = Result.getOrThrow(batchVariantImagesWorkflow.prepare());
+    expect(prepared.parallel).toBeUndefined();
+    expect(await Effect.runPromise(native.run(prepared, { variant_id, ...parent, add: ["new"], remove: ["old"] })))
+      .toEqual({ added: ["new"], removed: ["old"] });
+    expect(trace).toEqual(["add", "remove"]);
+    expect(add).toHaveBeenCalledExactlyOnceWith([{ variant_id, image_id: "new", ...parent }]);
+    expect(remove).toHaveBeenCalledExactlyOnceWith([{ variant_id, image_id: "old", ...parent }]);
+    expect(query.graph).toHaveBeenNthCalledWith(1, { entity: "variant", fields: ["id", "thumbnail"],
+      filters: { id: variant_id, ...parent }, pagination: { take: 4 } });
+    expect(query.graph).toHaveBeenNthCalledWith(2, { entity: "product_image", fields: ["id", "url"],
+      filters: { id: ["old"], ...parent }, pagination: { take: 4 } });
+    expect(list).toHaveBeenCalledExactlyOnceWith({ id: variant_id, ...parent }, { select: ["thumbnail"], relations: [] });
+    expect(update).toHaveBeenCalledExactlyOnceWith({ id: variant_id, ...parent }, { thumbnail: null });
+  });
+
   it("propagates a late native failure without applying inverse assignment or upsert compensators", async () => {
     const failure = new Error("Native thumbnail update failed");
     const add = vi.fn(async (_input: unknown) => [{ id: "assignment" }]), remove = vi.fn(async (_input: unknown) => undefined);
@@ -168,10 +221,12 @@ describe("genuine native inverse Image-Variant composition", () => {
     expect(Result.isFailure(output({ added: [], removed: ["a", "b", "c", "d", "e"] }))).toBe(true);
     const selector = commerceDecoder(VariantThumbnailSelector, "invalidInput");
     expect(Result.getOrThrow(selector({ id: "variant" }))).toEqual({ id: "variant" });
+    expect(Result.getOrThrow(selector({ id: ["a"], thumbnail: "url", product_id: "p" })))
+      .toEqual({ id: ["a"], thumbnail: "url", product_id: "p" });
     expect(Result.getOrThrow(decodeVariantThumbnailUpdate({ selector: { id: ["a", "a"], thumbnail: "url" }, update: { thumbnail: null } })))
       .toEqual({ selector: { id: ["a", "a"], thumbnail: "url" }, update: { thumbnail: null } });
     for (const value of [{ id: ["a"] }, { id: "a", thumbnail: "url" }, { id: ["a"], thumbnail: null },
-      { id: ["a", "b", "c", "d", "e"], thumbnail: "url" }, { id: ["a"], thumbnail: "url", product_id: "p" }])
+      { id: ["a", "b", "c", "d", "e"], thumbnail: "url" }])
       expect(Result.isFailure(selector(value))).toBe(true);
     expect(Result.isFailure(commerceDecoder(VariantUpdateSelector, "invalidInput")({ id: ["a"], thumbnail: "url" }))).toBe(true);
     expect(Result.isFailure(commerceDecoder(VariantImagesWorkflowInput, "invalidInput")({ variant_id: "v", add: ["a", "a"] }))).toBe(true);

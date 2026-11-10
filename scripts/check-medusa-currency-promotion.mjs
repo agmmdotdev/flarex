@@ -15,6 +15,8 @@ import { orderChangeUpdateSourcePairs, verifyOrderChangeUpdateSourceSelection, v
 import { orderChangeDeclineSourcePairs, verifyOrderChangeDeclineSourceSelection, verifyOrderChangeDeclineSource } from "./check-medusa-order-change-decline-source.mjs";
 import { orderChangeDeletionSourcePairs, verifyOrderChangeDeletionSourceSelection, verifyOrderChangeDeletionSource } from "./check-medusa-order-change-deletion-source.mjs";
 import { variantDeletionSourcePairs, verifyVariantDeletionSourceSelection, verifyVariantDeletionSource } from "./check-medusa-variant-deletion-source.mjs";
+import { optionDeletionSourcePairs, productDeletionServiceSourcePair, verifyProductDeletionSourceSelection, verifyProductDeletionSource } from "./check-medusa-product-deletion-source.mjs";
+import { imageAssociationSourcePairs, verifyImageAssociationSourceSelection, verifyImageAssociationSource } from "./check-medusa-image-association-source.mjs";
 import { orderChangeCancellationSourcePairs, verifyOrderChangeCancellationSourceSelection, verifyOrderChangeCancellationSource } from "./check-medusa-order-change-cancellation-source.mjs";
 import { verifyOrderFinanceSelection, verifyOrderFinanceHelpers } from "./check-medusa-order-finance-source.mjs";
 import { queryKeySource, queryKeyTarget, verifyQueryKeySelection, verifyQueryKeySource } from "./check-medusa-query-key-source.mjs";
@@ -82,9 +84,22 @@ const adminProductVariantRoute = "packages/medusa-http/src/api/admin/products/[i
 const adminProductVariantDetailRoute = "packages/medusa-http/src/api/admin/products/[id]/variants/[variant_id]/route.ts";
 const adminProductOptionRoute = "packages/medusa-http/src/api/admin/products/[id]/options/route.ts";
 const adminProductOptionDetailRoute = "packages/medusa-http/src/api/admin/products/[id]/options/[option_id]/route.ts";
+const adminProductVariantImagesRoute = "packages/medusa-http/src/api/admin/products/[id]/variants/[variant_id]/images/batch/route.ts";
+const adminProductImageVariantsRoute = "packages/medusa-http/src/api/admin/products/[id]/images/[image_id]/variants/batch/route.ts";
 const adminVariantInventoryWrapper = "packages/medusa-http/src/api/utils/middlewares/products/variant-inventory-quantity.ts";
 const variantAvailabilityUtility = "packages/medusa-utils/src/product/get-variant-availability.ts";
+const catalogHttpRoot = "packages/medusa-http/src/api/admin/";
+export const adminProductCatalogHttpTargets = Object.freeze([
+  ...["product-types", "product-tags"].flatMap(family =>
+    ["route.ts", "[id]/route.ts", "middlewares.ts", "query-config.ts", "validators.ts"].map(file => catalogHttpRoot + family + "/" + file)),
+  catalogHttpRoot + "product-types/helpers.ts",
+  ...["product-categories", "collections"].flatMap(family =>
+    ["route.ts", "[id]/route.ts", "[id]/products/route.ts", "middlewares.ts", "query-config.ts", "validators.ts"].map(file => catalogHttpRoot + family + "/" + file)),
+  catalogHttpRoot + "collections/helpers.ts",
+]);
+const productValidatorHelpersTarget = "packages/medusa-http/src/api/utils/validators.ts";
 const productHttpSelections = new Set([
+  ...adminProductCatalogHttpTargets,
   ...["helpers", "middlewares", "query-config", "route", "validators"].map(name =>
     "packages/medusa-http/src/api/admin/products/" + name + ".ts"),
   ...["fetch-json-body", "refetch-entities", "validate-body"].map(name =>
@@ -94,6 +109,8 @@ const productHttpSelections = new Set([
   adminProductVariantDetailRoute,
   adminProductOptionRoute,
   adminProductOptionDetailRoute,
+  adminProductVariantImagesRoute,
+  adminProductImageVariantsRoute,
   adminVariantInventoryWrapper,
   "packages/medusa-http/src/api/admin/product-variants/query-config.ts",
   "packages/medusa-framework/src/http/utils/maybe-apply-link-filter.ts",
@@ -201,8 +218,9 @@ export function verifyAdminProductVariantSource(native, promoted, detail = false
     throw new Error("Changed native Admin Product variant behavior");
 }
 
-/** Exact selected native option GET/POST with the existing post-write
- * missing-parent invariant. DELETE remains unselected.
+/** Exact selected native option GET/POST and detail DELETE with the existing
+ * POST missing-parent invariant and approved DELETE parent-qualified input.
+ * DELETE returns its raw native parent, including null/undefined absence.
  * @param {string} native @param {string} promoted @param {boolean} detail */
 export function verifyAdminProductOptionSource(native, promoted, detail = false) {
   const imports = detail ? [
@@ -214,16 +232,135 @@ export function verifyAdminProductOptionSource(native, promoted, detail = false)
     'import { remapKeysForProduct, remapProductResponse } from "../../helpers"',
     'import { Modules } from "@medusajs/utils/modules-sdk/definition"',
   ];
-  let selected = selectProductRouteDeclarations(native,
-    [detail ? "updateProductOptionsWorkflowId" : "createProductOptionsWorkflowId", "GET", "POST"]).join("\n");
+  let selected = selectProductRouteDeclarations(native, detail
+    ? ["updateProductOptionsWorkflowId", "deleteProductOptionsWorkflowId", "GET", "POST", "DELETE"]
+    : ["createProductOptionsWorkflowId", "GET", "POST"]).join("\n");
   const result = 'res.status(200).json({ product: remapProductResponse(product) })';
   if (selected.split(result).length !== 2) throw new Error("Missing pinned option parent response");
   const missingParent = detail
     ? "Updated Product option parent was not returned by native refetch"
     : "Created Product option parent was not returned by native refetch";
   selected = selected.replace(result, `if (!product) throw new Error("${missingParent}")\n` + result);
+  if (detail) {
+    const deletionInput = 'input: { ids: [optionId] /* product_id: productId */ },';
+    if (selected.split(deletionInput).length !== 2) throw new Error("Missing pinned option DELETE input");
+    selected = selected.replace(deletionInput, 'input: { ids: [optionId], product_id: productId },');
+  }
   if (productRouteRuntime([...imports, selected].join("\n")) !== productRouteRuntime(promoted))
     throw new Error("Changed native Admin Product option behavior");
+}
+
+/** Exact pinned batch POST, retaining raw native result arrays and adding only
+ * URL Product ownership to the existing workflow input.
+ * @param {string} native @param {string} promoted @param {boolean} inverse */
+export function verifyAdminProductImageBatchSource(native, promoted, inverse = false) {
+  const name = inverse ? "batchImageVariantsWorkflowId" : "batchVariantImagesWorkflowId";
+  const selected = selectProductRouteDeclarations(native, [name, "POST"]).join("\n");
+  const input = inverse ? "      image_id: imageId," : "      variant_id: variantId,";
+  if (selected.split(input).length !== 2) throw new Error("Missing pinned Image association route input");
+  const expected = ['import { Modules } from "@medusajs/utils/modules-sdk/definition"',
+    selected.replace(input, input + "\n      product_id: req.params.id,")].join("\n");
+  if (productRouteRuntime(expected) !== productRouteRuntime(promoted))
+    throw new Error("Changed native Admin Product Image association route behavior");
+}
+
+/** All catalog HTTP files retain one exact pinned source and classification.
+ * @param {readonly {source?: string, target: string, classification: string}[]} files */
+export function verifyAdminProductCatalogHttpSelection(files) {
+  for (const target of adminProductCatalogHttpTargets) {
+    const source = pinnedHttpSource(target);
+    const selected = files.filter(file => file.target === target || file.source === source);
+    if (selected.length !== 1 || selected[0]?.target !== target || selected[0]?.source !== source ||
+      selected[0]?.classification !== "selectedExportFacade")
+      throw new Error("Admin Product catalog HTTP selections must retain their exact pinned sources: " + target);
+  }
+}
+
+/** Compare the entire native module after exact facade relocations. The sole
+ * behavior seam is Tag detail workflow-factory dispatch through the confined
+ * workflow engine, retaining the original update/delete inputs and responses.
+ * @param {string} native @param {string} promoted @param {string} target */
+export function verifyAdminProductCatalogHttpSource(native, promoted, target) {
+  const failure = "Changed native Admin Product catalog HTTP behavior";
+  if (!adminProductCatalogHttpTargets.includes(target)) throw new Error(failure + ": unselected target");
+  let expected = native.replaceAll("\r\n", "\n");
+  /** @param {string} before @param {string} after @param {number} [count] */
+  const replace = (before, after, count = 1) => {
+    if (expected.split(before).length !== count + 1) throw new Error(failure + ": missing pinned adaptation anchor " + before);
+    expected = expected.replaceAll(before, after);
+  };
+  const family = target.slice(catalogHttpRoot.length).split("/")[0];
+  const entity = { "product-types": "product_type", "product-tags": "product_tag", "product-categories": "product_category", collections: "product_collection" }[family];
+  const file = target.slice((catalogHttpRoot + family + "/").length);
+  if (file === "middlewares.ts") {
+    replace('import { PolicyOperation } from "@medusajs/framework/utils"\n', "");
+    replace("PolicyOperation.read", '"read"', 2);
+    for (const operation of ["create", "update", "delete"]) replace("PolicyOperation." + operation, JSON.stringify(operation),
+      operation === "update" && (family === "product-categories" || family === "collections") ? 2 : 1);
+  } else if (file === "query-config.ts") {
+    replace('export enum Entities {\n  ' + entity + ' = "' + entity + '",\n}',
+      'export const Entities = {\n  ' + entity + ': "' + entity + '",\n} as const');
+  } else if (family === "product-types" || family === "collections") {
+    if (file === "helpers.ts" || file === "route.ts") {
+      const members = file === "route.ts" ? ["ContainerRegistrationKeys", "Modules", "remoteQueryObjectFromString"]
+        : ["ContainerRegistrationKeys", "remoteQueryObjectFromString"];
+      replace('import {\n  ' + members.join(',\n  ') + ',\n} from "@medusajs/framework/utils"',
+        ['import { ContainerRegistrationKeys } from "@medusajs/utils/common/container"',
+          ...(file === "route.ts" ? ['import { Modules } from "@medusajs/utils/modules-sdk/definition"'] : []),
+          'import { remoteQueryObjectFromString } from "@medusajs/utils/common/remote-query-object-from-string"'].join("\n"));
+    } else if (file === "[id]/route.ts") {
+      replace('import { MedusaError, Modules } from "@medusajs/framework/utils"',
+        'import { MedusaError } from "@medusajs/utils/common/errors"\nimport { Modules } from "@medusajs/utils/modules-sdk/definition"');
+    } else if (file === "[id]/products/route.ts") {
+      replace('import { Modules } from "@medusajs/framework/utils"', 'import { Modules } from "@medusajs/utils/modules-sdk/definition"');
+    }
+  } else if (family === "product-categories") {
+    if (file === "route.ts" || file === "[id]/products/route.ts") {
+      replace('import { Modules } from "@medusajs/framework/utils"', 'import { Modules } from "@medusajs/utils/modules-sdk/definition"');
+    } else if (file === "[id]/route.ts") {
+      replace('import { MedusaError, Modules } from "@medusajs/framework/utils"',
+        'import { MedusaError } from "@medusajs/utils/common/errors"\nimport { Modules } from "@medusajs/utils/modules-sdk/definition"');
+    }
+  } else if (file === "route.ts") {
+    replace('import { Modules } from "@medusajs/framework/utils"', 'import { Modules } from "@medusajs/utils/modules-sdk/definition"');
+  } else if (file === "[id]/route.ts") {
+    replace('import {\n  deleteProductTagsWorkflow,\n  updateProductTagsWorkflow,\n} from "@medusajs/core-flows"\n', "");
+    replace('import { MedusaError } from "@medusajs/framework/utils"',
+      'import { MedusaError } from "@medusajs/utils/common/errors"\nimport { Modules } from "@medusajs/utils/modules-sdk/definition"');
+    replace("export const GET", 'const updateProductTagsWorkflowId = "update-product-tags"\nconst deleteProductTagsWorkflowId = "delete-product-tags"\n\nexport const GET');
+    replace("const { result } = await updateProductTagsWorkflow(req.scope).run({",
+      "const workflowEngine = req.scope.resolve(Modules.WORKFLOW_ENGINE)\n  const { result } = await workflowEngine.run(updateProductTagsWorkflowId, {");
+    replace("await deleteProductTagsWorkflow(req.scope).run({",
+      "const workflowEngine = req.scope.resolve(Modules.WORKFLOW_ENGINE)\n  await workflowEngine.run(deleteProductTagsWorkflowId, {");
+  }
+  if (productRouteRuntime(expected) !== productRouteRuntime(promoted)) throw new Error(failure + ": " + target);
+}
+
+/** The new link helper retains its complete native declaration and its existing
+ * source owner/classification; other selected validator exports keep their gates.
+ * @param {string} native @param {string} promoted */
+export function verifyAdminProductLinkBodySource(native, promoted) {
+  const failure = "Changed native Admin Product link body helper";
+  const selected = selectProductRouteDeclarations(native, ["createLinkBody"])[0];
+  const actual = selectProductRouteDeclarations(promoted, ["createLinkBody"])[0];
+  if (productRouteRuntime(selected) !== productRouteRuntime(actual)) throw new Error(failure);
+  // Existing selected helpers retain their own implementations. Admit no new
+  // module initialization, exports or imports around the native link declaration.
+  const allowed = new Set(["WithAdditionalData", "createSelectParams", "createFindParams", "createOperatorMap", "createLinkBody"]);
+  const parsed = ts.createSourceFile("validator-helpers.js", emitForkRuntime(promoted), ts.ScriptTarget.ESNext, true, ts.ScriptKind.JS);
+  const imports = [];
+  for (const statement of parsed.statements) {
+    if (ts.isImportDeclaration(statement)) {
+      imports.push(statement.getText(parsed));
+      continue;
+    }
+    if (!ts.isVariableStatement(statement) || statement.declarationList.declarations.length !== 1 ||
+      !statement.modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.ExportKeyword)) throw new Error(failure);
+    const declaration = statement.declarationList.declarations[0];
+    if (!ts.isIdentifier(declaration.name) || !allowed.delete(declaration.name.text)) throw new Error(failure);
+  }
+  if (allowed.size || productRouteRuntime([...imports, actual].join("\n")) !==
+    productRouteRuntime(['import { z } from "@medusajs/framework/zod"', selected].join("\n"))) throw new Error(failure);
 }
 
 /** The Admin wrapper closure excludes the unselected Store sales-channel branch.
@@ -627,6 +764,9 @@ function inventory(root, relative) {
 export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync(path.join(root, manifestPath), "utf8"))) {
   assertPromotion(supplied);
   verifyVariantDeletionSourceSelection(supplied.files);
+  verifyProductDeletionSourceSelection(supplied.files);
+  verifyImageAssociationSourceSelection(supplied.files);
+  verifyAdminProductCatalogHttpSelection(supplied.files);
   verifyTax170SourceSelection(supplied.files);
   verifyNativeDatabaseConstraintSource(root);
   verifyNativeRequiredValidationSource(root);
@@ -1242,6 +1382,9 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
     if (productHttpSelections.has(file.target) &&
       (file.source !== pinnedHttpSource(file.target) || file.classification !== "selectedExportFacade"))
       throw new Error("Admin Product HTTP selections must retain their pinned sources");
+    if (file.target === productValidatorHelpersTarget &&
+      (file.source !== pinnedHttpSource(file.target) || file.classification !== "storeHttpFork"))
+      throw new Error("Admin Product validator helpers must retain their pinned source and classification");
     if (file.target === variantAvailabilityUtility &&
       (file.source !== pinnedHttpSource(file.target) || file.classification !== "importRelocation"))
       throw new Error("Variant availability utility must retain its pinned source");
@@ -1249,7 +1392,7 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
       (file.source !== pinnedHttpSource(file.target) ||
         file.classification !== (currencyHandlers.has(file.target) ? "importRelocation" : "unchanged")))
       throw new Error("Store Currency routes and middleware must retain their pinned provenance");
-    if (!["unchanged", "preserved", "unchangedTest", "importRelocation", "selectedExportFacade", "storeHttpFork", "testHarnessPort", "testPort", "testFixturePort", "workflowFork", "linkFork", "productServiceFork", "inventoryServiceFork", "promotionServiceFork", "notificationServiceFork", "lockingServiceFork", "salesChannelTypeFork", "stockLocationTypeFork", "regionServiceFork", "pricingServiceFork", "nativeRepositoryFork", "storeTypeFork", "storeCreationTypeFork", "priceListCreationTypeFork", "shippingProfileWorkflowTypeFork", "csvNormalizerFork", "schemaCompilerFork", "variantItemPricingFork", "paymentJoinerFork", "workflowCacheFork", "customerSelectionFork", "cartContextReadFork", "inventoryConfirmationFork", "taxLinesFork", "taxRateCreationFork", "taxRegionCreationFork", "nativeDatabaseConstraintFork", "taxRuleCreationFork", "taxRuleDeletionFork", "taxRateDeletionFork", "taxRuleReplacementFork", "taxRateUpdateFork", "updateMetadataFork", "taxRuleCreatorTypeFork", "orderArchiveFork", "orderArchiveCompensationFork", "orderSummaryPrecisionFork", "orderCompleteFork", "orderChangeUpdateFork", "orderChangeCancellationFork", "orderChangeDeclineFork", "orderChangeDeletionFork", "orderChangeCancellationRestoreFork", "paymentSessionTypeFork", "paymentLifecycleFork", "paymentAccountingFork", "orderRefundValidationFork", "apiKeyFork", "nativeBigNumberTypeFork", "parentQualifiedVariantDeletionFork", "paymentCollectionWorkflowFork", "cartPaymentTotalsFork", "customerAddressUpdateFork", "cartCreationWorkflowFork", "authored"].includes(file.classification)) {
+    if (!["unchanged", "preserved", "unchangedTest", "importRelocation", "selectedExportFacade", "storeHttpFork", "testHarnessPort", "testPort", "testFixturePort", "workflowFork", "linkFork", "productServiceFork", "inventoryServiceFork", "promotionServiceFork", "notificationServiceFork", "lockingServiceFork", "salesChannelTypeFork", "stockLocationTypeFork", "regionServiceFork", "pricingServiceFork", "nativeRepositoryFork", "storeTypeFork", "storeCreationTypeFork", "priceListCreationTypeFork", "shippingProfileWorkflowTypeFork", "csvNormalizerFork", "schemaCompilerFork", "variantItemPricingFork", "paymentJoinerFork", "workflowCacheFork", "customerSelectionFork", "cartContextReadFork", "inventoryConfirmationFork", "taxLinesFork", "taxRateCreationFork", "taxRegionCreationFork", "nativeDatabaseConstraintFork", "taxRuleCreationFork", "taxRuleDeletionFork", "taxRateDeletionFork", "taxRuleReplacementFork", "taxRateUpdateFork", "updateMetadataFork", "taxRuleCreatorTypeFork", "orderArchiveFork", "orderArchiveCompensationFork", "orderSummaryPrecisionFork", "orderCompleteFork", "orderChangeUpdateFork", "orderChangeCancellationFork", "orderChangeDeclineFork", "orderChangeDeletionFork", "orderChangeCancellationRestoreFork", "paymentSessionTypeFork", "paymentLifecycleFork", "paymentAccountingFork", "orderRefundValidationFork", "apiKeyFork", "nativeBigNumberTypeFork", "parentQualifiedVariantDeletionFork", "parentQualifiedOptionDeletionFork", "parentQualifiedProductDeletionTypeFork", "parentQualifiedImageAssociationFork", "parentQualifiedImageAssociationTypeFork", "paymentCollectionWorkflowFork", "cartPaymentTotalsFork", "customerAddressUpdateFork", "cartCreationWorkflowFork", "authored"].includes(file.classification)) {
       throw new Error(`Unadmitted source transformation: ${file.target}`);
     }
     if (file.target === "packages/medusa-pricing/src/services/pricing-module.ts" || file.classification === "pricingServiceFork") {
@@ -1367,6 +1510,12 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
       if (currencyHandlers.has(file.target))
         verifyStoreCurrencyHandlerSource(readFileSync(path.join(root, file.source), "utf8"),
           readFileSync(path.join(root, file.target), "utf8"), file.target);
+      if (adminProductCatalogHttpTargets.includes(file.target))
+        verifyAdminProductCatalogHttpSource(readFileSync(path.join(root, file.source), "utf8"),
+          readFileSync(path.join(root, file.target), "utf8"), file.target);
+      if (file.target === productValidatorHelpersTarget)
+        verifyAdminProductLinkBodySource(readFileSync(path.join(root, file.source), "utf8"),
+          readFileSync(path.join(root, file.target), "utf8"));
       if (file.target === adminProductRoute)
         verifyAdminProductPostSource(readFileSync(path.join(root, file.source), "utf8"),
           readFileSync(path.join(root, file.target), "utf8"));
@@ -1379,6 +1528,9 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
       if (file.target === adminProductOptionRoute || file.target === adminProductOptionDetailRoute)
         verifyAdminProductOptionSource(readFileSync(path.join(root, file.source), "utf8"),
           readFileSync(path.join(root, file.target), "utf8"), file.target === adminProductOptionDetailRoute);
+      if (file.target === adminProductVariantImagesRoute || file.target === adminProductImageVariantsRoute)
+        verifyAdminProductImageBatchSource(readFileSync(path.join(root, file.source), "utf8"),
+          readFileSync(path.join(root, file.target), "utf8"), file.target === adminProductImageVariantsRoute);
       if (file.target === adminVariantInventoryWrapper)
         verifyAdminVariantInventoryWrapperSource(readFileSync(path.join(root, file.source), "utf8"),
           readFileSync(path.join(root, file.target), "utf8"));
@@ -1390,6 +1542,12 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
           readFileSync(path.join(root, file.target), "utf8"), file.target);
       if (variantDeletionSourcePairs.some(pair => pair.target === file.target))
         verifyVariantDeletionSource(readFileSync(path.join(root, file.source), "utf8"),
+          readFileSync(path.join(root, file.target), "utf8"), file.target);
+      if (optionDeletionSourcePairs.some(pair => pair.target === file.target) || file.target === productDeletionServiceSourcePair.target)
+        verifyProductDeletionSource(readFileSync(path.join(root, file.source), "utf8"),
+          readFileSync(path.join(root, file.target), "utf8"), file.target);
+      if (imageAssociationSourcePairs.some(pair => pair.target === file.target))
+        verifyImageAssociationSource(readFileSync(path.join(root, file.source), "utf8"),
           readFileSync(path.join(root, file.target), "utf8"), file.target);
       if (shippingNativeSources.has(file.target))
         verifyModuleTypeFork(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"));

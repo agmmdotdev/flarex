@@ -7,6 +7,7 @@ import { createFetchHttpStaticHandler, type FetchHttpAdapterOptions } from "../s
 import { validateAndTransformBody } from "../src/http/utils/validate-body"
 import { validateAndTransformQuery } from "../src/http/utils/validate-query"
 import { refetchEntities, refetchEntity } from "../src/http/utils/refetch-entities"
+import { buildStaticHttpResources } from "../src/http/utils/static-http-resources"
 import type { MedusaRequest, MiddlewareFunction, PolicyAction } from "../src/http/types"
 
 const user = { actor_id: "usr_1", actor_type: "user", auth_identity_id: "auth_1", app_metadata: { roles: ["role_1"] }, user_metadata: {} }
@@ -31,6 +32,28 @@ function fixture(options: Partial<FetchHttpAdapterOptions> = {}, middlewares: Mi
 }
 
 describe("selected pinned JSON POST plumbing", () => {
+  it("retains native sizeLimit metadata without disabling JSON parsing or widening the private host cap", async () => {
+    const manifest = {
+      routes: [{ route: "/admin/products", module: { POST: (req: MedusaRequest, res: { json(value: unknown): unknown }) => res.json(req.body) } }],
+      middlewares: [{ module: { default: { routes: [{ matcher: "/admin/products", method: "POST" as const,
+        bodyParser: { sizeLimit: "2mb" } }] } } }],
+    }
+    expect(buildStaticHttpResources(manifest).bodyParserConfigRoutes[0]?.config).toEqual({ sizeLimit: "2mb" })
+    const handler = createFetchHttpStaticHandler({ manifest, allowedMethods: ["POST"], createRequestScope: () => scope, jsonBodyLimitBytes: 8 })
+    const parsed = await handler.handle(request('{"a":1}'))
+    expect(parsed.status).toBe(200)
+    expect(await parsed.json()).toEqual({ a: 1 })
+    expect((await handler.handle(request('{"long":true}'))).status).toBe(413)
+    const disabled = createFetchHttpStaticHandler({ manifest: { ...manifest, middlewares: [{ module: { default: { routes: [
+      { matcher: "/admin/products", method: "POST", bodyParser: false },
+    ] } } }] }, allowedMethods: ["POST"], createRequestScope: () => scope, jsonBodyLimitBytes: 8 })
+    expect(await (await disabled.handle(request('{"long":true}'))).json()).toBeNull()
+    const specific = createFetchHttpStaticHandler({ manifest: { ...manifest, middlewares: [{ module: { default: { routes: [
+      { matcher: "/admin/*", method: "POST", bodyParser: false },
+      { matcher: "/admin/products", method: "POST", bodyParser: { sizeLimit: "2mb" } },
+    ] } } }] }, allowedMethods: ["POST"], createRequestScope: () => scope })
+    expect(await (await specific.handle(request('{"a":1}'))).json()).toEqual({ a: 1 })
+  })
   it("keeps POST admission explicit and bounds host body settings", () => {
     const manifest = { routes: [{ route: "/admin/products", module: { POST() {} } }] }
     expect(() => createFetchHttpStaticHandler({ manifest, createRequestScope: () => scope })).toThrow("unadmitted HTTP method")

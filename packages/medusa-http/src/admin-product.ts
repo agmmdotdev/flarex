@@ -1,4 +1,4 @@
-import { authenticate, getMedusaRequestAuthContext, setMedusaRequestAuthContext, type AuthContext, type PolicyAction } from "@medusajs/framework/http"
+import { authenticate, getMedusaRequestAuthContext, setMedusaRequestAuthContext, type AuthContext, type MiddlewareRoute, type PolicyAction } from "@medusajs/framework/http"
 import { createFetchHttpStaticHandler, type FetchHttpAdapterOptions, type FetchHttpStaticHandler } from "@medusajs/framework/http/fetch"
 import { MedusaError } from "@medusajs/utils/common/errors"
 import { adminProductHttpManifest } from "./admin-product-static-manifest.generated"
@@ -14,6 +14,8 @@ export type AdminProductHttpOptions = {
   evaluateAdminPolicies(principal: AuthContext, policies: readonly PolicyAction[]): boolean | Promise<boolean>
   /** The actual read owner rejects unsupported projections before workflow execution. */
   admitProductRefetchFields(fields: readonly string[]): void
+  /** Catalog read owner admission runs before native writes and update existence reads. */
+  admitCatalogRefetchFields(entity: "product_type" | "product_tag" | "product_category" | "product_collection", fields: readonly string[]): void
 }
 
 export function createAdminProductHttpHandler(options: AdminProductHttpOptions): FetchHttpStaticHandler {
@@ -72,12 +74,18 @@ export function createAdminProductHttpHandler(options: AdminProductHttpOptions):
             next()
           }],
         }, {
-          method: ["POST"], matcher: "/admin/products/:id/options/:option_id",
+          method: ["POST", "DELETE"], matcher: "/admin/products/:id/options/:option_id",
           middlewares: [(request, _response, next) => {
             options.admitProductRefetchFields(remapKeysForProduct(request.queryConfig.fields))
             next()
           }],
-        }] } } },
+        }, ...(["product_type", "product_tag", "product_category", "product_collection"] as const).flatMap(entity => ["", "/:id", ...(entity === "product_category" || entity === "product_collection" ? ["/:id/products"] : [])].map(suffix => ({
+          method: ["POST"], matcher: `/admin/${({ product_type: "product-types", product_tag: "product-tags", product_category: "product-categories", product_collection: "collections" } as const)[entity]}${suffix}`,
+          middlewares: [(request, _response, next) => {
+            options.admitCatalogRefetchFields(entity, request.queryConfig.fields)
+            next()
+          }],
+        } satisfies MiddlewareRoute)))] } } },
       ],
     },
   })

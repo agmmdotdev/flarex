@@ -16,6 +16,8 @@ import { useQueryGraphStep } from "../../common/steps/use-query-graph"
  * The input for the batch image-variant workflow.
  */
 export interface BatchImageVariantsWorkflowInput {
+  /** Constrain every association and thumbnail mutation to this Product. */
+  product_id?: string
   /**
    * The ID of the image to manage variants for.
    */
@@ -77,8 +79,17 @@ export const batchImageVariantsWorkflow = createWorkflow(
     const normalizedInput = transform({ input }, (data) => {
       return {
         image_id: data.input.image_id,
+        ...(data.input.product_id === undefined ? {} : { product_id: data.input.product_id }),
         add: data.input.add ?? [],
         remove: data.input.remove ?? [],
+        variantsFilter: {
+          id: data.input.remove ?? [],
+          ...(data.input.product_id === undefined ? {} : { product_id: data.input.product_id }),
+        },
+        imageSelector: {
+          id: data.input.image_id,
+          ...(data.input.product_id === undefined ? {} : { product_id: data.input.product_id }),
+        },
       }
     })
 
@@ -92,24 +103,20 @@ export const batchImageVariantsWorkflow = createWorkflow(
       { normalizedInput },
       (data) => data.normalizedInput.remove.length > 0
     ).then(() => {
-      const imageId = transform({ normalizedInput }, (data) => {
-        return data.normalizedInput.image_id
+      const imageFilter = transform({ normalizedInput }, (data) => {
+        return data.normalizedInput.imageSelector
       })
 
       const variantsQuery = useQueryGraphStep({
         entity: "variants",
         fields: ["id", "thumbnail"],
-        filters: {
-          id: normalizedInput.remove,
-        },
+        filters: normalizedInput.variantsFilter,
       }).config({ name: "get-variants-for-thumbnail-check" })
 
       const { data: image } = useQueryGraphStep({
         entity: "product_image",
         fields: ["id", "url"],
-        filters: {
-          id: imageId,
-        },
+        filters: imageFilter,
         options: {
           isList: false,
         },
@@ -119,6 +126,7 @@ export const batchImageVariantsWorkflow = createWorkflow(
         {
           variants: variantsQuery.data,
           image: image,
+          normalizedInput,
         },
         (data) => {
           const imageUrl =
@@ -130,7 +138,8 @@ export const batchImageVariantsWorkflow = createWorkflow(
 
           return {
             selector: {
-              id: normalizedInput.remove,
+              id: data.normalizedInput.remove,
+              ...(data.normalizedInput.product_id === undefined ? {} : { product_id: data.normalizedInput.product_id }),
               thumbnail: imageUrl,
             },
             update: {

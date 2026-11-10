@@ -9,6 +9,7 @@ import type { AdminUpdateProductOptionBody } from "../../../validators"
 import { Modules } from "@medusajs/utils/modules-sdk/definition"
 
 const updateProductOptionsWorkflowId = "update-product-options"
+const deleteProductOptionsWorkflowId = "delete-product-options"
 
 export const GET = async (
   req: AuthenticatedMedusaRequest,
@@ -62,4 +63,38 @@ export const POST = async (
 
   if (!product) throw new Error("Updated Product option parent was not returned by native refetch")
   res.status(200).json({ product: remapProductResponse(product) })
+}
+
+type DeleteProductOptionsWorkflowEngine = {
+  run(id: typeof deleteProductOptionsWorkflowId, options: {
+    input: { ids: string[]; product_id: string }
+  }): Promise<unknown>
+}
+
+export const DELETE = async (
+  req: AuthenticatedMedusaRequest,
+  res: MedusaResponse<{ id: string; object: "product_option"; deleted: true; parent?: ProductTypes.ProductDTO | null | undefined }>
+) => {
+  const productId = req.params.id
+  const optionId = req.params.option_id
+
+  const workflowEngine = req.scope.resolve<DeleteProductOptionsWorkflowEngine>(Modules.WORKFLOW_ENGINE)
+
+  await workflowEngine.run(deleteProductOptionsWorkflowId, {
+    input: { ids: [optionId], product_id: productId },
+  })
+
+  const product = await refetchEntity<ProductTypes.ProductDTO>({
+    entity: "product",
+    idOrFilter: productId,
+    scope: req.scope,
+    fields: remapKeysForProduct(req.queryConfig.fields ?? []),
+  })
+
+  res.status(200).json({
+    id: optionId,
+    object: "product_option",
+    deleted: true,
+    parent: product,
+  })
 }

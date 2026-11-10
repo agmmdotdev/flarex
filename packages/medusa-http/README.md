@@ -23,21 +23,23 @@ to verify the checked-in static imports against the framework renderer.
 ## Private Admin Products
 
 `@flarex/medusa-http/admin-product` exports `createAdminProductHttpHandler` for
-the selected pinned `POST /admin/products`, `GET /admin/products`,
-`GET /admin/products/:id`, `POST /admin/products/:id`, and
-`DELETE /admin/products/:id` handlers. The matching scoped Effect
+the selected pinned Admin Product, nested Variant/Option, Image association,
+Product Type, Product Tag, Product Category and Collection handlers. The matching scoped Effect
 namespace host is `@flarex/medusa-http/admin-product-effect`. The native manifest
 renderer builds the separate Admin Product manifest.
 
-The route requires a trusted host principal resolver, native `user`
-authentication and an injected evaluator for all three pinned creation policies:
-Product, Inventory Item and Price. An executor credential or an unverified token
+The host requires a trusted principal resolver, native `user` authentication
+and an injected evaluator for each declared route policy. Product creation
+requires the pinned Product, Inventory Item and Price creation policies. An executor credential or an unverified token
 payload grants no admin access. This profile does not provide general RBAC or
 every native authentication method.
 
 The actual graph owner supplies `admitProductRefetchFields`, which validates
 the complete response projection without reading storage before creation or
-update. Both operations accept native default fields, including variant prices,
+update. The same owner supplies required `admitCatalogRefetchFields` for Type
+and Tag, Category and Collection mutation responses, before their workflows or
+update existence reads, including membership mutations.
+Product creation and update accept native default fields, including variant prices,
 or an explicit supported selection. Native body validation and the existing
 Product workflows retain their own input rules and bounded support; title-only
 creation does not satisfy the native option rule.
@@ -128,11 +130,67 @@ Option in one input. Omitted update Values retain their identities; matching
 strings reuse existing identities, while explicit `values: []` clears Values
 and their Variant pivots through native replacement. Pricing and Inventory
 links keep their own lifecycle. Wrong-parent updates return the unchanged
-parent. Option deletion remains unselected pending parent-qualified deletion.
+parent.
 The bounded Option update workflow also refuses a body `id` with HTTP 400 before
 acquisition, including a matching ID; native normalization could otherwise
 override the selector. The HTTP Option bodies reject `metadata`, while direct
 private Option workflow inputs support it.
+
+Option detail DELETE uses the same approved parent-qualified lifecycle contract.
+Scoped ownership selection runs before the final parent-qualified native
+soft-delete; existing unscoped workflow callers retain their no-query sequence.
+Native Option/Value soft deletion preserves Product and Variant rows, their
+Value pivots, Pricing and Inventory. Product read, Option read and Option delete
+policies apply. The native response is
+`{ id, object: "product_option", deleted: true, parent: product }`: this parent
+is not response-remapped. Rich requested prices retain the native
+`price_set.prices` representation. Wrong-parent, missing and repeated scoped
+children are no-ops; parent fields are admitted before mutation and refetched
+independently after settlement.
+
+The two Image/Variant association batch POST routes run native
+`batch-variant-images` and `batch-image-variants` with the URL Product constraint.
+They return native `{ added, removed }` arrays without a Product refetch. Both
+assignment endpoints and every thumbnail mutation are checked in the trusted
+native root; constrained foreign or missing endpoints refuse the whole call.
+Empty operations retain native empty results without an existence precheck.
+Unscoped private callers retain native cross-Product associations. The two
+profiles keep their distinct sequential/parallel and duplicate behaviors.
+
+The parent-qualified Variant-to-Images HTTP profile requires a Product and
+admits at most four additions and four removals, with complete native sibling,
+Option, Value, pivot and assignment cohort bounds. It selects a named 128-call
+allowance for both the root request and Product participant. The existing
+unscoped constructor keeps its original 64-call profile. These profiles do not
+share the inverse direction's active-endpoint removal semantics.
+
+Types and Tags expose native collection/detail GET, POST and detail DELETE.
+Type list defaults to ten rows; Tags default to twenty. Missing detail reads
+return an empty object, updates retain the native existence-check 404, and
+missing/repeated deletion retains the native success envelope. Mutation response
+fields are admitted before the workflow and update existence read. Types use
+their callable Remote Query ABI; Tags use the native graph query. Current
+bounded filters admit ID and scalar value equality with ID ordering; free-text,
+timestamp and compound filters remain explicit refusals. Database and DO
+acceptance are separate from this HTTP promotion.
+Native batch `bodyParser.sizeLimit = "2mb"` metadata is preserved. As in the
+pinned Fetch adapter, that metadata does not set a Fetch parsing limit. This
+private host retains its configured ceiling of at most 1 MiB; it never expands
+that ceiling from middleware metadata. The native route parser configuration
+uses the most specific match, and only `bodyParser: false` disables JSON parsing.
+The bounded Core lease-handoff gate is resolved for serialized private host
+reconstruction; each route family's connected DO acceptance is recorded in
+the adoption roadmap.
+
+Categories and Collections expose native collection/detail CRUD and Product
+membership POST routes. Category lists default to fifty rows and missing detail
+reads return 404; Collection lists default to ten and missing detail reads return
+an empty object. Category metadata replaces, while Collection metadata merges.
+Category tree hydration remains in the native service, including parent/child
+wildcard and scalar projections. Native Category Product projections and
+Collection nested Product fields use their existing query owners. Unsupported
+filters, ordering, deeper relation arguments and out-of-profile inputs refuse
+before mutation. Memberships preserve native remove-wins and reassignment rules.
 
 Both reads require a verified native user and the native Product read policy.
 The detail route returns the native `Product not found` response when the graph

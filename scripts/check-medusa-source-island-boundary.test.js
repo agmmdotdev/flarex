@@ -155,6 +155,8 @@ describe("Medusa source-island boundary checker", () => {
       "scripts/check-medusa-order-change-decline-source.mjs", "scripts/check-medusa-order-change-decline-source.test.js",
       "scripts/check-medusa-order-change-deletion-source.mjs", "scripts/check-medusa-order-change-deletion-source.test.js",
       "scripts/check-medusa-variant-deletion-source.mjs", "scripts/check-medusa-variant-deletion-source.test.js",
+      "scripts/check-medusa-product-deletion-source.mjs", "scripts/check-medusa-product-deletion-source.test.js",
+      "scripts/check-medusa-image-association-source.mjs", "scripts/check-medusa-image-association-source.test.js",
       "scripts/check-medusa-payment-session-source.mjs", "scripts/check-medusa-payment-session-source.test.js",
       "scripts/check-medusa-customer-account-source.mjs", "scripts/check-medusa-customer-account-source.test.js",
       "scripts/check-medusa-payment-collection-source.mjs", "scripts/check-medusa-payment-collection-source.test.js",

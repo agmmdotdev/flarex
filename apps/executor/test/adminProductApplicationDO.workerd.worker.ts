@@ -33,7 +33,7 @@ const NativeOwner = makeApplicationDurableObject<NativeProductEnv, NativeFixture
     const profile = Result.getOrThrow(readExecutorApplicationProfiles(env))[0];
     if (profile === undefined) return yield* Effect.die("Missing private native Product fixture identity");
     const credentials = yield* makeExecutorApplicationCredentials(env, profile);
-    const hostRuntime = yield* makePreparedHostRuntime({ maximumHosts: 32, maximumPreparedBytes: 8 * 1024 * 1024 });
+    const hostRuntime = yield* makePreparedHostRuntime({ maximumHosts: 33, maximumPreparedBytes: 8 * 1024 * 1024 });
     const operations = yield* makeProductRequestOperations({ database: infrastructure.coreDatabase, hostRuntime, catalog,
       identityAndAccessPolicy: { profile: "native-admin-product-private-do-fixture" }, revision: "d".repeat(64),
       subscribers: [{ id: "native-admin-product-request", revision: "e".repeat(64) }] });
@@ -49,28 +49,39 @@ const NativeOwner = makeApplicationDurableObject<NativeProductEnv, NativeFixture
         const actor = credential === env.ADMIN_PRODUCT_CREDENTIAL ? "user_native_product"
           : credential === `${env.ADMIN_PRODUCT_CREDENTIAL}-without-policy` ? "user_native_product_unprivileged"
           : credential === `${env.ADMIN_PRODUCT_CREDENTIAL}-variant-reader` ? "user_native_variant_reader"
+          : credential === `${env.ADMIN_PRODUCT_CREDENTIAL}-option-reader` ? "user_native_option_reader"
           : credential === `${env.ADMIN_PRODUCT_CREDENTIAL}-read-only` ? "user_native_product_reader" : undefined;
         return actor === undefined ? undefined : { actor_id: actor, actor_type: "user", auth_identity_id: "auth_native_product",
           app_metadata: {}, user_metadata: {} };
       },
       evaluateAdminPolicies: (principal, policies) => {
         // Pinned native middleware applies Product read to every child route;
-        // variant creation and deletion add their own exact policy afterward.
+        // Variant and Option child routes add their own exact policies afterward.
         const productRead = policies.length === 1 && policies[0]?.resource === "product" && policies[0]?.operation === "read";
         const variantRead = policies.length === 1 && policies[0]?.resource === "product_variant" && policies[0]?.operation === "read";
+        const optionRead = policies.length === 1 && policies[0]?.resource === "product_option" && policies[0]?.operation === "read";
         if (principal.actor_id === "user_native_product_reader") return productRead;
         if (principal.actor_id === "user_native_variant_reader") return productRead || variantRead;
+        if (principal.actor_id === "user_native_option_reader") return productRead || optionRead;
         return principal.actor_id === "user_native_product" && (productRead
+          || (policies.length === 1 && policies.every(policy => typeof policy.resource === "string"
+            && ["product_type", "product_tag", "product_category", "product_collection"].includes(policy.resource)
+            && typeof policy.operation === "string" && ["read", "create", "update", "delete"].includes(policy.operation)))
           || (policies.length === 1 && policies[0]?.resource === "product" && policies[0]?.operation === "delete")
           || (policies.length === 1 && policies[0]?.resource === "product_variant" && policies[0]?.operation === "create")
           || (policies.length === 1 && policies[0]?.resource === "product_variant" && policies[0]?.operation === "delete")
           || variantRead
-          || (policies.length === 1 && policies[0]?.resource === "product_option" && policies[0]?.operation === "read")
+          || optionRead
+          || (policies.length === 1 && policies[0]?.resource === "product_option" && policies[0]?.operation === "delete")
           || (policies.length === 3 && policies.every((policy, index) => policy.resource === ["product", "inventory_item", "price"][index]
             && policy.operation === "create")));
       },
-      admitProductRefetchFields: operations.admitProductRefetchFields });
+      admitProductRefetchFields: operations.admitProductRefetchFields,
+      admitCatalogRefetchFields: operations.admitCatalogRefetchFields });
     const dispatch = Effect.fn("NativeAdminProductApplicationFixture.dispatch")((request: Request) => {
+      // Reached only through the real private owner admission and completed
+      // bootstrap. This test barrier exposes no database capability or data.
+      if (new URL(request.url).pathname === "/__proof/ready") return Effect.succeed(Response.json({ ready: true }));
       // Private service authority does not confer Medusa user identity. Only
       // the separate trusted resolver above can establish an administrator.
       const headers = new Headers(request.headers);

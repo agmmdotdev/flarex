@@ -8,6 +8,7 @@ import { SimpleVariantInput } from "./variant-workflow-input";
 
 export const ProductRelationshipId = Schema.String.check(Schema.isLengthBetween(1, 256));
 export const ProductRelationshipIds = Schema.Array(ProductRelationshipId).check(Schema.isMaxLength(256));
+export const ProductRelationshipReferences = Schema.Array(Schema.Struct({ id: ProductRelationshipId })).check(Schema.isMaxLength(256));
 export const ProductRelationshipUpsertRows = Schema.Array(Schema.Struct({
   id: ProductRelationshipId, category_ids: ProductRelationshipIds,
 })).check(Schema.isMaxLength(256));
@@ -44,9 +45,9 @@ export function compileProductValueProfile(catalog: {
     const managed = ["created_at", "updated_at", "deleted_at", ...entity.table.foreignKeys.flatMap(key => key.columns)];
     return entity.table.columns.map(column => column.name).filter(name => !managed.includes(name));
   };
-  const createRoot = commerceRowDecoder([...scalarNames(catalog.product), "options", "variants", "images", "tags", "tag_ids", "category_ids", "collection_id", "type_id"], "unsupportedProfile");
+  const createRoot = commerceRowDecoder([...scalarNames(catalog.product), "options", "variants", "images", "tags", "categories", "tag_ids", "category_ids", "collection_id", "type_id"], "unsupportedProfile");
   const decodeIds = commerceDecoder(Schema.Array(Schema.String.check(Schema.isLengthBetween(1, 256))).check(Schema.isMaxLength(256)), "invalidInput");
-  const decodeTagReferences = commerceDecoder(Schema.Array(Schema.Struct({ id: Schema.String.check(Schema.isLengthBetween(1, 256)) })).check(Schema.isMaxLength(256)), "invalidInput");
+  const decodeTagReferences = commerceDecoder(ProductRelationshipReferences, "invalidInput");
   const decodeReference = commerceDecoder(Schema.NullOr(Schema.String.check(Schema.isLengthBetween(1, 256))), "invalidInput");
   const extra = (entity: ProductEntityMetadata): string[] => entity === catalog.option ? ["product_id", "values"] : entity === catalog.variant ? ["product_id", "options"]
     : entity === catalog.category ? ["parent_category_id", "products"] : entity === catalog.collection ? ["product_ids"] : entity === catalog.image ? ["product_id"] : entity === catalog.assignment ? ["variant_id", "image_id"] : [];
@@ -167,6 +168,10 @@ export function compileProductValueProfile(catalog: {
           yield* decodeTagReferences(root.tags);
         }
         if (root.tag_ids !== undefined) yield* decodeIds(root.tag_ids);
+        if (root.categories !== undefined) {
+          if (root.category_ids !== undefined) return yield* Result.fail(commerceError("unsupportedProfile"));
+          yield* decodeTagReferences(root.categories);
+        }
         if (root.category_ids !== undefined) yield* decodeIds(root.category_ids);
         for (const name of ["collection_id", "type_id"]) if (root[name] !== undefined) yield* decodeReference(root[name]);
         for (const relation of ["options", "variants", "images"] as const) {

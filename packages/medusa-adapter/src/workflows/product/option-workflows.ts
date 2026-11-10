@@ -5,6 +5,7 @@ import { deleteProductOptionsWorkflow } from "@medusajs/core-flows/product/delet
 import type { AtomicCommerceEvents } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError, type CommerceResources } from "@flarex/persistence-postgres/internal/commerce-values";
 import { ProductOptionCreateInput, ProductOptionUpdateInput, ProductOptionIds, ProductOptionOutput, decodeProductOptionOutput } from "../../modules/product/option-input";
+import { ProductLifecycleIds, decodeVariantDeletionSelection } from "../../modules/product/lifecycle";
 import type { ProductOptionWorkflowModule } from "../../modules/product/product-option-workflow";
 import type { prepareProductOptionDeletionLinkResource } from "../../links/product-option-resource";
 import { commerceDecoder } from "../../value/decoder";
@@ -27,10 +28,10 @@ type DeletionResources = NativeWorkflowResources<Selections<readonly ["softDelet
 const CreationInput = Schema.Struct({ product_options: ProductOptionCreateInput, additional_data: Schema.optionalKey(Schema.JsonObject) });
 const UpdateInput = Schema.Struct({ ...ProductOptionUpdateInput.fields, additional_data: Schema.optionalKey(Schema.JsonObject) });
 const DeletionInput = Schema.Struct({ ids: ProductOptionIds });
+const ScopedDeletionInput = Schema.Struct({ ids: ProductOptionIds, product_id: Schema.optionalKey(ProductLifecycleIds.value) });
 const HookInput = Schema.Struct({ product_options: ProductOptionOutput, additional_data: Schema.optionalKey(Schema.UndefinedOr(Schema.JsonObject)) });
 const decodeHook = commerceDecoder(HookInput, "invalidInput");
 const decodeDeletionHook = commerceDecoder(DeletionInput, "invalidInput");
-const decodeIds = commerceDecoder(ProductOptionIds, "receiptMismatch");
 
 export interface ProductOptionCreationHooks {
   readonly productOptionsCreated?: (input: typeof HookInput.Type, context: NativeWorkflowContext<CreationResources>) => unknown | Promise<unknown>;
@@ -107,7 +108,8 @@ export const prepareProductOptionUpdateWorkflow = Effect.fn("ProductOption.prepa
     workflow: { name: "updateProductOptionsWorkflow", resources, prepared, input: UpdateInput, output: ProductOptionOutput, events } });
 });
 
-/** Native soft deletion preserves Product and Variant endpoints and emits raw requested IDs. */
+/** Native soft deletion preserves Product and Variant endpoints. Unscoped
+ * requests retain raw IDs; scoped requests retain their native selected IDs. */
 export const prepareProductOptionDeletionWorkflow = Effect.fn("ProductOption.prepareDeletion")(function* (
   input: OptionWorkflowInput<ProductOptionDeletionHooks> & { readonly link: Link },
 ) {
@@ -123,9 +125,11 @@ export const prepareProductOptionDeletionWorkflow = Effect.fn("ProductOption.pre
   const events = orderedProductWorkflowEvents("product-option.deleted", Effect.fn("ProductOption.requestedIds")(function* (calls) {
     const writes = calls.calls(modules.product.module.methods.softDeleteProductOptions), call = writes[0];
     if (writes.length !== 1 || call === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
-    return yield* Effect.fromResult(decodeIds(call.input));
+    const selection = yield* Effect.fromResult(decodeVariantDeletionSelection(call.input))
+      .pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
+    return "id" in selection ? selection.id : selection;
   }));
   return yield* prepareAtomicWorkflowHost({ ...options, modules, requestCallLimit: productOptionDeletionResources.calls,
     requestByteLimit: productOptionDeletionResources.commandBytes, requestEventLimit: productOptionDeletionResources.eventMessages, operationScheduling: "queued",
-    workflow: { name: "deleteProductOptionsWorkflow", resources, prepared, input: DeletionInput, output: Schema.Null, events } });
+    workflow: { name: "deleteProductOptionsWorkflow", resources, prepared, input: ScopedDeletionInput, output: Schema.Null, events } });
 });

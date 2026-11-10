@@ -1408,6 +1408,13 @@ export interface IProductModuleService extends IModuleService {
     sharedContext?: Context
   ): Promise<Record<string, string[]> | void>
 
+  /** Retain Product ownership in the trusted native deletion selector. */
+  softDeleteProductOptions<TReturnableLinkableKeys extends string = string>(
+    selector: { id: string[]; product_id: string },
+    config?: SoftDeleteReturn<TReturnableLinkableKeys>,
+    sharedContext?: Context
+  ): Promise<Record<string, string[]> | void>
+
   /**
    * This method is used to restore options which were deleted using the {@link softDelete} method.
    *
@@ -2154,7 +2161,7 @@ export interface IProductModuleService extends IModuleService {
    * ])
    */
   addImageToVariant(
-    data: { image_id: string; variant_id: string }[],
+    data: { image_id: string; variant_id: string; product_id?: string }[],
     sharedContext?: Context
   ): Promise<{ id: string }[]>
 
@@ -2166,7 +2173,7 @@ export interface IProductModuleService extends IModuleService {
    * @returns {Promise<void>} The IDs of the image variant pairs.
    */
   removeImageFromVariant(
-    data: { image_id: string; variant_id: string }[],
+    data: { image_id: string; variant_id: string; product_id?: string }[],
     sharedContext?: Context
   ): Promise<void>
 

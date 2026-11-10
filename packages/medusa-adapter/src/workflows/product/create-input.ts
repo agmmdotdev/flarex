@@ -1,6 +1,7 @@
 import { Schema } from "effect";
 import { SimpleVariantInput } from "../../modules/product/variant-workflow-input";
 import { BasePriceInput } from "../../modules/pricing/input";
+import { ProductRelationshipReferences } from "../../modules/product/value-profile";
 
 /** Selected simple creation contract, not the complete native Product DTO. */
 export const SimpleProductInput = Schema.Struct({
@@ -11,6 +12,8 @@ export const ProductImageCreateInput = Schema.Struct({ id: Schema.optionalKey(Sc
  * module-local tag/category memberships, not every Medusa Product DTO field. */
 export const ProductCreateGraphInput = Schema.Struct({
   ...SimpleProductInput.fields,
+  tags: Schema.optionalKey(ProductRelationshipReferences),
+  categories: Schema.optionalKey(ProductRelationshipReferences),
   collection_id: Schema.optionalKey(Schema.NullOr(Schema.String.check(Schema.isLengthBetween(1, 256)))),
   tag_ids: Schema.optionalKey(Schema.Array(Schema.String.check(Schema.isLengthBetween(1, 256))).check(Schema.isMaxLength(256))),
   category_ids: Schema.optionalKey(Schema.Array(Schema.String.check(Schema.isLengthBetween(1, 256))).check(Schema.isMaxLength(256))),
@@ -46,6 +49,8 @@ export function productCreationWorkflowEntry(columns: readonly string[]) {
     prices: Schema.optionalKey(Schema.Array(BasePriceInput).check(Schema.isMaxLength(2))),
   })).check(Schema.isMaxLength(4));
   return Schema.Struct({ ...productCreationInput(columns).fields,
+    tags: Schema.optionalKey(ProductRelationshipReferences.check(Schema.isMaxLength(4))),
+    categories: Schema.optionalKey(ProductRelationshipReferences.check(Schema.isMaxLength(4))),
     tag_ids: Schema.optionalKey(Schema.Array(Id).check(Schema.isMaxLength(4))),
     category_ids: Schema.optionalKey(Schema.Array(Id).check(Schema.isMaxLength(4))),
     images: Schema.optionalKey(Schema.Array(ProductImageCreateInput).check(Schema.isMaxLength(2))),

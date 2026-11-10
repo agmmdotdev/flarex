@@ -18,16 +18,68 @@
       "relativePath": "packages/medusa-http/src/api/admin/products/[id]/variants/[variant_id]/route.ts"
     },
     {
+      "relativePath": "packages/medusa-http/src/api/admin/products/[id]/variants/[variant_id]/images/batch/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa-http/src/api/admin/products/[id]/images/[image_id]/variants/batch/route.ts"
+    },
+    {
       "relativePath": "packages/medusa-http/src/api/admin/products/[id]/options/route.ts"
     },
     {
       "relativePath": "packages/medusa-http/src/api/admin/products/[id]/options/[option_id]/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa-http/src/api/admin/product-types/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa-http/src/api/admin/product-types/[id]/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa-http/src/api/admin/product-tags/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa-http/src/api/admin/product-tags/[id]/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa-http/src/api/admin/product-categories/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa-http/src/api/admin/product-categories/[id]/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa-http/src/api/admin/product-categories/[id]/products/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa-http/src/api/admin/collections/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa-http/src/api/admin/collections/[id]/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa-http/src/api/admin/collections/[id]/products/route.ts"
     }
   ],
   "middlewares": [
     {
       "relativePath": "packages/medusa-http/src/api/admin/products/middlewares.ts",
       "exportName": "adminProductRoutesMiddlewares"
+    },
+    {
+      "relativePath": "packages/medusa-http/src/api/admin/product-types/middlewares.ts",
+      "exportName": "adminProductTypeRoutesMiddlewares"
+    },
+    {
+      "relativePath": "packages/medusa-http/src/api/admin/product-tags/middlewares.ts",
+      "exportName": "adminProductTagRoutesMiddlewares"
+    },
+    {
+      "relativePath": "packages/medusa-http/src/api/admin/product-categories/middlewares.ts",
+      "exportName": "adminProductCategoryRoutesMiddlewares"
+    },
+    {
+      "relativePath": "packages/medusa-http/src/api/admin/collections/middlewares.ts",
+      "exportName": "adminCollectionRoutesMiddlewares"
     }
   ]
 }

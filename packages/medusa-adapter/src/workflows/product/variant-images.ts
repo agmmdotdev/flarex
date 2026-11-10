@@ -3,7 +3,7 @@ import { batchVariantImagesWorkflow } from "@medusajs/core-flows/product/batch-v
 import { batchImageVariantsWorkflow } from "@medusajs/core-flows/product/batch-image-variants";
 import type { AtomicCommerceEvents } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
-import { VariantImagesWorkflowInput, VariantImagesWorkflowOutput, ImageVariantsWorkflowInput, ImageVariantsWorkflowOutput } from "../../modules/product/variant-workflow-input";
+import { VariantImagesWorkflowInput, ParentQualifiedVariantImagesWorkflowInput, VariantImagesWorkflowOutput, ImageVariantsWorkflowInput, ImageVariantsWorkflowOutput } from "../../modules/product/variant-workflow-input";
 import type { ProductWorkflowModule } from "../../modules/product/workflow";
 import { captureWorkflowRecord } from "../../workflow/configuration";
 import { workflowModuleDefinition } from "../../workflow/module";
@@ -21,7 +21,7 @@ interface ImageAssociationWorkflowInput {
   readonly subscribers: AtomicCommerceEvents["subscribers"];
 }
 
-const prepareImageAssociationResources = Effect.fn("MedusaWorkflow.prepareImageAssociationResources")(function* (input: ImageAssociationWorkflowInput) {
+const prepareImageAssociationResources = Effect.fn("MedusaWorkflow.prepareImageAssociationResources")(function* <Input extends ImageAssociationWorkflowInput>(input: Input) {
   const options = yield* Effect.fromResult(captureWorkflowRecord(input));
   const registrations = yield* Effect.fromResult(captureWorkflowRecord(options.modules));
   const modules = yield* Effect.fromResult(captureInstalledWorkflowModules(registrations, ["product"]));
@@ -32,11 +32,22 @@ const prepareImageAssociationResources = Effect.fn("MedusaWorkflow.prepareImageA
   return { options, modules, resources };
 });
 
-export const prepareVariantImagesWorkflow = Effect.fn("MedusaWorkflow.prepareVariantImages")(function* (input: ImageAssociationWorkflowInput) {
+export const prepareVariantImagesWorkflow = Effect.fn("MedusaWorkflow.prepareVariantImages")(function* (input: ImageAssociationWorkflowInput & {
+  readonly admission?: "parent-qualified";
+}) {
   const { options, modules, resources } = yield* prepareImageAssociationResources(input);
+  const qualified = options.admission === "parent-qualified";
+  const definition = workflowModuleDefinition(modules.product.module);
+  if (options.admission !== undefined && !qualified || qualified &&
+    (definition?.source.name !== "flarex-product-local" || definition.source.profile !== "public.parent-qualified-variant-image-workflows"))
+    return yield* Effect.fail(commerceError("unsupportedProfile"));
   const prepared = yield* Effect.fromResult(batchVariantImagesWorkflow.prepare()).pipe(Effect.mapError(cause => commerceError("unsupportedProfile", cause)));
-  return yield* prepareAtomicWorkflowHost({ ...options, modules, workflow: { name: "batchVariantImagesWorkflow", resources, prepared,
-    input: VariantImagesWorkflowInput, output: VariantImagesWorkflowOutput, events: variantImagesWorkflowEvents,
+  return yield* prepareAtomicWorkflowHost({ ...options,
+    modules: qualified ? { product: { ...modules.product, logicalResources: productImageVariantResources } } : modules,
+    ...(qualified ? { requestCallLimit: productImageVariantResources.calls } : {}),
+    workflow: { name: "batchVariantImagesWorkflow", resources, prepared,
+    input: qualified ? ParentQualifiedVariantImagesWorkflowInput : VariantImagesWorkflowInput,
+    output: VariantImagesWorkflowOutput, events: variantImagesWorkflowEvents,
   } });
 });
 

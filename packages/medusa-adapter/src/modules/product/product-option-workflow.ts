@@ -8,8 +8,9 @@ import { decodeGraphCount } from "../../local-graph/query";
 import { commerceDecoder } from "../../value/decoder";
 import { defineWorkflowMethod, defineWorkflowModule, type WorkflowLogicalPolicy } from "../../workflow/module";
 import { NativePreimageConfig, nativePreimageSelection } from "../../workflow/preimage";
-import { ProductOptionCreateInput, ProductOptionUpdateData, ProductOptionIds, ProductOptionSelector,
+import { ProductOptionCreateInput, ProductOptionUpdateData, ProductOptionSelector,
   ProductOptionSoftDeleteOutput, decodeProductOptionOutput, decodeProductOptionPreimages } from "./option-input";
+import { VariantDeletionSelection } from "./lifecycle";
 
 /** Genuine native Option methods share the Product owner and its Value graph. */
 export function productOptionWorkflowModule(source: CommerceModuleDescription, commands: {
@@ -25,7 +26,7 @@ export function productOptionWorkflowModule(source: CommerceModuleDescription, c
     const createArguments = commerceDecoder(Schema.Tuple([ProductOptionCreateInput]), "invalidInput");
     const listArguments = commerceDecoder(Schema.Tuple([ProductOptionSelector, NativePreimageConfig]), "invalidInput");
     const updateArguments = commerceDecoder(Schema.Tuple([ProductOptionSelector, ProductOptionUpdateData]), "invalidInput");
-    const deleteArguments = commerceDecoder(Schema.Tuple([ProductOptionIds]), "invalidInput");
+    const deleteArguments = commerceDecoder(Schema.Tuple([VariantDeletionSelection]), "invalidInput");
     const deleted = commerceDecoder(ProductOptionSoftDeleteOutput, "storedCorruption");
     const createProductOptions = yield* defineWorkflowMethod({ command: commands.createOptions, arguments: createArguments,
       encode: ([options]) => options, output: decodeProductOptionOutput, moduleEvents: [events.created, events.valueCreated] });

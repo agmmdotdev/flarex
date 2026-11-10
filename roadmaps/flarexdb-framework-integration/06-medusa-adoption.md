@@ -28,8 +28,10 @@ deployment or establish performance/scale acceptance.
 
 The pinned native inventory contains 51 Admin catalog method endpoints in 29
 route files: Products (28), global Product Variants (1), Product Types (5),
-Product Tags (5), Product Categories (6), and Collections (6). Fourteen Product,
-nested Variant and Option endpoints are promoted. The goal also inventories the
+Product Tags (5), Product Categories (6), and Collections (6). Thirty-nine
+endpoints have promoted handlers, native Core owners and connected private DO
+proof, including scoped Option deletion, both Image association directions and
+Type/Tag/Category/Collection methods. The goal also inventories the
 two Product association endpoints owned by Sales Channel and Price List and the
 two Store Product reads. Store Product list/detail are included in the goal.
 Independent Inventory/Pricing CRUD and Store taxonomy families retain
@@ -38,10 +40,10 @@ their own adoption scopes.
 | Slice | Remaining native HTTP work | State |
 | --- | --- | --- |
 | Variant lifecycle | Collection/detail reads, creation, update and parent-qualified deletion connected | Connected |
-| Product options | Collection list/create and detail retrieve/update connected; deletion requires parent-qualified workflow semantics | Deletion pending |
-| Product associations | Both Image/Variant batch directions; Variant Inventory Link create/update/delete/batch | Pending |
+| Product options | Collection/detail reads, creation, update and scoped deletion connected | Connected |
+| Product associations | Both Image/Variant batch directions connected. Variant Inventory Link create/update/delete/batch remain | Inventory Links pending |
 | Product batches | Product batch and nested Variant batch | Pending |
-| Catalog taxonomy | Types, Tags, Categories, Collections and their Product membership endpoints; global Variant list | Pending |
+| Catalog taxonomy | Types/Tags and Categories/Collections, including Product membership endpoints, connected. Global Variant list remains | Global Variant list pending |
 | Cross-domain Product associations | Sales Channel Products and Price List Products | Pending |
 | File and continuation flows | Export; deprecated multipart import and confirmation; current file/chunk imports and confirmation | Pending |
 | Store Product reads | Visibility, pricing, inventory availability, tax enrichment and locale | Pending |
@@ -53,14 +55,39 @@ PostgreSQL and actual Workerd/DO coverage. An unimplemented runtime/provider
 cannot be counted as a completed route merely because its handler is selected.
 
 Known remaining parent-ownership gaps must be resolved within the mutation owner:
-Option deletion, Image/Variant associations, Variant Inventory Link
-mutations and Variant batch delete currently omit the route's Product ID.
+Variant Inventory Link mutations and Variant batch delete currently omit the
+route's Product ID.
 Separate HTTP reads followed by ID-only mutations are not the resolution.
 
 The two import families are distinct native workflows. Their File/CSV/chunk,
 notification, one-hour confirmation timeout and durable continuation contracts,
 and export's upload stream/background/compensation contracts, remain required
 work. The existing bounded inline import Task proof does not complete them.
+
+The scoped Option DELETE proof exposed a Core acquisition refusal. Its retained
+incident lacks proposed/stored tokens and exact phase, so its precise cause is
+unproved. Controlled equal/regressed host-clock witnesses independently establish
+the cross-runtime ordering gap. The user authorized Core diagnosis and correction;
+three independent source/design challenges and peer exchange are recorded in the
+[lease handoff slice](../../experiments/core/engine/slices/16c-lease-generation-handoff.md).
+The selected persistence owner now observes a predecessor and attempts one
+checked generation CAS, preserving exact stale-write/share-lock fencing and
+fresh bootstrap, with no acquisition retry or adapter clock repair. Paired owner
+proof and actual serialized Node/Workerd handoffs, including the original Option
+and Variant/Inventory consumers, are complete. Phase diagnostics confirm each
+fresh construction advances the persisted generation once and close/disposal
+leaves it unchanged. This closes the bounded consumer handoff gate; managed host
+election remains separate, and the old incident's exact cause remains unproved.
+
+Image association ownership is enforced by the native Product service and
+trusted receipts. Query filters and thumbnail selectors reuse values produced
+by existing normalization callbacks, preserving the retained unscoped 64-call
+profile without additional transform callbacks. The separate required-parent
+forward admission requires the URL Product, at most four additions/removals per
+arm, and complete native preparation bounds. Its root and Product participant
+both select the named 128-call allowance. Inverse scheduling and active-endpoint
+selection remain distinct. Shared limits and settlement authority are unchanged;
+these bounded database proofs do not establish DO activation or scale.
 
 #### Current connected routes
 
@@ -130,11 +157,20 @@ Values and their Variant pivots for explicit empty arrays. Parent response
 projections are admitted before mutation and refetched after settlement.
 Collection methods inherit Product read; detail adds Product Option read. No
 additional create/update policy is present in the pin. Wrong-parent updates
-produce no business changes and refetch the URL parent. Option deletion remains
-unpromoted pending parent-qualified lifecycle semantics.
+produce no business changes and refetch the URL parent.
 The bounded Option update profile likewise refuses body IDs before acquisition;
 native normalization can override selection. HTTP Option schemas reject metadata
 even though the private Option workflow admits it.
+
+Option deletion uses the approved parent-qualified correction with an ownership
+query only for scoped requests; unscoped calls retain their native no-query
+sequence. The final selector and authoritative root receipts retain the Product
+constraint. Existing Option/Value lifecycle and retimestamp events remain native,
+with Product/Variant rows, Value pivots and Pricing/Inventory links preserved.
+Product read, Option read and Option delete policies apply, and parent response
+fields are admitted before mutation. The native DELETE envelope retains its raw
+parent rather than applying Product response remapping. Wrong-parent, missing
+and repeated scoped children select nothing and emit no deletion events.
 
 The [Product read graph](../../packages/medusa-adapter/src/http/product-request-reads.ts)
 uses the existing native graph planner and Link metadata over protected Core
@@ -144,6 +180,24 @@ validators and middleware own list filters, ordering, pagination and count
 metadata. Each module read group opens its own Core operation and snapshot,
 matching native remote service reads.
 The alternate Index Engine and Price List selector profile fail closed.
+
+Category and Collection routes preserve their native CRUD, missing-detail and
+membership behavior. Categories retain native tree hydration and metadata
+replacement; Collections retain callable Remote Query and metadata merging.
+Their mutation response projections are admitted before any existence read or
+workflow, including membership endpoints. Category reads admit bounded native
+parent/child tree projections and Product scalar/wildcard projections through
+the existing graph metadata and native service; native omissions remain distinct
+from unexpected missing stored scalars. Existing filter and cohort limits remain.
+The complete Admin profile owns twenty-five prepared workflow facades and eight
+protected read hosts, so its two private full-profile compositions explicitly
+admit thirty-three hosts with the existing byte cap. Shared Core defaults remain.
+
+Product creation admits native `tags: [{ id }]` and `categories: [{ id }]` along
+with the retained direct ID-array forms. The existing native Product service owns
+reference lookup and normalization; admission does not rewrite the DTO. Each
+relation retains the finite four-reference workflow bound. The module value
+admission refuses mixed reference and ID-array forms for the same relation.
 
 Serving these routes on a registered app requires the app owner to authenticate both
 its Application deployment and the selected native sources in one generation.

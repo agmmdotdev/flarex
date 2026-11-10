@@ -2,9 +2,8 @@ import { expectWorkflowRefusal } from "./support/workflow-failure-assertions";
 import { withWorkflowPolicy } from "./support/workflow-policy-fixture";
 import { createHash } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { Effect, Result } from "effect";
+import { Effect } from "effect";
 import { isJsonObject } from "flarex-protocol/json";
-import { currencyWorkflowModule } from "../src/modules/currency/service";
 
 import { prepareProductTagWorkflow } from "../src/workflows/product/tag";
 
@@ -19,9 +18,9 @@ const coreEvents = async (selected = currency) => (await selected.fixture.snapsh
 let currency: CoreProductWorkflowFixture;
 let product: CoreProductWorkflowFixture["product"];
 
-describe("native Product-tag workflow with logical Product and Currency", () => {
+describe("native Product-tag workflow with logical Product storage", () => {
   beforeAll(async () => {
-    currency = await createCoreProductWorkflowFixture(driver, close => cleanup.push(close), { includeCurrency: true });
+    currency = await createCoreProductWorkflowFixture(driver, close => cleanup.push(close));
     product = currency.product;
 
   }, 180_000);
@@ -38,7 +37,6 @@ describe("native Product-tag workflow with logical Product and Currency", () => 
         prepare: composition => currency.execution.prepare(composition) },
       modules: {
         product: { module: product.runtime.workflow, nativeStorage: product.source },
-        currency: { module: Result.getOrThrow(currencyWorkflowModule), nativeStorage: currency.fixture.source("currency") },
       },
       revision: createHash("sha256").update("logical-product-tag-workflow").digest("hex"),
       subscribers: [{ id: "logical-product-tags", revision: "a".repeat(64) }],
@@ -49,9 +47,6 @@ describe("native Product-tag workflow with logical Product and Currency", () => 
         expect(await resources.query.graph({ entity: "product_tag", fields: ["id", "value"],
           filters: { id: tag?.id }, pagination: { take: 1 } }))
           .toMatchObject({ data: [{ id: tag?.id, value: "logical-tag" }] });
-        expect(await resources.query.graph({ entity: "currency", fields: ["code"],
-          filters: { code: "usd" }, pagination: { take: 1 } }))
-          .toMatchObject({ data: [{ code: "usd" }] });
       } },
     }));
     try {
@@ -80,7 +75,6 @@ describe("native Product-tag workflow with logical Product and Currency", () => 
         prepare: composition => currency.execution.prepare(composition) },
       modules: {
         product: { module: product.runtime.workflow, nativeStorage: product.source },
-        currency: { module: Result.getOrThrow(currencyWorkflowModule), nativeStorage: currency.fixture.source("currency") },
       },
       revision: createHash("sha256").update("logical-product-tag-no-hook").digest("hex"),
       subscribers: [{ id: "logical-product-tags", revision: "a".repeat(64) }],
@@ -104,7 +98,6 @@ describe("native Product-tag workflow with logical Product and Currency", () => 
         prepare: composition => currency.execution.prepare(composition) },
       modules: {
         product: { module: forgedModule, nativeStorage: product.source },
-        currency: { module: Result.getOrThrow(currencyWorkflowModule), nativeStorage: currency.fixture.source("currency") },
       },
       revision: createHash("sha256").update("logical-product-tag-workflow-refusal").digest("hex"),
       subscribers: [{ id: "logical-product-tags", revision: "a".repeat(64) }],

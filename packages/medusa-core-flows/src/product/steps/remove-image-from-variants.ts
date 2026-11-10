@@ -17,9 +17,9 @@ export const removeImageFromVariantsStepId = "remove-image-from-variants"
  */
 export const removeImageFromVariantsStep = createStep(
   { name: removeImageFromVariantsStepId, compensation: "transactionCovered" },
-  async (input: { image_id: string; remove: string[] }, { container }) => {
+  async (input: { image_id: string; remove: string[]; product_id?: string }, { container }) => {
     if (!input.remove.length) {
-      return new StepResponse([], { removed: [], image_id: input.image_id })
+      return new StepResponse([], { removed: [], image_id: input.image_id, ...(input.product_id === undefined ? {} : { product_id: input.product_id }) })
     }
 
     const productModuleService = container.resolve<IProductModuleService>(
@@ -28,6 +28,7 @@ export const removeImageFromVariantsStep = createStep(
 
     const data = input.remove.map((variant_id) => ({
       image_id: input.image_id,
+      ...(input.product_id === undefined ? {} : { product_id: input.product_id }),
       variant_id,
     }))
 
@@ -36,10 +37,11 @@ export const removeImageFromVariantsStep = createStep(
     return new StepResponse(input.remove, {
       removed: input.remove,
       image_id: input.image_id,
+      ...(input.product_id === undefined ? {} : { product_id: input.product_id }),
     })
   },
   async (
-    compensationData: { removed: string[]; image_id: string } | undefined,
+    compensationData: { removed: string[]; image_id: string; product_id?: string } | undefined,
     { container }
   ) => {
     if (!compensationData?.removed?.length || !compensationData?.image_id) {
@@ -52,6 +54,7 @@ export const removeImageFromVariantsStep = createStep(
 
     const data = compensationData.removed.map((variant_id) => ({
       image_id: compensationData.image_id,
+      ...(compensationData.product_id === undefined ? {} : { product_id: compensationData.product_id }),
       variant_id,
     }))
 

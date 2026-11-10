@@ -124,11 +124,16 @@ export function productMutationCommands({ metadata, withService, withCollectionS
     return yield* withService(ctx, ({ service, context }) => service.updateProducts({ id: typeof decoded.selector.id === "string" ? decoded.selector.id : ids },
       structuredClone(decoded.update) as ProductTypes.UpdateProductDTO, context));
   }));
-  const removeImageFromVariant = defineCommerceCommand("productDeleteassignment", "write", Effect.fn("ProductAdapter.removeVariantImage")(function* (ctx, input) {
+  const imageAssignmentInput = Effect.fn("ProductAdapter.imageAssignmentInput")(function* (ctx: Context, input: Json) {
     const decoded = yield* Effect.fromResult(decodeVariantImageInput(input)).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
     const pairs = "variant_id" in decoded ? [{ ...decoded }] : decoded.map(pair => ({ ...pair }));
-    return yield* withService(ctx, async ({ service, context }) => { await service.removeImageFromVariant(pairs, context); return null; });
-  }));
+    yield* Effect.fromResult(metadata.valueProfile.validateRelatedCreate(metadata.assignment.table.name,
+      pairs.map(({ image_id, variant_id }) => ({ image_id, variant_id })))).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
+    return { many: !("variant_id" in decoded), rows: pairs };
+  });
+  const removeImageFromVariant = commands.write("productDeleteassignment", imageAssignmentInput, async ({ service, context }, input) => {
+    await service.removeImageFromVariant(input.rows, context); return null;
+  });
   const softDeleteTags = defineCommerceCommand("productSoftDeleteTag", "write", Effect.fn("ProductAdapter.softDeleteTags")(function* (ctx, input) {
     const ids = yield* Effect.fromResult(decodeProductLifecycleIds(input)).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
     if (Array.isArray(ids) && new Set(ids).size !== ids.length) return yield* ctx.refuse(commerceError("invalidInput"));
@@ -147,7 +152,7 @@ export function productMutationCommands({ metadata, withService, withCollectionS
     // This retained command belongs to Variant-to-Images. The inverse native
     // selector is available only through its separately bound command profile.
     if (typeof decoded.selector.id !== "string") return yield* ctx.refuse(commerceError("invalidInput"));
-    const selector = { id: decoded.selector.id };
+    const selector = { ...decoded.selector, id: decoded.selector.id };
     yield* Effect.fromResult(metadata.valueProfile.validateRelatedUpdateData(metadata.variant.table.name, decoded.update))
       .pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
     return yield* withService(ctx, ({ service, context }) => service.updateProductVariants(selector, { ...decoded.update }, context));
@@ -179,7 +184,7 @@ export function productMutationCommands({ metadata, withService, withCollectionS
     createOptions: commands.write("productCreateoption", createInput(metadata.option.table.name), ({ service, context }, args) => service.createProductOptions(args.rows as ProductTypes.CreateProductOptionDTO[], context), relatedResult),
     createVariants: commands.write("productCreatevariant", createInput(metadata.variant.table.name), ({ service, context }, args) => service.createProductVariants(args.rows as ProductTypes.CreateProductVariantDTO[], context), relatedResult),
     createCategories: commands.write("productCreatecategory", createCategoryInput, ({ service, context }, args) => service.createProductCategories(args.rows as ProductTypes.CreateProductCategoryDTO[], context), relatedResult),
-    addImageToVariant: commands.write("productCreateassignment", createInput(metadata.assignment.table.name), ({ service, context }, args) => service.addImageToVariant(args.rows as Parameters<typeof service.addImageToVariant>[0], context), relatedResult),
+    addImageToVariant: commands.write("productCreateassignment", imageAssignmentInput, ({ service, context }, args) => service.addImageToVariant(args.rows, context), relatedResult),
     updateTags: commands.write("productupdatetag", updateInput(metadata.tag.table.name), ({ service, context }, args) => service.updateProductTags(args.id, args.data as ProductTypes.UpdateProductTagDTO, context)),
     upsertTags: commands.write("productupserttag", upsertTagInput, ({ service, context }, args) => service.upsertProductTags(args.rows as ProductTypes.UpsertProductTagDTO[], context), relatedResult),
     updateTypes: commands.write("productupdatetype", updateInput(metadata.type.table.name), ({ service, context }, args) => service.updateProductTypes(args.id, args.data as ProductTypes.UpdateProductTypeDTO, context)),

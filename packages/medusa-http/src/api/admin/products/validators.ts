@@ -217,3 +217,15 @@ export const AdminCreateProductVariant = WithAdditionalData(CreateProductVariant
 export const AdminUpdateProductVariant = WithAdditionalData(UpdateProductVariant)
 
 export type AdminUpdateProductVariantBody = z.infer<ReturnType<typeof AdminUpdateProductVariant>>
+
+export const AdminBatchImageVariant = z.object({
+  add: z.array(z.string()).optional(),
+  remove: z.array(z.string()).optional(),
+})
+export type AdminBatchImageVariantType = z.infer<typeof AdminBatchImageVariant>
+
+export const AdminBatchVariantImages = z.object({
+  add: z.array(z.string()).optional(),
+  remove: z.array(z.string()).optional(),
+})
+export type AdminBatchVariantImagesType = z.infer<typeof AdminBatchVariantImages>

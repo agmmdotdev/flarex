@@ -23,6 +23,7 @@ function fixture(options: { principal?: AuthContext; deniedOperation?: string; f
     resolveAdminPrincipal: request => request.headers.has("x-verified-admin") ? options.principal ?? user : undefined,
     evaluateAdminPolicies: evaluate,
     admitProductRefetchFields: admission,
+    admitCatalogRefetchFields: () => undefined,
     createRequestScope: () => {
       const scope = createContainer().register({ workflows: asValue({ run }), query: asValue({ graph }), logger: asValue({ error() {}, info() {} }) })
       scopes.push(scope)

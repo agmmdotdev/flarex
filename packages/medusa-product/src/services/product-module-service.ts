@@ -2533,10 +2533,10 @@ export default class ProductModuleService
     data: VariantImageInputArray,
     @MedusaContext() sharedContext: Context = {}
   ): Promise<{ id: string } | { id: string }[]> {
-    // TODO: consider validation that image and variant are on the same product
+    const pairs = await this.prepareVariantImagePairs_(data, sharedContext)
 
     const productVariantProductImage =
-      await this.productVariantProductImageService_.create(data, sharedContext)
+      await this.productVariantProductImageService_.create(pairs, sharedContext)
 
     return (
       productVariantProductImage as unknown as InferEntityType<
@@ -2558,7 +2558,8 @@ export default class ProductModuleService
     data: VariantImageInputArray,
     @MedusaContext() sharedContext: Context = {}
   ): Promise<void> {
-    const pairs = Array.isArray(data) ? data : [data]
+    const validatedData = await this.prepareVariantImagePairs_(data, sharedContext)
+    const pairs = Array.isArray(validatedData) ? validatedData : [validatedData]
     const productVariantProductImages =
       await this.productVariantProductImageService_.list({
         $or: pairs,
@@ -2568,6 +2569,43 @@ export default class ProductModuleService
       productVariantProductImages.map((p) => p.id as string),
       sharedContext
     )
+  }
+
+  private async prepareVariantImagePairs_(
+    data: VariantImageInputArray,
+    sharedContext: Context
+  ): Promise<VariantImageInputArray> {
+    const pairs = Array.isArray(data) ? data : [data]
+    const groups = new Map<string, VariantImageInputArray>()
+    for (const pair of pairs) {
+      if (pair.product_id === undefined) continue
+      const group = groups.get(pair.product_id) ?? []
+      group.push(pair)
+      groups.set(pair.product_id, group)
+    }
+    if (groups.size === 0) return data
+
+    for (const [productId, group] of groups) {
+      const images = await this.productImageService_.list(
+        { id: Array.from(new Set(group.map(pair => pair.image_id))), product_id: productId },
+        { select: ["id", "product_id"] },
+        sharedContext
+      )
+      const variants = await this.productVariantService_.list(
+        { id: Array.from(new Set(group.map(pair => pair.variant_id))), product_id: productId },
+        { select: ["id", "product_id"] },
+        sharedContext
+      )
+      const imageIds = new Set(images.map(image => image.id))
+      const variantIds = new Set(variants.map(variant => variant.id))
+      if (group.some(pair => !imageIds.has(pair.image_id) || !variantIds.has(pair.variant_id))) {
+        throw new MedusaError(
+          MedusaError.Types.INVALID_DATA,
+          "Product Image and Variant must belong to the specified Product"
+        )
+      }
+    }
+    return pairs.map(({ product_id, ...pair }) => pair)
   }
 
   @InjectManager()
