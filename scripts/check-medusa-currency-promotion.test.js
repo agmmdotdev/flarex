@@ -2699,6 +2699,7 @@ describe("native ShippingOptionRule batch callback provenance", () => {
 
 
 describe("native Admin Product variant source guards", () => {
+  /** @type {Array<[string, string, (native: string, promoted: string) => void]>} */
   const pairs = [
     ["packages/medusa/src/api/admin/products/[id]/variants/route.ts", "packages/medusa-http/src/api/admin/products/[id]/variants/route.ts", (native, promoted) => verifyAdminProductVariantSource(native, promoted)],
     ["packages/medusa/src/api/admin/products/[id]/variants/[variant_id]/route.ts", "packages/medusa-http/src/api/admin/products/[id]/variants/[variant_id]/route.ts", (native, promoted) => verifyAdminProductVariantSource(native, promoted, true)],
@@ -2721,6 +2722,15 @@ describe("native Admin Product variant source guards", () => {
     [0, 'Created Product variants parent was not returned by native refetch', 'Different invariant'],
     [1, 'id: variantId, product_id: productId', 'id: variantId'],
     [1, 'remapVariantResponse(variant)', 'variant'],
+    [1, '"update-product-variants"', '"update-products"'],
+    [1, 'selector: { id: variantId, product_id: productId }', 'selector: { id: variantId }'],
+    [1, 'update: update,', 'update: {},'],
+    [1, '      additional_data,', '      additional_data: undefined,'],
+    [1, 'await workflowEngine.run', 'workflowEngine.run'],
+    [1, 'idOrFilter: productId', 'idOrFilter: variantId'],
+    [1, 'remapKeysForProduct(req.queryConfig.fields ?? [])', '["id"]'],
+    [1, 'remapProductResponse(product)', 'product'],
+    [1, 'Updated Product variant parent was not returned by native refetch', 'Different invariant'],
     [2, 'if (!variant.manage_inventory)', 'if (false)'],
     [2, 'variant_ids: variantIds', 'variant_ids: []'],
     [3, 'Math.floor(', 'Math.ceil('],

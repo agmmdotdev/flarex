@@ -100,7 +100,8 @@ export function productLogicalVariantChangeEventPolicy(catalog: ProductRuntimeMe
       .pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause))) : undefined;
     const selectedIds = selection === undefined ? [] : typeof selection.selector.id === "string" ? [selection.selector.id] : selection.selector.id;
     const results = (operation === "upsert" || operation === "selector") && Array.isArray(call.result) ? call.result : [call.result];
-    if (selection !== undefined && (results.some(row => !isJsonObject(row) || typeof row.id !== "string" || !selectedIds.includes(row.id))))
+    if (selection !== undefined && (results.some(row => !isJsonObject(row) || typeof row.id !== "string" || !selectedIds.includes(row.id) ||
+      selection.selector.product_id !== undefined && row.product_id !== selection.selector.product_id)))
       return yield* Effect.fail(mismatch());
     if (selection !== undefined && results.length === 0) {
       if (activity.mutations.length || call.events.length) return yield* Effect.fail(mismatch());

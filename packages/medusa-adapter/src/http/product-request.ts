@@ -31,6 +31,7 @@ import { prepareProductCreationWorkflow } from "../workflows/product/creation";
 import { prepareProductUpdateWorkflow } from "../workflows/product/update";
 import { prepareProductDeletionWorkflow } from "../workflows/product/deletion";
 import { prepareProductVariantInventoryWorkflow } from "../workflows/product/variant-inventory";
+import { prepareProductVariantUpdateWorkflow } from "../workflows/product/variant-update";
 import { captureCommerceInput } from "../value/input";
 import type { AtomicWorkflowExecution } from "../workflow/host";
 import { makeProductRequestReads } from "./product-request-reads";
@@ -45,6 +46,8 @@ export const compileProductRequestCatalog = Effect.fn("ProductRequest.compileCat
   const stock = yield* makeStockLocationCommands(), sales = yield* makeLocalSalesChannelCommands(), fulfillment = yield* makeLocalShippingProfileCommands();
   const productLinks = yield* prepareLocalProductLinks(), variantLinks = yield* prepareLocalVariantLinks();
   const updatePricing = yield* makeLocalPricingCommands("product-updates");
+  const variantUpdatePricing = yield* makeLocalPricingCommands("variant-updates");
+  const variantUpdateLinks = yield* prepareLocalVariantLinks("variant-updates");
   const updateProductLinks = yield* prepareLocalProductLinks("product-updates"), updateVariantLinks = yield* prepareLocalVariantLinks("product-updates");
   const deletionInventory = yield* makeLocalInventoryCommands("product-deletions");
   const deletionProductLinks = yield* prepareLocalProductLinks("product-deletions"), deletionVariantLinks = yield* prepareLocalVariantLinks("product-deletions");
@@ -87,9 +90,12 @@ export const compileProductRequestCatalog = Effect.fn("ProductRequest.compileCat
   const deletionLink = yield* Effect.fromResult(prepareProductDeletionLinkResource({ sales: deletionProductLinks.nativeServices.sales,
     shipping: deletionProductLinks.nativeServices.shipping, inventory: deletionVariantLinks.nativeServices.inventory,
     pricing: deletionVariantLinks.nativeServices.pricing }, updatePricing.workflow));
+  const variantUpdateModules = Object.freeze({ product: { module: product.variantUpdateWorkflow, nativeStorage: productSource.source },
+    pricing: { module: variantUpdatePricing.workflow, nativeStorage: pricingSource.source },
+    variant_links: { module: variantUpdateLinks.workflow, nativeStorage: variantLinksSource.source } });
   return Object.freeze({ target: Object.freeze({ ...target }), sources, productSource, productRuntime: product,
     runtimes: Object.freeze({ product, pricing, inventory, inventoryReads, stock, sales, fulfillment, productLinks, variantLinks }), modules, link, updateModules, updateLink,
-    deletionModules, deletionLink, bundle, eventDefinition });
+    deletionModules, deletionLink, variantUpdateModules, variantUpdateNativeLinks: variantUpdateLinks.nativeServices, bundle, eventDefinition });
 });
 export type ProductRequestCatalog = Effect.Success<ReturnType<typeof compileProductRequestCatalog>>;
 
@@ -115,6 +121,8 @@ export const makeProductRequestOperations = Effect.fn("ProductRequest.makeOperat
     product: input.catalog.modules.product, pricing: input.catalog.modules.pricing, inventory: input.catalog.modules.inventory,
     stock_location: input.catalog.modules.stock_location, link: input.catalog.modules.variant_links,
   }, revision: input.revision, subscribers: input.subscribers });
+  const variantUpdate = yield* prepareProductVariantUpdateWorkflow({ execution, modules: input.catalog.variantUpdateModules,
+    nativeLinks: input.catalog.variantUpdateNativeLinks, revision: input.revision, subscribers: input.subscribers });
   const read = yield* makeProductRequestReads(input);
   const admitProductRefetchFields = (fields: readonly string[]): void => {
     Result.getOrThrowWith(read.admitProductRefetchFields(fields), cause => new MedusaError(MedusaError.Types.INVALID_DATA,
@@ -144,6 +152,10 @@ export const makeProductRequestOperations = Effect.fn("ProductRequest.makeOperat
         const args = yield* Effect.fromResult(captureCommerceInput(value).pipe(Result.flatMap(variantCreation.decodeInput), Result.mapError(refusal)));
         return { result: yield* variantCreation.run(variantCreation.newRequestKey(), args) };
       }
+      case "update-product-variants": {
+        const args = yield* Effect.fromResult(captureCommerceInput(value).pipe(Result.flatMap(variantUpdate.decodeInput), Result.mapError(refusal)));
+        return { result: yield* variantUpdate.run(variantUpdate.newRequestKey(), args) };
+      }
       default: return yield* commerceError("unsupportedProfile");
     }
   });
@@ -151,6 +163,7 @@ export const makeProductRequestOperations = Effect.fn("ProductRequest.makeOperat
   function runWorkflow(name: "update-products", value: unknown): Effect.Effect<{ result: Effect.Success<ReturnType<typeof update.run>> }, CommerceTransactionError>;
   function runWorkflow(name: "delete-products", value: unknown): Effect.Effect<{ result: null }, CommerceTransactionError>;
   function runWorkflow(name: "create-product-variants", value: unknown): Effect.Effect<{ result: Effect.Success<ReturnType<typeof variantCreation.run>> }, CommerceTransactionError>;
+  function runWorkflow(name: "update-product-variants", value: unknown): Effect.Effect<{ result: Effect.Success<ReturnType<typeof variantUpdate.run>> }, CommerceTransactionError>;
   function runWorkflow(name: string, value: unknown): ReturnType<typeof executeWorkflow>;
   function runWorkflow(name: string, value: unknown): ReturnType<typeof executeWorkflow> { return executeWorkflow(name, value); }
   const index = Effect.fn("ProductRequest.unsupportedIndex")(() => Effect.fail(commerceError("adapterFailure",
@@ -158,7 +171,7 @@ export const makeProductRequestOperations = Effect.fn("ProductRequest.makeOperat
   const remoteQuery = Effect.fn("ProductRequest.unsupportedRemoteQuery")((_value: unknown) => Effect.fail(commerceError("adapterFailure",
     new MedusaError(MedusaError.Types.INVALID_DATA, "Remote Product filters are outside the private supported profile"))));
   return Object.freeze({ runWorkflow, query: Object.freeze({ graph: read.graph, index }), remoteQuery, admitProductRefetchFields,
-    close: workflow.close.pipe(Effect.ensuring(update.close), Effect.ensuring(deletion.close), Effect.ensuring(variantCreation.close), Effect.ensuring(read.close)) });
+    close: workflow.close.pipe(Effect.ensuring(update.close), Effect.ensuring(deletion.close), Effect.ensuring(variantCreation.close), Effect.ensuring(variantUpdate.close), Effect.ensuring(read.close)) });
 });
 export type ProductRequestOperations = Effect.Success<ReturnType<typeof makeProductRequestOperations>>;
 

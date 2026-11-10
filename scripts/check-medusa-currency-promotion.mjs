@@ -161,24 +161,26 @@ export function verifyAdminProductDetailSource(native, promoted) {
 }
 
 /** Exact selected native collection GET/POST, with the existing post-write
- * missing-parent invariant; detail exposes only GET.
+ * missing-parent invariants; detail exposes native GET/POST.
  * @param {string} native @param {string} promoted @param {boolean} detail */
 export function verifyAdminProductVariantSource(native, promoted, detail = false) {
   const imports = detail ? [
     'import { refetchEntity } from "@medusajs/framework/http"',
-    'import { remapKeysForVariant, remapVariantResponse } from "../../../helpers"',
+    'import { Modules } from "@medusajs/utils/modules-sdk/definition"',
+    'import { remapKeysForProduct, remapKeysForVariant, remapProductResponse, remapVariantResponse } from "../../../helpers"',
   ] : [
     'import { Modules } from "@medusajs/utils/modules-sdk/definition"',
     'import { wrapVariantsWithTotalInventoryQuantity } from "../../../../utils/middlewares/products/variant-inventory-quantity"',
     'import { refetchEntities, refetchEntity } from "@medusajs/framework/http"',
     'import { remapKeysForProduct, remapKeysForVariant, remapProductResponse, remapVariantResponse } from "../../helpers"',
   ];
-  let selected = selectProductRouteDeclarations(native, detail ? ["GET"] : ["createProductVariantsWorkflowId", "GET", "POST"]).join("\n");
-  if (!detail) {
-    const result = 'res.status(200).json({ product: remapProductResponse(product) })';
-    if (selected.split(result).length !== 2) throw new Error("Missing pinned variant create parent response");
-    selected = selected.replace(result, 'if (!product) throw new Error("Created Product variants parent was not returned by native refetch")\n' + result);
-  }
+  let selected = selectProductRouteDeclarations(native, detail ? ["updateProductVariantsWorkflowId", "GET", "POST"] : ["createProductVariantsWorkflowId", "GET", "POST"]).join("\n");
+  const result = 'res.status(200).json({ product: remapProductResponse(product) })';
+  if (selected.split(result).length !== 2) throw new Error("Missing pinned variant parent response");
+  const missingParent = detail
+    ? "Updated Product variant parent was not returned by native refetch"
+    : "Created Product variants parent was not returned by native refetch";
+  selected = selected.replace(result, `if (!product) throw new Error("${missingParent}")\n` + result);
   if (productRouteRuntime([...imports, selected].join("\n")) !== productRouteRuntime(promoted))
     throw new Error("Changed native Admin Product variant behavior");
 }

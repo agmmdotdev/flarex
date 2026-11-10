@@ -156,7 +156,7 @@ export function productMutationCommands({ metadata, withService, withCollectionS
     const decoded = yield* Effect.fromResult(decodeVariantSelectorUpdate(input)).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
     yield* Effect.fromResult(metadata.valueProfile.validateRelatedUpdateData(metadata.variant.table.name, decoded.update))
       .pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
-    const selector = { id: typeof decoded.selector.id === "string" ? decoded.selector.id : [...decoded.selector.id] };
+    const selector = { ...decoded.selector, id: typeof decoded.selector.id === "string" ? decoded.selector.id : [...decoded.selector.id] };
     // Product metadata checks the partial DTO before native normalization.
     return yield* withService(ctx, ({ service, context }) => service.updateProductVariants(selector,
       structuredClone(decoded.update) as ProductTypes.UpdateProductVariantDTO, context));

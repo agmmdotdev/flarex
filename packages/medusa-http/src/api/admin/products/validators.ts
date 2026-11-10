@@ -191,3 +191,7 @@ export const AdminUpdateProduct = WithAdditionalData(UpdateProduct)
 export type AdminUpdateProductBody = z.infer<ReturnType<typeof AdminUpdateProduct>>
 
 export const AdminCreateProductVariant = WithAdditionalData(CreateProductVariant)
+
+export const AdminUpdateProductVariant = WithAdditionalData(UpdateProductVariant)
+
+export type AdminUpdateProductVariantBody = z.infer<ReturnType<typeof AdminUpdateProductVariant>>

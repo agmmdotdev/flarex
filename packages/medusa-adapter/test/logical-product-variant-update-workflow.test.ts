@@ -88,6 +88,55 @@ describe("complete native Product Variant update workflow", () => {
     } finally { list.mockRestore(); }
   });
 
+  it("keeps parent-qualified selectors through native Product selection, Pricing and Inventory dismissal", async () => {
+    const left = (await connected.seed("update-parent-left", 1, 2))[0]!;
+    const right = (await connected.seed("update-parent-right", 1, 2))[0]!;
+    const host = await prepare();
+    const before = await snapshot();
+    // Native selector absence is a successful empty result. No Variant, Price,
+    // Link or event mutation may follow an ID belonging to a different parent.
+    expect(await Effect.runPromise(host.run(host.newRequestKey(), {
+      selector: { id: right.id, product_id: "update-parent-left-product" },
+      update: { title: "wrong-parent", manage_inventory: false, prices: [] },
+    }))).toEqual([]);
+    const { outcomes: _beforeOutcomes, ...beforeBusiness } = before;
+    const { outcomes: _afterOutcomes, ...afterBusiness } = await snapshot();
+    expect(afterBusiness).toEqual(beforeBusiness);
+
+    const inventoryBefore = await connected.fixture.readRows("inventory");
+    const linksBefore = await connected.fixture.readRows("variant_links");
+    const rightProduct = () => Effect.runPromise(connected.product.host.read(connected.product.runtime.commands.internalProductRetrieve,
+      { id: "update-parent-right-product", config: { relations: ["variants", "variants.options", "options", "options.values"] } }));
+    const rightBefore = await rightProduct();
+    const rightPriceSetId = Id(right.prices[0]?.price_set_id);
+    const rightPrices = () => Effect.runPromise(connected.pricing.host.read(connected.pricing.runtime.list,
+      { filters: { id: rightPriceSetId }, config: { relations: ["prices", "prices.price_rules"] } }));
+    const rightPricesBefore = await rightPrices();
+    const result = await Effect.runPromise(host.run(host.newRequestKey(), {
+      selector: { id: [left.id, right.id], product_id: "update-parent-left-product" },
+      update: { title: "matching-parent", prices: [{ currency_code: "GBP", amount: 314 }] },
+    }));
+    expect(result).toMatchObject([{ id: left.id, title: "matching-parent", price_set: { prices: [{ currency_code: "GBP", amount: 314 }] } }]);
+    expect(result).toHaveLength(1);
+    expect(await connected.fixture.readRows("variant_links")).toEqual(linksBefore);
+    expect(await connected.fixture.readRows("inventory")).toEqual(inventoryBefore);
+    expect(await rightProduct()).toEqual(rightBefore);
+    expect(await rightPrices()).toEqual(rightPricesBefore);
+
+    const dismiss = await prepare({ productVariantsUpdated: async (_value, context) => {
+      const links = await context.resources.query.graph({ entity: "product_variant_inventory_item", fields: ["variant_id", "inventory_item_id"],
+        filters: { variant_id: [left.id, right.id] }, pagination: { take: 8 } });
+      expect(links.data).toHaveLength(2);
+      expect(links.data.every(row => row.variant_id === right.id)).toBe(true);
+    } });
+    expect(await Effect.runPromise(dismiss.run(dismiss.newRequestKey(), {
+      selector: { id: [left.id, right.id], product_id: "update-parent-left-product" }, update: { manage_inventory: false },
+    }))).toMatchObject([{ id: left.id, manage_inventory: false }]);
+    expect(await connected.fixture.readRows("inventory")).toEqual(inventoryBefore);
+    expect(await rightProduct()).toEqual(rightBefore);
+    expect(await rightPrices()).toEqual(rightPricesBefore);
+  });
+
   it("preserves omitted prices, clears explicit empty prices and leaves Inventory records intact", async () => {
     const seeded = await connected.seed("update-omission", 1), variant = seeded[0]!;
     const host = await prepare();

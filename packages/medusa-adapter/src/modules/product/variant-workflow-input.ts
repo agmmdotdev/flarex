@@ -22,7 +22,10 @@ export const SimpleVariantInput = Schema.Struct({
   })).check(Schema.isMaxLength(2))),
 });
 export const VariantSelector = Schema.Struct({ id: Id });
-export const VariantUpdateSelector = Schema.Struct({ id: Schema.Union([Id, Schema.Array(Id).check(Schema.isMaxLength(4))]) });
+export const VariantUpdateSelector = Schema.Struct({
+  id: Schema.Union([Id, Schema.Array(Id).check(Schema.isMaxLength(4))]),
+  product_id: Schema.optionalKey(Id),
+});
 export const VariantSelectorUpdate = Schema.Struct({ selector: VariantUpdateSelector, update: Schema.JsonObject });
 export const decodeVariantSelectorUpdate = commerceDecoder(VariantSelectorUpdate, "invalidInput");
 /** Checked DML owns the scalar allowlist; the value/DAL owner validates values. */

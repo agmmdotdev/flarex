@@ -19,6 +19,51 @@ work with retained system consumers must be inventoried before removal.
 
 ### Private commerce HTTP and app registration
 
+#### Product HTTP promotion completion goal
+
+The active goal completes the pinned Product HTTP family on the existing private
+Effect/DO host and new Core, with bounded native profiles and explicit refusal
+outside their admitted capabilities. It does not activate mixed production app
+deployment or establish performance/scale acceptance.
+
+The pinned native inventory contains 51 Admin catalog method endpoints in 29
+route files: Products (28), global Product Variants (1), Product Types (5),
+Product Tags (5), Product Categories (6), and Collections (6). Nine Product and
+nested Variant endpoints are already promoted. The goal also inventories the
+two Product association endpoints owned by Sales Channel and Price List and the
+two Store Product reads; Store read inclusion is the working scope pending user
+steering. Independent Inventory/Pricing CRUD and Store taxonomy families retain
+their own adoption scopes.
+
+| Slice | Remaining native HTTP work | State |
+| --- | --- | --- |
+| Variant lifecycle | Detail update connected; deletion requires parent-qualified workflow semantics | Deletion pending |
+| Product options | Collection list/create and detail retrieve/update/delete | Pending |
+| Product associations | Both Image/Variant batch directions; Variant Inventory Link create/update/delete/batch | Pending |
+| Product batches | Product batch and nested Variant batch | Pending |
+| Catalog taxonomy | Types, Tags, Categories, Collections and their Product membership endpoints; global Variant list | Pending |
+| Cross-domain Product associations | Sales Channel Products and Price List Products | Pending |
+| File and continuation flows | Export; deprecated multipart import and confirmation; current file/chunk imports and confirmation | Pending |
+| Store Product reads | Visibility, pricing, inventory availability, tax enrichment and locale | Pending |
+
+Completion requires every in-scope method to have source-backed handlers,
+middleware, validators, policy and response behavior, a connected native
+workflow/query owner and persistence proof, plus affected PGlite, ordinary-role
+PostgreSQL and actual Workerd/DO coverage. An unimplemented runtime/provider
+cannot be counted as a completed route merely because its handler is selected.
+
+Known parent-ownership gaps must be resolved within the mutation owner: native
+Variant/Option deletion, Image/Variant associations, Variant Inventory Link
+mutations and Variant batch delete currently omit the route's Product ID.
+Separate HTTP reads followed by ID-only mutations are not the resolution.
+
+The two import families are distinct native workflows. Their File/CSV/chunk,
+notification, one-hour confirmation timeout and durable continuation contracts,
+and export's upload stream/background/compensation contracts, remain required
+work. The existing bounded inline import Task proof does not complete them.
+
+#### Current connected routes
+
 The [private HTTP package](../../packages/medusa-http/README.md) serves Store
 Currency list and retrieve through Effect HTTP and a static Medusa manifest.
 The [read adapter](../../packages/medusa-adapter/src/http/store-request-reads.ts)
@@ -45,7 +90,7 @@ ownership rules remain workflow-owned. Missing or repeated IDs retain native
 success; normal subsequent Product reads hide soft-deleted products.
 
 The nested Product Variant collection serves native list and creation; its
-detail serves native retrieval. Creation runs the existing managed Variant,
+detail serves native retrieval and update. Creation runs the existing managed Variant,
 Pricing, Inventory and Link workflow over the same catalog sources. List/detail
 retain native field remapping, Product ownership filters and count/page metadata;
 the pinned missing-detail response remains HTTP 200 with an empty object.
@@ -54,8 +99,16 @@ availability utility, existing Inventory quantity serialization and protected
 Core reads of Inventory levels/reservations. Cache hints remain advisory; the
 profile reads Core and admits ID ordering. Inventory expansion/quantity cohorts
 retain the existing eight Variant and Inventory Item ID bounds; larger cohorts
-refuse, including a native default page that exceeds those bounds. Variant update/deletion remain separate
-promotion slices.
+refuse, including a native default page that exceeds those bounds.
+Detail update passes both Variant and Product IDs through the native selector,
+then independently refetches the URL parent. Wrong-parent selectors preserve
+native empty updates and return the unchanged parent. Native Product read and
+Variant read policies apply. Existing Pricing and Inventory Link lifecycle
+owners handle partial price updates and disabling inventory management without
+changing unrelated variants. The bounded selector-update profile refuses a body
+`id` before acquisition; the pinned HTTP schema accepts it, but native service
+normalization can use it to override the selected ID. Nested Variant deletion
+remains unpromoted.
 
 The [Product read graph](../../packages/medusa-adapter/src/http/product-request-reads.ts)
 uses the existing native graph planner and Link metadata over protected Core

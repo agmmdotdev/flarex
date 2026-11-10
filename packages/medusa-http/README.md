@@ -74,6 +74,20 @@ Product read policy applies to every route; detail reads add Product Variant
 read and creation adds Product Variant create. A missing or wrong-parent detail
 retains the pinned HTTP 200 empty-object response.
 
+`POST /admin/products/:id/variants/:variant_id` runs native
+`update-product-variants` with both the Variant ID and Product ID in its
+selector, then independently refetches the parent Product. Response fields are
+admitted before mutation. It inherits Product read and Product Variant read
+policies from the pinned middleware. A wrong-parent selector updates nothing
+and returns the unchanged URL parent. The existing workflow owns price updates
+and Inventory Link dismissal when inventory management is disabled; it retains
+other variants' links. A later refetch failure does not undo the committed
+workflow, and the HTTP layer does not retry it.
+The bounded selector-update profile refuses a body `id` with HTTP 400 before
+durable acquisition, even when it matches the URL. The native HTTP validator
+accepts this field, but the native service lets it override the selected ID;
+this profile retains IDs exclusively in the selector.
+
 Variant list reads can request `inventory_quantity`. The selected native wrapper
 and availability utility compute total availability from rich Inventory links
 and native stocked/reserved level quantities. Unmanaged Variants omit the field.
@@ -83,7 +97,7 @@ currently admits ID only, with the existing graph and workflow resource bounds.
 Inventory expansion and quantity requests retain an eight-Variant-ID and
 eight-Inventory-Item-ID cohort limit; larger cohorts return HTTP 400, including
 when a default list page exceeds those limits.
-Variant update and deletion routes remain unselected.
+Variant deletion remains unselected.
 
 Both reads require a verified native user and the native Product read policy.
 The detail route returns the native `Product not found` response when the graph
