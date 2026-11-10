@@ -1,3 +1,9 @@
+import { ContainerRegistrationKeys } from "@medusajs/utils/common/container"
+import { Modules } from "@medusajs/utils/modules-sdk/definition"
+import { remoteQueryObjectFromString } from "@medusajs/utils/common/remote-query-object-from-string"
+import type { LinkDefinition } from "@medusajs/framework/types"
+import type { MedusaRequest } from "@medusajs/framework/http"
+import type { AdminBatchVariantInventoryItemsType } from "./validators"
 import type { PriceDTO, ProductTypes, ProductVariantDTO } from "@medusajs/framework/types"
 
 type ProductDTO = ProductTypes.ProductDTO
@@ -128,4 +134,52 @@ export const buildRules = (price: PriceDTO) => {
   }
 
   return rules
+}
+
+export const refetchVariant = async (
+  variantId: string,
+  scope: MedusaRequest["scope"],
+  fields: string[]
+) => {
+  const remoteQuery = scope.resolve<(input: ReturnType<typeof remoteQueryObjectFromString>) => Promise<ProductVariantDTO[]>>(ContainerRegistrationKeys.REMOTE_QUERY)
+  const queryObject = remoteQueryObjectFromString({
+    entryPoint: "product_variant",
+    variables: {
+      filters: { id: variantId },
+    },
+    fields: remapKeysForVariant(fields ?? []),
+  })
+
+  const [variant] = await remoteQuery(queryObject)
+
+  return remapVariantResponse(variant)
+}
+
+
+export const buildBatchVariantInventoryData = (
+  inputs:
+    | AdminBatchVariantInventoryItemsType["create"]
+    | AdminBatchVariantInventoryItemsType["update"]
+    | AdminBatchVariantInventoryItemsType["delete"]
+) => {
+  const results: LinkDefinition[] = []
+
+  for (const input of inputs || []) {
+    const result: LinkDefinition = {
+      [Modules.PRODUCT]: { variant_id: input.variant_id },
+      [Modules.INVENTORY]: {
+        inventory_item_id: input.inventory_item_id,
+      },
+    }
+
+    if ("required_quantity" in input) {
+      result.data = {
+        required_quantity: input.required_quantity,
+      }
+    }
+
+    results.push(result)
+  }
+
+  return results
 }

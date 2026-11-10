@@ -22,6 +22,7 @@ function fixture(options: { missing?: boolean; nullData?: boolean; denyRead?: bo
     adminCors: "https://admin.example",
     resolveAdminPrincipal: request => request.headers.has("x-verified-admin") ? options.principal ?? user : undefined,
     evaluateAdminPolicies: evaluate,
+    admitVariantRefetchFields: () => undefined,
     admitProductRefetchFields: admission,
     admitCatalogRefetchFields: () => undefined,
     createRequestScope: () => createContainer().register({ query: asValue({ graph, index }), remoteQuery: asValue(remoteQuery), workflows: asValue({ run }), logger: asValue({ error() {}, info() {} }) }),

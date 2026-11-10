@@ -100,6 +100,29 @@ Inventory expansion and quantity requests retain an eight-Variant-ID and
 eight-Inventory-Item-ID cohort limit; larger cohorts return HTTP 400, including
 when a default list page exceeds those limits.
 
+`GET /admin/product-variants` retains the native global Variant query defaults,
+including `*product`, price remapping, pagination/counts and the optional native
+`inventory_quantity` calculation. It uses the pinned Product Variant read policy.
+
+The three inventory mutation paths are
+`POST /admin/products/:id/variants/:variant_id/inventory-items`,
+`POST` and `DELETE /admin/products/:id/variants/:variant_id/inventory-items/:inventory_item_id`,
+and `POST /admin/products/:id/variants/inventory-items/batch`.
+They preserve native validators, Inventory policies, Link definitions and result
+envelopes. The explicit ownership fork passes the URL Product to named native
+Product Variant Inventory Link workflows. Those workflows enforce Product
+ownership in the same atomic root as generic Link creation, update or dismissal;
+HTTP performs no ownership read. The bounded workflow admits at most eight total
+batch entries. The batch handler supplies all three native arrays and returns
+the workflow's raw result arrays without refetching.
+
+The required `admitVariantRefetchFields` callback checks single-mutation response
+fields before workflow execution. After settlement, the native `refetchVariant`
+helper independently uses Remote Query entry point `product_variant`, filters
+by Variant ID, and remaps prices. A later read failure does not undo settlement.
+DELETE retains the native Link definition as `id` and returns
+`{ id, object: "variant-inventory-item-link", deleted: true, parent }`.
+
 `DELETE /admin/products/:id/variants/:variant_id` uses the approved
 [parent-qualified workflow correction](../../roadmaps/flarexdb-framework-integration/preflight/product-http-parent-qualified-mutations.md).
 It retains native Product read, Variant read and Variant delete policies and

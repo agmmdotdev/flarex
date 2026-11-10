@@ -33,7 +33,7 @@ const NativeOwner = makeApplicationDurableObject<NativeProductEnv, NativeFixture
     const profile = Result.getOrThrow(readExecutorApplicationProfiles(env))[0];
     if (profile === undefined) return yield* Effect.die("Missing private native Product fixture identity");
     const credentials = yield* makeExecutorApplicationCredentials(env, profile);
-    const hostRuntime = yield* makePreparedHostRuntime({ maximumHosts: 33, maximumPreparedBytes: 8 * 1024 * 1024 });
+    const hostRuntime = yield* makePreparedHostRuntime({ maximumHosts: 37, maximumPreparedBytes: 8 * 1024 * 1024 });
     const operations = yield* makeProductRequestOperations({ database: infrastructure.coreDatabase, hostRuntime, catalog,
       identityAndAccessPolicy: { profile: "native-admin-product-private-do-fixture" }, revision: "d".repeat(64),
       subscribers: [{ id: "native-admin-product-request", revision: "e".repeat(64) }] });
@@ -72,11 +72,16 @@ const NativeOwner = makeApplicationDurableObject<NativeProductEnv, NativeFixture
           || (policies.length === 1 && policies[0]?.resource === "product_variant" && policies[0]?.operation === "delete")
           || variantRead
           || optionRead
+          || (policies.length === 1 && policies[0]?.resource === "inventory_item"
+            && (typeof policies[0]?.operation === "string" ? ["read", "create", "update", "delete"].includes(policies[0].operation)
+              : Array.isArray(policies[0]?.operation) && policies[0].operation.length === 3
+                && policies[0].operation.every((operation, index) => operation === ["create", "update", "delete"][index])))
           || (policies.length === 1 && policies[0]?.resource === "product_option" && policies[0]?.operation === "delete")
           || (policies.length === 3 && policies.every((policy, index) => policy.resource === ["product", "inventory_item", "price"][index]
             && policy.operation === "create")));
       },
       admitProductRefetchFields: operations.admitProductRefetchFields,
+      admitVariantRefetchFields: operations.admitVariantRefetchFields,
       admitCatalogRefetchFields: operations.admitCatalogRefetchFields });
     const dispatch = Effect.fn("NativeAdminProductApplicationFixture.dispatch")((request: Request) => {
       // Reached only through the real private owner admission and completed

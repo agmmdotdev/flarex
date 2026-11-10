@@ -28,6 +28,7 @@ function fixture(options: { principal?: AuthContext; deny?: boolean; missing?: b
     adminCors: "https://admin.example",
     resolveAdminPrincipal: request => request.headers.has("x-verified-admin") ? options.principal ?? user : undefined,
     evaluateAdminPolicies: evaluate,
+    admitVariantRefetchFields: () => undefined,
     admitProductRefetchFields: admission,
     admitCatalogRefetchFields: () => undefined,
     createRequestScope: () => createContainer().register({ workflows: asValue({ run }), query: asValue({ graph }), logger: asValue({ error() {}, info() {} }) }),

@@ -82,3 +82,15 @@ export const createLinkBody = () => {
     remove: z.array(z.string()).optional(),
   })
 }
+
+export const createBatchBody = (
+  createValidator: z.ZodType,
+  updateValidator: z.ZodType,
+  deleteValidator: z.ZodType = z.string()
+) => {
+  return z.object({
+    create: z.array(createValidator).optional(),
+    update: z.array(updateValidator).optional(),
+    delete: z.array(deleteValidator).optional(),
+  })
+}

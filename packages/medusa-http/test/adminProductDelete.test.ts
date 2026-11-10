@@ -22,6 +22,7 @@ function fixture(options: { principal?: AuthContext; deniedOperation?: string; f
     adminCors: "https://admin.example",
     resolveAdminPrincipal: request => request.headers.has("x-verified-admin") ? options.principal ?? user : undefined,
     evaluateAdminPolicies: evaluate,
+    admitVariantRefetchFields: () => undefined,
     admitProductRefetchFields: admission,
     admitCatalogRefetchFields: () => undefined,
     createRequestScope: () => {

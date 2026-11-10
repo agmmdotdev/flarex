@@ -1,3 +1,5 @@
+export const Entities = { product_variant: "product_variant" } as const
+
 export const defaultAdminProductVariantFields = [
   "id",
   "title",
@@ -28,3 +30,16 @@ export const defaultAdminProductVariantFields = [
   "prices.price_rules.value",
   "prices.price_rules.attribute",
 ]
+
+export const retrieveProductVariantQueryConfig = {
+  defaults: defaultAdminProductVariantFields,
+  isList: false,
+  entity: Entities.product_variant,
+}
+
+export const listProductVariantQueryConfig = {
+  ...retrieveProductVariantQueryConfig,
+  defaultLimit: 50,
+  isList: true,
+  entity: Entities.product_variant,
+}

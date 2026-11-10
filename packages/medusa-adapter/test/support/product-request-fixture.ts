@@ -29,7 +29,7 @@ export async function prepareProductRequestFixture(driver: "pglite" | "postgres"
     definition: source.definition, initialCommands: source.commands, initializationStepId: source.initialization.stepId, rows: [] })),
     eventDefinition: catalog.eventDefinition, ...(options.physical === undefined ? {} : { physical: options.physical }) });
   const use = <A, E>(work: (operations: ProductRequestOperations) => Effect.Effect<A, E, Scope.Scope>) => fixture.run(fixture.useGeneration(generation => Effect.gen(function* () {
-    const hostRuntime = yield* makePreparedHostRuntime({ maximumHosts: 33, maximumPreparedBytes: 8 * 1024 * 1024 });
+    const hostRuntime = yield* makePreparedHostRuntime({ maximumHosts: 37, maximumPreparedBytes: 8 * 1024 * 1024 });
     const operations = yield* makeProductRequestOperations({ database: generation.database, hostRuntime, catalog,
       identityAndAccessPolicy: { profile: "native-admin-product-request" }, revision: "d".repeat(64),
       subscribers: [{ id: "native-admin-product-request", revision: "e".repeat(64) }] });

@@ -28,10 +28,11 @@ deployment or establish performance/scale acceptance.
 
 The pinned native inventory contains 51 Admin catalog method endpoints in 29
 route files: Products (28), global Product Variants (1), Product Types (5),
-Product Tags (5), Product Categories (6), and Collections (6). Thirty-nine
+Product Tags (5), Product Categories (6), and Collections (6). Forty-four
 endpoints have promoted handlers, native Core owners and connected private DO
 proof, including scoped Option deletion, both Image association directions and
-Type/Tag/Category/Collection methods. The goal also inventories the
+Type/Tag/Category/Collection methods, global Variant reads and all four nested
+Inventory Link methods. The goal also inventories the
 two Product association endpoints owned by Sales Channel and Price List and the
 two Store Product reads. Store Product list/detail are included in the goal.
 Independent Inventory/Pricing CRUD and Store taxonomy families retain
@@ -41,11 +42,11 @@ their own adoption scopes.
 | --- | --- | --- |
 | Variant lifecycle | Collection/detail reads, creation, update and parent-qualified deletion connected | Connected |
 | Product options | Collection/detail reads, creation, update and scoped deletion connected | Connected |
-| Product associations | Both Image/Variant batch directions connected. Variant Inventory Link create/update/delete/batch remain | Inventory Links pending |
+| Product associations | Both Image/Variant batch directions and Variant Inventory Link create/update/delete/batch connected | Connected |
 | Product batches | Product batch and nested Variant batch | Pending |
-| Catalog taxonomy | Types/Tags and Categories/Collections, including Product membership endpoints, connected. Global Variant list remains | Global Variant list pending |
+| Catalog taxonomy | Types/Tags and Categories/Collections, including Product membership endpoints, and global Variant list connected | Connected |
 | Cross-domain Product associations | Sales Channel Products and Price List Products | Pending |
-| File and continuation flows | Export; deprecated multipart import and confirmation; current file/chunk imports and confirmation | Pending |
+| File and continuation flows | Export; deprecated multipart import and confirmation; current file/chunk imports and confirmation | Explicitly deferred while Task remains paused |
 | Store Product reads | Visibility, pricing, inventory availability, tax enrichment and locale | Pending |
 
 Completion requires every in-scope method to have source-backed handlers,
@@ -55,9 +56,18 @@ PostgreSQL and actual Workerd/DO coverage. An unimplemented runtime/provider
 cannot be counted as a completed route merely because its handler is selected.
 
 Known remaining parent-ownership gaps must be resolved within the mutation owner:
-Variant Inventory Link mutations and Variant batch delete currently omit the
-route's Product ID.
+Variant batch updates can use the existing Variant's parent during native
+normalization, and deletion currently omits the route's Product ID.
 Separate HTTP reads followed by ID-only mutations are not the resolution.
+
+The user explicitly deferred these five file/continuation endpoints and kept
+the accepted Trigger-derived Task integration paused. They remain inventoried
+but are outside this goal's current completion gate. Their handlers cannot be
+counted as connected routes through the existing inline fixture: HTTP lacks
+the durable confirmation/timeout/wake host, current Application compute refuses
+trusted-workflow delivery, and File streaming/provider admission is absent.
+Do not extend the displaced custom Task engine to complete these routes. Resume
+through the [Task owner](../task-system/README.md) under explicit authorization.
 
 The two import families are distinct native workflows. Their File/CSV/chunk,
 notification, one-hour confirmation timeout and durable continuation contracts,
@@ -181,6 +191,20 @@ metadata. Each module read group opens its own Core operation and snapshot,
 matching native remote service reads.
 The alternate Index Engine and Price List selector profile fail closed.
 
+Global Variant reads retain native Product expansion, price remapping, count,
+pagination and optional total inventory quantity. The four nested Inventory
+Link methods use named Product-scoped wrappers around genuine generic Link
+workflows. A checked Product Variant read finishes inside the same atomic root
+before any Link arm; foreign, missing or deleted Variants refuse the whole
+nonempty operation. Single-method response projections are admitted before
+mutation, then refetched independently through the native callable Variant
+Remote Query. The batch admits eight definitions combined across its three
+materialized arrays with existing signed-int32 quantities and default call
+limits. Native Link preimages, compensation, soft-deletion and upsert identity
+semantics remain: endpoint pairs are primary keys, while omitted scalar IDs are
+regenerated on upsert. Global and nested reads keep the existing eight-Variant
+and Inventory Item cohort bounds.
+
 Category and Collection routes preserve their native CRUD, missing-detail and
 membership behavior. Categories retain native tree hydration and metadata
 replacement; Collections retain callable Remote Query and metadata merging.
@@ -189,9 +213,9 @@ workflow, including membership endpoints. Category reads admit bounded native
 parent/child tree projections and Product scalar/wildcard projections through
 the existing graph metadata and native service; native omissions remain distinct
 from unexpected missing stored scalars. Existing filter and cohort limits remain.
-The complete Admin profile owns twenty-five prepared workflow facades and eight
+The complete Admin profile owns twenty-nine prepared workflow facades and eight
 protected read hosts, so its two private full-profile compositions explicitly
-admit thirty-three hosts with the existing byte cap. Shared Core defaults remain.
+admit thirty-seven hosts with the existing byte cap. Shared Core defaults remain.
 
 Product creation admits native `tags: [{ id }]` and `categories: [{ id }]` along
 with the retained direct ID-array forms. The existing native Product service owns

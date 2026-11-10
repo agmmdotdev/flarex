@@ -229,3 +229,56 @@ export const AdminBatchVariantImages = z.object({
   remove: z.array(z.string()).optional(),
 })
 export type AdminBatchVariantImagesType = z.infer<typeof AdminBatchVariantImages>
+
+export const AdminCreateVariantInventoryItem = z.object({
+  required_quantity: z.number(),
+  inventory_item_id: z.string(),
+})
+export type AdminCreateVariantInventoryItemType = z.infer<
+  typeof AdminCreateVariantInventoryItem
+>
+
+export const AdminUpdateVariantInventoryItem = z.object({
+  required_quantity: z.number(),
+})
+export type AdminUpdateVariantInventoryItemType = z.infer<
+  typeof AdminUpdateVariantInventoryItem
+>
+
+export const AdminBatchCreateVariantInventoryItem = z
+  .object({
+    required_quantity: z.number(),
+    inventory_item_id: z.string(),
+    variant_id: z.string(),
+  })
+  .strict()
+export type AdminBatchCreateVariantInventoryItemType = z.infer<
+  typeof AdminBatchCreateVariantInventoryItem
+>
+
+export const AdminBatchUpdateVariantInventoryItem = z
+  .object({
+    required_quantity: z.number(),
+    inventory_item_id: z.string(),
+    variant_id: z.string(),
+  })
+  .strict()
+export type AdminBatchUpdateVariantInventoryItemType = z.infer<
+  typeof AdminBatchUpdateVariantInventoryItem
+>
+
+export const AdminBatchDeleteVariantInventoryItem = z
+  .object({
+    inventory_item_id: z.string(),
+    variant_id: z.string(),
+  })
+  .strict()
+export type AdminBatchDeleteVariantInventoryItemType = z.infer<
+  typeof AdminBatchDeleteVariantInventoryItem
+>
+
+export type AdminBatchVariantInventoryItemsType = {
+  create?: AdminBatchCreateVariantInventoryItemType[]
+  update?: AdminBatchUpdateVariantInventoryItemType[]
+  delete?: AdminBatchDeleteVariantInventoryItemType[]
+}

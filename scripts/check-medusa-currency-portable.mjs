@@ -13,6 +13,7 @@ if (requested.length > 1 || requested[0] !== undefined && !requested[0].startsWi
   throw new Error("Select at most one approved browser entry with --entry=");
 const selected = requested[0]?.slice("--entry=".length);
 const entries = [
+  "packages/medusa-adapter/src/workflows/product/variant-inventory-links.ts",
   "packages/medusa-api-key/src/static-manifest.ts",
   "packages/medusa-adapter/src/modules/api-key/service.ts",
   "packages/medusa-adapter/src/modules/api-key/lifecycle-service.ts",

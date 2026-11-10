@@ -112,12 +112,45 @@ read or Product refetch. Native parser size metadata is kept without widening
 the private Fetch ceiling; the pinned Fetch host itself does not interpret
 `sizeLimit`.
 
+## Variant Inventory Link contract
+
+The four nested Inventory Link methods use named Product-scoped workflow roots.
+One genuine Product Variant list operation checks every requested Variant against
+the URL Product within the same trusted root before generic Link execution.
+Its checked read receipt and Core dependencies retain the parent constraint;
+no separate HTTP ownership read or transaction is added. Foreign, missing and
+soft-deleted Variants refuse the whole nonempty operation. Empty operations
+retain native empty results without a Product existence check.
+
+Generic native create/update/dismiss/batch Link workflows retain their original
+preimage queries, exact update existence-count check and compensators. Batch
+arms retain native parallel declaration, with queued borrowed operations under
+the single settlement owner. The finite profile admits eight definitions in
+total across all three arms and signed-int32 quantities. Native HTTP already
+materializes omitted arms as empty arrays; the private wrapper requires those
+three arrays rather than extending the generic proxy's omitted-input behavior.
+
+Inventory Link endpoints form the composite primary key. Native create/upsert
+generates a new scalar non-primary `id` when the caller omits `data.id`, including
+quantity-only updates. Native Link-definition preimages contain endpoints and
+declared extra fields such as required quantity, rather than the scalar row ID.
+Compensation restores that native definition and may regenerate the scalar ID.
+Proof must preserve endpoint identity, exact quantities and unrelated links;
+it must not impose scalar-ID stability absent from the pinned repository.
+
+Single-method Variant response fields are admitted before mutation. Native
+callable `product_variant` Remote Query retains its own tree-shaped producer,
+checked projection and complete-array result; it delegates reads to the existing
+Variant graph. The batch response needs no independent refetch.
+
 ## Remaining scope and gates
 
 Image/Variant associations and scoped Option deletion have bounded actual DO
 acceptance, including durable graph checks across serialized owner recreation.
 The Core lease-handoff prerequisite is resolved for that host contract. Variant
-Inventory Links and Variant batch deletion still require their own connected
+Inventory Links also have connected actual-host acceptance, including scoped
+refusals, quantity changes and native active/tombstoned rows across recreation.
+Variant batch update and deletion still require their own connected parent
 corrections; general managed-host election remains separate.
 
 Preserve unscoped workflow and batch regressions. Prove scoped wrong-parent and

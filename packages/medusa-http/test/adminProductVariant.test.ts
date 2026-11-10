@@ -28,6 +28,7 @@ function fixture(options: { missing?: boolean; nullData?: boolean; deny?: string
     adminCors: "https://admin.example",
     resolveAdminPrincipal: () => options.anonymous ? undefined : user,
     evaluateAdminPolicies: evaluate,
+    admitVariantRefetchFields: () => undefined,
     admitProductRefetchFields: admission,
     admitCatalogRefetchFields: () => undefined,
     createRequestScope: () => createContainer().register({ query: asValue({ graph }), workflows: asValue({ run }), logger: asValue({ error() {}, info() {} }) }),

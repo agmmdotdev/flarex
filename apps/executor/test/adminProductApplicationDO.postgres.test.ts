@@ -1987,6 +1987,162 @@ describe.runIf(endpoints !== undefined)("native-ready private Admin Product in t
     }
   }, 360_000);
 
+  it("runs global Variant reads and native Inventory Link mutations with scoped atomic refusal and durable identity across DO recreation", async () => {
+    const fixture = await createAdminProductDOFixture();
+    const primary: unknown[] = [];
+    try {
+      fixture.start();
+      const created = [];
+      for (const [name, amount] of [["Selected", 651], ["Unrelated", 982]] as const) {
+        const body = await nativeJson(fixture.request({ title: `${name} Link Parent`, handle: `do-inventory-link-${name.toLowerCase()}`,
+          options: [{ title: "Size", values: ["One"] }], variants: [{ title: `${name} One`, sku: `DO-INVENTORY-LINK-${name}`,
+            options: { Size: "One" }, prices: [{ amount, currency_code: "usd" }] }] }, { private: true, admin: adminCredential, path: `${managedPath},variants.prices.*` }));
+        const product = decodeProduct(body).product, variant = decodeVariants(body).product.variants[0];
+        if (variant === undefined) throw new Error("Native Link proof seed omitted Variant");
+        created.push({ product, variant, amount });
+      }
+      const selected = created[0], other = created[1];
+      if (selected === undefined || other === undefined) throw new Error("Native Link proof omitted two Products");
+      await fixture.stop();
+      const before = await fixture.observe();
+      const own = decodeInventoryLink(before.variantInventoryItems.find(row => row.variant_id === selected.variant.id));
+      const inventory = decodeInventoryLink(before.variantInventoryItems.find(row => row.variant_id === other.variant.id));
+      const otherPrice = decodePriceLink(before.variantPriceSets.find(row => row.variant_id === other.variant.id));
+      await fixture.seedInventory({ stocking: { locations: [{ name: "Global Variant Link Warehouse" }], inventory_levels: [
+        { inventory_item_id: own.inventory_item_id, location_index: 0, stocked_quantity: 20 },
+      ] } });
+      const stocked = await fixture.observe();
+      fixture.start();
+      const root = `/admin/products/${selected.product.id}/variants`;
+      const collection = `${root}/${selected.variant.id}/inventory-items`;
+      const batchPath = `${root}/inventory-items/batch`;
+      const query = "?fields=id,product_id,inventory_items.id,inventory_items.variant_id,inventory_items.inventory_item_id,inventory_items.required_quantity";
+      const post = (path: string, input: unknown, status = 200, admin = adminCredential) => nativeJson(fixture.request(input,
+        { private: true, admin, path }), status);
+      const wire = (variant_id: string, inventory_item_id: string, required_quantity?: number) => ({ product: { variant_id }, inventory: { inventory_item_id },
+        ...(required_quantity === undefined ? {} : { data: { required_quantity } }) });
+      const variantLink = Schema.Struct({ id: Schema.NonEmptyString, variant_id: Schema.NonEmptyString,
+        inventory_item_id: Schema.NonEmptyString, required_quantity: Schema.Number });
+      const decodeLinkIdentity = Schema.decodeUnknownSync(variantLink);
+      const ownIdentity = decodeLinkIdentity(before.variantInventoryItems.find(row => row.variant_id === selected.variant.id));
+      const readLinks = Schema.decodeUnknownSync(Schema.Struct({ id: Schema.NonEmptyString, product_id: Schema.NonEmptyString,
+        inventory_items: Schema.Array(variantLink) }));
+      for (const credential of [`${adminCredential}-without-policy`, `${adminCredential}-read-only`]) {
+        expect(await nativeJson(fixture.get("/admin/product-variants", { private: true, admin: credential }), 403)).toMatchObject({ type: "forbidden" });
+      }
+      const global = await nativeJson(fixture.get("/admin/product-variants?limit=1&offset=1&order=id", {
+        private: true, admin: `${adminCredential}-variant-reader`,
+      }));
+      expect(global).toMatchObject({ count: 2, offset: 1, limit: 1, variants: [expect.objectContaining({ product: expect.objectContaining({ id: expect.any(String) }),
+        prices: [expect.objectContaining({ amount: expect.any(Number), price_set_id: expect.any(String), variant_id: expect.any(String) })] })] });
+      expect(global).not.toHaveProperty("variants.0.inventory_quantity");
+      expect(await nativeJson(fixture.get(`/admin/product-variants?id=${selected.variant.id}&fields=id,product.id,prices.amount`)))
+        .toEqual({ variants: [{ id: selected.variant.id, product: { id: selected.product.id }, prices: [{ amount: selected.amount, title: "",
+          raw_amount: { value: selected.amount }, currency_code: "", min_quantity: null, max_quantity: null, price_set_id: "",
+          variant_id: selected.variant.id, deleted_at: null, rules: {} }] }], count: 1, offset: 0, limit: 50 });
+      expect(await nativeJson(fixture.get(`/admin/product-variants?id=${selected.variant.id}&fields=id,manage_inventory,inventory_quantity`)))
+        .toEqual({ variants: [{ id: selected.variant.id, manage_inventory: true, inventory_quantity: 20 }], count: 1, offset: 0, limit: 50 });
+      for (const credential of [`${adminCredential}-without-policy`, `${adminCredential}-read-only`, `${adminCredential}-variant-reader`]) {
+        await post(collection + query, { inventory_item_id: inventory.inventory_item_id, required_quantity: 2 }, 403, credential);
+        await post(`${collection}/${own.inventory_item_id}${query}`, { required_quantity: 2 }, 403, credential);
+        await nativeJson(fixture.remove(`${collection}/${own.inventory_item_id}${query}`, { private: true, admin: credential }), 403);
+        await post(batchPath, { update: [{ variant_id: selected.variant.id, inventory_item_id: own.inventory_item_id, required_quantity: 2 }] }, 403, credential);
+      }
+      for (const suffix of ["?fields=unsupported_field", "?fields=inventory_items.unsupported_field", "?fields=__proto__.x"]) {
+        await post(collection + suffix, { inventory_item_id: inventory.inventory_item_id, required_quantity: 2 }, 400);
+        await post(`${collection}/${own.inventory_item_id}${suffix}`, { required_quantity: 2 }, 400);
+        await nativeJson(fixture.remove(`${collection}/${own.inventory_item_id}${suffix}`), 400);
+      }
+      await post(collection + query, { inventory_item_id: inventory.inventory_item_id, required_quantity: 0.5 }, 400);
+      await post(batchPath, { create: Array.from({ length: 9 }, () => ({ variant_id: selected.variant.id,
+        inventory_item_id: inventory.inventory_item_id, required_quantity: 1 })) }, 400);
+      await fixture.stop();
+      expect(await fixture.observe()).toEqual(stocked);
+      fixture.start();
+      // Every method must reject a foreign Variant; a native failed-root audit is allowed, business history is not.
+      const foreignCollection = `${root}/${other.variant.id}/inventory-items`;
+      await post(foreignCollection + query, { inventory_item_id: own.inventory_item_id, required_quantity: 2 }, 404);
+      await post(`${foreignCollection}/${inventory.inventory_item_id}${query}`, { required_quantity: 2 }, 404);
+      await nativeJson(fixture.remove(`${foreignCollection}/${inventory.inventory_item_id}${query}`), 404);
+      for (const arm of ["create", "update", "delete"] as const) {
+        const quantity = arm === "delete" ? {} : { required_quantity: 2 };
+        await post(batchPath, { [arm]: [
+          { variant_id: selected.variant.id, inventory_item_id: arm === "create" ? inventory.inventory_item_id : own.inventory_item_id, ...quantity },
+          { variant_id: other.variant.id, inventory_item_id: own.inventory_item_id, ...quantity },
+        ] }, 404);
+      }
+      await fixture.stop();
+      const refused = await fixture.observe();
+      expect(refused.outcomes.slice(0, stocked.outcomes.length)).toEqual(stocked.outcomes);
+      const failedRoots = refused.outcomes.slice(stocked.outcomes.length);
+      expect(failedRoots).toHaveLength(6);
+      expect(new Set(failedRoots.map(outcome => outcome.value.key)).size).toBe(6);
+      for (const outcome of failedRoots) expect(outcome.value).toMatchObject({ kind: "nativeRoot", state: "failed" });
+      for (const key of ["rows", "revisions", "indexes", "businessRows", "products", "options", "optionValues", "variants", "variantOptions",
+        "priceSets", "prices", "inventoryItems", "inventoryLevels", "reservations", "variantPriceSets", "variantInventoryItems"] as const) expect(refused[key]).toEqual(stocked[key]);
+      fixture.start();
+      const added = readLinks((await post(collection + query, { inventory_item_id: inventory.inventory_item_id, required_quantity: 3 })).variant);
+      const newLink = added.inventory_items.find(row => row.inventory_item_id === inventory.inventory_item_id);
+      expect(newLink).toMatchObject({ variant_id: selected.variant.id, required_quantity: 3 });
+      const updated = readLinks((await post(`${collection}/${inventory.inventory_item_id}${query}`, { required_quantity: 7 })).variant);
+      const updatedLinks = updated.inventory_items.filter(row => row.inventory_item_id === inventory.inventory_item_id);
+      expect(updatedLinks).toEqual([{ id: expect.any(String), variant_id: selected.variant.id, inventory_item_id: inventory.inventory_item_id, required_quantity: 7 }]);
+      expect(updatedLinks[0]?.id).not.toBe(newLink?.id);
+      const deleted = await nativeJson(fixture.remove(`${collection}/${inventory.inventory_item_id}${query}`));
+      expect(deleted).toEqual({ id: wire(selected.variant.id, inventory.inventory_item_id), object: "variant-inventory-item-link", deleted: true,
+        parent: { id: selected.variant.id, product_id: selected.product.id, inventory_items: [expect.objectContaining(own)] } });
+      await post(`${collection}/${inventory.inventory_item_id}${query}`, { required_quantity: 2 }, 404);
+      const selectedPriceLink = decodePriceLink(before.variantPriceSets.find(row => row.variant_id === selected.variant.id));
+      const priceId = decodeNativeId(before.prices.find(row => row.price_set_id === selectedPriceLink.price_set_id)).id;
+      const aliasQuery = "?fields=id,prices.id,price_set.prices.id";
+      const aliasVariant = { id: selected.variant.id, prices: [{ id: priceId, amount: 0, title: "", raw_amount: { value: 0 }, currency_code: "",
+        min_quantity: null, max_quantity: null, price_set_id: "", variant_id: selected.variant.id, deleted_at: null, rules: {} }] };
+      const currentLinks = async () => readLinks((await nativeJson(fixture.get(`${root}/${selected.variant.id}${query}`))).variant).inventory_items;
+      expect(await post(collection + aliasQuery, { inventory_item_id: inventory.inventory_item_id, required_quantity: 11 })).toEqual({ variant: aliasVariant });
+      expect((await currentLinks()).filter(row => row.inventory_item_id === inventory.inventory_item_id)).toEqual([expect.objectContaining({ required_quantity: 11 })]);
+      expect(await post(`${collection}/${inventory.inventory_item_id}${aliasQuery}`, { required_quantity: 12 })).toEqual({ variant: aliasVariant });
+      expect((await currentLinks()).filter(row => row.inventory_item_id === inventory.inventory_item_id)).toEqual([expect.objectContaining({ required_quantity: 12 })]);
+      expect(await nativeJson(fixture.remove(`${collection}/${inventory.inventory_item_id}${aliasQuery}`))).toEqual({
+        id: wire(selected.variant.id, inventory.inventory_item_id), object: "variant-inventory-item-link", deleted: true, parent: aliasVariant,
+      });
+      expect((await currentLinks()).filter(row => row.inventory_item_id === inventory.inventory_item_id)).toEqual([]);
+      for (const input of [{}, { create: [], update: [], delete: [] }]) expect(await post(batchPath, input)).toEqual({ created: [], updated: [], deleted: [] });
+      const create = { variant_id: selected.variant.id, inventory_item_id: inventory.inventory_item_id, required_quantity: 5 };
+      const update = { variant_id: selected.variant.id, inventory_item_id: own.inventory_item_id, required_quantity: 4 };
+      expect(await post(batchPath, { create: [create], update: [update] })).toEqual({ created: [wire(create.variant_id, create.inventory_item_id, 5)],
+        updated: [wire(update.variant_id, update.inventory_item_id, 4)], deleted: [] });
+      expect(await post(batchPath, { delete: [{ variant_id: selected.variant.id, inventory_item_id: inventory.inventory_item_id }] }))
+        .toEqual({ created: [], updated: [], deleted: [wire(selected.variant.id, inventory.inventory_item_id)] });
+      await fixture.stop();
+      const persisted = await fixture.observe();
+      const activeSelectedLinks = persisted.variantInventoryItems.filter(row => row.variant_id === selected.variant.id && row.deleted_at === null);
+      expect(activeSelectedLinks).toHaveLength(1);
+      const persistedOwn = decodeLinkIdentity(activeSelectedLinks[0]);
+      expect(persistedOwn).toEqual({ id: expect.any(String), variant_id: selected.variant.id, inventory_item_id: own.inventory_item_id, required_quantity: 4 });
+      expect(persistedOwn.id).not.toBe(ownIdentity.id);
+      const dismissedLink = persisted.variantInventoryItems.find(row => row.variant_id === selected.variant.id && row.inventory_item_id === inventory.inventory_item_id);
+      expect(dismissedLink).toMatchObject({ variant_id: selected.variant.id, inventory_item_id: inventory.inventory_item_id, required_quantity: 5,
+        deleted_at: expect.any(String) });
+      expect(persisted.variantInventoryItems.filter(row => row.variant_id === other.variant.id)).toEqual(before.variantInventoryItems.filter(row => row.variant_id === other.variant.id));
+      for (const key of ["products", "options", "optionValues", "variants", "variantOptions", "priceSets", "prices", "inventoryItems", "inventoryLevels", "reservations", "variantPriceSets"] as const)
+        expect(persisted[key], `Inventory Link mutation changed ${key}`).toEqual(stocked[key]);
+      fixture.start();
+      const recreated = await nativeJson(fixture.get(`/admin/product-variants?id=${other.variant.id}`));
+      expect(recreated).toMatchObject({ variants: [expect.objectContaining({ id: other.variant.id, product: expect.objectContaining({ id: other.product.id }),
+        prices: [expect.objectContaining({ amount: other.amount, price_set_id: otherPrice.price_set_id, variant_id: other.variant.id })] })] });
+      const reread = await nativeJson(fixture.get(`${root}/${selected.variant.id}?fields=id,product_id,*inventory_items`));
+      expect(readLinks(reread.variant).inventory_items).toEqual([persistedOwn]);
+      expect(await nativeJson(fixture.get(`/admin/product-variants?id=${selected.variant.id}&fields=id,manage_inventory,inventory_quantity`)))
+        .toEqual({ variants: [{ id: selected.variant.id, manage_inventory: true, inventory_quantity: 5 }], count: 1, offset: 0, limit: 50 });
+      await fixture.stop();
+      expect(await fixture.observe()).toEqual(persisted);
+    } catch (cause) { primary.push(cause); throw cause; }
+    finally {
+      try { await fixture.close(); }
+      catch (cause) { throw new AggregateError([...primary, cause], "Variant Inventory Link DO proof cleanup failed"); }
+    }
+  }, 360_000);
+
   it.runIf(benchmarkEnabled)("warm DO closed-loop Product benchmark", async () => {
     const fixture = await createAdminProductDOFixture();
     const runId = crypto.randomUUID().replaceAll("-", "");

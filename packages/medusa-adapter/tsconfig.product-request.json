@@ -1,5 +1,5 @@
 {
   "extends": "./tsconfig.json",
-  "include": ["src/http/product-request.ts", "test/product-request.test.ts", "test/product-request-variants.test.ts", "test/product-request-variant-reads.test.ts", "test/product-request-options.test.ts", "test/product-request-images.test.ts", "test/product-request-catalog-taxonomy.test.ts", "test/product-request-category-reads.test.ts", "test/product-request-categories-collections.test.ts", "test/product-create-references-input.test.ts", "test/logical-product-creation-workflow.test.ts", "vitest.product-request.config.ts"],
+  "include": ["src/http/product-request.ts", "test/product-request.test.ts", "test/product-request-variants.test.ts", "test/product-request-variant-reads.test.ts", "test/product-request-variant-inventory-links.test.ts", "test/product-request-variant-remote.test.ts", "test/product-request-options.test.ts", "test/product-request-images.test.ts", "test/product-request-catalog-taxonomy.test.ts", "test/product-request-category-reads.test.ts", "test/product-request-categories-collections.test.ts", "test/product-create-references-input.test.ts", "test/logical-product-creation-workflow.test.ts", "vitest.product-request.config.ts"],
   "exclude": []
 }

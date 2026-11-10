@@ -3,6 +3,8 @@ import { FeatureFlag } from "@medusajs/utils/feature-flags/flag-router"
 import * as QueryConfig from "./query-config"
 import { AdminBatchImageVariant, AdminBatchVariantImages, AdminCreateProduct, AdminCreateProductOption, AdminCreateProductVariant, AdminGetProductOptionParams, AdminGetProductOptionsParams, AdminGetProductParams, AdminGetProductVariantParams, AdminGetProductsParams, AdminUpdateProduct, AdminUpdateProductOption, AdminUpdateProductVariant } from "./validators"
 import { AdminGetProductVariantsParams } from "../product-variants/validators"
+import { createBatchBody } from "../../utils/validators"
+import { AdminBatchCreateVariantInventoryItem, AdminBatchUpdateVariantInventoryItem, AdminBatchDeleteVariantInventoryItem, AdminCreateVariantInventoryItem, AdminUpdateVariantInventoryItem } from "./validators"
 import { maybeApplyPriceListsFilter } from "./utils/maybe-apply-price-lists-filter"
 
 export const adminProductRoutesMiddlewares: MiddlewareRoute[] = [{
@@ -14,6 +16,11 @@ export const adminProductRoutesMiddlewares: MiddlewareRoute[] = [{
 }, {
   matcher: "/admin/products/*/options/*",
   policies: [{ resource: "product_option", operation: "read" }],
+}, {
+  matcher: "/admin/products/*/variants/*/inventory-items/*",
+  policies: [
+    { resource: "inventory_item", operation: "read" },
+  ],
 }, {
   method: ["GET"],
   matcher: "/admin/products/:id/options",
@@ -121,4 +128,88 @@ export const adminProductRoutesMiddlewares: MiddlewareRoute[] = [{
   matcher: "/admin/products/:id",
   middlewares: [validateAndTransformQuery(AdminGetProductParams, QueryConfig.retrieveProductQueryConfig)],
   policies: [{ resource: "product", operation: "delete" }],
-}]
+},
+  // Variant inventory item endpoints
+  {
+    method: ["POST"],
+    matcher: "/admin/products/:id/variants/inventory-items/batch",
+    bodyParser: {
+      sizeLimit: "2mb",
+    },
+    middlewares: [
+      validateAndTransformBody(
+        createBatchBody(
+          AdminBatchCreateVariantInventoryItem,
+          AdminBatchUpdateVariantInventoryItem,
+          AdminBatchDeleteVariantInventoryItem
+        )
+      ),
+      validateAndTransformQuery(
+        AdminGetProductVariantParams,
+        QueryConfig.retrieveVariantConfig
+      ),
+    ],
+    policies: [
+      {
+        resource: "inventory_item",
+        operation: [
+          "create",
+          "update",
+          "delete",
+        ],
+      },
+    ],
+  },
+  {
+    method: ["POST"],
+    matcher: "/admin/products/:id/variants/:variant_id/inventory-items",
+    middlewares: [
+      validateAndTransformBody(AdminCreateVariantInventoryItem),
+      validateAndTransformQuery(
+        AdminGetProductVariantParams,
+        QueryConfig.retrieveVariantConfig
+      ),
+    ],
+    policies: [
+      {
+        resource: "inventory_item",
+        operation: "create",
+      },
+    ],
+  },
+  {
+    method: ["POST"],
+    matcher:
+      "/admin/products/:id/variants/:variant_id/inventory-items/:inventory_item_id",
+    middlewares: [
+      validateAndTransformBody(AdminUpdateVariantInventoryItem),
+      validateAndTransformQuery(
+        AdminGetProductVariantParams,
+        QueryConfig.retrieveVariantConfig
+      ),
+    ],
+    policies: [
+      {
+        resource: "inventory_item",
+        operation: "update",
+      },
+    ],
+  },
+  {
+    method: ["DELETE"],
+    matcher:
+      "/admin/products/:id/variants/:variant_id/inventory-items/:inventory_item_id",
+    middlewares: [
+      validateAndTransformQuery(
+        AdminGetProductVariantParams,
+        QueryConfig.retrieveVariantConfig
+      ),
+    ],
+    policies: [
+      {
+        resource: "inventory_item",
+        operation: "delete",
+      },
+    ],
+  },
+]

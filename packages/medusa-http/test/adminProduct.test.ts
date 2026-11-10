@@ -36,6 +36,7 @@ function fixture(options: { principal?: AuthContext | undefined; deny?: boolean;
     adminCors: "https://admin.example",
     resolveAdminPrincipal: request => request.headers.get("x-verified-admin") === "test" ? options.principal ?? user : undefined,
     evaluateAdminPolicies: evaluate,
+    admitVariantRefetchFields: () => undefined,
     admitProductRefetchFields: admission,
     admitCatalogRefetchFields: () => undefined,
     createRequestScope: () => {

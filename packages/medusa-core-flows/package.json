@@ -269,7 +269,13 @@
     "./cart/prepare-adjustments-from-promotion-actions-step": "./src/cart/steps/prepare-adjustments-from-promotion-actions.ts",
     "./common/get-translated-tax-lines-step": "./src/common/steps/get-translated-tax-lines.ts",
     "./common/get-translated-line-items-step": "./src/common/steps/get-translated-line-items.ts",
-    "./common/utils/apply-translations-to-items": "./src/common/utils/apply-translations-to-items.ts"
+    "./common/utils/apply-translations-to-items": "./src/common/utils/apply-translations-to-items.ts",
+    "./common/create-links": "./src/common/workflows/create-links.ts",
+    "./common/update-links": "./src/common/workflows/update-links.ts",
+    "./common/dismiss-links": "./src/common/workflows/dismiss-links.ts",
+    "./common/batch-links": "./src/common/workflows/batch-links.ts",
+    "./common/update-remote-links-step": "./src/common/steps/update-remote-links.ts",
+    "./product/product-variant-inventory-links": "./src/product/workflows/product-variant-inventory-links.ts"
   },
   "dependencies": {
     "@medusajs/deps": "workspace:*",
