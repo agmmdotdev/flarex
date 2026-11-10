@@ -11,7 +11,7 @@ export type FetchHttpAdapterOptions = {
   createRequestScope(request: Request): MedusaRequest["scope"]
   createSession?(request: Request): MedusaRequest["session"]
   prepareRequest?(request: MedusaRequest, fetchRequest: Request): Promise<void> | void
-  allowedMethods?: readonly ("GET" | "POST")[]
+  allowedMethods?: readonly ("GET" | "POST" | "DELETE")[]
   jsonBodyLimitBytes?: number
   verifyPolicies?: PolicyVerifier
 }
@@ -23,7 +23,7 @@ export type FetchHttpStaticHandler = {
 export function createFetchHttpStaticHandler(options: FetchHttpAdapterOptions & { manifest: StaticHttpResourceManifest }): FetchHttpStaticHandler {
   const resources = buildStaticHttpResources(options.manifest)
   const allowedMethods = options.allowedMethods ?? ["GET"]
-  if (allowedMethods.some((method) => method !== "GET" && method !== "POST") || resources.routes.some((route) => !allowedMethods.some((method) => method === route.method))) {
+  if (allowedMethods.some((method) => method !== "GET" && method !== "POST" && method !== "DELETE") || resources.routes.some((route) => !allowedMethods.some((method) => method === route.method))) {
     throw new Error("The private static HTTP profile contains an unadmitted HTTP method")
   }
   const jsonBodyLimit = resolveJsonBodyLimit(options.jsonBodyLimitBytes)

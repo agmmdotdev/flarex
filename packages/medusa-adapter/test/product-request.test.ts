@@ -101,7 +101,7 @@ describe(`native Product HTTP data operations (${driver})`, () => {
       const before = await tested.fixture.snapshot();
       await tested.use(operations => Effect.gen(function* () {
         for (const [name, input] of [
-          ["delete-products", { ids: ["prod_missing"] }],
+          ["unsupported-product-workflow", { ids: ["prod_missing"] }],
           ["update-products", { selector: { title: "not admitted" }, update: { title: "Forbidden" } }],
           ["update-products", { selector: { id: "prod_missing" }, update: { variants: Array.from({ length: 5 }, () => ({ title: "Over bound" })) } }],
           ["update-products", { products: [{ id: "prod_missing", created_at: "2020-01-01" }] }],
@@ -109,11 +109,147 @@ describe(`native Product HTTP data operations (${driver})`, () => {
           const result = yield* Effect.exit(operations.runWorkflow(name, input));
           expect(Exit.isFailure(result)).toBe(true);
           if (Exit.isFailure(result)) expect(result.cause.reasons.some(reason => Cause.isFailReason(reason) &&
-            (name === "delete-products" ? reason.error.reason === "unsupportedProfile" : reason.error.reason === "adapterFailure" &&
+            (name === "unsupported-product-workflow" ? reason.error.reason === "unsupportedProfile" : reason.error.reason === "adapterFailure" &&
               reason.error.cause instanceof MedusaError && reason.error.cause.type === MedusaError.Types.INVALID_DATA))).toBe(true);
         }
         expect(() => operations.admitProductRefetchFields(["id", "variants.price_set.unadmitted"]))
           .toThrow("requires supported response fields");
+      }));
+      expect(await tested.fixture.snapshot()).toEqual(before);
+    } finally { await tested.fixture.close(); }
+  });
+
+  it("runs native deletion over one managed graph, preserves the other graph, and retains missing and repeated ID semantics", async () => {
+    const tested = await prepareProductRequestFixture(driver);
+    try {
+      await tested.use(operations => Effect.gen(function* () {
+        const graphFields = ["id", "title", "deleted_at", "options.id", "options.deleted_at", "options.values.id", "options.values.deleted_at",
+          "variants.id", "variants.deleted_at", "variants.price_set.id", "variants.price_set.deleted_at",
+          "variants.price_set.prices.id", "variants.price_set.prices.deleted_at", "variants.price_set.prices.amount",
+          "variants.inventory_items.id", "variants.inventory_items.deleted_at", "variants.inventory_items.inventory.id",
+          "variants.inventory_items.inventory.deleted_at"];
+        const decodeGraph = Schema.decodeUnknownSync(Schema.Struct({ id: Schema.String, title: Schema.String,
+          options: Schema.Array(Schema.Struct({ id: Schema.String, values: Schema.Array(Schema.Struct({ id: Schema.String })) })),
+          variants: Schema.Array(Schema.Struct({ id: Schema.String,
+            price_set: Schema.Struct({ id: Schema.String, prices: Schema.Array(Schema.Struct({ id: Schema.String, amount: Schema.Number })) }),
+            inventory_items: Schema.Array(Schema.Struct({ id: Schema.String, inventory: Schema.Struct({ id: Schema.String }) })),
+          })),
+        }));
+        const created = yield* operations.runWorkflow("create-products", { products: ["Deleted", "Untouched"].map(title => ({
+          title, handle: "request-delete-" + title.toLowerCase(), options: [{ title: "Size", values: ["One"] }],
+          variants: [{ title: title + " managed variant", sku: "request-delete-" + title.toLowerCase(), options: { Size: "One" },
+            prices: [{ amount: 1234, currency_code: "usd" }] }],
+        })) });
+        const deletedId = created.result[0]?.id, untouchedId = created.result[1]?.id;
+        if (deletedId === undefined || untouchedId === undefined) return yield* Effect.die(new Error("Missing two native Product IDs"));
+        const deletedFields = graphFields.filter(field => !field.startsWith("variants.price_set") && !field.startsWith("variants.inventory_items"));
+        const query = (id: string, withDeleted = false) => operations.query.graph({ entity: "product",
+          fields: withDeleted ? deletedFields : graphFields, filters: { id }, ...(withDeleted ? { withDeleted: true } : {}) });
+        const original = decodeGraph((yield* query(deletedId)).data[0]);
+        const untouched = (yield* query(untouchedId)).data;
+        const variant = original.variants[0], option = original.options[0], value = option?.values[0];
+        const price = variant?.price_set.prices[0], inventory = variant?.inventory_items[0];
+        if (variant === undefined || option === undefined || value === undefined || price === undefined || inventory === undefined)
+          return yield* Effect.die(new Error("Missing managed native graph before deletion"));
+        const before = yield* Effect.promise(() => tested.fixture.snapshot());
+        const scopes = yield* makeProductRequestScopeFactory({ operations, container: createContainer() });
+        const engine = scopes.createRequestScope().resolve<{ run(name: string, options: { input: unknown }): Promise<{ result: null }> }>(Modules.WORKFLOW_ENGINE);
+        expect(yield* Effect.promise(() => engine.run("delete-products", { input: { ids: [deletedId] } }))).toEqual({ result: null });
+        expect((yield* query(deletedId)).data).toEqual([]);
+        const deleted = (yield* query(deletedId, true)).data;
+        expect(deleted).toEqual([expect.objectContaining({ id: deletedId, deleted_at: expect.any(String),
+          options: [expect.objectContaining({ id: option.id, deleted_at: expect.any(String),
+            values: [expect.objectContaining({ id: value.id, deleted_at: expect.any(String) })] })],
+          variants: [expect.objectContaining({ id: variant.id, deleted_at: expect.any(String) })],
+        })]);
+        expect((yield* query(untouchedId)).data).toEqual(untouched);
+        const ownership = [
+          ["product", [deletedId, option.id, value.id, variant.id]],
+          ["pricing", [variant.price_set.id, price.id]],
+          ["inventory", [inventory.inventory.id]],
+          ["variant_links", [inventory.id]],
+        ] as const;
+        for (const [source, ids] of ownership) {
+          const rows = (yield* Effect.promise(() => tested.fixture.readRows(source))).filter(row => ids.some(id => row.id === id));
+          expect(rows).toHaveLength(ids.length);
+          for (const row of rows) expect(row.deleted_at).toEqual(expect.any(String));
+        }
+        const pricingLinks = yield* Effect.promise(() => tested.fixture.readRows("variant_links"));
+        expect(pricingLinks.filter(row => row.variant_id === variant.id && row.price_set_id === variant.price_set.id))
+          .toEqual([expect.objectContaining({ deleted_at: expect.any(String) })]);
+        const after = yield* Effect.promise(() => tested.fixture.snapshot());
+        const emitted = after.events.slice(before.events.length);
+        expect(emitted.filter(event => event.envelope.contract === "product.deleted").map(event => event.envelope.message))
+          .toEqual([expect.objectContaining({ data: { id: deletedId } })]);
+        expect(emitted.some(event => event.envelope.contract === "inventory.inventory-item.deleted")).toBe(true);
+        expect(emitted.some(event => event.envelope.contract === "pricing.price-set.deleted")).toBe(true);
+        expect(after.outcomes.length - before.outcomes.length).toBe(1);
+        for (const ids of [[deletedId], ["prod_missing"], []]) {
+          expect(yield* operations.runWorkflow("delete-products", { ids })).toEqual({ result: null });
+        }
+        const repeated = yield* Effect.promise(() => tested.fixture.snapshot());
+        expect(repeated.events.slice(after.events.length).every(event => event.envelope.contract === "product.deleted")).toBe(true);
+        expect(repeated.outcomes.length - after.outcomes.length).toBe(3);
+        expect((yield* query(deletedId, true)).data).toEqual(deleted);
+        expect((yield* query(untouchedId)).data).toEqual(untouched);
+      }));
+    } finally { await tested.fixture.close(); }
+  });
+
+  it("preserves the complete uncertain deletion Cause while its owning generation retires and recovers without retrying", async () => {
+    const tested = await prepareProductRequestFixture(driver);
+    try {
+      const before = await tested.fixture.snapshot();
+      const acknowledgement = tested.fixture.loseNextNativeRootAcknowledgement();
+      let presentation: Promise<unknown> | undefined;
+      // The foreign HTTP runner completes with its full Cause. Independently,
+      // the outer Core owner refuses a callback whose borrowed generation stops.
+      await expect(tested.use(operations => Effect.gen(function* () {
+        const scopes = yield* makeProductRequestScopeFactory({ operations, container: createContainer() });
+        const engine = scopes.createRequestScope().resolve<{ run(name: string, options: { input: unknown }): Promise<unknown> }>(Modules.WORKFLOW_ENGINE);
+        const result = engine.run("delete-products", { input: { ids: ["prod_missing_uncertain"] } })
+          .then(value => ({ ok: true as const, value }), (error: unknown) => ({ ok: false as const, error }));
+        presentation = result;
+        yield* Effect.promise(() => result);
+      }))).rejects.toMatchObject({ reason: "uncertainWrite" });
+      if (presentation === undefined) throw new Error("Missing actual HTTP deletion execution");
+      const decodePresentation = Schema.decodeUnknownSync(Schema.Struct({ ok: Schema.Literal(false), error: Schema.ErrorInstance() }));
+      const presented = decodePresentation(await presentation).error;
+      expect(presented).not.toBeInstanceOf(MedusaError);
+      if (!Cause.isCause(presented.cause)) throw new Error("Uncertain deletion lost its complete Core Cause");
+      expect(presented.cause.reasons).toEqual([expect.objectContaining({ _tag: "Fail",
+        error: expect.objectContaining({ reason: "decisionUncertain" }) })]);
+      expect(acknowledgement.failures).toBe(1);
+      const evidence = acknowledgement.evidence;
+      if (evidence === undefined) throw new Error("Missing durable uncertain-deletion witness");
+      expect(evidence.inventory.outcomes.filter(outcome => outcome.timestamp === evidence.timestamp))
+        .toEqual([expect.objectContaining({ value: expect.objectContaining({ kind: "nativeRoot", state: "committed" }) })]);
+      await tested.fixture.run(tested.fixture.recover);
+      const after = await tested.fixture.snapshot();
+      expect(after.rows).toEqual(before.rows);
+      expect(after.outcomes.length - before.outcomes.length).toBe(1);
+      expect(after.events.map(event => event.envelope.message)).toEqual([expect.objectContaining({ data: { id: "prod_missing_uncertain" } })]);
+    } finally { await tested.fixture.close(); }
+  });
+
+  it("refuses malformed and over-bound deletion input before native writes, events or durable outcomes", async () => {
+    const tested = await prepareProductRequestFixture(driver);
+    try {
+      const before = await tested.fixture.snapshot();
+      await tested.use(operations => Effect.gen(function* () {
+        const scopes = yield* makeProductRequestScopeFactory({ operations, container: createContainer() });
+        const engine = scopes.createRequestScope().resolve<{ run(name: string, options: { input: unknown }): Promise<unknown> }>(Modules.WORKFLOW_ENGINE);
+        for (const input of [{}, { ids: "prod_missing" }, { ids: [""] }, { ids: ["a", "b", "c", "d", "e"] }]) {
+          const result = yield* Effect.promise(() => engine.run("delete-products", { input })
+            .then(value => ({ ok: true as const, value }), (error: unknown) => ({ ok: false as const, error })));
+          expect(result.ok).toBe(false);
+          if (!result.ok) {
+            expect(result.error).toBeInstanceOf(MedusaError);
+            if (!(result.error instanceof MedusaError)) return yield* Effect.die(new Error("Missing deletion admission refusal"));
+            expect(result.error.type).toBe(MedusaError.Types.INVALID_DATA);
+            expect(Cause.isCause(result.error.cause)).toBe(true);
+          }
+        }
       }));
       expect(await tested.fixture.snapshot()).toEqual(before);
     } finally { await tested.fixture.close(); }

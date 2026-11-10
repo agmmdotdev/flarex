@@ -26,8 +26,10 @@ import { compileVariantLinksCoreDefinition } from "../links/variant-definition";
 import { prepareLocalVariantLinks } from "../links/variant-service";
 import { prepareProductNativeLinkResource } from "../links/product-resource";
 import { prepareProductUpdateLinkResource } from "../links/product-update-resource";
+import { prepareProductDeletionLinkResource } from "../links/product-deletion-resource";
 import { prepareProductCreationWorkflow } from "../workflows/product/creation";
 import { prepareProductUpdateWorkflow } from "../workflows/product/update";
+import { prepareProductDeletionWorkflow } from "../workflows/product/deletion";
 import { captureCommerceInput } from "../value/input";
 import type { AtomicWorkflowExecution } from "../workflow/host";
 import { makeProductRequestReads } from "./product-request-reads";
@@ -42,6 +44,8 @@ export const compileProductRequestCatalog = Effect.fn("ProductRequest.compileCat
   const productLinks = yield* prepareLocalProductLinks(), variantLinks = yield* prepareLocalVariantLinks();
   const updatePricing = yield* makeLocalPricingCommands("product-updates");
   const updateProductLinks = yield* prepareLocalProductLinks("product-updates"), updateVariantLinks = yield* prepareLocalVariantLinks("product-updates");
+  const deletionInventory = yield* makeLocalInventoryCommands("product-deletions");
+  const deletionProductLinks = yield* prepareLocalProductLinks("product-deletions"), deletionVariantLinks = yield* prepareLocalVariantLinks("product-deletions");
   const empty = yield* capturePrivateCanonicalValue({ format: "flarex.initialization-dataset", version: 1, rows: [] }, 1_048_576,
     { invalidInput: () => commerceError("invalidInput"), hashFailure: cause => commerceError("resourceFailure", cause) });
   const source = (name: string, definition: CoreNativeDefinition, commands: readonly CommerceCommand[]) => defineAtomicCommerceNativeSource(name, definition).pipe(
@@ -73,8 +77,17 @@ export const compileProductRequestCatalog = Effect.fn("ProductRequest.compileCat
   const updateLink = yield* Effect.fromResult(prepareProductUpdateLinkResource({ sales: updateProductLinks.nativeServices.sales,
     shipping: updateProductLinks.nativeServices.shipping, inventory: updateVariantLinks.nativeServices.inventory,
     pricing: updateVariantLinks.nativeServices.pricing }, updatePricing.workflow));
+  const deletionModules = Object.freeze({ product: { module: product.productDeletionWorkflow, nativeStorage: productSource.source },
+    inventory: { module: deletionInventory.workflow, nativeStorage: inventorySource.source },
+    pricing: { module: updatePricing.workflow, nativeStorage: pricingSource.source },
+    product_links: { module: deletionProductLinks.workflow, nativeStorage: productLinksSource.source },
+    variant_links: { module: deletionVariantLinks.workflow, nativeStorage: variantLinksSource.source } });
+  const deletionLink = yield* Effect.fromResult(prepareProductDeletionLinkResource({ sales: deletionProductLinks.nativeServices.sales,
+    shipping: deletionProductLinks.nativeServices.shipping, inventory: deletionVariantLinks.nativeServices.inventory,
+    pricing: deletionVariantLinks.nativeServices.pricing }, updatePricing.workflow));
   return Object.freeze({ target: Object.freeze({ ...target }), sources, productSource, productRuntime: product,
-    runtimes: Object.freeze({ product, pricing, inventory, stock, sales, fulfillment, productLinks, variantLinks }), modules, link, updateModules, updateLink, bundle, eventDefinition });
+    runtimes: Object.freeze({ product, pricing, inventory, stock, sales, fulfillment, productLinks, variantLinks }), modules, link, updateModules, updateLink,
+    deletionModules, deletionLink, bundle, eventDefinition });
 });
 export type ProductRequestCatalog = Effect.Success<ReturnType<typeof compileProductRequestCatalog>>;
 
@@ -94,17 +107,19 @@ export const makeProductRequestOperations = Effect.fn("ProductRequest.makeOperat
     revision: input.revision, subscribers: input.subscribers });
   const update = yield* prepareProductUpdateWorkflow({ execution, modules: input.catalog.updateModules,
     link: input.catalog.updateLink, revision: input.revision, subscribers: input.subscribers });
+  const deletion = yield* prepareProductDeletionWorkflow({ execution, modules: input.catalog.deletionModules,
+    link: input.catalog.deletionLink, revision: input.revision, subscribers: input.subscribers });
   const read = yield* makeProductRequestReads(input);
   const admitProductRefetchFields = (fields: readonly string[]): void => {
     Result.getOrThrowWith(read.admitProductRefetchFields(fields), cause => new MedusaError(MedusaError.Types.INVALID_DATA,
       "The private Product profile requires supported response fields before execution.", undefined, undefined, { cause }));
   };
-  const runWorkflow = Effect.fn("ProductRequest.runWorkflow")(function* (name: string, value: unknown) {
+  const executeWorkflow = Effect.fn("ProductRequest.runWorkflow")(function* (name: string, value: unknown) {
     // This exact decoder runs before acquiring any atomic request/claim. Its
     // refusal is caller input outside the admitted HTTP profile; later native
     // failures, defects and settlement uncertainty retain their own channels.
     const refusal = (cause: unknown) => commerceError("adapterFailure", new MedusaError(MedusaError.Types.INVALID_DATA,
-      "Product workflow input is outside the private supported profile: up to 4 products, 1 option, 4 variants total, and 2 prices per variant.",
+      "Product workflow input is outside the private supported profile: up to 4 products or deletion IDs, 1 option, 4 variants total, and 2 prices per variant.",
       undefined, "Product workflow admission refused", { cause }));
     switch (name) {
       case "create-products": {
@@ -115,15 +130,24 @@ export const makeProductRequestOperations = Effect.fn("ProductRequest.makeOperat
         const args = yield* Effect.fromResult(captureCommerceInput(value).pipe(Result.flatMap(update.decodeInput), Result.mapError(refusal)));
         return { result: yield* update.run(update.newRequestKey(), args) };
       }
+      case "delete-products": {
+        const args = yield* Effect.fromResult(captureCommerceInput(value).pipe(Result.flatMap(deletion.decodeInput), Result.mapError(refusal)));
+        return { result: yield* deletion.run(deletion.newRequestKey(), args) };
+      }
       default: return yield* commerceError("unsupportedProfile");
     }
   });
+  function runWorkflow(name: "create-products", value: unknown): Effect.Effect<{ result: Effect.Success<ReturnType<typeof workflow.run>> }, CommerceTransactionError>;
+  function runWorkflow(name: "update-products", value: unknown): Effect.Effect<{ result: Effect.Success<ReturnType<typeof update.run>> }, CommerceTransactionError>;
+  function runWorkflow(name: "delete-products", value: unknown): Effect.Effect<{ result: null }, CommerceTransactionError>;
+  function runWorkflow(name: string, value: unknown): ReturnType<typeof executeWorkflow>;
+  function runWorkflow(name: string, value: unknown): ReturnType<typeof executeWorkflow> { return executeWorkflow(name, value); }
   const index = Effect.fn("ProductRequest.unsupportedIndex")(() => Effect.fail(commerceError("adapterFailure",
     new MedusaError(MedusaError.Types.NOT_ALLOWED, "Index engine is outside the admitted Product profile"))));
   const remoteQuery = Effect.fn("ProductRequest.unsupportedRemoteQuery")((_value: unknown) => Effect.fail(commerceError("adapterFailure",
     new MedusaError(MedusaError.Types.INVALID_DATA, "Remote Product filters are outside the private supported profile"))));
   return Object.freeze({ runWorkflow, query: Object.freeze({ graph: read.graph, index }), remoteQuery, admitProductRefetchFields,
-    close: workflow.close.pipe(Effect.ensuring(update.close), Effect.ensuring(read.close)) });
+    close: workflow.close.pipe(Effect.ensuring(update.close), Effect.ensuring(deletion.close), Effect.ensuring(read.close)) });
 });
 export type ProductRequestOperations = Effect.Success<ReturnType<typeof makeProductRequestOperations>>;
 

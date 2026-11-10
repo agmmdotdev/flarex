@@ -26,9 +26,10 @@ binds Currency, publishable keys and Sales Channel Links to the ready Core
 generation. The [private app DO scenario](../../apps/executor/test/storeCurrencyApplicationDO.postgres.test.ts)
 opens an independently provisioned native catalog on ordinary-role PostgreSQL.
 The [Admin Product routes](../../packages/medusa-http/src/api/admin/products/route.ts)
-accept private `GET /admin/products`, `GET /admin/products/:id` and
-`POST /admin/products` and `POST /admin/products/:id`. The host authenticates the admin user and checks the
-native Product read policy or the Product, Inventory Item and Price creation policies. The
+accept private `GET /admin/products`, `GET /admin/products/:id`,
+`POST /admin/products`, `POST /admin/products/:id` and
+`DELETE /admin/products/:id`. The host authenticates the admin user and checks
+the pinned route policies. The
 [Product adapter](../../packages/medusa-adapter/src/http/product-request.ts)
 admits the requested response fields through the complete graph planner before
 running the native `create-products` or `update-products` workflow. Both accept
@@ -37,6 +38,11 @@ by its returned ID through a separate Core-backed read. Detail updates preserve
 the pinned existence check and inherited Product read policy. The existing native
 update profile owns bounded scalar, variant pricing and relationship changes;
 HTTP does not supply a second mutation or settlement path.
+Deletion uses the native `delete-products` workflow on the same source identities
+and schema bundle, with the inherited Product read and explicit Product delete
+policies. Native soft deletion, Pricing/Link cascades and managed Inventory
+ownership rules remain workflow-owned. Missing or repeated IDs retain native
+success; normal subsequent Product reads hide soft-deleted products.
 
 The [Product read graph](../../packages/medusa-adapter/src/http/product-request-reads.ts)
 uses the existing native graph planner and Link metadata over protected Core

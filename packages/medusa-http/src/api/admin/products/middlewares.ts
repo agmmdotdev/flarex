@@ -44,4 +44,9 @@ export const adminProductRoutesMiddlewares: MiddlewareRoute[] = [{
     validateAndTransformBody(AdminUpdateProduct),
     validateAndTransformQuery(AdminGetProductParams, QueryConfig.retrieveProductQueryConfig),
   ],
+}, {
+  method: ["DELETE"],
+  matcher: "/admin/products/:id",
+  middlewares: [validateAndTransformQuery(AdminGetProductParams, QueryConfig.retrieveProductQueryConfig)],
+  policies: [{ resource: "product", operation: "delete" }],
 }]

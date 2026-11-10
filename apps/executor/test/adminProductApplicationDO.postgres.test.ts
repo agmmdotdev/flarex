@@ -106,18 +106,20 @@ async function createAdminProductDOFixture() {
         durableObjects: { APPLICATIONS: { className: "NativeAdminProductApplicationFixture", useSQLite: true } },
       });
     };
-    const request = (input: unknown, options: Readonly<{ private?: boolean; admin?: string; path?: string; signal?: AbortSignal; method?: "POST" | "GET" }>
+    const request = (input: unknown, options: Readonly<{ private?: boolean; admin?: string; path?: string; signal?: AbortSignal; method?: "POST" | "GET" | "DELETE" }>
       = { private: true, admin: adminCredential }) => {
       if (runtime === undefined) throw new Error("Native Product DO is closed");
       return runtime.dispatchFetch(`https://native-admin.test${options.path ?? path}`, { method: options.method ?? "POST",
         headers: { "content-type": "application/json", origin: "https://admin.test",
           ...(options.private === true ? { authorization: `Bearer ${privateToken}` } : {}),
           ...(options.admin === undefined ? {} : { "x-admin-fixture-token": options.admin }) },
-        ...(options.method === "GET" ? {} : { body: JSON.stringify(input) }),
+        ...(options.method === "GET" || options.method === "DELETE" ? {} : { body: JSON.stringify(input) }),
         ...(options.signal === undefined ? {} : { signal: options.signal }) });
     };
     const get = (path: string, options: Readonly<{ private?: boolean; admin?: string }> = { private: true, admin: adminCredential }) =>
       request(undefined, { ...options, path, method: "GET" });
+    const remove = (path: string, options: Readonly<{ private?: boolean; admin?: string }> = { private: true, admin: adminCredential }) =>
+      request(undefined, { ...options, path, method: "DELETE" });
     const probeIncarnation = async () => {
       if (runtime === undefined) throw new Error("Native Product DO is closed");
       const response = await runtime.dispatchFetch("https://native-admin.test/__proof/incarnation", {
@@ -126,7 +128,7 @@ async function createAdminProductDOFixture() {
       if (!response.ok) throw new Error(`Incarnation probe returned HTTP ${response.status}`);
       return Schema.decodeUnknownSync(Schema.Struct({ incarnation: Schema.NonEmptyString }))(await response.json()).incarnation;
     };
-    return { initial, catalog, start, stop, close, request, get, observe, probeIncarnation };
+    return { initial, catalog, start, stop, close, request, get, remove, observe, probeIncarnation };
   } catch (cause) {
     try { await close(); } catch (cleanup) { throw new AggregateError([cause, cleanup], "Product fixture setup and cleanup failed"); }
     throw cause;
@@ -545,6 +547,174 @@ describe.runIf(endpoints !== undefined)("native-ready private Admin Product in t
     finally {
       try { await fixture.close(); }
       catch (cause) { throw new AggregateError([...primary, cause], "Admin Product update proof cleanup failed"); }
+    }
+  }, 240_000);
+
+  it("deletes only the native Product's owned graph atomically and reads the surviving graph after DO recreation", async () => {
+    const fixture = await createAdminProductDOFixture();
+    const primary: unknown[] = [];
+    try {
+      fixture.start();
+      const created = [];
+      for (const input of [
+        { title: "Alpha Native Delete Product", handle: "alpha-native-delete-product", sku: "NATIVE-DELETE-ALPHA", amount: 1357 },
+        { title: "Beta Native Delete Product", handle: "beta-native-delete-product", sku: "NATIVE-DELETE-BETA", amount: 8642 },
+      ]) {
+        const response = await fixture.request({ title: input.title, handle: input.handle,
+          options: [{ title: "Size", values: ["One"] }], variants: [{ title: `${input.title} One`, sku: input.sku,
+            manage_inventory: true, options: { Size: "One" }, prices: [{ currency_code: "usd", amount: input.amount }] }] },
+        { private: true, admin: adminCredential, path: "/admin/products" });
+        expect(response.status, await response.clone().text()).toBe(200);
+        const body: unknown = await response.json();
+        const product = decodeProduct(body).product;
+        const variants = decodeVariants(body).product.variants;
+        const pricedVariants = decodeDefaultPrices(body).product.variants;
+        expect(variants).toHaveLength(1);
+        expect(pricedVariants).toHaveLength(1);
+        const variant = variants[0], pricedVariant = pricedVariants[0];
+        if (variant === undefined || pricedVariant === undefined) throw new Error("Native create omitted its deletion fixture variant");
+        expect(pricedVariant.prices).toHaveLength(1);
+        const price = pricedVariant.prices[0];
+        if (price === undefined) throw new Error("Native create omitted its deletion fixture price");
+        expect(price).toMatchObject({ amount: input.amount, currency_code: "usd", variant_id: variant.id });
+        created.push({ ...input, id: product.id, variantId: variant.id, priceId: price.id, priceSetId: price.price_set_id });
+      }
+      const first = created[0], second = created[1];
+      if (first === undefined || second === undefined) throw new Error("Expected two native Product deletion fixtures");
+      await fixture.stop();
+      const before = await fixture.observe();
+      for (const key of ["products", "options", "optionValues", "variants", "variantOptions", "priceSets", "prices",
+        "inventoryItems", "variantPriceSets", "variantInventoryItems"] as const) expect(before[key]).toHaveLength(2);
+      const firstInventory = decodeInventoryLink(before.variantInventoryItems.find(row => row.variant_id === first.variantId));
+      const secondInventory = decodeInventoryLink(before.variantInventoryItems.find(row => row.variant_id === second.variantId));
+      expect(firstInventory.inventory_item_id).not.toBe(secondInventory.inventory_item_id);
+      expect(first.priceSetId).not.toBe(second.priceSetId);
+      for (const expected of created) {
+        expect(before.products.find(row => row.id === expected.id)).toMatchObject({ title: expected.title, deleted_at: null });
+        expect(before.variants.find(row => row.id === expected.variantId)).toMatchObject({ product_id: expected.id, sku: expected.sku, manage_inventory: true });
+        expect(before.variantPriceSets.find(row => row.variant_id === expected.variantId)).toMatchObject({ price_set_id: expected.priceSetId });
+        expect(before.prices.find(row => row.id === expected.priceId)).toMatchObject({ price_set_id: expected.priceSetId,
+          amount: `${expected.amount}.0000000000000000`, currency_code: "usd" });
+        const inventory = decodeInventoryLink(before.variantInventoryItems.find(row => row.variant_id === expected.variantId));
+        expect(before.inventoryItems.find(row => row.id === inventory.inventory_item_id)).toMatchObject({ sku: expected.sku, deleted_at: null });
+      }
+
+      fixture.start();
+      const deletePath = `/admin/products/${first.id}`;
+      expect((await fixture.remove(deletePath, { admin: adminCredential })).status).toBe(401);
+      expect((await fixture.remove(deletePath, { private: true })).status).toBe(401);
+      expect((await fixture.remove(deletePath, { private: true, admin: "invalid-admin" })).status).toBe(401);
+      expect((await fixture.remove(deletePath, { private: true, admin: `${adminCredential}-without-policy` })).status).toBe(403);
+      expect((await fixture.remove(deletePath, { private: true, admin: `${adminCredential}-read-only` })).status).toBe(403);
+      const invalid = await fixture.remove(`${deletePath}?fields=__proto__.x`);
+      expect(invalid.status, await invalid.clone().text()).toBe(400);
+      expect(await invalid.json()).toMatchObject({ type: "invalid_data" });
+      await fixture.stop();
+      const refused = await fixture.observe();
+      expect(refused).toEqual(before);
+
+      fixture.start();
+      const deleteIncarnation = await fixture.probeIncarnation();
+      const deleted = await fixture.remove(deletePath);
+      expect(deleted.status, await deleted.clone().text()).toBe(200);
+      expect(await deleted.json()).toEqual({ id: first.id, object: "product", deleted: true });
+      await fixture.stop();
+      const persisted = await fixture.observe();
+      const ownedRows = {
+        products: (row: Record<string, unknown>) => row.id === first.id,
+        options: (row: Record<string, unknown>) => row.product_id === first.id,
+        optionValues: (row: Record<string, unknown>) => before.options.some(option => option.product_id === first.id && option.id === row.option_id),
+        variants: (row: Record<string, unknown>) => row.id === first.variantId,
+        priceSets: (row: Record<string, unknown>) => row.id === first.priceSetId,
+        prices: (row: Record<string, unknown>) => row.id === first.priceId,
+        inventoryItems: (row: Record<string, unknown>) => row.id === firstInventory.inventory_item_id,
+        variantPriceSets: (row: Record<string, unknown>) => row.variant_id === first.variantId,
+        variantInventoryItems: (row: Record<string, unknown>) => row.variant_id === first.variantId,
+      };
+      for (const key of ["products", "options", "optionValues", "variants", "priceSets", "prices", "inventoryItems",
+        "variantPriceSets", "variantInventoryItems"] as const) {
+        // Native deletion soft-deletes the exclusive managed Inventory Item and
+        // owned Pricing records through Link; all durable rows remain present.
+        expect(persisted[key]).toHaveLength(2);
+        const owned = persisted[key].filter(ownedRows[key]);
+        expect(owned, `Native deletion omitted its owned ${key}`).toHaveLength(1);
+        expect(owned).toEqual([expect.objectContaining({ deleted_at: expect.any(String) })]);
+        expect(persisted[key].filter(row => !ownedRows[key](row)), `Native deletion changed the other Product's ${key}`)
+          .toEqual(before[key].filter(row => !ownedRows[key](row)));
+      }
+      // Native soft-delete retains module-local option pivots, including those
+      // whose endpoints are deleted. They are not remote Link lifecycle rows.
+      expect(persisted.variantOptions).toEqual(before.variantOptions);
+      const publications = persisted.outcomes.filter(outcome => outcome.timestamp > refused.publishedTimestamp
+        && outcome.value.kind === "nativeRoot" && outcome.value.state === "committed");
+      expect(publications).toHaveLength(1);
+      const publication = publications[0];
+      if (publication === undefined) throw new Error("Deleted Product has no durable native root outcome");
+      const familyTable = fixture.catalog.eventDefinition.tables.find(table => table.privateEvent?.role === "family")?.name;
+      const envelopeTable = fixture.catalog.eventDefinition.tables.find(table => table.privateEvent?.role === "envelope")?.name;
+      if (familyTable === undefined || envelopeTable === undefined) throw new Error("Native Product fixture omitted event storage");
+      expect(persisted.rows.filter(row => row.table === familyTable && row.timestamp === publication.timestamp)).toHaveLength(1);
+      expect(persisted.rows.filter(row => row.table === envelopeTable && row.timestamp === publication.timestamp).map(row => row.value))
+        .toEqual(expect.arrayContaining([expect.objectContaining({ envelope: expect.objectContaining({ contract: "product.deleted",
+          message: expect.objectContaining({ data: { id: first.id } }) }) })]));
+      const changedRows = persisted.businessRows.filter(row => row.timestamp > refused.publishedTimestamp);
+      expect(changedRows).toHaveLength(9);
+      expect(changedRows.every(row => row.timestamp === publication.timestamp)).toBe(true);
+      const revisions = persisted.revisions.filter(revision => revision.timestamp > refused.publishedTimestamp);
+      expect(revisions.length).toBeGreaterThanOrEqual(9);
+      expect(revisions.every(revision => revision.timestamp === publication.timestamp)).toBe(true);
+      for (const id of [first.id, first.variantId, first.priceSetId, first.priceId, firstInventory.inventory_item_id]) {
+        expect(revisions).toContainEqual(expect.objectContaining({ previous: expect.any(BigInt), deleted: false,
+          value: expect.objectContaining({ id, deleted_at: expect.any(String) }) }));
+      }
+
+      fixture.start();
+      expect(await fixture.probeIncarnation()).not.toBe(deleteIncarnation);
+      const missingDetail = await fixture.get(deletePath);
+      expect(missingDetail.status, await missingDetail.clone().text()).toBe(404);
+      expect(await missingDetail.json()).toMatchObject({ type: "not_found", message: "Product not found" });
+      const list = await fixture.get(`/admin/products?fields=${readFields}&order=handle`);
+      expect(list.status, await list.clone().text()).toBe(200);
+      const listed = decodeReadProducts(await list.json());
+      expect(listed.count).toBe(1);
+      expect(listed.products.map(product => product.id)).toEqual([second.id]);
+      const detail = await fixture.get(`/admin/products/${second.id}?fields=${readFields}`);
+      expect(detail.status, await detail.clone().text()).toBe(200);
+      const survivor = decodeReadProduct(await detail.json()).product;
+      expect(listed.products).toEqual([survivor]);
+      expect(survivor).toMatchObject({ id: second.id, title: second.title, handle: second.handle });
+      expect(survivor.variants).toEqual([expect.objectContaining({ id: second.variantId, sku: second.sku, manage_inventory: true,
+        prices: [expect.objectContaining({ id: second.priceId, price_set_id: second.priceSetId, variant_id: second.variantId,
+          amount: second.amount, currency_code: "usd" })],
+        inventory_items: [expect.objectContaining({ variant_id: second.variantId, inventory_item_id: secondInventory.inventory_item_id,
+          required_quantity: 1, inventory: { id: secondInventory.inventory_item_id, sku: second.sku } })] })]);
+      await fixture.stop();
+      const afterReads = await fixture.observe();
+      for (const key of ["rows", "revisions", "indexes", "businessRows", "products", "options", "optionValues", "variants", "variantOptions",
+        "priceSets", "prices", "inventoryItems", "variantPriceSets", "variantInventoryItems"] as const) {
+        expect(afterReads[key], `Restarted native reads changed durable ${key}`).toEqual(persisted[key]);
+      }
+
+      // The pinned DELETE route has no existence check. A fresh workflow request
+      // for either a deleted or absent ID still succeeds; GET owns its 404.
+      fixture.start();
+      for (const id of [first.id, "prod_missing_native_delete"]) {
+        const response = await fixture.remove(`/admin/products/${id}`);
+        expect(response.status, await response.clone().text()).toBe(200);
+        expect(await response.json()).toEqual({ id, object: "product", deleted: true });
+      }
+      await fixture.stop();
+      const afterRepeated = await fixture.observe();
+      for (const key of ["businessRows", "products", "options", "optionValues", "variants", "variantOptions",
+        "priceSets", "prices", "inventoryItems", "variantPriceSets", "variantInventoryItems"] as const) {
+        expect(afterRepeated[key], `Repeated or missing DELETE changed business ${key}`).toEqual(afterReads[key]);
+      }
+      expect(afterRepeated.outcomes.filter(outcome => outcome.timestamp > afterReads.publishedTimestamp
+        && outcome.value.kind === "nativeRoot" && outcome.value.state === "committed")).toHaveLength(2);
+    } catch (cause) { primary.push(cause); throw cause; }
+    finally {
+      try { await fixture.close(); }
+      catch (cause) { throw new AggregateError([...primary, cause], "Admin Product delete proof cleanup failed"); }
     }
   }, 240_000);
 

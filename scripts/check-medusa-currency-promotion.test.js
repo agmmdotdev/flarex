@@ -43,15 +43,15 @@ describe("native Admin Product route promotion", () => {
     expect(() => verifyAdminProductPostSource(native, promoted.replace(original, change)))
       .toThrow("Changed native Admin Product POST behavior");
   });
-  it("preserves both native detail handlers and leaves DELETE unselected", () => {
+  it("preserves all three native detail handlers", () => {
     const path = "src/api/admin/products/[id]/route.ts";
     const native = readFileSync("third_party/medusa/upstream/packages/medusa/" + path, "utf8");
     const promoted = readFileSync("packages/medusa-http/" + path, "utf8");
     expect(() => verifyAdminProductDetailSource(native, promoted)).not.toThrow();
     expect(() => verifyAdminProductDetailSource(native, promoted.replace("MedusaError.Types.NOT_FOUND", "MedusaError.Types.INVALID_DATA")))
-      .toThrow("Changed native Admin Product detail GET/POST behavior");
+      .toThrow("Changed native Admin Product detail GET/POST/DELETE behavior");
     expect(() => verifyAdminProductDetailSource(native, promoted + "\nexport const DELETE = POST"))
-      .toThrow("Changed native Admin Product detail GET/POST behavior");
+      .toThrow("Changed native Admin Product detail GET/POST/DELETE behavior");
   });
   it.each([
     ['"update-products"', '"delete-products"'],
@@ -68,7 +68,25 @@ describe("native Admin Product route promotion", () => {
     const promoted = readFileSync("packages/medusa-http/" + path, "utf8");
     expect(promoted).toContain(original);
     expect(() => verifyAdminProductDetailSource(native, promoted.replace(original, change)))
-      .toThrow("Changed native Admin Product detail GET/POST behavior");
+      .toThrow("Changed native Admin Product detail GET/POST/DELETE behavior");
+  });
+  it.each([
+    ['const deleteProductsWorkflowId = "delete-products"', 'const deleteProductsWorkflowId = "update-products"'],
+    ['const id = req.params.id', 'const id = "different_product"'],
+    ['await workflowEngine.run(deleteProductsWorkflowId,', 'workflowEngine.run(deleteProductsWorkflowId,'],
+    ['input: { ids: [id] }', 'input: { ids: [] }'],
+    ['res.status(200).json({\n    id,', 'res.status(201).json({\n    id,'],
+    ['    id,\n    object:', '    id: "different_product",\n    object:'],
+    ['    object: "product",', '    object: "variant",'],
+    ['    deleted: true,', '    deleted: false,'],
+    ['  const id = req.params.id', '  await refetchEntity({ entity: "product", idOrFilter: req.params.id, scope: req.scope, fields: ["id"] })\n  const id = req.params.id'],
+  ])("rejects changing native detail deletion %s", (original, change) => {
+    const path = "src/api/admin/products/[id]/route.ts";
+    const native = readFileSync("third_party/medusa/upstream/packages/medusa/" + path, "utf8");
+    const promoted = readFileSync("packages/medusa-http/" + path, "utf8");
+    expect(promoted).toContain(original);
+    expect(() => verifyAdminProductDetailSource(native, promoted.replace(original, change)))
+      .toThrow("Changed native Admin Product detail GET/POST/DELETE behavior");
   });
 });
 

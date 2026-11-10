@@ -6,6 +6,7 @@ import type { AdminUpdateProductBody } from "../validators"
 import { remapKeysForProduct, remapProductResponse } from "../helpers"
 
 const updateProductsWorkflowId = "update-products"
+const deleteProductsWorkflowId = "delete-products"
 
 export const GET = async (
   req: AuthenticatedMedusaRequest,
@@ -72,4 +73,26 @@ export const POST = async (
   if (!product) throw new Error("Updated Product was not returned by native refetch")
 
   res.status(200).json({ product: remapProductResponse(product) })
+}
+
+type DeleteProductsWorkflowEngine = {
+  run(id: typeof deleteProductsWorkflowId, options: { input: { ids: string[] } }): Promise<unknown>
+}
+
+export const DELETE = async (
+  req: AuthenticatedMedusaRequest,
+  res: MedusaResponse<{ id: string; object: "product"; deleted: true }>
+) => {
+  const id = req.params.id
+  const workflowEngine = req.scope.resolve<DeleteProductsWorkflowEngine>(Modules.WORKFLOW_ENGINE)
+
+  await workflowEngine.run(deleteProductsWorkflowId, {
+    input: { ids: [id] },
+  })
+
+  res.status(200).json({
+    id,
+    object: "product",
+    deleted: true,
+  })
 }

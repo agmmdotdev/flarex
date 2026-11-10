@@ -142,13 +142,13 @@ export function verifyAdminProductDetailSource(native, promoted) {
     'import { MedusaError } from "@medusajs/utils/common/errors"',
     'import { remapKeysForProduct, remapProductResponse } from "../helpers"',
   ];
-  const selected = selectProductRouteDeclarations(native, ["updateProductsWorkflowId", "GET", "POST"]);
+  const selected = selectProductRouteDeclarations(native, ["updateProductsWorkflowId", "deleteProductsWorkflowId", "GET", "POST", "DELETE"]);
   const result = 'res.status(200).json({ product: remapProductResponse(product) })';
   const guard = 'if (!product) throw new Error("Updated Product was not returned by native refetch")';
-  if (selected[2].split(result).length !== 2) throw new Error("Missing pinned Product update response");
-  selected[2] = selected[2].replace(result, guard + "\n" + result);
+  if (selected[3].split(result).length !== 2) throw new Error("Missing pinned Product update response");
+  selected[3] = selected[3].replace(result, guard + "\n" + result);
   if (productRouteRuntime([...imports, ...selected].join("\n")) !== productRouteRuntime(promoted))
-    throw new Error("Changed native Admin Product detail GET/POST behavior");
+    throw new Error("Changed native Admin Product detail GET/POST/DELETE behavior");
 }
 
 /** Relocate only the native utility import. Type-only annotations erase on emit.

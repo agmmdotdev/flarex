@@ -126,9 +126,9 @@ describe("selected pinned Admin Product detail POST", () => {
     }
   })
 
-  it("leaves DELETE unselected", async () => {
+  it("leaves PATCH unselected", async () => {
     const f = fixture()
-    expect((await f.handler.handle(new Request("https://private.test/admin/products/prod_update", { method: "DELETE" }))).status).toBe(404)
+    expect((await f.handler.handle(new Request("https://private.test/admin/products/prod_update", { method: "PATCH" }))).status).toBe(404)
     expect(f.graph).not.toHaveBeenCalled()
     expect(f.run).not.toHaveBeenCalled()
   })

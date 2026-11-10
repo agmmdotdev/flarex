@@ -24,7 +24,8 @@ to verify the checked-in static imports against the framework renderer.
 
 `@flarex/medusa-http/admin-product` exports `createAdminProductHttpHandler` for
 the selected pinned `POST /admin/products`, `GET /admin/products`,
-`GET /admin/products/:id`, and `POST /admin/products/:id` handlers. The matching scoped Effect
+`GET /admin/products/:id`, `POST /admin/products/:id`, and
+`DELETE /admin/products/:id` handlers. The matching scoped Effect
 namespace host is `@flarex/medusa-http/admin-product-effect`. The native manifest
 renderer builds the separate Admin Product manifest.
 
@@ -53,6 +54,15 @@ Product reconciliation, variant pricing and supported relationship changes.
 Inventory links remain intact when an existing variant's price is changed.
 Unsupported update inputs refuse before mutation, and a later response-refetch
 failure cannot undo an already committed update. This layer does not retry it.
+
+The detail DELETE retains the pinned inherited Product read policy and explicit
+Product delete policy, native query validation and `delete-products` workflow.
+It returns the native `{ id, object: "product", deleted: true }` envelope without
+an existence prefetch or response refetch. Missing and already-deleted IDs keep
+native success behavior. The existing deletion workflow owns soft deletion,
+Pricing and Link cleanup, and exclusive managed Inventory ownership checks;
+shared Inventory records remain subject to those native rules. The same Core
+source identities and atomic settlement owner serve creation, update and deletion.
 
 Both reads require a verified native user and the native Product read policy.
 The detail route returns the native `Product not found` response when the graph
