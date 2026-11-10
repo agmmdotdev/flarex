@@ -97,7 +97,19 @@ currently admits ID only, with the existing graph and workflow resource bounds.
 Inventory expansion and quantity requests retain an eight-Variant-ID and
 eight-Inventory-Item-ID cohort limit; larger cohorts return HTTP 400, including
 when a default list page exceeds those limits.
-Variant deletion remains unselected.
+
+`DELETE /admin/products/:id/variants/:variant_id` uses the approved
+[parent-qualified workflow correction](../../roadmaps/flarexdb-framework-integration/preflight/product-http-parent-qualified-mutations.md).
+It retains native Product read, Variant read and Variant delete policies and
+the `{ id, object: "variant", deleted: true, parent }` response. Parent fields
+are admitted before mutation; refetch happens independently after settlement.
+Scoped deletion confines the query, Link/Price cleanup, Inventory ownership,
+final soft-delete selector, events and hook to the URL Product. Missing,
+wrong-parent and already-deleted scoped children select nothing and emit no
+deletion events; an empty root outcome may settle. The native-shaped success
+envelope does not claim a row transitioned on every request. A parent mismatch
+at the actual mutation refuses the entire root, including prior link changes.
+Existing unscoped workflow callers keep their requested-ID behavior.
 
 Product Option collection and detail routes serve native `GET` and `POST`.
 Reads use the `product_option` graph entry point, retain the parent filter,

@@ -9,7 +9,7 @@ import type { GraphReadCommand } from "../../local-graph/commands";
 import { decodeGraphCount } from "../../local-graph/query";
 import { NativePreimageConfig } from "../../workflow/preimage";
 import { ProductUpdatePreimages } from "./product-update-input";
-import { ProductDeletionIds } from "./commands/deletion";
+import { ProductDeletionIds, VariantDeletionSelection } from "./lifecycle";
 
 export function productDeletionWorkflowModule(source: CommerceModuleDescription, commands: {
   readonly list: CommerceCommand; readonly softDeleteProducts: CommerceCommand; readonly softDeleteVariants: CommerceCommand;
@@ -21,13 +21,14 @@ export function productDeletionWorkflowModule(source: CommerceModuleDescription,
     const preimages = commerceDecoder(ProductUpdatePreimages, "unsupportedProfile");
     const readArguments = commerceDecoder(Schema.Tuple([Schema.Struct({ id: ProductDeletionIds }), NativePreimageConfig]), "invalidInput");
     const deleteArguments = commerceDecoder(Schema.Tuple([ProductDeletionIds]), "invalidInput");
+    const variantDeleteArguments = commerceDecoder(Schema.Tuple([VariantDeletionSelection]), "invalidInput");
     const output = commerceDecoder(Schema.Union([Schema.Null, Schema.Record(Schema.String, Schema.Array(Schema.String).check(Schema.isMaxLength(36)))]), "storedCorruption");
     const listProducts = yield* defineWorkflowMethod({ command: commands.list, arguments: readArguments,
       encode: ([filters, config]) => ({ filters, config }), output: preimages });
     const softDeleteProducts = yield* defineWorkflowMethod({ command: commands.softDeleteProducts, arguments: deleteArguments,
       encode: ([ids]) => ids, output, moduleEvents: events.product });
-    const softDeleteProductVariants = yield* defineWorkflowMethod({ command: commands.softDeleteVariants, arguments: deleteArguments,
-      encode: ([ids]) => ids, output, moduleEvents: [events.variant] });
+    const softDeleteProductVariants = yield* defineWorkflowMethod({ command: commands.softDeleteVariants, arguments: variantDeleteArguments,
+      encode: ([selection]) => selection, output, moduleEvents: [events.variant] });
     const inverse = commerceDecoder(Schema.Array(Schema.JsonObject).check(Schema.isMaxLength(32)), "unsupportedProfile");
     const boundedGraph: GraphModuleDefinition = { aliases: graph.aliases.filter(alias => ["Product", "ProductVariant"].includes(alias.model)), reads: [
       { ...products, decode: value => decodeGraphCount(value).pipe(Result.flatMap(([rows, count]) => preimages(rows).pipe(Result.map(rows => [rows, count] as const)))) },

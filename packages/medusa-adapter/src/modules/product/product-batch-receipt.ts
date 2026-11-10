@@ -2,7 +2,7 @@ import { Effect, Result } from "effect";
 import { commerceCommandIdentity, type CommerceCommand, type LogicalCommerceEventValidation } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { commerceDecoder } from "../../value/decoder";
-import { ProductDeletionIds } from "./commands/deletion";
+import { ProductDeletionIds } from "./lifecycle";
 import { ProductUpdateOutput } from "./product-update-input";
 import { projectProductOwnedGraphs } from "./product-update-receipt";
 import type { ProductRuntimeMetadata } from "./runtime-metadata";

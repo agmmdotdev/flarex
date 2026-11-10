@@ -53,6 +53,8 @@ const nativeVariant = Schema.Struct({ id: Schema.NonEmptyString, product_id: Sch
   sku: Schema.String, manage_inventory: Schema.Boolean, prices: Schema.Array(readPrice),
   options: Schema.Array(Schema.Struct({ id: Schema.NonEmptyString, value: Schema.String, option_id: Schema.NonEmptyString })) });
 const decodeNativeVariant = Schema.decodeUnknownSync(Schema.Struct({ variant: nativeVariant }));
+const decodeDeletedVariant = Schema.decodeUnknownSync(Schema.Struct({ id: Schema.String, object: Schema.Literal("variant"),
+  deleted: Schema.Literal(true), parent: Schema.Unknown }));
 const decodeNativeVariants = Schema.decodeUnknownSync(Schema.Struct({ variants: Schema.Array(nativeVariant),
   count: Schema.Number, offset: Schema.Number, limit: Schema.Number }));
 const decodeVariantInventory = Schema.decodeUnknownSync(Schema.Struct({ variants: Schema.Array(Schema.Struct({
@@ -1105,6 +1107,167 @@ describe.runIf(endpoints !== undefined)("native-ready private Admin Product in t
     finally {
       try { await fixture.close(); }
       catch (cause) { throw new AggregateError([...primary, cause], "Admin Product variant update proof cleanup failed"); }
+    }
+  }, 360_000);
+
+  it("deletes only the parent-selected native variant graph atomically and preserves survivors across DO recreation", async () => {
+    const fixture = await createAdminProductDOFixture();
+    const primary: unknown[] = [];
+    try {
+      fixture.start();
+      const created = [];
+      for (const [name, amounts] of [["First", [1234, 4321]], ["Other", [8765]]] as const) {
+        const response = await fixture.request({ title: `${name} Variant Delete Parent`, handle: `${name.toLowerCase()}-variant-delete-parent`,
+          options: [{ title: "Size", values: ["One", "Two"] }], variants: amounts.map((amount, index) => ({
+            title: `${name} Variant ${index}`, sku: `VARIANT-DELETE-${name.toUpperCase()}-${index}`, manage_inventory: true,
+            options: { Size: index === 0 ? "One" : "Two" }, prices: [{ currency_code: "usd", amount }],
+          })) }, { private: true, admin: adminCredential, path: "/admin/products" });
+        expect(response.status, await response.clone().text()).toBe(200);
+        const body: unknown = await response.json();
+        created.push({ product: decodeProduct(body).product, variants: decodeVariants(body).product.variants,
+          priced: decodeDefaultPrices(body).product.variants });
+      }
+      const first = created[0], other = created[1];
+      if (first === undefined || other === undefined) throw new Error("Expected two native Variant deletion parents");
+      const selected = first.variants.find(variant => variant.sku === "VARIANT-DELETE-FIRST-0");
+      const sibling = first.variants.find(variant => variant.sku === "VARIANT-DELETE-FIRST-1");
+      const foreign = other.variants[0];
+      if (selected === undefined || sibling === undefined || foreign === undefined) throw new Error("Native seed omitted a Variant");
+      const price = first.priced.find(variant => variant.id === selected.id)?.prices[0];
+      if (price === undefined) throw new Error("Native seed omitted the selected Variant price");
+      const collection = `/admin/products/${first.product.id}/variants`;
+      const detail = `${collection}/${selected.id}`;
+      await fixture.stop();
+      const before = await fixture.observe();
+      const selectedInventory = decodeInventoryLink(before.variantInventoryItems.find(row => row.variant_id === selected.id));
+      expect(before.variants).toHaveLength(3);
+      expect(new Set(before.variantInventoryItems.map(row => row.inventory_item_id)).size).toBe(3);
+      expect(new Set(before.variantPriceSets.map(row => row.price_set_id)).size).toBe(3);
+
+      fixture.start();
+      expect((await fixture.remove(detail, { admin: adminCredential })).status).toBe(401);
+      expect((await fixture.remove(detail, { private: true })).status).toBe(401);
+      expect((await fixture.remove(detail, { private: true, admin: "invalid-admin" })).status).toBe(401);
+      for (const suffix of ["without-policy", "read-only", "variant-reader"]) {
+        expect((await fixture.remove(detail, { private: true, admin: `${adminCredential}-${suffix}` })).status).toBe(403);
+      }
+      for (const fields of ["unsupported_field", "variants.unsupported_field", "__proto__.x"]) {
+        const unsupported = await fixture.remove(`${detail}?fields=${fields}`);
+        expect(unsupported.status, await unsupported.clone().text()).toBe(400);
+        expect(await unsupported.json()).toMatchObject({ type: "invalid_data" });
+      }
+      await fixture.stop();
+      expect(await fixture.observe()).toEqual(before);
+
+      fixture.start();
+      for (const id of [foreign.id, "variant_missing_native_parent_delete"]) {
+        const response = await fixture.remove(`${collection}/${id}`);
+        expect(response.status, await response.clone().text()).toBe(200);
+        const body = decodeDeletedVariant(await response.json());
+        expect(body).toMatchObject({ id, object: "variant", deleted: true });
+        expect(decodeProduct({ product: body.parent }).product).toEqual(first.product);
+        expect(decodeVariants({ product: body.parent }).product.variants).toEqual(expect.arrayContaining([...first.variants]));
+      }
+      await fixture.stop();
+      const absent = await fixture.observe();
+      // An empty root may settle. Business rows, events, revisions and indexes
+      // must remain identical for a child outside the URL parent or absent ID.
+      const { outcomes: _beforeOutcomes, publishedTimestamp: _beforeTimestamp, ...beforeData } = before;
+      const { outcomes: _absentOutcomes, publishedTimestamp: _absentTimestamp, ...absentData } = absent;
+      expect(absentData).toEqual(beforeData);
+
+      fixture.start();
+      const response = await fixture.remove(detail);
+      expect(response.status, await response.clone().text()).toBe(200);
+      const deleted = decodeDeletedVariant(await response.json());
+      expect(deleted).toMatchObject({ id: selected.id, object: "variant", deleted: true });
+      expect(decodeProduct({ product: deleted.parent }).product).toEqual(first.product);
+      expect(decodeVariants({ product: deleted.parent }).product.variants).toEqual([sibling]);
+      const incarnation = await fixture.probeIncarnation();
+      await fixture.stop();
+      const persisted = await fixture.observe();
+      for (const key of ["products", "options", "optionValues", "variantOptions", "inventoryLevels", "reservations"] as const) {
+        expect(persisted[key], `Variant DELETE changed retained ${key}`).toEqual(before[key]);
+      }
+      const ownedRows = {
+        variants: (row: Record<string, unknown>) => row.id === selected.id,
+        priceSets: (row: Record<string, unknown>) => row.id === price.price_set_id,
+        prices: (row: Record<string, unknown>) => row.id === price.id,
+        inventoryItems: (row: Record<string, unknown>) => row.id === selectedInventory.inventory_item_id,
+        variantPriceSets: (row: Record<string, unknown>) => row.variant_id === selected.id,
+        variantInventoryItems: (row: Record<string, unknown>) => row.variant_id === selected.id,
+      };
+      for (const key of ["variants", "priceSets", "prices", "inventoryItems", "variantPriceSets", "variantInventoryItems"] as const) {
+        expect(persisted[key]).toHaveLength(3);
+        expect(persisted[key].filter(ownedRows[key]), `Variant DELETE omitted owned ${key}`)
+          .toEqual([expect.objectContaining({ deleted_at: expect.any(String) })]);
+        expect(persisted[key].filter(row => !ownedRows[key](row)), `Variant DELETE changed a surviving ${key}`)
+          .toEqual(before[key].filter(row => !ownedRows[key](row)));
+      }
+      const publications = persisted.outcomes.filter(outcome => outcome.timestamp > absent.publishedTimestamp
+        && outcome.value.kind === "nativeRoot" && outcome.value.state === "committed");
+      expect(publications).toHaveLength(1);
+      const publication = publications[0];
+      if (publication === undefined) throw new Error("Native Variant deletion omitted its committed root outcome");
+      const changedRows = persisted.businessRows.filter(row => row.timestamp > absent.publishedTimestamp);
+      expect(changedRows).toHaveLength(6);
+      expect(changedRows.every(row => row.timestamp === publication.timestamp)).toBe(true);
+      const revisions = persisted.revisions.filter(revision => revision.timestamp > absent.publishedTimestamp);
+      expect(revisions.length).toBeGreaterThanOrEqual(6);
+      expect(revisions.every(revision => revision.timestamp === publication.timestamp)).toBe(true);
+      for (const id of [selected.id, price.id, price.price_set_id, selectedInventory.inventory_item_id]) {
+        expect(revisions).toContainEqual(expect.objectContaining({ previous: expect.any(BigInt), deleted: false,
+          value: expect.objectContaining({ id, deleted_at: expect.any(String) }) }));
+      }
+      const familyTable = fixture.catalog.eventDefinition.tables.find(table => table.privateEvent?.role === "family")?.name;
+      const envelopeTable = fixture.catalog.eventDefinition.tables.find(table => table.privateEvent?.role === "envelope")?.name;
+      if (familyTable === undefined || envelopeTable === undefined) throw new Error("Native Variant fixture omitted event storage");
+      expect(persisted.rows.filter(row => row.table === familyTable && row.timestamp === publication.timestamp)).toHaveLength(1);
+      expect(persisted.rows.filter(row => row.table === envelopeTable && row.timestamp === publication.timestamp).map(row => row.value))
+        .toEqual(expect.arrayContaining([expect.objectContaining({ envelope: expect.objectContaining({ contract: "product-variant.deleted",
+          message: expect.objectContaining({ data: { id: selected.id } }) }) })]));
+
+      fixture.start();
+      const missing = await fixture.get(detail);
+      expect(missing.status, await missing.clone().text()).toBe(200);
+      expect(await missing.json()).toEqual({});
+      expect(await fixture.probeIncarnation()).not.toBe(incarnation);
+      for (const [parent, variant] of [[first.product, sibling], [other.product, foreign]] as const) {
+        const rich = await fixture.get(`/admin/products/${parent.id}?fields=${readFields}`);
+        expect(rich.status, await rich.clone().text()).toBe(200);
+        const product = decodeReadProduct(await rich.json()).product;
+        expect(product).toMatchObject({ id: parent.id, title: parent.title });
+        const linkedPrice = decodePriceLink(before.variantPriceSets.find(row => row.variant_id === variant.id));
+        const inventory = decodeInventoryLink(before.variantInventoryItems.find(row => row.variant_id === variant.id));
+        expect(product.variants).toEqual([expect.objectContaining({ id: variant.id, sku: variant.sku, manage_inventory: true,
+          prices: [expect.objectContaining({ price_set_id: linkedPrice.price_set_id, variant_id: variant.id })],
+          inventory_items: [expect.objectContaining({ ...inventory, inventory: { id: inventory.inventory_item_id, sku: variant.sku } })] })]);
+        const detailResponse = await fixture.get(`/admin/products/${parent.id}/variants/${variant.id}`);
+        expect(detailResponse.status, await detailResponse.clone().text()).toBe(200);
+        expect(decodeNativeVariant(await detailResponse.json()).variant).toMatchObject({ ...variant, product_id: parent.id });
+      }
+      await fixture.stop();
+      const afterReads = await fixture.observe();
+      expect(afterReads).toEqual(persisted);
+
+      fixture.start();
+      for (const id of [selected.id, "variant_missing_native_parent_delete"]) {
+        const repeated = await fixture.remove(`${collection}/${id}`);
+        expect(repeated.status, await repeated.clone().text()).toBe(200);
+        const body = decodeDeletedVariant(await repeated.json());
+        expect(body).toMatchObject({ id, object: "variant", deleted: true });
+        expect(decodeProduct({ product: body.parent }).product).toEqual(first.product);
+        expect(decodeVariants({ product: body.parent }).product.variants).toEqual([sibling]);
+      }
+      await fixture.stop();
+      const afterRepeated = await fixture.observe();
+      const { outcomes: _persistedOutcomes, publishedTimestamp: _persistedTimestamp, ...persistedData } = persisted;
+      const { outcomes: _repeatedOutcomes, publishedTimestamp: _repeatedTimestamp, ...repeatedData } = afterRepeated;
+      expect(repeatedData).toEqual(persistedData);
+    } catch (cause) { primary.push(cause); throw cause; }
+    finally {
+      try { await fixture.close(); }
+      catch (cause) { throw new AggregateError([...primary, cause], "Admin Product Variant DELETE proof cleanup failed"); }
     }
   }, 360_000);
 

@@ -29,7 +29,7 @@ import { prepareProductUpdateLinkResource } from "../links/product-update-resour
 import { prepareProductDeletionLinkResource } from "../links/product-deletion-resource";
 import { prepareProductCreationWorkflow } from "../workflows/product/creation";
 import { prepareProductUpdateWorkflow } from "../workflows/product/update";
-import { prepareProductDeletionWorkflow } from "../workflows/product/deletion";
+import { prepareProductDeletionWorkflow, prepareProductVariantDeletionWorkflow } from "../workflows/product/deletion";
 import { prepareProductVariantInventoryWorkflow } from "../workflows/product/variant-inventory";
 import { prepareProductVariantUpdateWorkflow } from "../workflows/product/variant-update";
 import { prepareProductOptionCreationWorkflow, prepareProductOptionUpdateWorkflow } from "../workflows/product/option-workflows";
@@ -119,6 +119,8 @@ export const makeProductRequestOperations = Effect.fn("ProductRequest.makeOperat
     link: input.catalog.updateLink, revision: input.revision, subscribers: input.subscribers });
   const deletion = yield* prepareProductDeletionWorkflow({ execution, modules: input.catalog.deletionModules,
     link: input.catalog.deletionLink, revision: input.revision, subscribers: input.subscribers });
+  const variantDeletion = yield* prepareProductVariantDeletionWorkflow({ execution, modules: input.catalog.deletionModules,
+    link: input.catalog.deletionLink, revision: input.revision, subscribers: input.subscribers });
   const variantCreation = yield* prepareProductVariantInventoryWorkflow({ execution, modules: {
     product: input.catalog.modules.product, pricing: input.catalog.modules.pricing, inventory: input.catalog.modules.inventory,
     stock_location: input.catalog.modules.stock_location, link: input.catalog.modules.variant_links,
@@ -154,6 +156,10 @@ export const makeProductRequestOperations = Effect.fn("ProductRequest.makeOperat
         const args = yield* Effect.fromResult(captureCommerceInput(value).pipe(Result.flatMap(deletion.decodeInput), Result.mapError(refusal)));
         return { result: yield* deletion.run(deletion.newRequestKey(), args) };
       }
+      case "delete-product-variants": {
+        const args = yield* Effect.fromResult(captureCommerceInput(value).pipe(Result.flatMap(variantDeletion.decodeInput), Result.mapError(refusal)));
+        return { result: yield* variantDeletion.run(variantDeletion.newRequestKey(), args) };
+      }
       case "create-product-variants": {
         const args = yield* Effect.fromResult(captureCommerceInput(value).pipe(Result.flatMap(variantCreation.decodeInput), Result.mapError(refusal)));
         return { result: yield* variantCreation.run(variantCreation.newRequestKey(), args) };
@@ -176,6 +182,7 @@ export const makeProductRequestOperations = Effect.fn("ProductRequest.makeOperat
   function runWorkflow(name: "create-products", value: unknown): Effect.Effect<{ result: Effect.Success<ReturnType<typeof workflow.run>> }, CommerceTransactionError>;
   function runWorkflow(name: "update-products", value: unknown): Effect.Effect<{ result: Effect.Success<ReturnType<typeof update.run>> }, CommerceTransactionError>;
   function runWorkflow(name: "delete-products", value: unknown): Effect.Effect<{ result: null }, CommerceTransactionError>;
+  function runWorkflow(name: "delete-product-variants", value: unknown): Effect.Effect<{ result: null }, CommerceTransactionError>;
   function runWorkflow(name: "create-product-variants", value: unknown): Effect.Effect<{ result: Effect.Success<ReturnType<typeof variantCreation.run>> }, CommerceTransactionError>;
   function runWorkflow(name: "update-product-variants", value: unknown): Effect.Effect<{ result: Effect.Success<ReturnType<typeof variantUpdate.run>> }, CommerceTransactionError>;
   function runWorkflow(name: "create-product-options", value: unknown): Effect.Effect<{ result: Effect.Success<ReturnType<typeof optionCreation.run>> }, CommerceTransactionError>;
@@ -187,7 +194,7 @@ export const makeProductRequestOperations = Effect.fn("ProductRequest.makeOperat
   const remoteQuery = Effect.fn("ProductRequest.unsupportedRemoteQuery")((_value: unknown) => Effect.fail(commerceError("adapterFailure",
     new MedusaError(MedusaError.Types.INVALID_DATA, "Remote Product filters are outside the private supported profile"))));
   return Object.freeze({ runWorkflow, query: Object.freeze({ graph: read.graph, index }), remoteQuery, admitProductRefetchFields,
-    close: workflow.close.pipe(Effect.ensuring(update.close), Effect.ensuring(deletion.close), Effect.ensuring(variantCreation.close), Effect.ensuring(variantUpdate.close),
+    close: workflow.close.pipe(Effect.ensuring(update.close), Effect.ensuring(deletion.close), Effect.ensuring(variantDeletion.close), Effect.ensuring(variantCreation.close), Effect.ensuring(variantUpdate.close),
       Effect.ensuring(optionCreation.close), Effect.ensuring(optionUpdate.close), Effect.ensuring(read.close)) });
 });
 export type ProductRequestOperations = Effect.Success<ReturnType<typeof makeProductRequestOperations>>;

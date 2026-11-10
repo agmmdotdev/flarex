@@ -9,6 +9,11 @@ import { medusaLifecycle } from "../../repository/lifecycle";
 
 const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
 export const ProductLifecycleIds = Schema.Array(Id).check(Schema.isMaxLength(commerceLimits.catalogRows));
+export const ProductDeletionIds = Schema.Array(Id).check(Schema.isMaxLength(4));
+export const VariantDeletionSelector = Schema.Struct({ id: ProductDeletionIds, product_id: Id });
+export const VariantDeletionSelection = Schema.Union([ProductDeletionIds, VariantDeletionSelector]);
+export const decodeVariantDeletionSelection = commerceDecoder(VariantDeletionSelection, "invalidInput");
+const decodeVariantDeletionRepositorySelection = commerceDecoder(Schema.Tuple([VariantDeletionSelector]), "invalidInput");
 export const decodeProductLifecycleIds = commerceDecoder(Schema.Union([Id, ProductLifecycleIds]), "invalidInput");
 const decodeDelete = commerceDecoder(Schema.Struct({ $or: Schema.Array(Schema.Struct({ id: Id })).check(Schema.isMaxLength(commerceLimits.catalogRows)) }), "invalidInput");
 /** Operation-local DML cascade. The pinned repository's cascadeDelete metadata
@@ -25,7 +30,12 @@ export const changeProductLifecycle = Effect.fn("ProductAdapter.lifecycle")(func
     return yield* Effect.fail(commerceError("unsupportedProfile"));
   if (operation === "delete" && ![catalog.product, catalog.tag, catalog.type, catalog.collection, catalog.category, catalog.option, catalog.assignment].includes(entity)) return yield* Effect.fail(commerceError("unsupportedProfile"));
   const captured = yield* Effect.fromResult(captureCommerceInput(input, ctx.resources));
-  const selected = operation === "delete" ? (yield* Effect.fromResult(decodeDelete(captured))).$or.map(row => row.id)
+  // Native MedusaService wraps a filter object in a one-element array. Only
+  // this named Variant soft-delete profile admits that exact parent selector.
+  const scoped = admission === "product-deletions" && operation === "softDelete" && entity === catalog.variant &&
+    Array.isArray(captured) && captured.length === 1 && typeof captured[0] === "object"
+    ? (yield* Effect.fromResult(decodeVariantDeletionRepositorySelection(captured)))[0] : undefined;
+  const selected = scoped !== undefined ? scoped.id : operation === "delete" ? (yield* Effect.fromResult(decodeDelete(captured))).$or.map(row => row.id)
     : yield* Effect.fromResult(decodeProductLifecycleIds(captured));
   const ids = typeof selected === "string" ? [selected] : selected;
   if (admission === "type-workflows" && (operation !== "softDelete" || entity !== catalog.type || ids.length > 4))
@@ -36,6 +46,8 @@ export const changeProductLifecycle = Effect.fn("ProductAdapter.lifecycle")(func
     return yield* Effect.fail(commerceError("unsupportedProfile"));
   const { roots: loadRoots, plan, getStore, loadReferencing } = medusaLifecycle(ctx, catalog, operation);
   const roots = yield* loadRoots(entity.table, ids);
+  if (scoped !== undefined && roots.some(root => root.product_id !== scoped.product_id))
+    return yield* Effect.fail(commerceError("unsupportedProfile"));
   if (entity === catalog.category) {
     if (roots.length !== ids.length) return yield* Effect.fail(commerceError("unsupportedProfile"));
     for (const root of roots) if ((yield* loadReferencing(entity.table, ["parent_category_id"], root, ["id"]))

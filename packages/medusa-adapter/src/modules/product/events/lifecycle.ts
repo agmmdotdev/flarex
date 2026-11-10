@@ -3,7 +3,7 @@ import { Effect } from "effect";
 import { jsonEqual } from "flarex-protocol/json";
 import { commerceError, isJsonObject, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { defaultCommerceResources } from "@flarex/persistence-postgres/internal/commerce-values";
-import { decodeProductLifecycleIds } from "../lifecycle";
+import { decodeProductLifecycleIds, decodeVariantDeletionSelection } from "../lifecycle";
 import { CommonEvents } from "@medusajs/framework/utils/portable";
 import type { ProductRuntimeMetadata } from "../runtime-metadata";
 import { productModuleEventCapture } from "./capture";
@@ -120,11 +120,17 @@ export function productLogicalLifecycleEventPolicy(catalog: ProductRuntimeMetada
   const validateLogicalCall: LogicalCallReceiptValidation = Effect.fn("ProductEvents.validateLogicalLifecycle")(function* (call, activity) {
       const { mutations, lifecycle } = activity;
     if (call.commandName !== commandName || call.mode !== "write") return yield* Effect.fail(commerceError("receiptMismatch"));
-    const requested = yield* Effect.fromResult(decodeProductLifecycleIds(call.input))
+    const selection = target === "variant" && commandName === "productSoftDeleteVariantsForWorkflow"
+      ? yield* Effect.fromResult(decodeVariantDeletionSelection(call.input)).pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause))) : undefined;
+    const parent = selection !== undefined && "id" in selection ? selection.product_id : undefined;
+    const requested = selection !== undefined ? "id" in selection ? selection.id : selection : yield* Effect.fromResult(decodeProductLifecycleIds(call.input))
       .pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
     const requestedIds = new Set(typeof requested === "string" ? [requested] : requested);
     const rootTable = target === "option" ? catalog.option.table.name : target === "collection" ? catalog.collection.table.name : target === "type" ? catalog.type.table.name : target === "variant" ? catalog.variant.table.name : catalog.product.table.name;
     const evidence = lifecycleEvidence(activity);
+    if (parent !== undefined && [...(evidence.get(rootTable)?.values() ?? [])].some(row =>
+      typeof row.id === "string" && requestedIds.has(row.id) && row.deleted_at === null && row.product_id !== parent))
+      return yield* Effect.fail(commerceError("receiptMismatch"));
     const pending = eligibleRoots(evidence, rootTable, requestedIds, operation);
     const selected = new Set(pending);
     const pendingOptionValues = new Set(target === "option" ? [...(evidence.get(catalog.value.table.name) ?? [])]
@@ -201,6 +207,8 @@ export function productLogicalLifecycleEventPolicy(catalog: ProductRuntimeMetada
           (operation === "restore" && observation.beforeDeletedAt === null)) return yield* Effect.fail(commerceError("receiptMismatch"));
         matchedAttempts.add(observation.attemptOrdinal);
         row = mutation.before;
+        if (parent !== undefined && (row.product_id !== parent || mutation.after.product_id !== parent))
+          return yield* Effect.fail(commerceError("receiptMismatch"));
       }
       if (target === "product" && entity !== catalog.product) {
         const root = descendantRoot(catalog, entity, row, evidence);

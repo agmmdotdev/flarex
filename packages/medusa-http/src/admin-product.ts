@@ -60,7 +60,7 @@ export function createAdminProductHttpHandler(options: AdminProductHttpOptions):
             next()
           }],
         }, {
-          method: ["POST"], matcher: "/admin/products/:id/variants/:variant_id",
+          method: ["POST", "DELETE"], matcher: "/admin/products/:id/variants/:variant_id",
           middlewares: [(request, _response, next) => {
             options.admitProductRefetchFields(remapKeysForProduct(request.queryConfig.fields))
             next()

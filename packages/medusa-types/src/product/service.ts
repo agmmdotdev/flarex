@@ -2106,6 +2106,13 @@ export interface IProductModuleService extends IModuleService {
     sharedContext?: Context
   ): Promise<Record<string, string[]> | void>
 
+  /** Retain Product ownership in the trusted native deletion selector. */
+  softDeleteProductVariants<TReturnableLinkableKeys extends string = string>(
+    selector: { id: string[]; product_id: string },
+    config?: SoftDeleteReturn<TReturnableLinkableKeys>,
+    sharedContext?: Context
+  ): Promise<Record<string, string[]> | void>
+
   /**
    * This method is used to restore variants which were deleted using the {@link softDelete} method.
    *

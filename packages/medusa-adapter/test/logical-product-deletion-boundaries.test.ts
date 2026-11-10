@@ -4,6 +4,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { Cause, Deferred, Effect, Fiber, Schema } from "effect";
 import { ProductModuleService } from "@medusajs/product/services";
 import { PricingModuleService } from "@medusajs/pricing/services";
+import { defineCommerceCommand } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { prepareProductDeletionWorkflow, type ProductDeletionHooks } from "../src/workflows/product/deletion";
 import { prepareCoreProductDeletion } from "./support/core-product-deletion-fixture";
 
@@ -182,14 +183,16 @@ describe("Product deletion workflow authority, lifecycle and settlement boundari
     } finally { await Effect.runPromise(Deferred.succeed(release, undefined)); native.mockRestore(); }
   }, 120_000);
 
-  it("confines matching Product/Variant IDs, cascade targets and request keys to their shop", async () => {
+  it.each(["product", "variant"] as const)("confines matching %s IDs, cascade targets and request keys to their shop", async kind => {
     const other = await prepareCoreProductDeletion(driver, close => cleanup.push(close), {
       physical: connected.fixture.physical,
     });
-    const left = (await connected.seed("product-boundary-scoped"))[0]!, right = (await other.seed("product-boundary-scoped"))[0]!;
+    const prefix = "product-boundary-scoped-" + kind;
+    const left = (await connected.seed(prefix))[0]!, right = (await other.seed(prefix))[0]!;
     expect(left.id).toBe(right.id); expect(left.variants.map(variant => variant.id)).toEqual(right.variants.map(variant => variant.id));
-    const first = await connected.prepareProduct(), second = await other.prepareProduct(), key = first.newRequestKey();
-    const input = removal(left.id);
+    const first = kind === "product" ? await connected.prepareProduct() : await connected.prepareVariant();
+    const second = kind === "product" ? await other.prepareProduct() : await other.prepareVariant(), key = first.newRequestKey();
+    const input = kind === "product" ? removal(left.id) : { ids: [left.variants[0]!.id], product_id: left.id };
     expect(await Effect.runPromise(first.run(key, input))).toBeNull();
     expect(await Effect.runPromise(other.pricing.host.read(other.pricing.runtime.list, {
       filters: { id: right.variants.map(variant => variant.price_set_id) }, config: { relations: ["prices"] },
@@ -197,9 +200,63 @@ describe("Product deletion workflow authority, lifecycle and settlement boundari
     {
       const observed = await Effect.runPromise(other.creation.product.reads.read(other.creation.product.runtime.commands.internalProductList,
         { filters: { id: [right.id] }, config: { relations: ["variants"] } }));
-      expect(observed).toMatchObject([{ id: right.id, title: "product-boundary-scoped0", variants: [{ id: right.variants[0]!.id }] }]);
+      expect(observed).toMatchObject([{ id: right.id, title: prefix + "0", variants: [{ id: right.variants[0]!.id }] }]);
     }
     expect(await Effect.runPromise(second.run(key, input))).toBeNull();
     expect(await Effect.runPromise(first.run(key, input))).toBeNull();
+  }, 180_000);
+
+  it.each(["before-final-mutation", "after-final-mutation"] as const)("refuses a scoped Variant deletion after trusted parent movement %s without replaying callbacks", async timing => {
+    const [selected, destination] = await connected.seed("variant-parent-race-" + timing, 2, 2);
+    if (selected === undefined || destination === undefined) throw new Error("Missing trusted parent race endpoints");
+    const variant = selected.variants[0]!, table = connected.creation.product.runtime.metadata.variant.table.name;
+    // Public Variant updates refuse reparenting. This trusted test-only command
+    // stimulates a concurrent row change through actual Core FK/OCC settlement;
+    // it introduces no public reparent API or replacement lifecycle mechanism.
+    const move = defineCommerceCommand("testTrustedVariantParentMovement", "write", Effect.fn("Test.moveVariantParent")(function* (ctx) {
+      return yield* (yield* ctx.table(table)).write(ctx.manager, "update", [{ id: variant.id, product_id: destination.id }]);
+    }));
+    const writer = await connected.fixture.run(connected.fixture.openWriteHost("product", [move]));
+    const reached = Deferred.makeUnsafe<void>(), release = Deferred.makeUnsafe<void>();
+    const original = ProductModuleService.prototype.softDeleteProductVariants;
+    const native = vi.spyOn(ProductModuleService.prototype, "softDeleteProductVariants").mockImplementation(async function (this: ProductModuleService, ...args) {
+      if (timing === "before-final-mutation") {
+        await Effect.runPromise(Deferred.succeed(reached, undefined)); await Effect.runPromise(Deferred.await(release));
+      }
+      const result = await Reflect.apply(original, this, args);
+      if (timing === "after-final-mutation") {
+        await Effect.runPromise(Deferred.succeed(reached, undefined)); await Effect.runPromise(Deferred.await(release));
+      }
+      return result;
+    });
+    const hook = vi.fn(), host = await connected.prepareVariant({ productVariantsDeleted: hook });
+    try {
+      const before = await snapshot(), beforeOutcomes = await outcomes(), key = host.newRequestKey();
+      const beforeLinks = await connected.fixture.readRows("variant_links"), beforeInventory = await connected.fixture.readRows("inventory");
+      const outcome = await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+        const pending = yield* Effect.forkChild(Effect.exit(host.run(key, { ids: [variant.id], product_id: selected.id })));
+        yield* Deferred.await(reached).pipe(Effect.timeout(30_000));
+        yield* writer.run(writer.newRequestKey(), move, null).pipe(Effect.ensuring(Deferred.succeed(release, undefined)));
+        return yield* Fiber.join(pending);
+      })));
+      expect(outcome._tag).toBe("Failure");
+      if (outcome._tag === "Failure") expect(failurePath(outcome.cause)).toContain("writeConflict");
+      expect(native).toHaveBeenCalledTimes(1);
+      expect(native.mock.calls[0]?.[0]).toEqual({ id: [variant.id], product_id: selected.id });
+      expect(hook).toHaveBeenCalledTimes(1);
+      const after = await snapshot();
+      expect(after.events).toEqual(before.events);
+      expect(after.revisions).toHaveLength(before.revisions.length + 1);
+      expect(after.revisions.filter(row => row.timestamp > beforeOutcomes.at(-1)!.timestamp))
+        .toEqual([expect.objectContaining({ deleted: false, value: expect.objectContaining({ id: variant.id, product_id: destination.id, deleted_at: null }) })]);
+      expect(after.outcomes).toHaveLength(beforeOutcomes.length + 1);
+      expect(await Effect.runPromise(connected.pricing.host.read(connected.pricing.runtime.list, {
+        filters: { id: variant.price_set_id }, config: { relations: ["prices"] },
+      }))).toMatchObject([{ deleted_at: null, prices: [expect.anything(), expect.anything()] }]);
+      expect(await connected.fixture.readRows("variant_links")).toEqual(beforeLinks);
+      expect(await connected.fixture.readRows("inventory")).toEqual(beforeInventory);
+    } finally {
+      await Effect.runPromise(Deferred.succeed(release, undefined)); native.mockRestore(); await Effect.runPromise(writer.close);
+    }
   }, 180_000);
 });

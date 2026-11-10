@@ -6,6 +6,7 @@ import type { AdminUpdateProductVariantBody } from "../../../validators"
 import { remapKeysForProduct, remapKeysForVariant, remapProductResponse, remapVariantResponse } from "../../../helpers"
 
 const updateProductVariantsWorkflowId = "update-product-variants"
+const deleteProductVariantsWorkflowId = "delete-product-variants"
 
 export const GET = async (
   req: AuthenticatedMedusaRequest,
@@ -62,4 +63,39 @@ export const POST = async (
 
   if (!product) throw new Error("Updated Product variant parent was not returned by native refetch")
   res.status(200).json({ product: remapProductResponse(product) })
+}
+
+type DeleteProductVariantsWorkflowEngine = {
+  run(id: typeof deleteProductVariantsWorkflowId, options: {
+    input: { ids: string[]; product_id: string }
+  }): Promise<unknown>
+}
+
+export const DELETE = async (
+  req: AuthenticatedMedusaRequest,
+  res: MedusaResponse<{ id: string; object: "variant"; deleted: true; parent: ReturnType<typeof remapProductResponse> }>
+) => {
+  const productId = req.params.id
+  const variantId = req.params.variant_id
+
+  const workflowEngine = req.scope.resolve<DeleteProductVariantsWorkflowEngine>(Modules.WORKFLOW_ENGINE)
+
+  await workflowEngine.run(deleteProductVariantsWorkflowId, {
+    input: { ids: [variantId], product_id: productId },
+  })
+
+  const product = await refetchEntity<ProductTypes.ProductDTO>({
+    entity: "product",
+    idOrFilter: productId,
+    scope: req.scope,
+    fields: remapKeysForProduct(req.queryConfig.fields ?? []),
+  })
+
+  if (!product) throw new Error("Deleted Product variant parent was not returned by native refetch")
+  res.status(200).json({
+    id: variantId,
+    object: "variant",
+    deleted: true,
+    parent: remapProductResponse(product),
+  })
 }

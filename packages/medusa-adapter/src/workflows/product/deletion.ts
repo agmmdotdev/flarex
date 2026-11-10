@@ -3,7 +3,7 @@ import { deleteProductsWorkflow } from "@medusajs/core-flows/product/delete-prod
 import { deleteProductVariantsWorkflow } from "@medusajs/core-flows/product/delete-product-variants";
 import type { AtomicCommerceEvents } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
-import { ProductDeletionIds } from "../../modules/product/commands/deletion";
+import { ProductDeletionIds, ProductLifecycleIds, decodeVariantDeletionSelection } from "../../modules/product/lifecycle";
 import type { ProductDeletionWorkflowModule } from "../../modules/product/product-deletion-workflow";
 import type { makeLocalInventoryCommands } from "../../modules/inventory/service";
 import type { makeLocalPricingCommands } from "../../modules/pricing/service";
@@ -36,6 +36,7 @@ type Resources<Methods extends ProductMethods> = NativeWorkflowResources<Selecti
 type ProductSelection = readonly ["listProducts", "softDeleteProducts"];
 type VariantSelection = readonly ["softDeleteProductVariants"];
 const Input = Schema.Struct({ ids: ProductDeletionIds });
+const VariantInput = Schema.Struct({ ids: ProductDeletionIds, product_id: Schema.optionalKey(ProductLifecycleIds.value) });
 const decodeHook = commerceDecoder(Input, "invalidInput");
 const decodeIds = commerceDecoder(ProductDeletionIds, "receiptMismatch");
 type Hook<Methods extends ProductMethods> = (input: typeof Input.Type, context: NativeWorkflowContext<Resources<Methods>>) => unknown | Promise<unknown>;
@@ -105,10 +106,13 @@ export const prepareProductVariantDeletionWorkflow = Effect.fn("ProductDeletion.
     .pipe(Effect.mapError(cause => commerceError("unsupportedProfile", cause)));
   const events = orderedProductWorkflowEvents("product-variant.deleted", Effect.fn("VariantDeletion.requestedIds")(function* (calls) {
     const ids: string[] = [];
-    for (const call of calls.calls(captured.product.module.methods.softDeleteProductVariants)) ids.push(...yield* Effect.fromResult(decodeIds(call.input)));
+    for (const call of calls.calls(captured.product.module.methods.softDeleteProductVariants)) {
+      const selection = yield* Effect.fromResult(decodeVariantDeletionSelection(call.input)).pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
+      ids.push(...("id" in selection ? selection.id : selection));
+    }
     return ids;
   }));
   return yield* prepareAtomicWorkflowHost({ ...options, modules, requestCallLimit: productDeletionResources.calls,
     requestByteLimit: productDeletionResources.commandBytes, requestEventLimit: productDeletionResources.eventMessages, operationScheduling: "queued",
-    workflow: { name: "deleteProductVariantsWorkflow", resources, prepared, input: Input, output: Schema.Null, events } });
+    workflow: { name: "deleteProductVariantsWorkflow", resources, prepared, input: VariantInput, output: Schema.Null, events } });
 });

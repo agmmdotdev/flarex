@@ -4,7 +4,7 @@ import { batchProductVariantsWorkflow } from "@medusajs/core-flows/product/batch
 import type { AtomicCommerceEvents, AtomicCommerceHost, TaskAtomicCommerceHost } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError, isJsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import type { ProductBatchWorkflowModule } from "../../modules/product/product-batch-workflow";
-import { ProductDeletionIds } from "../../modules/product/commands/deletion";
+import { ProductDeletionIds } from "../../modules/product/lifecycle";
 import { ProductLifecycleIds } from "../../modules/product/lifecycle";
 import { ProductUpdateOutput, ProductUpdatePreimages, productUpdateData } from "../../modules/product/product-update-input";
 import { SimpleVariantInput, variantUpdateData } from "../../modules/product/variant-workflow-input";

@@ -48,6 +48,7 @@ const NativeOwner = makeApplicationDurableObject<NativeProductEnv, NativeFixture
         const credential = request.headers.get("x-admin-fixture-token");
         const actor = credential === env.ADMIN_PRODUCT_CREDENTIAL ? "user_native_product"
           : credential === `${env.ADMIN_PRODUCT_CREDENTIAL}-without-policy` ? "user_native_product_unprivileged"
+          : credential === `${env.ADMIN_PRODUCT_CREDENTIAL}-variant-reader` ? "user_native_variant_reader"
           : credential === `${env.ADMIN_PRODUCT_CREDENTIAL}-read-only` ? "user_native_product_reader" : undefined;
         return actor === undefined ? undefined : { actor_id: actor, actor_type: "user", auth_identity_id: "auth_native_product",
           app_metadata: {}, user_metadata: {} };
@@ -56,11 +57,14 @@ const NativeOwner = makeApplicationDurableObject<NativeProductEnv, NativeFixture
         // Pinned native middleware applies Product read to every child route;
         // variant creation and deletion add their own exact policy afterward.
         const productRead = policies.length === 1 && policies[0]?.resource === "product" && policies[0]?.operation === "read";
+        const variantRead = policies.length === 1 && policies[0]?.resource === "product_variant" && policies[0]?.operation === "read";
         if (principal.actor_id === "user_native_product_reader") return productRead;
+        if (principal.actor_id === "user_native_variant_reader") return productRead || variantRead;
         return principal.actor_id === "user_native_product" && (productRead
           || (policies.length === 1 && policies[0]?.resource === "product" && policies[0]?.operation === "delete")
           || (policies.length === 1 && policies[0]?.resource === "product_variant" && policies[0]?.operation === "create")
-          || (policies.length === 1 && policies[0]?.resource === "product_variant" && policies[0]?.operation === "read")
+          || (policies.length === 1 && policies[0]?.resource === "product_variant" && policies[0]?.operation === "delete")
+          || variantRead
           || (policies.length === 1 && policies[0]?.resource === "product_option" && policies[0]?.operation === "read")
           || (policies.length === 3 && policies.every((policy, index) => policy.resource === ["product", "inventory_item", "price"][index]
             && policy.operation === "create")));

@@ -60,6 +60,11 @@ export const adminProductRoutesMiddlewares: MiddlewareRoute[] = [{
     validateAndTransformQuery(AdminGetProductParams, QueryConfig.retrieveProductQueryConfig),
   ],
 }, {
+  method: ["DELETE"],
+  matcher: "/admin/products/:id/variants/:variant_id",
+  middlewares: [validateAndTransformQuery(AdminGetProductParams, QueryConfig.retrieveProductQueryConfig)],
+  policies: [{ resource: "product_variant", operation: "delete" }],
+}, {
   method: ["GET"],
   matcher: "/admin/products",
   middlewares: [

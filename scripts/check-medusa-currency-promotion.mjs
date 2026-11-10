@@ -14,6 +14,7 @@ import { orderCompleteSourcePairs, verifyOrderCompleteSourceSelection, verifyOrd
 import { orderChangeUpdateSourcePairs, verifyOrderChangeUpdateSourceSelection, verifyOrderChangeUpdateSource } from "./check-medusa-order-change-update-source.mjs";
 import { orderChangeDeclineSourcePairs, verifyOrderChangeDeclineSourceSelection, verifyOrderChangeDeclineSource } from "./check-medusa-order-change-decline-source.mjs";
 import { orderChangeDeletionSourcePairs, verifyOrderChangeDeletionSourceSelection, verifyOrderChangeDeletionSource } from "./check-medusa-order-change-deletion-source.mjs";
+import { variantDeletionSourcePairs, verifyVariantDeletionSourceSelection, verifyVariantDeletionSource } from "./check-medusa-variant-deletion-source.mjs";
 import { orderChangeCancellationSourcePairs, verifyOrderChangeCancellationSourceSelection, verifyOrderChangeCancellationSource } from "./check-medusa-order-change-cancellation-source.mjs";
 import { verifyOrderFinanceSelection, verifyOrderFinanceHelpers } from "./check-medusa-order-finance-source.mjs";
 import { queryKeySource, queryKeyTarget, verifyQueryKeySelection, verifyQueryKeySource } from "./check-medusa-query-key-source.mjs";
@@ -164,8 +165,8 @@ export function verifyAdminProductDetailSource(native, promoted) {
     throw new Error("Changed native Admin Product detail GET/POST/DELETE behavior");
 }
 
-/** Exact selected native collection GET/POST, with the existing post-write
- * missing-parent invariants; detail exposes native GET/POST.
+/** Exact selected native collection GET/POST and detail GET/POST/DELETE with
+ * post-write missing-parent invariants and the approved DELETE parent selector.
  * @param {string} native @param {string} promoted @param {boolean} detail */
 export function verifyAdminProductVariantSource(native, promoted, detail = false) {
   const imports = detail ? [
@@ -178,13 +179,24 @@ export function verifyAdminProductVariantSource(native, promoted, detail = false
     'import { refetchEntities, refetchEntity } from "@medusajs/framework/http"',
     'import { remapKeysForProduct, remapKeysForVariant, remapProductResponse, remapVariantResponse } from "../../helpers"',
   ];
-  let selected = selectProductRouteDeclarations(native, detail ? ["updateProductVariantsWorkflowId", "GET", "POST"] : ["createProductVariantsWorkflowId", "GET", "POST"]).join("\n");
+  let selected = selectProductRouteDeclarations(native, detail
+    ? ["updateProductVariantsWorkflowId", "deleteProductVariantsWorkflowId", "GET", "POST", "DELETE"]
+    : ["createProductVariantsWorkflowId", "GET", "POST"]).join("\n");
   const result = 'res.status(200).json({ product: remapProductResponse(product) })';
   if (selected.split(result).length !== 2) throw new Error("Missing pinned variant parent response");
   const missingParent = detail
     ? "Updated Product variant parent was not returned by native refetch"
     : "Created Product variants parent was not returned by native refetch";
   selected = selected.replace(result, `if (!product) throw new Error("${missingParent}")\n` + result);
+  if (detail) {
+    const deletionInput = 'input: { ids: [variantId] /* product_id: productId */ },';
+    if (selected.split(deletionInput).length !== 2) throw new Error("Missing pinned variant DELETE input");
+    selected = selected.replace(deletionInput, 'input: { ids: [variantId], product_id: productId },');
+    const deletionResult = 'res.status(200).json({\n    id: variantId,';
+    if (selected.split(deletionResult).length !== 2) throw new Error("Missing pinned variant DELETE response");
+    selected = selected.replace(deletionResult,
+      'if (!product) throw new Error("Deleted Product variant parent was not returned by native refetch")\n' + deletionResult);
+  }
   if (productRouteRuntime([...imports, selected].join("\n")) !== productRouteRuntime(promoted))
     throw new Error("Changed native Admin Product variant behavior");
 }
@@ -614,6 +626,7 @@ function inventory(root, relative) {
 /** @param {string} root @param {unknown} supplied @returns {Promotion} */
 export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync(path.join(root, manifestPath), "utf8"))) {
   assertPromotion(supplied);
+  verifyVariantDeletionSourceSelection(supplied.files);
   verifyTax170SourceSelection(supplied.files);
   verifyNativeDatabaseConstraintSource(root);
   verifyNativeRequiredValidationSource(root);
@@ -1236,7 +1249,7 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
       (file.source !== pinnedHttpSource(file.target) ||
         file.classification !== (currencyHandlers.has(file.target) ? "importRelocation" : "unchanged")))
       throw new Error("Store Currency routes and middleware must retain their pinned provenance");
-    if (!["unchanged", "preserved", "unchangedTest", "importRelocation", "selectedExportFacade", "storeHttpFork", "testHarnessPort", "testPort", "testFixturePort", "workflowFork", "linkFork", "productServiceFork", "inventoryServiceFork", "promotionServiceFork", "notificationServiceFork", "lockingServiceFork", "salesChannelTypeFork", "stockLocationTypeFork", "regionServiceFork", "pricingServiceFork", "nativeRepositoryFork", "storeTypeFork", "storeCreationTypeFork", "priceListCreationTypeFork", "shippingProfileWorkflowTypeFork", "csvNormalizerFork", "schemaCompilerFork", "variantItemPricingFork", "paymentJoinerFork", "workflowCacheFork", "customerSelectionFork", "cartContextReadFork", "inventoryConfirmationFork", "taxLinesFork", "taxRateCreationFork", "taxRegionCreationFork", "nativeDatabaseConstraintFork", "taxRuleCreationFork", "taxRuleDeletionFork", "taxRateDeletionFork", "taxRuleReplacementFork", "taxRateUpdateFork", "updateMetadataFork", "taxRuleCreatorTypeFork", "orderArchiveFork", "orderArchiveCompensationFork", "orderSummaryPrecisionFork", "orderCompleteFork", "orderChangeUpdateFork", "orderChangeCancellationFork", "orderChangeDeclineFork", "orderChangeDeletionFork", "orderChangeCancellationRestoreFork", "paymentSessionTypeFork", "paymentLifecycleFork", "paymentAccountingFork", "orderRefundValidationFork", "apiKeyFork", "nativeBigNumberTypeFork", "paymentCollectionWorkflowFork", "cartPaymentTotalsFork", "customerAddressUpdateFork", "cartCreationWorkflowFork", "authored"].includes(file.classification)) {
+    if (!["unchanged", "preserved", "unchangedTest", "importRelocation", "selectedExportFacade", "storeHttpFork", "testHarnessPort", "testPort", "testFixturePort", "workflowFork", "linkFork", "productServiceFork", "inventoryServiceFork", "promotionServiceFork", "notificationServiceFork", "lockingServiceFork", "salesChannelTypeFork", "stockLocationTypeFork", "regionServiceFork", "pricingServiceFork", "nativeRepositoryFork", "storeTypeFork", "storeCreationTypeFork", "priceListCreationTypeFork", "shippingProfileWorkflowTypeFork", "csvNormalizerFork", "schemaCompilerFork", "variantItemPricingFork", "paymentJoinerFork", "workflowCacheFork", "customerSelectionFork", "cartContextReadFork", "inventoryConfirmationFork", "taxLinesFork", "taxRateCreationFork", "taxRegionCreationFork", "nativeDatabaseConstraintFork", "taxRuleCreationFork", "taxRuleDeletionFork", "taxRateDeletionFork", "taxRuleReplacementFork", "taxRateUpdateFork", "updateMetadataFork", "taxRuleCreatorTypeFork", "orderArchiveFork", "orderArchiveCompensationFork", "orderSummaryPrecisionFork", "orderCompleteFork", "orderChangeUpdateFork", "orderChangeCancellationFork", "orderChangeDeclineFork", "orderChangeDeletionFork", "orderChangeCancellationRestoreFork", "paymentSessionTypeFork", "paymentLifecycleFork", "paymentAccountingFork", "orderRefundValidationFork", "apiKeyFork", "nativeBigNumberTypeFork", "parentQualifiedVariantDeletionFork", "paymentCollectionWorkflowFork", "cartPaymentTotalsFork", "customerAddressUpdateFork", "cartCreationWorkflowFork", "authored"].includes(file.classification)) {
       throw new Error(`Unadmitted source transformation: ${file.target}`);
     }
     if (file.target === "packages/medusa-pricing/src/services/pricing-module.ts" || file.classification === "pricingServiceFork") {
@@ -1374,6 +1387,9 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
           readFileSync(path.join(root, file.target), "utf8"));
       if (file.classification === nativeBigNumberSourcePair.classification)
         verifyNativeBigNumberTypeSource(readFileSync(path.join(root, file.source), "utf8"),
+          readFileSync(path.join(root, file.target), "utf8"), file.target);
+      if (variantDeletionSourcePairs.some(pair => pair.target === file.target))
+        verifyVariantDeletionSource(readFileSync(path.join(root, file.source), "utf8"),
           readFileSync(path.join(root, file.target), "utf8"), file.target);
       if (shippingNativeSources.has(file.target))
         verifyModuleTypeFork(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"));

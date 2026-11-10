@@ -105,6 +105,48 @@ describe("native Product and Variant deletion roots", () => {
     expect(await Effect.runPromise(host.run(host.newRequestKey(), { ids: ["absent-only-" + kind] }))).toBeNull();
   });
 
+  it("confines parent-qualified Variant deletion and retains matching request order and duplicate events", async () => {
+    const [selected, outside] = await connected.seed("deletion-parent", 2, 2);
+    if (selected === undefined || outside === undefined) throw new Error("Missing two native parent graphs");
+    const id = selected.variants[0]!.id, foreign = outside.variants[0]!.id, hook = vi.fn();
+    const host = await connected.prepareVariant({ productVariantsDeleted: hook });
+    const before = await snapshot();
+    expect(await Effect.runPromise(host.run(host.newRequestKey(), { ids: [foreign], product_id: selected.id }))).toBeNull();
+    expect(hook.mock.calls[0]?.[0]).toEqual({ ids: [] });
+    const { outcomes: _beforeOutcomes, ...beforeBusiness } = before;
+    const { outcomes: _afterOutcomes, ...afterBusiness } = await snapshot();
+    expect(afterBusiness).toEqual(beforeBusiness);
+    const ids = [foreign, id, "missing-parent-variant", id];
+    expect(await Effect.runPromise(host.run(host.newRequestKey(), { ids, product_id: selected.id }))).toBeNull();
+    expect(hook.mock.calls[1]?.[0]).toEqual({ ids: [id, id] });
+    const after = await snapshot();
+    expect(idsIn(after.events.slice(before.events.length).filter(event => event.envelope.contract === "product-variant.deleted"))).toEqual([id, id]);
+    const read = async (productId: string) => Effect.runPromise(connected.creation.product.reads.read(
+      connected.creation.product.runtime.commands.internalProductRetrieve, { id: productId, config: { relations: ["variants", "options", "images"] } }));
+    expect(await read(outside.id)).toMatchObject({ id: outside.id, variants: [{ id: foreign, deleted_at: null }] });
+    expect(await read(selected.id)).toMatchObject({ id: selected.id, deleted_at: null, variants: [] });
+    for (const variant of outside.variants) expect(await Effect.runPromise(connected.pricing.host.read(connected.pricing.runtime.list,
+      { filters: { id: variant.price_set_id }, config: { relations: ["prices"] } }))).toMatchObject([{ deleted_at: null, prices: [expect.anything(), expect.anything()] }]);
+    for (const variant of selected.variants) expect(await Effect.runPromise(connected.pricing.host.read(connected.pricing.runtime.list,
+      { filters: { id: variant.price_set_id }, config: { withDeleted: true, relations: ["prices"] } }))).toMatchObject([{ deleted_at: expect.any(String) }]);
+    const inventory = await connected.fixture.readRows("inventory");
+    for (const item of itemIds("deletion-parent", 2)) expect(inventory.find(row => row.id === item)).toMatchObject({
+      deleted_at: itemIds("deletion-parent", 1).includes(item) ? expect.any(String) : null,
+    });
+  });
+
+  it("rolls back a parent-qualified Variant's Link and Pricing changes when its completion hook throws", async () => {
+    const selected = (await connected.seed("deletion-parent-hook", 1, 2))[0]!;
+    const error = new Error("Scoped deletion hook failed"), hook = vi.fn(() => { throw error; });
+    const host = await connected.prepareVariant({ productVariantsDeleted: hook });
+    const before = await snapshot();
+    expectWorkflowDefect(await Effect.runPromise(Effect.exit(host.run(host.newRequestKey(), {
+      ids: [selected.variants[0]!.id], product_id: selected.id,
+    }))), error);
+    expect(hook).toHaveBeenCalledTimes(1);
+    expect(await snapshot()).toEqual(before);
+  });
+
   it.each(["product", "variant"] as const)("retains native reservation refusal ordering and rolls back the whole %s root", async kind => {
     const prefix = "deletion-reserved-" + kind, seeded = await connected.seed(prefix, 1, 2), inventoryIds = itemIds(prefix, 1);
     await connected.seedStock(prefix, inventoryIds, 1);

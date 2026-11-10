@@ -113,15 +113,12 @@ describe("selected pinned Admin Product variant routes", () => {
     expect(denied.graph).not.toHaveBeenCalled()
   })
 
-  it("does not replay workflow failures or missing-parent errors and exposes no variant delete", async () => {
+  it("does not replay variant creation failures or missing-parent errors", async () => {
     for (const options of [{ workflowError: true }, { missingParent: true }]) {
       const f = fixture(options)
       expect((await f.handler.handle(request("", "", { title: "Created", prices: [] }))).status).toBe(options.workflowError ? 400 : 500)
       expect(f.run).toHaveBeenCalledTimes(1)
       expect(f.graph).toHaveBeenCalledTimes(options.workflowError ? 0 : 1)
     }
-    const f = fixture()
-    expect((await f.handler.handle(request("/variant_managed", "", undefined, "DELETE"))).status).toBe(404)
-    expect(f.run).not.toHaveBeenCalled()
   })
 })

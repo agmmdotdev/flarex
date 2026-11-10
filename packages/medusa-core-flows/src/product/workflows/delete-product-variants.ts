@@ -13,7 +13,7 @@ import { emitEventStep } from "../../common/steps/emit-event"
 import { removeRemoteLinkStep } from "../../common/steps/remove-remote-links"
 import { useQueryGraphStep } from "../../common/steps/use-query-graph"
 import { deletionVariantRows } from "./product-deletion-query"
-import { deleteProductVariantsStep } from "../steps/delete-product-variants"
+import { deleteProductVariantsStep, type DeleteProductVariantsStepInput } from "../steps/delete-product-variants"
 import { deleteInventoryItemWorkflow } from "../../inventory/workflows/delete-inventory-items"
 
 /**
@@ -24,6 +24,8 @@ export type DeleteProductVariantsWorkflowInput = {
    * The IDs of the variants to delete.
    */
   ids: string[]
+  /** Restrict the complete deletion graph to variants owned by this Product. */
+  product_id?: string
 }
 
 export const deleteProductVariantsWorkflowId = "delete-product-variants"
@@ -61,19 +63,30 @@ export const deleteProductVariantsWorkflow = createWorkflow(
         "inventory.id",
         "inventory.variants.id",
       ],
-      filters: {
-        id: input.ids,
-      },
+      filters: transform({ input }, ({ input }) => input.product_id === undefined
+        ? { id: input.ids }
+        : { id: input.ids, product_id: input.product_id }),
     }), response => ({ ...response, data: deletionVariantRows(response.data) }))
 
+    const effectiveIds = transform(
+      { input, variants: variantsWithInventoryStepResponse.data },
+      ({ input, variants }) => {
+        if (input.product_id === undefined) return input.ids
+        const matchingIds = new Set(variants.map(variant => variant.id))
+        return input.ids.filter(id => matchingIds.has(id))
+      }
+    )
+
     removeRemoteLinkStep({
-      [Modules.PRODUCT]: { variant_id: input.ids },
+      [Modules.PRODUCT]: { variant_id: effectiveIds },
     }).config({ name: "remove-variant-link-step" })
 
     const toDeleteInventoryItemIds = transform(
-      { variants: variantsWithInventoryStepResponse.data },
+      { input, effectiveIds, variants: variantsWithInventoryStepResponse.data },
       (data) => {
-        const variants = data.variants || []
+        const variants = data.input.product_id === undefined
+          ? data.variants || []
+          : (data.variants || []).filter(variant => data.effectiveIds.includes(variant.id))
 
         const variantsMap = new Map(variants.map((v) => [v.id, true]))
         const toDeleteIds: Set<string> = new Set()
@@ -101,10 +114,16 @@ export const deleteProductVariantsWorkflow = createWorkflow(
       input: toDeleteInventoryItemIds,
     })
 
-    const deletedProductVariants = deleteProductVariantsStep(input.ids)
+    const variantDeletionInput = transform(
+      { input, effectiveIds },
+      ({ input, effectiveIds }): DeleteProductVariantsStepInput => input.product_id === undefined
+        ? effectiveIds
+        : { id: effectiveIds, product_id: input.product_id }
+    )
+    const deletedProductVariants = deleteProductVariantsStep(variantDeletionInput)
 
-    const variantIdEvents = transform({ input }, ({ input }) => {
-      return input.ids?.map((id) => {
+    const variantIdEvents = transform({ effectiveIds }, ({ effectiveIds }) => {
+      return effectiveIds?.map((id) => {
         return { id }
       })
     })
@@ -115,7 +134,7 @@ export const deleteProductVariantsWorkflow = createWorkflow(
     })
 
     const productVariantsDeleted = createHook("productVariantsDeleted", {
-      ids: input.ids,
+      ids: effectiveIds,
     })
 
     return new WorkflowResponse(deletedProductVariants, {

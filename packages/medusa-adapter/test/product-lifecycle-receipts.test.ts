@@ -79,6 +79,23 @@ describe("Product lifecycle receipt root coverage", () => {
     await refused(policy, call, { ...activity, lifecycle: [] });
   });
 
+  it("binds scoped Variant deletion receipts to the authoritative parent before and after their lifecycle transition", async () => {
+    const change = transition(catalog.variant, { id: "variant", product_id: "product", deleted_at: null });
+    const activity = activityFor(change), command = "productSoftDeleteVariantsForWorkflow";
+    const policy = productLogicalLifecycleEventPolicy(catalog, "softDelete", "variant", command).validateLogicalCall;
+    const call = receipt(command, { id: ["variant", "variant"], product_id: "product" },
+      { variant_id: ["variant"], product_variant_id: ["variant"] }, activity, [event(catalog.variant, "variant")]);
+    await Effect.runPromise(policy(call, activity));
+    await refused(policy, { ...call, input: { id: ["variant"], product_id: "foreign" } }, activity);
+    await refused(policy, call, { ...activity, mutations: [{ ...change.mutation,
+      after: { ...change.mutation.after, product_id: "foreign" } }] });
+    await refused(policy, call, { ...activity, mutations: [{ ...change.mutation,
+      before: { ...change.mutation.before, product_id: "foreign" } }] });
+    const observed: Activity = { ...empty(), observedRows: [{ table: catalog.variant.table.name,
+      row: { id: "variant", product_id: "foreign", deleted_at: null } }] };
+    await refused(policy, receipt(command, { id: ["variant"], product_id: "product" }, {}, observed), observed);
+  });
+
   it("coalesces internal requests while requiring every eligible root lifecycle observation", async () => {
     const change = transition(catalog.product, { id: "product", deleted_at: null }), activity = activityFor(change);
     const policy = productLogicalInternalProductLifecycleEventPolicy(catalog, "softDelete");

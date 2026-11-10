@@ -4,13 +4,12 @@ import { commerceError } from "@flarex/persistence-postgres/internal/commerce-va
 import { commerceServiceCommands, commerceCommandPreparation } from "../../../module/commands";
 import { commerceDecoder } from "../../../value/decoder";
 import type { ProductCommandServices } from "./services";
-import { ProductLifecycleIds } from "../lifecycle";
+import { ProductLifecycleIds, ProductDeletionIds, decodeVariantDeletionSelection } from "../lifecycle";
 import { decodeProductFindConfig } from "../service-input";
 
-export const ProductDeletionIds = Schema.Array(ProductLifecycleIds.value).check(Schema.isMaxLength(4));
 const decodeIds = commerceDecoder(ProductDeletionIds, "invalidInput");
 const Read = Schema.Struct({ filters: Schema.Struct({ id: Schema.Union([ProductLifecycleIds.value,
-  Schema.Array(ProductLifecycleIds.value).check(Schema.isMaxLength(32))]) }), config: Schema.optionalKey(Schema.JsonObject) });
+  Schema.Array(ProductLifecycleIds.value).check(Schema.isMaxLength(32))]), product_id: Schema.optionalKey(ProductLifecycleIds.value) }), config: Schema.optionalKey(Schema.JsonObject) });
 const decodeRead = commerceDecoder(Read, "invalidInput");
 
 /** Named native methods retain empty/missing/duplicate request semantics while
@@ -26,10 +25,10 @@ export function productDeletionCommands({ withDeletionService, withService }: Pr
   return {
     softDeleteProducts: commands.write("productSoftDeleteProductsForWorkflow", prepare(decodeIds), async ({ service, context }, ids) =>
       (await service.softDeleteProducts([...ids], {}, context)) ?? null),
-    softDeleteVariants: commands.write("productSoftDeleteVariantsForWorkflow", prepare(decodeIds), async ({ service, context }, ids) =>
-      (await service.softDeleteProductVariants([...ids], {}, context)) ?? null),
+    softDeleteVariants: commands.write("productSoftDeleteVariantsForWorkflow", prepare(decodeVariantDeletionSelection), async ({ service, context }, selection) =>
+      (await service.softDeleteProductVariants("id" in selection ? { ...selection, id: [...selection.id] } : [...selection], {}, context)) ?? null),
     countVariants: reads.read("productVariantDeletionCount", readInput, ({ service, context }, args) => service.listAndCountProductVariants(
-      { id: typeof args.filters.id === "string" ? args.filters.id : [...args.filters.id] },
+      { ...args.filters, id: typeof args.filters.id === "string" ? args.filters.id : [...args.filters.id] },
       args.config as FindConfig<ProductTypes.ProductVariantDTO> | undefined, context)),
   };
 }

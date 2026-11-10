@@ -28,7 +28,7 @@ deployment or establish performance/scale acceptance.
 
 The pinned native inventory contains 51 Admin catalog method endpoints in 29
 route files: Products (28), global Product Variants (1), Product Types (5),
-Product Tags (5), Product Categories (6), and Collections (6). Thirteen Product,
+Product Tags (5), Product Categories (6), and Collections (6). Fourteen Product,
 nested Variant and Option endpoints are promoted. The goal also inventories the
 two Product association endpoints owned by Sales Channel and Price List and the
 two Store Product reads. Store Product list/detail are included in the goal.
@@ -37,7 +37,7 @@ their own adoption scopes.
 
 | Slice | Remaining native HTTP work | State |
 | --- | --- | --- |
-| Variant lifecycle | Detail update connected; deletion requires parent-qualified workflow semantics | Deletion pending |
+| Variant lifecycle | Collection/detail reads, creation, update and parent-qualified deletion connected | Connected |
 | Product options | Collection list/create and detail retrieve/update connected; deletion requires parent-qualified workflow semantics | Deletion pending |
 | Product associations | Both Image/Variant batch directions; Variant Inventory Link create/update/delete/batch | Pending |
 | Product batches | Product batch and nested Variant batch | Pending |
@@ -52,8 +52,8 @@ workflow/query owner and persistence proof, plus affected PGlite, ordinary-role
 PostgreSQL and actual Workerd/DO coverage. An unimplemented runtime/provider
 cannot be counted as a completed route merely because its handler is selected.
 
-Known parent-ownership gaps must be resolved within the mutation owner: native
-Variant/Option deletion, Image/Variant associations, Variant Inventory Link
+Known remaining parent-ownership gaps must be resolved within the mutation owner:
+Option deletion, Image/Variant associations, Variant Inventory Link
 mutations and Variant batch delete currently omit the route's Product ID.
 Separate HTTP reads followed by ID-only mutations are not the resolution.
 
@@ -107,8 +107,19 @@ Variant read policies apply. Existing Pricing and Inventory Link lifecycle
 owners handle partial price updates and disabling inventory management without
 changing unrelated variants. The bounded selector-update profile refuses a body
 `id` before acquisition; the pinned HTTP schema accepts it, but native service
-normalization can use it to override the selected ID. Nested Variant deletion
-remains unpromoted.
+normalization can use it to override the selected ID.
+
+Nested Variant deletion uses the approved
+[parent-qualified mutation correction](./preflight/product-http-parent-qualified-mutations.md).
+The native query, Link/Pricing cascade, Inventory ownership calculation, final
+Product selector, events and hook use the same parent-qualified selection.
+The actual lifecycle refuses a live parent mismatch before applying transitions;
+the trusted root and existing Core OCC own rollback and concurrent conflicts.
+Wrong-parent, missing and already-deleted scoped children produce no business
+changes or deletion events and retain the native-shaped success envelope and
+independent parent refetch. Existing unscoped requested-ID behavior remains.
+Product read, Variant read and Variant delete policies remain native, and the
+response projection is admitted before mutation.
 
 Product Option collection/detail reads preserve native field defaults, parent
 selectors and count/page envelopes on the existing Product graph. Creation and
