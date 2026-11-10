@@ -99,6 +99,29 @@ eight-Inventory-Item-ID cohort limit; larger cohorts return HTTP 400, including
 when a default list page exceeds those limits.
 Variant deletion remains unselected.
 
+Product Option collection and detail routes serve native `GET` and `POST`.
+Reads use the `product_option` graph entry point, retain the parent filter,
+and return native `product_options` list metadata or `product_option` detail.
+Default fields are `id,title`; explicit fields can include the native Value
+relation. The graph retains its existing ID ordering and query bounds.
+A missing or wrong-parent detail retains the native empty-object HTTP 200.
+
+Option creation runs `create-product-options` with the URL Product ID; update
+runs `update-product-options` with both Option and Product IDs. Each validates
+its parent response projection before mutation, then refetches independently.
+Native policies require Product read on both routes and additionally Product
+Option read on detail; the pin adds no separate create or update policy.
+The existing workflow profile admits at most four Options and four Values per
+Option in one input. Omitted update Values retain their identities; matching
+strings reuse existing identities, while explicit `values: []` clears Values
+and their Variant pivots through native replacement. Pricing and Inventory
+links keep their own lifecycle. Wrong-parent updates return the unchanged
+parent. Option deletion remains unselected pending parent-qualified deletion.
+The bounded Option update workflow also refuses a body `id` with HTTP 400 before
+acquisition, including a matching ID; native normalization could otherwise
+override the selector. The HTTP Option bodies reject `metadata`, while direct
+private Option workflow inputs support it.
+
 Both reads require a verified native user and the native Product read policy.
 The detail route returns the native `Product not found` response when the graph
 contains no Product. The list route retains the pinned validators, default limit

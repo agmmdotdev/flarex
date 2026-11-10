@@ -61,6 +61,7 @@ const NativeOwner = makeApplicationDurableObject<NativeProductEnv, NativeFixture
           || (policies.length === 1 && policies[0]?.resource === "product" && policies[0]?.operation === "delete")
           || (policies.length === 1 && policies[0]?.resource === "product_variant" && policies[0]?.operation === "create")
           || (policies.length === 1 && policies[0]?.resource === "product_variant" && policies[0]?.operation === "read")
+          || (policies.length === 1 && policies[0]?.resource === "product_option" && policies[0]?.operation === "read")
           || (policies.length === 3 && policies.every((policy, index) => policy.resource === ["product", "inventory_item", "price"][index]
             && policy.operation === "create")));
       },

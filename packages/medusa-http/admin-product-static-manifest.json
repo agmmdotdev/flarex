@@ -16,6 +16,12 @@
     },
     {
       "relativePath": "packages/medusa-http/src/api/admin/products/[id]/variants/[variant_id]/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa-http/src/api/admin/products/[id]/options/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa-http/src/api/admin/products/[id]/options/[option_id]/route.ts"
     }
   ],
   "middlewares": [

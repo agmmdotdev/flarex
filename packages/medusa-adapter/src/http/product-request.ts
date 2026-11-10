@@ -32,6 +32,7 @@ import { prepareProductUpdateWorkflow } from "../workflows/product/update";
 import { prepareProductDeletionWorkflow } from "../workflows/product/deletion";
 import { prepareProductVariantInventoryWorkflow } from "../workflows/product/variant-inventory";
 import { prepareProductVariantUpdateWorkflow } from "../workflows/product/variant-update";
+import { prepareProductOptionCreationWorkflow, prepareProductOptionUpdateWorkflow } from "../workflows/product/option-workflows";
 import { captureCommerceInput } from "../value/input";
 import type { AtomicWorkflowExecution } from "../workflow/host";
 import { makeProductRequestReads } from "./product-request-reads";
@@ -93,9 +94,10 @@ export const compileProductRequestCatalog = Effect.fn("ProductRequest.compileCat
   const variantUpdateModules = Object.freeze({ product: { module: product.variantUpdateWorkflow, nativeStorage: productSource.source },
     pricing: { module: variantUpdatePricing.workflow, nativeStorage: pricingSource.source },
     variant_links: { module: variantUpdateLinks.workflow, nativeStorage: variantLinksSource.source } });
+  const optionModules = Object.freeze({ product: { module: product.productOptionWorkflow, nativeStorage: productSource.source } });
   return Object.freeze({ target: Object.freeze({ ...target }), sources, productSource, productRuntime: product,
     runtimes: Object.freeze({ product, pricing, inventory, inventoryReads, stock, sales, fulfillment, productLinks, variantLinks }), modules, link, updateModules, updateLink,
-    deletionModules, deletionLink, variantUpdateModules, variantUpdateNativeLinks: variantUpdateLinks.nativeServices, bundle, eventDefinition });
+    deletionModules, deletionLink, variantUpdateModules, variantUpdateNativeLinks: variantUpdateLinks.nativeServices, optionModules, bundle, eventDefinition });
 });
 export type ProductRequestCatalog = Effect.Success<ReturnType<typeof compileProductRequestCatalog>>;
 
@@ -123,6 +125,10 @@ export const makeProductRequestOperations = Effect.fn("ProductRequest.makeOperat
   }, revision: input.revision, subscribers: input.subscribers });
   const variantUpdate = yield* prepareProductVariantUpdateWorkflow({ execution, modules: input.catalog.variantUpdateModules,
     nativeLinks: input.catalog.variantUpdateNativeLinks, revision: input.revision, subscribers: input.subscribers });
+  const optionCreation = yield* prepareProductOptionCreationWorkflow({ execution, modules: input.catalog.optionModules,
+    revision: input.revision, subscribers: input.subscribers });
+  const optionUpdate = yield* prepareProductOptionUpdateWorkflow({ execution, modules: input.catalog.optionModules,
+    revision: input.revision, subscribers: input.subscribers });
   const read = yield* makeProductRequestReads(input);
   const admitProductRefetchFields = (fields: readonly string[]): void => {
     Result.getOrThrowWith(read.admitProductRefetchFields(fields), cause => new MedusaError(MedusaError.Types.INVALID_DATA,
@@ -133,7 +139,7 @@ export const makeProductRequestOperations = Effect.fn("ProductRequest.makeOperat
     // refusal is caller input outside the admitted HTTP profile; later native
     // failures, defects and settlement uncertainty retain their own channels.
     const refusal = (cause: unknown) => commerceError("adapterFailure", new MedusaError(MedusaError.Types.INVALID_DATA,
-      "Product workflow input is outside the private supported profile: up to 4 products or deletion IDs, 1 option, 4 variants total, and 2 prices per variant.",
+      "Product workflow input is outside the private supported profile; each workflow retains its existing bounded input contract.",
       undefined, "Product workflow admission refused", { cause }));
     switch (name) {
       case "create-products": {
@@ -156,6 +162,14 @@ export const makeProductRequestOperations = Effect.fn("ProductRequest.makeOperat
         const args = yield* Effect.fromResult(captureCommerceInput(value).pipe(Result.flatMap(variantUpdate.decodeInput), Result.mapError(refusal)));
         return { result: yield* variantUpdate.run(variantUpdate.newRequestKey(), args) };
       }
+      case "create-product-options": {
+        const args = yield* Effect.fromResult(captureCommerceInput(value).pipe(Result.flatMap(optionCreation.decodeInput), Result.mapError(refusal)));
+        return { result: yield* optionCreation.run(optionCreation.newRequestKey(), args) };
+      }
+      case "update-product-options": {
+        const args = yield* Effect.fromResult(captureCommerceInput(value).pipe(Result.flatMap(optionUpdate.decodeInput), Result.mapError(refusal)));
+        return { result: yield* optionUpdate.run(optionUpdate.newRequestKey(), args) };
+      }
       default: return yield* commerceError("unsupportedProfile");
     }
   });
@@ -164,6 +178,8 @@ export const makeProductRequestOperations = Effect.fn("ProductRequest.makeOperat
   function runWorkflow(name: "delete-products", value: unknown): Effect.Effect<{ result: null }, CommerceTransactionError>;
   function runWorkflow(name: "create-product-variants", value: unknown): Effect.Effect<{ result: Effect.Success<ReturnType<typeof variantCreation.run>> }, CommerceTransactionError>;
   function runWorkflow(name: "update-product-variants", value: unknown): Effect.Effect<{ result: Effect.Success<ReturnType<typeof variantUpdate.run>> }, CommerceTransactionError>;
+  function runWorkflow(name: "create-product-options", value: unknown): Effect.Effect<{ result: Effect.Success<ReturnType<typeof optionCreation.run>> }, CommerceTransactionError>;
+  function runWorkflow(name: "update-product-options", value: unknown): Effect.Effect<{ result: Effect.Success<ReturnType<typeof optionUpdate.run>> }, CommerceTransactionError>;
   function runWorkflow(name: string, value: unknown): ReturnType<typeof executeWorkflow>;
   function runWorkflow(name: string, value: unknown): ReturnType<typeof executeWorkflow> { return executeWorkflow(name, value); }
   const index = Effect.fn("ProductRequest.unsupportedIndex")(() => Effect.fail(commerceError("adapterFailure",
@@ -171,7 +187,8 @@ export const makeProductRequestOperations = Effect.fn("ProductRequest.makeOperat
   const remoteQuery = Effect.fn("ProductRequest.unsupportedRemoteQuery")((_value: unknown) => Effect.fail(commerceError("adapterFailure",
     new MedusaError(MedusaError.Types.INVALID_DATA, "Remote Product filters are outside the private supported profile"))));
   return Object.freeze({ runWorkflow, query: Object.freeze({ graph: read.graph, index }), remoteQuery, admitProductRefetchFields,
-    close: workflow.close.pipe(Effect.ensuring(update.close), Effect.ensuring(deletion.close), Effect.ensuring(variantCreation.close), Effect.ensuring(variantUpdate.close), Effect.ensuring(read.close)) });
+    close: workflow.close.pipe(Effect.ensuring(update.close), Effect.ensuring(deletion.close), Effect.ensuring(variantCreation.close), Effect.ensuring(variantUpdate.close),
+      Effect.ensuring(optionCreation.close), Effect.ensuring(optionUpdate.close), Effect.ensuring(read.close)) });
 });
 export type ProductRequestOperations = Effect.Success<ReturnType<typeof makeProductRequestOperations>>;
 

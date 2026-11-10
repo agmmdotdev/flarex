@@ -16,6 +16,21 @@ export const listVariantConfig = {
   entity: "product_variant",
 }
 
+export const defaultAdminProductsOptionFields = ["id", "title"]
+
+export const retrieveOptionConfig = {
+  defaults: defaultAdminProductsOptionFields,
+  isList: false,
+  entity: "product_option",
+}
+
+export const listOptionConfig = {
+  ...retrieveOptionConfig,
+  defaultLimit: 50,
+  isList: true,
+  entity: "product_option",
+}
+
 export const defaultAdminProductFields = [
   "id",
   "title",

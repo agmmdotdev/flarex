@@ -1,7 +1,7 @@
 import { maybeApplyLinkFilter, validateAndTransformBody, validateAndTransformQuery, type MiddlewareRoute } from "@medusajs/framework/http"
 import { FeatureFlag } from "@medusajs/utils/feature-flags/flag-router"
 import * as QueryConfig from "./query-config"
-import { AdminCreateProduct, AdminCreateProductVariant, AdminGetProductParams, AdminGetProductVariantParams, AdminGetProductsParams, AdminUpdateProduct, AdminUpdateProductVariant } from "./validators"
+import { AdminCreateProduct, AdminCreateProductOption, AdminCreateProductVariant, AdminGetProductOptionParams, AdminGetProductOptionsParams, AdminGetProductParams, AdminGetProductVariantParams, AdminGetProductsParams, AdminUpdateProduct, AdminUpdateProductOption, AdminUpdateProductVariant } from "./validators"
 import { AdminGetProductVariantsParams } from "../product-variants/validators"
 import { maybeApplyPriceListsFilter } from "./utils/maybe-apply-price-lists-filter"
 
@@ -11,6 +11,31 @@ export const adminProductRoutesMiddlewares: MiddlewareRoute[] = [{
 }, {
   matcher: "/admin/products/*/variants/*",
   policies: [{ resource: "product_variant", operation: "read" }],
+}, {
+  matcher: "/admin/products/*/options/*",
+  policies: [{ resource: "product_option", operation: "read" }],
+}, {
+  method: ["GET"],
+  matcher: "/admin/products/:id/options",
+  middlewares: [validateAndTransformQuery(AdminGetProductOptionsParams, QueryConfig.listOptionConfig)],
+}, {
+  method: ["GET"],
+  matcher: "/admin/products/:id/options/:option_id",
+  middlewares: [validateAndTransformQuery(AdminGetProductOptionParams, QueryConfig.retrieveOptionConfig)],
+}, {
+  method: ["POST"],
+  matcher: "/admin/products/:id/options",
+  middlewares: [
+    validateAndTransformBody(AdminCreateProductOption),
+    validateAndTransformQuery(AdminGetProductParams, QueryConfig.retrieveProductQueryConfig),
+  ],
+}, {
+  method: ["POST"],
+  matcher: "/admin/products/:id/options/:option_id",
+  middlewares: [
+    validateAndTransformBody(AdminUpdateProductOption),
+    validateAndTransformQuery(AdminGetProductParams, QueryConfig.retrieveProductQueryConfig),
+  ],
 }, {
   method: ["GET"],
   matcher: "/admin/products/:id/variants",

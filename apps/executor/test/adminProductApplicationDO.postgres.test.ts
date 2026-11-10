@@ -61,6 +61,12 @@ const decodeVariantInventory = Schema.decodeUnknownSync(Schema.Struct({ variants
     inventory: Schema.Struct({ id: Schema.NonEmptyString, sku: Schema.String }) })) })) }));
 const decodeVariantQuantities = Schema.decodeUnknownSync(Schema.Struct({ variants: Schema.Array(Schema.Struct({
   id: Schema.NonEmptyString, manage_inventory: Schema.Boolean, inventory_quantity: Schema.optionalKey(Schema.Number) })) }));
+const nativeOption = Schema.Struct({ id: Schema.NonEmptyString, product_id: Schema.NonEmptyString, title: Schema.String,
+  values: Schema.Array(Schema.Struct({ id: Schema.NonEmptyString, option_id: Schema.NonEmptyString, value: Schema.String })) });
+const decodeNativeOption = Schema.decodeUnknownSync(Schema.Struct({ product_option: nativeOption }));
+const decodeNativeOptions = Schema.decodeUnknownSync(Schema.Struct({ product_options: Schema.Array(nativeOption),
+  count: Schema.Number, offset: Schema.Number, limit: Schema.Number }));
+const optionFields = "id,product_id,title,values.id,values.value,values.option_id";
 
 /** A fresh native-ready tenant per test. The benchmark keeps its one runtime
  * open throughout warmup and measurement; independent observation requires close. */
@@ -1099,6 +1105,148 @@ describe.runIf(endpoints !== undefined)("native-ready private Admin Product in t
     finally {
       try { await fixture.close(); }
       catch (cause) { throw new AggregateError([...primary, cause], "Admin Product variant update proof cleanup failed"); }
+    }
+  }, 360_000);
+
+  it("creates, reads and updates native Product options and Value identities through the DO across recreation", async () => {
+    const fixture = await createAdminProductDOFixture();
+    const primary: unknown[] = [];
+    try {
+      fixture.start();
+      const created = [];
+      for (const [name, amount] of [["First", 1122], ["Other", 7788]] as const) {
+        const response = await fixture.request({ title: `${name} Option Parent`, handle: `${name.toLowerCase()}-option-parent`,
+          options: [{ title: "Size", values: ["Small", "Large"] }], variants: [{ title: `${name} Small`,
+            sku: `OPTION-${name.toUpperCase()}`, options: { Size: "Small" }, prices: [{ currency_code: "usd", amount }] }] },
+        { private: true, admin: adminCredential, path: "/admin/products" });
+        expect(response.status, await response.clone().text()).toBe(200);
+        const body: unknown = await response.json();
+        const product = decodeProduct(body).product, variant = decodeVariants(body).product.variants[0], option = product.options[0];
+        if (variant === undefined || option === undefined) throw new Error("Native option seed omitted its Variant or Option");
+        created.push({ product, variant, option });
+      }
+      const first = created[0], other = created[1];
+      if (first === undefined || other === undefined) throw new Error("Expected two native Option parents");
+      const collection = `/admin/products/${first.product.id}/options`;
+      const detail = `${collection}/${first.option.id}`;
+      const post = (target: string, body: unknown, admin = adminCredential) =>
+        fixture.request(body, { private: true, admin, path: target });
+      await fixture.stop();
+      const before = await fixture.observe();
+
+      fixture.start();
+      const defaults = await fixture.get(collection, { private: true, admin: `${adminCredential}-read-only` });
+      expect(defaults.status, await defaults.clone().text()).toBe(200);
+      expect(await defaults.json()).toEqual({ product_options: [{ id: first.option.id, title: "Size" }], count: 1, offset: 0, limit: 50 });
+      const rich = await fixture.get(`${detail}?fields=${optionFields}`);
+      expect(rich.status, await rich.clone().text()).toBe(200);
+      expect(decodeNativeOption(await rich.json()).product_option).toEqual({ ...first.option, product_id: first.product.id,
+        values: expect.arrayContaining(first.option.values.map(value => ({ ...value, option_id: first.option.id }))) });
+      const wrongGet = await fixture.get(`${collection}/${other.option.id}`);
+      expect(wrongGet.status, await wrongGet.clone().text()).toBe(200);
+      expect(await wrongGet.json()).toEqual({});
+      for (const target of [collection, detail]) {
+        expect((await fixture.get(target, { admin: adminCredential })).status).toBe(401);
+        expect((await fixture.get(target, { private: true })).status).toBe(401);
+        expect((await fixture.get(target, { private: true, admin: "invalid-admin" })).status).toBe(401);
+        expect((await fixture.get(target, { private: true, admin: `${adminCredential}-without-policy` })).status).toBe(403);
+        expect((await fixture.get(`${target}?fields=unsupported_field`)).status).toBe(400);
+        expect((await post(target, { title: 42 })).status).toBe(400);
+        expect((await post(target, { title: "Refused", values: [], metadata: { outside: "native-http-schema" } })).status).toBe(400);
+        expect((await post(target, { title: "Refused", values: ["1", "2", "3", "4", "5"] })).status).toBe(400);
+        expect((await post(`${target}?fields=unsupported_field`, { title: "Refused", values: [] })).status).toBe(400);
+      }
+      expect((await fixture.get(detail, { private: true, admin: `${adminCredential}-read-only` })).status).toBe(403);
+      expect((await post(detail, { title: "Refused" }, `${adminCredential}-read-only`)).status).toBe(403);
+      for (const id of [first.option.id, other.option.id])
+        expect((await post(detail, { id, title: "Cannot override the selector" })).status).toBe(400);
+      expect((await fixture.get(`${collection}?limit=invalid`)).status).toBe(400);
+      await fixture.stop();
+      expect(await fixture.observe()).toEqual(before);
+
+      fixture.start();
+      const wrongUpdate = await post(`${collection}/${other.option.id}`, { title: "Must not replace other Values", values: [] });
+      expect(wrongUpdate.status, await wrongUpdate.clone().text()).toBe(200);
+      expect(decodeProduct(await wrongUpdate.json()).product.options).toEqual(first.product.options);
+      await fixture.stop();
+      const wrongSelected = await fixture.observe();
+      const { outcomes: _beforeOutcomes, publishedTimestamp: _beforeTimestamp, ...beforeData } = before;
+      const { outcomes: _wrongOutcomes, publishedTimestamp: _wrongTimestamp, ...wrongData } = wrongSelected;
+      expect(wrongData).toEqual(beforeData);
+
+      fixture.start();
+      const incarnation = await fixture.probeIncarnation();
+      const create = await post(collection, { title: "Material", values: ["Cotton", "Wool"],
+        additional_data: { origin: "native-do-options" } });
+      expect(create.status, await create.clone().text()).toBe(200);
+      const parent = decodeProduct(await create.json()).product;
+      const material = parent.options.find(option => option.title === "Material");
+      if (material === undefined) throw new Error("Native Option creation omitted its Option");
+      expect(parent).toMatchObject({ id: first.product.id, title: first.product.title });
+      expect(material.values.map(value => value.value).sort()).toEqual(["Cotton", "Wool"]);
+      const materialPath = `${collection}/${material.id}`;
+      const rename = await post(materialPath, { title: "Fabric" });
+      expect(rename.status, await rename.clone().text()).toBe(200);
+      expect(decodeProduct(await rename.json()).product.options.find(option => option.id === material.id))
+        .toEqual({ ...material, title: "Fabric" });
+      const replace = await post(materialPath, { values: ["Cotton", "Linen"] });
+      expect(replace.status, await replace.clone().text()).toBe(200);
+      const replaced = decodeProduct(await replace.json()).product.options.find(option => option.id === material.id);
+      if (replaced === undefined) throw new Error("Native Option replacement omitted its Option");
+      expect(replaced.values.map(value => value.value).sort()).toEqual(["Cotton", "Linen"]);
+      expect(replaced.values.find(value => value.value === "Cotton")).toEqual(material.values.find(value => value.value === "Cotton"));
+      const clear = await post(detail, { values: [] });
+      expect(clear.status, await clear.clone().text()).toBe(200);
+      expect(decodeProduct(await clear.json()).product.options.find(option => option.id === first.option.id))
+        .toEqual({ ...first.option, values: [] });
+      await fixture.stop();
+      const persisted = await fixture.observe();
+      for (const key of ["products", "variants", "priceSets", "prices", "inventoryItems", "inventoryLevels", "reservations",
+        "variantPriceSets", "variantInventoryItems"] as const) expect(persisted[key], `Option mutation changed ${key}`).toEqual(before[key]);
+      expect(persisted.variantOptions.filter(row => row.variant_id === first.variant.id)).toEqual([]);
+      expect(persisted.variantOptions.filter(row => row.variant_id === other.variant.id))
+        .toEqual(before.variantOptions.filter(row => row.variant_id === other.variant.id));
+      expect(persisted.options.find(row => row.id === other.option.id)).toEqual(before.options.find(row => row.id === other.option.id));
+      expect(persisted.optionValues.filter(row => row.option_id === other.option.id)).toEqual(before.optionValues.filter(row => row.option_id === other.option.id));
+      expect(persisted.optionValues.filter(row => row.option_id === first.option.id)).toEqual([]);
+      expect(persisted.optionValues.filter(row => row.option_id === material.id).map(row => row.value).sort()).toEqual(["Cotton", "Linen"]);
+      const publications = persisted.outcomes.filter(outcome => outcome.timestamp > wrongSelected.publishedTimestamp
+        && outcome.value.kind === "nativeRoot" && outcome.value.state === "committed");
+      expect(publications).toHaveLength(4);
+      const publicationTimes = new Set(publications.map(outcome => outcome.timestamp));
+      expect(persisted.businessRows.filter(row => row.timestamp > wrongSelected.publishedTimestamp)
+        .every(row => publicationTimes.has(row.timestamp))).toBe(true);
+      const clearedValues = before.revisions.filter(row => first.option.values.some(value => row.value?.id === value.id));
+      expect(clearedValues).toHaveLength(first.option.values.length);
+      expect(persisted.revisions.filter(row => row.timestamp > wrongSelected.publishedTimestamp && row.deleted))
+        .toEqual(expect.arrayContaining(clearedValues.map(row => expect.objectContaining({ table: row.table, id: row.id,
+          previous: row.timestamp, value: null }))));
+
+      fixture.start();
+      expect(await fixture.probeIncarnation()).not.toBe(incarnation);
+      const page = await fixture.get(`${collection}?fields=${optionFields}&order=id&offset=1&limit=1`);
+      expect(page.status, await page.clone().text()).toBe(200);
+      const paged = decodeNativeOptions(await page.json());
+      expect(paged).toMatchObject({ count: 2, offset: 1, limit: 1, product_options: [{
+        id: [first.option.id, material.id].sort()[1], product_id: first.product.id,
+      }] });
+      const updatedDetail = await fixture.get(`${materialPath}?fields=${optionFields}`);
+      expect(updatedDetail.status, await updatedDetail.clone().text()).toBe(200);
+      expect(decodeNativeOption(await updatedDetail.json()).product_option).toEqual({ ...replaced, product_id: first.product.id,
+        values: expect.arrayContaining(replaced.values.map(value => ({ ...value, option_id: material.id }))) });
+      const retained = await fixture.get(`/admin/products/${other.product.id}?fields=${readFields}`);
+      expect(retained.status, await retained.clone().text()).toBe(200);
+      expect(decodeReadProduct(await retained.json()).product.variants[0]).toMatchObject({ id: other.variant.id,
+        inventory_items: [expect.objectContaining({ variant_id: other.variant.id })], prices: [expect.objectContaining({ amount: 7788 })] });
+      await fixture.stop();
+      const afterReads = await fixture.observe();
+      for (const key of ["rows", "revisions", "indexes", "businessRows", "products", "options", "optionValues", "variants", "variantOptions",
+        "priceSets", "prices", "inventoryItems", "variantPriceSets", "variantInventoryItems"] as const)
+        expect(afterReads[key], `Option reads changed durable ${key}`).toEqual(persisted[key]);
+    } catch (cause) { primary.push(cause); throw cause; }
+    finally {
+      try { await fixture.close(); }
+      catch (cause) { throw new AggregateError([...primary, cause], "Admin Product Option proof cleanup failed"); }
     }
   }, 360_000);
 

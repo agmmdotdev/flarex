@@ -65,6 +65,18 @@ export function createAdminProductHttpHandler(options: AdminProductHttpOptions):
             options.admitProductRefetchFields(remapKeysForProduct(request.queryConfig.fields))
             next()
           }],
+        }, {
+          method: ["POST"], matcher: "/admin/products/:id/options",
+          middlewares: [(request, _response, next) => {
+            options.admitProductRefetchFields(remapKeysForProduct(request.queryConfig.fields))
+            next()
+          }],
+        }, {
+          method: ["POST"], matcher: "/admin/products/:id/options/:option_id",
+          middlewares: [(request, _response, next) => {
+            options.admitProductRefetchFields(remapKeysForProduct(request.queryConfig.fields))
+            next()
+          }],
         }] } } },
       ],
     },

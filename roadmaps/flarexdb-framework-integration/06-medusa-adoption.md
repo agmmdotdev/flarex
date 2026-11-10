@@ -28,17 +28,17 @@ deployment or establish performance/scale acceptance.
 
 The pinned native inventory contains 51 Admin catalog method endpoints in 29
 route files: Products (28), global Product Variants (1), Product Types (5),
-Product Tags (5), Product Categories (6), and Collections (6). Nine Product and
-nested Variant endpoints are already promoted. The goal also inventories the
+Product Tags (5), Product Categories (6), and Collections (6). Thirteen Product,
+nested Variant and Option endpoints are promoted. The goal also inventories the
 two Product association endpoints owned by Sales Channel and Price List and the
-two Store Product reads; Store read inclusion is the working scope pending user
-steering. Independent Inventory/Pricing CRUD and Store taxonomy families retain
+two Store Product reads. Store Product list/detail are included in the goal.
+Independent Inventory/Pricing CRUD and Store taxonomy families retain
 their own adoption scopes.
 
 | Slice | Remaining native HTTP work | State |
 | --- | --- | --- |
 | Variant lifecycle | Detail update connected; deletion requires parent-qualified workflow semantics | Deletion pending |
-| Product options | Collection list/create and detail retrieve/update/delete | Pending |
+| Product options | Collection list/create and detail retrieve/update connected; deletion requires parent-qualified workflow semantics | Deletion pending |
 | Product associations | Both Image/Variant batch directions; Variant Inventory Link create/update/delete/batch | Pending |
 | Product batches | Product batch and nested Variant batch | Pending |
 | Catalog taxonomy | Types, Tags, Categories, Collections and their Product membership endpoints; global Variant list | Pending |
@@ -109,6 +109,21 @@ changing unrelated variants. The bounded selector-update profile refuses a body
 `id` before acquisition; the pinned HTTP schema accepts it, but native service
 normalization can use it to override the selected ID. Nested Variant deletion
 remains unpromoted.
+
+Product Option collection/detail reads preserve native field defaults, parent
+selectors and count/page envelopes on the existing Product graph. Creation and
+update use the native Option workflows and shared Product source, with the
+existing four-Option/four-Value input bounds. Native value replacement preserves
+matching identities, retains omitted relations and physically clears requested
+Values and their Variant pivots for explicit empty arrays. Parent response
+projections are admitted before mutation and refetched after settlement.
+Collection methods inherit Product read; detail adds Product Option read. No
+additional create/update policy is present in the pin. Wrong-parent updates
+produce no business changes and refetch the URL parent. Option deletion remains
+unpromoted pending parent-qualified lifecycle semantics.
+The bounded Option update profile likewise refuses body IDs before acquisition;
+native normalization can override selection. HTTP Option schemas reject metadata
+even though the private Option workflow admits it.
 
 The [Product read graph](../../packages/medusa-adapter/src/http/product-request-reads.ts)
 uses the existing native graph planner and Link metadata over protected Core

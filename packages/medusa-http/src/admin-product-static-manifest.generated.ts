@@ -4,6 +4,8 @@ import * as adminProductsRoute from "./api/admin/products/route"
 import * as adminProductsByIdRoute from "./api/admin/products/[id]/route"
 import * as adminProductsByIdVariantsRoute from "./api/admin/products/[id]/variants/route"
 import * as adminProductsByIdVariantsByVariant_idRoute from "./api/admin/products/[id]/variants/[variant_id]/route"
+import * as adminProductsByIdOptionsRoute from "./api/admin/products/[id]/options/route"
+import * as adminProductsByIdOptionsByOption_idRoute from "./api/admin/products/[id]/options/[option_id]/route"
 import { adminProductRoutesMiddlewares } from "./api/admin/products/middlewares"
 
 export const adminProductHttpManifest = {
@@ -27,6 +29,16 @@ export const adminProductHttpManifest = {
       route: "/admin/products/:id/variants/:variant_id",
       module: adminProductsByIdVariantsByVariant_idRoute,
       relativePath: "packages/medusa-http/src/api/admin/products/[id]/variants/[variant_id]/route.ts",
+    },
+    {
+      route: "/admin/products/:id/options",
+      module: adminProductsByIdOptionsRoute,
+      relativePath: "packages/medusa-http/src/api/admin/products/[id]/options/route.ts",
+    },
+    {
+      route: "/admin/products/:id/options/:option_id",
+      module: adminProductsByIdOptionsByOption_idRoute,
+      relativePath: "packages/medusa-http/src/api/admin/products/[id]/options/[option_id]/route.ts",
     },
   ],
   middlewares: [

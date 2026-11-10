@@ -19,7 +19,7 @@ import { captureInventoryMetadata } from "../modules/inventory/schema";
 import type { ProductRequestCatalog } from "./product-request";
 
 const decodeQuery = commerceDecoder(Schema.Struct({
-  entity: Schema.Literals(["product", "product_sales_channel", "variant", "product_variant_inventory_items"]),
+  entity: Schema.Literals(["product", "product_sales_channel", "product_option", "variant", "product_variant_inventory_items"]),
   fields: Schema.Array(Schema.String.check(Schema.isLengthBetween(1, 256))).check(Schema.isLengthBetween(1, 256)),
   filters: Schema.optionalKey(Schema.JsonObject),
   pagination: Schema.optionalKey(Schema.Struct({ take: Schema.optionalKey(QueryLimit), skip: Schema.optionalKey(QueryOffset),

@@ -2,13 +2,27 @@ import { ProductStatus } from "@medusajs/utils/product/enums"
 import { z } from "@medusajs/framework/zod"
 import { applyAndAndOrOperators, booleanString } from "../../utils/common-validators"
 import { GetProductsParams, transformProductParams } from "../../utils/common-validators/products"
-import { createFindParams, createSelectParams, WithAdditionalData } from "../../utils/validators"
+import { createFindParams, createOperatorMap, createSelectParams, WithAdditionalData } from "../../utils/validators"
 import { AdminGetProductVariantsParamsFields } from "../product-variants/validators"
 
 const statusEnum = z.nativeEnum(ProductStatus)
 
 export const AdminGetProductParams = createSelectParams()
 export const AdminGetProductVariantParams = createSelectParams()
+export const AdminGetProductOptionParams = createSelectParams()
+
+export const AdminGetProductOptionsParamsFields = z.object({
+  q: z.string().optional(),
+  id: z.union([z.string(), z.array(z.string())]).optional(),
+  title: z.string().optional(),
+  created_at: createOperatorMap().optional(),
+  updated_at: createOperatorMap().optional(),
+  deleted_at: createOperatorMap().optional(),
+})
+
+export const AdminGetProductOptionsParams = createFindParams({ offset: 0, limit: 50 })
+  .merge(AdminGetProductOptionsParamsFields)
+  .merge(applyAndAndOrOperators(AdminGetProductOptionsParamsFields))
 
 export const AdminGetProductsParamsDirectFields = z.object({
   variants: AdminGetProductVariantsParamsFields.omit({ q: true })
@@ -27,6 +41,10 @@ export const CreateProductOption = z.object({
   title: z.string(),
   values: z.array(z.string()),
 })
+
+export const AdminCreateProductOption = WithAdditionalData(CreateProductOption)
+
+export type AdminCreateProductOptionBody = z.infer<ReturnType<typeof AdminCreateProductOption>>
 
 export const AdminCreateVariantPrice = z.object({
   currency_code: z.string(),
@@ -116,6 +134,10 @@ export const UpdateProductOption = z.object({
   title: z.string().optional(),
   values: z.array(z.string()).optional(),
 })
+
+export const AdminUpdateProductOption = WithAdditionalData(UpdateProductOption)
+
+export type AdminUpdateProductOptionBody = z.infer<ReturnType<typeof AdminUpdateProductOption>>
 
 export const AdminUpdateVariantPrice = z.object({
   id: z.string().optional(),

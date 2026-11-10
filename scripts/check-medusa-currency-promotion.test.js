@@ -2,7 +2,7 @@
 import { verifyPriceListDeleteSelection, verifyPriceListDeleteCallbacks, verifyPriceListUpdateCallbacks, verifyNativePriceListRuleBuilder, verifyPriceListCreateCallbacks, verifyPricePreferenceDeleteCallbacks, verifyPricePreferenceUpdateCallbacks, verifyPricePreferenceCreateCallbacks, verifySalesChannelProductLinkCallbacks, verifyTestPort, verifyPricingWorkflowSelection, verifyInventoryLevelDeleteCallbacks, verifyInventoryItemDeleteCallbacks, verifyInventoryLevelBatchCallbacks, verifyInventoryItemCreateCallbacks, verifyStoreDeleteCallbacks, verifyStoreCreateCallbacks, verifyStoreCreationTypes, verifyReservationLineItemDeletionCallbacks, verifyStoreUpdateCallbacks, verifyShippingProfileUpdateCallbacks, verifyShippingProfileCreateCallbacks, verifyShippingOptionRuleBatchCallbacks, verifyLocationFulfillmentSetCallbacks, verifyShippingProfileDeleteCallbacks, verifyShippingOptionTypeCreateCallbacks, verifyShippingOptionTypeUpdateCallbacks, verifyShippingOptionTypeDeleteCallbacks, verifyServiceZoneCreateCallbacks, verifyServiceZoneDeleteCallbacks, verifyFulfillmentSetDeleteCallbacks, verifyServiceZoneUpdateCallbacks, verifyNativeToManyInitialization, verifyNativeRelationScalarFields } from "./check-medusa-test-port.mjs";
 import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { admitsCurrencyImport, verifyCurrencyPromotion, verifyStoreCurrencyHandlerSource, verifyAdminProductPostSource, verifyAdminProductDetailSource, verifyAdminProductVariantSource, verifyAdminVariantInventoryWrapperSource, verifyVariantAvailabilityUtilitySource, verifyModuleTypeFork, verifyNativeBigNumberTypeSource, nativeBigNumberSourcePair, verifyStoreTypeFork, verifyInventoryReservationRestoreFork, verifyStoreCreationTypeFork, verifyPriceListCreationTypeFork, verifyShippingProfileWorkflowTypeFork, verifyLinkCascadeReturnMapFork } from "./check-medusa-currency-promotion.mjs";
+import { admitsCurrencyImport, verifyCurrencyPromotion, verifyStoreCurrencyHandlerSource, verifyAdminProductPostSource, verifyAdminProductDetailSource, verifyAdminProductVariantSource, verifyAdminProductOptionSource, verifyAdminVariantInventoryWrapperSource, verifyVariantAvailabilityUtilitySource, verifyModuleTypeFork, verifyNativeBigNumberTypeSource, nativeBigNumberSourcePair, verifyStoreTypeFork, verifyInventoryReservationRestoreFork, verifyStoreCreationTypeFork, verifyPriceListCreationTypeFork, verifyShippingProfileWorkflowTypeFork, verifyLinkCascadeReturnMapFork } from "./check-medusa-currency-promotion.mjs";
 import { analyzeMedusaSourceIslandBoundary } from "./check-medusa-source-island-boundary.mjs";
 import { verifyInventoryConfirmationPreparationTest } from "./check-medusa-inventory-confirmation-source.mjs";
 
@@ -2744,5 +2744,54 @@ describe("native Admin Product variant source guards", () => {
     const promoted = readFileSync(target, "utf8");
     expect(promoted).toContain(original);
     expect(() => verify(native, promoted.replace(original, change))).toThrow("Changed native");
+  });
+});
+
+describe("native Admin Product option source guards", () => {
+  const paths = ["[id]/options/route.ts", "[id]/options/[option_id]/route.ts"];
+  it.each(paths)("retains exact selected GET/POST and refuses extra module behavior: %s", relative => {
+    const native = readFileSync("third_party/medusa/upstream/packages/medusa/src/api/admin/products/" + relative, "utf8");
+    const promoted = readFileSync("packages/medusa-http/src/api/admin/products/" + relative, "utf8");
+    const detail = relative.includes("[option_id]");
+    expect(() => verifyAdminProductOptionSource(native, promoted, detail)).not.toThrow();
+    expect(() => verifyAdminProductOptionSource(native, promoted + "\nglobalThis.optionPromotionDrift = true", detail))
+      .toThrow("Changed native Admin Product option behavior");
+    expect(() => verifyAdminProductOptionSource(native, promoted + "\nexport const DELETE = POST", detail))
+      .toThrow("Changed native Admin Product option behavior");
+  });
+  it.each([
+    [0, '"create-product-options"', '"create-products"'],
+    [0, '...req.filterableFields, product_id: productId', '...req.filterableFields'],
+    [0, 'product_id: productId,', 'product_id: "other",'],
+    [0, 'count: metadata.count', 'count: 0'],
+    [0, 'pagination: req.queryConfig.pagination', 'pagination: undefined'],
+    [0, '      additional_data,', '      additional_data: undefined,'],
+    [0, 'Created Product option parent was not returned by native refetch', 'Different invariant'],
+    [1, '"update-product-options"', '"update-products"'],
+    [1, 'idOrFilter: { id: optionId, product_id: productId }', 'idOrFilter: { id: optionId }'],
+    [1, 'selector: { id: optionId, product_id: productId }', 'selector: { id: optionId }'],
+    [1, '      update,', '      update: {},'],
+    [1, '      additional_data,', '      additional_data: undefined,'],
+    [1, 'await workflowEngine.run', 'workflowEngine.run'],
+    [1, 'idOrFilter: productId', 'idOrFilter: optionId'],
+    [1, 'remapKeysForProduct(req.queryConfig.fields ?? [])', '["id"]'],
+    [1, 'remapProductResponse(product)', 'product'],
+    [1, 'product_option: productOption', 'product_option: null'],
+    [1, 'Updated Product option parent was not returned by native refetch', 'Different invariant'],
+  ])("rejects native option runtime mutation %s %s", (index, before, after) => {
+    const relative = paths[index];
+    const native = readFileSync("third_party/medusa/upstream/packages/medusa/src/api/admin/products/" + relative, "utf8");
+    const promoted = readFileSync("packages/medusa-http/src/api/admin/products/" + relative, "utf8");
+    expect(promoted).toContain(before);
+    expect(() => verifyAdminProductOptionSource(native, promoted.replace(before, after), index === 1))
+      .toThrow("Changed native Admin Product option behavior");
+  });
+  it.each(paths.flatMap(relative => [
+    [relative, "source", { source: "third_party/medusa/upstream/packages/medusa/src/api/admin/products/route.ts" }],
+    [relative, "classification", { classification: "authored" }],
+  ]))("requires exact option source provenance %s %s", (relative, _label, mutation) => {
+    expect(() => verifyCurrencyPromotion(root, { ...promotion, files: promotion.files.map(entry =>
+      entry.target === "packages/medusa-http/src/api/admin/products/" + relative ? { ...entry, ...mutation } : entry) }))
+      .toThrow("Admin Product HTTP selections must retain their pinned sources");
   });
 });

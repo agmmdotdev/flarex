@@ -79,6 +79,8 @@ const adminProductRoute = "packages/medusa-http/src/api/admin/products/route.ts"
 const adminProductDetailRoute = "packages/medusa-http/src/api/admin/products/[id]/route.ts";
 const adminProductVariantRoute = "packages/medusa-http/src/api/admin/products/[id]/variants/route.ts";
 const adminProductVariantDetailRoute = "packages/medusa-http/src/api/admin/products/[id]/variants/[variant_id]/route.ts";
+const adminProductOptionRoute = "packages/medusa-http/src/api/admin/products/[id]/options/route.ts";
+const adminProductOptionDetailRoute = "packages/medusa-http/src/api/admin/products/[id]/options/[option_id]/route.ts";
 const adminVariantInventoryWrapper = "packages/medusa-http/src/api/utils/middlewares/products/variant-inventory-quantity.ts";
 const variantAvailabilityUtility = "packages/medusa-utils/src/product/get-variant-availability.ts";
 const productHttpSelections = new Set([
@@ -89,6 +91,8 @@ const productHttpSelections = new Set([
   adminProductDetailRoute,
   adminProductVariantRoute,
   adminProductVariantDetailRoute,
+  adminProductOptionRoute,
+  adminProductOptionDetailRoute,
   adminVariantInventoryWrapper,
   "packages/medusa-http/src/api/admin/product-variants/query-config.ts",
   "packages/medusa-framework/src/http/utils/maybe-apply-link-filter.ts",
@@ -183,6 +187,31 @@ export function verifyAdminProductVariantSource(native, promoted, detail = false
   selected = selected.replace(result, `if (!product) throw new Error("${missingParent}")\n` + result);
   if (productRouteRuntime([...imports, selected].join("\n")) !== productRouteRuntime(promoted))
     throw new Error("Changed native Admin Product variant behavior");
+}
+
+/** Exact selected native option GET/POST with the existing post-write
+ * missing-parent invariant. DELETE remains unselected.
+ * @param {string} native @param {string} promoted @param {boolean} detail */
+export function verifyAdminProductOptionSource(native, promoted, detail = false) {
+  const imports = detail ? [
+    'import { refetchEntity } from "@medusajs/framework/http"',
+    'import { remapKeysForProduct, remapProductResponse } from "../../../helpers"',
+    'import { Modules } from "@medusajs/utils/modules-sdk/definition"',
+  ] : [
+    'import { refetchEntities, refetchEntity } from "@medusajs/framework/http"',
+    'import { remapKeysForProduct, remapProductResponse } from "../../helpers"',
+    'import { Modules } from "@medusajs/utils/modules-sdk/definition"',
+  ];
+  let selected = selectProductRouteDeclarations(native,
+    [detail ? "updateProductOptionsWorkflowId" : "createProductOptionsWorkflowId", "GET", "POST"]).join("\n");
+  const result = 'res.status(200).json({ product: remapProductResponse(product) })';
+  if (selected.split(result).length !== 2) throw new Error("Missing pinned option parent response");
+  const missingParent = detail
+    ? "Updated Product option parent was not returned by native refetch"
+    : "Created Product option parent was not returned by native refetch";
+  selected = selected.replace(result, `if (!product) throw new Error("${missingParent}")\n` + result);
+  if (productRouteRuntime([...imports, selected].join("\n")) !== productRouteRuntime(promoted))
+    throw new Error("Changed native Admin Product option behavior");
 }
 
 /** The Admin wrapper closure excludes the unselected Store sales-channel branch.
@@ -1334,6 +1363,9 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
       if (file.target === adminProductVariantRoute || file.target === adminProductVariantDetailRoute)
         verifyAdminProductVariantSource(readFileSync(path.join(root, file.source), "utf8"),
           readFileSync(path.join(root, file.target), "utf8"), file.target === adminProductVariantDetailRoute);
+      if (file.target === adminProductOptionRoute || file.target === adminProductOptionDetailRoute)
+        verifyAdminProductOptionSource(readFileSync(path.join(root, file.source), "utf8"),
+          readFileSync(path.join(root, file.target), "utf8"), file.target === adminProductOptionDetailRoute);
       if (file.target === adminVariantInventoryWrapper)
         verifyAdminVariantInventoryWrapperSource(readFileSync(path.join(root, file.source), "utf8"),
           readFileSync(path.join(root, file.target), "utf8"));
