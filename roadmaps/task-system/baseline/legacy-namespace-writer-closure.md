@@ -10,13 +10,16 @@ Expected: requesting fresh logical storage cannot hide retained legacy data or
 race a legitimate legacy writer into a different storage generation.
 
 Actual: `documents`, `indexes` and related legacy evidence use `deployment_id`
-without a deployment foreign key. In the preserved uncommitted experiment, a
+without a deployment foreign key. In the preserved superseded experiment, a
 real PGlite witness with an orphan document and absent deployment metadata admits
 the proposed logical provisioning option. Its deployment/scope locks do not serialize
 with direct legacy revisions or the old backend commit path.
 
-The failing orphan witness is preserved in the uncommitted changes to
-[`scopeAuthorityProvisioning.test.ts`](../../../packages/persistence-postgres/test/scope/scopeAuthorityProvisioning.test.ts).
+The failing orphan witness is preserved in the external
+`task-trigger-convex-realignment-20261030` checkpoint under the local Codex scratch
+directory. Its `CHECKPOINT.md` and `source-manifest.json` locate the saved
+`files/packages/persistence-postgres/test/scope/scopeAuthorityProvisioning.test.ts`.
+The prototype is retired from the active checkout.
 An earlier witness also established that the old initializer ignored the desired
 logical generation. Correcting that field alone did not correct namespace safety.
 Neither the proposed option nor its failing tests are claimed as a committed

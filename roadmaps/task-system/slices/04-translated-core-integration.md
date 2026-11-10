@@ -1,7 +1,8 @@
 # Task Integration With The Translated Core
 
 Status: **revised connected slice proposed; checkpoint reconciliation complete;
-target contract requires coordinated source challenge before implementation**.
+superseded installation prototype retired; target contract requires coordinated
+source challenge before implementation**.
 The [full Task goal](../GOAL.md) remains paused with its finish line unchanged. Trigger supplies
 actual lifecycle/scheduling code; the accepted
 [Convex TypeScript and physical-persistence translation](../../../experiments/core/engine/REFACTOR.md#core-and-physical-schema-translation-plan)

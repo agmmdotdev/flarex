@@ -1,8 +1,10 @@
 # Retire affected Application attempts without deleting evidence
 
-Status: **Owner policy accepted; independent current-core, accepted-direction and
-pinned-Convex challenge and peer exchange complete; retained lifecycle direction
-selected; runtime implementation not started**. The
+Status: **Owner policy accepted; older-engine runtime prototype retired;
+implementation and connected proof deferred**. The historical source challenge
+below records the proposed retained lifecycle direction. A resumed slice must
+reconcile its retained consumers with the translated Core and refresh the
+current-source challenge. The
 [accepted policy](../05-stored-attempt-disposition.md) owns the decision. This
 record supplies the connected implementation boundary for Standard cutover.
 

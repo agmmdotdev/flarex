@@ -6650,7 +6650,7 @@
     },
     {
       "target": "packages/medusa-adapter/test/payment-lifecycle-contracts.test.ts",
-      "targetSha256": "4a107680c76a3de02e9c03bae9ebf74951840b311334bd4295efbbf2f0b57c3b",
+      "targetSha256": "864cf1f81574495b78ef395e984c33323c5eb811dfb60c1093699558a3601c1b",
       "classification": "authored"
     },
     {

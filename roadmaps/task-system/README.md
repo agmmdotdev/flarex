@@ -3,7 +3,8 @@
 ## Status And Scope
 
 Status: **paused implementation goal; portable adopted attempt-start component
-implemented; storage work checkpointed for translated-core reconciliation**.
+implemented; superseded storage prototype retired; translated-core integration
+deferred**.
 The [independent Trigger fork design](../../design-notes/task-system/README.md)
 owns architecture. The [goal](./GOAL.md) authorizes bounded implementation using
 the [challenge/worker/review workflow](./WORKFLOW.md). This roadmap owns current
@@ -15,8 +16,10 @@ activation remain unimplemented.
 
 The [revised connected slice](./slices/04-translated-core-integration.md) targets
 the accepted Convex TypeScript/Drizzle rewrite, including physical persistence.
-Uncommitted candidate/source/provisioning/publication experiments are preserved
-as evidence; their current APIs and storage assumptions are not the target.
+The superseded candidate/source/provisioning/publication prototype is removed
+from the active checkout. Its checkpoint and failing namespace-writer witnesses
+remain evidence for the revised slice. Task installation and execution must use
+the translated Core's shared lifecycle when implementation resumes.
 
 Start at the [source map](./REFERENCES.md), [consumer baseline](./baseline/README.md),
 [decisions](./DECISIONS.md), [question queue](./OPEN-QUESTIONS.md) and

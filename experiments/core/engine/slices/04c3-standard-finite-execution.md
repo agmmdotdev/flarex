@@ -1,9 +1,13 @@
 # Ordinary Standard mutations through the shared root
 
-Status: **Independent three-way challenge and peer exchange complete; connected
-replacement selected; runtime implementation unstarted**. The historical-data
-[disposition](../05-stored-attempt-disposition.md) remains open for its affected
-path. This record does not complete [04C](./04c-standard-mutation-cutover.md).
+Status: **Deferred older-engine replacement; unfinished runtime prototype
+retired**. Fresh Application execution follows the translated
+[Core cutover](./06a-application-persistence-cutover.md). Retained older consumers
+still require connected migration and historical-data
+[disposition](../05-stored-attempt-disposition.md). The accepted retirement policy
+has open implementation and proof gates. This record retains the historical
+challenge and proposed boundary for those consumers. Any resumed runtime slice
+requires a current-source challenge against the translated Core.
 
 Current source checkpoint: Flarex `677a2ec00f1098c900b17a86c446e917297f988c`.
 Convex reference: `84fbb0e70b4e857913673871cb847ad11a55f3d5`.

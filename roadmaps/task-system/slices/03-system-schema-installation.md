@@ -1,6 +1,7 @@
 # System Schema Installation Experiment
 
-Status: **partial uncommitted experiment checkpointed; implementation contract
+Status: **superseded prototype retired from the active checkout; checkpoint preserved;
+implementation contract
 superseded by translated-core integration; connected database gates unproved**.
 The [full goal](../GOAL.md) remains paused. The
 [revised slice](./04-translated-core-integration.md) governs any future work.
@@ -9,11 +10,13 @@ and unconnected until the actual shared-core borrower is implemented.
 
 ## Preserved Work And Requirements
 
-The working graph contains a candidate-root, system-source and private Task
-schema experiment over the current catalog/readiness/command owners. It explores
+The preserved checkpoint contains a candidate-root, system-source and private Task
+schema experiment over the older catalog/readiness/command owners. It explored
 App-independent bootstrap, exact producer/target identity, bounded source
 capabilities, durable installation obligations and separate serving readiness.
-Its source snapshots and failing witnesses are preserved outside the commit.
+Its source snapshots and failing witnesses remain in the
+`task-trigger-convex-realignment-20261030` checkpoint under the local Codex scratch
+directory, including `CHECKPOINT.md`, `source-manifest.json` and `files/`.
 No completed logical installation or runtime capability is claimed here.
 
 The experiment's candidate/read-source versions, installed envelope, normalized
@@ -44,7 +47,7 @@ logical generation. Existing deployment/scope locks do not serialize with all
 legacy persistence writers. The [writer closure](../baseline/legacy-namespace-writer-closure.md)
 records the actual owners and required old-data/consumer disposition.
 
-The failing witness and unfinished code remain uncommitted. No unlocked
+The failing witness and unfinished code remain in that external checkpoint. No unlocked
 emptiness guard, fixture generation SQL, namespace column, SQL claim/guard or
 schema migration was added to hide the failure. A proposed transitional fence
 is evidence to assess against the common physical cutover, not selected DDL.

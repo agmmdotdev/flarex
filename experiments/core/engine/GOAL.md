@@ -145,16 +145,18 @@ The [Standard cutover contract](./slices/04c-standard-mutation-cutover.md) recor
 the connected preparation, ordered admission, stored-request and recovery
 requirements. Its genuine current nested-failure prerequisite is implemented;
 the connected [operation-admission replacement](./slices/04c1-application-operation-admission.md)
-is implemented. The ordinary Standard cutover is in progress; complete acceptance
-remains open.
+is implemented. The older finite Standard cutover is deferred; complete acceptance
+remains open for its retained consumers.
 The [exact-original preparation prerequisite](./slices/04c2-exact-selection-preparation.md)
 is implemented for existing finite Product/Payload consumers, including full
 callable-catalog coverage and explicit installation reconciliation. Ordinary
 Standard finite activation and recovery remain open.
 The [ordinary Standard replacement](./slices/04c3-standard-finite-execution.md)
-has completed independent challenge and peer exchange. Its connected runtime
-implementation is in progress; the affected historical-data path requires the
-[stored-attempt disposition](./05-stored-attempt-disposition.md).
+has historical independent challenge and peer exchange. Its unfinished runtime
+prototype is retired. Fresh Application execution uses the translated Core
+described below. Retained older consumers still require connected migration and
+the [stored-attempt disposition](./05-stored-attempt-disposition.md) before their
+older execution and data paths can be retired.
 
 The bounded [joint Application/Payload/Currency relation writer](./slices/04c3e-cross-domain-relation-maintenance.md)
 uses one current preparation generation and the existing combined publisher.
