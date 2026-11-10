@@ -1,10 +1,11 @@
-import { Cause, Effect } from "effect";
+import { Cause, Effect, Exit } from "effect";
 import { describe, expect, it } from "vitest";
 import { asValue, createContainer } from "@medusajs/deps/awilix-portable";
 import { MedusaError } from "@medusajs/utils/common/errors";
 import { Modules } from "@medusajs/utils/modules-sdk/definition";
 import { makeProductRequestScopeFactory } from "../src/http/product-request";
 import { prepareProductRequestFixture } from "./support/product-request-fixture";
+import { prepareSalesChannelCreationWorkflow } from "../src/workflows/sales-channel/create";
 
 const driver = process.env.FLAREX_TEST_DRIVER === "postgres" ? "postgres" : "pglite";
 const fields = ["id", "title", "handle", "status", "options.id", "options.title", "options.values.id", "options.values.value"];
@@ -61,6 +62,62 @@ describe(`native Product HTTP data operations (${driver})`, () => {
       }));
       expect(await tested.fixture.readRows("product")).toEqual([]);
       expect((await tested.fixture.snapshot()).events).toEqual([]);
+    } finally { await tested.fixture.close(); }
+  });
+
+  it("reads native counted Product pages and stored price/inventory Link expansions", async () => {
+    const tested = await prepareProductRequestFixture(driver);
+    try {
+      await tested.use(operations => Effect.gen(function* () {
+        const sales = yield* prepareSalesChannelCreationWorkflow({ execution: tested.fixture.execution,
+          modules: { sales_channel: tested.catalog.modules.sales_channel }, revision: "d".repeat(64),
+          subscribers: [{ id: "product-request-sales-channel", revision: "e".repeat(64) }] });
+        const createdSales = yield* sales.run(sales.newRequestKey(), { salesChannelsData: [{ name: "Product request channel" }] });
+        const channel = createdSales[0];
+        if (channel === undefined) return yield* Effect.die(new Error("Missing real Sales Channel ID"));
+        for (const [title, handle] of [["Alpha product", "alpha-read"], ["Bravo product", "bravo-read"]]) {
+          yield* operations.runWorkflow("create-products", { products: [{ title, handle, status: "published",
+            ...(handle === "alpha-read" ? { sales_channels: [{ id: channel.id }] } : {}),
+            options: [{ title: "Size", values: ["One"] }], variants: [{ title: title + " variant", sku: handle,
+              options: { Size: "One" }, prices: [{ amount: 1234, currency_code: "usd" }] }] }] });
+        }
+        const page = yield* operations.query.graph({ entity: "product", fields: ["id", "title", "handle"],
+          filters: { status: ["published"] }, pagination: { take: 1, skip: 1, order: { title: "DESC" } } });
+        expect(page.metadata).toEqual({ count: 2, skip: 1, take: 1 });
+        expect(page.data).toEqual([expect.objectContaining({ title: "Alpha product", handle: "alpha-read" })]);
+        expect(Object.keys(page.data[0] ?? {}).sort()).toEqual(["handle", "id", "title"]);
+        const byTitle = yield* operations.query.graph({ entity: "product", fields: ["id", "title"], filters: { title: "Bravo product" } });
+        expect(byTitle.data).toEqual([expect.objectContaining({ title: "Bravo product" })]);
+        const searched = yield* operations.query.graph({ entity: "product", fields: ["id", "title"], filters: { q: "Bravo" } });
+        expect(searched.data).toEqual([expect.objectContaining({ title: "Bravo product" })]);
+        const links = yield* operations.query.graph({ entity: "product_sales_channel", fields: ["product_id"], filters: { sales_channel_id: [channel.id] } });
+        expect(links.data).toHaveLength(1);
+        const inChannel = yield* operations.query.graph({ entity: "product", fields: ["id", "title"],
+          filters: { id: links.data.map(link => link.product_id) }, withDeleted: true });
+        expect(inChannel.data).toEqual([expect.objectContaining({ title: "Alpha product" })]);
+        const expanded = yield* operations.query.graph({ entity: "product", fields: ["id", "variants.id", "variants.sku",
+          "variants.price_set.prices.*", "variants.inventory_items.*", "variants.inventory_items.inventory.*"], filters: { handle: "alpha-read" } });
+        expect(expanded.data).toEqual([expect.objectContaining({ variants: [expect.objectContaining({ sku: "alpha-read",
+          price_set: expect.objectContaining({ prices: [expect.objectContaining({ amount: 1234, currency_code: "usd" })] }),
+          inventory_items: [expect.objectContaining({ required_quantity: 1, inventory: expect.objectContaining({ sku: "alpha-read" }) })],
+        })] })]);
+        const missing = yield* operations.query.graph({ entity: "product", fields: ["id"], filters: { id: "prod_missing" } });
+        expect(missing.data).toEqual([]);
+        expect(missing.metadata.count).toBe(0);
+        const refusal = yield* Effect.exit(operations.query.graph({ entity: "product", fields: ["id"], filters: { id: "prod_missing" } }, { throwIfKeyNotFound: true }));
+        expect(Exit.isFailure(refusal)).toBe(true);
+        if (Exit.isFailure(refusal)) expect(refusal.cause.reasons.some(reason => Cause.isFailReason(reason) &&
+          reason.error.reason === "adapterFailure" && reason.error.cause instanceof MedusaError && reason.error.cause.type === MedusaError.Types.NOT_FOUND)).toBe(true);
+        const unsupported = yield* Effect.exit(operations.query.graph({ entity: "product", fields: ["id"], filters: { unsupported: "refuse" } }));
+        expect(Exit.isFailure(unsupported)).toBe(true);
+        if (Exit.isFailure(unsupported)) expect(unsupported.cause.reasons.some(reason => Cause.isFailReason(reason) &&
+          reason.error.reason === "adapterFailure" && reason.error.cause instanceof MedusaError && reason.error.cause.type === MedusaError.Types.INVALID_DATA)).toBe(true);
+        const priceList = yield* Effect.exit(operations.remoteQuery({ entryPoint: "price_list", fields: ["prices.price_set.variant.id"], variables: { id: ["plist_unadmitted"] } }));
+        expect(Exit.isFailure(priceList)).toBe(true);
+        if (Exit.isFailure(priceList)) expect(priceList.cause.reasons.some(reason => Cause.isFailReason(reason) &&
+          reason.error.reason === "adapterFailure" && reason.error.cause instanceof MedusaError && reason.error.cause.type === MedusaError.Types.INVALID_DATA)).toBe(true);
+        yield* sales.close;
+      }));
     } finally { await tested.fixture.close(); }
   });
 });

@@ -67,6 +67,7 @@ const relocatedHttpSources = new Map([
   ["packages/medusa-framework/src/http/utils/fetch-json-body.ts", "packages/core/framework/src/http/adapters/fetch.ts"],
   ["packages/medusa-framework/src/http/utils/field-parser.ts", "packages/core/framework/src/http/utils/field-filtering/field-parser.ts"],
   ["packages/medusa-http/src/api/utils/common-validators.ts", "packages/medusa/src/api/utils/common-validators/common.ts"],
+  ["packages/medusa-http/src/api/utils/common-validators/products.ts", "packages/medusa/src/api/utils/common-validators/products/index.ts"],
   ["packages/medusa-http/scripts/generate-static-manifest.mjs", "packages/medusa/scripts/generate-static-http-manifest.mjs"],
   ["packages/medusa-utils/src/common/build-query.ts", "packages/core/utils/src/common/build-query.ts"],
   ["packages/medusa-utils/src/common/remote-query-object-from-string.ts", "packages/core/utils/src/common/remote-query-object-from-string.ts"],
@@ -74,32 +75,75 @@ const relocatedHttpSources = new Map([
 const currencyRoutesDirectory = "packages/medusa-http/src/api/store/currencies/";
 const currencyHandlers = new Set(["route.ts", "[code]/route.ts"].map(name => currencyRoutesDirectory + name));
 const adminProductRoute = "packages/medusa-http/src/api/admin/products/route.ts";
+const adminProductDetailRoute = "packages/medusa-http/src/api/admin/products/[id]/route.ts";
 const productHttpSelections = new Set([
   ...["helpers", "middlewares", "query-config", "route", "validators"].map(name =>
     "packages/medusa-http/src/api/admin/products/" + name + ".ts"),
   ...["fetch-json-body", "refetch-entities", "validate-body"].map(name =>
     "packages/medusa-framework/src/http/utils/" + name + ".ts"),
+  adminProductDetailRoute,
+  "packages/medusa-framework/src/http/utils/maybe-apply-link-filter.ts",
+  "packages/medusa-http/src/api/admin/product-variants/validators.ts",
+  "packages/medusa-http/src/api/admin/products/utils/maybe-apply-price-lists-filter.ts",
+  "packages/medusa-http/src/api/utils/common-validators/products.ts",
 ]);
 
-/** The admin module also contains GET. Promote only the pinned workflow ID and
- * POST callback, allowing erased request and container types to differ.
- * @param {string} native @param {string} promoted */
-export function verifyAdminProductPostSource(native, promoted) {
+/** @param {string} native @param {readonly string[]} names */
+function selectProductRouteDeclarations(native, names) {
   const parsed = ts.createSourceFile("route.ts", native, ts.ScriptTarget.ESNext, true);
-  const selected = ["createProductsWorkflowId", "POST"].map(name => {
-    const declarations = parsed.statements.filter(statement => ts.isVariableStatement(statement) &&
+  return names.map(name => {
+    const declarations = parsed.statements.filter(statement =>
+      ts.isFunctionDeclaration(statement) && statement.name?.text === name ||
+      ts.isVariableStatement(statement) &&
       statement.declarationList.declarations.length === 1 &&
       statement.declarationList.declarations[0]?.name.getText(parsed) === name);
     if (declarations.length !== 1) throw new Error("Missing pinned Admin Product POST declaration: " + name);
     return declarations[0].getText(parsed);
   });
+}
+/** Compare emitted tokens so type and formatting changes grant no permission
+ * to change route algorithms or add unlisted module side effects.
+ * @param {string} source */
+function productRouteRuntime(source) {
+  const scanner = ts.createScanner(ts.ScriptTarget.ESNext, true, ts.LanguageVariant.Standard, emitForkRuntime(source));
+  /** @type {string[]} */
+  const tokens = [];
+  while (scanner.scan() !== ts.SyntaxKind.EndOfFileToken) tokens.push(scanner.getTokenText());
+  return JSON.stringify(tokens.filter((token, index) =>
+    token !== "," || tokens[index + 1] !== "}" && tokens[index + 1] !== ")"));
+}
+/** Preserve both native GET dispatch branches and POST. The native feature
+ * descriptor's exact key is inlined. An absent post-write refetch keeps the
+ * native unknown-error projection through an explicit invariant check.
+ * @param {string} native @param {string} promoted */
+export function verifyAdminProductPostSource(native, promoted) {
+  const selected = selectProductRouteDeclarations(native,
+    ["createProductsWorkflowId", "GET", "getProducts", "getProductsWithIndexEngine", "getOrCreateRecord", "POST"])
+    .join("\n").replace("IndexEngineFeatureFlag.key", '"index_engine"');
+  const result = 'res.status(200).json({ product: remapProductResponse(product) })';
+  const guard = 'if (!product) throw new Error("Created Product was not returned by native refetch")';
+  if (selected.split(result).length !== 2) throw new Error("Missing pinned Product response");
   const imports = [
-    'import { refetchEntity } from "@medusajs/framework/http"',
+    'import { refetchEntities, refetchEntity } from "@medusajs/framework/http"',
     'import { Modules } from "@medusajs/utils/modules-sdk/definition"',
+    'import { ContainerRegistrationKeys } from "@medusajs/utils/common/container"',
+    'import { FeatureFlag } from "@medusajs/utils/feature-flags/flag-router"',
+    'import { isPresent } from "@medusajs/utils/common/is-present"',
     'import { remapKeysForProduct, remapProductResponse } from "./helpers"',
   ];
-  if (emitForkRuntime([...imports, ...selected].join("\n")) !== emitForkRuntime(promoted))
+  if (productRouteRuntime([...imports, selected.replace(result, guard + "\n" + result)].join("\n")) !== productRouteRuntime(promoted))
     throw new Error("Changed native Admin Product POST behavior");
+}
+/** @param {string} native @param {string} promoted */
+export function verifyAdminProductDetailSource(native, promoted) {
+  const imports = [
+    'import { refetchEntity } from "@medusajs/framework/http"',
+    'import { MedusaError } from "@medusajs/utils/common/errors"',
+    'import { remapKeysForProduct, remapProductResponse } from "../helpers"',
+  ];
+  const selected = selectProductRouteDeclarations(native, ["GET"]);
+  if (productRouteRuntime([...imports, ...selected].join("\n")) !== productRouteRuntime(promoted))
+    throw new Error("Changed native Admin Product GET behavior");
 }
 
 /** Relocate only the native utility import. Type-only annotations erase on emit.
@@ -1222,6 +1266,9 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
           readFileSync(path.join(root, file.target), "utf8"), file.target);
       if (file.target === adminProductRoute)
         verifyAdminProductPostSource(readFileSync(path.join(root, file.source), "utf8"),
+          readFileSync(path.join(root, file.target), "utf8"));
+      if (file.target === adminProductDetailRoute)
+        verifyAdminProductDetailSource(readFileSync(path.join(root, file.source), "utf8"),
           readFileSync(path.join(root, file.target), "utf8"));
       if (file.classification === nativeBigNumberSourcePair.classification)
         verifyNativeBigNumberTypeSource(readFileSync(path.join(root, file.source), "utf8"),

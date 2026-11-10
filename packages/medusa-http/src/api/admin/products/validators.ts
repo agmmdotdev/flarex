@@ -1,11 +1,26 @@
 import { ProductStatus } from "@medusajs/utils/product/enums"
 import { z } from "@medusajs/framework/zod"
-import { booleanString } from "../../utils/common-validators"
-import { createSelectParams, WithAdditionalData } from "../../utils/validators"
+import { applyAndAndOrOperators, booleanString } from "../../utils/common-validators"
+import { GetProductsParams, transformProductParams } from "../../utils/common-validators/products"
+import { createFindParams, createSelectParams, WithAdditionalData } from "../../utils/validators"
+import { AdminGetProductVariantsParamsFields } from "../product-variants/validators"
 
 const statusEnum = z.nativeEnum(ProductStatus)
 
 export const AdminGetProductParams = createSelectParams()
+
+export const AdminGetProductsParamsDirectFields = z.object({
+  variants: AdminGetProductVariantsParamsFields.omit({ q: true })
+    .merge(applyAndAndOrOperators(AdminGetProductVariantsParamsFields.omit({ q: true })))
+    .optional(),
+  status: statusEnum.array().optional(),
+})
+export const AdminGetProductsParams = createFindParams({ offset: 0, limit: 50 })
+  .merge(AdminGetProductsParamsDirectFields)
+  .merge(z.object({ price_list_id: z.string().array().optional() })
+    .merge(applyAndAndOrOperators(AdminGetProductsParamsDirectFields))
+    .merge(GetProductsParams))
+  .transform(transformProductParams)
 
 export const CreateProductOption = z.object({
   title: z.string(),

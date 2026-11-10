@@ -6,7 +6,7 @@ import { authenticate } from "../src/http/middlewares/authenticate-middleware"
 import { createFetchHttpStaticHandler, type FetchHttpAdapterOptions } from "../src/http/fetch"
 import { validateAndTransformBody } from "../src/http/utils/validate-body"
 import { validateAndTransformQuery } from "../src/http/utils/validate-query"
-import { refetchEntity } from "../src/http/utils/refetch-entities"
+import { refetchEntities, refetchEntity } from "../src/http/utils/refetch-entities"
 import type { MedusaRequest, MiddlewareFunction, PolicyAction } from "../src/http/types"
 
 const user = { actor_id: "usr_1", actor_type: "user", auth_identity_id: "auth_1", app_metadata: { roles: ["role_1"] }, user_metadata: {} }
@@ -112,5 +112,15 @@ describe("selected pinned JSON POST plumbing", () => {
     const failure = new Error("graph unavailable")
     graph.mockRejectedValueOnce(failure)
     await expect(refetchEntity({ entity: "product", idOrFilter: "prod_1", fields: ["id"], scope: graphScope })).rejects.toBe(failure)
+  })
+
+  it("allows native empty detail reads and carries independent list metadata", async () => {
+    const graph = vi.fn(async (): Promise<{ data: { id: string }[]; metadata?: { count: number; skip: number; take: number } }> => ({ data: [], metadata: { count: 4, skip: 8, take: 2 } }))
+    const graphScope: MedusaRequest["scope"] = createContainer().register({ query: asValue({ graph }) })
+    expect(await refetchEntity({ entity: "product", idOrFilter: "missing", fields: ["id"], scope: graphScope })).toBeUndefined()
+    expect(await refetchEntities({ entity: "product", idOrFilter: { title: "Absent" }, fields: ["id"], pagination: { skip: 8, take: 2 }, withDeleted: true, scope: graphScope })).toEqual({ data: [], metadata: { count: 4, skip: 8, take: 2 } })
+    expect(graph).toHaveBeenLastCalledWith({ entity: "product", fields: ["id"], filters: { title: "Absent" }, pagination: { skip: 8, take: 2 }, withDeleted: true, context: undefined }, undefined)
+    graph.mockResolvedValueOnce({ data: [], metadata: undefined })
+    expect(await refetchEntities({ entity: "product", scope: graphScope })).toEqual({ data: [], metadata: {} })
   })
 })

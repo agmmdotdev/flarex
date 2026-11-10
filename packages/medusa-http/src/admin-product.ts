@@ -18,7 +18,7 @@ export type AdminProductHttpOptions = {
 
 export function createAdminProductHttpHandler(options: AdminProductHttpOptions): FetchHttpStaticHandler {
   const native = createFetchHttpStaticHandler({
-    allowedMethods: ["POST"],
+    allowedMethods: ["GET", "POST"],
     createRequestScope: options.createRequestScope,
     async prepareRequest(request, fetchRequest) {
       const principal = await options.resolveAdminPrincipal(fetchRequest)
@@ -51,7 +51,7 @@ export function createAdminProductHttpHandler(options: AdminProductHttpOptions):
       ],
     },
   })
-  return withMedusaNamespaceCors(native, options.adminCors, ["POST"])
+  return withMedusaNamespaceCors(native, options.adminCors, ["GET", "POST"])
 }
 
 export { adminProductHttpManifest } from "./admin-product-static-manifest.generated"

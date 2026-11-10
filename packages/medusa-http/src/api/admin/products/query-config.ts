@@ -42,3 +42,10 @@ export const retrieveProductQueryConfig = {
   isList: false,
   entity: "product",
 }
+
+export const listProductQueryConfig = {
+  ...retrieveProductQueryConfig,
+  defaultLimit: 50,
+  isList: true,
+  entity: "product",
+}

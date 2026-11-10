@@ -20,10 +20,11 @@ The build-time manifest lives in `static-manifest.json`. Run `pnpm generate`
 after changing its route or middleware entries. Run `pnpm check:generated`
 to verify the checked-in static imports against the framework renderer.
 
-## Private Admin Product creation
+## Private Admin Products
 
 `@flarex/medusa-http/admin-product` exports `createAdminProductHttpHandler` for
-the selected pinned `POST /admin/products` handler. The matching scoped Effect
+the selected pinned `POST /admin/products`, `GET /admin/products`, and
+`GET /admin/products/:id` handlers. The matching scoped Effect
 namespace host is `@flarex/medusa-http/admin-product-effect`. The native manifest
 renderer builds the separate Admin Product manifest.
 
@@ -43,3 +44,22 @@ title-only creation does not satisfy the native option rule.
 The handler awaits the native `create-products` workflow, then independently
 refetches through native `query.graph`. A later refetch failure cannot undo the
 already committed workflow. This layer does not retry creation.
+
+Both reads require a verified native user and the native Product read policy.
+The detail route returns the native `Product not found` response when the graph
+contains no Product. The list route retains the pinned validators, default limit
+of 50, offset, count metadata, and price response remapping. The graph
+owner admits projections and relationships, including pricing and inventory
+links; a selected HTTP route does not enable arbitrary graph entry points.
+
+The Core profile admits ID, handle, title, status, collection/type, category and
+variant-option selectors, free-text search, and the native Sales Channel filter.
+Ordering supports ID, handle, title and status. Timestamp ordering returns
+HTTP 400 under the current relational-read profile.
+Expanded pages must fit the existing Link planner's 128-source/target bounds.
+Unsupported selector/operator combinations return HTTP 400.
+
+The pinned Price List filter middleware retains its remote-query dependency;
+`price_list_id` returns HTTP 400 until the Pricing read profile is extended.
+The native `index_engine` flag retains its alternate query dispatch and the
+private profile refuses the unsupported index service.

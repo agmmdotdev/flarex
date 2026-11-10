@@ -5,10 +5,9 @@ import { Modules } from "@medusajs/utils/modules-sdk/definition";
 import type { MedusaRequest } from "@medusajs/framework/http";
 import { makeCoreSchemaBundle, type CoreDatabase, type CoreNativeDefinition } from "@flarex/persistence-postgres/internal/core";
 import type { PreparedHostRuntime } from "@flarex/persistence-postgres/internal/prepared-host-runtime";
-import { makeAtomicCommerceNativeHost, defineAtomicCommerceNativeSource, compileCoreNativeEventStorageDefinition,
-  makeCommerceNativeReadHost, commerceNativeRegistrations } from "@flarex/persistence-postgres/internal/commerce-native";
+import { makeAtomicCommerceNativeHost, defineAtomicCommerceNativeSource, compileCoreNativeEventStorageDefinition } from "@flarex/persistence-postgres/internal/commerce-native";
 import { capturePrivateCanonicalValue, commerceError, CommerceTransactionError, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
-import { commerceCommandIdentity, type CommerceCommand, type AtomicCommerceEvents } from "@flarex/persistence-postgres/internal/commerce-adapter";
+import { type CommerceCommand, type AtomicCommerceEvents } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { compileProductCoreDefinition } from "../modules/product/schema";
 import { makeLocalProductCommands } from "../modules/product/service";
 import { compilePricingCoreDefinition } from "../modules/pricing/schema";
@@ -32,6 +31,7 @@ import { commerceDecoder } from "../value/decoder";
 import { captureCommerceInput } from "../value/input";
 import { decodeProductQuery } from "../modules/product/query-profile";
 import type { AtomicWorkflowExecution } from "../workflow/host";
+import { makeProductRequestReads } from "./product-request-reads";
 
 /** Metadata production only. Bootstrap must separately admit the bundle and
  * commit all exact empty-source initialization receipts before HTTP activation. */
@@ -83,10 +83,6 @@ function productRefetchConfig(catalog: ProductRequestCatalog, input: readonly st
     return { select: [...fields], relations };
   });
 }
-const decodeRefetch = commerceDecoder(Schema.Struct({ entity: Schema.Literal("product"), fields: Schema.Array(Schema.String),
-  filters: Schema.Struct({ id: Schema.String.check(Schema.isLengthBetween(1, 256)) }) }), "unsupportedProfile");
-const decodeRefetchOptions = commerceDecoder(Schema.Struct({ throwIfKeyNotFound: Schema.optionalKey(Schema.Boolean) }), "unsupportedProfile");
-
 /** Existing atomic Core execution owns mutations and committed outcomes. The
  * POST's subsequent refetch is an independent native Product read operation. */
 export const makeProductRequestOperations = Effect.fn("ProductRequest.makeOperations")(function* (input: Readonly<{
@@ -101,11 +97,7 @@ export const makeProductRequestOperations = Effect.fn("ProductRequest.makeOperat
   };
   const workflow = yield* prepareProductCreationWorkflow({ execution, modules: input.catalog.modules, link: input.catalog.link,
     revision: input.revision, subscribers: input.subscribers });
-  const readCommands = Object.values(input.catalog.productRuntime.commands).filter(command => commerceCommandIdentity(command)?.mode === "read");
-  const binding = yield* input.database.bindNative({ definition: input.catalog.productSource.definition,
-    commands: yield* Effect.fromResult(commerceNativeRegistrations(readCommands, { readOnly: true })) });
-  const read = yield* Effect.acquireRelease(makeCommerceNativeReadHost({ database: input.database, binding, hostRuntime: input.hostRuntime,
-    commands: readCommands, initialization: input.catalog.productSource.initialization, identityAndAccessPolicy: input.identityAndAccessPolicy }), host => host.close);
+  const read = yield* makeProductRequestReads(input);
   const admitProductRefetchFields = (fields: readonly string[]): void => {
     Result.getOrThrowWith(productRefetchConfig(input.catalog, fields), () => new MedusaError(MedusaError.Types.INVALID_DATA,
       "The private Product creation profile requires explicit supported Product fields before execution."));
@@ -121,14 +113,11 @@ export const makeProductRequestOperations = Effect.fn("ProductRequest.makeOperat
         undefined, "Product creation admission refused", { cause })))));
     return { result: yield* workflow.run(workflow.newRequestKey(), args) };
   });
-  const graph = Effect.fn("ProductRequest.refetch")(function* (value: unknown, options?: unknown) {
-    const query = yield* Effect.fromResult(captureCommerceInput(value).pipe(Result.flatMap(decodeRefetch)));
-    if (options !== undefined) yield* Effect.fromResult(captureCommerceInput(options).pipe(Result.flatMap(decodeRefetchOptions)));
-    const config = yield* Effect.fromResult(productRefetchConfig(input.catalog, query.fields));
-    const row = yield* read.read(input.catalog.productRuntime.commands.retrieve, { id: query.filters.id, config });
-    return { data: [row] };
-  });
-  return Object.freeze({ runWorkflow, query: Object.freeze({ graph }), admitProductRefetchFields,
+  const index = Effect.fn("ProductRequest.unsupportedIndex")(() => Effect.fail(commerceError("adapterFailure",
+    new MedusaError(MedusaError.Types.NOT_ALLOWED, "Index engine is outside the admitted Product profile"))));
+  const remoteQuery = Effect.fn("ProductRequest.unsupportedRemoteQuery")((_value: unknown) => Effect.fail(commerceError("adapterFailure",
+    new MedusaError(MedusaError.Types.INVALID_DATA, "Remote Product filters are outside the private supported profile"))));
+  return Object.freeze({ runWorkflow, query: Object.freeze({ graph: read.graph, index }), remoteQuery, admitProductRefetchFields,
     close: workflow.close.pipe(Effect.ensuring(read.close)) });
 });
 export type ProductRequestOperations = Effect.Success<ReturnType<typeof makeProductRequestOperations>>;
@@ -156,7 +145,9 @@ export const makeProductRequestScopeFactory = Effect.fn("ProductRequest.makeScop
 }>) {
   const container = yield* Effect.acquireRelease(Effect.sync(() => input.container.createScope().register({
     [Modules.WORKFLOW_ENGINE]: asValue({ run: (name: string, options: Readonly<{ input: unknown }>) => runProductRequestPromise(input.operations.runWorkflow(name, options.input)) }),
-    query: asValue({ graph: (query: unknown, options?: unknown) => runProductRequestPromise(input.operations.query.graph(query, options)) }),
+    query: asValue({ graph: (query: unknown, options?: unknown) => runProductRequestPromise(input.operations.query.graph(query, options)),
+      index: () => runProductRequestPromise(input.operations.query.index()) }),
+    remoteQuery: asValue((query: unknown) => runProductRequestPromise(input.operations.remoteQuery(query))),
   })), scope => Effect.promise(() => scope.dispose()));
   return Object.freeze({ createRequestScope: (): MedusaRequest["scope"] => container.createScope() });
 });

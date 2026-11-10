@@ -1,7 +1,7 @@
 import { z } from "@medusajs/framework/zod"
 
-export const applyAndAndOrOperators = <T extends z.ZodObject<any>>(
-  schema: T
+export const applyAndAndOrOperators = <Shape extends z.ZodRawShape>(
+  schema: z.ZodObject<Shape>
 ) => {
   return schema.merge(
     z.object({

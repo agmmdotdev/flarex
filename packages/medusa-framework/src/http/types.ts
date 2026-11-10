@@ -92,6 +92,6 @@ export type MiddlewareDescriptor = {
   policies?: PolicyAction | PolicyAction[]
 }
 export type QueryConfig = { defaults?: string[]; allowed?: string[]; defaultLimit?: number; isList?: boolean; entity?: string }
-export type QuerySchema = z.ZodType<DecodedQueryFields & Record<string, unknown>>
+export type QuerySchema = z.ZodType<DecodedQueryFields & Record<string, unknown>, z.ZodTypeDef, unknown>
 export type BodySchema = z.ZodType<Record<string, unknown>>
 export type AdditionalDataValidator = z.ZodOptional<z.ZodNullable<z.ZodObject<z.ZodRawShape>>>

@@ -2,7 +2,7 @@
 import { verifyPriceListDeleteSelection, verifyPriceListDeleteCallbacks, verifyPriceListUpdateCallbacks, verifyNativePriceListRuleBuilder, verifyPriceListCreateCallbacks, verifyPricePreferenceDeleteCallbacks, verifyPricePreferenceUpdateCallbacks, verifyPricePreferenceCreateCallbacks, verifySalesChannelProductLinkCallbacks, verifyTestPort, verifyPricingWorkflowSelection, verifyInventoryLevelDeleteCallbacks, verifyInventoryItemDeleteCallbacks, verifyInventoryLevelBatchCallbacks, verifyInventoryItemCreateCallbacks, verifyStoreDeleteCallbacks, verifyStoreCreateCallbacks, verifyStoreCreationTypes, verifyReservationLineItemDeletionCallbacks, verifyStoreUpdateCallbacks, verifyShippingProfileUpdateCallbacks, verifyShippingProfileCreateCallbacks, verifyShippingOptionRuleBatchCallbacks, verifyLocationFulfillmentSetCallbacks, verifyShippingProfileDeleteCallbacks, verifyShippingOptionTypeCreateCallbacks, verifyShippingOptionTypeUpdateCallbacks, verifyShippingOptionTypeDeleteCallbacks, verifyServiceZoneCreateCallbacks, verifyServiceZoneDeleteCallbacks, verifyFulfillmentSetDeleteCallbacks, verifyServiceZoneUpdateCallbacks, verifyNativeToManyInitialization, verifyNativeRelationScalarFields } from "./check-medusa-test-port.mjs";
 import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { admitsCurrencyImport, verifyCurrencyPromotion, verifyStoreCurrencyHandlerSource, verifyAdminProductPostSource, verifyModuleTypeFork, verifyNativeBigNumberTypeSource, nativeBigNumberSourcePair, verifyStoreTypeFork, verifyInventoryReservationRestoreFork, verifyStoreCreationTypeFork, verifyPriceListCreationTypeFork, verifyShippingProfileWorkflowTypeFork, verifyLinkCascadeReturnMapFork } from "./check-medusa-currency-promotion.mjs";
+import { admitsCurrencyImport, verifyCurrencyPromotion, verifyStoreCurrencyHandlerSource, verifyAdminProductPostSource, verifyAdminProductDetailSource, verifyModuleTypeFork, verifyNativeBigNumberTypeSource, nativeBigNumberSourcePair, verifyStoreTypeFork, verifyInventoryReservationRestoreFork, verifyStoreCreationTypeFork, verifyPriceListCreationTypeFork, verifyShippingProfileWorkflowTypeFork, verifyLinkCascadeReturnMapFork } from "./check-medusa-currency-promotion.mjs";
 import { analyzeMedusaSourceIslandBoundary } from "./check-medusa-source-island-boundary.mjs";
 import { verifyInventoryConfirmationPreparationTest } from "./check-medusa-inventory-confirmation-source.mjs";
 
@@ -19,7 +19,7 @@ describe("native Store Currency route promotion", () => {
   });
 });
 
-describe("native Admin Product POST promotion", () => {
+describe("native Admin Product route promotion", () => {
   const filename = "src/api/admin/products/route.ts";
   it("preserves the complete selected route module", () => {
     const native = readFileSync("third_party/medusa/upstream/packages/medusa/" + filename, "utf8");
@@ -32,12 +32,26 @@ describe("native Admin Product POST promotion", () => {
     ['"create-products"', '"update-products"'],
     ["result[0].id", "products.id"],
     ["res.status(200)", "res.status(201)"],
+    ['"index_engine"', '"other_engine"'],
+    ["count: metadata.count", "count: 0"],
+    ["withDeleted: req.queryConfig.withDeleted", "withDeleted: false"],
+    ["req.filterableFields", "{}"],
   ])("rejects changing %s", (original, change) => {
     const native = readFileSync("third_party/medusa/upstream/packages/medusa/" + filename, "utf8");
     const promoted = readFileSync("packages/medusa-http/" + filename, "utf8");
     expect(promoted).toContain(original);
     expect(() => verifyAdminProductPostSource(native, promoted.replace(original, change)))
       .toThrow("Changed native Admin Product POST behavior");
+  });
+  it("preserves the native detail handler and its missing-product refusal", () => {
+    const path = "src/api/admin/products/[id]/route.ts";
+    const native = readFileSync("third_party/medusa/upstream/packages/medusa/" + path, "utf8");
+    const promoted = readFileSync("packages/medusa-http/" + path, "utf8");
+    expect(() => verifyAdminProductDetailSource(native, promoted)).not.toThrow();
+    expect(() => verifyAdminProductDetailSource(native, promoted.replace("MedusaError.Types.NOT_FOUND", "MedusaError.Types.INVALID_DATA")))
+      .toThrow("Changed native Admin Product GET behavior");
+    expect(() => verifyAdminProductDetailSource(native, promoted + "\nexport const POST = GET"))
+      .toThrow("Changed native Admin Product GET behavior");
   });
 });
 

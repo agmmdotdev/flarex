@@ -110,7 +110,7 @@ const formatError = (err: ZodError) => {
 }
 
 export async function zodValidator(
-  zodSchema: z.ZodType<Record<string, unknown>>,
+  zodSchema: z.ZodType<Record<string, unknown>, z.ZodTypeDef, unknown>,
   body: unknown
 ): Promise<Record<string, unknown>> {
   let strictSchema = zodSchema

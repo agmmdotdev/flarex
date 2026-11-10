@@ -29,9 +29,17 @@ const Direction = Schema.Literals(["ASC", "DESC"]);
 const decodeOrder = commerceDecoder(Schema.Struct({
   id: Schema.optionalKey(Direction),
   handle: Schema.optionalKey(Direction),
+  title: Schema.optionalKey(Direction),
+  status: Schema.optionalKey(Direction),
+  created_at: Schema.optionalKey(Direction),
+  updated_at: Schema.optionalKey(Direction),
   images: Schema.optionalKey(Schema.Struct({ rank: Schema.Literal("ASC") })),
-}).check(Schema.makeFilter(order => order.id === undefined || order.handle === undefined)), "unsupportedProfile");
-const decodeColumn = commerceDecoder(Schema.Literals(["id", "handle", "collection_id", "type_id"]), "unsupportedProfile");
+}).check(Schema.makeFilter(order => {
+  const selected = Object.keys(order).filter(key => key !== "images" && key !== "id");
+  return selected.length <= 1 && (selected.length === 0 || order.id === undefined ||
+    selected[0] !== "handle" && order.id === "ASC");
+})), "unsupportedProfile");
+const decodeColumn = commerceDecoder(Schema.Literals(["id", "handle", "title", "status", "collection_id", "type_id"]), "unsupportedProfile");
 const decodeFilter = commerceDecoder(Schema.Union([
   Schema.String, Schema.Array(Schema.String).check(Schema.isMaxLength(256)),
 ]), "invalidInput");
@@ -68,6 +76,10 @@ export function decodeProductQuery(
     const skip = yield* decodeOffset(options.offset ?? 0);
     const take = yield* decodeLimit(options.limit ?? (internalProduct ? 256 : 15));
     const order = yield* decodeOrder(options.orderBy ?? { id: "ASC" });
+    const orderColumn = Object.keys(order).find(column => column !== "id" && column !== "images") ?? "id";
+    const direction = orderColumn === "handle" ? order.handle : orderColumn === "title" ? order.title : orderColumn === "status" ? order.status
+      : orderColumn === "created_at" ? order.created_at : orderColumn === "updated_at" ? order.updated_at : order.id;
+    if (!catalog.product.table.columns.some(column => column.name === orderColumn)) return yield* Result.fail(commerceError("unsupportedProfile"));
     const optionFilters = options.filters ?? {};
     const withDeleted = optionFilters.softDeletable === undefined ? false
       : (yield* decodeSoftDelete(optionFilters.softDeletable)).withDeleted;
@@ -117,7 +129,7 @@ export function decodeProductQuery(
       projection, selected, relationFilters, withDeleted, relations: productRelations.filter(path => relations.includes(path)),
       query: {
         fields: projection.storageFields, skip, take,
-        order: { column: order.handle === undefined ? "id" : "handle", direction: (order.id ?? order.handle) === "DESC" ? "desc" : "asc" },
+        order: { column: orderColumn, direction: direction === "DESC" ? "desc" : "asc" },
         predicate: { kind: "and", children: predicates },
       } satisfies JsonObject,
     };

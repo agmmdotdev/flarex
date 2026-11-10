@@ -50,8 +50,9 @@ const NativeOwner = makeApplicationDurableObject<NativeProductEnv, NativeFixture
           app_metadata: {}, user_metadata: {} };
       },
       evaluateAdminPolicies: (principal, policies) => principal.actor_id === "user_native_product"
-        && policies.length === 3 && policies.every((policy, index) => policy.resource === ["product", "inventory_item", "price"][index]
-          && policy.operation === "create"),
+        && ((policies.length === 1 && policies[0]?.resource === "product" && policies[0]?.operation === "read")
+          || (policies.length === 3 && policies.every((policy, index) => policy.resource === ["product", "inventory_item", "price"][index]
+            && policy.operation === "create"))),
       admitProductRefetchFields: operations.admitProductRefetchFields });
     const dispatch = Effect.fn("NativeAdminProductApplicationFixture.dispatch")((request: Request) => {
       // Private service authority does not confer Medusa user identity. Only

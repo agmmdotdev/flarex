@@ -36,6 +36,17 @@ const decodeInventoryLink = Schema.decodeUnknownSync(Schema.Struct({ variant_id:
 const decodeDurableGraphSummary = Schema.decodeUnknownSync(Schema.Struct({ product_id: Schema.String, variant_id: Schema.String,
   price_set_id: Schema.String, price_id: Schema.String, inventory_item_id: Schema.String, amount: Schema.String,
   currency: Schema.String, sku: Schema.String, required_quantity: Schema.Number, publication_timestamp: Schema.String }));
+const readPrice = Schema.Struct({ id: Schema.NonEmptyString, amount: Schema.Number, currency_code: Schema.String,
+  price_set_id: Schema.NonEmptyString, variant_id: Schema.NonEmptyString });
+const readProduct = Schema.Struct({ id: Schema.NonEmptyString, title: Schema.String, handle: Schema.String, status: Schema.String,
+  variants: Schema.Array(Schema.Struct({ id: Schema.NonEmptyString, sku: Schema.String, manage_inventory: Schema.Boolean,
+    prices: Schema.Array(readPrice), inventory_items: Schema.Array(Schema.Struct({ id: Schema.NonEmptyString,
+      variant_id: Schema.NonEmptyString, inventory_item_id: Schema.NonEmptyString, required_quantity: Schema.Number,
+      inventory: Schema.Struct({ id: Schema.NonEmptyString, sku: Schema.String }) })) })) });
+const decodeReadProduct = Schema.decodeUnknownSync(Schema.Struct({ product: readProduct }));
+const decodeReadProducts = Schema.decodeUnknownSync(Schema.Struct({ products: Schema.Array(readProduct),
+  count: Schema.Number, offset: Schema.Number, limit: Schema.Number }));
+const readFields = "id,title,handle,status,variants.id,variants.sku,variants.manage_inventory,*variants.prices,*variants.inventory_items,*variants.inventory_items.inventory";
 
 /** A fresh native-ready tenant per test. The benchmark keeps its one runtime
  * open throughout warmup and measurement; independent observation requires close. */
@@ -93,15 +104,18 @@ async function createAdminProductDOFixture() {
         durableObjects: { APPLICATIONS: { className: "NativeAdminProductApplicationFixture", useSQLite: true } },
       });
     };
-    const request = (input: unknown, options: Readonly<{ private?: boolean; admin?: string; path?: string; signal?: AbortSignal }>
+    const request = (input: unknown, options: Readonly<{ private?: boolean; admin?: string; path?: string; signal?: AbortSignal; method?: "POST" | "GET" }>
       = { private: true, admin: adminCredential }) => {
       if (runtime === undefined) throw new Error("Native Product DO is closed");
-      return runtime.dispatchFetch(`https://native-admin.test${options.path ?? path}`, { method: "POST",
+      return runtime.dispatchFetch(`https://native-admin.test${options.path ?? path}`, { method: options.method ?? "POST",
         headers: { "content-type": "application/json", origin: "https://admin.test",
           ...(options.private === true ? { authorization: `Bearer ${privateToken}` } : {}),
-          ...(options.admin === undefined ? {} : { "x-admin-fixture-token": options.admin }) }, body: JSON.stringify(input),
+          ...(options.admin === undefined ? {} : { "x-admin-fixture-token": options.admin }) },
+        ...(options.method === "GET" ? {} : { body: JSON.stringify(input) }),
         ...(options.signal === undefined ? {} : { signal: options.signal }) });
     };
+    const get = (path: string, options: Readonly<{ private?: boolean; admin?: string }> = { private: true, admin: adminCredential }) =>
+      request(undefined, { ...options, path, method: "GET" });
     const probeIncarnation = async () => {
       if (runtime === undefined) throw new Error("Native Product DO is closed");
       const response = await runtime.dispatchFetch("https://native-admin.test/__proof/incarnation", {
@@ -110,7 +124,7 @@ async function createAdminProductDOFixture() {
       if (!response.ok) throw new Error(`Incarnation probe returned HTTP ${response.status}`);
       return Schema.decodeUnknownSync(Schema.Struct({ incarnation: Schema.NonEmptyString }))(await response.json()).incarnation;
     };
-    return { initial, catalog, start, stop, close, request, observe, probeIncarnation };
+    return { initial, catalog, start, stop, close, request, get, observe, probeIncarnation };
   } catch (cause) {
     try { await close(); } catch (cleanup) { throw new AggregateError([cause, cleanup], "Product fixture setup and cleanup failed"); }
     throw cause;
@@ -255,6 +269,129 @@ describe.runIf(endpoints !== undefined)("native-ready private Admin Product in t
     finally {
       try { await fixture.close(); }
       catch (cause) { throw new AggregateError([...primary, cause], "Admin Product proof cleanup failed"); }
+    }
+  }, 240_000);
+
+  it("reads native Product detail and lists with their own price and inventory links after DO recreation without business writes", async () => {
+    const fixture = await createAdminProductDOFixture();
+    const primary: unknown[] = [];
+    try {
+      fixture.start();
+      const incarnation = await fixture.probeIncarnation();
+      const cases = [
+        { title: "Alpha Native Read Product", handle: "alpha-native-read-product", sku: "NATIVE-READ-ALPHA", amount: 1357 },
+        { title: "Beta Native Read Product", handle: "beta-native-read-product", sku: "NATIVE-READ-BETA", amount: 8642 },
+      ];
+      const created: Array<{ id: string; variantId: string; title: string; handle: string; sku: string; amount: number }> = [];
+      for (const input of cases) {
+        const response = await fixture.request({ title: input.title, handle: input.handle,
+          options: [{ title: "Size", values: ["One"] }], variants: [{ title: `${input.title} One`, sku: input.sku,
+            manage_inventory: true, options: { Size: "One" }, prices: [{ currency_code: "usd", amount: input.amount }] }] },
+        { private: true, admin: adminCredential, path: managedPath });
+        expect(response.status, await response.clone().text()).toBe(200);
+        const body: unknown = await response.json();
+        const product = decodeProduct(body).product;
+        const variants = decodeVariants(body).product.variants;
+        expect(variants).toHaveLength(1);
+        const variant = variants[0];
+        if (variant === undefined) throw new Error("Created read fixture omitted its variant");
+        created.push({ ...input, id: product.id, variantId: variant.id });
+      }
+      await fixture.stop();
+      // Reopen Core independently before any read, so every later link assertion
+      // compares HTTP results with committed storage rather than creation output.
+      const persisted = await fixture.observe();
+      expect(persisted.products).toHaveLength(2);
+      expect(persisted.variants).toHaveLength(2);
+      expect(persisted.prices).toHaveLength(2);
+      expect(persisted.variantPriceSets).toHaveLength(2);
+      expect(persisted.inventoryItems).toHaveLength(2);
+      expect(persisted.variantInventoryItems).toHaveLength(2);
+
+      fixture.start();
+      expect(await fixture.probeIncarnation()).not.toBe(incarnation);
+      const first = created[0], second = created[1];
+      if (first === undefined || second === undefined) throw new Error("Expected two committed Product read fixtures");
+      const detailPath = `/admin/products/${first.id}?fields=${readFields}`;
+      for (const target of ["/admin/products", detailPath]) {
+        expect((await fixture.get(target, { admin: adminCredential })).status).toBe(401);
+        expect((await fixture.get(target, { private: true })).status).toBe(401);
+        expect((await fixture.get(target, { private: true, admin: "invalid-admin" })).status).toBe(401);
+        expect((await fixture.get(target, { private: true, admin: `${adminCredential}-without-policy` })).status).toBe(403);
+      }
+      expect((await fixture.get("/admin/products?limit=invalid")).status).toBe(400);
+      expect((await fixture.get(`/admin/products/${first.id}?fields=unsupported_field`)).status).toBe(400);
+      const missing = await fixture.get("/admin/products/prod_missing_native_read?fields=id,title");
+      expect(missing.status, await missing.clone().text()).toBe(404);
+      expect(await missing.json()).toMatchObject({ type: "not_found" });
+
+      const defaultDetail = await fixture.get(`/admin/products/${first.id}`);
+      expect(defaultDetail.status, await defaultDetail.clone().text()).toBe(200);
+      const defaultBody: unknown = await defaultDetail.json();
+      expect(decodeProduct(defaultBody).product).toMatchObject({ id: first.id, title: first.title, handle: first.handle });
+      const defaultPrices = Schema.decodeUnknownSync(Schema.Struct({ product: Schema.Struct({ variants: Schema.Array(
+        Schema.Struct({ id: Schema.String, prices: Schema.Array(readPrice) })) }) }))(defaultBody);
+      expect(defaultPrices.product.variants).toEqual([expect.objectContaining({ id: first.variantId,
+        prices: [expect.objectContaining({ amount: first.amount, currency_code: "usd", variant_id: first.variantId })] })]);
+      const defaultList = await fixture.get("/admin/products");
+      expect(defaultList.status, await defaultList.clone().text()).toBe(200);
+      expect(await defaultList.json()).toMatchObject({ products: expect.arrayContaining([
+        expect.objectContaining({ id: first.id }), expect.objectContaining({ id: second.id })]), count: 2, offset: 0, limit: 50 });
+
+      const assertDurableGraph = (product: typeof readProduct.Type) => {
+        const expected = created.find(row => row.id === product.id);
+        if (expected === undefined) throw new Error("Native GET returned a foreign Product");
+        expect(product).toMatchObject({ title: expected.title, handle: expected.handle, status: "draft" });
+        expect(persisted.products.find(row => row.id === product.id)).toMatchObject({ title: product.title, handle: product.handle });
+        expect(product.variants).toHaveLength(1);
+        const variant = product.variants[0];
+        if (variant === undefined) throw new Error("Native GET omitted its linked variant");
+        expect(variant).toMatchObject({ id: expected.variantId, sku: expected.sku, manage_inventory: true });
+        expect(persisted.variants.find(row => row.id === variant.id)).toMatchObject({ product_id: product.id, sku: expected.sku });
+        expect(variant.prices).toHaveLength(1);
+        const price = variant.prices[0];
+        if (price === undefined) throw new Error("Native GET omitted its linked price");
+        expect(price).toMatchObject({ amount: expected.amount, currency_code: "usd", variant_id: variant.id });
+        expect(persisted.variantPriceSets.find(row => row.variant_id === variant.id)).toMatchObject({ price_set_id: price.price_set_id });
+        expect(persisted.priceSets.find(row => row.id === price.price_set_id)).toBeDefined();
+        expect(persisted.prices.find(row => row.id === price.id)).toMatchObject({ price_set_id: price.price_set_id,
+          currency_code: "usd", amount: `${expected.amount}.0000000000000000` });
+        expect(variant.inventory_items).toHaveLength(1);
+        const inventoryLink = variant.inventory_items[0];
+        if (inventoryLink === undefined) throw new Error("Native GET omitted its linked inventory item");
+        expect(inventoryLink).toMatchObject({ variant_id: variant.id, required_quantity: 1,
+          inventory: { id: inventoryLink.inventory_item_id, sku: expected.sku } });
+        expect(persisted.variantInventoryItems.find(row => row.id === inventoryLink.id)).toMatchObject({
+          variant_id: variant.id, inventory_item_id: inventoryLink.inventory_item_id, required_quantity: 1 });
+        expect(persisted.inventoryItems.find(row => row.id === inventoryLink.inventory_item_id)).toMatchObject({ sku: expected.sku });
+      };
+      for (const expected of created) {
+        const response = await fixture.get(`/admin/products/${expected.id}?fields=${readFields}`);
+        expect(response.status, await response.clone().text()).toBe(200);
+        assertDurableGraph(decodeReadProduct(await response.json()).product);
+      }
+      const ordered = await fixture.get(`/admin/products?fields=${readFields}&order=-handle&offset=1&limit=1`);
+      expect(ordered.status, await ordered.clone().text()).toBe(200);
+      const page = decodeReadProducts(await ordered.json());
+      expect(page).toMatchObject({ count: 2, offset: 1, limit: 1 });
+      expect(page.products.map(product => product.id)).toEqual([first.id]);
+      page.products.forEach(assertDurableGraph);
+      const filtered = await fixture.get(`/admin/products?fields=${readFields}&handle=${second.handle}&order=handle&limit=1`);
+      expect(filtered.status, await filtered.clone().text()).toBe(200);
+      const filteredPage = decodeReadProducts(await filtered.json());
+      expect(filteredPage).toMatchObject({ count: 1, offset: 0, limit: 1 });
+      expect(filteredPage.products.map(product => product.id)).toEqual([second.id]);
+      filteredPage.products.forEach(assertDurableGraph);
+      await fixture.stop();
+      const afterReads = await fixture.observe();
+      for (const key of ["rows", "revisions", "indexes", "businessRows", "products", "options", "optionValues", "variants", "variantOptions",
+        "priceSets", "prices", "inventoryItems", "variantPriceSets", "variantInventoryItems"] as const) {
+        expect(afterReads[key], `GET requests changed durable ${key}`).toEqual(persisted[key]);
+      }
+    } catch (cause) { primary.push(cause); throw cause; }
+    finally {
+      try { await fixture.close(); }
+      catch (cause) { throw new AggregateError([...primary, cause], "Admin Product read proof cleanup failed"); }
     }
   }, 240_000);
 

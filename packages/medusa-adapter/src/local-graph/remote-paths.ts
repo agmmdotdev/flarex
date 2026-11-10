@@ -1,11 +1,10 @@
 import { Effect, Result, Schema } from "effect";
 import { groupHasManyRows, groupManyToManyRows, tupleKey } from "@medusajs/drizzle/relation-query";
-import type { AtomicCommerceContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError, isJsonObject, type CommerceTransactionError, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { commerceDecoder } from "../value/decoder";
 import { checkedCommerceValue } from "../value/checked";
 import type { ProjectionNode } from "../query/projection";
-import type { GraphParticipant, GraphReadSelection, GraphRemotePath } from "./model";
+import type { GraphParticipant, GraphReadSelection, GraphRemotePath, GraphReadContext } from "./model";
 import { decodeGraphRemotePaths, decodeGraphLinkEndpoints, type GraphLinkEndpoint } from "./links";
 import { planGraphFields } from "./fields";
 import { graphSelectableColumns } from "./presentation";
@@ -121,7 +120,7 @@ const keys = (rows: readonly JsonObject[], column: string, nullable = false) => 
 /** Every Link and endpoint query is an existing authenticated participant call.
  * Counts prove complete selections; native grouping supplies attachment order. */
 export const populateGraphRemotePaths = Effect.fn("LocalGraph.populateRemotePaths")(function* (
-  context: AtomicCommerceContext, rows: readonly JsonObject[], node: ProjectionNode,
+  context: GraphReadContext, rows: readonly JsonObject[], node: ProjectionNode,
   paths: ReadonlyMap<string, ResolvedGraphRemotePath>,
   endpoints: ReadonlyMap<string, ResolvedGraphLinkEndpoint> = new Map(),
   direct: ReadonlyMap<string, ResolvedGraphDirectPath> = new Map(),

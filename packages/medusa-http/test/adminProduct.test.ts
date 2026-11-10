@@ -95,15 +95,20 @@ describe("private native Admin Product POST", () => {
     expect((await refetchFailed.handler.handle(request())).status).toBe(404)
     expect(refetchFailed.run).toHaveBeenCalledTimes(1)
     expect(refetchFailed.graph).toHaveBeenCalledTimes(1)
+    const missing = fixture()
+    missing.graph.mockResolvedValueOnce({ data: [] })
+    expect((await missing.handler.handle(request())).status).toBe(500)
+    expect(missing.run).toHaveBeenCalledTimes(1)
+    expect(missing.graph).toHaveBeenCalledTimes(1)
   })
 
-  it("answers preflight without authentication or scope and retains POST-only activation", async () => {
+  it("answers preflight without authentication or scope and authenticates activated reads", async () => {
     const f = fixture()
     const preflight = await f.handler.handle(new Request("https://private.test/admin/products", { method: "OPTIONS", headers: { origin: "https://admin.example", "access-control-request-method": "POST" } }))
     expect(preflight.status).toBe(204)
     expect(preflight.headers.get("access-control-allow-origin")).toBe("https://admin.example")
     expect(f.scopes).toHaveLength(0)
-    expect((await f.handler.handle(new Request("https://private.test/admin/products"))).status).toBe(404)
+    expect((await f.handler.handle(new Request("https://private.test/admin/products"))).status).toBe(401)
     expect(await f.handler.tryHandle(new Request("https://private.test/admin/other"))).toBeUndefined()
   })
 })

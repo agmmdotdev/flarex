@@ -453,6 +453,7 @@ export function preparePricingRepository(metadata: Effect.Success<ReturnType<typ
       return { repository, denied, listRepository, ruleRepository: mutationRepositories?.ruleRepository ?? ruleRepository,
         priceRepository: priceRemovalRepository ?? listPriceRepository ?? mutationRepositories?.priceRepository ?? denied, preferenceRepository, mutationEvents, bridge, refuse, calculatePrices };
     };
-    return { bind, query, mutationQuery: mutations?.query, table: yield* readCatalog.table(set.table.name), paths: yield* relationPaths(readCatalog, set.table.name, paths, shippingUpdates ? { nativeFields: true } : undefined) };
+    return { bind, query, mutationQuery: mutations?.query, table: yield* readCatalog.table(set.table.name),
+      paths: yield* relationPaths(readCatalog, set.table.name, paths, { nativeFields: true }) };
   });
 }

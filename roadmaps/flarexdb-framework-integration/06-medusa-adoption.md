@@ -25,14 +25,24 @@ The [read adapter](../../packages/medusa-adapter/src/http/store-request-reads.ts
 binds Currency, publishable keys and Sales Channel Links to the ready Core
 generation. The [private app DO scenario](../../apps/executor/test/storeCurrencyApplicationDO.postgres.test.ts)
 opens an independently provisioned native catalog on ordinary-role PostgreSQL.
-The [Admin Product route](../../packages/medusa-http/src/api/admin/products/route.ts)
-accepts a private `POST /admin/products`. The host authenticates the admin user
-and checks the Product, Inventory Item and Price creation policies. The
+The [Admin Product routes](../../packages/medusa-http/src/api/admin/products/route.ts)
+accept private `GET /admin/products`, `GET /admin/products/:id` and
+`POST /admin/products`. The host authenticates the admin user and checks the
+native Product read policy or the Product, Inventory Item and Price creation policies. The
 [Product adapter](../../packages/medusa-adapter/src/http/product-request.ts)
 admits the requested response fields before running the native `create-products`
 workflow. After settlement the route refetches the product by its returned ID
 through a separate Core-backed read. The private profile requires explicit
 supported fields, which can include the product's own options and values.
+
+The [Product read graph](../../packages/medusa-adapter/src/http/product-request-reads.ts)
+uses the existing native graph planner and Link metadata over protected Core
+read commands. Detail and list retain native field selection and response
+remapping, including Price Set/Price and rich Inventory Item links. Native
+validators and middleware own list filters, ordering, pagination and count
+metadata. Each module read group opens its own Core operation and snapshot,
+matching native remote service reads.
+The alternate Index Engine and Price List selector profile fail closed.
 
 Serving these routes on a registered app requires the app owner to authenticate both
 its Application deployment and the selected native sources in one generation.

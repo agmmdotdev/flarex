@@ -39,10 +39,10 @@ export function productGraphDefinition(metadata: ProductRuntimeMetadata, command
       );
       // The Product service assembles this from variants, images and assignments.
       if (entity === metadata.product) paths.push({ path: "variants.images", table: yield* metadata.readCatalog.table(metadata.image.table.name), many: true });
-      const orderable = entity === metadata.product ? ["id", "handle"] : entity === metadata.category ? ["id", "rank"] : ["id"];
+      const orderable = entity === metadata.product ? ["id", "handle", "title", "status", "created_at", "updated_at"] : entity === metadata.category ? ["id", "rank"] : ["id"];
       const uniqueOrder = orderable.filter(field => field === "id" || entity.table.indexes.some(index => index.unique && index.columns.length === 1 && index.columns[0] === field));
       reads.push({ model: entity.model, command, table, paths, orderable, uniqueOrder,
-        multipleOrder: entity === metadata.category, decode: entity === metadata.category ? decodeCategoryCount : decodeGraphCount });
+        multipleOrder: entity === metadata.category || entity === metadata.product, decode: entity === metadata.category ? decodeCategoryCount : decodeGraphCount });
     }
     // The retained method is pure static metadata and does not use its receiver.
     return { aliases: yield* moduleAliases(ProductModuleService.prototype.__joinerConfig()), reads };

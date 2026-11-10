@@ -59,3 +59,19 @@ export const createFindParams = ({
     })
   )
 }
+
+/** Selected native string/date filter operators. */
+export const createOperatorMap = () => {
+  const simpleType = z.string().optional()
+  const arrayType = z.array(z.string()).optional()
+  const unionType = z.union([simpleType, arrayType]).optional()
+  return z.union([
+    unionType,
+    z.object({
+      $eq: unionType, $ne: unionType, $in: arrayType, $nin: arrayType,
+      $like: simpleType, $ilike: simpleType, $re: simpleType,
+      $contains: simpleType, $gt: simpleType, $gte: simpleType,
+      $lt: simpleType, $lte: simpleType,
+    }),
+  ])
+}

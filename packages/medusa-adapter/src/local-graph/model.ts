@@ -85,8 +85,11 @@ export interface LocalGraphQuery {
 }
 export interface PreparedLocalGraph {
   readonly entities: readonly string[];
-  readonly bind: (context: AtomicCommerceContext) => LocalGraphQuery;
+  readonly bind: <Context extends GraphReadContext>(context: Context) => LocalGraphQuery;
 }
+/** Both workflow roots and protected HTTP read groups provide exactly these
+ * capabilities. Graph planning never needs events or settlement authority. */
+export type GraphReadContext = Pick<AtomicCommerceContext, "call" | "refuse" | "recordFailure">;
 export interface GraphParticipant {
   readonly participant: AtomicCommerceParticipant;
   readonly module: GraphModuleDefinition;

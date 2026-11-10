@@ -1,8 +1,31 @@
-import { validateAndTransformBody, validateAndTransformQuery, type MiddlewareRoute } from "@medusajs/framework/http"
+import { maybeApplyLinkFilter, validateAndTransformBody, validateAndTransformQuery, type MiddlewareRoute } from "@medusajs/framework/http"
+import { FeatureFlag } from "@medusajs/utils/feature-flags/flag-router"
 import * as QueryConfig from "./query-config"
-import { AdminCreateProduct, AdminGetProductParams } from "./validators"
+import { AdminCreateProduct, AdminGetProductParams, AdminGetProductsParams } from "./validators"
+import { maybeApplyPriceListsFilter } from "./utils/maybe-apply-price-lists-filter"
 
 export const adminProductRoutesMiddlewares: MiddlewareRoute[] = [{
+  matcher: "/admin/products/*",
+  policies: [{ resource: "product", operation: "read" }],
+}, {
+  method: ["GET"],
+  matcher: "/admin/products",
+  middlewares: [
+    validateAndTransformQuery(AdminGetProductsParams, QueryConfig.listProductQueryConfig),
+    (req, res, next) => {
+      if (FeatureFlag.isFeatureEnabled("index_engine")) {
+        return next()
+      }
+      return maybeApplyLinkFilter({ entryPoint: "product_sales_channel", resourceId: "product_id", filterableField: "sales_channel_id" })(req, res, next)
+    },
+    maybeApplyPriceListsFilter(),
+  ],
+  policies: [{ resource: "product", operation: "read" }],
+}, {
+  method: ["GET"],
+  matcher: "/admin/products/:id",
+  middlewares: [validateAndTransformQuery(AdminGetProductParams, QueryConfig.retrieveProductQueryConfig)],
+}, {
   method: ["POST"],
   matcher: "/admin/products",
   middlewares: [
