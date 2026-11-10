@@ -1,17 +1,13 @@
 import { Effect } from "effect";
 import { promotionModuleModels } from "@medusajs/promotion/static-manifest";
-import { compileDmlSchema } from "@medusajs/drizzle/schema";
-import { captureLogicalSchemaSource } from "@flarex/analysis/internal/logical-schema-candidate";
-import { makeCoreRelationalNativeDefinition } from "@flarex/persistence-postgres/internal/core";
+import { compileDmlMetadata } from "../../schema/compile";
+import { makeMedusaCoreDefinition } from "../../schema/core-definition";
 import { capturePrivateCanonicalValue, commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { normalizeRelationalSchema } from "flarex-protocol/internal/relational-schema";
-import { decodeCompiledDml } from "../../schema/compiled";
 import { lowerDmlSchema } from "../../schema/lower";
 
 export const capturePromotionMetadata = Effect.fn("Promotion.captureMetadata")(function* () {
-  const input = yield* Effect.try({ try: (): unknown => JSON.parse(JSON.stringify(compileDmlSchema(promotionModuleModels))),
-    catch: cause => commerceError("unsupportedProfile", cause) });
-  const compiled = yield* decodeCompiledDml(input).pipe(Effect.mapError(cause => commerceError("unsupportedProfile", cause)));
+  const compiled = yield* compileDmlMetadata(promotionModuleModels, cause => commerceError("unsupportedProfile", cause));
   return yield* capturePrivateCanonicalValue(compiled, 1_048_576, {
     invalidInput: () => commerceError("unsupportedProfile"), hashFailure: cause => commerceError("unsupportedProfile", cause),
   });
@@ -32,9 +28,6 @@ export const compilePromotionCoreDefinition = Effect.fn("Promotion.compileCoreDe
   epochUuid: string;
 }>) {
   const { schema, provenance } = yield* compilePromotionDefinition();
-  const source = yield* captureLogicalSchemaSource({ key: "medusa.promotion", owner: "medusa", writeProfile: "medusa.promotion",
-    evidence: { provenance, profile: "medusa.promotion" }, definition: { kind: "relational", schema },
-    bindings: schema.tables.map(table => ({ kind: "definition", localName: table.identity.tableId,
-      table: { namespace: "medusa", logicalName: `${schema.coordinate.lineageId}/${table.identity.tableId}` } })) });
-  return yield* makeCoreRelationalNativeDefinition({ scopeUuid, epochUuid, applicationRead: false, source, provenance, commands: [] });
+  return yield* makeMedusaCoreDefinition({ scopeUuid, epochUuid, applicationRead: false }, { schema, provenance }, { key: "medusa.promotion", writeProfile: "medusa.promotion",
+    evidence: { provenance, profile: "medusa.promotion" } });
 });

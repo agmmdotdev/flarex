@@ -1,18 +1,14 @@
 import { Effect } from "effect";
 import { TaxProvider, TaxRate, TaxRateRule, TaxRegion } from "@medusajs/tax/models";
-import { compileDmlSchema } from "@medusajs/drizzle/schema";
+import { compileDmlMetadata } from "../../schema/compile";
 import { capturePrivateCanonicalValue, commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { normalizeRelationalSchema } from "flarex-protocol/internal/relational-schema";
-import { decodeCompiledDml } from "../../schema/compiled";
 import { lowerDmlSchema } from "../../schema/lower";
-import { captureLogicalSchemaSource } from "@flarex/analysis/internal/logical-schema-candidate";
-import { makeCoreRelationalNativeDefinition } from "@flarex/persistence-postgres/internal/core";
+import { makeMedusaCoreDefinition } from "../../schema/core-definition";
 
 /** Keep the complete native Tax schema, including inactive mutation constraints. */
 export const captureTaxMetadata = Effect.fn("Tax.captureMetadata")(function* () {
-  const source = yield* Effect.try({ try: (): unknown => JSON.parse(JSON.stringify(compileDmlSchema([TaxProvider, TaxRate, TaxRateRule, TaxRegion]))),
-    catch: cause => commerceError("unsupportedProfile", cause) });
-  const compiled = yield* decodeCompiledDml(source).pipe(Effect.mapError(cause => commerceError("unsupportedProfile", cause)));
+  const compiled = yield* compileDmlMetadata([TaxProvider, TaxRate, TaxRateRule, TaxRegion], cause => commerceError("unsupportedProfile", cause));
   if (compiled.tables.length !== 4 || compiled.tables.map(table => table.name).join(",") !== "tax_provider,tax_rate,tax_rate_rule,tax_region")
     return yield* Effect.fail(commerceError("unsupportedProfile"));
   return yield* capturePrivateCanonicalValue(compiled, 1_048_576, { invalidInput: () => commerceError("unsupportedProfile"),
@@ -40,10 +36,6 @@ export const compileTaxCoreDefinition = Effect.fn("Tax.compileCoreDefinition")(f
   const nativeTarget = Object.freeze({ scopeUuid: target.scopeUuid, epochUuid: target.epochUuid,
     applicationRead: target.applicationRead ?? false });
   const definition = yield* compileTaxDefinition();
-  const source = yield* captureLogicalSchemaSource({ key: "medusa.tax", owner: "medusa", writeProfile: "medusa.tax",
-    evidence: { provenance: definition.provenance, profile: "medusa.tax" },
-    definition: { kind: "relational", schema: definition.schema },
-    bindings: definition.schema.tables.map(table => ({ kind: "definition", localName: table.identity.tableId,
-      table: { namespace: "medusa", logicalName: `${definition.schema.coordinate.lineageId}/${table.identity.tableId}` } })) });
-  return yield* makeCoreRelationalNativeDefinition({ ...nativeTarget, source, provenance: definition.provenance, commands: [] });
+  return yield* makeMedusaCoreDefinition(nativeTarget, definition, { key: "medusa.tax", writeProfile: "medusa.tax",
+    evidence: { provenance: definition.provenance, profile: "medusa.tax" } });
 });

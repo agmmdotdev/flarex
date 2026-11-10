@@ -1,21 +1,15 @@
 import { Effect } from "effect";
 import { Store, StoreCurrency, StoreLocale } from "@medusajs/store/models";
-import { compileDmlSchema } from "@medusajs/drizzle/schema";
+import { compileDmlMetadata } from "../../schema/compile";
 import { capturePrivateCanonicalValue, commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { normalizeRelationalSchema } from "flarex-protocol/internal/relational-schema";
-import { captureLogicalSchemaSource } from "@flarex/analysis/internal/logical-schema-candidate";
-import { makeCoreRelationalNativeDefinition } from "@flarex/persistence-postgres/internal/core";
-import { decodeCompiledDml } from "../../schema/compiled";
+import { makeMedusaCoreDefinition } from "../../schema/core-definition";
 import { lowerDmlSchema } from "../../schema/lower";
 
 /** Retain the complete native constructor closure. Guard admission does not
  * grant Store mutation or hydration of its native child relations. */
 export const captureStoreMetadata = Effect.fn("Store.captureMetadata")(function* () {
-  const source = yield* Effect.try({
-    try: (): unknown => JSON.parse(JSON.stringify(compileDmlSchema([Store, StoreCurrency, StoreLocale]))),
-    catch: cause => commerceError("unsupportedProfile", cause),
-  });
-  const compiled = yield* decodeCompiledDml(source).pipe(Effect.mapError(cause => commerceError("unsupportedProfile", cause)));
+  const compiled = yield* compileDmlMetadata([Store, StoreCurrency, StoreLocale], cause => commerceError("unsupportedProfile", cause));
   const names = ["store", "store_currency", "store_locale"];
   if (compiled.tables.length !== names.length || names.some(name => compiled.tables.filter(table => table.name === name).length !== 1)
     || compiled.tables.some(table => table.foreignKeys.some(key => key.referencedTable !== "store")))
@@ -52,10 +46,6 @@ export const compileStoreCoreDefinition = Effect.fn("Store.compileCoreDefinition
   const nativeTarget = Object.freeze({ scopeUuid: target.scopeUuid, epochUuid: target.epochUuid,
     applicationRead: target.applicationRead ?? false });
   const definition = yield* compileStoreDefinition();
-  const source = yield* captureLogicalSchemaSource({ key: "medusa.store", owner: "medusa", writeProfile: "medusa.store",
-    evidence: { provenance: definition.provenance, profile: "medusa.store" },
-    definition: { kind: "relational", schema: definition.schema },
-    bindings: definition.schema.tables.map(table => ({ kind: "definition", localName: table.identity.tableId,
-      table: { namespace: "medusa", logicalName: `${definition.schema.coordinate.lineageId}/${table.identity.tableId}` } })) });
-  return yield* makeCoreRelationalNativeDefinition({ ...nativeTarget, source, provenance: definition.provenance, commands: [] });
+  return yield* makeMedusaCoreDefinition(nativeTarget, definition, { key: "medusa.store", writeProfile: "medusa.store",
+    evidence: { provenance: definition.provenance, profile: "medusa.store" } });
 });

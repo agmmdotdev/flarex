@@ -1,8 +1,7 @@
 import { Effect } from "effect";
 import { ShippingOptionPriceSet } from "@medusajs/link-modules";
 import { normalizeRelationalSchema } from "flarex-protocol/internal/relational-schema";
-import { captureLogicalSchemaSource } from "@flarex/analysis/internal/logical-schema-candidate";
-import { makeCoreRelationalNativeDefinition } from "@flarex/persistence-postgres/internal/core";
+import { makeMedusaCoreDefinition } from "../schema/core-definition";
 import { captureLinkMetadata, linkSchemaOrigins, LinkSchemaError } from "./schema";
 import { lowerDmlSchema } from "../schema/lower";
 
@@ -40,10 +39,6 @@ export const compileShippingOptionPriceSetLinkCoreDefinition = Effect.fn("Shippi
   const nativeTarget = Object.freeze({ scopeUuid: target.scopeUuid, epochUuid: target.epochUuid,
     applicationRead: target.applicationRead ?? false });
   const definition = yield* compileShippingOptionPriceSetLinkDefinition();
-  const source = yield* captureLogicalSchemaSource({ key: "medusa.link.shippingOptionPriceSet", owner: "medusa", writeProfile: "medusa.link.shippingOptionPriceSet",
-    evidence: { provenance: definition.provenance, profile: "medusa.link.shippingOptionPriceSet" },
-    definition: { kind: "relational", schema: definition.schema },
-    bindings: definition.schema.tables.map(table => ({ kind: "definition", localName: table.identity.tableId,
-      table: { namespace: "medusa", logicalName: `${definition.schema.coordinate.lineageId}/${table.identity.tableId}` } })) });
-  return yield* makeCoreRelationalNativeDefinition({ ...nativeTarget, source, provenance: definition.provenance, commands: [] });
+  return yield* makeMedusaCoreDefinition(nativeTarget, definition,
+    { key: "medusa.link.shippingOptionPriceSet", writeProfile: "medusa.link.shippingOptionPriceSet", evidence: { provenance: definition.provenance, profile: "medusa.link.shippingOptionPriceSet" } });
 });

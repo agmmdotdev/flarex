@@ -1,10 +1,9 @@
 import { Effect, Schema } from "effect";
 import { pricingModuleModels } from "@medusajs/pricing/static-manifest";
-import { compileDmlSchema } from "@medusajs/drizzle/schema";
+import { compileDmlSnapshot } from "../../schema/compile";
 import { capturePrivateCanonicalValue } from "@flarex/persistence-postgres/internal/commerce-values";
 import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
-import { captureLogicalSchemaSource } from "@flarex/analysis/internal/logical-schema-candidate";
-import { makeCoreRelationalNativeDefinition } from "@flarex/persistence-postgres/internal/core";
+import { makeMedusaCoreDefinition } from "../../schema/core-definition";
 import { decodeCompiledDml } from "../../schema/compiled";
 import { lowerDmlSchema } from "../../schema/lower";
 import { normalizeRelationalSchema } from "flarex-protocol/internal/relational-schema";
@@ -13,8 +12,7 @@ const decodeInventory = Schema.decodeUnknownEffect(Schema.Struct({ tables: Schem
   Schema.StructWithRest(Schema.Struct({ name: Schema.String }), [Schema.Record(Schema.String, Schema.Json)]),
 ) }), { onExcessProperty: "error" });
 const compilePinnedPricingMetadata = Effect.fn("Pricing.compilePinnedMetadata")(function* () {
-  const input = yield* Effect.try({ try: (): unknown => JSON.parse(JSON.stringify(compileDmlSchema(pricingModuleModels))),
-    catch: cause => commerceError("unsupportedProfile", cause) });
+  const input = yield* compileDmlSnapshot(pricingModuleModels, cause => commerceError("unsupportedProfile", cause));
   const inventory = yield* decodeInventory(input).pipe(Effect.mapError(cause => commerceError("unsupportedProfile", cause)));
   const expected = ["price_set", "price", "price_rule", "price_list", "price_list_rule", "price_preference"];
   if (inventory.tables.length !== expected.length ||
@@ -53,10 +51,6 @@ export const compilePricingCoreDefinition = Effect.fn("Pricing.compileCoreDefini
   const nativeTarget = Object.freeze({ scopeUuid: target.scopeUuid, epochUuid: target.epochUuid,
     applicationRead: target.applicationRead ?? false });
   const definition = yield* compilePricingDefinition();
-  const source = yield* captureLogicalSchemaSource({ key: "medusa.pricing", owner: "medusa", writeProfile: "medusa.pricing",
-    evidence: { provenance: definition.provenance, profile: "medusa.pricing" },
-    definition: { kind: "relational", schema: definition.schema },
-    bindings: definition.schema.tables.map(table => ({ kind: "definition", localName: table.identity.tableId,
-      table: { namespace: "medusa", logicalName: `${definition.schema.coordinate.lineageId}/${table.identity.tableId}` } })) });
-  return yield* makeCoreRelationalNativeDefinition({ ...nativeTarget, source, provenance: definition.provenance, commands: [] });
+  return yield* makeMedusaCoreDefinition(nativeTarget, definition, { key: "medusa.pricing", writeProfile: "medusa.pricing",
+    evidence: { provenance: definition.provenance, profile: "medusa.pricing" } });
 });

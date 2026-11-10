@@ -5,8 +5,7 @@ import { captureProductSalesChannelLinkMetadata } from "./product-sales-channel-
 import { captureProductShippingProfileLinkMetadata } from "./product-shipping-profile-schema";
 import { linkSchemaOrigins } from "./schema";
 import { lowerDmlSchema } from "../schema/lower";
-import { captureLogicalSchemaSource } from "@flarex/analysis/internal/logical-schema-candidate";
-import { makeCoreRelationalNativeDefinition } from "@flarex/persistence-postgres/internal/core";
+import { makeMedusaCoreDefinition } from "../schema/core-definition";
 
 export const productLinksSourceProvenance = Object.freeze({
   kind: "sourceSnapshot", repository: "https://github.com/agmmdotdev/medusa-fork.git",
@@ -47,10 +46,6 @@ export const compileProductLinksCoreDefinition = Effect.fn("ProductLinks.compile
   const nativeTarget = Object.freeze({ scopeUuid: target.scopeUuid, epochUuid: target.epochUuid,
     applicationRead: target.applicationRead ?? false });
   const definition = yield* compileProductLinksDefinition(selection);
-  const source = yield* captureLogicalSchemaSource({ key: "medusa.product-links", owner: "medusa", writeProfile: "medusa.product-links",
-    evidence: { provenance: definition.provenance, profile: "medusa.product-links" },
-    definition: { kind: "relational", schema: definition.schema },
-    bindings: definition.schema.tables.map(table => ({ kind: "definition", localName: table.identity.tableId,
-      table: { namespace: "medusa", logicalName: `${definition.schema.coordinate.lineageId}/${table.identity.tableId}` } })) });
-  return yield* makeCoreRelationalNativeDefinition({ ...nativeTarget, source, provenance: definition.provenance, commands: [] });
+  return yield* makeMedusaCoreDefinition(nativeTarget, definition,
+    { key: "medusa.product-links", writeProfile: "medusa.product-links", evidence: { provenance: definition.provenance, profile: "medusa.product-links" } });
 });

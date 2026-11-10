@@ -5,8 +5,8 @@ import type { SchemaColumn, SchemaOrigins, SchemaTable } from "../../schema/mode
 import {
   normalizeRelationalSchema,
 } from "flarex-protocol/internal/relational-schema";
-import { captureLogicalSchemaSource } from "@flarex/analysis/internal/logical-schema-candidate";
-import { makeCoreRelationalNativeDefinition, type CoreNativeDefinition } from "@flarex/persistence-postgres/internal/core";
+import type { CoreNativeDefinition } from "@flarex/persistence-postgres/internal/core";
+import { makeMedusaCoreDefinition } from "../../schema/core-definition";
 
 /** Foreign parser surface; every returned member is checked before lowering. */
 export interface CurrencyDmlSource {
@@ -126,14 +126,10 @@ export const compileCurrencyDefinition = Effect.fn("MedusaCurrency.compileDefini
 export const compileCurrencyCoreDefinition = Effect.fn("MedusaCurrency.compileCoreDefinition")(function* (target: Readonly<{
   scopeUuid: string; epochUuid: string; applicationRead?: boolean;
 }>): Effect.fn.Return<CoreNativeDefinition, Effect.Error<ReturnType<typeof compileCurrencyDefinition>> |
-  Effect.Error<ReturnType<typeof captureLogicalSchemaSource>> | Effect.Error<ReturnType<typeof makeCoreRelationalNativeDefinition>>> {
+  Effect.Error<ReturnType<typeof makeMedusaCoreDefinition>>> {
   const nativeTarget = Object.freeze({ scopeUuid: target.scopeUuid, epochUuid: target.epochUuid,
     applicationRead: target.applicationRead ?? false });
   const definition = yield* compileCurrencyDefinition();
-  const source = yield* captureLogicalSchemaSource({ key: "medusa.currency", owner: "medusa", writeProfile: "medusa.currency.scalar",
-    evidence: { provenance: definition.provenance, profile: "medusa.currency" },
-    definition: { kind: "relational", schema: definition.schema },
-    bindings: definition.schema.tables.map(table => ({ kind: "definition", localName: table.identity.tableId,
-      table: { namespace: "medusa", logicalName: `${definition.schema.coordinate.lineageId}/${table.identity.tableId}` } })) });
-  return yield* makeCoreRelationalNativeDefinition({ ...nativeTarget, source, provenance: definition.provenance, commands: [] });
+  return yield* makeMedusaCoreDefinition(nativeTarget, definition, { key: "medusa.currency", writeProfile: "medusa.currency.scalar",
+    evidence: { provenance: definition.provenance, profile: "medusa.currency" } });
 });

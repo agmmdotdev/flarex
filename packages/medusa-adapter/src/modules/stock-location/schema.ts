@@ -1,10 +1,9 @@
 import { Effect, Schema } from "effect";
 import { stockLocationModuleModels } from "@medusajs/stock-location/static-manifest";
-import { compileDmlSchema } from "@medusajs/drizzle/schema";
+import { compileDmlSnapshot } from "../../schema/compile";
 import { capturePrivateCanonicalValue } from "@flarex/persistence-postgres/internal/commerce-values";
 import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
-import { captureLogicalSchemaSource } from "@flarex/analysis/internal/logical-schema-candidate";
-import { makeCoreRelationalNativeDefinition } from "@flarex/persistence-postgres/internal/core";
+import { makeMedusaCoreDefinition } from "../../schema/core-definition";
 import { decodeCompiledDml } from "../../schema/compiled";
 import { lowerDmlSchema } from "../../schema/lower";
 import { normalizeRelationalSchema } from "flarex-protocol/internal/relational-schema";
@@ -13,8 +12,7 @@ const decodeStockLocation = Schema.decodeUnknownEffect(Schema.Struct({ tables: S
   Schema.StructWithRest(Schema.Struct({ name: Schema.String }), [Schema.Record(Schema.String, Schema.Json)]),
 ) }), { onExcessProperty: "error" });
 const compilePinnedStockLocationMetadata = Effect.fn("StockLocation.compilePinnedMetadata")(function* () {
-  const input = yield* Effect.try({ try: (): unknown => JSON.parse(JSON.stringify(compileDmlSchema(stockLocationModuleModels))),
-    catch: cause => commerceError("unsupportedProfile", cause) });
+  const input = yield* compileDmlSnapshot(stockLocationModuleModels, cause => commerceError("unsupportedProfile", cause));
   const stockLocation = yield* decodeStockLocation(input).pipe(Effect.mapError(cause => commerceError("unsupportedProfile", cause)));
   const expected = ["stock_location","stock_location_address"];
   if (stockLocation.tables.length !== expected.length ||
@@ -53,10 +51,6 @@ export const compileStockLocationCoreDefinition = Effect.fn("StockLocation.compi
   const nativeTarget = Object.freeze({ scopeUuid: target.scopeUuid, epochUuid: target.epochUuid,
     applicationRead: target.applicationRead ?? false });
   const definition = yield* compileStockLocationDefinition();
-  const source = yield* captureLogicalSchemaSource({ key: "medusa.stockLocation", owner: "medusa", writeProfile: "medusa.stockLocation",
-    evidence: { provenance: definition.provenance, profile: "medusa.stockLocation" },
-    definition: { kind: "relational", schema: definition.schema },
-    bindings: definition.schema.tables.map(table => ({ kind: "definition", localName: table.identity.tableId,
-      table: { namespace: "medusa", logicalName: `${definition.schema.coordinate.lineageId}/${table.identity.tableId}` } })) });
-  return yield* makeCoreRelationalNativeDefinition({ ...nativeTarget, source, provenance: definition.provenance, commands: [] });
+  return yield* makeMedusaCoreDefinition(nativeTarget, definition, { key: "medusa.stockLocation", writeProfile: "medusa.stockLocation",
+    evidence: { provenance: definition.provenance, profile: "medusa.stockLocation" } });
 });

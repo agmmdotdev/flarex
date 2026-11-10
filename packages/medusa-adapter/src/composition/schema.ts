@@ -5,6 +5,7 @@ import {
 } from "@flarex/analysis/internal/logical-schema-candidate";
 import { compilePayloadCollections } from "@flarex/payload-adapter/internal/collections";
 import { prepareApplicationLogicalSource } from "@flarex/analysis/internal/logical-application-source";
+import { captureMedusaSchemaSource } from "../schema/core-definition";
 import { compileInventoryDefinition } from "../modules/inventory/schema";
 import { compileStockLocationDefinition } from "../modules/stock-location/schema";
 import { compileVariantLinksDefinition } from "../links/variant-definition";
@@ -116,72 +117,46 @@ export function makeSchemaComposer(configuration: {
     const medusaSources: LogicalSchemaSource[] = [];
     if (modules.includes("product")) {
       const product = yield* compileProductDefinition();
-      medusaSources.push(yield* captureLogicalSchemaSource({
-        key: "medusa.product", owner: "medusa", writeProfile: "medusa.product",
-        evidence: product.provenance,
-        definition: { kind: "relational", schema: product.schema },
-        bindings: product.schema.tables.map(table => ({ kind: "definition", localName: table.identity.tableId,
-          table: { namespace: "medusa", logicalName: `${product.schema.coordinate.lineageId}/${table.identity.tableId}` } })),
+      medusaSources.push(yield* captureMedusaSchemaSource(product, {
+        key: "medusa.product", writeProfile: "medusa.product", evidence: product.provenance,
       }));
     }
     if (modules.includes("currency")) {
       const currency = yield* compileCurrencyDefinition();
-      medusaSources.push(yield* captureLogicalSchemaSource({
-        key: "medusa.currency", owner: "medusa", writeProfile: "medusa.currency",
-        evidence: currency.provenance,
-        definition: { kind: "relational", schema: currency.schema },
-        bindings: currency.schema.tables.map(table => ({ kind: "definition", localName: table.identity.tableId,
-          table: { namespace: "medusa", logicalName: `${currency.schema.coordinate.lineageId}/${table.identity.tableId}` } })),
+      medusaSources.push(yield* captureMedusaSchemaSource(currency, {
+        key: "medusa.currency", writeProfile: "medusa.currency", evidence: currency.provenance,
       }));
     }
     if (modules.includes("salesChannel")) {
       const channel = yield* compileSalesChannelDefinition();
-      medusaSources.push(yield* captureLogicalSchemaSource({
-        key: "medusa.salesChannel", owner: "medusa", writeProfile: "medusa.salesChannel",
-        evidence: channel.provenance,
-        definition: { kind: "relational", schema: channel.schema },
-        bindings: channel.schema.tables.map(table => ({ kind: "definition", localName: table.identity.tableId,
-          table: { namespace: "medusa", logicalName: `${channel.schema.coordinate.lineageId}/${table.identity.tableId}` } })),
+      medusaSources.push(yield* captureMedusaSchemaSource(channel, {
+        key: "medusa.salesChannel", writeProfile: "medusa.salesChannel", evidence: channel.provenance,
       }));
     }
     if (modules.includes("shippingProfile")) {
       const shipping = yield* (modules.includes("fulfillmentCreation") ? compileFulfillmentCreationDefinition() : modules.includes("serviceZoneCreation") ? compileServiceZoneCreationDefinition() : modules.includes("shippingProfileDeletion")
         ? compileShippingProfileDeletionDefinition() : compileShippingProfileDefinition());
-      medusaSources.push(yield* captureLogicalSchemaSource({
-        key: "medusa.shippingProfile", owner: "medusa", writeProfile: "medusa.shippingProfile",
-        evidence: shipping.provenance,
-        definition: { kind: "relational", schema: shipping.schema },
-        bindings: shipping.schema.tables.map(table => ({ kind: "definition", localName: table.identity.tableId,
-          table: { namespace: "medusa", logicalName: `${shipping.schema.coordinate.lineageId}/${table.identity.tableId}` } })),
+      medusaSources.push(yield* captureMedusaSchemaSource(shipping, {
+        key: "medusa.shippingProfile", writeProfile: "medusa.shippingProfile", evidence: shipping.provenance,
       }));
     }
     if (modules.includes("pricing")) {
       const pricing = yield* compilePricingDefinition();
-      medusaSources.push(yield* captureLogicalSchemaSource({
-        key: "medusa.pricing", owner: "medusa", writeProfile: "medusa.pricing",
-        evidence: pricing.provenance,
-        definition: { kind: "relational", schema: pricing.schema },
-        bindings: pricing.schema.tables.map(table => ({ kind: "definition", localName: table.identity.tableId,
-          table: { namespace: "medusa", logicalName: `${pricing.schema.coordinate.lineageId}/${table.identity.tableId}` } })),
+      medusaSources.push(yield* captureMedusaSchemaSource(pricing, {
+        key: "medusa.pricing", writeProfile: "medusa.pricing", evidence: pricing.provenance,
       }));
     }
     if (modules.includes("variantPricingLink")) {
       const link = yield* compileVariantPricingLinkDefinition();
-      medusaSources.push(yield* captureLogicalSchemaSource({
-        key: "medusa.link.productVariantPriceSet", owner: "medusa", writeProfile: "medusa.link.productVariantPriceSet",
-        evidence: link.provenance, definition: { kind: "relational", schema: link.schema },
-        bindings: link.schema.tables.map(table => ({ kind: "definition", localName: table.identity.tableId,
-          table: { namespace: "medusa", logicalName: `${link.schema.coordinate.lineageId}/${table.identity.tableId}` } })),
+      medusaSources.push(yield* captureMedusaSchemaSource(link, {
+        key: "medusa.link.productVariantPriceSet", writeProfile: "medusa.link.productVariantPriceSet", evidence: link.provenance,
       }));
     }
     if (modules.includes("productSalesChannelLink") || modules.includes("productShippingProfileLink")) {
       const link = yield* compileProductLinksDefinition({ salesChannel: modules.includes("productSalesChannelLink"),
         shippingProfile: modules.includes("productShippingProfileLink") });
-      medusaSources.push(yield* captureLogicalSchemaSource({
-        key: "medusa.productLinks", owner: "medusa", writeProfile: "medusa.productLinks",
-        evidence: link.provenance, definition: { kind: "relational", schema: link.schema },
-        bindings: link.schema.tables.map(table => ({ kind: "definition", localName: table.identity.tableId,
-          table: { namespace: "medusa", logicalName: `${link.schema.coordinate.lineageId}/${table.identity.tableId}` } })),
+      medusaSources.push(yield* captureMedusaSchemaSource(link, {
+        key: "medusa.productLinks", writeProfile: "medusa.productLinks", evidence: link.provenance,
       }));
     }
     for (const [selected, key, compile] of [
@@ -197,11 +172,7 @@ export function makeSchemaComposer(configuration: {
     ] as const) {
       if (!modules.includes(selected)) continue;
       const definition = yield* compile();
-      medusaSources.push(yield* captureLogicalSchemaSource({ key, owner: "medusa", writeProfile: key,
-        evidence: definition.provenance, definition: { kind: "relational", schema: definition.schema },
-        bindings: definition.schema.tables.map(table => ({ kind: "definition", localName: table.identity.tableId,
-          table: { namespace: "medusa", logicalName: `${definition.schema.coordinate.lineageId}/${table.identity.tableId}` } })),
-      }));
+      medusaSources.push(yield* captureMedusaSchemaSource(definition, { key, writeProfile: key, evidence: definition.provenance }));
     }
     const views: LogicalSchemaSource[] = [];
     for (const [position, view] of config.payloadViews.entries()) {

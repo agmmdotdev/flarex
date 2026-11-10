@@ -1,7 +1,6 @@
 import { Effect } from "effect";
 import { SalesChannelLocation } from "@medusajs/link-modules";
-import { captureLogicalSchemaSource } from "@flarex/analysis/internal/logical-schema-candidate";
-import { makeCoreRelationalNativeDefinition } from "@flarex/persistence-postgres/internal/core";
+import { makeMedusaCoreDefinition } from "../schema/core-definition";
 import { normalizeRelationalSchema } from "flarex-protocol/internal/relational-schema";
 import { captureLinkMetadata, linkSchemaOrigins, LinkSchemaError } from "./schema";
 import { lowerDmlSchema } from "../schema/lower";
@@ -40,10 +39,6 @@ export const compileSalesChannelLocationLinkCoreDefinition = Effect.fn("SalesCha
   const nativeTarget = Object.freeze({ scopeUuid: target.scopeUuid, epochUuid: target.epochUuid,
     applicationRead: target.applicationRead ?? false });
   const definition = yield* compileSalesChannelLocationLinkDefinition();
-  const source = yield* captureLogicalSchemaSource({ key: "medusa.salesChannelLocationLink", owner: "medusa", writeProfile: "medusa.salesChannelLocationLink",
-    evidence: { provenance: definition.provenance, profile: "medusa.salesChannelLocationLink" },
-    definition: { kind: "relational", schema: definition.schema },
-    bindings: definition.schema.tables.map(table => ({ kind: "definition", localName: table.identity.tableId,
-      table: { namespace: "medusa", logicalName: `${definition.schema.coordinate.lineageId}/${table.identity.tableId}` } })) });
-  return yield* makeCoreRelationalNativeDefinition({ ...nativeTarget, source, provenance: definition.provenance, commands: [] });
+  return yield* makeMedusaCoreDefinition(nativeTarget, definition,
+    { key: "medusa.salesChannelLocationLink", writeProfile: "medusa.salesChannelLocationLink", evidence: { provenance: definition.provenance, profile: "medusa.salesChannelLocationLink" } });
 });

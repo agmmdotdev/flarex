@@ -1,19 +1,15 @@
 import { Effect } from "effect";
 import { regionModuleModels } from "@medusajs/region/static-manifest";
-import { compileDmlSchema } from "@medusajs/drizzle/schema";
-import { captureLogicalSchemaSource } from "@flarex/analysis/internal/logical-schema-candidate";
-import { makeCoreRelationalNativeDefinition } from "@flarex/persistence-postgres/internal/core";
+import { compileDmlMetadata } from "../../schema/compile";
+import { makeMedusaCoreDefinition } from "../../schema/core-definition";
 import { capturePrivateCanonicalValue, commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { normalizeRelationalSchema } from "flarex-protocol/internal/relational-schema";
-import { decodeCompiledDml } from "../../schema/compiled";
 import { lowerDmlSchema } from "../../schema/lower";
 
 /** Full native Region/Country metadata is retained even though this capability
  * only reads Region scalar fields. Country bootstrap and mutations are absent. */
 export const captureRegionMetadata = Effect.fn("Region.captureMetadata")(function* () {
-  const source = yield* Effect.try({ try: (): unknown => JSON.parse(JSON.stringify(compileDmlSchema(regionModuleModels))),
-    catch: cause => commerceError("unsupportedProfile", cause) });
-  const compiled = yield* decodeCompiledDml(source).pipe(Effect.mapError(cause => commerceError("unsupportedProfile", cause)));
+  const compiled = yield* compileDmlMetadata(regionModuleModels, cause => commerceError("unsupportedProfile", cause));
   const region = compiled.tables.find(table => table.name === "region"), country = compiled.tables.find(table => table.name === "region_country");
   if (compiled.tables.length !== 2 || region === undefined || country === undefined || region.foreignKeys.length ||
     region.cascades.delete.length || region.cascades.detach.length || region.relationships.length !== 1 ||
@@ -42,9 +38,6 @@ export const compileRegionCoreDefinition = Effect.fn("Region.compileCoreDefiniti
   epochUuid: string;
 }>) {
   const { schema, provenance } = yield* compileRegionDefinition();
-  const source = yield* captureLogicalSchemaSource({ key: "medusa.region", owner: "medusa", writeProfile: "medusa.region",
-    evidence: { provenance, profile: "medusa.region" }, definition: { kind: "relational", schema },
-    bindings: schema.tables.map(table => ({ kind: "definition", localName: table.identity.tableId,
-      table: { namespace: "medusa", logicalName: `${schema.coordinate.lineageId}/${table.identity.tableId}` } })) });
-  return yield* makeCoreRelationalNativeDefinition({ scopeUuid, epochUuid, applicationRead: false, source, provenance, commands: [] });
+  return yield* makeMedusaCoreDefinition({ scopeUuid, epochUuid, applicationRead: false }, { schema, provenance }, { key: "medusa.region", writeProfile: "medusa.region",
+    evidence: { provenance, profile: "medusa.region" } });
 });

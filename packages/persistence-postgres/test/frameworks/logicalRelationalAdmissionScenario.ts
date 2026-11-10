@@ -256,13 +256,23 @@ export const logicalRelationalAdmissionScenario = Effect.fn("LogicalRelationalAd
         const projection = yield* Effect.fromResult(compileLogicalRelationalRead(table.definition, selected.schema.capabilities, { fields: ["code"], order }, 10, failure));
         for (const invalid of [{ ...inserted, undeclared: "hidden" }, { ...inserted, decimal_digits: "invalid hidden value" }])
           expect(projection.inspect(invalid)).toMatchObject({ _tag: "Failure", failure: { message: "storedCorruption" } });
+        // SQL NULL membership is valid even for a nonnullable primary key;
+        // it grants no equality points and cannot select a row.
+        const nullMembership = { order, predicate: { kind: "in", column: "code", values: [null] } };
+        const nullRead = yield* Effect.fromResult(compileLogicalRelationalRead(table.definition,
+          selected.schema.capabilities, nullMembership, 10, failure));
+        expect(nullRead.selections).toEqual([]);
+        expect(Result.getOrThrow(nullRead.inspect(inserted)).matches).toBe(false);
+        expect(yield* working.relationalFind(lifetime.context, id, table.localName, nullMembership))
+          .toEqual({ docs: [], total: 0 });
         for (const predicate of [
           { kind: "in", column: "name", values: ["foreign"] }, { kind: "isNull", column: "foreign" },
           { kind: "or", children: [{ kind: "in", column: "code", values: [native.code] },
             { kind: "in", column: "name", values: [native.name] }] },
-          { kind: "in", column: "code", values: [null] },
+          { kind: "in", column: "code", values: [1] },
           { kind: "and", children: Array.from({ length: 65 }, () => ({ kind: "and", children: [] })) },
-        ]) expect(Result.isFailure(compileLogicalRelationalRead(table.definition, selected.schema.capabilities, { order, predicate }, 10, failure))).toBe(true);
+        ]) expect(Result.isFailure(compileLogicalRelationalRead(table.definition, selected.schema.capabilities,
+          { order, predicate }, 10, failure)), JSON.stringify(predicate)).toBe(true);
         yield* lifetime.seal;
         const closed = yield* working.close();
         yield* Effect.scoped(Effect.gen(function* () {
@@ -328,12 +338,16 @@ export const logicalRelationalAdmissionScenario = Effect.fn("LogicalRelationalAd
         const context = makeCommerceCommandContext(lifetime, { store, resources: defaultCommerceResources,
           table: (manager, table) => working.relationalTable(manager, id, table) }, id, lifetime.context,
           () => Effect.fail(commerceError("unsupportedProfile")), () => Effect.fail(commerceError("unadmittedEvent")));
-        yield* executeNative(context, scenario);
         if (scenario !== "success") {
+          // The native Promise owner retains rejected writes even when the
+          // framework callback observes their rejection before returning.
+          expect(yield* Effect.result(executeNative(context, scenario)))
+            .toMatchObject({ _tag: "Failure", failure: { reason: "invalidInput" } });
           expect(yield* Effect.result(lifetime.seal)).toMatchObject({ _tag: "Failure", failure: { reason: "rollbackOnly" } });
           expect(yield* Effect.result(working.close())).toMatchObject({ _tag: "Failure", failure: { reason: "invalidAuthority" } });
           return;
         }
+        yield* executeNative(context, scenario);
         yield* store.lifecycle(lifetime.context, "restore", ["zzz"]);
         const deleted = yield* store.lifecycle(lifetime.context, "softDelete", ["zzz"]);
         expect(deleted[0]?.deleted_at).toBe(deleted[0]?.updated_at);

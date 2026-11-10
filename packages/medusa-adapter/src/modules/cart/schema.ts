@@ -1,18 +1,15 @@
 import { Effect } from "effect";
 import { Address, Cart, CreditLine, LineItem, LineItemAdjustment, LineItemTaxLine,
   ShippingMethod, ShippingMethodAdjustment, ShippingMethodTaxLine } from "@medusajs/cart/models";
-import { compileDmlSchema } from "@medusajs/drizzle/schema";
+import { compileDmlMetadata } from "../../schema/compile";
 import { capturePrivateCanonicalValue, commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { normalizeRelationalSchema } from "flarex-protocol/internal/relational-schema";
-import { decodeCompiledDml } from "../../schema/compiled";
 import { lowerDmlSchema } from "../../schema/lower";
 
 export const cartModels = [Cart, Address, CreditLine, LineItem, LineItemAdjustment, LineItemTaxLine,
   ShippingMethod, ShippingMethodAdjustment, ShippingMethodTaxLine] as const;
 export const captureCartMetadata = Effect.fn("Cart.captureMetadata")(function* () {
-  const source = yield* Effect.try({ try: (): unknown => JSON.parse(JSON.stringify(compileDmlSchema([...cartModels]))),
-    catch: cause => commerceError("unsupportedProfile", cause) });
-  const compiled = yield* decodeCompiledDml(source).pipe(Effect.mapError(cause => commerceError("unsupportedProfile", cause)));
+  const compiled = yield* compileDmlMetadata([...cartModels], cause => commerceError("unsupportedProfile", cause));
   const names = ["cart", "cart_address", "credit_line", "cart_line_item", "cart_line_item_adjustment", "cart_line_item_tax_line",
     "cart_shipping_method", "cart_shipping_method_adjustment", "cart_shipping_method_tax_line"];
   if (compiled.tables.length !== names.length || names.some(name => compiled.tables.filter(table => table.name === name).length !== 1) ||

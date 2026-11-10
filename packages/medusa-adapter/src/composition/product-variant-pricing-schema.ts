@@ -1,8 +1,7 @@
 import { Effect } from "effect";
 import { normalizeRelationalSchema } from "flarex-protocol/internal/relational-schema";
 import { ProductVariantPriceSet } from "@medusajs/link-modules";
-import { captureLogicalSchemaSource } from "@flarex/analysis/internal/logical-schema-candidate";
-import { makeCoreRelationalNativeDefinition } from "@flarex/persistence-postgres/internal/core";
+import { makeMedusaCoreDefinition } from "../schema/core-definition";
 import { captureLinkMetadata, linkSchemaOrigins } from "../links/schema";
 import { lowerDmlSchema } from "../schema/lower";
 
@@ -33,10 +32,6 @@ export const compileVariantPricingLinkCoreDefinition = Effect.fn("VariantPricing
   target: Readonly<{ scopeUuid: string; epochUuid: string }>,
 ) {
   const native = yield* compileVariantPricingLinkDefinition();
-  const source = yield* captureLogicalSchemaSource({ key: "medusa.variant-pricing-link", owner: "medusa",
-    writeProfile: "medusa.variant-pricing-link", evidence: { provenance: native.provenance },
-    definition: { kind: "relational", schema: native.schema },
-    bindings: native.schema.tables.map(table => ({ kind: "definition", localName: table.identity.tableId,
-      table: { namespace: "medusa", logicalName: `${native.schema.coordinate.lineageId}/${table.identity.tableId}` } })) });
-  return yield* makeCoreRelationalNativeDefinition({ ...target, source, provenance: native.provenance, commands: [] });
+  return yield* makeMedusaCoreDefinition(target, native,
+    { key: "medusa.variant-pricing-link", writeProfile: "medusa.variant-pricing-link", evidence: { provenance: native.provenance } });
 });

@@ -1,19 +1,14 @@
 import { Effect } from "effect";
 import { Notification, NotificationProvider } from "@medusajs/notification/models";
-import { compileDmlSchema } from "@medusajs/drizzle/schema";
+import { compileDmlMetadata } from "../../schema/compile";
 import { capturePrivateCanonicalValue, commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { normalizeRelationalSchema } from "flarex-protocol/internal/relational-schema";
-import { decodeCompiledDml } from "../../schema/compiled";
 import { lowerDmlSchema } from "../../schema/lower";
 
 /** Compile the genuine two-model closure. Array representation/defaults remain
  * with the shared DML and relational schema owners, including channels=[]. */
 export const captureNotificationMetadata = Effect.fn("Notification.captureMetadata")(function* () {
-  const source = yield* Effect.try({
-    try: (): unknown => JSON.parse(JSON.stringify(compileDmlSchema([Notification, NotificationProvider]))),
-    catch: cause => commerceError("unsupportedProfile", cause),
-  });
-  const compiled = yield* decodeCompiledDml(source).pipe(Effect.mapError(cause => commerceError("unsupportedProfile", cause)));
+  const compiled = yield* compileDmlMetadata([Notification, NotificationProvider], cause => commerceError("unsupportedProfile", cause));
   if (compiled.tables.length !== 2 || ["notification", "notification_provider"].some(name =>
     compiled.tables.filter(table => table.name === name).length !== 1))
     return yield* Effect.fail(commerceError("unsupportedProfile"));

@@ -1,21 +1,15 @@
 import { Effect } from "effect";
 import { customerModuleModels } from "@medusajs/customer/static-manifest";
-import { compileDmlSchema } from "@medusajs/drizzle/schema";
-import { captureLogicalSchemaSource } from "@flarex/analysis/internal/logical-schema-candidate";
-import { makeCoreRelationalNativeDefinition } from "@flarex/persistence-postgres/internal/core";
+import { compileDmlMetadata } from "../../schema/compile";
+import { makeMedusaCoreDefinition } from "../../schema/core-definition";
 import { capturePrivateCanonicalValue, commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { normalizeRelationalSchema } from "flarex-protocol/internal/relational-schema";
-import { decodeCompiledDml } from "../../schema/compiled";
 import { lowerDmlSchema } from "../../schema/lower";
 
 /** Retain the genuine Customer constructor and lifecycle closure. Selecting
  * this metadata grants no general Customer, Address or Group method surface. */
 export const captureCustomerMetadata = Effect.fn("Customer.captureMetadata")(function* () {
-  const source = yield* Effect.try({
-    try: (): unknown => JSON.parse(JSON.stringify(compileDmlSchema(customerModuleModels))),
-    catch: cause => commerceError("unsupportedProfile", cause),
-  });
-  const compiled = yield* decodeCompiledDml(source).pipe(Effect.mapError(cause => commerceError("unsupportedProfile", cause)));
+  const compiled = yield* compileDmlMetadata(customerModuleModels, cause => commerceError("unsupportedProfile", cause));
   const names = ["customer", "customer_address", "customer_group", "customer_group_customer"];
   if (compiled.tables.length !== names.length || names.some(name => compiled.tables.filter(table => table.name === name).length !== 1)
     || compiled.tables.some(table => table.foreignKeys.some(key => !names.includes(key.referencedTable))
@@ -48,9 +42,6 @@ export const compileCustomerCoreDefinition = Effect.fn("Customer.compileCoreDefi
   epochUuid: string;
 }>) {
   const { schema, provenance } = yield* compileCustomerDefinition();
-  const source = yield* captureLogicalSchemaSource({ key: "medusa.customer", owner: "medusa", writeProfile: "medusa.customer",
-    evidence: { provenance, profile: "medusa.customer" }, definition: { kind: "relational", schema },
-    bindings: schema.tables.map(table => ({ kind: "definition", localName: table.identity.tableId,
-      table: { namespace: "medusa", logicalName: `${schema.coordinate.lineageId}/${table.identity.tableId}` } })) });
-  return yield* makeCoreRelationalNativeDefinition({ scopeUuid, epochUuid, applicationRead: false, source, provenance, commands: [] });
+  return yield* makeMedusaCoreDefinition({ scopeUuid, epochUuid, applicationRead: false }, { schema, provenance }, { key: "medusa.customer", writeProfile: "medusa.customer",
+    evidence: { provenance, profile: "medusa.customer" } });
 });

@@ -3,8 +3,7 @@ import { relationalSchemaSourceFromDefinition } from "flarex-protocol/internal/r
 import { compileProductDefinition, ProductSchemaError } from "./definition";
 import { captureRelationalSchemaArtifact } from "@flarex/persistence-postgres/internal/relational-schema-values";
 import { capturePrivateCanonicalValue } from "@flarex/persistence-postgres/internal/commerce-values";
-import { captureLogicalSchemaSource } from "@flarex/analysis/internal/logical-schema-candidate";
-import { makeCoreRelationalNativeDefinition } from "@flarex/persistence-postgres/internal/core";
+import { makeMedusaCoreDefinition } from "../../schema/core-definition";
 
 export const captureProductSchema = Effect.fn("MedusaProduct.captureSchema")(
   function* (deploymentId: string) {
@@ -30,10 +29,6 @@ export const compileProductCoreDefinition = Effect.fn("MedusaProduct.compileCore
   const nativeTarget = Object.freeze({ scopeUuid: target.scopeUuid, epochUuid: target.epochUuid,
     applicationRead: target.applicationRead ?? false });
   const definition = yield* compileProductDefinition();
-  const source = yield* captureLogicalSchemaSource({ key: "medusa.product", owner: "medusa", writeProfile: "medusa.product",
-    evidence: { provenance: definition.provenance, profile: "medusa.product" },
-    definition: { kind: "relational", schema: definition.schema },
-    bindings: definition.schema.tables.map(table => ({ kind: "definition", localName: table.identity.tableId,
-      table: { namespace: "medusa", logicalName: `${definition.schema.coordinate.lineageId}/${table.identity.tableId}` } })) });
-  return yield* makeCoreRelationalNativeDefinition({ ...nativeTarget, source, provenance: definition.provenance, commands: [] });
+  return yield* makeMedusaCoreDefinition(nativeTarget, definition, { key: "medusa.product", writeProfile: "medusa.product",
+    evidence: { provenance: definition.provenance, profile: "medusa.product" } });
 });

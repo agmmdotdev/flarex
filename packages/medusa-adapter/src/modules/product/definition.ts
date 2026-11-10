@@ -2,7 +2,7 @@ import { normalizeRelationalSchema } from "flarex-protocol/internal/relational-s
 import { Effect, Schema } from "effect";
 import { lowerDmlSchema } from "../../schema/lower";
 import { decodeCompiledDml as decodeCompiled } from "../../schema/compiled";
-import { compileDmlSchema } from "@medusajs/drizzle/schema";
+import { compileDmlMetadata } from "../../schema/compile";
 import {
   Product,
   ProductVariant,
@@ -102,13 +102,7 @@ export const productSourceProvenance = Object.freeze({
 /** Compile the complete native model graph. No deployment or physical layout is involved. */
 export const compileProductDefinition = Effect.fn("MedusaProduct.compileDefinition")(
   function* () {
-    const input = yield* Effect.try({
-      try: (): unknown => JSON.parse(JSON.stringify(compileDmlSchema([...productModels]))),
-      catch: (cause) => new ProductSchemaError({ cause }),
-    });
-    const metadata = yield* decodeCompiled(input).pipe(
-      Effect.mapError((cause) => new ProductSchemaError({ cause })),
-    );
+    const metadata = yield* compileDmlMetadata(productModels, (cause) => new ProductSchemaError({ cause }));
     const source = yield* productSchemaFromCompiled(metadata);
     const schema = yield* Effect.fromResult(normalizeRelationalSchema(source));
     freezeOwnedProductMetadata(metadata);

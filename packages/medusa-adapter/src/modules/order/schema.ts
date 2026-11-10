@@ -1,19 +1,15 @@
 import { Effect } from "effect";
 import { orderModuleModels } from "@medusajs/order/static-manifest";
-import { compileDmlSchema } from "@medusajs/drizzle/schema";
+import { compileDmlMetadata } from "../../schema/compile";
 import { capturePrivateCanonicalValue, commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { normalizeRelationalSchema } from "flarex-protocol/internal/relational-schema";
-import { captureLogicalSchemaSource } from "@flarex/analysis/internal/logical-schema-candidate";
-import { makeCoreRelationalNativeDefinition } from "@flarex/persistence-postgres/internal/core";
-import { decodeCompiledDml } from "../../schema/compiled";
+import { makeMedusaCoreDefinition } from "../../schema/core-definition";
 import { dmlSchemaOrigins, lowerDmlSchema } from "../../schema/lower";
 
 /** Preserve the complete native model closure and serial identity metadata.
  * Capturing it grants no Order, Return, Claim or Exchange operation authority. */
 export const captureOrderMetadata = Effect.fn("Order.captureMetadata")(function* () {
-  const source = yield* Effect.try({ try: (): unknown => JSON.parse(JSON.stringify(compileDmlSchema(orderModuleModels))),
-    catch: cause => commerceError("unsupportedProfile", cause) });
-  const compiled = yield* decodeCompiledDml(source).pipe(Effect.mapError(cause => commerceError("unsupportedProfile", cause)));
+  const compiled = yield* compileDmlMetadata(orderModuleModels, cause => commerceError("unsupportedProfile", cause));
   const names = ["order", "order_address", "order_change", "order_change_action", "order_claim", "order_claim_item",
     "order_claim_item_image", "order_credit_line", "order_exchange", "order_exchange_item", "order_item", "order_line_item",
     "order_line_item_adjustment", "order_line_item_tax_line", "order_shipping", "order_shipping_method",
@@ -59,9 +55,6 @@ export const compileOrderCoreDefinition = Effect.fn("Order.compileCoreDefinition
 }>, serialDefaults: "preserve" | "generate" = "preserve") {
   const { scopeUuid, epochUuid } = target;
   const { schema, provenance } = yield* compileOrderDefinition(serialDefaults);
-  const source = yield* captureLogicalSchemaSource({ key: "medusa.order", owner: "medusa", writeProfile: "medusa.order",
-    evidence: { provenance, profile: "medusa.order" }, definition: { kind: "relational", schema },
-    bindings: schema.tables.map(table => ({ kind: "definition", localName: table.identity.tableId,
-      table: { namespace: "medusa", logicalName: `${schema.coordinate.lineageId}/${table.identity.tableId}` } })) });
-  return yield* makeCoreRelationalNativeDefinition({ scopeUuid, epochUuid, applicationRead: false, source, provenance, commands: [] });
+  return yield* makeMedusaCoreDefinition({ scopeUuid, epochUuid, applicationRead: false }, { schema, provenance }, { key: "medusa.order", writeProfile: "medusa.order",
+    evidence: { provenance, profile: "medusa.order" } });
 });

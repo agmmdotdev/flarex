@@ -1,9 +1,8 @@
 import { Data, Effect, Schema } from "effect";
 import { fulfillmentModuleModels } from "@medusajs/fulfillment/static-manifest";
-import { compileDmlSchema } from "@medusajs/drizzle/schema";
+import { compileDmlSnapshot } from "../../schema/compile";
 import { capturePrivateCanonicalValue, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
-import { captureLogicalSchemaSource } from "@flarex/analysis/internal/logical-schema-candidate";
-import { makeCoreRelationalNativeDefinition } from "@flarex/persistence-postgres/internal/core";
+import { makeMedusaCoreDefinition } from "../../schema/core-definition";
 import { decodeCompiledDml } from "../../schema/compiled";
 import { lowerDmlSchema } from "../../schema/lower";
 import { normalizeRelationalSchema } from "flarex-protocol/internal/relational-schema";
@@ -24,10 +23,7 @@ export const serviceZoneCreationTables = Object.freeze([...shippingProfileDeleti
 const fulfillmentCreationTables = [...serviceZoneCreationTables, "fulfillment_address", "fulfillment", "fulfillment_label", "fulfillment_item"] as const;
 
 const captureSelectedMetadata = Effect.fn("ShippingProfile.captureSelectedMetadata")(function* (names: readonly string[]) {
-  const input = yield* Effect.try({
-    try: (): unknown => JSON.parse(JSON.stringify(compileDmlSchema(fulfillmentModuleModels))),
-    catch: cause => new ShippingProfileSchemaError({ cause }),
-  });
+  const input = yield* compileDmlSnapshot(fulfillmentModuleModels, cause => new ShippingProfileSchemaError({ cause }));
   const inventory = yield* decodeNativeInventory(input).pipe(Effect.mapError(cause => new ShippingProfileSchemaError({ cause })));
   const selected = names.flatMap(name => inventory.tables.filter(table => table.name === name));
   const compiled = yield* decodeCompiledDml({ tables: selected }).pipe(Effect.mapError(cause => new ShippingProfileSchemaError({ cause })));
@@ -105,12 +101,9 @@ const issueFulfillmentCoreDefinition = Effect.fn("Fulfillment.issueCoreDefinitio
   target: FulfillmentCoreTarget, definition: Readonly<{ schema: Effect.Success<ReturnType<typeof compileSelectedDefinition>>; provenance: Json }>,
 ) {
   const key = "medusa.shippingProfile";
-  const { schema, provenance } = definition;
-  const source = yield* captureLogicalSchemaSource({ key, owner: "medusa", writeProfile: key,
-    evidence: { provenance, profile: key }, definition: { kind: "relational", schema },
-    bindings: schema.tables.map(table => ({ kind: "definition", localName: table.identity.tableId,
-      table: { namespace: "medusa", logicalName: `${schema.coordinate.lineageId}/${table.identity.tableId}` } })) });
-  return yield* makeCoreRelationalNativeDefinition({ ...target, source, provenance, commands: [] });
+  const { provenance } = definition;
+  return yield* makeMedusaCoreDefinition(target, definition, { key, writeProfile: key,
+    evidence: { provenance, profile: key } });
 });
 
 /** Only the scalar ShippingProfile source feeds this shared native lifecycle. */

@@ -103,7 +103,9 @@ export const logicalRelationalPublicationScenario = Effect.fn("LogicalRelational
       }));
     })), cause => new Error("Native participant transaction", { cause }));
   const before = yield* inventory;
-  expect(yield* Effect.result(run("invalid"))).toMatchObject({ _tag: "Failure", failure: { reason: "rollbackOnly" } });
+  // The native Promise owner retains the original refusal at cleanup before
+  // the publication lifetime can reach its rollback-only seal.
+  expect(yield* Effect.result(run("invalid"))).toMatchObject({ _tag: "Failure", failure: { reason: "invalidInput" } });
   expect(yield* inventory).toEqual(before);
   expect((yield* Effect.exit(run("lateFacts")))._tag).toBe("Failure");
   expect(lateFactReached).toBe(true);

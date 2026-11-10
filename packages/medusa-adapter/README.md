@@ -21,6 +21,16 @@ native operation or module.
 | Native stored Links | [links/product-service.ts](src/links/product-service.ts), [links/variant-service.ts](src/links/variant-service.ts) | [native service/router binding](src/links/service.ts), [repository](src/links/repository.ts), [call receipts](src/links/events.ts) |
 | Trusted schema composition | [composition/schema.ts](src/composition/schema.ts) | Checked module/link definitions and the existing analysis/installation owners |
 
+To produce a module schema, start with its named compiler, such as
+[`compileProductCoreDefinition`](src/modules/product/schema.ts). Inside a
+compiler, [`compileDmlMetadata`](src/schema/compile.ts) runs Medusa's DML
+compiler and decodes its output. Profiles that must select tables first use
+`compileDmlSnapshot` and then decode the admitted tables. The module checks its
+model set and supplies its lineage, source evidence and write profile.
+[`makeMedusaCoreDefinition`](src/schema/core-definition.ts) binds those tables
+to their logical names for the target. Trusted provisioning passes the resulting
+definitions to the Core bundle and schema lifecycle for installation.
+
 The module-only [Product create facade](src/workflows/product/create.ts) remains
 distinct from the complete native parent: their input grammar, option/variant
 behavior and consumers differ. Launch, relationship and standalone variant

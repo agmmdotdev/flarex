@@ -71,11 +71,13 @@ describe("actual Product schema", () => {
     const captured = await Effect.runPromise(
       captureProductSchema("product-schema-test"),
     );
-    // Approved module-lineage rebaseline: commerce.product. The complete
-    // canonical artifact remains pinned, including all models and pivots.
+    // Module lineage remains commerce.product. Shared DML number lowering
+    // (e782d060c) changed seven columns to doublePrecision, three zero defaults
+    // to doublePrecisionLiteral, and their derived artifact capability IDs.
+    // The complete artifact remains pinned, including all models and pivots.
     expect(captured.artifact.identity.lineageId).toBe("commerce.product");
     expect(createHash("sha256").update(captured.artifact.canonicalJson).digest("hex"))
-      .toBe("eefac3961a8ec412fd2c2720f356e397aa558e324bb5d984c130cd6c4ebe0185");
+      .toBe("babfd3cefcfdf98dab8575d641909b9dc7a2e25ec030b96af5e491be4ac96a5d");
     expect(captured.schema.tables).toHaveLength(13);
     const boundTables = captured.schema.tables.map((table, position) => ({
       tableId: decodeCatalogTableId(position + 1), logicalName: `commerce.product/${table.identity.tableId}`, relational: table,

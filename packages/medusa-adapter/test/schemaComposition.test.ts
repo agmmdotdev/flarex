@@ -442,8 +442,9 @@ async function witness(
     });
     expect(await persistence.drizzle.select().from(fxControlSchemaVersions)).toHaveLength(6);
     const emptyPadding = await paddedCandidate(0);
+    // Admission stores the encoded candidate; decoded validators have a different byte size.
     const emptyFrame = await canonicalizeSchemaManifestV1({ kind: "logicalSchemaAdmission", definitionVersion: 1,
-      candidate: emptyPadding, tableBindings: stored.tableBindings });
+      candidate: encodeLogicalSchemaCandidate(emptyPadding), tableBindings: stored.tableBindings });
     const exactPadding = 16_777_216 - stored.artifact.manifestBytes.byteLength - 5 * largeStored.artifact.manifestBytes.byteLength
       - emptyFrame.canonicalBytes.byteLength;
     expect(exactPadding).toBeGreaterThan(0);

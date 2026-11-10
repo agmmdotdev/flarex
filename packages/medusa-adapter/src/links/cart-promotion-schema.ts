@@ -1,7 +1,6 @@
 import { Effect } from "effect";
 import { CartPromotion } from "@medusajs/link-modules";
-import { captureLogicalSchemaSource } from "@flarex/analysis/internal/logical-schema-candidate";
-import { makeCoreRelationalNativeDefinition } from "@flarex/persistence-postgres/internal/core";
+import { makeMedusaCoreDefinition } from "../schema/core-definition";
 import { normalizeRelationalSchema } from "flarex-protocol/internal/relational-schema";
 import { captureLinkMetadata, linkSchemaOrigins, LinkSchemaError } from "./schema";
 import { lowerDmlSchema } from "../schema/lower";
@@ -24,10 +23,7 @@ export const compileCartPromotionLinkCoreDefinition = Effect.fn("CartPromotionLi
 }>) {
   const metadata = yield* captureCartPromotionLinkMetadata();
   const schema = yield* Effect.fromResult(normalizeRelationalSchema(lowerDmlSchema([metadata.frame], "commerce.link.cart-promotion", linkSchemaOrigins)));
-  const source = yield* captureLogicalSchemaSource({ key: "medusa.link.cartPromotion", owner: "medusa", writeProfile: "medusa.link.cartPromotion",
-    evidence: { provenance: cartPromotionLinkProvenance, profile: "medusa.link.cartPromotion" }, definition: { kind: "relational", schema },
-    bindings: schema.tables.map(table => ({ kind: "definition", localName: table.identity.tableId,
-      table: { namespace: "medusa", logicalName: `${schema.coordinate.lineageId}/${table.identity.tableId}` } })) });
-  return yield* makeCoreRelationalNativeDefinition({ scopeUuid, epochUuid, applicationRead: false, source,
-    provenance: cartPromotionLinkProvenance, commands: [] });
+  return yield* makeMedusaCoreDefinition({ scopeUuid, epochUuid, applicationRead: false },
+    { schema, provenance: cartPromotionLinkProvenance },
+    { key: "medusa.link.cartPromotion", writeProfile: "medusa.link.cartPromotion", evidence: { provenance: cartPromotionLinkProvenance, profile: "medusa.link.cartPromotion" } });
 });
