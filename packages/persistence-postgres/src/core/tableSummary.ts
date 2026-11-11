@@ -4,12 +4,10 @@
  */
 import { Effect, Option, Result, Schema } from "effect";
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
-import { decodeDocumentValue } from "flarex-protocol/document-value";
 import { CorePersistenceError, CoreTimestampSchema, type CoreDocumentLogCursor, type CorePersistence,
   type CorePersistenceLease, type CoreRetentionValidator } from "./contracts";
 import type { CoreDatabaseOptions, CoreError } from "./api";
-import { CORE_SCHEMA_CUTOVER_GLOBAL, loadBootstrapRegistry } from "./bootstrap";
-import { LEGACY_CORE_REGISTRY_DECODERS } from "./legacySchema";
+import { loadBootstrapRegistry } from "./bootstrap";
 import { loadCoreRegistry, readDocumentObject, type CoreRegistry } from "./registry";
 import { createCoreMultiTableIterator, coreRepeatableRecentTimestamp, type CoreTableIterator } from "./tableIterator";
 import { CoreTableCounts, CORE_COUNT_MAX, type CoreTableCount } from "./tableCounts";
@@ -51,11 +49,6 @@ export const makeCoreTableSummaryWorker=Effect.fn("CoreTableSummary.make")(funct
   persistence:CorePersistence;lease:CorePersistenceLease;retention:CoreRetentionValidator;options:CoreDatabaseOptions;
   publishedTimestamp:Effect.Effect<bigint>;publishCounts:(at:bigint,counts:CoreTableCounts)=>Effect.Effect<boolean,CoreError>;
 }>){
-  const marker=yield* input.persistence.getGlobal(CORE_SCHEMA_CUTOVER_GLOBAL);
-  if(Option.isNone(marker))return yield* corrupt("Missing proven logical cutover boundary");
-  const cutoverValue=yield* Effect.fromResult(Result.mapError(decodeDocumentValue(marker.value),corrupt));
-  const cutover=yield* Schema.decodeUnknownEffect(CoreTimestampSchema)(cutoverValue).pipe(Effect.mapError(corrupt));
-  if(cutover>(yield* input.publishedTimestamp))return yield* corrupt("Logical cutover boundary is ahead of committed publication");
   const checkpoint=yield* input.persistence.getGlobal("table_summary_v2");
   let at:bigint,counts:CoreTableCounts|undefined;
   if(Option.isSome(checkpoint)){
@@ -71,8 +64,7 @@ export const makeCoreTableSummaryWorker=Effect.fn("CoreTableSummary.make")(funct
   let complete=false;
   const registryAt=Effect.fn("CoreTableSummary.registryAt")(function*(timestamp:bigint){
     const snapshot=yield* input.persistence.readSnapshot(timestamp,input.retention);
-    return yield* loadCoreRegistry(snapshot,yield* loadBootstrapRegistry(input.persistence,snapshot,timestamp<cutover),undefined,
-      timestamp<cutover?LEGACY_CORE_REGISTRY_DECODERS:undefined);
+    return yield* loadCoreRegistry(snapshot,yield* loadBootstrapRegistry(input.persistence,snapshot));
   });
   const advance=Effect.fn("CoreTableSummary.advance")(function*(work:Readonly<{pageSize:number;maxPages:number}>){
     if(complete)return;

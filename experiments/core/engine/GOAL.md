@@ -42,8 +42,9 @@ with the reason, replacement and proof in its divergence record. Existing privat
 interfaces, physical layouts, optimizations or product-policy choices do not
 supply an automatic exception; unresolved observable guarantees retain their
 scoped decision gate. The current core in `packages/` and `apps/` is the
-destination; the older `experiments/core/src` candidate is retained baseline
-material, not a runtime dependency or a permanent second engine.
+destination; the older experimental executable and schema are retired. Frozen
+results remain historical evidence, with behavioral obligations mapped to current
+tests by the [local retirement scope](./slices/16d-local-legacy-core-retirement.md).
 
 This is total rewrite scope for current core and integration internals. Existing
 APIs, physical schemas, adapter/installer contracts and SQL/lifetime choreography

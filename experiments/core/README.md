@@ -28,25 +28,22 @@ places native schema compilers/runtime adapters above one translated engine and
 shared logical installation/build/activation lifecycle. Physical Drizzle storage
 upgrades and explicit native data conversions remain separate responsibilities.
 
-`src/` and its schema are the earlier isolated experimental candidate. They are
-retained for runnable comparisons and behavioral evidence, not the engine to
-extend or a dependency of current package-based DO/cache/index replacements.
-Those replacements live in the existing
-[interval cache](../../packages/persistence-postgres/src/storage/indexes/snapshotIndexCache.ts),
-[pending root](../../packages/persistence-postgres/src/storage/documents/logicalDocuments/rootEvaluator.ts)
-and [app DO](../../apps/executor/src/applicationDO.ts). Reuse sound work
-there; no deletion of the retained experiment follows from this clarification.
+The earlier isolated candidate's executable source, Drizzle schema, tests and
+package/tooling are retired. This folder now holds design notes and frozen
+historical evidence. The [local retirement scope](./engine/slices/16d-local-legacy-core-retirement.md)
+maps meaningful behavioral obligations to current package tests. Git preserves
+the former implementation; it is no longer a runnable parallel engine.
 
 ## Current state
 
 | Area | Status |
 | --- | --- |
 | Existing core and Medusa/Payload integrations | Starting point and eventual refactor destination; current behavior remains until a selected connected replacement |
-| Initial experimental candidate | Bounded Application, Payload CRUD, Product scalar and explicitly atomic mixed flows implemented and measured with Drizzle; performance promotion remains closed |
+| Initial experimental candidate | Executable implementation retired; recorded bounded measurements remain historical evidence, without performance promotion |
 | Shared engine direction | Existing-core refactor and portable Cloudflare adapters first; independent-app ownership, DO coordinator, save/publication order, recovery, timestamped reads, operation lifetime, read authorization, read-after-write and index-readiness direction accepted; numerical budgets and detailed protocols open, replication deferred |
 
-The existing candidate already keeps pending writes, observations and some
-prepared state in memory. It does not implement Convex's complete shared
+The retired candidate kept pending writes, observations and some
+prepared state in memory. It did not implement Convex's complete shared
 snapshot, metadata, index/cache and conflict-history machinery. Revisit those
 owners and their database interactions without assuming that a TypeScript port
 or an in-memory cache automatically provides Convex's performance.
@@ -85,14 +82,16 @@ decision, then update affected notes. Keep proposed, accepted, implemented and
 measured status distinct. Later concepts can reopen earlier decisions; queued
 topics and alternative hosts are not implicitly accepted.
 
-## Existing implementation and evidence
+## Frozen experimental evidence
 
-Retain these documents as the initial candidate's contracts and comparison
-baseline. Its pending implementation stages do not select the next engine slice.
+These documents describe the retired candidate at its recorded source identity.
+Paths and commands inside them are historical, not current execution guidance.
+Its pending stages do not select the next engine slice; current owners and the
+retirement scope define the supported behavioral obligations.
 
 | Document | Purpose |
 | --- | --- |
-| [DESIGN.md](./DESIGN.md), [MODULES.md](./MODULES.md), [IMPLEMENTATION.md](./IMPLEMENTATION.md) | Initial candidate lifecycle, module boundaries and construction sequence; behavioral obligations remain binding until explicitly revised |
+| [DESIGN.md](./DESIGN.md), [MODULES.md](./MODULES.md), [IMPLEMENTATION.md](./IMPLEMENTATION.md) | Historical candidate lifecycle, module boundaries and construction sequence |
 | [VALIDATION.md](./VALIDATION.md) | Correctness, native comparison, concurrency and promotion gates |
 | [APPLICATION.md](./APPLICATION.md) | Bounded standalone Application contract and remaining gaps |
 | [PAYLOAD-CREATE.md](./PAYLOAD-CREATE.md), [PAYLOAD-CRUD.md](./PAYLOAD-CRUD.md) | Native Payload create/CRUD and atomic preference cleanup |

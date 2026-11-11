@@ -223,10 +223,6 @@ export const parseCoreTableRecord = (document: CoreSystemDocument, ts: bigint | 
       state: metadata.state, namespace: metadata.namespace ?? null, tabletId: id.internalId.slice(), indexes: Object.freeze([]),
       ...(nativePolicy === undefined ? {} : { nativePolicy }) }) };
   });
-export interface CoreRegistryDecoders {
-  readonly table: typeof parseCoreTableRecord;
-  readonly index: (document: CoreSystemDocument, ts: bigint | null, registry: CoreRegistry) => Result.Result<CoreIndexRecord, CorePersistenceError>;
-}
 export const readDocumentObject = (entry: CoreDocumentLogEntry,
   expected?: Pick<CoreTableDefinition, "number" | "tabletId">): Result.Result<DocumentObject, CorePersistenceError> =>
   Result.gen(function* () {
@@ -242,7 +238,6 @@ export const readDocumentObject = (entry: CoreDocumentLogEntry,
 /** Bootstrap discovery reads only trusted built-in by-ID indexes at this snapshot. */
 export const loadCoreRegistry = Effect.fn("CoreRegistry.load")(function* (
   snapshot: CorePersistenceSnapshot, bootstrap: CoreRegistry, observe?: (entry: CoreDocumentLogEntry) => void,
-  decoders: CoreRegistryDecoders = { table: parseCoreTableRecord, index: parseCoreIndexRecord },
 ) {
   // Bootstrap identities discover the catalogs; only rows present at S enter the loaded roots.
   let registry = new CoreRegistry(new Map());
@@ -259,7 +254,7 @@ export const loadCoreRegistry = Effect.fn("CoreRegistry.load")(function* (
         observe?.(entry.document);
         const document = yield* Effect.fromResult(readDocumentObject(entry.document, builtin.definition));
         if (name === TABLES) {
-          const record = yield* Effect.fromResult(decoders.table({ id: String(document._id), creationTime: Number(document._creationTime), value: document }, entry.document.ts));
+          const record = yield* Effect.fromResult(parseCoreTableRecord({ id: String(document._id), creationTime: Number(document._creationTime), value: document }, entry.document.ts));
           const definition = record.definition;
           if (!bytesEqual(definition.tabletId, entry.document.id)) return yield* Effect.fail(corrupt());
           const existingName = definition.state === "active" ? registry.table(definition.name, definition.namespace) : undefined;
@@ -268,7 +263,7 @@ export const loadCoreRegistry = Effect.fn("CoreRegistry.load")(function* (
           if (existingNumber !== undefined && existingNumber.definition.name !== definition.name) return yield* Effect.fail(corrupt());
           registry = registry.withTable(record); foundTables += 1;
         } else if (name === INDEXES) {
-          const record = yield* Effect.fromResult(decoders.index({ id: String(document._id), creationTime: Number(document._creationTime), value: document }, entry.document.ts, registry));
+          const record = yield* Effect.fromResult(parseCoreIndexRecord({ id: String(document._id), creationTime: Number(document._creationTime), value: document }, entry.document.ts));
           if (registry.tableByTablet(record.tableId) === undefined) return yield* Effect.fail(corrupt());
           registry = yield* Effect.fromResult(registry.withIndex(record));
         } else if (document.kind === "revision") {

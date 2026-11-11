@@ -155,17 +155,17 @@ installation; these are in progress, not wholly absent or completed.
 
 ## Physical-schema and engine translation findings
 
-### Current-core destination versus the retained experiment
+### Current-core destination versus the retired experiment
 
 The refactor changes the existing core in `packages/` and `apps/`. The older
-`experiments/core/src` candidate and its Drizzle schema remain isolated runnable
-comparison material. Current runtime-source inspection found no imports of that
-folder or `@flarex/experimental-core` in those packages/apps. Its own test and
-benchmark setup may still execute it independently; it has not been deleted.
+experimental executable, schema and isolated package/tooling are retired. Its
+recorded measurements remain frozen evidence. The [retirement scope](./slices/16d-local-legacy-core-retirement.md)
+maps meaningful behavior to current witnesses and dispositions obsolete internal
+algorithm contracts. No active package imported that isolated candidate.
 
 The newer interval cache, root evaluator and query DO live in existing package/app
 owners. The interval cache closely translates Convex coverage/cut rules. The
-older candidate still uses current JSONB documents plus history and separate
+older candidate used current JSONB documents plus history and separate
 numeric/equality membership versions; point/range operations reload snapshot
 authority through SQL. Neither that layout nor wrapping its API in a DO is the
 target engine. Reuse its behavioral witnesses and sound pieces after audit.

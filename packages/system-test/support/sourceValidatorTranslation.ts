@@ -1,4 +1,4 @@
-import { Clock, Effect, Result, Scope } from "effect";
+import { Effect, Result } from "effect";
 import { encodeDocumentId } from "flarex-protocol/document-id";
 import { APPLICATION_REVISION_SYSCALL_DOCUMENT_VALIDATION_ERROR_NAME_V1 } from "flarex-protocol/internal/application-revision-syscall-validation-v1";
 import type { DocumentObject } from "flarex-protocol/document-value";
@@ -11,19 +11,12 @@ import {
 import { TransactionFunctionPathV1Schema, TransactionRequestKeyV1Schema } from "flarex-protocol/transaction-session";
 import { invokeApplicationMutation } from "@flarex/standard-application-invocation/internal/application-mutation-system";
 import type { CoreDatabase } from "@flarex/persistence-postgres/internal/core";
-import { openCoreDatabase } from "@flarex/persistence-postgres/internal/core";
-import { readCoreApplicationProgram } from "@flarex/persistence-postgres/internal/core-application-program";
-import { copyBytesToArrayBuffer } from "@flarex/utils/bytes";
-import { createQueryCursorBroker } from "flarex-protocol/query-cursor";
-import type { CorePersistenceFixture } from "@flarex/persistence-postgres/internal/system-test/core-persistence-fixture";
 import type { ApplicationCoreFixture } from "@flarex/persistence-postgres/internal/system-test/core-application-fixture";
 import { createCoreApplicationDefinition } from "./applicationCoreDefinition";
 import { makeApplicationNativeMutationTestLayer } from "./applicationNativeMutationHarness";
 import { MiniflareApplicationWorkerLoader } from "./applicationNativeQueryHarness";
 import { sourceBundleFromProduced } from "./standardApplicationCurrentAnalysisHarness";
 import { runSystemTestEffectV1 } from "./systemTestEffectBoundaryV1";
-import { readPre09CapturedProgramStore, seedPre09CapturedProgramStore } from "../../persistence-postgres/test/application/pre09CapturedProgramStore";
-import { CORE_SCHEMA_WORKER_TEST_OPTIONS } from "../../persistence-postgres/test/core/schemaFixture";
 
 /** Execute SDK authoring in the real cold analyzer, without precomputed metadata. */
 export async function createSourceValidatorApplicationDefinition() {
@@ -122,64 +115,4 @@ export async function proveSourceValidatorTranslation(fixture: ApplicationCoreFi
       final: await readRows(reopened, "variantDocs"), wideRows: await readRows(reopened, "wideDocs"),
       manifest: fixture.manifest, coldAnalysisLoads: fixture.coldAnalysisLoads, storageTables: await fixture.storageTables() };
   } finally { await loader.dispose(); }
-}
-
-/** Replay real old rows and source through two scoped owners, closing warm before cold. */
-export function proveHistoricalSourceWorker(physical: CorePersistenceFixture) {
-  return runSystemTestEffectV1(Effect.scoped(Effect.gen(function* () {
-    yield* Effect.acquireRelease(Effect.succeed(physical), owned => Effect.tryPromise(() => owned.close()).pipe(Effect.orDie));
-    const loader = yield* Effect.acquireRelease(Effect.sync(() => new MiniflareApplicationWorkerLoader()),
-      owned => Effect.tryPromise(() => owned.dispose()).pipe(Effect.orDie));
-    const store = yield* Effect.tryPromise(() => readPre09CapturedProgramStore("pre09-actual-record-worker-store.json"));
-    const source = store.source;
-    if (source === undefined) return yield* Effect.die(new Error("Actual historical source bundle is missing."));
-    yield* Effect.tryPromise(() => seedPre09CapturedProgramStore(physical, store));
-    const options = { schemaWorker: CORE_SCHEMA_WORKER_TEST_OPTIONS,
-      now: Clock.currentTimeMillis.pipe(Effect.map(value => BigInt(Math.floor(value)) * 1_000_000n)),
-      randomBytes: (length: 16 | 32) => Effect.sync(() => crypto.getRandomValues(new Uint8Array(length))),
-    };
-    const withOwner = <A, E>(work: (database: CoreDatabase, runInOwnerScope: ApplicationCoreFixture["runInOwnerScope"]) =>
-      Effect.Effect<A, E, Scope.Scope>) => Effect.scoped(Effect.gen(function* () {
-      const ownerScope = yield* Effect.scope;
-      const database = yield* openCoreDatabase(yield* Effect.tryPromise(() => physical.reopen()), options);
-      // The existing asynchronous fixture factory borrows this exact owner's
-      // Scope through its explicit callback boundary; database work stays below.
-      const runInOwnerScope: ApplicationCoreFixture["runInOwnerScope"] = operation =>
-        runSystemTestEffectV1(operation.pipe(Scope.provide(ownerScope)));
-      return yield* work(database, runInOwnerScope);
-    }));
-    const invoke = (layer: Awaited<ReturnType<typeof makeApplicationNativeMutationTestLayer>>, scores: DocumentObject, key: string) =>
-      Effect.scoped(invokeApplicationMutation(TransactionFunctionPathV1Schema.make("records:write"), { scores },
-        TransactionRequestKeyV1Schema.make(key)).pipe(Effect.provide(layer)));
-    const warm = yield* withOwner((database, runInOwnerScope) => Effect.gen(function* () {
-      const selected = yield* database.selectProgram("records:write");
-      const verified = yield* readCoreApplicationProgram(selected, bytes => Effect.tryPromise(async () =>
-        new Uint8Array(await crypto.subtle.digest("SHA-256", copyBytesToArrayBuffer(bytes)))));
-      const queryCursor = Object.freeze({ scopeUuid: verified.scopeUuid,
-        broker: yield* Effect.fromResult(createQueryCursorBroker({ instanceName: verified.scopeUuid,
-          deploymentSecret: new Uint8Array(32).fill(1) })),
-      });
-      const layer = yield* Effect.tryPromise(() => makeApplicationNativeMutationTestLayer({ database, runInOwnerScope,
-        source, queryCursor, deploymentId: "deployment_application_core_mutation" }, loader));
-      const replay = yield* invoke(layer, { Ada: 42 }, store.requestIdentity.key);
-      const replayWorkerLoads = loader.loads;
-      const fresh = yield* invoke(layer, { Grace: 7 }, "post09-old-artifact-fresh");
-      return { selected, generation: verified.validatorIdentityEncoding, queryCursor, replay,
-        replayWorkerLoads, fresh, freshWorkerLoads: loader.loads - replayWorkerLoads };
-    }));
-    // Effect.scoped completed every warm finalizer before acquiring this owner.
-    const cold = yield* withOwner((database, runInOwnerScope) => Effect.gen(function* () {
-      const coldSelected = yield* database.selectProgram("records:write");
-      const layer = yield* Effect.tryPromise(() => makeApplicationNativeMutationTestLayer({ database, runInOwnerScope,
-        source, queryCursor: warm.queryCursor, deploymentId: "deployment_application_core_mutation" }, loader));
-      const beforeColdReplays = loader.loads;
-      const coldOriginalReplay = yield* invoke(layer, { Ada: 42 }, store.requestIdentity.key);
-      const coldFreshReplay = yield* invoke(layer, { Grace: 7 }, "post09-old-artifact-fresh");
-      const rows = yield* Effect.acquireUseRelease(database.begin(), read => read.scan("recordDocs", "by_id"),
-        read => read.abort().pipe(Effect.orDie));
-      return { coldSelected, coldOriginalReplay, coldFreshReplay, rows,
-        coldReplayWorkerLoads: loader.loads - beforeColdReplays };
-    }));
-    return { ...warm, ...cold, originalIdentity: store.requestIdentity.program, originalOutcome: store.outcome };
-  })));
 }

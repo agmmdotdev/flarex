@@ -52,8 +52,9 @@ Read the [refactor direction](./REFACTOR.md) for what we keep, replace and remov
 The accepted goal is to translate Convex's core logic and physical persistence
 schema into TypeScript/Drizzle, departing only for DO/runtime constraints or
 required native behavior. The [connected translation plan](./REFACTOR.md#core-and-physical-schema-translation-plan)
-targets the current `packages/` and `apps/` core. The older `experiments/core/src`
-candidate remains baseline evidence, not the DO/cache/index runtime dependency.
+targets the current `packages/` and `apps/` core. The older experimental
+executable and its schema are retired; its recorded results remain historical
+evidence under the [local retirement scope](./slices/16d-local-legacy-core-retirement.md).
 The [legacy retirement ledger](./slices/16b-legacy-entrypoint-retirement.md)
 names the remaining consumers and data/history gates after unused entrypoint
 cleanup; a retained export or self-test alone is not a permanent obligation.

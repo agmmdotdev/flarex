@@ -5,6 +5,7 @@ import { Effect, Result } from "effect";
 import { describe, expect, it } from "vitest";
 import { canonicalizeApplicationRuntimeTargetV1, applicationRuntimeTargetWireV1 } from "flarex-protocol/internal/application-runtime-target-v1";
 import { makeCoreApplicationPrograms, readCoreApplicationProgram } from "../../src/application/coreProgram";
+import { captureCoreObject } from "../../src/core/document";
 
 const hash = (bytes: Uint8Array) => Effect.sync(() => new Uint8Array(createHash("sha256").update(bytes).digest()));
 const manifest = Result.getOrThrow(canonicalizeApplicationManifestV1({
@@ -85,13 +86,35 @@ describe("shared verified Application programs", () => {
         const program = yield* readCoreApplicationProgram(definition, hash);
         expect(program.validatorIdentityEncoding).toBe(2);
         expect(program.runtimeTarget.validatorIdentityEncoding).toBe(2);
-        for (const metadata of [{ ...definition.metadata, validatorIdentityEncoding: 3 },
+        for (const metadata of [{ ...definition.metadata, validatorIdentityEncoding: 1 },
+          { ...definition.metadata, validatorIdentityEncoding: 3 },
           { ...definition.metadata, format: "unknown" }, { ...definition.metadata, version: 2 },
           { ...definition.metadata, extra: true }]) {
           const result = yield* Effect.result(readCoreApplicationProgram({ ...definition, metadata }, hash));
           expect(Result.isFailure(result) && result.failure).toMatchObject({ reason: "metadataInvalid" });
         }
       }
+    }));
+  });
+
+  it("refuses obsolete object metadata before computing program identity hashes", async () => {
+    await Effect.runPromise(Effect.gen(function* () {
+      const definitions = yield* makeCoreApplicationPrograms(configuration);
+      const definition = definitions.find(candidate => candidate.identity.functionPath === "items:publicquery");
+      if (definition === undefined) throw new Error("Missing public query");
+      const program = yield* readCoreApplicationProgram(definition, hash);
+      const { validatorIdentityEncoding: _manifestEncoding, ...oldManifest } = program.manifest;
+      const { validatorIdentityEncoding: _targetEncoding, ...oldTarget } = program.runtimeTarget;
+      const metadata = yield* Effect.fromResult(captureCoreObject({ kind: "query", manifest: oldManifest,
+        runtimeTarget: oldTarget, compatibilityDate: program.compatibilityDate,
+        scopeUuid: program.scopeUuid, epochUuid: program.epochUuid }, true));
+      let identityHashes = 0;
+      const result = yield* Effect.result(readCoreApplicationProgram({ ...definition, metadata: metadata.value }, bytes => {
+        identityHashes++;
+        return hash(bytes);
+      }));
+      expect(Result.isFailure(result) && result.failure).toMatchObject({ reason: "metadataInvalid" });
+      expect(identityHashes).toBe(0);
     }));
   });
 

@@ -14,7 +14,6 @@ import { parseCoreSchema, serializeCoreDocumentValidator as encodeCoreDocumentVa
   coreDocumentValidatorHash } from "../../src/core/schemaJson";
 import { CoreSchemaRegistry } from "../../src/core/schemaRegistry";
 import { coreValidatorIsSubset, coreValidatorsEqual } from "../../src/core/validatorSubset";
-import { decodeLegacyTable } from "../../src/core/legacySchema";
 import { CoreSchemaModel, coreSchemaValidationOutcomes } from "../../src/core/schemaModel";
 import { CorePersistenceError } from "../../src/core/contracts";
 import { CoreSchemaValidations } from "../../src/core/schemaValidations";
@@ -340,16 +339,6 @@ describe("source literal identity and persistence conversion", () => {
     }
     for (const tag of ['{"$float":"AAAAAAAA8D8="}', '{"$integer":"AA=="}', '{"$integer":"AAAAAAAAAAA=","extra":true}'])
       expect(Result.isFailure(parseCoreSchema(sourceSchema(tag)))).toBe(true);
-  });
-
-  it("keeps c554 historical validators at their original raw primitive subset", () => {
-    const legacy = (raw: string) => decodeLegacyTable({ id: id(1), creationTime: 1, value: {
-      name: "items", number: 10000, tabletId: Buffer.from(bytes(1)).toString("hex"), validator: raw,
-    } });
-    expect(legacy('{"type":"literal","value":1}')).toMatchObject({ success: { validator: { type: "literal", value: 1 } } });
-    for (const raw of ['{"type":"literal","value":-0}', '{"type":"literal","value":1e309}',
-      '{"type":"literal","value":{"$integer":"AQAAAAAAAAA="}}', '{"type":"literal","value":{"$float":"AAAAAAAAAIA="}}'])
-      expect(legacy(raw)).toMatchObject({ failure: { _tag: "CorePersistenceError", reason: "corruptData" } });
   });
 
   it("uses source literal bits and scalar types for subset and schema walk proofs", () => {

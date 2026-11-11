@@ -144,18 +144,6 @@ export const recanonicalizeApplicationMutationExecutionAuthorityV1 = Effect.fn(
   } satisfies CanonicalApplicationMutationExecutionAuthorityV1);
 });
 
-/** The stored-program reader supplies an independently decoded historical target. */
-export const readStoredLegacyApplicationMutationExecutionAuthorityV1 = Effect.fn(
-  "ApplicationMutationExecutionAuthority.readStoredLegacyV1",
-)(function* (input: unknown, runtimeTarget: ApplicationRuntimeTargetV1) {
-  const captured = yield* Effect.fromResult(captureAuthority(input));
-  return yield* recanonicalizeApplicationMutationExecutionAuthorityV1({
-    format: APPLICATION_MUTATION_EXECUTION_AUTHORITY_FORMAT_V1,
-    version: APPLICATION_MUTATION_EXECUTION_AUTHORITY_VERSION_V1,
-    ...captured, runtimeTarget,
-  }, 1);
-});
-
 interface CapturedAuthority {
   readonly runtimeTarget: unknown;
   readonly runtimeTargetSha256: string;

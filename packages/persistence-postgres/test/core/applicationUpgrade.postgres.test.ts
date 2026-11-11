@@ -1,4 +1,3 @@
-import { registerCoreApplicationDeploymentMigrationScenarios } from "./applicationDeploymentMigrationScenarios";
 import { readFile } from "node:fs/promises";
 import { Schema } from "effect";
 import { describe } from "vitest";
@@ -11,6 +10,5 @@ const endpoints = path === undefined ? undefined : Schema.decodeUnknownSync(Sche
 describe.runIf(endpoints !== undefined)("ordinary-role registered Application upgrades", () => {
   if (endpoints !== undefined) {
     registerCoreApplicationUpgradeScenarios("PostgreSQL", () => createCorePostgresFixture(endpoints));
-    registerCoreApplicationDeploymentMigrationScenarios("PostgreSQL deployment migration", () => createCorePostgresFixture(endpoints));
   }
 });

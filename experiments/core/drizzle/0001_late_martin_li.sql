@@ -1,2 +1,0 @@
-ALTER TABLE "fx_core"."authorities" ADD COLUMN "readLock" boolean DEFAULT false NOT NULL;--> statement-breakpoint
-ALTER TABLE "fx_core"."installation" ADD COLUMN "readLock" boolean DEFAULT false NOT NULL;

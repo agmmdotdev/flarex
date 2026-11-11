@@ -23,8 +23,5 @@ describePostgres("Source validator translation - ordinary PostgreSQL and actual 
       await createCorePostgresFixture({ connectionString: serving, provisioningConnectionString: provisioning }),
       definition, scenario,
     );
-  }, () => {
-    if (serving === undefined || provisioning === undefined) throw new Error("Historical source proof requires explicit PostgreSQL endpoints.");
-    return createCorePostgresFixture({ connectionString: serving, provisioningConnectionString: provisioning });
   });
 });

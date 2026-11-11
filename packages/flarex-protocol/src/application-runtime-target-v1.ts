@@ -9,7 +9,7 @@ import {
   validatorJsonAdmissionIssueV1,
   validatorJsonWireAdmissionIssueV1,
 } from "./validator-json";
-import { decodeLegacyValidatorJsonResultCoreV1, encodeLegacyValidatorJsonWireCoreV1 } from "./validator-json-core";
+import { encodeLegacyValidatorJsonWireCoreV1 } from "./validator-json-core";
 import { snapshotDecodedProtocolPlainData } from "./decoded-protocol-snapshot";
 
 export const APPLICATION_RUNTIME_TARGET_FORMAT_V1 =
@@ -194,20 +194,6 @@ export function recanonicalizeApplicationRuntimeTargetV1(
         : Result.fail(error("canonicalize", "bytesExceeded"));
     }),
   );
-}
-
-/** Historical wire ingress is confined to the immutable stored-program reader. */
-export function readStoredLegacyApplicationRuntimeTargetV1(value: unknown) {
-  return capturePlainData(value).pipe(Result.mapError(cause => error("decode", "invalidShape", cause)), Result.flatMap(captured => {
-    if (!isNonArrayRecord(captured) || !isNonArrayRecord(captured.function) || Object.hasOwn(captured, "validatorIdentityEncoding"))
-      return Result.fail(error("decode", "invalidShape"));
-    const args = decodeLegacyValidatorJsonResultCoreV1(captured.function.args);
-    const returns = captured.function.returns === null ? { ok: true as const, value: null }
-      : decodeLegacyValidatorJsonResultCoreV1(captured.function.returns);
-    if (!args.ok || !returns.ok) return Result.fail(error("decode", "invalidShape"));
-    return recanonicalizeApplicationRuntimeTargetV1({ ...captured, function: { ...captured.function,
-      args: args.value, returns: returns.value } }, 1);
-  }));
 }
 
 export function canonicalizeApplicationRuntimeTargetWireV1(

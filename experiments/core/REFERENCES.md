@@ -157,8 +157,9 @@ justification and connected read/write/retention/recovery proof.
 
 The [supported-profile baseline](./engine/baseline/README.md), [alignment findings](./engine/CONVEX-ALIGNMENT.md)
 and actual executing callers own existing consumer evidence. The initial
-`experiments/core/src` implementation is retained comparison material, not the
-runtime engine or its physical-schema template.
+experimental implementation is retired; its frozen measurements and source
+hashes remain historical comparison evidence, not the runtime engine or its
+physical-schema template. See the [retirement scope](./engine/slices/16d-local-legacy-core-retirement.md).
 
 ## Concrete redesign evidence
 

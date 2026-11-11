@@ -8,5 +8,5 @@ describe("Source validator translation - PGlite and actual Worker", () => {
   defineSourceValidatorTranslationContract(async scenario => {
     const definition = await createSourceValidatorApplicationDefinition();
     return withApplicationCoreFixture(await createCorePGliteFixture(), definition, scenario);
-  }, () => createCorePGliteFixture());
+  });
 });

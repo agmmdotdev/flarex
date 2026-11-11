@@ -10,13 +10,12 @@ import { createCorePersistence } from "../../src/database/corePersistence/persis
 import { CorePersistenceError } from "../../src/core/contracts";
 import type { CoreSqlDriver } from "../../src/database/corePersistence/driver";
 import { installC554PhysicalFixture } from "./physicalLegacyLayout";
-import { readC554CapturedStore, seedC554CapturedStore } from "./physicalLegacyStore";
 import { openCoreDatabase } from "../../src/core/database";
-import { CORE_SCHEMA_WORKER_TEST_OPTIONS } from "./schemaFixture";
+import { activateCoreSchema, CORE_SCHEMA_WORKER_TEST_OPTIONS } from "./schemaFixture";
 import { randomBytes } from "node:crypto";
 import { decodeDocumentId } from "flarex-protocol/document-id";
-import { decodeDocumentValue } from "flarex-protocol/document-value";
 import { readDocumentObject } from "../../src/core/registry";
+import { readCoreFixtureRegistry } from "./fixture";
 import { CORE_PHYSICAL_TABLES } from "../../src/database/corePersistence/layout.generated";
 
 export interface CorePhysicalMaintenanceFixture {
@@ -147,87 +146,6 @@ export function registerCorePhysicalMaintenanceScenarios(name: string, createFix
       })); } finally { await fixture.close(); }
     }, 30_000);
 
-    it("adopts the authentic populated c554 store before logical cutover while preserving history, code, outcomes and staged IDs", async () => {
-      const fixture = await createFixture();
-      const store = await readC554CapturedStore();
-      try { await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
-        yield* installC554PhysicalFixture(fixture.maintenance, fixture.namespace);
-        yield* seedC554CapturedStore(fixture.maintenance, fixture.namespace, store);
-        const readRows = Effect.gen(function* () {
-          const captured: Record<string, readonly unknown[]> = {};
-          for (const table of CORE_PHYSICAL_TABLES) captured[table.name] = yield* fixture.maintenance.query(
-            `SELECT * FROM "${fixture.namespace}"."${table.name}" ORDER BY ${table.primaryKey.map(column => `"${column}"`).join(",")}`);
-          return captured;
-        });
-        const before = yield* readRows;
-        const capturedDocuments = Schema.decodeUnknownSync(Schema.Array(Schema.Struct({ json_value: Schema.Uint8Array })))(before.documents);
-        const oldStaged = capturedDocuments.map(row => Result.getOrThrow(decodeDocumentValue(row.json_value))).find(value =>
-          typeof value === "object" && value !== null && "name" in value && value.name === "by_value_staged");
-        const oldStagedIdentity = Schema.decodeUnknownSync(Schema.Struct({ _id: Schema.String }))(oldStaged)._id;
-        failure(yield* Effect.result(loadCorePersistenceTarget(fixture.maintenance, fixture.namespace)));
-        yield* adoptCorePersistenceAfterDrain(fixture.maintenance, fixture.namespace);
-        const after = yield* readRows;
-        for (const table of ["documents", "indexes", "read_only"] as const) expect(after[table]).toEqual(before[table]);
-        const globals = Schema.decodeUnknownSync(Schema.Array(Schema.Struct({ instance_name: Schema.String, key: Schema.String,
-          json_value: Schema.Uint8Array })));
-        expect(globals(after.persistence_globals).filter(row => row.key !== CORE_PHYSICAL_METADATA_KEY))
-          .toEqual(globals(before.persistence_globals));
-        yield* fixture.grantServing();
-        const target = yield* loadCorePersistenceTarget(fixture.serving, fixture.namespace);
-        const persistence = yield* createCorePersistence(target, store.instance);
-        const database = yield* openCoreDatabase(persistence, { schemaWorker: CORE_SCHEMA_WORKER_TEST_OPTIONS,
-          now: Effect.succeed(BigInt(store.latest.$bigint) + 1n), randomBytes: (length: 16 | 32) => Effect.sync(() => randomBytes(length)) });
-        expect((yield* database.selectProgram(store.requestIdentity.program.functionPath))).toMatchObject({
-          identity: store.requestIdentity.program, metadata: { visibility: "public" } });
-        expect(yield* database.recoverRequest(store.requestIdentity)).toMatchObject({ kind: "committed", result: { legacy: true } });
-        const transaction = yield* database.begin();
-        expect(Option.getOrThrow(yield* transaction.get(store.documentId))).toMatchObject({ _id: store.documentId, value: 2 });
-        expect(yield* transaction.scan("items", "by_value")).toMatchObject([{ _id: store.documentId, value: 2 }]);
-        const disabled = yield* Effect.result(transaction.scan("items", "by_value_staged"));
-        expect(disabled).toMatchObject({ failure: { reason: "indexUnavailable" } });
-        const refused = yield* Effect.result(transaction.insert("items", { value: "invalid-old-validator" }));
-        expect(refused).toMatchObject({ failure: { reason: "documentValidation" } });
-        yield* transaction.abort();
-
-        const decoded = Result.getOrThrow(decodeDocumentId(store.documentId));
-        const bindings = Schema.decodeUnknownSync(Schema.Array(Schema.Struct({ table_id: Schema.Uint8Array })))(
-          yield* fixture.maintenance.query(`SELECT table_id FROM "${fixture.namespace}".documents
-            WHERE instance_name=$1 AND id=$2 ORDER BY ts DESC LIMIT 1`, [store.instance, decoded.internalId]));
-        const tableId = bindings[0]?.table_id;
-        if (tableId === undefined) throw new Error("Captured document lost its physical table identity");
-        const historical = yield* persistence.readSnapshot(BigInt(store.first.$bigint));
-        const first = Option.getOrThrow(yield* historical.get(tableId, decoded.internalId));
-        expect(first.ts).toBe(BigInt(store.first.$bigint));
-        expect(Result.getOrThrow(readDocumentObject(first))).toMatchObject({ _id: store.documentId, value: 1 });
-        const documents = Schema.decodeUnknownSync(Schema.Array(Schema.Struct({ json_value: Schema.Uint8Array })))(yield* fixture.maintenance.query(
-          `SELECT DISTINCT ON (table_id,id) json_value FROM "${fixture.namespace}".documents
-            WHERE instance_name=$1 AND NOT deleted ORDER BY table_id,id,ts DESC`, [store.instance]));
-        const staged = documents.map(row => Result.getOrThrow(decodeDocumentValue(row.json_value))).find(value =>
-          typeof value === "object" && value !== null && !Array.isArray(value) && !(value instanceof ArrayBuffer)
-          && "descriptor" in value && value.descriptor === "by_value_staged");
-        expect(staged).toMatchObject({ _id: oldStagedIdentity, descriptor: "by_value_staged", config: { fields: ["value"],
-          onDiskState: { type: "Backfilled2", staged: true } } });
-        // Physical revisions survive. Cold logical snapshots still use the
-        // current metadata reconstruction floor; this slice does not fabricate
-        // a pre-cutover registry/validator view from the new active schema.
-        const oldLogical = yield* Effect.result(database.begin({ at: BigInt(store.first.$bigint) }));
-        expect(oldLogical).toMatchObject({ failure: { reason: "outOfRetention" } });
-        yield* database.close();
-        const reopenedTarget = yield* loadCorePersistenceTarget(fixture.serving, fixture.namespace);
-        const reopenedPersistence = yield* createCorePersistence(reopenedTarget, store.instance);
-        const reopened = yield* openCoreDatabase(reopenedPersistence, { schemaWorker: CORE_SCHEMA_WORKER_TEST_OPTIONS,
-          now: Effect.succeed(BigInt(store.latest.$bigint) + 100n), randomBytes: (length: 16 | 32) => Effect.sync(() => randomBytes(length)) });
-        expect((yield* reopened.selectProgram(store.requestIdentity.program.functionPath)).identity).toEqual(store.requestIdentity.program);
-        expect(yield* reopened.recoverRequest(store.requestIdentity)).toMatchObject({ kind: "committed", result: { legacy: true } });
-        const freshReader = yield* reopened.begin();
-        expect(Option.getOrThrow(yield* freshReader.get(store.documentId))).toMatchObject({ _id: store.documentId, value: 2 });
-        expect(yield* Effect.result(freshReader.scan("items", "by_value_staged"))).toMatchObject({ failure: { reason: "indexUnavailable" } });
-        expect(yield* Effect.result(freshReader.insert("items", { value: "still-invalid-after-reopen" })))
-          .toMatchObject({ failure: { reason: "documentValidation" } });
-        yield* freshReader.abort();
-      }))); } finally { await fixture.close(); }
-    }, 30_000);
-
     it("rolls fresh DDL back atomically when a generated statement fails", async () => {
       const fixture = await createFixture();
       try { await Effect.runPromise(Effect.gen(function* () {
@@ -256,10 +174,43 @@ export function registerCorePhysicalMaintenanceScenarios(name: string, createFix
 
     it("upgrades the exact managed baseline without changing retained application storage and replays without refencing", async () => {
       const fixture = await createFixture();
-      const store = await readC554CapturedStore();
-      try { await Effect.runPromise(Effect.gen(function* () {
-        yield* installManagedPreviousLayout(fixture);
-        yield* seedC554CapturedStore(fixture.maintenance, fixture.namespace, store);
+      try { await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+        const options = { schemaWorker: CORE_SCHEMA_WORKER_TEST_OPTIONS, now: Effect.succeed(1_000_000_000n),
+          randomBytes: (length: 16 | 32) => Effect.sync(() => randomBytes(length)) };
+        const program = { functionPath: "items:write", programHash: "current-program", schemaHash: "current-schema" };
+        const request = { key: "retained-request", requestHash: "retained-arguments", program };
+        yield* installCorePersistence(fixture.maintenance, fixture.namespace);
+        yield* fixture.grantServing();
+        const target = yield* loadCorePersistenceTarget(fixture.serving, fixture.namespace);
+        const persistence = yield* createCorePersistence(target, "application");
+        const store = yield* Effect.scoped(Effect.gen(function* () {
+          const database = yield* openCoreDatabase(persistence, options);
+          yield* activateCoreSchema(database, { schemaValidation: true, tables: [{ tableName: "items",
+            documentType: { type: "object", value: { value: { fieldType: { type: "number" }, optional: false } } },
+            indexes: [{ indexDescriptor: "by_value", fields: ["value"] }] }] },
+            { authorityEpoch: 1n, programs: [{ identity: program, metadata: { visibility: "public" } }] });
+          const first = yield* database.begin();
+          const documentId = yield* first.insert("items", { value: 1 });
+          yield* database.commit(yield* first.finalize());
+          const firstTimestamp = yield* database.publishedTimestamp;
+          const claim = yield* database.claimRequest(request);
+          if (claim.kind !== "claimed") return yield* Effect.die("Expected a fresh physical-upgrade fixture claim");
+          const second = yield* database.begin({ claim: claim.claim, authorityEpoch: 1n });
+          yield* second.patch(documentId, { value: 2 });
+          yield* database.commit(yield* second.finalize(), { claim: claim.claim, result: { preserved: true } });
+          const registry = yield* readCoreFixtureRegistry({ persistence }, yield* database.publishedTimestamp);
+          const tableId = registry.table("items")?.definition.tabletId;
+          if (tableId === undefined) return yield* Effect.die("Missing current physical-upgrade fixture table");
+          return { documentId, firstTimestamp, tableId };
+        }));
+        // Change only the physical baseline; logical records come from the current engine.
+        yield* fixture.maintenance.transaction(connection => Effect.gen(function* () {
+          yield* connection.query(`DROP INDEX "${fixture.namespace}".indexes_by_index_id_key_prefix_key_sha256_ts`);
+          yield* connection.query(`CREATE INDEX indexes_by_index_id_key_prefix_key_sha256
+            ON "${fixture.namespace}".indexes(instance_name,index_id,key_prefix,key_sha256)`);
+          yield* connection.query(`UPDATE "${fixture.namespace}".persistence_globals SET json_value=$2
+            WHERE instance_name='' AND key=$1`, [CORE_PHYSICAL_METADATA_KEY, new TextEncoder().encode(JSON.stringify(previousBaseline))]);
+        }));
         const before = yield* capturePhysicalRows(fixture);
         const priorLeases = yield* leaseState(fixture);
         failure(yield* Effect.result(loadCorePersistenceTarget(fixture.maintenance, fixture.namespace)));
@@ -282,9 +233,21 @@ export function registerCorePhysicalMaintenanceScenarios(name: string, createFix
         yield* upgradeCorePersistenceAfterDrain(fixture.maintenance, fixture.namespace);
         expect(Option.getOrThrow(yield* readCorePhysicalBaseline(fixture.maintenance, fixture.namespace))).toEqual(metadata);
         expect(yield* leaseState(fixture)).toEqual(upgradedLeases);
-        yield* fixture.grantServing();
-        yield* loadCorePersistenceTarget(fixture.serving, fixture.namespace);
-      })); } finally { await fixture.close(); }
+        const upgradedTarget = yield* loadCorePersistenceTarget(fixture.serving, fixture.namespace);
+        const reopenedPersistence = yield* createCorePersistence(upgradedTarget, "application");
+        const database = yield* openCoreDatabase(reopenedPersistence, options);
+        expect((yield* database.selectProgram(program.functionPath)).identity).toEqual(program);
+        expect(yield* database.recoverRequest(request)).toMatchObject({ kind: "committed", result: { preserved: true } });
+        const reader = yield* database.begin();
+        expect(Option.getOrThrow(yield* reader.get(store.documentId))).toMatchObject({ value: 2 });
+        expect(yield* reader.scan("items", "by_value")).toMatchObject([{ _id: store.documentId, value: 2 }]);
+        yield* reader.abort();
+        const historical = yield* reopenedPersistence.readSnapshot(store.firstTimestamp);
+        const internalId = yield* Effect.fromResult(decodeDocumentId(store.documentId));
+        const original = Option.getOrThrow(yield* historical.get(store.tableId, internalId.internalId));
+        expect(original.ts).toBe(store.firstTimestamp);
+        expect(yield* Effect.fromResult(readDocumentObject(original))).toMatchObject({ value: 1 });
+      }))); } finally { await fixture.close(); }
     }, 30_000);
 
     it.each(["index replacement", "marker replacement"] as const)("rolls the complete managed upgrade back after %s failure", async phase => {

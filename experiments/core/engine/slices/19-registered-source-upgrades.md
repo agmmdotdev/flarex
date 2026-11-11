@@ -75,16 +75,13 @@ overwrite. Fresh never-active cleanup retains its existing exclusive ownership,
 emptiness and historical-data guarantees. Neither cancellation nor omission of
 a table deletes physical history or committed application data.
 
-Migrate current `_schemas`-coupled public candidates through a Core-owned startup
-admin transaction before serving. Preserve original public push IDs, canonical
-evidence, timestamps/disposition, schema links and active identity, including
-failed/overwritten retained candidates. Authenticate old proofs, copy into typed
-deployment records, publish the active pointer and remove displaced application
-metadata from `_schemas` atomically. Reopen after uncertainty reconciles the
-same committed migration. No permanent alternate decoder or fallback remains.
-Preserve table/tablet numbers, documents, index history, original program
-revisions, grants and request outcomes. No old legacy-engine data conversion or
-reset is authorized. The five physical families remain unchanged.
+Current registration writes typed deployment records and the active pointer in
+`_programs`; `_schemas` owns schema lifecycle only. The startup upgrader from the
+earlier `_schemas`-coupled candidate format is retired under the owner's
+[no-data disposition](./16d-local-legacy-core-retirement.md). Current candidate
+IDs, evidence, timestamps/disposition, schema links and active identity retain
+their registered-source upgrade and recovery contracts. The five physical
+families remain unchanged.
 
 Queries retain one coherent program/schema/index/data snapshot. New calls see
 the current complete published closure. Mutation retries retain their original

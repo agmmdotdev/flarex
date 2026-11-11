@@ -148,12 +148,12 @@ mechanisms. Implementation follows the goal's challenged bounded slices.
 ## Core and physical-schema translation plan
 
 The destination is the current core in `packages/` and `apps/`. The earlier
-`experiments/core/src` candidate and its Drizzle schema are retained comparison
-material, outside workspace membership, not the engine to extend or wrap in a
-DO. Current cache/index replacements execute in existing package owners; they do
-not import that candidate. Reuse sound pieces and behavioral witnesses after
-audit, without rebuilding a permanent second engine or preserving old execution
-sequences. The [alignment findings](./CONVEX-ALIGNMENT.md#physical-schema-and-engine-translation-findings)
+experimental executable, its Drizzle schema and isolated package/tooling are
+retired under the [local retirement scope](./slices/16d-local-legacy-core-retirement.md).
+Frozen measurements and source hashes remain historical evidence. Current
+cache/index replacements execute in existing package owners; meaningful behavior
+is covered at those owners rather than a permanent second engine. The
+[alignment findings](./CONVEX-ALIGNMENT.md#physical-schema-and-engine-translation-findings)
 record the inspected differences and remaining policy choices.
 
 ### Engine responsibilities

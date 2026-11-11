@@ -52,7 +52,6 @@ import { CoreRecoveryJournal, type CoreRecoveryEnrollment } from "./recoveryJour
 import { isCoreDefinitiveCommitRefusal } from "./api";
 import { guardCoreUnregisteredLifecycle, readActiveCoreApplicationRegistration, trackCoreApplicationPrograms } from "./applicationRegistration";
 import { makeCoreApplicationDeploymentOwner } from "./applicationDeployment";
-import { migrateCoreApplicationDeployments } from "./applicationDeploymentMigration";
 import type { CoreSchemaSelection } from "./schemaRegistry";
 import { captureCoreNativeRootIdentity, captureCoreNativeRootRequestEvidence,
   type CoreNativeRootRequestEvidence } from "./nativeRootRequest";
@@ -1343,10 +1342,6 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
         }) });
       }));
   });
-  yield* admin(null, selected => Effect.gen(function* () {
-    const changed = yield* selected.context.runSystem(migrateCoreApplicationDeployments(selected.context));
-    if (changed) yield* settle(selected, "global");
-  }));
   const database: CoreDatabase = {
     assertOpen,
     readNativeRootRequestEvidence: Effect.fn("CoreDatabase.readNativeRootRequestEvidence")(function* (operations) {

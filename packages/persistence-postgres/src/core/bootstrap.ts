@@ -1,29 +1,22 @@
-/** Convex database bootstrap, with the explicit c554 logical-format migration. */
+/** Convex database bootstrap over the current logical metadata format. */
 import { Effect, Option, Result, Schema } from "effect";
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { decodeDocumentValue, encodeDocumentValue, type DocumentObject } from "flarex-protocol/document-value";
 import { CoreTransactionError, type CoreDatabaseOptions, type CoreIndexDefinition, type CoreTableDefinition } from "./api";
-import { CorePersistenceError, type CoreDocumentLogEntry, type CorePersistence, type CorePersistenceLease, type CorePersistenceSnapshot, type CoreRetentionValidator } from "./contracts";
+import { CorePersistenceError, type CoreDocumentLogEntry, type CorePersistence, type CorePersistenceLease, type CorePersistenceSnapshot } from "./contracts";
 import { CORE_BUILTIN_TABLE_NUMBERS, DATABASE_GLOBALS, INDEXES, INDEX_BACKFILLS, PROGRAMS, REQUESTS, SCHEMAS,
-  SCHEMA_VALIDATIONS, SCHEMA_VALIDATION_PROGRESS, TABLES, initialRegistry, loadCoreRegistry, readDocumentObject, tableDocument, type CoreRegistry } from "./registry";
+  SCHEMA_VALIDATIONS, SCHEMA_VALIDATION_PROGRESS, TABLES, initialRegistry, loadCoreRegistry, readDocumentObject, tableDocument } from "./registry";
 import { CoreFinalizationVault, createCoreTransaction, deriveCoreWriteBatch, prepareCoreTransactionIds } from "./transaction";
 import { makeCoreLeaderRetention } from "./retention";
 import { CoreResidentIndexes } from "./residentIndex";
 import { coreIndexMetadataValue, decodeCoreIndexMetadata } from "./indexState";
-import { LEGACY_CORE_REGISTRY_DECODERS, decodeLegacyTable } from "./legacySchema";
-import { captureCoreSchema } from "./schemaTypes";
-import { serializeCoreSchema } from "./schemaJson";
 import type { CoreTableNamespace } from "./namespace";
 import { authenticateCoreNativeRegistry } from "./nativePolicy";
 import { captureCoreEntropy, type CoreTransactionIdGenerator } from "./transactionIdGenerator";
-import { checkCoreGeneratedIds } from "./committer";
 
 export const CORE_LOGICAL_DATABASE_VERSION = 1n;
-export const CORE_SCHEMA_CUTOVER_GLOBAL = "flarex_schema_lifecycle_cutover_ts";
 const HexId = Schema.String.check(Schema.makeFilter(value => /^[0-9a-f]{32}$/.test(value) ? undefined : "Expected a canonical internal ID"));
 const decodeHexId = Schema.decodeUnknownResult(HexId);
-const LegacyBootstrapIndex = Schema.Struct({ name: Schema.Literal("by_id"), tableNumber: Schema.Int,
-  enabled: Schema.Literal(true), fields: Schema.Array(Schema.String), persistenceIndexId: Schema.optionalKey(Schema.BigInt) });
 const corrupt = (cause?: unknown) => new CorePersistenceError({ reason: "corruptData", ...(cause === undefined ? {} : { cause }) });
 
 const anchor = Effect.fn("CoreBootstrap.anchor")(function* (persistence: CorePersistence, key: string) {
@@ -37,9 +30,9 @@ const putValue = Effect.fn("CoreBootstrap.putValue")(function* (persistence: Cor
   yield* persistence.putGlobal(lease, key, yield* Effect.fromResult(Result.mapError(encodeDocumentValue(value), corrupt)));
 });
 
-/** One explicit decoder version selected from the table catalog's owning metadata. */
+/** Bootstrap anchors identify the current table and index metadata catalogs. */
 export const loadBootstrapRegistry = Effect.fn("CoreBootstrap.loadAnchors")(function* (
-  persistence: CorePersistence, snapshot: CorePersistenceSnapshot, legacy = false,
+  persistence: CorePersistence, snapshot: CorePersistenceSnapshot,
 ) {
   const tablesId = yield* anchor(persistence, "tables_table_id");
   const indexesId = yield* anchor(persistence, "index_table_id");
@@ -50,17 +43,10 @@ export const loadBootstrapRegistry = Effect.fn("CoreBootstrap.loadAnchors")(func
     const entry = yield* snapshot.get(indexesId, indexId);
     if (Option.isNone(entry) || entry.value.deleted) return yield* corrupt();
     const document = yield* Effect.fromResult(readDocumentObject(entry.value, { number: 514, tabletId: indexesId }));
-    let persistenceIndexId: bigint | undefined;
-    if (legacy) {
-      const index = yield* Effect.fromResult(Result.mapError(Schema.decodeUnknownResult(LegacyBootstrapIndex)(document), corrupt));
-      if (index.tableNumber !== number || index.fields.length !== 0) return yield* corrupt();
-      persistenceIndexId = index.persistenceIndexId;
-    } else {
-      const index = yield* Effect.fromResult(Result.mapError(decodeCoreIndexMetadata(document), corrupt));
-      if (index.table_id !== encodeBytesToLowercaseHex(tabletId) || index.descriptor !== "by_id"
-        || index.config.fields.length !== 0 || index.config.onDiskState.type !== "Enabled") return yield* corrupt();
-      persistenceIndexId = index.config.persistenceIndexId;
-    }
+    const index = yield* Effect.fromResult(Result.mapError(decodeCoreIndexMetadata(document), corrupt));
+    if (index.table_id !== encodeBytesToLowercaseHex(tabletId) || index.descriptor !== "by_id"
+      || index.config.fields.length !== 0 || index.config.onDiskState.type !== "Enabled") return yield* corrupt();
+    const persistenceIndexId = index.config.persistenceIndexId;
     definitions.push({ name, number, tabletId, namespace: null, state: "active", indexes: [{
       name: "by_id", ref: { id: indexId, ...(persistenceIndexId === undefined ? {} : { persistenceIndexId }) }, fields: [],
     }] });
@@ -152,51 +138,6 @@ export const initializeCorePersistence = Effect.fn("CoreBootstrap.initialize")(f
   for (const [key, id] of [["tables_table_id", tables.tabletId], ["index_table_id", indexes.tabletId],
     ["tables_by_id", tablesById.ref.id], ["index_by_id", indexesById.ref.id]] as const) yield* putValue(persistence, lease, key, encodeBytesToLowercaseHex(id));
   yield* persistence.write(lease, batch);
-  yield* putValue(persistence, lease, CORE_SCHEMA_CUTOVER_GLOBAL, 0n);
-});
-
-const migrateLegacy = Effect.fn("CoreBootstrap.migrateLegacy")(function* (
-  persistence: CorePersistence, lease: CorePersistenceLease, options: CoreDatabaseOptions, timestamp: bigint,
-  snapshot: CorePersistenceSnapshot, registry: CoreRegistry, revisions: readonly CoreDocumentLogEntry[], retention: CoreRetentionValidator,
-) {
-  const tables: unknown[] = [];
-  const catalog = registry.table(TABLES)?.definition;
-  if (catalog === undefined) return yield* corrupt();
-  for (const record of registry.tables.values()) if (!record.definition.name.startsWith("_")) {
-    const entry = revisions.find(candidate => encodeBytesToLowercaseHex(candidate.id) === encodeBytesToLowercaseHex(record.id)
-      && encodeBytesToLowercaseHex(candidate.tableId) === encodeBytesToLowercaseHex(catalog.tabletId));
-    if (entry === undefined) return yield* corrupt();
-    const document = yield* Effect.fromResult(readDocumentObject(entry, catalog));
-    const legacy = yield* Effect.fromResult(decodeLegacyTable({ id: String(document._id), creationTime: Number(document._creationTime), value: document }));
-    const declared = registry.indexesForTablet(record.id).filter(index => !["by_id", "by_creation_time"].includes(index.name));
-    tables.push({ tableName: record.definition.name, documentType: legacy.validator,
-      indexes: declared.filter(index => index.state.type === "Enabled").map(index => ({ indexDescriptor: index.name, fields: index.fields })),
-      // Old disabled catalog entries preserve visibility and maintenance, without inventing a source staged-schema declaration.
-      stagedDbIndexes: [] });
-  }
-  const schema = yield* Effect.fromResult(captureCoreSchema({ tables, schemaValidation: true }));
-  const ids = yield* prepareCoreTransactionIds(options);
-  const needsGlobals = registry.table(DATABASE_GLOBALS) === undefined;
-  const secret = needsGlobals ? yield* Effect.fromResult(captureCoreEntropy(yield* options.randomBytes(16), 16)) : undefined;
-  const definitions = yield* allocateCoreBuiltinDefinitions(ids.idGenerator, [...CORE_BUILTIN_TABLE_NUMBERS.keys()].filter(name => registry.table(name) === undefined));
-  const vault = new CoreFinalizationVault();
-  const transaction = createCoreTransaction({ snapshot, registry, ...ids, vault });
-  for (const record of registry.tables.values()) yield* transaction.writePrivate(TABLES, record.id, tableDocument(record.definition));
-  for (const table of definitions) yield* transaction.insertPrivate(TABLES, table.tabletId, tableDocument(table));
-  for (const index of registry.indexes.records.values()) yield* transaction.writePrivate(INDEXES, index.ref.id, coreIndexMetadataValue(index));
-  for (const table of definitions) for (const index of table.indexes) yield* transaction.insertPrivate(INDEXES, index.ref.id,
-    coreIndexMetadataValue({ ...index, tableId: table.tabletId, state: { type: "Enabled" }, ts: null }));
-  for (const index of registry.indexesForTablet(catalog.tabletId)) if (index.name === "by_name" || index.name === "by_number")
-    yield* transaction.writePrivate(INDEXES, index.ref.id, null);
-  yield* transaction.runSystem(transaction.insertSystem(SCHEMAS, { state: { state: "active" }, schema: yield* Effect.fromResult(serializeCoreSchema(schema)) }));
-  if (secret !== undefined) yield* transaction.runSystem(transaction.insertSystem(DATABASE_GLOBALS, globalsBody(secret)));
-  const finalized = vault.take(yield* transaction.transaction.finalize());
-  if (finalized === undefined) return yield* new CoreTransactionError({ reason: "foreignFinalization" });
-  yield* checkCoreGeneratedIds(persistence, finalized, retention);
-  const now = yield* options.now;
-  const migratedAt = now > timestamp ? now : timestamp + 1n;
-  yield* persistence.write(lease, yield* Effect.fromResult(deriveCoreWriteBatch(finalized, migratedAt)));
-  yield* putValue(persistence, lease, CORE_SCHEMA_CUTOVER_GLOBAL, migratedAt);
 });
 
 export const bootstrapCore = Effect.fn("CoreBootstrap.open")(function* (
@@ -210,25 +151,12 @@ export const bootstrapCore = Effect.fn("CoreBootstrap.open")(function* (
     yield* retention.validateDocument(0n);
     yield* initializeCorePersistence(persistence, lease, options);
   }
-  let timestamp = yield* persistence.latestTimestamp(lease);
+  const timestamp = yield* persistence.latestTimestamp(lease);
   yield* retention.validateIndex(timestamp);
   yield* retention.validateDocument(timestamp);
-  let snapshot = yield* persistence.readSnapshot(timestamp, retention);
-  const catalogId = yield* anchor(persistence, "tables_table_id");
-  const catalogRow = yield* snapshot.get(catalogId, catalogId);
-  if (Option.isNone(catalogRow) || catalogRow.value.deleted) return yield* corrupt();
-  const catalogBody = yield* Effect.fromResult(readDocumentObject(catalogRow.value, { number: 513, tabletId: catalogId }));
-  const legacy = typeof catalogBody.validator === "string" && catalogBody.state === undefined;
+  const snapshot = yield* persistence.readSnapshot(timestamp, retention);
   const revisions: CoreDocumentLogEntry[] = [];
-  let registry = yield* loadCoreRegistry(snapshot, yield* loadBootstrapRegistry(persistence, snapshot, legacy), entry => { revisions.push(entry); },
-    legacy ? LEGACY_CORE_REGISTRY_DECODERS : undefined);
-  if (legacy) {
-    yield* migrateLegacy(persistence, lease, options, timestamp, snapshot, registry, revisions, retention);
-    timestamp = yield* persistence.latestTimestamp(lease);
-    snapshot = yield* persistence.readSnapshot(timestamp, retention);
-    revisions.length = 0;
-    registry = yield* loadCoreRegistry(snapshot, yield* loadBootstrapRegistry(persistence, snapshot), entry => { revisions.push(entry); });
-  }
+  const registry = yield* loadCoreRegistry(snapshot, yield* loadBootstrapRegistry(persistence, snapshot), entry => { revisions.push(entry); });
   for (const name of CORE_BUILTIN_TABLE_NUMBERS.keys()) if (registry.table(name) === undefined) return yield* corrupt();
   const db = registry.table(DATABASE_GLOBALS)?.definition;
   const byId = db?.indexes.find(index => index.name === "by_id");
@@ -238,8 +166,6 @@ export const bootstrapCore = Effect.fn("CoreBootstrap.open")(function* (
   if (globals.entries.length !== 1 || global === undefined || globals.cursor.kind !== "end") return yield* corrupt();
   const body = yield* Effect.fromResult(readDocumentObject(global.document, db));
   if (body.version !== CORE_LOGICAL_DATABASE_VERSION) return yield* corrupt("Unsupported logical schema version");
-  const marker = yield* persistence.getGlobal(CORE_SCHEMA_CUTOVER_GLOBAL);
-  if (Option.isNone(marker)) yield* putValue(persistence, lease, CORE_SCHEMA_CUTOVER_GLOBAL, global.document.ts);
   yield* authenticateCoreNativeRegistry(registry, undefined, options.schemaBundles);
   const resident = yield* Effect.fromResult(CoreResidentIndexes.create(registry, revisions));
   return { timestamp, registry, retention, retentionBounds, resident };

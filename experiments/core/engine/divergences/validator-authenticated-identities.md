@@ -28,11 +28,10 @@ closed current envelope and stores its wire metadata as JSON strings, matching
 the source distinction between validator declarations and general value objects.
 Convex source schema JSON/content hashes remain source-derived and unmarked.
 
-The stored-program reader alone selects an unversioned pre-change program's
-narrow `Legacy` canonical projection. It preserves original hashes and requires
-agreement between selected generation and every authenticated envelope. Unknown
-formats/versions/markers fail without retrying a historical decoder. Current
-constructors do not publish Legacy programs. A fresh appDocument definition
+The stored-program reader accepts only the current closed envelope and encoding
+2. The pre-change program projector is retired under the owner's no-data
+disposition. Unknown formats/versions/markers and obsolete object envelopes fail
+without retrying another decoder. A fresh appDocument definition
 version 2 supports source document roots using Source DTO JSON text inside the
 private JSONB envelope; version 1 keeps its old closed meaning.
 
@@ -49,30 +48,16 @@ never reexecute a result merely because a serializer changed.
 
 ## Scope and removal gate
 
-The selected local inventory contains no current core physical family, but does
-contain a retained analyzed developer push. Preserve it; do not infer absence of
-shared, external, custom or resident state. No destructive migration or reset is
-selected. Actual active/public/inflight/outcome obligations govern retention;
-this record adds no blanket right to execute every inactive revision.
+The owner confirms that no live database or retained deployment data exists.
+The [local retirement scope](../slices/16d-local-legacy-core-retirement.md) removes
+the pre09 stored-program projector and its fixtures. Current program construction,
+hash/authority verification, cold reconstruction and original-outcome recovery
+remain covered at their executing owners. PGlite and ordinary-role PostgreSQL
+remain separate validation gates; managed-host capacity is unmeasured.
 
-Remove the narrow Legacy identity path only after its named retained programs,
-heads, requests and outcomes are proved migrated or retired under their actual
-owners. Unknown external stores are not an automatic deletion disposition.
-Required proof includes a frozen pre-change positive-record program/head/outcome
-cold-reopen trace, marker tampering/unknown-generation refusal and real Worker
-execution with current transport after historical authentication. PGlite and
-ordinary-role PostgreSQL are separate gates. Managed-host capacity is unmeasured.
-
-The executing reader is `readCoreApplicationProgram` with the narrow
-`LegacyApplicationProgramIdentity` projector. It freezes original table/function
-validators before hashing; current root normalization never rewrites historical
-identity payloads. `ApplicationWorkerDefinition`, the Worker request decoder and
-Core query/mutation runners carry the verified generation. Baseline physical-row
-fixtures include an executable SDK record artifact and underscore/name cases.
-
-The local developer push is raw DeploymentSchema/DeploymentFunctions and needs
-no ApplicationManifest discriminator. The owned PostgreSQL target has no old
-relational analysis table; external/shared state is unknown. This adaptation does
-not migrate non-Core relational analysis/publication/activation/history identities.
-Their retained-store inventory and correlated cutover remain required before
-activation over such data. No generic Legacy fallback or reset is selected.
+`readCoreApplicationProgram` accepts encoding 2 only. `ApplicationWorkerDefinition`,
+the Worker request decoder and Core query/mutation runners carry that verified
+generation. Broader encoding-1 protocol support still has legacy runtime callers;
+its removal depends on their behavior-preserving migration, rather than a
+hypothetical external dataset. Source DTO transport and appDocument V1/V2
+contracts retain their separate current meanings.

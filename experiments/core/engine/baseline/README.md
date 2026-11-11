@@ -22,6 +22,9 @@ replacement execution.
 The [legacy retirement ledger](../slices/16b-legacy-entrypoint-retirement.md)
 records retired unconsumed entrypoints and the actual caller, replacement owner
 and removal proof for remaining runtime, test, benchmark and historical families.
+The [local retirement disposition](../slices/16d-local-legacy-core-retirement.md)
+confirms there is no deployed data to migrate. Supported behavior still requires
+caller migration; old fixtures and exports alone do not create obligations.
 
 The enumerating runtime profiles and their connected witnesses define the
 boundary. These notes name the owners rather than freezing old private APIs.

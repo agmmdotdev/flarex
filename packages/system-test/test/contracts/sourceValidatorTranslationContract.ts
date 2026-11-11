@@ -3,29 +3,11 @@ import { expect, it } from "vitest";
 import { jsonToFlarexValueV1 } from "flarex-protocol/value";
 import { CoreApplicationMutationError } from "@flarex/persistence-postgres/internal/core-application-mutation";
 import type { ApplicationCoreFixture } from "@flarex/persistence-postgres/internal/system-test/core-application-fixture";
-import type { CorePersistenceFixture } from "@flarex/persistence-postgres/internal/system-test/core-persistence-fixture";
-import { proveHistoricalSourceWorker, proveSourceValidatorTranslation } from "../../support/sourceValidatorTranslation";
+import { proveSourceValidatorTranslation } from "../../support/sourceValidatorTranslation";
 
 export function defineSourceValidatorTranslationContract(
   runScenario: <A>(scenario: (fixture: ApplicationCoreFixture) => Promise<A>) => Promise<A>,
-  createHistoricalFixture: () => Promise<CorePersistenceFixture>,
 ): void {
-  it("authenticates a real pre09 record artifact, replays its outcome and executes it with current Worker transport", async () => {
-    const proof = await proveHistoricalSourceWorker(await createHistoricalFixture());
-    expect(proof.generation).toBe(1);
-    expect(proof.selected.identity).toEqual(proof.originalIdentity);
-    expect(proof.coldSelected).toEqual(proof.selected);
-    for (const replay of [proof.replay, proof.coldOriginalReplay]) expect(replay).toMatchObject({ disposition: "replayed",
-      commitSeq: proof.originalOutcome.timestamp, value: proof.originalOutcome.result });
-    expect(proof.replayWorkerLoads).toBe(0);
-    expect(proof.fresh).toMatchObject({ disposition: "published", value: { Grace: 7 } });
-    expect(proof.freshWorkerLoads).toBe(1);
-    expect(proof.coldFreshReplay).toMatchObject({ disposition: "replayed", commitSeq: proof.fresh.commitSeq, value: proof.fresh.value });
-    expect(proof.coldReplayWorkerLoads).toBe(0);
-    expect(proof.rows).toHaveLength(3);
-    expect(proof.rows).toEqual(expect.arrayContaining([expect.objectContaining({ scores: { Grace: 7 } })]));
-  }, 180_000);
-
   it("publishes source records and document roots, executes Function/CommitTs, and reopens the same five-table database", async () => {
     const proof = await runScenario(proveSourceValidatorTranslation);
     expect(proof.coldAnalysisLoads).toBe(2);

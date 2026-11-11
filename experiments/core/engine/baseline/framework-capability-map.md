@@ -12,7 +12,7 @@ schema engine, independent framework installers or additional physical tables.
 ## Reading the map
 
 The destination is the translated runtime in existing packages and apps, not
-the retained candidate in experiments/core/src. Payload and Medusa already have
+the retired isolated candidate. Payload and Medusa already have
 substantial bounded native integrations on the earlier persistence owners.
 Preserve those observable behaviors while replacing their core-facing plumbing.
 

@@ -69,12 +69,12 @@ table metadata, as in the source; do not add compensating deletion.
 
 ## Existing data and platform lane
 
-The logical cutover preserves c554 data. Its frozen migration decoder imports
-old per-table validators into an initial active schema and preserves disabled
-but fully maintained indexes with the matching staged state. Publish a model
-version only after its required transformation is complete and replay-safe.
-The coordinator captured a populated store by executing the actual c554 owner;
-the cutover witness must use that evidence, not a reimplemented old engine.
+The original logical cutover preserved c554 data and imported old per-table
+validators into an initial active schema. Its decoder, conversion and captured
+store fixture are now retired under the owner's [no-data disposition](./16d-local-legacy-core-retirement.md).
+Current bootstrap uses the current logical catalog directly; historical current
+snapshots, table-summary checkpoints and exact replay remain supported. Physical
+maintenance coverage uses genuine current logical records.
 
 The preceding five-table declaration had no executing consumer; custom DDL
 provisioned fresh targets and Drizzle Kit targeted the old schema. The shared
