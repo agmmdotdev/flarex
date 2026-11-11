@@ -17,3 +17,7 @@ export type { StoreProductTypeParams, StoreProductTypeListParams } from "./produ
 export type { StoreProductTypeResponse, StoreProductTypeListResponse } from "./product-type/store/responses"
 export type { StoreProductCategoryParams, StoreProductCategoryListParams } from "./product-category/store/queries"
 export type { StoreProductCategoryResponse, StoreProductCategoryListResponse } from "./product-category/store/responses"
+
+export type { StoreRegion, StoreRegionCountry } from "./region/store/entities"
+export type { StoreRegionFilters, StoreRegionCountryFilters } from "./region/store/queries"
+export type { StoreRegionResponse, StoreRegionListResponse } from "./region/store/responses"

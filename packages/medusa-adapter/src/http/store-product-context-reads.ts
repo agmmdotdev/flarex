@@ -10,6 +10,8 @@ import { prepareLocalGraph } from "../local-graph/query";
 import { makeStoreCartReadCommands } from "../modules/store/cart-read-service";
 import { compileStoreCoreDefinition } from "../modules/store/schema";
 import { makeLocalRegionCartReadCommands } from "../modules/region/cart-read-service";
+import { makeStoreRegionReadCommands } from "../modules/region/store-read";
+import { makeStoreRegionRemoteQuery } from "./store-region-read";
 import { compileRegionCoreDefinition } from "../modules/region/schema";
 import { makeCartCheckoutCommands } from "../modules/cart/payment-service";
 import { compileCartCoreDefinition } from "../modules/cart/creation-schema";
@@ -51,6 +53,7 @@ export const compileStoreProductContextReadCatalog = Effect.fn("StoreProductCont
   logger: Logger,
 ) {
   const store = yield* makeStoreCartReadCommands(), region = yield* makeLocalRegionCartReadCommands(),
+    storeRegion = yield* makeStoreRegionReadCommands(),
     cart = yield* makeCartCheckoutCommands(), customer = yield* makeCustomerStoreProductReadCommands(),
     salesChannelLocation = yield* prepareSalesChannelLocationLink(), tax = yield* makeTaxLinesCommands(logger);
   const cartModule = workflowModuleDefinition(cart.workflow);
@@ -62,7 +65,7 @@ export const compileStoreProductContextReadCatalog = Effect.fn("StoreProductCont
     Object.freeze({ name, definition, initialization: Object.freeze({ ...initialization[name] }), commands: Object.freeze([...commands]), graph });
   const sources = Object.freeze({
     store: source("store", yield* compileStoreCoreDefinition(target), [store.count], store.graph),
-    region: source("region", yield* compileRegionCoreDefinition(target), [region.count], region.graph),
+    region: source("region", yield* compileRegionCoreDefinition(target), [region.count, ...storeRegion.commands], region.graph),
     cart: source("cart", yield* compileCartCoreDefinition(target), [cart.count], cartGraph),
     customer: source("customer", yield* compileCustomerCoreDefinition(target), customer.commands, customer.graph),
     salesChannelLocation: source("salesChannelLocation", yield* compileSalesChannelLocationLinkCoreDefinition(target),
@@ -72,7 +75,8 @@ export const compileStoreProductContextReadCatalog = Effect.fn("StoreProductCont
   const members: readonly StoreProductContextReadMember[] = names.map(name => ({ source: sources[name],
     participant: defineAtomicCommerceParticipant(`storeProductContext_${name}`), module: sources[name].graph, commands: sources[name].commands }));
   const graph = yield* Effect.fromResult(prepareLocalGraph(members.filter(member => member.source.name !== "tax")));
-  return Object.freeze({ sources, members: Object.freeze(members), graph, taxCommand: tax.getTaxLines });
+  return Object.freeze({ sources, members: Object.freeze(members), graph, taxCommand: tax.getTaxLines,
+    storeRegionCommands: { list: storeRegion.list, count: storeRegion.count } });
 });
 export type StoreProductContextReadCatalog = Effect.Success<ReturnType<typeof compileStoreProductContextReadCatalog>>;
 
@@ -118,7 +122,9 @@ export const makeStoreProductContextReads = Effect.fn("StoreProductContextReads.
     members.push(Object.freeze({ ...member, read: host.read })); closures.push(host.close);
   }
   const taxHost = members.find(member => member.source.name === "tax");
-  if (taxHost === undefined) return yield* commerceError("invalidAuthority");
+  const regionHost = members.find(member => member.source.name === "region");
+  if (taxHost === undefined || regionHost === undefined) return yield* commerceError("invalidAuthority");
+  const remoteQuery = makeStoreRegionRemoteQuery({ commands: input.catalog.storeRegionCommands, read: regionHost.read });
   const getTaxLines = Effect.fn("StoreProductContextReads.getTaxLines")(function* (...args: readonly unknown[]) {
     const [items, context] = yield* Effect.fromResult(captureWorkflowInput(args, "preserveOwnUndefined").pipe(Result.flatMap(decodeTaxLinesArguments)));
     const envelope = yield* Effect.fromResult(captureWorkflowCommandInput({ items, context }));
@@ -147,6 +153,6 @@ export const makeStoreProductContextReads = Effect.fn("StoreProductContextReads.
     return result;
   });
   return Object.freeze({ sources: input.catalog.sources, members: Object.freeze(members), query: Object.freeze({ graph }),
-    tax: Object.freeze({ getTaxLines }), close: Effect.forEach(closures, close => close, { discard: true }) });
+    remoteQuery, tax: Object.freeze({ getTaxLines }), close: Effect.forEach(closures, close => close, { discard: true }) });
 });
 export type StoreProductContextReads = Effect.Success<ReturnType<typeof makeStoreProductContextReads>>;

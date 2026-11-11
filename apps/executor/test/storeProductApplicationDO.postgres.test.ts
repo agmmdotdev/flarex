@@ -15,6 +15,7 @@ const suite = createMedusaDOTestSuite(new URL("./storeProductApplicationDO.worke
 const adminSuite = createMedusaDOTestSuite(new URL("./adminProductApplicationDO.workerd.worker.ts", import.meta.url));
 const object = Schema.decodeUnknownSync(Schema.JsonObject);
 const products = Schema.decodeUnknownSync(Schema.Struct({ products: Schema.Array(Schema.JsonObject), count: Schema.Number, offset: Schema.Number, limit: Schema.Number }));
+const regions = Schema.decodeUnknownSync(Schema.Struct({ regions: Schema.Array(Schema.JsonObject), count: Schema.Number, offset: Schema.Number, limit: Schema.Number }));
 const product = Schema.decodeUnknownSync(Schema.Struct({ product: Schema.JsonObject }));
 const variants = Schema.decodeUnknownSync(Schema.Array(Schema.JsonObject));
 const variant = (value: typeof Schema.JsonObject.Type) => {
@@ -172,7 +173,7 @@ describe.runIf(endpoints !== undefined)("native Store Product reads in the actua
     }
   }, 300_000);
 
-  it("serves native defaults, customer pricing, tax and channel inventory and preserves every durable row across DO recreation", async () => {
+  it("serves native Regions with Countries, Product defaults, customer pricing, tax and channel inventory and preserves every durable row across DO recreation", async () => {
     if (endpoints === undefined) throw new Error("Store Product DO requires ordinary PostgreSQL");
     const physical = await createCorePostgresFixture(endpoints);
     let seed: Awaited<ReturnType<typeof prepareStoreProductRequestFixture>> | undefined;
@@ -223,6 +224,41 @@ describe.runIf(endpoints !== undefined)("native Store Product reads in the actua
       phase = "first Worker startup"; host.start(); await host.ready();
       expect((await host.request("/store/products", { private: false,
         headers: { origin: undefined, "x-publishable-api-key": undefined } })).status).toBe(401);
+      const regionDefaults = regions(await request("/store/regions"));
+      expect(regionDefaults).toMatchObject({ count: 9, offset: 0, limit: 50 });
+      expect(regionDefaults.regions.map(row => row.id).toSorted()).toEqual([
+        "reg_store_eur", "reg_store_inclusive", "reg_store_manual", "reg_store_us",
+        "reg_store_z_extra_1", "reg_store_z_extra_2", "reg_store_z_extra_3", "reg_store_z_extra_4", "reg_store_z_extra_5",
+      ]);
+      for (const row of regionDefaults.regions) {
+        expect(Object.keys(row).toSorted()).toEqual(["id", "name", "currency_code", "created_at", "updated_at", "deleted_at", "metadata", "countries"].toSorted());
+        const countries = variants(row.countries);
+        expect(countries.map(country => country.iso_2).toSorted()).toEqual(row.id === "reg_store_us" ? ["ca", "us"] : row.id === "reg_store_eur" ? ["gb"] : []);
+        for (const country of countries) expect(country.region_id).toBe(row.id);
+      }
+      const regionDetail = await request("/store/regions/reg_store_us");
+      expect(regionDetail).toEqual({ region: regionDefaults.regions.find(row => row.id === "reg_store_us") });
+      const regionProjectionPath = "/store/regions/reg_store_us?fields=id,name,countries.iso_2,countries.display_name";
+      const regionProjection = await request(regionProjectionPath);
+      expect(regionProjection).toEqual({ region: { id: "reg_store_us", name: "US automatic", countries: [
+        { iso_2: "ca", display_name: "Canada" }, { iso_2: "us", display_name: "United States" },
+      ] } });
+      expect(await request("/store/regions/reg_store_us?fields=id,name"))
+        .toEqual({ region: { id: "reg_store_us", name: "US automatic" } });
+      expect(regions(await request("/store/regions?fields=id&currency_code=usd&order=id&limit=1&offset=1")))
+        .toEqual({ regions: [{ id: "reg_store_manual" }], count: 3, offset: 1, limit: 1 });
+      expect(regions(await request("/store/regions?fields=id&id[]=reg_store_us&id[]=reg_store_eur")))
+        .toEqual({ regions: [{ id: "reg_store_us" }, { id: "reg_store_eur" }], count: 2, offset: 0, limit: 50 });
+      expect(regions(await request("/store/regions?fields=id&name=EUR")))
+        .toEqual({ regions: [{ id: "reg_store_eur" }], count: 1, offset: 0, limit: 50 });
+      expect(regions(await request("/store/regions?fields=id&limit=0")))
+        .toEqual({ regions: [], count: 9, offset: 0, limit: 0 });
+      expect(await request("/store/regions/missing", { status: 404 }))
+        .toMatchObject({ type: "not_found", message: "Region with id: missing was not found" });
+      for (const path of ["/store/regions", "/store/regions/reg_store_us"]) {
+        await request(path, { key: "pk_missing", status: 400 });
+        expect((await host.request(path, { headers: { "x-publishable-api-key": undefined } })).status).toBe(400);
+      }
       const defaults = products(await request("/store/products"));
       expect(defaults).toMatchObject({ count: 4, offset: 0, limit: 50 });
       expect(defaults.products.map(row => row.id).toSorted()).toEqual([seeded.baseId, seeded.nullId, seeded.overrideId, seeded.saleId].toSorted());
@@ -288,6 +324,9 @@ describe.runIf(endpoints !== undefined)("native Store Product reads in the actua
       phase = "first shutdown"; await host.stop();
       expect(await observeStoreProductRequestFixture({ physical, catalog: seed.catalog })).toEqual(before);
       phase = "recreation"; host.start(); await host.ready();
+      expect(regions(await request("/store/regions"))).toEqual(regionDefaults);
+      expect(await request("/store/regions/reg_store_us")).toEqual(regionDetail);
+      expect(await request(regionProjectionPath)).toEqual(regionProjection);
       expect(products(await request("/store/products"))).toEqual(defaults);
       expect(await priced("sale")).toEqual(sale);
       expect(await priced("base", "&country_code=us")).toEqual(taxed);

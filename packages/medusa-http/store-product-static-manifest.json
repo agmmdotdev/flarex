@@ -34,6 +34,12 @@
     },
     {
       "relativePath": "packages/medusa-http/src/api/store/product-categories/[id]/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa-http/src/api/store/regions/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa-http/src/api/store/regions/[id]/route.ts"
     }
   ],
   "middlewares": [
@@ -56,6 +62,10 @@
     {
       "relativePath": "packages/medusa-http/src/api/store/product-categories/middlewares.ts",
       "exportName": "storeProductCategoryRoutesMiddlewares"
+    },
+    {
+      "relativePath": "packages/medusa-http/src/api/store/regions/middlewares.ts",
+      "exportName": "storeRegionRoutesMiddlewares"
     }
   ]
 }

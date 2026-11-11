@@ -10,11 +10,14 @@ import * as storeProductTypesRoute from "./api/store/product-types/route"
 import * as storeProductTypesByIdRoute from "./api/store/product-types/[id]/route"
 import * as storeProductCategoriesRoute from "./api/store/product-categories/route"
 import * as storeProductCategoriesByIdRoute from "./api/store/product-categories/[id]/route"
+import * as storeRegionsRoute from "./api/store/regions/route"
+import * as storeRegionsByIdRoute from "./api/store/regions/[id]/route"
 import { storeProductRoutesMiddlewares } from "./api/store/products/middlewares"
 import { storeCollectionRoutesMiddlewares } from "./api/store/collections/middlewares"
 import { storeProductTagRoutesMiddlewares } from "./api/store/product-tags/middlewares"
 import { storeProductTypeRoutesMiddlewares } from "./api/store/product-types/middlewares"
 import { storeProductCategoryRoutesMiddlewares } from "./api/store/product-categories/middlewares"
+import { storeRegionRoutesMiddlewares } from "./api/store/regions/middlewares"
 
 export const storeProductHttpManifest = {
   routes: [
@@ -68,6 +71,16 @@ export const storeProductHttpManifest = {
       module: storeProductCategoriesByIdRoute,
       relativePath: "packages/medusa-http/src/api/store/product-categories/[id]/route.ts",
     },
+    {
+      route: "/store/regions",
+      module: storeRegionsRoute,
+      relativePath: "packages/medusa-http/src/api/store/regions/route.ts",
+    },
+    {
+      route: "/store/regions/:id",
+      module: storeRegionsByIdRoute,
+      relativePath: "packages/medusa-http/src/api/store/regions/[id]/route.ts",
+    },
   ],
   middlewares: [
     {
@@ -109,6 +122,14 @@ export const storeProductHttpManifest = {
         },
       },
       source: "packages/medusa-http/src/api/store/product-categories/middlewares.ts",
+    },
+    {
+      module: {
+        default: {
+          routes: storeRegionRoutesMiddlewares,
+        },
+      },
+      source: "packages/medusa-http/src/api/store/regions/middlewares.ts",
     },
   ],
 } satisfies StaticHttpResourceManifest

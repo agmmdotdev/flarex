@@ -43,7 +43,8 @@ describe("Store Product context read contracts (no database)", () => {
     expect(catalog.members).toHaveLength(6);
     expect(Object.values(catalog.sources).map(source => source.commands.map(command => commerceCommandIdentity(command))))
       .toEqual([
-        [{ name: "storeCountForCartContext", mode: "read" }], [{ name: "regionCountForCart", mode: "read" }],
+        [{ name: "storeCountForCartContext", mode: "read" }], [{ name: "regionCountForCart", mode: "read" },
+          { name: "regionListForStore", mode: "read" }, { name: "regionCountForStore", mode: "read" }],
         [{ name: "cartCountForCheckout", mode: "read" }], [{ name: "customerGroupsCountForStoreProduct", mode: "read" }],
         [{ name: "linkCount", mode: "read" }], [{ name: "taxGetItemTaxLines", mode: "read" }],
       ]);

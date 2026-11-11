@@ -6,11 +6,12 @@ const apiTarget = "packages/medusa-http/src/api/";
 const apiSource = "packages/medusa/src/api/";
 export const storeProductTypePaths = [
   "product/store/entitites.ts", "product/store/queries.ts", "product/store/responses.ts", "product/common.ts", "pricing/common.ts",
-  ...["collection", "product-category", "product-tag", "product-type"].flatMap(family =>
+  "payment/common.ts", "payment/admin/entities.ts",
+  ...["collection", "product-category", "product-tag", "product-type", "region"].flatMap(family =>
     ["common.ts", "store/entities.ts", "store/queries.ts", "store/responses.ts"].map(file => family + "/" + file)),
 ];
 export const storeProductSourcePairs = [
-  ...["collections", "product-tags", "product-types", "product-categories"].flatMap(family =>
+  ...["collections", "product-tags", "product-types", "product-categories", "regions"].flatMap(family =>
     ["route.ts", "[id]/route.ts", "middlewares.ts", "query-config.ts", "validators.ts", ...(family === "product-categories" ? ["helpers.ts"] : [])]
       .map(file => ({ target: `${apiTarget}store/${family}/${file}`, source: `${upstream}${apiSource}store/${family}/${file}`, classification: "selectedExportFacade" }))),
   ...["route.ts", "[id]/route.ts", "middlewares.ts", "helpers.ts", "query-config.ts", "validators.ts"].map(file => ({
@@ -53,7 +54,7 @@ function runtime(source) {
 function declarations(source, names) {
   const parsed = ts.createSourceFile("source.ts", source, ts.ScriptTarget.ESNext, true);
   return names.map(name => {
-    const matches = parsed.statements.filter(statement => ts.isFunctionDeclaration(statement) && statement.name?.text === name ||
+    const matches = parsed.statements.filter(statement => (ts.isFunctionDeclaration(statement) || ts.isInterfaceDeclaration(statement)) && statement.name?.text === name ||
       ts.isVariableStatement(statement) && statement.declarationList.declarations.length === 1 && statement.declarationList.declarations[0].name.getText(parsed) === name);
     if (matches.length !== 1) throw new Error("Missing pinned Store Product declaration: " + name);
     return matches[0].getText(parsed);
@@ -64,7 +65,10 @@ function declarations(source, names) {
  * broad barrels, so unselected Admin HTTP families are not promoted implicitly.
  * @param {string} native @param {string} target */
 function relocateStoreTypes(native, target) {
+  if (target.endsWith("/http/payment/common.ts")) return declarations(native, ["BasePaymentProvider"]);
+  if (target.endsWith("/http/payment/admin/entities.ts")) return 'import type { BasePaymentProvider } from "../common"\n' + declarations(native, ["AdminPaymentProvider"]);
   let expected = native.replaceAll("import {", "import type {");
+  if (target.endsWith("/http/region/common.ts")) expected = expected.replace('"../payment"', '"../payment/admin/entities"');
   if (target.endsWith("product/store/entitites.ts")) {
     for (const family of ["collection", "product-category", "product-tag", "product-type"])
       expected = expected.replace('"../../' + family + '"', '"../../' + family + '/store/entities"');
@@ -90,7 +94,12 @@ export function verifyStoreProductSource(native, promoted, target) {
     if (program(expected) !== program(promoted)) throw new Error(failure);
     return;
   }
-  if (/\/store\/(?:collections|product-tags|product-types|product-categories)\/route\.ts$/.test(target)) {
+  if (target.endsWith("/store/regions/route.ts") || target.endsWith("/store/regions/[id]/route.ts")) {
+    const relocated = 'import { ContainerRegistrationKeys } from "@medusajs/utils/common/container"\n'
+      + 'import { remoteQueryObjectFromString } from "@medusajs/utils/common/remote-query-object-from-string"'
+      + (target.endsWith("/[id]/route.ts") ? '\nimport { MedusaError } from "@medusajs/utils/common/errors"' : "");
+    expected = expected.replace(/import \{\s*ContainerRegistrationKeys,\s*(?:MedusaError,\s*)?remoteQueryObjectFromString,\s*\} from "@medusajs\/framework\/utils"/, relocated);
+  } else if (/\/store\/(?:collections|product-tags|product-types|product-categories)\/route\.ts$/.test(target)) {
     expected = expected.replace('from "@medusajs/framework/utils"', 'from "@medusajs/utils/common/container"');
   } else if (/\/store\/(?:collections|product-tags|product-types|product-categories)\/\[id\]\/route\.ts$/.test(target)) {
     expected = expected.replace('  ContainerRegistrationKeys,\n  MedusaError,\n} from "@medusajs/framework/utils"',

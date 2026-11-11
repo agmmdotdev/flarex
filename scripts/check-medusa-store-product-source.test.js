@@ -20,6 +20,10 @@ describe("selected native Store Product source provenance", () => {
     }
   });
   it.each([
+    ["store/regions/route.ts", "filters: req.filterableFields", "filters: {}"],
+    ["store/regions/route.ts", "count: metadata.count", "count: regions.length"],
+    ["store/regions/[id]/route.ts", "MedusaError.Types.NOT_FOUND", "MedusaError.Types.INVALID_DATA"],
+    ["store/regions/query-config.ts", '"*countries"', '"countries.iso_2"'],
     ["store/collections/route.ts", "filters: req.filterableFields", "filters: {}"],
     ["store/collections/route.ts", "locale: req.locale", "locale: undefined"],
     ["store/collections/[id]/route.ts", "MedusaError.Types.NOT_FOUND", "MedusaError.Types.INVALID_DATA"],

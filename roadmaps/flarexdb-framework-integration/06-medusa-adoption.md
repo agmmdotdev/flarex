@@ -62,6 +62,26 @@ count before pagination.
   200 in this pin. Missing Collection,
   Tag and Type details return 404.
 
+#### Store Regions and Countries
+
+`GET /store/regions` and `GET /store/regions/:id` use the pinned callable Remote
+Query on the existing private Store host. Both default to the Region scalars
+and `countries.*`. The list validator supplies a limit of 50 before the query
+configuration applies its fallback of 20. The response count covers all
+matching Regions before pagination. With default or ascending ID order, the
+native repository applies an explicit ID filter's order within the selected
+page. A missing Region detail returns 404.
+
+The Region read host binds the Store commands alongside the Cart command. A
+Store read selects Regions and populates their live, assigned Countries in one
+protected operation. Country identity is `iso_2`; the private projection maps
+the HTTP field `countries.id` to that key. Store clients use the Region
+endpoints for this relation. Scalar or array filters on `id`, `name` and
+`currency_code`, bounded `$and` and `$or`, and free-text search across Region
+name and currency code are supported. The Store page limit is 256. The Cart
+context retains its separate eight-Region bound. Deeper Country traversal and
+payment-provider expansion are outside this Store profile.
+
 #### Product HTTP promotion completion goal
 
 The in-scope pinned Product HTTP family runs on the existing private

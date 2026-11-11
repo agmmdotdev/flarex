@@ -1,22 +1,16 @@
 import { Effect, Result, Schema } from "effect";
 import { preservePrimaryKeyOrFilterOrder } from "@medusajs/drizzle/relation-query";
-import type { DAL } from "@medusajs/framework/types";
 import type { CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
-import { commerceError, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import type { CommercePromiseOwner } from "../../module/promise-owner";
-import { prepareScalarRepository } from "../../repository/scalar";
-import { deniedCommerceRepository } from "../../repository/denied";
-import { projectNativeRow } from "../../repository/result";
-import { makeReadCatalog } from "../../query/catalog";
-import { executeRead, type ReadPlan } from "../../query/read";
+import { type ReadPlan } from "../../query/read";
 import { QueryEnvelope, QueryLimit, QueryOffset } from "../../query/decoder";
 import { compileWhere, type WherePolicy } from "../../query/predicate";
 import { compileProjection, type ProjectionPolicy } from "../../query/projection";
 import { commerceDecoder } from "../../value/decoder";
-import { captureCommerceInput } from "../../value/input";
-import { compileRegionCartReadContracts, RegionCartFilters, RegionCartId, regionCartCountryLimit } from "./cart-read-input";
+import { RegionCartFilters, RegionCartId } from "./cart-read-input";
 import { regionReadLimit } from "./input";
 import type { captureRegionMetadata } from "./schema";
+import { prepareRegionCountryReadRepository } from "./country-read-repository";
 
 const decodeEnvelope = commerceDecoder(QueryEnvelope, "unsupportedProfile"), decodeFilters = commerceDecoder(RegionCartFilters, "unsupportedProfile");
 const where: WherePolicy = { decode: decodeFilters, fields: new Map([["id", { column: "id", decode: commerceDecoder(Schema.Union([Schema.Null, RegionCartId,
@@ -30,10 +24,7 @@ const decodeOptions = commerceDecoder(Schema.Struct({ fields: Schema.optionalKey
 
 export function prepareRegionCartReadRepository(metadata: Effect.Success<ReturnType<typeof captureRegionMetadata>>["frame"]) {
   return Result.gen(function* () {
-    const contracts = yield* compileRegionCartReadContracts(metadata), scalar = yield* prepareScalarRepository(contracts.table, "Region", where);
-    const catalog = yield* makeReadCatalog([contracts.table, contracts.country].map(table => ({ name: table.name,
-      columns: table.columns.map(column => column.name), primaryKeys: table.columns.filter(column => column.primaryKey).map(column => column.name),
-      foreignKeys: table.foreignKeys.flatMap(key => key.columns), companions: {} })), contracts.relations);
+    const prepared = yield* prepareRegionCountryReadRepository(metadata, where), { contracts, catalog } = prepared;
     const leaf: ProjectionPolicy = { keys: "retain", storageKeys: "last", joinKeys: "storage", allowWildcard: true, selectableRelations: [], nested: new Map() };
     const query = (input: unknown) => Result.gen(function* () {
       const envelope = yield* decodeEnvelope(input), filters = yield* decodeFilters(envelope.where ?? {}), options = yield* decodeOptions(envelope.options ?? {}), paths = options.populate ?? [];
@@ -48,27 +39,8 @@ export function prepareRegionCartReadRepository(metadata: Effect.Success<ReturnT
       };
       return { ...plan, window: plan.window, filters };
     });
-    const bind = (root: CommerceCommandContext, owner: CommercePromiseOwner) => {
-      const bound = scalar.bind(root, owner), { bridge } = bound, denied = deniedCommerceRepository(bound.repository, bound.refuse);
-      const find = Effect.fn("RegionCartRead.find")(function* (ctx: CommerceCommandContext, input: unknown, count: boolean) {
-        const plan = yield* Effect.fromResult(captureCommerceInput(input, ctx.resources).pipe(Result.flatMap(query)));
-        return yield* executeRead({ manager: ctx.manager, table: ctx.table, resources: ctx.resources,
-          admitSelection: (table, rows) => Result.gen(function* () {
-            if (table !== contracts.table.name && table !== contracts.country.name) return yield* Result.fail(commerceError("unsupportedProfile"));
-            if (rows.length > (table === contracts.table.name ? regionReadLimit : regionCartCountryLimit)) return yield* Result.fail(commerceError("limitExceeded"));
-            for (const row of rows) yield* (table === contracts.table.name ? contracts.decodeRow : contracts.decodeCountry)(projectNativeRow(row));
-          }) }, catalog, plan, count);
-      });
-      const repository: DAL.RepositoryService = { ...denied, serialize: bound.repository.serialize,
-        find: (input, shared) => bridge.executeInput(shared, input, (ctx, captured) => bridge.checked(ctx, find(ctx, captured, false)).pipe(Effect.map(value => structuredClone(value.rows)))),
-        findAndCount: (input, shared) => bridge.executeInput(shared, input, (ctx, captured) => bridge.checked(ctx, Effect.gen(function* () {
-          const result = yield* find(ctx, captured, true);
-          if (result.count === undefined) return yield* ctx.refuse(commerceError("storedCorruption"));
-          return [structuredClone(result.rows), result.count] satisfies [JsonObject[], number];
-        }))),
-      };
-      return { ...bound, repository, denied };
-    };
+    const bind = (root: CommerceCommandContext, owner: CommercePromiseOwner) =>
+      prepared.bind(root, owner, { query, regionLimit: regionReadLimit });
     return { bind, contracts, catalog, table: yield* catalog.table(contracts.table.name), query };
   });
 }

@@ -70,6 +70,7 @@ const decodeOptions = commerceDecoder(Schema.Struct({
   throwIfKeyNotFound: Schema.optionalKey(Schema.Boolean),
 }), "unsupportedProfile");
 const decodeEntity = commerceDecoder(Schema.StructWithRest(Schema.Struct({ entity: Schema.String }), [Schema.Record(Schema.String, Schema.Json)]), "unsupportedProfile");
+const decodeRemoteEntity = commerceDecoder(Schema.Struct({ __value: Schema.Record(Schema.Literals(["region", "currency"]), Schema.optionalKey(Schema.JsonObject)) }), "unsupportedProfile");
 
 /** Each native remote service read keeps its independent protected operation.
  * Seventeen bounded read hosts belong to the live Core generation, not requests. */
@@ -144,7 +145,12 @@ export const makeStoreProductRequestReads = Effect.fn("StoreProductRequest.makeR
     return yield* commerceError("adapterFailure", new MedusaError(MedusaError.Types.INVALID_DATA,
       "Index Engine queries are outside the private Store Product profile"));
   });
-  return Object.freeze({ query: Object.freeze({ graph, index }), remoteQuery: auth.remoteQuery, tax: contexts.tax,
+  const remoteQuery = Effect.fn("StoreProductRequest.remoteQuery")(function* (value: unknown) {
+    const captured = yield* Effect.fromResult(captureCommerceInput(value));
+    const envelope = yield* Effect.fromResult(decodeRemoteEntity(captured));
+    return envelope.__value.region === undefined ? yield* auth.remoteQuery(captured) : yield* contexts.remoteQuery(captured);
+  });
+  return Object.freeze({ query: Object.freeze({ graph, index }), remoteQuery, tax: contexts.tax,
     admitProductFields: (fields: readonly string[]) => prepared.graph.admitProjection("product", fields),
     close: Effect.forEach(closures, close => close, { discard: true }).pipe(Effect.andThen(contexts.close), Effect.andThen(auth.close)) });
 });
