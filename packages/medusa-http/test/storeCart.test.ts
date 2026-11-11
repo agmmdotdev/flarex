@@ -7,8 +7,8 @@ import { createStoreCartHttpHandler } from "../src/store-cart"
 const customer = { actor_id: "cus_verified", actor_type: "customer", auth_identity_id: "auth_verified", app_metadata: {}, user_metadata: {} }
 const cart = { id: "cart_native", currency_code: "usd", total: 12, items: [{ id: "item_native", quantity: 1 }] }
 const headers = { "x-publishable-api-key": "pk_cart", origin: "https://store.example" }
-function request(path = "", body?: unknown, extra: Record<string, string> = {}) {
-  return new Request(`https://private.test/store/carts${path}`, { method: body === undefined ? "GET" : "POST",
+function request(path = "", body?: unknown, extra: Record<string, string> = {}, method = body === undefined ? "GET" : "POST") {
+  return new Request(`https://private.test/store/carts${path}`, { method,
     headers: { ...headers, ...extra, ...(body === undefined ? {} : { "content-type": "application/json" }) },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }) })
 }
@@ -29,7 +29,7 @@ function fixture(options: { channels?: string[]; invalid?: boolean; revoked?: bo
 }
 afterEach(() => { FeatureFlag.setFlag("translation", false) })
 
-describe("selected native Store Cart creation and retrieval HTTP", () => {
+describe("selected native Store Cart HTTP", () => {
   it("creates with the native key-selected channel, genuine workflow ABI and post-settlement callable refetch", async () => {
     const f = fixture()
     const response = await f.handler.handle(request("?fields=id,total,items.quantity", { items: [{ variant_id: "variant_native", quantity: 1 }], additional_data: { trace: "create" } }))
@@ -117,13 +117,104 @@ describe("selected native Store Cart creation and retrieval HTTP", () => {
     expect(translated.run).not.toHaveBeenCalled()
   })
 
+  it("updates the Cart through the exact native workflow ABI without adding creation-only channel or customer policy", async () => {
+    const f = fixture({ verified: true, channels: ["sc_cart"] })
+    const input = { email: "native@example.com", sales_channel_id: "sc_other", metadata: null,
+      billing_address: { id: "addr_native", first_name: "Native" }, additional_data: { trace: "update" } }
+    // The native AddressPayload.merge uses the right-hand object's strip policy.
+    const response = await f.handler.handle(request(`/${cart.id}?fields=id,total`,
+      { ...input, billing_address: { ...input.billing_address, unselected: true } }))
+    expect(response.status, await response.clone().text()).toBe(200)
+    expect(await response.json()).toEqual({ cart })
+    expect(f.run).toHaveBeenCalledExactlyOnceWith("update-cart", { input: { ...input, id: cart.id } })
+    expect(f.remoteQuery).toHaveBeenCalledExactlyOnceWith({ __value: { cart: { fields: ["id", "total"], isServiceAccess: false,
+      __args: { filters: { id: cart.id } } } } })
+    expect(f.admit).toHaveBeenCalledExactlyOnceWith(["id", "total"])
+    expect(f.admit.mock.invocationCallOrder[0]).toBeLessThan(f.run.mock.invocationCallOrder[0]!)
+    expect(f.run.mock.invocationCallOrder[0]).toBeLessThan(f.remoteQuery.mock.invocationCallOrder[0]!)
+  })
+
+  it("adds and updates line items with native metadata and quantity-zero semantics", async () => {
+    const added = fixture()
+    const addResponse = await added.handler.handle(request(`/${cart.id}/line-items?fields=id`,
+      { variant_id: "variant_native", quantity: 1, metadata: null }))
+    expect(addResponse.status, await addResponse.clone().text()).toBe(200)
+    expect(await addResponse.json()).toEqual({ cart })
+    expect(added.run).toHaveBeenCalledExactlyOnceWith("add-to-cart", { input: { cart_id: cart.id,
+      items: [{ variant_id: "variant_native", quantity: 1, metadata: null }], additional_data: undefined } })
+    const updated = fixture()
+    const updateResponse = await updated.handler.handle(request(`/${cart.id}/line-items/item_native?fields=id`,
+      { quantity: 0, metadata: null }))
+    expect(updateResponse.status, await updateResponse.clone().text()).toBe(200)
+    expect(updated.run).toHaveBeenCalledExactlyOnceWith("update-line-item-in-cart", { input: { cart_id: cart.id,
+      item_id: "item_native", update: { quantity: 0, metadata: null }, additional_data: undefined } })
+    for (const current of [added, updated]) {
+      expect(current.admit).toHaveBeenCalledExactlyOnceWith(["id"])
+      expect(current.admit.mock.invocationCallOrder[0]).toBeLessThan(current.run.mock.invocationCallOrder[0]!)
+      expect(current.remoteQuery).toHaveBeenCalledTimes(1)
+    }
+  })
+
+  it("deletes through the native ID-only workflow and preserves its parent response envelope", async () => {
+    const f = fixture()
+    const response = await f.handler.handle(request(`/${cart.id}/line-items/item_from_another_cart?fields=id`, undefined, {}, "DELETE"))
+    expect(response.status, await response.clone().text()).toBe(200)
+    expect(await response.json()).toEqual({ id: "item_from_another_cart", object: "line-item", deleted: true, parent: cart })
+    expect(f.run).toHaveBeenCalledExactlyOnceWith("delete-line-items", { input: { cart_id: cart.id, ids: ["item_from_another_cart"] } })
+    expect(f.admit).toHaveBeenCalledExactlyOnceWith(["id"])
+    expect(f.admit.mock.invocationCallOrder[0]).toBeLessThan(f.run.mock.invocationCallOrder[0]!)
+    expect(response.headers.get("access-control-allow-origin")).toBe("https://store.example")
+  })
+
+  it("refuses unsupported projections before every newly selected native mutation", async () => {
+    for (const [path, body, method] of [[`/${cart.id}`, {}, "POST"],
+      [`/${cart.id}/line-items`, { variant_id: "variant_native", quantity: 1 }, "POST"],
+      [`/${cart.id}/line-items/item_native`, { quantity: 0 }, "POST"],
+      [`/${cart.id}/line-items/item_native`, undefined, "DELETE"]] as const) {
+      const f = fixture({ refuseFields: true })
+      const response = await f.handler.handle(request(path + "?fields=id,unsupported.path", body, {}, method))
+      expect(response.status).toBe(400)
+      expect(f.run).not.toHaveBeenCalled()
+      expect(f.remoteQuery).not.toHaveBeenCalled()
+      expect(f.admit).toHaveBeenCalledExactlyOnceWith(["id", "unsupported.path"])
+    }
+  })
+
+  it("retains native mutation validation and the publishable-key gate", async () => {
+    for (const [path, body] of [[`/${cart.id}`, { customer_id: "cus_untrusted" }],
+      [`/${cart.id}`, { currency_code: "eur" }],
+      [`/${cart.id}/line-items`, { variant_id: "v", quantity: 0 }],
+      [`/${cart.id}/line-items`, { variant_id: "v", quantity: 1, additional_data: { unselected: true } }],
+      [`/${cart.id}/line-items/item_native`, { quantity: -1 }], [`/${cart.id}/line-items/item_native`, {}]] as const) {
+      const f = fixture()
+      expect((await f.handler.handle(request(path, body))).status, `${path} ${JSON.stringify(body)}`).toBe(400)
+      expect(f.run).not.toHaveBeenCalled()
+      expect(f.admit).not.toHaveBeenCalled()
+    }
+    for (const [path, body, method] of [[`/${cart.id}`, {}, "POST"],
+      [`/${cart.id}/line-items`, { variant_id: "v", quantity: 1 }, "POST"],
+      [`/${cart.id}/line-items/item_native`, { quantity: 0 }, "POST"],
+      [`/${cart.id}/line-items/item_native`, undefined, "DELETE"]] as const) {
+      const f = fixture({ revoked: true })
+      expect((await f.handler.handle(request(path, body, {}, method))).status).toBe(400)
+      expect(f.run).not.toHaveBeenCalled()
+      expect(f.admit).not.toHaveBeenCalled()
+    }
+  })
+
   it("handles native Store preflight and leaves other Cart methods unselected", async () => {
     const f = fixture()
     const preflight = await f.handler.handle(new Request("https://private.test/store/carts", { method: "OPTIONS", headers: { origin: "https://store.example", "access-control-request-method": "POST" } }))
     expect(preflight.status).toBe(204)
     expect(preflight.headers.get("access-control-allow-methods")).toContain("POST")
+    const deletePreflight = await f.handler.handle(new Request(`https://private.test/store/carts/${cart.id}/line-items/item_native`,
+      { method: "OPTIONS", headers: { origin: "https://store.example", "access-control-request-method": "DELETE" } }))
+    expect(deletePreflight.status).toBe(204)
+    expect(deletePreflight.headers.get("access-control-allow-methods")).toContain("DELETE")
     expect((await f.handler.handle(request())).status).toBe(404)
-    expect((await f.handler.handle(request("/cart_native", {}))).status).toBe(404)
+    expect((await f.handler.handle(request("/cart_native", {}, {}, "PATCH"))).status).toBe(404)
+    expect((await f.handler.handle(request("/cart_native/promotions", {}))).status).toBe(404)
+    expect((await f.handler.handle(request("/cart_native/customer", {}))).status).toBe(404)
     expect(f.graph).not.toHaveBeenCalled()
     expect(f.run).not.toHaveBeenCalled()
   })

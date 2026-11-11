@@ -10,13 +10,14 @@ import { compileStoreCartRequestFixtureCatalog } from "./store-cart-request-cata
 
 export async function prepareStoreCartRequestFixture(driver: "pglite" | "postgres", options: Readonly<{
   target?: Readonly<{ scopeUuid: string; epochUuid: string }>; physical?: CorePersistenceFixture;
+  additionalRows?: Parameters<typeof compileStoreCartRequestFixtureCatalog>[1];
 }> = {}) {
-  const { catalog, rows, target } = await Effect.runPromise(compileStoreCartRequestFixtureCatalog(options.target));
+  const { catalog, rows, target } = await Effect.runPromise(compileStoreCartRequestFixtureCatalog(options.target, options.additionalRows));
   const fixture = await createCoreNativeWorkflowFixture(driver, { sources: catalog.sources.map(source => ({ name: source.name,
     definition: source.definition, initialCommands: source.commands, initializationStepId: source.initialization.stepId, rows: rows[source.name] ?? [] })),
     eventDefinition: catalog.eventDefinition, ...(options.physical === undefined ? {} : { physical: options.physical }) });
   const use = <A, E>(work: (runtime: StoreCartRequestRuntime) => Effect.Effect<A, E, Scope.Scope>,
-    configuration: Pick<Parameters<typeof makeStoreCartRequestRuntime>[0], "hooks"> = {}) => fixture.run(Effect.scoped(
+    configuration: Pick<Parameters<typeof makeStoreCartRequestRuntime>[0], "hooks" | "mutationHooks"> = {}) => fixture.run(Effect.scoped(
     fixture.useGeneration(generation => Effect.gen(function* () {
       const hostRuntime = yield* makePreparedHostRuntime({ maximumHosts: 32, maximumPreparedBytes: 8 * 1024 * 1024 });
       const runtime = yield* makeStoreCartRequestRuntime({ ...configuration, database: generation.database, hostRuntime, catalog,

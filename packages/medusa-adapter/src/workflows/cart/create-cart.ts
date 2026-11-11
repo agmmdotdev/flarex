@@ -34,9 +34,8 @@ type Logger = Effect.Success<ReturnType<typeof makePaymentLifecycleCommands>>["l
 type Links = Effect.Success<ReturnType<typeof prepareCartPromotionPreimageLinks>>["resource"];
 export interface CartCreationHooks { readonly cartCreated?: (input: Result.Result.Success<ReturnType<typeof decodeHook>>) => unknown | Promise<unknown> }
 
-export function prepareCartCreationResources(modules: CartCreationModules,
-  inventory: Effect.Success<ReturnType<typeof prepareCartCreationModules>>["inventory"], link: Links, logger: Logger) {
-  return prepareWorkflowResources({
+export function cartCreationResourceSelections(modules: CartCreationModules) {
+  return {
     cart: { module: modules.cart.module, methods: ["createCartsWithOwnership", "compensateCartsCreation", "listCarts", "listLineItemTaxLines", "listShippingMethodTaxLines",
       "setLineItemTaxLines", "setShippingMethodTaxLines", "addLineItemAdjustments", "softDeleteLineItemAdjustments", "restoreLineItemAdjustments",
       "addShippingMethodAdjustments", "softDeleteShippingMethodAdjustments", "restoreShippingMethodAdjustments"], graph: true },
@@ -57,7 +56,12 @@ export function prepareCartCreationResources(modules: CartCreationModules,
     sales_channel_locations: { module: modules.sales_channel_locations.module, methods: [], graph: true, expose: false },
     cart_promotion_links: { module: modules.cart_promotion_links.module, methods: ["applyPreimageOperation", "compensatePreimageOperation"], graph: true, expose: false },
     cart_payment_collection_links: { module: modules.cart_payment_collection_links.module, methods: [], graph: true, expose: false },
-  }, true, { inventory, link, logger }, { absent: ["caching"] });
+  } as const;
+}
+
+export function prepareCartCreationResources(modules: CartCreationModules,
+  inventory: Effect.Success<ReturnType<typeof prepareCartCreationModules>>["inventory"], link: Links, logger: Logger) {
+  return prepareWorkflowResources(cartCreationResourceSelections(modules), true, { inventory, link, logger }, { absent: ["caching"] });
 }
 
 /** The genuine native root runs as one child of the trusted atomic owner. Its

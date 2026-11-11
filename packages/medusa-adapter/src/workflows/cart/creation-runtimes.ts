@@ -38,7 +38,7 @@ import { compileCartPromotionCreationLinkCoreDefinition } from "../../links/cart
 import { compileCartPaymentCollectionLinkCoreDefinition } from "../../links/cart-payment-collection-schema";
 
 /** Genuine native Cart module construction shared by hosts and fixtures. */
-export const makeCartCreationRuntimes = Effect.fn("CartCreation.makeRuntimes")(function* (logger: Logger) {
+export const makeCartCreationRuntimes = Effect.fn("CartCreation.makeRuntimes")(function* (logger: Logger, pricingProfile: "cart-creation" | "cart-mutations" = "cart-creation") {
   const payment = yield* makePaymentLifecycleCommands(logger);
   const sales = yield* makeLocalSalesChannelCommands();
   const promotionLinks = yield* prepareCartPromotionPreimageLinks();
@@ -50,7 +50,7 @@ export const makeCartCreationRuntimes = Effect.fn("CartCreation.makeRuntimes")(f
     promotion: (yield* makePromotionComputeCommands()).workflow,
     tax: (yield* makeTaxLinesCommands(logger)).workflow, payment: payment.workflow,
     product: (yield* makeLocalProductCommands()).workflow,
-    pricing: (yield* makeLocalPricingCommands("cart-creation")).workflow,
+    pricing: (yield* makeLocalPricingCommands(pricingProfile)).workflow,
     inventory: (yield* makeLocalInventoryCommands("variant-price-calculation")).workflow,
     stock_location: (yield* makeStockLocationCommands()).workflow,
     sales_channel: sales.workflow, fulfillment: (yield* makeFulfillmentCheckoutReadCommands()).workflow,

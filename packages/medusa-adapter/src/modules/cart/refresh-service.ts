@@ -23,12 +23,21 @@ import { cartCreationPolicy, captureCartCreationEvent } from "./creation-receipt
 import { cartPaymentReadPolicy } from "./payment-receipt";
 import { CartRootCreates, CartCreationReceipt, decodeCartRootCreates, decodeCartCreationReceipt, decodeCartCreationResult, decodeCartCreationCompensation } from "./creation-input";
 import { prepareCartCreationRefreshRepository } from "./refresh-repository";
+import { prepareCartMutationRepository } from "./mutation-repository";
+import { cartMutationPolicy, captureCartMutationEvent } from "./mutation-receipt";
+import { CartMutationUpdates, CartMutationAddressUpdates, CartMutationLineCreates, CartMutationLineEntries, CartMutationLineFilters,
+  CartMutationLinePatch, CartMutationIds, CartMutationRead, decodeCartMutationUpdates, decodeCartMutationAddressUpdates,
+  decodeCartMutationLineCreates, decodeCartMutationLineUpdate, decodeCartMutationRead, decodeCartMutationIds,
+  CartMutationTaxLines, decodeCartMutationTaxLines } from "./mutation-input";
 import { cartCreationRefreshPolicy, captureCartCreationRefreshEvent } from "./refresh-receipt";
 import { CartItemTaxRead, CartShippingTaxRead, CartItemTaxLines, CartEmptyShippingTaxLines, CartItemAdjustments, CartRefreshIds, CartEmptyShippingAdjustments,
   decodeCartItemTaxRead, decodeCartShippingTaxRead, decodeCartSetItemTaxInput, decodeCartSetShippingTaxInput,
   decodeCartItemAdjustments, decodeCartRefreshIds, decodeCartEmptyShippingAdjustments } from "./refresh-input";
 
 type Native = ICartCreationOwnershipService & Pick<ICartModuleService, "listCarts" | "listAndCountCarts" |
+  "updateCarts" | "listAddresses" | "updateAddresses" | "listLineItems" | "addLineItems" | "updateLineItems" |
+  "deleteLineItems" | "softDeleteLineItems" | "restoreLineItems" |
+  "upsertLineItemTaxLines" | "upsertShippingMethodTaxLines" |
   "listLineItemTaxLines" | "listShippingMethodTaxLines" | "setLineItemTaxLines" | "setShippingMethodTaxLines" |
   "addLineItemAdjustments" | "softDeleteLineItemAdjustments" | "restoreLineItemAdjustments" |
   "addShippingMethodAdjustments" | "softDeleteShippingMethodAdjustments" | "restoreShippingMethodAdjustments"> &
@@ -44,6 +53,19 @@ const adjustmentArguments = commerceDecoder(Schema.Tuple([CartItemAdjustments]),
 const lifecycleArguments = commerceDecoder(Schema.Tuple([CartRefreshIds]), "invalidInput");
 const emptyShippingArguments = commerceDecoder(Schema.Tuple([CartEmptyShippingAdjustments]), "invalidInput");
 const lifecycleOutput = commerceDecoder(Schema.JsonObject, "storedCorruption");
+const voidOutput = commerceDecoder(Schema.Null, "storedCorruption");
+const lineOutput = commerceDecoder(Schema.Union([Schema.JsonObject, Schema.Array(Schema.JsonObject).check(Schema.isMaxLength(4))]), "storedCorruption");
+const updateArguments = commerceDecoder(Schema.Tuple([CartMutationUpdates]), "invalidInput");
+const addressUpdateArguments = commerceDecoder(Schema.Tuple([CartMutationAddressUpdates]), "invalidInput");
+const mutationReadArguments = commerceDecoder(Schema.Union([
+  Schema.Tuple([CartMutationRead.fields.filters]), Schema.Tuple([CartMutationRead.fields.filters, CartMutationRead.fields.config.schema]),
+]), "invalidInput");
+const lineCreateArguments = commerceDecoder(Schema.Tuple([CartMutationLineCreates]), "invalidInput");
+const lineUpdateArguments = commerceDecoder(Schema.Union([Schema.Tuple([CartMutationLineEntries]),
+  Schema.Tuple([Schema.Union([ScalarId, CartMutationLineFilters]), CartMutationLinePatch])]), "invalidInput");
+const lineIdsArguments = commerceDecoder(Schema.Tuple([CartMutationIds]), "invalidInput");
+const upsertTaxArguments = commerceDecoder(Schema.Tuple([CartMutationTaxLines]), "invalidInput");
+const upsertShippingTaxArguments = commerceDecoder(Schema.Tuple([CartEmptyShippingTaxLines]), "invalidInput");
 
 /** A distinct complete-creation profile on the same genuine twelve-model Cart
  * owner. The standalone creation and nine-model checkout profiles remain
@@ -52,7 +74,7 @@ export const makeCartCreationWorkflowCommands = Effect.fn("CartCreation.workflow
   const metadata = yield* captureCartCreationMetadata();
   return yield* Effect.fromResult(Result.gen(function* () {
     const read = yield* prepareCartPaymentRead(metadata.frame, "creation", "nativeOrm"), creation = yield* prepareCartCreationRepository(metadata.frame, read, "workflow"),
-      prepared = yield* prepareCartCreationRefreshRepository(creation);
+      prepared = yield* prepareCartMutationRepository(yield* prepareCartCreationRefreshRepository(creation));
     const module = yield* defineCartCreationPersistenceModule({ name: "flarex-cart-creation-workflow", profile: "cart.creation-workflow",
       bind: (ctx, owner) => {
         const bound = prepared.bind(ctx, owner), eventBus = commerceModuleEventBus({ owner, resources: ctx.resources,
@@ -68,6 +90,10 @@ export const makeCartCreationWorkflowCommands = Effect.fn("CartCreation.workflow
       }, service: (native, owner) => {
         const service: Native = { createCartsWithOwnership: native.createCartsWithOwnership.bind(native), compensateCartsCreation: native.compensateCartsCreation.bind(native),
           listCarts: native.listCarts.bind(native), listAndCountCarts: native.listAndCountCarts.bind(native),
+          updateCarts: native.updateCarts.bind(native), listAddresses: native.listAddresses.bind(native), updateAddresses: native.updateAddresses.bind(native),
+          listLineItems: native.listLineItems.bind(native), addLineItems: native.addLineItems.bind(native), updateLineItems: native.updateLineItems.bind(native),
+          deleteLineItems: native.deleteLineItems.bind(native), softDeleteLineItems: native.softDeleteLineItems.bind(native), restoreLineItems: native.restoreLineItems.bind(native),
+          upsertLineItemTaxLines: native.upsertLineItemTaxLines.bind(native), upsertShippingMethodTaxLines: native.upsertShippingMethodTaxLines.bind(native),
           listAndCountLineItems: native.listAndCountLineItems.bind(native), listAndCountShippingMethods: native.listAndCountShippingMethods.bind(native),
           listLineItemTaxLines: native.listLineItemTaxLines.bind(native), listShippingMethodTaxLines: native.listShippingMethodTaxLines.bind(native),
           setLineItemTaxLines: native.setLineItemTaxLines.bind(native), setShippingMethodTaxLines: native.setShippingMethodTaxLines.bind(native),
@@ -86,7 +112,7 @@ export const makeCartCreationWorkflowCommands = Effect.fn("CartCreation.workflow
       service.capture(await service.listAndCountCarts(input.filters, input.config ?? {}, context)));
     const list = commands.read("cartListForCheckout", prepare(decodeCartPaymentRead), async ({ service, context }, input) =>
       service.capture(await service.listCarts(input.filters, input.config ?? {}, context)));
-    const countLines = commands.read("cartLineItemsCountForCheckout", prepare(decodeCartPaymentRead), async ({ service, context }, input) =>
+    const countLines = commands.read("cartLineItemsCountForCheckout", prepare(decodeCartMutationRead), async ({ service, context }, input) =>
       service.capture(await service.listAndCountLineItems(input.filters, input.config ?? {}, context)));
     const countShipping = commands.read("cartShippingMethodsCountForCreation", prepare(decodeCartPaymentRead), async ({ service, context }, input) =>
       service.capture(await service.listAndCountShippingMethods(input.filters, input.config ?? {}, context)));
@@ -110,6 +136,32 @@ export const makeCartCreationWorkflowCommands = Effect.fn("CartCreation.workflow
       service.capture(await service.softDeleteShippingMethodAdjustments(input, {}, context)));
     const restoreShippingAdjustments = commands.write("cartRestoreEmptyShippingAdjustmentsForCreation", prepare(decodeCartEmptyShippingAdjustments), async ({ service, context }, input) =>
       service.capture(await service.restoreShippingMethodAdjustments(input, {}, context)));
+    const update = commands.write("cartUpdateForMutations", prepare(decodeCartMutationUpdates), async ({ service, context }, input) =>
+      service.capture(await Reflect.apply(service.updateCarts, service, [input, undefined, context])));
+    const listAddressesCommand = commands.read("cartAddressesForMutations", prepare(decodeCartMutationRead), async ({ service, context }, input) =>
+      service.capture(await service.listAddresses(input.filters, input.config ?? {}, context)));
+    const updateAddressesCommand = commands.write("cartUpdateAddressesForMutations", prepare(decodeCartMutationAddressUpdates), async ({ service, context }, input) =>
+      service.capture(await Reflect.apply(service.updateAddresses, service, [input, context])));
+    const listLines = commands.read("cartListLinesForMutations", prepare(decodeCartMutationRead), async ({ service, context }, input) =>
+      service.capture(await service.listLineItems(input.filters, input.config ?? {}, context)));
+    const addLines = commands.write("cartAddLinesForMutations", prepare(decodeCartMutationLineCreates), async ({ service, context }, input) =>
+      service.capture(await Reflect.apply(service.addLineItems, service, [input, undefined, context])));
+    const updateLines = commands.write("cartUpdateLinesForMutations", prepare(decodeCartMutationLineUpdate), async ({ service, context }, input) =>
+      service.capture(await Reflect.apply(service.updateLineItems, service, [input.target, input.data, context])));
+    const deleteLines = commands.write("cartDeleteLinesForMutations", prepare(decodeCartMutationIds), async ({ service, context }, input) => {
+      await service.deleteLineItems(input, context);
+      return null;
+    });
+    const softDeleteLines = commands.write("cartSoftDeleteLinesForMutations", prepare(decodeCartMutationIds), async ({ service, context }, input) =>
+      service.capture(await service.softDeleteLineItems(input, {}, context)));
+    const restoreLines = commands.write("cartRestoreLinesForMutations", prepare(decodeCartMutationIds), async ({ service, context }, input) =>
+      service.capture(await service.restoreLineItems(input, {}, context)));
+    const upsertItemTax = commands.write("cartUpsertItemTaxForMutations", prepare(decodeCartMutationTaxLines), async ({ service, context }, input) =>
+      service.capture(await Reflect.apply(service.upsertLineItemTaxLines, service, [input, context])));
+    const upsertShippingTax = commands.write("cartUpsertEmptyShippingTaxForMutations", prepare(commerceDecoder(CartEmptyShippingTaxLines, "invalidInput")), async ({ service, context }, input) =>
+      service.capture(await service.upsertShippingMethodTaxLines(input, context)));
+    const mutationCommands = [countLines, update, listAddressesCommand, updateAddressesCommand, listLines, addLines, updateLines, deleteLines, softDeleteLines, restoreLines, upsertItemTax, upsertShippingTax];
+    const mutationPolicy = cartMutationPolicy(prepared);
     const creationPolicy = cartCreationPolicy(creation, decodeCartRootCreates), readPolicy = cartPaymentReadPolicy(read, "completion"), refreshPolicy = cartCreationRefreshPolicy(prepared);
     const decodeEvent = moduleEventDecoder(Schema.Struct({ name: Schema.String,
       metadata: Schema.Struct({ source: Schema.Literal(Modules.CART), object: Schema.String, action: Schema.String }),
@@ -117,11 +169,13 @@ export const makeCartCreationWorkflowCommands = Effect.fn("CartCreation.workflow
     const capture = Effect.fn("CartCreationWorkflow.captureEvent")(function* (input: unknown) {
       const envelope = yield* decodeEvent(input);
       return yield* (["line_item_tax_line", "shipping_method_tax_line", "line_item_adjustment"].includes(envelope.metadata.object)
-        ? captureCartCreationRefreshEvent(envelope) : captureCartCreationEvent(envelope));
+        ? captureCartCreationRefreshEvent(envelope) : envelope.metadata.object.startsWith("cart_creation_")
+          ? captureCartCreationEvent(envelope) : captureCartMutationEvent(envelope));
     });
     const validateLogicalCall: typeof creationPolicy.validateLogicalCall = Effect.fn("CartCreationWorkflow.routeCall")(function* (call, activity) {
       return yield* (call.commandName === "cartCreateWithOwnership" || call.commandName === "cartCompensateCreation" ? creationPolicy :
-        ["cartListForCheckout", "cartCountForCheckout", "cartLineItemsCountForCheckout", "cartShippingMethodsCountForCreation"].includes(call.commandName) ? readPolicy : refreshPolicy).validateLogicalCall(call, activity);
+        ["cartListForCheckout", "cartCountForCheckout", "cartShippingMethodsCountForCreation"].includes(call.commandName) ? readPolicy :
+          call.commandName === "cartLineItemsCountForCheckout" || call.commandName.endsWith("ForMutations") ? mutationPolicy : refreshPolicy).validateLogicalCall(call, activity);
     });
     const eventName = (objectName: string, action: "created" | "deleted" | "updated" | "restored") => buildModuleResourceEventName({ prefix: Modules.CART, objectName, action });
     const createCartsWithOwnership = yield* defineWorkflowMethod({ command: create, arguments: createArguments, encode: ([input]) => input,
@@ -129,6 +183,29 @@ export const makeCartCreationWorkflowCommands = Effect.fn("CartCreation.workflow
     const compensateCartsCreation = yield* defineWorkflowMethod({ command: compensate, arguments: inverseArguments, encode: ([input]) => input,
       output: decodeCartCreationCompensation, moduleEvents: [eventName("cart", "deleted"), eventName("address", "deleted"), eventName("cart_creation_operation", "updated")] });
     const listCarts = yield* defineWorkflowMethod({ command: list, arguments: readArguments, encode: ([filters, config]) => ({ filters, ...(config === undefined ? {} : { config }) }), output: decodeGraphList });
+    const listAndCountCarts = yield* defineWorkflowMethod({ command: count, arguments: readArguments, encode: ([filters, config]) => ({ filters, ...(config === undefined ? {} : { config }) }), output: decodeGraphCount });
+    const updateCarts = yield* defineWorkflowMethod({ command: update, arguments: updateArguments, encode: ([input]) => input, output: decodeGraphList,
+      moduleEvents: [eventName("cart", "updated"), eventName("address", "created"), eventName("address", "updated")] });
+    const listAddresses = yield* defineWorkflowMethod({ command: listAddressesCommand, arguments: mutationReadArguments,
+      encode: ([filters, config]) => ({ filters, ...(config === undefined ? {} : { config }) }), output: decodeGraphList });
+    const updateAddresses = yield* defineWorkflowMethod({ command: updateAddressesCommand, arguments: addressUpdateArguments, encode: ([input]) => input,
+      output: decodeGraphList, moduleEvents: [eventName("address", "updated")] });
+    const listLineItems = yield* defineWorkflowMethod({ command: listLines, arguments: mutationReadArguments,
+      encode: ([filters, config]) => ({ filters, ...(config === undefined ? {} : { config }) }), output: decodeGraphList });
+    const addLineItems = yield* defineWorkflowMethod({ command: addLines, arguments: lineCreateArguments, encode: ([input]) => input,
+      output: decodeGraphList, moduleEvents: [eventName("line_item", "created")] });
+    const updateLineItems = yield* defineWorkflowMethod({ command: updateLines, arguments: lineUpdateArguments,
+      encode: args => ({ target: args[0], ...(args.length === 1 ? {} : { data: args[1] }) }),
+      output: lineOutput, moduleEvents: [eventName("line_item", "updated")] });
+    const deleteLineItems = yield* defineWorkflowMethod({ command: deleteLines, arguments: lineIdsArguments, encode: ([input]) => input,
+      output: voidOutput, moduleEvents: [eventName("line_item", "deleted")] });
+    const softDeleteLineItems = yield* defineWorkflowMethod({ command: softDeleteLines, arguments: lineIdsArguments, encode: ([input]) => input,
+      output: lifecycleOutput, moduleEvents: [eventName("line_item", "deleted"),
+        ...["line_item_tax_line", "line_item_adjustment"].flatMap(object => (["deleted", "updated"] as const).map(action => eventName(object, action)))] });
+    const restoreLineItems = yield* defineWorkflowMethod({ command: restoreLines, arguments: lineIdsArguments, encode: ([input]) => input, output: lifecycleOutput });
+    const upsertLineItemTaxLines = yield* defineWorkflowMethod({ command: upsertItemTax, arguments: upsertTaxArguments, encode: ([input]) => input, output: decodeGraphList,
+      moduleEvents: [eventName("line_item_tax_line", "created"), eventName("line_item_tax_line", "updated")] });
+    const upsertShippingMethodTaxLines = yield* defineWorkflowMethod({ command: upsertShippingTax, arguments: upsertShippingTaxArguments, encode: ([input]) => input, output: decodeGraphList });
     const listLineItemTaxLines = yield* defineWorkflowMethod({ command: listItemTax, arguments: itemTaxReadArguments, encode: ([input]) => input, output: decodeGraphList });
     const listShippingMethodTaxLines = yield* defineWorkflowMethod({ command: listShippingTax, arguments: shippingTaxReadArguments, encode: ([input]) => input, output: decodeGraphList });
     const setLineItemTaxLines = yield* defineWorkflowMethod({ command: setItemTax, arguments: setItemTaxArguments, encode: ([cart_id, tax_lines]) => ({ cart_id, tax_lines }), output: decodeGraphList,
@@ -163,10 +240,11 @@ export const makeCartCreationWorkflowCommands = Effect.fn("CartCreation.workflow
     const joiner = cartStaticResources.joinerConfig;
     if (joiner === undefined) return yield* Result.fail(commerceError("unsupportedProfile"));
     const admitted = [create, compensate, count, countLines, countShipping, list, listItemTax, listShippingTax, setItemTax, setShippingTax, addItemAdjustments, softDeleteItemAdjustments, restoreItemAdjustments,
-      addShippingAdjustments, softDeleteShippingAdjustments, restoreShippingAdjustments];
+      addShippingAdjustments, softDeleteShippingAdjustments, restoreShippingAdjustments, ...mutationCommands.filter(command => command !== countLines)];
     const policy = { capture, validateLogicalCall };
     const workflow = yield* defineWorkflowModule({ name: Modules.CART, source: module.description,
-      methods: { createCartsWithOwnership, compensateCartsCreation, listCarts, listLineItemTaxLines, listShippingMethodTaxLines,
+      methods: { createCartsWithOwnership, compensateCartsCreation, listCarts, listAndCountCarts, updateCarts, listAddresses, updateAddresses,
+        listLineItems, addLineItems, updateLineItems, deleteLineItems, softDeleteLineItems, restoreLineItems, upsertLineItemTaxLines, upsertShippingMethodTaxLines, listLineItemTaxLines, listShippingMethodTaxLines,
         setLineItemTaxLines, setShippingMethodTaxLines, addLineItemAdjustments, softDeleteLineItemAdjustments, restoreLineItemAdjustments,
         addShippingMethodAdjustments, softDeleteShippingMethodAdjustments, restoreShippingMethodAdjustments },
       graph: { aliases: (yield* moduleAliases(joiner)).filter(alias => ["Cart", "LineItem", "ShippingMethod"].includes(alias.model)), reads: [{ model: "Cart", command: count,
@@ -178,6 +256,7 @@ export const makeCartCreationWorkflowCommands = Effect.fn("CartCreation.workflow
         { model: "ShippingMethod", command: countShipping, table: yield* read.catalog.table("cart_shipping_method"), paths: [], nativeFields: true,
           orderable: ["id"], uniqueOrder: ["id"], multipleOrder: false, decode: decodeGraphCount }] }, logical: { ...policy, commands: admitted } });
     return { workflow, prepared, commands: admitted, create, compensate, count, countLines, countShipping, list, listItemTax, listShippingTax, setItemTax, setShippingTax,
-      addItemAdjustments, softDeleteItemAdjustments, restoreItemAdjustments, addShippingAdjustments, softDeleteShippingAdjustments, restoreShippingAdjustments, logicalEventPolicy: () => policy };
+      addItemAdjustments, softDeleteItemAdjustments, restoreItemAdjustments, addShippingAdjustments, softDeleteShippingAdjustments, restoreShippingAdjustments,
+      update, listAddressesCommand, updateAddressesCommand, listLines, addLines, updateLines, deleteLines, softDeleteLines, restoreLines, upsertItemTax, upsertShippingTax, logicalEventPolicy: () => policy };
   }));
 });

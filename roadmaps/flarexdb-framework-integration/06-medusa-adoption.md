@@ -82,7 +82,7 @@ name and currency code are supported. The Store page limit is 256. The Cart
 context retains its separate eight-Region bound. Deeper Country traversal and
 payment-provider expansion are outside this Store profile.
 
-#### Store Cart creation and retrieval
+#### Store Cart creation, retrieval and mutations
 
 The selected [Cart HTTP profile](./preflight/store-cart-http.md) connects
 `POST /store/carts` and `GET /store/carts/:id` to the genuine eighteen-source
@@ -90,6 +90,16 @@ native creation workflow and its existing Core owners. Creation admits the full
 requested response projection before execution, settles once with native events,
 then performs the pinned callable Remote Query refetch. Retrieval prepares only
 protected service reads and promises no common snapshot across those calls.
+
+The selected [Cart mutation profile](./preflight/store-cart-mutations-http.md)
+adds `POST /store/carts/:id`, `POST /store/carts/:id/line-items` and
+`POST`/`DELETE /store/carts/:id/line-items/:line_id`. Genuine native update, add,
+item-update and deletion workflows retain Customer/Address updates, Region and
+Pricing/Tax refresh, Inventory checks and native event multiplicity. Their trusted
+wrappers share the existing root's exclusion, rollback, replay and sole settlement.
+Complete response fields are admitted before mutation and refetched after commit.
+POST item update retains Cart membership checking; pinned DELETE selects IDs
+directly and refreshes the requested parent Cart.
 
 The native default response preserves Cart/item totals, selected Product and
 taxonomy relations, Customer Groups, Region Countries, Addresses, Promotions,
@@ -103,10 +113,15 @@ The pinned default bare Variant and nonmodel Address `region_code` leaves remain
 omitted; explicit nested Variant fields retain their genuine native traversal.
 
 The private profile retains existing four-item, four-promotion-code and complete
-read-cohort bounds. Explicit nulls outside the native workflow input profile and
-unsupported response fields refuse before mutation. Other Cart mutations,
-checkout HTTP, translation, remote providers, mixed deployment and capacity
-acceptance retain their separate gates.
+read-cohort bounds. Mutation Pricing has a separate sixty-four-attribute context
+profile; ordinary and standalone creation Pricing retain their ten/seventeen
+bounds. The issued mutation graph admits 243 nodes and one shared root allowance
+of 1,065 operations; default authoring, creation and participant bounds remain distinct.
+Cart updates admit nullable Address members and metadata. Explicit nulls outside
+the separate creation input profile and unsupported response fields refuse before
+mutation. Dedicated Shipping Method/Promotion mutations, checkout HTTP,
+translation, remote providers, mixed deployment and capacity acceptance retain
+their separate gates.
 
 #### Product HTTP promotion completion goal
 

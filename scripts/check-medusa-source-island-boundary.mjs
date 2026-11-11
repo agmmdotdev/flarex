@@ -1036,6 +1036,8 @@ export function discoverRootToolSources(repoRoot) {
     "scripts/check-medusa-store-product-source.test.js",
     "scripts/check-medusa-store-cart-source.mjs",
     "scripts/check-medusa-store-cart-source.test.js",
+    "scripts/check-medusa-cart-mutation-source.mjs",
+    "scripts/check-medusa-cart-mutation-source.test.js",
   ]);
   const toolingFiles = ["scripts", "tools", "integration"].flatMap((directory) =>
     collectFiles(path.join(repoRoot, directory), (file) =>

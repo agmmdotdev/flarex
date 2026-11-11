@@ -243,6 +243,37 @@ export interface ScalarFieldRelationDescriptor {
   readonly relationship: { readonly targetModel: string }
 }
 
+/** Exact native field-implied population algorithm from medusa.ts, over the
+ * same metadata-only relationship seam used by scalar field selection. */
+export function relationPopulatePathsFromFields(
+  fields: string[],
+  descriptors: ReadonlyMap<string, Pick<ScalarFieldRelationDescriptor, "relationship">>,
+  descriptorsByModel: ReadonlyMap<string, ReadonlyMap<string, Pick<ScalarFieldRelationDescriptor, "relationship">>>
+): string[] {
+  const populate = new Set<string>()
+
+  for (const field of fields) {
+    const parts = field.split(".").filter(Boolean)
+    let currentDescriptors = descriptors
+    const relationParts: string[] = []
+
+    for (const part of parts) {
+      const descriptor = currentDescriptors.get(part)
+      if (!descriptor) {
+        break
+      }
+
+      relationParts.push(part)
+      populate.add(relationParts.join("."))
+      currentDescriptors =
+        descriptorsByModel.get(descriptor.relationship.targetModel) ??
+        new Map()
+    }
+  }
+
+  return [...populate]
+}
+
 /** Exact native relationScalarFieldPaths algorithm from medusa.ts. Only its
  * SQL-bearing descriptor types are replaced by the metadata-only seam above. */
 export function relationScalarFieldPaths(

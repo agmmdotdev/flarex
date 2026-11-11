@@ -146,10 +146,26 @@ export function adaptCheckoutSource(source, targetPath) {
   if (targetPath === prefix + "cart/steps/update-carts.ts") expected = expected
     .replace('import {\n  ICartModuleService,\n  UpdateAddressDTO,\n  UpdateCartDTO,\n  UpdateCartWorkflowInputDTO,\n} from "@medusajs/framework/types"',
       'import type { ICartModuleService } from "@medusajs/framework/types"\n' +
-      'import type { UpdateAddressDTO } from "@medusajs/types/cart/mutations"\n' +
-      'import type { UpdateCartWorkflowInputDTO } from "@medusajs/types/cart/workflows"')
+      'import type { CreateAddressDTO } from "@medusajs/types/cart/mutations"\n' +
+      'import type { UpdateCartWorkflowInputDTO } from "@medusajs/types/cart/workflows"\n' +
+      'import type { NativeOptionalFields } from "../../common/utils/native-additional-data"\n' +
+      'import type { CartDTO, CartAddressDTO } from "@medusajs/types/cart/index"')
+    .replace("export type UpdateCartsStepInput = UpdateCartWorkflowInputDTO[]",
+      'export type UpdateCartsStepInput = (Omit<NativeOptionalFields<UpdateCartWorkflowInputDTO>, "shipping_address" | "billing_address"> & {\n' +
+      '  shipping_address?: NativeCartAddress | NativeCartAddressReference | null | undefined\n' +
+      '  billing_address?: NativeCartAddress | NativeCartAddressReference | null | undefined\n' +
+      '})[]\n' +
+      'type NativeCartAddress = { [Key in keyof CreateAddressDTO]?: CreateAddressDTO[Key] | null | undefined } & { id?: string | undefined }\n' +
+      'type NativeCartAddressReference = string & { readonly length: number; readonly country_code?: never; readonly id?: never }\n' +
+      'type CartUpdateStepService = Omit<ICartModuleService, "updateCarts"> & {\n' +
+      '  updateCarts(data: UpdateCartsStepInput): Promise<CartDTO[]>\n}')
+    .replace("async (data: UpdateCartsStepInput, { container }) => {",
+      "async (data: UpdateCartsStepInput, { container }): Promise<StepResponse<CartDTO[], { cartsBeforeUpdate: CartDTO[]; addressesBeforeUpdate: CartAddressDTO[] }>> => {")
+    .replaceAll("container.resolve<ICartModuleService>", "container.resolve<CartUpdateStepService>")
     .replace("  updateCartsStepId,", '  { name: updateCartsStepId, compensation: "transactionCovered" },')
     .replace("const addressesToUpdate: UpdateAddressDTO[] = []", "const addressesToUpdate = []")
+    .replace(".filter((address) => !!address)", ".filter((address): address is NonNullable<typeof address> => !!address)")
+    .replace("(address): address is UpdateAddressDTO =>", "(address): address is NativeCartAddress & { id: string } =>")
     .replace("const dataToUpdate: UpdateCartDTO[] = []", "const dataToUpdate = []")
     .replaceAll("await cartModule.updateAddresses(addressesToUpdate)", "await Reflect.apply(cartModule.updateAddresses, cartModule, [addressesToUpdate])")
     .replace("return await cartModule.updateCarts(dataToUpdate)",

@@ -77,3 +77,10 @@ export const StorePriceSetRead = Schema.Struct({
   })),
 });
 export const decodeStorePriceSetRead = commerceDecoder(StorePriceSetRead, "invalidInput");
+/** Native Cart mutations forward full captured Cart/Customer/Region context.
+ * Calculation admission retains its own finite attribute and candidate bounds. */
+export const CartMutationPriceSetRead = Schema.Struct({
+  ...StorePriceSetRead.fields,
+  filters: Schema.optionalKey(Schema.Struct({ ...PriceSetFilters.fields, context: Schema.optionalKey(Schema.JsonObject) })),
+});
+export const decodeCartMutationPriceSetRead = commerceDecoder(CartMutationPriceSetRead, "invalidInput");

@@ -1,6 +1,8 @@
 import type { ICartModuleService } from "@medusajs/framework/types"
-import type { UpdateAddressDTO } from "@medusajs/types/cart/mutations"
+import type { CreateAddressDTO } from "@medusajs/types/cart/mutations"
 import type { UpdateCartWorkflowInputDTO } from "@medusajs/types/cart/workflows"
+import type { NativeOptionalFields } from "../../common/utils/native-additional-data"
+import type { CartDTO, CartAddressDTO } from "@medusajs/types/cart/index"
 import {
   Modules,
   getSelectsAndRelationsFromObjectArray,
@@ -10,7 +12,21 @@ import { StepResponse, createStep } from "@medusajs/workflows-sdk"
 /**
  * The details of the carts to update.
  */
-export type UpdateCartsStepInput = UpdateCartWorkflowInputDTO[]
+export type UpdateCartsStepInput = (Omit<NativeOptionalFields<UpdateCartWorkflowInputDTO>, "shipping_address" | "billing_address"> & {
+  shipping_address?: NativeCartAddress | NativeCartAddressReference | null | undefined
+  billing_address?: NativeCartAddress | NativeCartAddressReference | null | undefined
+})[]
+
+/** Store AddressPayload admits explicit null on every optional address member. */
+type NativeCartAddress = { [Key in keyof CreateAddressDTO]?: CreateAddressDTO[Key] | null | undefined } & { id?: string | undefined }
+
+/** The Store schema accepts primitive address references. Native property
+ * access observes absent fields; its later `in` check still rejects a primitive
+ * exactly as the pinned workflow does. */
+type NativeCartAddressReference = string & { readonly length: number; readonly country_code?: never; readonly id?: never }
+type CartUpdateStepService = Omit<ICartModuleService, "updateCarts"> & {
+  updateCarts(data: UpdateCartsStepInput): Promise<CartDTO[]>
+}
 
 export const updateCartsStepId = "update-carts"
 /**
@@ -24,8 +40,8 @@ export const updateCartsStepId = "update-carts"
  */
 export const updateCartsStep = createStep(
   { name: updateCartsStepId, compensation: "transactionCovered" },
-  async (data: UpdateCartsStepInput, { container }) => {
-    const cartModule = container.resolve<ICartModuleService>(Modules.CART)
+  async (data: UpdateCartsStepInput, { container }): Promise<StepResponse<CartDTO[], { cartsBeforeUpdate: CartDTO[]; addressesBeforeUpdate: CartAddressDTO[] }>> => {
+    const cartModule = container.resolve<CartUpdateStepService>(Modules.CART)
 
     if (!data.length) {
       return new StepResponse([], {
@@ -55,10 +71,10 @@ export const updateCartsStep = createStep(
     // but won't update its fields, we do this separately
     const addressesInput = data
       .flatMap((cart) => [cart.shipping_address, cart.billing_address])
-      .filter((address) => !!address)
+      .filter((address): address is NonNullable<typeof address> => !!address)
     let addressesToUpdateIds: string[] = []
     const addressesToUpdate = addressesInput.filter(
-      (address): address is UpdateAddressDTO => {
+      (address): address is NativeCartAddress & { id: string } => {
         if ("id" in address && !!address.id) {
           addressesToUpdateIds.push(address.id as string)
           return true
@@ -87,7 +103,7 @@ export const updateCartsStep = createStep(
 
     const { cartsBeforeUpdate, addressesBeforeUpdate } = dataToCompensate
 
-    const cartModule = container.resolve<ICartModuleService>(Modules.CART)
+    const cartModule = container.resolve<CartUpdateStepService>(Modules.CART)
 
     const addressesToUpdate = []
     for (const address of addressesBeforeUpdate) {

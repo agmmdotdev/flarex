@@ -268,6 +268,8 @@ describe("Medusa source-island boundary checker", () => {
     const repoRoot = mkdtempSync(join(tmpdir(), "flarex-medusa-proof-boundary-"));
     const verifierPaths = ["scripts/check-medusa-shipping-option-source.mjs", "scripts/check-medusa-shipping-option-source.test.js",
       "scripts/check-medusa-store-product-source.mjs", "scripts/check-medusa-store-product-source.test.js",
+      "scripts/check-medusa-store-cart-source.mjs", "scripts/check-medusa-store-cart-source.test.js",
+      "scripts/check-medusa-cart-mutation-source.mjs", "scripts/check-medusa-cart-mutation-source.test.js",
       "scripts/check-medusa-awilix-portable-source.mjs", "scripts/check-medusa-awilix-portable-source.test.js",
       "scripts/check-medusa-delivery-source.mjs", "scripts/check-medusa-json-assignment-source.mjs", "scripts/medusa-json-assignment.test.js",
       "scripts/check-medusa-db-error-source.mjs",

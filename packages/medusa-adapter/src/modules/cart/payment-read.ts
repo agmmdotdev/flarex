@@ -1,7 +1,7 @@
 import { Effect, Result, Schema } from "effect";
 import type { DAL } from "@medusajs/framework/types";
 import { cartTotalsFields, cartTotalOutputFields } from "@medusajs/cart/utils/totals-selection";
-import { describeToManyRelation, fillEmptyToManyRelations } from "@medusajs/drizzle/relation-query";
+import { describeToManyRelation, fillEmptyToManyRelations, relationPopulatePathsFromFields } from "@medusajs/drizzle/relation-query";
 import type { CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError, isJsonObject, type Json, type JsonObject, type CommerceTransactionError } from "@flarex/persistence-postgres/internal/commerce-values";
 import type { CommercePromiseOwner } from "../../module/promise-owner";
@@ -20,16 +20,33 @@ import { executeRead, orderedCatalog, type ReadPlan } from "../../query/read";
 import type { CommerceRelation } from "../../query/relations";
 import type { captureCartMetadata } from "./schema";
 
+/** Complete-cohort reads can admit native limit1 only when the existing
+ * ID-membership grammar proves an empty or singleton selected identity set. */
+function atMostOneSelectedId(where: unknown): boolean {
+  const compiled = compileWhere(where, scalarIdWhere);
+  if (Result.isFailure(compiled) || compiled.success.kind !== "and" || compiled.success.children.length === 0) return false;
+  let selected: Set<Json> | undefined;
+  for (const predicate of compiled.success.children) {
+    if (predicate.kind !== "in" || predicate.column !== "id") return false;
+    const ids = new Set(predicate.values);
+    if (selected === undefined) selected = ids;
+    else for (const id of selected) if (!ids.has(id)) selected.delete(id);
+  }
+  return selected !== undefined && selected.size <= 1;
+}
+
 export const CartPaymentRead = Schema.Struct({ filters: Schema.Struct({ id: Schema.Union([
   Schema.String, Schema.Array(Schema.String).pipe(Schema.mutable).check(Schema.isMaxLength(4))]) }),
   config: Schema.optionalKey(Schema.Struct({ select: Schema.optionalKey(Schema.Array(Schema.String).pipe(Schema.mutable)),
-    relations: Schema.optionalKey(Schema.Array(Schema.String).pipe(Schema.mutable)), take: Schema.optionalKey(Schema.Literals([4, 15, 256])),
-    skip: Schema.optionalKey(Schema.Literal(0)), order: Schema.optionalKey(Schema.Struct({ id: Schema.Literal("ASC") })) })) });
+    relations: Schema.optionalKey(Schema.Array(Schema.String).pipe(Schema.mutable)), take: Schema.optionalKey(Schema.Literals([1, 4, 15, 256])),
+    skip: Schema.optionalKey(Schema.Literal(0)), order: Schema.optionalKey(Schema.Struct({ id: Schema.Literal("ASC") })) })) })
+  .check(Schema.makeFilter(value => value.config?.take !== 1 || atMostOneSelectedId(value.filters) || "Expected at most one selected ID for take1"));
 export const decodeCartPaymentRead = commerceDecoder(CartPaymentRead, "invalidInput");
 const envelope = commerceDecoder(Schema.Struct({ where: Schema.JsonObject, options: Schema.Struct({
   fields: Schema.optionalKey(Schema.Array(Schema.String)), populate: Schema.Array(Schema.String),
-  limit: Schema.optionalKey(Schema.Literals([4, 15, 256])), offset: Schema.optionalKey(Schema.Literal(0)),
-  orderBy: Schema.optionalKey(Schema.Struct({ id: Schema.Literal("ASC") })) }) }), "unsupportedProfile");
+  limit: Schema.optionalKey(Schema.Literals([1, 4, 15, 256])), offset: Schema.optionalKey(Schema.Literal(0)),
+  orderBy: Schema.optionalKey(Schema.Struct({ id: Schema.Literal("ASC") })) }) })
+  .check(Schema.makeFilter(value => value.options.limit !== 1 || atMostOneSelectedId(value.where) || "Expected at most one selected ID for limit1")), "unsupportedProfile");
 export const cartPaymentPaths = ["items", "credit_lines", "items.tax_lines", "items.adjustments", "shipping_methods",
   "shipping_methods.tax_lines", "shipping_methods.adjustments"] as const;
 const allowedPaths: ReadonlySet<string> = new Set(cartPaymentPaths);
@@ -76,15 +93,24 @@ export function prepareCartPaymentRead(metadata: Effect.Success<ReturnType<typeo
       primaryKeys: ["id"], foreignKeys: table.foreignKeys.flatMap(key => key.columns),
       nullableColumns: table.columns.filter(column => column.nullable).map(column => column.name),
       companions: Object.fromEntries(table.columns.filter(column => column.type === "bigNumber").map(column => [column.name, "raw_" + column.name])) })), relations);
+    const descriptorsByModel = new Map([...relations].map(([table, members]) => [table, new Map([...members].map(([name, relation]) =>
+      [name, { relationship: { targetModel: relation.targetTable } }] as const))]));
     const leaf: ProjectionPolicy = { keys: "retain", storageKeys: "last", joinKeys: "retain", incomingKeys: true,
-      allowWildcard: true, selectableRelations: [], nested: new Map() };
-    const children = { ...leaf, selectableRelations: ["tax_lines", "adjustments"], nested: new Map([["tax_lines", leaf], ["adjustments", leaf]]) };
-    const projection: ProjectionPolicy = { ...leaf, selectableRelations: ["items", "credit_lines", "shipping_methods",
+      allowWildcard: true, allowBareRelations: true, selectableRelations: [], nested: new Map() };
+    const jsonFields = (table: string) => byName.get(table)?.table.columns.filter(column => column.type === "json").map(column => column.name) ?? [];
+    const scalarProjection = (table: string): ProjectionPolicy => ({ ...leaf, jsonScalarFields: jsonFields(table) });
+    const children = (table: string, tax: string, adjustment: string): ProjectionPolicy => ({ ...scalarProjection(table),
+      selectableRelations: ["tax_lines", "adjustments"], nested: new Map([["tax_lines", scalarProjection(tax)], ["adjustments", scalarProjection(adjustment)]]) });
+    const lineProjection = children("cart_line_item", "cart_line_item_tax_line", "cart_line_item_adjustment");
+    const shippingProjection = children("cart_shipping_method", "cart_shipping_method_tax_line", "cart_shipping_method_adjustment");
+    const projection: ProjectionPolicy = { ...scalarProjection(cart.table.name), selectableRelations: ["items", "credit_lines", "shipping_methods",
       ...(profile !== "payment" ? ["shipping_address", "billing_address"] : [])],
-      nested: new Map([["items", children], ["credit_lines", leaf], ["shipping_methods", children],
-        ...(profile !== "payment" ? [["shipping_address", leaf], ["billing_address", leaf]] as const : [])]) };
+      nested: new Map([["items", lineProjection], ["credit_lines", scalarProjection("credit_line")], ["shipping_methods", shippingProjection],
+        ...(profile !== "payment" ? [["shipping_address", scalarProjection("cart_address")], ["billing_address", scalarProjection("cart_address")]] as const : [])]) };
     const queryTable = (table: string, input: unknown) => Result.gen(function* () {
-      const value = yield* envelope(input), paths = value.options.populate;
+      const value = yield* envelope(input), inferred = relationPopulatePathsFromFields([...(value.options.fields ?? [])],
+        descriptorsByModel.get(table) ?? new Map(), descriptorsByModel);
+      const paths = [...new Set([...value.options.populate, ...inferred])];
       if (table !== cart.table.name && (profile === "payment" || table !== "cart_line_item" && (profile !== "creation" || table !== "cart_shipping_method")) ||
         paths.some(path => table === cart.table.name ? !admittedPaths.has(path) : !["tax_lines", "adjustments"].includes(path)))
         return yield* Result.fail(commerceError("unsupportedProfile"));
@@ -92,7 +118,7 @@ export function prepareCartPaymentRead(metadata: Effect.Success<ReturnType<typeo
       // it is never a storage column or an independently accepted total.
       const fields = value.options.fields?.filter(field => profile !== "payment" ? !rawTotals.has(field) &&
         !(profile === "creation" && totals.includes(field)) : field !== "raw_total");
-      return { table, projection: yield* compileProjection(catalog, table, fields, paths, table === cart.table.name ? projection : children),
+      return { table, projection: yield* compileProjection(catalog, table, fields, paths, table === cart.table.name ? projection : table === "cart_line_item" ? lineProjection : shippingProjection),
         paths, withDeleted: false, relationFilters: [], ordering: new Map(),
         query: { skip: 0, order: { column: "id", direction: "asc" }, predicate: { kind: "and", children: [
           yield* compileWhere(value.where, scalarIdWhere), { kind: "isNull", column: "deleted_at" }] } },

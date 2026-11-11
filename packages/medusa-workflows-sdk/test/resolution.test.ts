@@ -21,6 +21,39 @@ const port: WorkflowExecutionPort<Error> = {
 };
 
 describe("prepared workflow resolution", () => {
+  it("keeps a native condition label separate from a real step with the same name", async () => {
+    const calls: boolean[] = [];
+    const fetch = createStep("fetch-variants", (value: boolean) => { calls.push(value); return new StepResponse("fetched"); });
+    const flow = createWorkflow("native-condition-step-name", (enabled: WorkflowData<boolean>) => {
+      const selected = when("fetch-variants", enabled, value => value).then(() => fetch(enabled));
+      return new WorkflowResponse(selected);
+    });
+    const prepared = Result.getOrThrow(flow.prepare());
+    expect(prepared.nodes.map(node => [node.kind, node.name])).toEqual([
+      ["condition", "fetch-variants"], ["step", "fetch-variants"], ["branchResult", "$fetch-variants"],
+    ]);
+    expect(await runEffect(executeWorkflow(prepared, false, port))).toBeUndefined();
+    expect(calls).toEqual([]);
+    expect(await runEffect(executeWorkflow(prepared, true, port))).toBe("fetched");
+    expect(calls).toEqual([true]);
+    expect(prepared.identity.nodes).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "condition", name: "fetch-variants" }),
+      expect.objectContaining({ kind: "step", name: "fetch-variants" }),
+    ]));
+  });
+
+  it("continues refusing duplicate real steps and duplicate named predicates", () => {
+    const fetch = createStep("fetch-variants", () => new StepResponse(null));
+    expect(() => createWorkflow("duplicate-real-step", () => {
+      fetch(undefined); return new WorkflowResponse(fetch(undefined));
+    })).toThrow("fetch-variants");
+    expect(() => createWorkflow("duplicate-native-condition", () => {
+      when("condition-name", true, value => value).then(() => fetch(undefined));
+      when("condition-name", true, value => value).then(() => null);
+      return new WorkflowResponse(null);
+    })).toThrow("condition-name");
+  });
+
   it("executes implicit-void and explicit-undefined composers without dropping staged work", async () => {
     const order: string[] = [], captures: unknown[] = [], inverses: unknown[] = [];
     const write = createStep({ name: "void-composer-write", compensation: "transactionCovered" }, (ids: readonly string[]) => {

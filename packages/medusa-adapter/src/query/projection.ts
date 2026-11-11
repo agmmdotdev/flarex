@@ -13,6 +13,12 @@ export interface ProjectionPolicy {
   readonly nullToOne?: boolean;
   /** Explicit native scalar wildcard; relation traversal remains separately admitted. */
   readonly allowWildcard?: boolean;
+  /** Native bare relationship fields select an already admitted population,
+   * never a scalar storage column or an additional relationship capability. */
+  readonly allowBareRelations?: boolean;
+  /** Pinned native DAL selections discard descendants of JSON scalar columns.
+   * This opt-in never selects the parent column or traverses the JSON value. */
+  readonly jsonScalarFields?: readonly string[];
   readonly selectableRelations: readonly string[];
   readonly nested: ReadonlyMap<string, ProjectionPolicy>;
 }
@@ -67,6 +73,7 @@ export function compileProjection(
     const allowedPaths = policy.allowedPaths;
     if (allowedPaths !== undefined && paths.some(path => !allowedPaths.includes(path))) return yield* Result.fail(commerceError("unsupportedProfile"));
     const table = yield* catalog.table(tableName);
+    if (policy.jsonScalarFields?.some(field => !table.columns.includes(field))) return yield* Result.fail(commerceError("unsupportedProfile"));
     const selected = fields ?? table.columns;
     const scalar: string[] = [];
     const nestedFields = new Map<string, string[]>();
@@ -74,9 +81,11 @@ export function compileProjection(
     for (const field of selected) {
       if (field === "*" && policy.allowWildcard === true) scalar.push(...table.columns);
       else if (table.columns.includes(field)) scalar.push(field);
+      else if (policy.allowBareRelations === true && policy.selectableRelations.includes(field) && policy.nested.has(field) && tree.has(field)) continue;
       else {
         const dot = field.indexOf(".");
         const name = field.slice(0, dot), child = field.slice(dot + 1);
+        if (dot > 0 && policy.jsonScalarFields?.includes(name)) continue;
         if (dot < 1 || !policy.selectableRelations.includes(name) || !policy.nested.has(name) || !tree.has(name)) return yield* Result.fail(commerceError("unsupportedProfile"));
         const group = nestedFields.get(name) ?? []; group.push(child); nestedFields.set(name, group);
       }

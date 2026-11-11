@@ -8,4 +8,5 @@ export { isPreparedWorkflow } from "./definition";
 export type { StepFunction, StepOutput } from "./model";
 export { nativePricingContextResult } from "./native-pricing-context";
 export { nativeCartCreationProfile } from "./native-cart-creation-profile";
+export { nativeCartMutationProfile } from "./native-cart-mutation-profile";
 export type { NativePricingContext } from "./native-pricing-context";

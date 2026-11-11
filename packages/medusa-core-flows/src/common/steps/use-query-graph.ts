@@ -19,6 +19,7 @@ export const WorkflowGraphQuery = Schema.Struct({
   entity: Schema.String,
   fields: Schema.Array(Schema.String),
   filters: Schema.optionalKey(Schema.JsonObject),
+  context: Schema.optionalKey(Schema.JsonObject),
   pagination: Schema.optionalKey(Schema.Struct({ take: Schema.Number,
     skip: Schema.optionalKey(Schema.Number),
     order: Schema.optionalKey(Schema.Record(Schema.String, Schema.Literals(["ASC", "DESC"]))),
@@ -26,6 +27,9 @@ export const WorkflowGraphQuery = Schema.Struct({
 });
 const Input = Schema.Struct({
   ...WorkflowGraphQuery.fields,
+  // Native intermediate context can retain own undefined members. The bound
+  // Query owner captures and admits its data before any graph execution.
+  context: Schema.optionalKey(Schema.Record(Schema.String, Schema.Unknown)),
   options: Schema.optionalKey(Schema.Struct({ isList: Schema.optionalKey(Schema.Boolean),
     cache: Schema.optionalKey(WorkflowGraphCacheOptions.fields.cache), throwIfKeyNotFound: Schema.optionalKey(Schema.Literal(true)) })),
 });
@@ -69,7 +73,8 @@ export function prepareWorkflowGraphQuery(input: unknown, maxPageSize: number) {
 export function queryWorkflowGraph(input: QueryGraphInput & { readonly options: { readonly isList: false } }, query: WorkflowGraphResource): Promise<{ readonly data: Row | undefined; readonly metadata: Metadata }>;
 export function queryWorkflowGraph(input: QueryGraphInput & { readonly options?: { readonly isList?: true } }, query: WorkflowGraphResource): Promise<{ readonly data: readonly Row[]; readonly metadata: Metadata }>;
 export function queryWorkflowGraph(input: QueryGraphInput, query: WorkflowGraphResource): Promise<{ readonly data: Row | readonly Row[] | undefined; readonly metadata: Metadata }>;
-export async function queryWorkflowGraph(input: QueryGraphInput, query: WorkflowGraphResource) {
+export function queryWorkflowGraph(input: unknown, query: WorkflowGraphResource): Promise<{ readonly data: Row | readonly Row[] | undefined; readonly metadata: Metadata }>;
+export async function queryWorkflowGraph(input: unknown, query: WorkflowGraphResource) {
   // Deliberate Promise/throw compatibility edge for the Medusa step signature.
   const plan = Result.getOrThrow(prepareWorkflowGraphQuery(input, query.maxPageSize));
   const result = await (plan.queryOptions === undefined ? query.graph(plan.query) : query.graph(plan.query, plan.queryOptions));

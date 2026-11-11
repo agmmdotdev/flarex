@@ -26,10 +26,26 @@ describe("native Store Cart HTTP source preservation", () => {
     for (const pair of storeCartHttpSourcePairs) verifyStoreCartHttpSource(readFileSync(pair.source, "utf8"), readFileSync(pair.target, "utf8"), pair.target);
     verifyStoreCartHttpSharedSources(process.cwd());
   });
+  it("uses the existing package exports for genuine mutation projection fields", () => {
+    const manifest = JSON.parse(readFileSync("roadmaps/flarexdb-framework-integration/preflight/medusa-currency-promotion.json", "utf8"));
+    const file = "packages/medusa-adapter/test/store-cart-projection.test.ts";
+    for (const specifier of ["@medusajs/core-flows/cart/variant-pricing-fields", "@medusajs/core-flows/cart/prepare-confirm-inventory-input"]) {
+      expect(admitsCurrencyImport(manifest, file, specifier)).toBe(true);
+      expect(admitsCurrencyImport(manifest, file, specifier + "/adjacent")).toBe(false);
+      expect(admitsCurrencyImport({ ...manifest, packages: manifest.packages.map(pkg => pkg.name !== "@medusajs/core-flows" ? pkg :
+        { ...pkg, exports: pkg.exports.filter(exported => exported !== "." + specifier.slice(pkg.name.length)) }) }, file, specifier)).toBe(false);
+    }
+  });
   it("rejects changes to native workflow selection, field defaults, validation and channel policy", () => {
     for (const [suffix, before, after] of [["store/carts/route.ts", '"create-cart"', '"update-cart"'],
+      ["store/carts/[id]/route.ts", '"update-cart"', '"create-cart"'],
+      ["store/carts/[id]/line-items/route.ts", '"add-to-cart"', '"create-cart"'],
+      ["store/carts/[id]/line-items/[line_id]/route.ts", '"delete-line-items"', '"delete-cart"'],
+      ["store/carts/[id]/line-items/[line_id]/route.ts", '"update-line-item-in-cart"', '"update-line-items"'],
       ["store/carts/query-config.ts", '"item_total"', '"unsupported_total"'],
       ["store/carts/validators.ts", ".gt(0)", ".gte(0)"],
+      ["store/carts/validators.ts", ".gte(0)", ".gt(0)"],
+      ["store/carts/middlewares.ts", 'matcher: "/store/carts/:id/line-items"', 'matcher: "/store/carts/:id/promotions"'],
       ["utils/middlewares/common/ensure-pub-key-sales-channel-match.ts", "pubKeySalesChannels.length > 1", "pubKeySalesChannels.length > 2"]]) {
       const pair = storeCartHttpSourcePairs.find(pair => pair.target.endsWith(suffix));
       if (!pair) throw new Error("Missing Cart mutation witness");

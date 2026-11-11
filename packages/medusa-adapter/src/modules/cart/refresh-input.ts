@@ -6,8 +6,9 @@ import { ExactNumericRaw } from "../../value/exact-numeric";
 const Text = Schema.optionalKey(Schema.NullOr(Schema.String));
 const Metadata = Schema.optionalKey(Schema.NullOr(Schema.JsonObject));
 export const CartRefreshIds = Schema.Array(ScalarId).pipe(Schema.mutable).check(Schema.isMaxLength(4));
-export const CartItemTaxLines = Schema.Array(Schema.Struct({ code: Schema.String, rate: Schema.Finite, item_id: ScalarId,
-  description: Text, provider_id: Text, tax_rate_id: Text, metadata: Metadata })).pipe(Schema.mutable).check(Schema.isMaxLength(4));
+export const CartItemTaxLine = Schema.Struct({ code: Schema.String, rate: Schema.Finite, item_id: ScalarId,
+  description: Text, provider_id: Text, tax_rate_id: Text, metadata: Metadata });
+export const CartItemTaxLines = Schema.Array(CartItemTaxLine).pipe(Schema.mutable).check(Schema.isMaxLength(4));
 export const CartEmptyShippingTaxLines = Schema.Array(Schema.Never).pipe(Schema.mutable).check(Schema.isMaxLength(0));
 export const CartEmptyShippingAdjustments = Schema.Array(Schema.Never).pipe(Schema.mutable).check(Schema.isMaxLength(0));
 export const CartItemAdjustments = Schema.Array(Schema.Struct({ item_id: ScalarId,

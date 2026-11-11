@@ -9,6 +9,7 @@ import { prepareWorkflowResolution } from "./resolution";
 import { callbackWorkflowView, prepareCallbackWorkflow, registerCallbackWorkflow } from "./callback-binding";
 import type { WorkflowContainer } from "./model";
 import { captureNativeCartCreationProfile, nativeCartCreationProfile } from "./native-cart-creation-profile";
+import { captureNativeCartMutationProfile, nativeCartMutationProfile } from "./native-cart-mutation-profile";
 import { captureNativePricingContextProfile, nativePricingContextResult, parseNativePricingContext, type NativePricingContext } from "./native-pricing-context";
 
 interface Composer {
@@ -263,6 +264,8 @@ const WorkflowDeclarationConfig = Schema.Union([
 ]);
 type WorkflowDeclaration = string | typeof WorkflowDeclarationConfig.Type | {
   readonly name: string; readonly constructionProfile: typeof nativeCartCreationProfile;
+} | {
+  readonly name: string; readonly constructionProfile: typeof nativeCartMutationProfile; readonly idempotent?: false;
 };
 const decodeWorkflowDeclaration = Schema.decodeUnknownResult(WorkflowDeclarationConfig, { onExcessProperty: "error" });
 const decodeProfileName = Schema.decodeUnknownResult(Schema.String);
@@ -271,15 +274,20 @@ function captureWorkflowDeclaration(input: WorkflowDeclaration) {
   if (typeof input === "string") return { name: input };
   const profile = typeof input === "object" && input !== null ? Object.getOwnPropertyDescriptor(input, "constructionProfile") : undefined;
   if (profile !== undefined) {
-    const keys = Reflect.ownKeys(input), name = Object.getOwnPropertyDescriptor(input, "name");
-    if (keys.length !== 2 || keys.some(key => key !== "name" && key !== "constructionProfile") ||
+    const keys = Reflect.ownKeys(input), name = Object.getOwnPropertyDescriptor(input, "name"),
+      idempotent = Object.getOwnPropertyDescriptor(input, "idempotent");
+    if (keys.length !== (idempotent === undefined ? 2 : 3) || keys.some(key => key !== "name" && key !== "constructionProfile" && key !== "idempotent") ||
       Object.getPrototypeOf(input) !== Object.prototype && Object.getPrototypeOf(input) !== null ||
       name === undefined || !("value" in name) || !name.enumerable || !("value" in profile) || !profile.enumerable)
       throw definitionError("unsupportedProfile", "Invalid native Cart construction declaration");
-    const selected = captureNativeCartCreationProfile(profile.value);
+    if (idempotent !== undefined && (profile.value !== nativeCartMutationProfile || !("value" in idempotent) ||
+      !idempotent.enumerable || idempotent.value !== false))
+      throw definitionError("unsupportedProfile", "Invalid native Cart mutation idempotency declaration");
+    const selected = profile.value === nativeCartMutationProfile ? captureNativeCartMutationProfile(profile.value)
+      : captureNativeCartCreationProfile(profile.value);
     const declaredName = Result.getOrThrow(decodeProfileName(name.value).pipe(
       Result.mapError(() => definitionError("unsupportedProfile", "Invalid native Cart construction name"))));
-    return { name: declaredName, constructionProfile: selected };
+    return { name: declaredName, constructionProfile: selected, ...(idempotent === undefined ? {} : { idempotent: false as const }) };
   }
   return Result.getOrThrow(decodeWorkflowDeclaration(captureDefinition(input, Object.freeze({}))).pipe(
     Result.mapError(() => definitionError("unsupportedProfile", "Unsupported finite workflow declaration"))));
@@ -336,9 +344,13 @@ export function createWorkflow<Input, Output, const Hooks extends readonly unkno
   const flow = new OrchestratorBuilder();
   const byName = new Map<string, WorkflowNode>();
   for (const node of context.nodes) {
-    if (byName.has(node.name)) throw definitionError(node.kind !== "workflow" && node.hook ? "duplicateHook" : "duplicateStep", node.name);
-    byName.set(node.name, node);
-    flow.addAction(node.name);
+    // A native when label is not a concrete step name when its branch returns
+    // an existing step. Keep our synthetic predicate in a private ordering
+    // namespace without changing its captured name or durable graph identity.
+    const orderingName = node.kind === "condition" ? "$condition:" + node.name : node.name;
+    if (byName.has(orderingName)) throw definitionError(node.kind !== "workflow" && node.hook ? "duplicateHook" : "duplicateStep", node.name);
+    byName.set(orderingName, node);
+    flow.addAction(orderingName);
   }
   const ordered: WorkflowNode[] = [];
   const available = new Set<object>();

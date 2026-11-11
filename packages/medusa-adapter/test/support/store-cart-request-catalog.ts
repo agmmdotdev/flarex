@@ -16,6 +16,15 @@ export const storeCartLogger: Logger = { panic() {}, shouldLog: () => false, set
   silly() {}, debug() {}, verbose() {}, http() {}, info() {}, warn() {}, log() {} };
 
 type Row = Readonly<{ table: string; row: JsonObject }>;
+export const storeCartMutationSeedRows: Readonly<Record<string, readonly Row[]>> = {
+  region: [{ table: "region", row: { id: "reg-cart-update", name: "Cart Update Region", currency_code: "usd" } },
+    { table: "region_country", row: { iso_2: "gb", iso_3: "gbr", num_code: "826", name: "UNITED KINGDOM", display_name: "United Kingdom", region_id: "reg-cart-update" } }],
+  tax: [{ table: "tax_region", row: { id: "txreg-cart-update", country_code: "gb", provider_id: "tp_system" } },
+    { table: "tax_rate", row: { id: "txr-cart-update", tax_region_id: "txreg-cart-update", rate: 5, code: "NATIVE-GB", name: "Cart Update Tax", is_default: true } }],
+  cart: [{ table: "cart", row: { id: "cart-http-completed", currency_code: "usd", region_id: "reg-create-root", sales_channel_id: "sc-create-root", completed_at: "2026-01-01T00:00:00.000Z" } },
+    { table: "cart_line_item", row: { id: "line-http-completed", cart_id: "cart-http-completed", title: "Completed Cart item", variant_id: "variant-create-root",
+      product_id: "prod-create-root", quantity: 1, unit_price: "12.5", raw_unit_price: { value: "12.5", precision: 20 } } }],
+};
 const defaults: Readonly<Record<string, readonly Row[]>> = {
   region: [{ table: "region", row: { id: "reg-create-root", name: "Native Cart Region", currency_code: "usd" } },
     { table: "region_country", row: { iso_2: "us", iso_3: "usa", num_code: "840", name: "UNITED STATES", display_name: "United States", region_id: "reg-create-root" } }],
@@ -27,6 +36,7 @@ const defaults: Readonly<Record<string, readonly Row[]>> = {
 /** Definition and seed production only, shared unchanged by Node and Workerd. */
 export const compileStoreCartRequestFixtureCatalog = Effect.fn("StoreCartFixture.compileCatalog")(function* (
   target: Readonly<{ scopeUuid: string; epochUuid: string }> = storeCartRequestTarget,
+  additionalRows: Readonly<Record<string, readonly Row[]>> = {},
 ) {
   const auth = yield* compileStoreRequestReadFixtureCatalog(target);
   const active = auth.rows.apiKey[0];
@@ -38,7 +48,7 @@ export const compileStoreCartRequestFixtureCatalog = Effect.fn("StoreCartFixture
   };
   const definitions = yield* cartCreationCoreDefinitions(target);
   const rows: Readonly<Record<string, readonly Row[]>> = Object.fromEntries([
-    ...cartCreationModuleNames.map(name => [name, [...(defaults[name] ?? []), ...(cartCreateRootSeeds[name] ?? [])]]),
+    ...cartCreationModuleNames.map(name => [name, [...(defaults[name] ?? []), ...(cartCreateRootSeeds[name] ?? []), ...(additionalRows[name] ?? [])]]),
     ["currency", authRows.currency.map(row => ({ table: "currency", row }))],
     ["apiKey", authRows.apiKey.map(row => ({ table: "api_key", row }))], ["apiKeySalesChannel", authRows.apiKeySalesChannel],
   ]);

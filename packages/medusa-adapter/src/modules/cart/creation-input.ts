@@ -34,10 +34,10 @@ export const CartCreates = Schema.Array(Schema.Struct({ id: Text, currency_code:
 // direct-child contract separate from the already admitted standalone input.
 const NullableText = Schema.optionalKey(Schema.NullOr(Schema.String));
 const NullableJson = Schema.optionalKey(Schema.NullOr(Schema.JsonObject));
-const RootAddress = Schema.Struct({ ...CartCreationAddress.fields, customer_id: NullableText, company: NullableText,
+export const RootAddress = Schema.Struct({ ...CartCreationAddress.fields, customer_id: NullableText, company: NullableText,
   first_name: NullableText, last_name: NullableText, address_1: NullableText, address_2: NullableText,
   city: NullableText, country_code: NullableText, province: NullableText, postal_code: NullableText, phone: NullableText, metadata: NullableJson });
-const RootLine = Schema.Struct({ ...Line.fields, subtitle: NullableText, thumbnail: NullableText, product_id: NullableText,
+export const RootLine = Schema.Struct({ ...Line.fields, subtitle: NullableText, thumbnail: NullableText, product_id: NullableText,
   product_title: NullableText, product_description: NullableText, product_subtitle: NullableText, product_type: NullableText,
   product_type_id: NullableText, product_collection: NullableText, product_handle: NullableText, variant_id: NullableText,
   variant_sku: NullableText, variant_barcode: NullableText, variant_title: NullableText,

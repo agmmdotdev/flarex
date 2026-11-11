@@ -139,10 +139,24 @@ function adaptCallback(source, target) {
     // in-place mutation while restoring its original staged DTO authoring type.
     expected = replaceChecked(expected, '    }).config({ name: "fetch-variants" })',
       '    }).config({ name: "fetch-variants" }) as unknown as WorkflowData<{\n      data: NonNullable<PrepareLineItemDataInput["variant"]>[]\n    }>');
-    expected = replaceChecked(expected, "cart: Partial<CartDTO> & {", "cart: { [Key in keyof CartDTO]?: CartDTO[Key] | undefined } & {");
-    expected = replaceChecked(expected, "    region_id?: string", "    region_id?: string | undefined");
-    expected = replaceChecked(expected, "    customer_id?: string", "    customer_id?: string | undefined");
-    expected = replaceChecked(expected, "region?: Partial<RegionDTO>", "region?: Partial<RegionDTO> | null | undefined");
+    expected = replaceChecked(expected, `  cart: Partial<CartDTO> & {
+    region?: Partial<RegionDTO>
+    region_id?: string
+    customer?: Partial<CustomerDTO>
+    customer_id?: string
+  }`, `  cart: {
+    id?: string | undefined
+    region_id?: string | null | undefined
+    customer_id?: string | null | undefined
+    sales_channel_id?: string | null | undefined
+    email?: string | null | undefined
+    currency_code?: string | undefined
+    locale?: string | null | undefined
+    region?: { currency_code?: string | undefined } | null | undefined
+    customer?: object | null | undefined
+    shipping_address?: object | null | undefined
+    items?: { id?: string | undefined; variant_id?: string | null | undefined; quantity?: BigNumberInput | undefined; unit_price?: BigNumberInput | undefined }[] | undefined
+  }`);
     expected = replaceChecked(expected, "  >[]\n  setPricingContextResult", "  >[] | undefined\n  setPricingContextResult");
     expected = replaceChecked(expected, "setPricingContextResult: object", "setPricingContextResult: object | undefined");
     expected = replaceChecked(expected, "variant.calculated_price = calculatedPriceSet",
@@ -171,6 +185,8 @@ function adaptCallback(source, target) {
   if (target.endsWith("/prepare-line-item-data.ts")) {
     expected = replaceChecked(expected, "  variant?: PrepareVariantLineItemInput", "  variant?: PrepareVariantLineItemInput | undefined");
     expected = replaceChecked(expected, "  cartId?: string", "  cartId?: string | undefined");
+    expected = replaceChecked(expected, "  unitPrice?: BigNumberInput", "  unitPrice?: BigNumberInput | undefined");
+    expected = replaceChecked(expected, "  isTaxInclusive: boolean", "  isTaxInclusive: boolean | undefined");
     expected = replaceChecked(expected, "let compareAtUnitPrice = item?.compare_at_unit_price",
       "let compareAtUnitPrice = item?.raw_compare_at_unit_price ?? item?.compare_at_unit_price");
     runtimeExpected = replaceChecked(runtimeExpected, "let compareAtUnitPrice = item?.compare_at_unit_price",

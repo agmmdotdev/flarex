@@ -63,9 +63,12 @@ export const prepareCartCreationModules = Effect.fn("CartCreation.prepareModules
     const source = workflowModuleDefinition(installed[name].module)?.source;
     if (source?.name !== owner || source.profile !== profile) return yield* Effect.fail(commerceError("invalidAuthority"));
   }
+  const pricingSource = workflowModuleDefinition(installed.pricing.module)?.source.profile;
+  const pricingProfile = pricingSource === "pricing-cart-creation" ? "cart-creation" : pricingSource === "pricing-cart-mutations" ? "cart-mutations" : undefined;
+  if (pricingProfile === undefined) return yield* Effect.fail(commerceError("invalidAuthority"));
   const pricing = yield* prepareVariantItemPricingModules({ product: installed.product, pricing: installed.pricing, inventory: installed.inventory,
     stock_location: installed.stock_location, sales_channel: installed.sales_channel, fulfillment: installed.fulfillment,
-    product_links: installed.product_links, variant_links: installed.variant_links, sales_channel_locations: installed.sales_channel_locations }, "cart-creation");
+    product_links: installed.product_links, variant_links: installed.variant_links, sales_channel_locations: installed.sales_channel_locations }, pricingProfile);
   const confirmation = yield* prepareVariantInventoryConfirmationModule(pricing.inventory);
   const sales = yield* Effect.fromResult(prepareSalesChannelCreationModule(pricing.sales_channel, salesChannelRead));
   const definitions = new Map(cartCreationModuleNames.map(name => [name, workflowModuleDefinition(installed[name].module)]));

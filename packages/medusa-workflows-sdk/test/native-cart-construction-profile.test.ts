@@ -1,6 +1,6 @@
 import { Result } from "effect";
 import { describe, expect, it } from "vitest";
-import { createStep, createWorkflow, nativeCartCreationProfile, StepResponse, WorkflowResponse } from "../src/index";
+import { createStep, createWorkflow, nativeCartCreationProfile, nativeCartMutationProfile, StepResponse, WorkflowResponse } from "../src/index";
 
 const step = createStep("profile-node", () => new StepResponse(null));
 const stages = (count: number) => () => {
@@ -82,5 +82,73 @@ describe("closed native Cart construction profile", () => {
     expect(Object.isFrozen(prepared.identity.constructionProfile)).toBe(true);
     expect(() => Reflect.apply(createWorkflow, undefined, [{ name: "identity-is-not-authority", constructionProfile: prepared.identity.constructionProfile }, stages(1)]))
       .toThrow("Only the issued native Cart construction profile is admitted");
+  });
+});
+
+describe("closed native Cart mutation construction profile", () => {
+  it("admits exactly the issued243-node boundary and retains native idempotent:false in identity", () => {
+    const prepared = Result.getOrThrow(createWorkflow({ name: "mutation-243", constructionProfile: nativeCartMutationProfile,
+      idempotent: false }, stages(243)).prepare());
+    expect(prepared.nodeCount).toBe(243);
+    expect(prepared.identity).toMatchObject({ idempotent: false,
+      constructionProfile: { profile: "nativeCartMutation", maximumNodes: 243 } });
+    expect(Object.isFrozen(prepared.identity.constructionProfile)).toBe(true);
+    expect(() => createWorkflow({ name: "mutation-244", constructionProfile: nativeCartMutationProfile }, stages(244)))
+      .toThrow("Too many workflow nodes");
+    expect(() => Reflect.apply(createWorkflow, undefined, [{ name: "mutation-identity-is-not-authority",
+      constructionProfile: prepared.identity.constructionProfile }, stages(1)])).toThrow();
+  });
+
+  it("counts the complete child closure without granting a parent a child's allowance", () => {
+    const child = createWorkflow({ name: "mutation-child-242", constructionProfile: nativeCartMutationProfile }, stages(242));
+    expect(() => createWorkflow("ordinary-mutation-wrapper", () => new WorkflowResponse(child.runAsStep({ input: undefined }))))
+      .toThrow("Too many workflow nodes");
+    expect(() => createWorkflow({ name: "creation-mutation-wrapper", constructionProfile: nativeCartCreationProfile }, () =>
+      new WorkflowResponse(child.runAsStep({ input: undefined })))).toThrow("Too many workflow nodes");
+    const wrapper = createWorkflow({ name: "mutation-wrapper-243", constructionProfile: nativeCartMutationProfile }, () =>
+      new WorkflowResponse(child.runAsStep({ input: undefined })));
+    expect(Result.getOrThrow(wrapper.prepare()).nodeCount).toBe(243);
+    expect(() => createWorkflow({ name: "mutation-wrapper-244", constructionProfile: nativeCartMutationProfile }, () => {
+      step(undefined); return new WorkflowResponse(child.runAsStep({ input: undefined }));
+    })).toThrow("Too many workflow nodes");
+    const small = createWorkflow({ name: "small-mutation-child", constructionProfile: nativeCartMutationProfile, idempotent: false }, stages(1));
+    const ordinary = Result.getOrThrow(createWorkflow("small-mutation-parent", () =>
+      new WorkflowResponse(small.runAsStep({ input: undefined }))).prepare());
+    expect(ordinary.identity).not.toHaveProperty("constructionProfile");
+    expect(ordinary.identity).not.toHaveProperty("idempotent");
+  });
+
+  it("charges declared callback children against the selected mutation ceiling", () => {
+    const child = createWorkflow({ name: "callback-mutation-child", constructionProfile: nativeCartMutationProfile }, stages(234));
+    const callback = createStep({ name: "mutation-declared-callback", invokedWorkflows: [child] }, () => new StepResponse(null));
+    const build = (count: number) => () => {
+      for (let index = 0; index < count; index++) step(undefined).config({ name: "mutation-local-" + index });
+      return new WorkflowResponse(callback(undefined));
+    };
+    expect(Result.getOrThrow(createWorkflow({ name: "mutation-callback-243", constructionProfile: nativeCartMutationProfile }, build(8)).prepare()).nodeCount).toBe(243);
+    expect(() => createWorkflow({ name: "mutation-callback-244", constructionProfile: nativeCartMutationProfile }, build(9)))
+      .toThrow("Too many workflow nodes");
+  });
+
+  it("rejects forged, accessor, JSON and unsupported declarations before composition", () => {
+    let composed = 0, getters = 0;
+    const accessor = Object.defineProperty({ name: "mutation-profile-getter" }, "constructionProfile", {
+      enumerable: true, get() { getters++; return nativeCartMutationProfile; },
+    });
+    const idempotencyAccessor = Object.defineProperty({ name: "mutation-idempotency-getter", constructionProfile: nativeCartMutationProfile }, "idempotent", {
+      enumerable: true, get() { getters++; return false; },
+    });
+    for (const declaration of [accessor, idempotencyAccessor,
+      { name: "mutation-clone", constructionProfile: { ...nativeCartMutationProfile } },
+      { name: "mutation-json", constructionProfile: JSON.parse(JSON.stringify(nativeCartMutationProfile)) },
+      { name: "mutation-limit", nodeLimit: 243 },
+      { name: "mutation-profile-limit", constructionProfile: nativeCartMutationProfile, nodeLimit: 243 },
+      { name: "mutation-idempotent-true", constructionProfile: nativeCartMutationProfile, idempotent: true },
+      { name: "mutation-idempotent-undefined", constructionProfile: nativeCartMutationProfile, idempotent: undefined },
+      { name: "mutation-store", constructionProfile: nativeCartMutationProfile, idempotent: false, store: true, retentionTime: 259200 },
+    ]) expect(() => Reflect.apply(createWorkflow, undefined, [declaration, () => { composed++; return new WorkflowResponse(null); }])).toThrow();
+    expect(composed).toBe(0); expect(getters).toBe(0);
+    expect(Object.isFrozen(nativeCartMutationProfile)).toBe(true);
+    expect(Reflect.ownKeys(nativeCartMutationProfile)).toEqual(["profile"]);
   });
 });

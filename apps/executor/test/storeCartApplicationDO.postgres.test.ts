@@ -14,6 +14,7 @@ const suite = createMedusaDOTestSuite(new URL("./storeCartApplicationDO.workerd.
 const decodeCart = Schema.decodeUnknownSync(Schema.Struct({ cart: Schema.JsonObject }));
 const decodeId = Schema.decodeUnknownSync(Schema.NonEmptyString);
 const isCreatedEnvelope = Schema.is(Schema.Struct({ contract: Schema.Literal("cart.created") }));
+const isUpdatedEnvelope = Schema.is(Schema.Struct({ contract: Schema.Literal("cart.updated") }));
 
 describe.runIf(endpoints !== undefined)("native Store Cart HTTP in the actual application DO", () => {
   it("creates and refetches native guest and customer Carts, refuses invalid requests without writes and preserves the graph across recreation", async () => {
@@ -49,7 +50,7 @@ describe.runIf(endpoints !== undefined)("native Store Cart HTTP in the actual ap
       await request("/store/carts?fields=id,unsupported_field", { method: "POST", body: {} }, 400);
       await request("/store/carts", { method: "POST", body: { email: null } }, 400);
       await request("/store/carts/missing", {}, 404);
-      await request("/store/carts/missing", { method: "POST", body: {} }, 404);
+      await request("/store/carts/missing/complete", { method: "POST", body: {} }, 404);
       await host.stop();
       expect(await observeStoreCartRequestFixture({ physical, catalog: prepared.catalog })).toEqual(baseline);
 
@@ -65,7 +66,8 @@ describe.runIf(endpoints !== undefined)("native Store Cart HTTP in the actual ap
       phase = "creation"; host.start(); await host.ready();
       const guestResponse = await request("/store/carts", { method: "POST", body: {}, headers: { "x-customer-id": "cus-create-root" } });
       expect(guestResponse.headers.get("access-control-allow-origin")).toBe("https://store.test");
-      const guest = decodeCart(await guestResponse.json()).cart, guestId = decodeId(guest.id);
+      let guest = decodeCart(await guestResponse.json()).cart;
+      const guestId = decodeId(guest.id);
       expect(guest).toMatchObject({ currency_code: "usd", region_id: "reg-create-root", sales_channel_id: "sc-create-root",
         items: [], total: 0, subtotal: 0, tax_total: 0 });
       // Native RemoteJoiner assigns an absent cross-module target as undefined;
@@ -77,7 +79,8 @@ describe.runIf(endpoints !== undefined)("native Store Cart HTTP in the actual ap
         .toEqual({ cart: { id: guestId, currency_code: "usd", region_id: "reg-create-root", region: { id: "reg-create-root" } } });
       const customerResponse = await request("/store/carts", { method: "POST", body: { items: [{ variant_id: "variant-create-root", quantity: 1 }] },
         headers: { "x-proof-customer-credential": "store-cart-verified-secret" } });
-      const customer = decodeCart(await customerResponse.json()).cart, customerId = decodeId(customer.id);
+      let customer = decodeCart(await customerResponse.json()).cart;
+      const customerId = decodeId(customer.id);
       expect(customer).toMatchObject({ customer: { id: "cus-create-root", email: "native-cart@example.com", groups: [{ id: "cusgroup-create-root" }] },
         subtotal: 12.5, items: [{ variant_id: "variant-create-root", product_id: "prod-create-root", quantity: 1, unit_price: 12.5,
           tax_lines: [{ rate: 10, code: "NATIVE-US" }], adjustments: [{ code: "NATIVE-CART", amount: 1 }] }],
@@ -102,6 +105,54 @@ describe.runIf(endpoints !== undefined)("native Store Cart HTTP in the actual ap
         expect(createdEvents).toContainEqual(expect.objectContaining({ timestamp: cartRow?.timestamp }));
         expect(committed.outcomes).toContainEqual(expect.objectContaining({ timestamp: cartRow?.timestamp }));
       }
+      phase = "mutation projection refusal"; host.start(); await host.ready();
+      await request(`/store/carts/${guestId}?fields=id,unsupported_field`, { method: "POST", body: { metadata: { refused: true } } }, 400);
+      const firstLineId = decodeId(items[0]?.id);
+      await request(`/store/carts/${customerId}/line-items/${firstLineId}?fields=id,unsupported_field`, { method: "DELETE" }, 400);
+      await host.stop();
+      expect(await observeStoreCartRequestFixture({ physical, catalog: prepared.catalog })).toEqual(committed);
+
+      phase = "native mutation rollback"; host.start(); await host.ready();
+      await request(`/store/carts/${guestId}`, { method: "POST", body: { metadata: { rejected_hook: true },
+        additional_data: { fail_cart_hook: true } } }, 500);
+      await host.stop();
+      const lateRejected = await observeStoreCartRequestFixture({ physical, catalog: prepared.catalog });
+      const priorKeys = new Set(committed.outcomes.map(outcome => outcome.value.key));
+      const lateOutcomes = lateRejected.outcomes.filter(outcome => !priorKeys.has(outcome.value.key));
+      expect(lateOutcomes).toEqual([expect.objectContaining({ value: expect.objectContaining({ kind: "nativeRoot", state: "failed" }) })]);
+      expect(lateRejected.outcomes).toHaveLength(committed.outcomes.length + 1);
+      expect(lateRejected).toEqual({ ...committed, outcomes: expect.arrayContaining([...committed.outcomes, ...lateOutcomes]) });
+
+      phase = "Cart and Line Item mutations"; host.start(); await host.ready();
+      guest = decodeCart(await (await request(`/store/carts/${guestId}`, { method: "POST", body: { metadata: { cart_updated: true },
+        billing_address: { country_code: "us", city: "Workerd address" } } })).json()).cart;
+      expect(guest).toMatchObject({ id: guestId, metadata: { cart_updated: true }, billing_address: { city: "Workerd address" } });
+      customer = decodeCart(await (await request(`/store/carts/${customerId}/line-items`, { method: "POST", body: {
+        variant_id: "variant-create-root", quantity: 1 } })).json()).cart;
+      expect(customer).toMatchObject({ subtotal: 25, items: [{ id: firstLineId, quantity: 2 }] });
+      customer = decodeCart(await (await request(`/store/carts/${customerId}/line-items/${firstLineId}`, { method: "POST", body: {
+        quantity: 1, metadata: { edited: true } } })).json()).cart;
+      expect(customer).toMatchObject({ subtotal: 12.5, items: [{ id: firstLineId, quantity: 1, metadata: { edited: true } }] });
+      const deleted = await (await request(`/store/carts/${customerId}/line-items/${firstLineId}`, { method: "DELETE" })).json();
+      expect(deleted).toMatchObject({ id: firstLineId, object: "line-item", deleted: true, parent: { id: customerId, items: [] } });
+      const again = decodeCart(await (await request(`/store/carts/${customerId}/line-items`, { method: "POST", body: {
+        variant_id: "variant-create-root", quantity: 1 } })).json()).cart;
+      const againItems = Schema.decodeUnknownSync(Schema.Array(Schema.JsonObject))(again.items);
+      customer = decodeCart(await (await request(`/store/carts/${customerId}/line-items/${decodeId(againItems[0]?.id)}`, {
+        method: "POST", body: { quantity: 0 } })).json()).cart;
+      expect(customer.items).toEqual([]);
+      await host.stop();
+      const mutated = await observeStoreCartRequestFixture({ physical, catalog: prepared.catalog });
+      expect(mutated.rows.filter(row => row.table === cartTable)).toHaveLength(2);
+      expect(mutated.outcomes.filter(row => row.value.kind === "nativeRoot" && row.value.state === "committed")).toHaveLength(8);
+      expect(mutated.outcomes.filter(row => row.value.kind === "nativeRoot" && row.value.state === "failed"))
+        .toEqual(lateRejected.outcomes.filter(row => row.value.kind === "nativeRoot" && row.value.state === "failed"));
+      const updatedEvents = mutated.rows.filter(row => isUpdatedEnvelope(row.value.envelope));
+      expect(updatedEvents).toHaveLength(7);
+      for (const event of updatedEvents) expect(mutated.outcomes).toContainEqual(expect.objectContaining({ timestamp: event.timestamp,
+        value: expect.objectContaining({ state: "committed" }) }));
+      expect(mutated.rows.filter(row => isCreatedEnvelope(row.value.envelope))).toEqual(createdEvents);
+
       phase = "recreation"; host.start(); await host.ready();
       expect(decodeCart(await (await request(`/store/carts/${guestId}`)).json()).cart).toEqual(guest);
       // GET retains the native publishable-key contract; no customer ownership
@@ -109,7 +160,7 @@ describe.runIf(endpoints !== undefined)("native Store Cart HTTP in the actual ap
       expect(decodeCart(await (await request(`/store/carts/${customerId}`)).json()).cart).toEqual(customer);
       await request(`/store/carts/${customerId}`, { headers: { "x-publishable-api-key": storeCartRevokedToken } }, 400);
       await host.stop();
-      expect(await observeStoreCartRequestFixture({ physical, catalog: prepared.catalog })).toEqual(committed);
+      expect(await observeStoreCartRequestFixture({ physical, catalog: prepared.catalog })).toEqual(mutated);
     } catch (cause) { console.error("Store Cart DO proof failed", { phase }); primary.push(cause); throw cause; }
     finally {
       const failures: unknown[] = [];

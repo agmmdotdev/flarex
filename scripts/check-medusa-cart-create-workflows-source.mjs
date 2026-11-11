@@ -74,9 +74,11 @@ export function expectedCartCreateWorkflow(source, target) {
     if (result.split(anchor).length !== 2) throw new Error("Changed transaction-covered native Cart step");
     result = result.replace(anchor, "  { name: " + id + ", compensation: \"transactionCovered\" },");
   }
-  if (target.endsWith("/cart/utils/schemas.ts")) result = result.replace(
-    "export const pricingContextResult = z.record(z.string(), z.any()).optional()",
-    'export { nativePricingContextResult as pricingContextResult } from "@medusajs/workflows-sdk"');
+  if (target.endsWith("/cart/utils/schemas.ts")) result = result.replace('import { z } from "@medusajs/deps/zod"\n', "")
+    .replace("export const pricingContextResult = z.record(z.string(), z.any()).optional()",
+      'export { nativePricingContextResult as pricingContextResult } from "@medusajs/workflows-sdk"')
+    .replace("export const shippingOptionsContextResult = z.record(z.string(), z.any()).optional()",
+      'export { nativePricingContextResult as shippingOptionsContextResult } from "@medusajs/workflows-sdk"');
   if (target.endsWith("/cart/workflows/update-tax-lines.ts")) result = result.replace('  "shipping_address.region_code",\n', "");
   if (target.endsWith("/cart/workflows/create-carts.ts")) {
     if (result.split("  createWorkflow,\n").length !== 2 || result.split("  createCartWorkflowId,\n").length !== 2)
@@ -101,7 +103,9 @@ export function verifyNativePricingContextExtraction(source, target) {
     if (declarations.length !== 1 || declarations[0]?.initializer === undefined) throw new Error("Changed native pricing validator declaration");
     return declarations[0].initializer.getText(parsed);
   };
-  if (initializer(native, "pricingContextResult") !== initializer(portable, "schema")) throw new Error("Changed extracted native pricing validator");
+  if (initializer(native, "pricingContextResult") !== initializer(portable, "schema") ||
+    initializer(native, "shippingOptionsContextResult") !== initializer(portable, "schema"))
+    throw new Error("Changed extracted native Cart context validator");
 }
 /** @param {string} source @param {string} target @param {string} file */
 export function verifyCartCreateWorkflowSource(source, target, file) {

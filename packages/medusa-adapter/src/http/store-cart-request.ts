@@ -16,6 +16,7 @@ import type { GraphReadContext } from "../local-graph/model";
 import { cartCreationCoreDefinitions, makeCartCreationRuntimes } from "../workflows/cart/creation-runtimes";
 import { cartCreationModuleNames, prepareCartCreationModules } from "../workflows/cart/creation-graph";
 import { prepareCreateCartWorkflow, type CartCreationHooks } from "../workflows/cart/create-cart";
+import { prepareCartMutationWorkflows, type CartMutationHooks } from "../workflows/cart/mutations";
 import { captureInstalledWorkflowModules, type AtomicWorkflowExecution } from "../workflow/host";
 import { workflowModuleDefinition } from "../workflow/module";
 import { commerceDecoder } from "../value/decoder";
@@ -34,7 +35,7 @@ export type StoreCartRequestInitializations = Readonly<{
 export const compileStoreCartRequestCatalog = Effect.fn("StoreCartRequest.compileCatalog")(function* (
   target: Readonly<{ scopeUuid: string; epochUuid: string }>, initialization: StoreCartRequestInitializations, logger: Logger,
 ) {
-  const runtimes = yield* makeCartCreationRuntimes(logger);
+  const runtimes = yield* makeCartCreationRuntimes(logger, "cart-mutations");
   const definitions = yield* cartCreationCoreDefinitions(target);
   const nativeSources = [];
   for (const name of cartCreationModuleNames) {
@@ -97,7 +98,7 @@ const presentCartFailure = <A, R>(work: Effect.Effect<A, CommerceTransactionErro
 /** One native mutation owner; Remote Query keeps independent protected service reads. */
 export const makeStoreCartRequestRuntime = Effect.fn("StoreCartRequest.makeRuntime")(function* (input: Readonly<{
   database: CoreDatabase; hostRuntime: PreparedHostRuntime; catalog: StoreCartRequestCatalog; identityAndAccessPolicy: Json;
-  revision: string; subscribers: AtomicCommerceEvents["subscribers"]; hooks?: CartCreationHooks;
+  revision: string; subscribers: AtomicCommerceEvents["subscribers"]; hooks?: CartCreationHooks; mutationHooks?: CartMutationHooks;
 }>) {
   const selected = yield* prepareCartCreationModules(input.catalog.modules, input.catalog.runtimes.salesChannelRead);
   const members = [];
@@ -129,14 +130,38 @@ export const makeStoreCartRequestRuntime = Effect.fn("StoreCartRequest.makeRunti
   const workflow = yield* prepareCreateCartWorkflow({ execution, modules: input.catalog.modules,
     salesChannelRead: input.catalog.runtimes.salesChannelRead, link: input.catalog.runtimes.link, logger: input.catalog.runtimes.logger,
     revision: input.revision, subscribers: input.subscribers, ...(input.hooks === undefined ? {} : { hooks: input.hooks }) });
+  const mutations = yield* prepareCartMutationWorkflows({ execution, modules: input.catalog.modules,
+    salesChannelRead: input.catalog.runtimes.salesChannelRead, link: input.catalog.runtimes.link, logger: input.catalog.runtimes.logger,
+    revision: input.revision, subscribers: input.subscribers, ...(input.mutationHooks === undefined ? {} : { hooks: input.mutationHooks }) });
   const admitCartRefetchFields = (fields: readonly string[]): void => {
     Result.getOrThrowWith(graph.admitProjection("cart", fields), cause => new MedusaError(MedusaError.Types.INVALID_DATA,
       "The private Cart profile requires supported response fields before execution.", undefined, undefined, { cause }));
   };
   const runWorkflow = Effect.fn("StoreCartRequest.runWorkflow")(function* (name: string, value: unknown) {
-    if (name !== "create-cart") return yield* commerceError("unsupportedProfile");
-    const args = yield* Effect.fromResult(captureCommerceInput(value).pipe(Result.flatMap(workflow.decodeInput)));
-    return { result: yield* workflow.run(workflow.newRequestKey(), args) };
+    const captured = yield* Effect.fromResult(captureCommerceInput(value));
+    switch (name) {
+      case "create-cart": {
+        const args = yield* Effect.fromResult(workflow.decodeInput(captured));
+        return { result: yield* workflow.run(workflow.newRequestKey(), args) };
+      }
+      case "update-cart": {
+        const args = yield* Effect.fromResult(mutations.updateCart.decodeInput(captured));
+        return { result: yield* mutations.updateCart.run(mutations.updateCart.newRequestKey(), args) };
+      }
+      case "add-to-cart": {
+        const args = yield* Effect.fromResult(mutations.addLineItem.decodeInput(captured));
+        return { result: yield* mutations.addLineItem.run(mutations.addLineItem.newRequestKey(), args) };
+      }
+      case "update-line-item-in-cart": {
+        const args = yield* Effect.fromResult(mutations.updateLineItem.decodeInput(captured));
+        return { result: yield* mutations.updateLineItem.run(mutations.updateLineItem.newRequestKey(), args) };
+      }
+      case "delete-line-items": {
+        const args = yield* Effect.fromResult(mutations.deleteLineItems.decodeInput(captured));
+        return { result: yield* mutations.deleteLineItems.run(mutations.deleteLineItems.newRequestKey(), args) };
+      }
+      default: return yield* commerceError("unsupportedProfile");
+    }
   }, presentCartFailure);
   const remoteQuery = Effect.fn("StoreCartRequest.remoteQuery")(function* (value: unknown) {
     const envelope = yield* Effect.fromResult(captureCommerceInput(value).pipe(Result.flatMap(decodeRemoteEnvelope)));
@@ -157,7 +182,8 @@ export const makeStoreCartRequestRuntime = Effect.fn("StoreCartRequest.makeRunti
       pagination: { take: 4, skip: 0 } })).data;
   }, presentCartFailure);
   return Object.freeze({ admitCartRefetchFields, runWorkflow, remoteQuery, query: auth.query,
-    close: Effect.forEach(closures, close => close, { discard: true }).pipe(Effect.ensuring(auth.close), Effect.ensuring(workflow.close)) });
+    close: Effect.forEach(closures, close => close, { discard: true }).pipe(Effect.ensuring(auth.close), Effect.ensuring(workflow.close),
+      Effect.ensuring(Effect.forEach(Object.values(mutations), host => host.close, { discard: true }))) });
 });
 export type StoreCartRequestRuntime = Effect.Success<ReturnType<typeof makeStoreCartRequestRuntime>>;
 

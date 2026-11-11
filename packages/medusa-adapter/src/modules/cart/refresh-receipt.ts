@@ -28,7 +28,7 @@ const decodeLifecycleResult = commerceDecoder(Schema.Struct({ ids: Schema.Array(
 const event = moduleEventDecoder(Schema.Struct({ name: Schema.String,
   metadata: Schema.Struct({ source: Schema.Literal(Modules.CART),
     object: Schema.Literals(["line_item_tax_line", "shipping_method_tax_line", "line_item_adjustment"]),
-    action: Schema.Literals(["created", "deleted", "restored"]) }),
+    action: Schema.Literals(["created", "updated", "deleted", "restored"]) }),
   data: Schema.Struct({ id: Schema.Union([Schema.String, Schema.Array(Schema.String).check(Schema.isLengthBetween(1, 4))]) }) }), defaultCommerceResources);
 export const captureCartCreationRefreshEvent = Effect.fn("CartCreation.captureRefreshEvent")(function* (input: unknown) {
   const message = yield* event(input);

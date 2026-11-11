@@ -2,6 +2,7 @@ import { Result, Schema } from "effect";
 import { createStep, StepResponse, WorkflowDefinitionError, type StepOutput } from "@medusajs/workflows-sdk";
 import { queryWorkflowGraph, type WorkflowGraphResource } from "./use-query-graph";
 import { CartCollectionCreateQuery, CartCollectionCreateView, decodeCartCollectionCreateView } from "./payment-collection-query-views";
+import { decodeNativeShippingOptions, type NativeShippingOptionView } from "./cart-mutation-shipping-query-views";
 
 // Pinned Product lists retain the bounded graph seam. Named Fulfillment and
 // Payment singleton profiles use the exact native callable Query ABI.
@@ -120,7 +121,7 @@ const step = createStep<EntryStepInput, Row | readonly Row[] | undefined>(useRem
   const result = await queryWorkflowGraph({ entity: data.entry_point, fields: data.fields,
     ...(data.variables?.filters === undefined ? {} : { filters: data.variables.filters }),
   }, container.resolve<WorkflowGraphResource>("query"));
-  return new StepResponse(result.data);
+  return new StepResponse(data.entry_point === "shipping_options" ? decodeNativeShippingOptions(result.data) : result.data);
 });
 
 // Dynamic selection exposes partial records, never a caller-chosen module DTO.
@@ -136,3 +137,8 @@ export function useRemoteQueryStep(input: typeof RefundReasonInput.Type): StepOu
 export function useRemoteQueryStep(input: ListStepInput): StepOutput<readonly Row[]>;
 export function useRemoteQueryStep(input: EntryStepInput): StepOutput<Row | readonly Row[] | undefined>;
 export function useRemoteQueryStep(input: EntryStepInput): unknown { return step(input); }
+
+/** Only successful Shipping projections are narrowed. The existing input
+ * decoder still refuses unadmitted native provider/calculation variables. */
+export function useCartShippingRemoteQueryStep(input: EntryStepInput & { readonly entry_point: "shipping_options" }): StepOutput<NativeShippingOptionView[]>;
+export function useCartShippingRemoteQueryStep(input: EntryStepInput): unknown { return step(input); }

@@ -9,7 +9,8 @@ export type WorkflowIdentity = {
    * The outer outcome owner supplies persistence and its own retention policy. */
   readonly store?: true;
   readonly retentionTime?: 259200;
-  readonly constructionProfile?: { readonly profile: "nativeCartCreation"; readonly maximumNodes: 73 };
+  readonly constructionProfile?: { readonly profile: "nativeCartCreation"; readonly maximumNodes: 73 }
+    | { readonly profile: "nativeCartMutation"; readonly maximumNodes: 243 };
   readonly nodes: readonly Schema.Json[];
   readonly references: readonly Schema.Json[];
   readonly result: Schema.Json;

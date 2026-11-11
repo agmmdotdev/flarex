@@ -1,4 +1,4 @@
-import { Cause, Clock, Effect, Result } from "effect";
+import { Cause, Clock, Effect, Result, Schema } from "effect";
 import { asValue, createContainer } from "@medusajs/deps/awilix-portable";
 import { makePreparedHostRuntime } from "@flarex/persistence-postgres/internal/prepared-host-runtime";
 import { makeStoreCartRequestRuntime, makeStoreCartRequestScopeFactory } from "@flarex/medusa-adapter/internal/store-cart-request";
@@ -13,6 +13,7 @@ import { executorApplicationProfileFixture } from "./support/executorApplication
 interface Env extends ExecutorApplicationEnv { readonly APPLICATIONS: DurableObjectNamespace<NativeStoreCartApplicationFixture> }
 const { catalog } = await Effect.runPromise(compileStoreCartRequestFixtureCatalog());
 const workload = executorApplicationProfileFixture().workload;
+const failsCartUpdate = Schema.is(Schema.Struct({ additional_data: Schema.Struct({ fail_cart_hook: Schema.Literal(true) }) }));
 type Failure = Effect.Error<ReturnType<typeof makeExecutorApplicationCredentials>>
   | Effect.Error<ReturnType<typeof makePreparedHostRuntime>> | Effect.Error<ReturnType<typeof makeStoreCartRequestRuntime>>;
 const NativeOwner = makeApplicationDurableObject<ExecutorApplicationEnv, Failure>({
@@ -27,7 +28,8 @@ const NativeOwner = makeApplicationDurableObject<ExecutorApplicationEnv, Failure
     const hostRuntime = yield* makePreparedHostRuntime({ maximumHosts: 32, maximumPreparedBytes: 8 * 1024 * 1024 });
     const runtime = yield* makeStoreCartRequestRuntime({ database: infrastructure.coreDatabase, hostRuntime, catalog,
       identityAndAccessPolicy: { profile: "native-store-cart-private-do-proof" },
-      revision: "1".repeat(64), subscribers: [{ id: "native-store-cart-http", revision: "2".repeat(64) }] });
+      revision: "1".repeat(64), subscribers: [{ id: "native-store-cart-http", revision: "2".repeat(64) }],
+      mutationHooks: { cartUpdated: value => { if (failsCartUpdate(value)) throw new Error("late-workerd-cart-update"); } } });
     const container = createContainer().register({ logger: asValue(storeCartLogger), configModule: asValue({ projectConfig: { http: {} } }) });
     const scopes = yield* makeStoreCartRequestScopeFactory({ runtime, container });
     const http = yield* makeStoreCartEffectHttpHandler({ storeCors: "https://store.test", ...scopes,

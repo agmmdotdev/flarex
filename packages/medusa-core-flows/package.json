@@ -4,6 +4,12 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./cart/update-cart": "./src/cart/workflows/update-cart.ts",
+    "./cart/add-to-cart": "./src/cart/workflows/add-to-cart.ts",
+    "./cart/update-line-item-in-cart": "./src/cart/workflows/update-line-item-in-cart.ts",
+    "./cart/refresh-cart-items": "./src/cart/workflows/refresh-cart-items.ts",
+    "./line-item/delete-line-items": "./src/line-item/workflows/delete-line-items.ts",
+    "./line-item/delete-line-items-step": "./src/line-item/steps/delete-line-items.ts",
     "./tax/set-tax-rate-rules": "./src/tax/workflows/set-tax-rate-rules.ts",
     "./tax/list-tax-rate-rule-ids-step": "./src/tax/steps/list-tax-rate-rule-ids.ts",
     "./tax/delete-tax-rate-rules": "./src/tax/workflows/delete-tax-rate-rules.ts",

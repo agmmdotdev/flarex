@@ -22,7 +22,7 @@ const names = ["product", "pricing", "inventory", "stock_location", "sales_chann
 /** Select original commands/storage and derive only the finite native read
  * graph. Canonical DML and native Link owners supply every endpoint key. */
 export const prepareVariantItemPricingModules = Effect.fn("MedusaWorkflow.prepareVariantItemPricingModules")(function* (
-  input: Readonly<Record<string, InstalledWorkflowModule>>, pricingProfile: "variant-item-pricing" | "cart-creation" = "variant-item-pricing",
+  input: Readonly<Record<string, InstalledWorkflowModule>>, pricingProfile: "variant-item-pricing" | "cart-creation" | "cart-mutations" = "variant-item-pricing",
 ) {
   const record = yield* Effect.fromResult(captureWorkflowRecord(input));
   if (Object.keys(record).length !== names.length) return yield* Effect.fail(commerceError("unsupportedProfile"));
@@ -39,8 +39,8 @@ export const prepareVariantItemPricingModules = Effect.fn("MedusaWorkflow.prepar
   const channelLocations = yield* Effect.fromResult(definition("sales_channel_locations"));
   if (product.source.name !== "flarex-product-local" ||
     pricing.source.name !== "flarex-pricing-local" ||
-    pricing.source.profile !== (pricingProfile === "cart-creation" ? "pricing-cart-creation" : "pricing-variant-item-pricing") ||
-    pricingProfile !== "variant-item-pricing" && pricingProfile !== "cart-creation" ||
+    pricing.source.profile !== (pricingProfile === "cart-mutations" ? "pricing-cart-mutations" : pricingProfile === "cart-creation" ? "pricing-cart-creation" : "pricing-variant-item-pricing") ||
+    pricingProfile !== "variant-item-pricing" && pricingProfile !== "cart-creation" && pricingProfile !== "cart-mutations" ||
     inventory.source.name !== "flarex-inventory-local" || inventory.source.profile !== "inventory-variant-price-calculation")
     return yield* Effect.fail(commerceError("invalidAuthority"));
   const calculatePrices = installed.pricing.module.methods.calculatePrices;
@@ -87,9 +87,10 @@ export const prepareVariantItemPricingModules = Effect.fn("MedusaWorkflow.prepar
   const productRemote = yield* Effect.fromResult(nativeLinkGraphPaths(ProductShippingProfile, [{ root,
     path: "product.shipping_profile", maximumSources: 4, maximumLinks: 4, maximumTargets: 4, maximumPerSource: 1,
   }], productMetadata.product.model));
-  const priceSetRemote = yield* Effect.fromResult(nativeLinkGraphPaths(ProductVariantPriceSet, [{ root,
-    path: "price_set", maximumSources: 4, maximumLinks: 4, maximumTargets: 4, maximumPerSource: 1,
-  }]));
+  const priceSetRemote = yield* Effect.fromResult(nativeLinkGraphPaths(ProductVariantPriceSet,
+    (pricingProfile === "cart-mutations" ? ["price_set", "calculated_price"] : ["price_set"]).map(path => ({ root,
+      path, maximumSources: 4, maximumLinks: 4, maximumTargets: 4, maximumPerSource: 1,
+    }))));
   const richLinks = yield* Effect.fromResult(nativeLinkGraphDirectPaths(ProductVariantInventoryItem, [{ root,
     path: "inventory_items", maximumSources: 4, maximumTargets: 8, maximumPerSource: 8,
   }], root));

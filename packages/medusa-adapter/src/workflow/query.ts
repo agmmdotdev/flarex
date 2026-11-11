@@ -8,6 +8,7 @@ import type { PreparedLocalGraph } from "../local-graph/model";
 import type { CommercePromiseOwner } from "../module/promise-owner";
 import { commerceDecoder } from "../value/decoder";
 import { checkedCommerceValue } from "../value/checked";
+import { captureCommerceInput } from "../value/input";
 import { captureWorkflowInput } from "./value";
 
 const Name = Schema.String.check(Schema.isLengthBetween(1, 256), Schema.isPattern(/^[A-Za-z][A-Za-z0-9_]*$/));
@@ -39,6 +40,21 @@ const decodeSingleton = commerceDecoder(Schema.Union([Schema.Tuple([
 const decodeGraphArguments = commerceDecoder(Schema.Union([
   Schema.Tuple([WorkflowGraphQuery]), Schema.Tuple([WorkflowGraphQuery, WorkflowGraphOptions]),
 ]), "unsupportedProfile");
+const TaggedCalculation = Schema.StructWithRest(Schema.Struct({ __type: Schema.Literal("QueryContext") }),
+  [Schema.Record(Schema.String, Schema.Json)]);
+const decodeNativeContext = commerceDecoder(Schema.Struct({ calculated_price: Schema.optionalKey(TaggedCalculation) }), "unsupportedProfile");
+
+/** The native Variant graph ABI forwards this tagged calculation context. Its
+ * selected graph edge and Pricing owner still admit the actual calculation. */
+export function normalizeWorkflowGraphContext(entity: string, value: unknown) {
+  return Result.gen(function* () {
+    const context = yield* captureCommerceInput(value).pipe(Result.flatMap(decodeNativeContext));
+    if (context.calculated_price === undefined) return {};
+    if (entity !== "variant" && entity !== "variants") return yield* Result.fail(commerceError("unsupportedProfile"));
+    const { __type: _tag, ...pricing } = context.calculated_price;
+    return { calculated_price: pricing };
+  });
+}
 
 /** Selected native callable ABIs over the same authenticated graph. This
  * facade owns no reads, synthetic rows, aliases, transactions or finalization. */
@@ -96,7 +112,9 @@ export function bindWorkflowQuery(graph: PreparedLocalGraph, context: AtomicComm
     const keyOptions = options !== undefined && "throwIfKeyNotFound" in options ? { throwIfKeyNotFound: options.throwIfKeyNotFound } : undefined;
     const plan = yield* checkedCommerceValue(context, () => prepareWorkflowGraphQuery({ ...input, ...(keyOptions === undefined ? {} : { options: keyOptions }) }, commerceLimits.catalogRows)
       .pipe(Result.mapError(cause => commerceError("unsupportedProfile", cause))));
-    const result = yield* query.graph(plan.query, keyOptions);
+    const calculation = plan.query.context === undefined ? undefined : yield* checkedCommerceValue(context,
+      () => normalizeWorkflowGraphContext(plan.query.entity, plan.query.context));
+    const result = yield* query.graph({ ...plan.query, ...(calculation === undefined ? {} : { context: calculation }) }, keyOptions);
     yield* checkedCommerceValue(context, () => plan.validate(result).pipe(Result.mapError(cause => commerceError("unsupportedProfile", cause))));
     return result;
   }));

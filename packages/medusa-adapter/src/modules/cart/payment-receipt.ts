@@ -5,7 +5,8 @@ import { presentCartCreation } from "@medusajs/cart/creation";
 import { includeCartTotals } from "@medusajs/cart/utils/totals-selection";
 import { createRawPropertiesFromBigNumber, decorateCartTotals } from "@medusajs/framework/utils/portable";
 import { jsonEqual } from "flarex-protocol/json";
-import { commerceError, defaultCommerceResources, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
+import { commerceError, defaultCommerceResources, type CommerceTransactionError, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
+import type { ReadPlan } from "../../query/read";
 import type { LogicalCallReceiptValidation } from "../../repository/call-receipt";
 import { projectNativeRow, orderNativeIdRows } from "../../repository/result";
 import { assembleCommerceRelations, commerceRelationReadQuery, prepareCommerceRelationPopulation, reusePrimaryRelationRows } from "../../query/relations";
@@ -13,23 +14,29 @@ import { projectRows } from "../../query/projection";
 import { captureCommerceInput } from "../../value/input";
 import { captureNativeNumericDto } from "../../value/native-numeric";
 import { decodeCartPaymentRead, type prepareCartPaymentRead } from "./payment-read";
+import { decodeCartMutationRead } from "./mutation-input";
 
 type Prepared = Result.Result.Success<ReturnType<typeof prepareCartPaymentRead>>;
 const mismatch = () => commerceError("receiptMismatch");
-export function cartPaymentReadPolicy(prepared: Prepared, profile: "payment" | "completion" | "creation" = "payment") {
+export function cartPaymentReadPolicy(prepared: Prepared, profile: "payment" | "completion" | "creation" = "payment",
+  mutation?: { readonly query: (table: string, input: unknown) => Result.Result<ReadPlan, CommerceTransactionError> }) {
   const capture = Effect.fn("CartPayment.captureEvent")((_input: unknown) => Effect.fail(commerceError("unadmittedEvent")));
   const validateLogicalCall: LogicalCallReceiptValidation = Effect.fn("CartPayment.validateRead")(function* (call, activity) {
     const creation = profile === "creation";
-    const lineItems = prepared.profile !== "payment" && call.commandName === "cartLineItemsCountForCheckout";
+    const mutationRead = mutation !== undefined && ["cartLineItemsCountForCheckout", "cartListLinesForMutations", "cartAddressesForMutations"].includes(call.commandName);
+    const lineItems = prepared.profile !== "payment" && (call.commandName === "cartLineItemsCountForCheckout" || mutationRead && call.commandName === "cartListLinesForMutations");
+    const addresses = mutationRead && call.commandName === "cartAddressesForMutations";
     const shippingMethods = prepared.profile === "creation" && call.commandName === "cartShippingMethodsCountForCreation";
-    const child = lineItems || shippingMethods;
-    const rootTable = lineItems ? "cart_line_item" : shippingMethods ? "cart_shipping_method" : "cart";
-    const count = child || call.commandName === (profile === "payment" ? "cartCountForPaymentCollection" : "cartCountForCheckout");
-    if ((!count && (creation ? call.commandName !== "cartListForCreation" : profile !== "completion" || call.commandName !== "cartListForCheckout")) || call.mode !== "read" || call.events.length || activity.mutations.length ||
+    const child = lineItems || shippingMethods || addresses;
+    const rootTable = lineItems ? "cart_line_item" : addresses ? "cart_address" : shippingMethods ? "cart_shipping_method" : "cart";
+    const count = call.commandName === "cartLineItemsCountForCheckout" || shippingMethods || call.commandName === (profile === "payment" ? "cartCountForPaymentCollection" : "cartCountForCheckout");
+    if ((!count && !mutationRead && (creation ? call.commandName !== "cartListForCreation" : profile !== "completion" || call.commandName !== "cartListForCheckout")) || call.mode !== "read" || call.events.length || activity.mutations.length ||
       activity.lifecycle.length || activity.setNull.length || activity.referenceReplacements.length) return yield* Effect.fail(mismatch());
-    const input = yield* Effect.fromResult(decodeCartPaymentRead(call.input)), config = structuredClone(input.config ?? {});
+    const input = mutationRead ? yield* Effect.fromResult(decodeCartMutationRead(call.input)) : yield* Effect.fromResult(decodeCartPaymentRead(call.input));
+    const config = structuredClone(input.config ?? {});
     const includeTotals = !creation && !child && includeCartTotals(config);
-    const plan = yield* Effect.fromResult(captureCommerceInput(buildQuery(input.filters, config)).pipe(Result.flatMap(value => prepared.queryTable(rootTable, value))));
+    const plan = yield* Effect.fromResult(captureCommerceInput(buildQuery(input.filters, config)).pipe(Result.flatMap(value =>
+      mutationRead && mutation !== undefined ? mutation.query(rootTable, value) : prepared.queryTable(rootTable, value))));
     type Row = JsonObject & { readonly id: string };
     const state = new Map<string, Row[]>();
     for (const observation of activity.observedRows) {
@@ -42,8 +49,11 @@ export function cartPaymentReadPolicy(prepared: Prepared, profile: "payment" | "
       if (previous === undefined) group.push({ ...row, id: row.id });
       state.set(observation.table, group);
     }
-    const ids = typeof input.filters.id === "string" ? [input.filters.id] : input.filters.id;
-    const roots = orderNativeIdRows((state.get(rootTable) ?? []).filter(row => row.deleted_at === null && typeof row.id === "string" && ids.includes(row.id)), {});
+    const roots = orderNativeIdRows((state.get(rootTable) ?? []).filter(row => row.deleted_at === null && typeof row.id === "string" &&
+      Object.entries(input.filters).every(([name, value]) => {
+        const member = row[name];
+        return value === undefined || member !== undefined && (Array.isArray(value) ? value.some(item => jsonEqual(item, member)) : jsonEqual(value, member));
+      })), {});
     const selected = new Map<string, readonly JsonObject[]>([[rootTable, roots]]);
     const reads = [{ table: rootTable, query: commerceRelationReadQuery(defaultCommerceResources, plan.query.predicate), total: roots.length, returned: roots.length }];
     const populate = (source: string, parents: readonly JsonObject[], tree: PopulateTree): Result.Result<void, ReturnType<typeof commerceError>> => Result.gen(function* () {
@@ -85,8 +95,10 @@ export function cartPaymentReadPolicy(prepared: Prepared, profile: "payment" | "
       // invoked by CartModuleService, never a second totals implementation.
       Reflect.apply(createRawPropertiesFromBigNumber, undefined, [Reflect.apply(decorateCartTotals, undefined, [cart])]);
     }
-    if (creation) {
-      fillEmptyToManyRelations(output, new Map(prepared.cart.table.relationships.map(relationship => [relationship.name, { relationship }])));
+    if (creation || prepared.profile === "creation" && !mutationRead && config.select === undefined) {
+      const entity = prepared.byName.get(rootTable);
+      if (entity === undefined) return yield* Effect.fail(mismatch());
+      fillEmptyToManyRelations(output, new Map(entity.table.relationships.map(relationship => [relationship.name, { relationship }])));
     }
     const result = yield* Effect.fromResult(captureNativeNumericDto(creation ? Reflect.apply(presentCartCreation, undefined, [output]) : output));
     if (!jsonEqual(call.result, count ? [result, roots.length] : result)) return yield* Effect.fail(mismatch());

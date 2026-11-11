@@ -1,0 +1,5 @@
+{
+  "extends": "./tsconfig.json",
+  "include": ["test/logical-cart-mutations.test.ts", "test/cart-native-scalar-projection.test.ts", "test/pricing-variant-item-calculation-contracts.test.ts", "vitest.cart-mutations.config.ts"],
+  "exclude": []
+}

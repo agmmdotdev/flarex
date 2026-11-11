@@ -35,11 +35,18 @@ import {
 } from "../utils/prepare-line-item-data"
 
 interface GetVariantsAndItemsWithPricesWorkflowInput {
-  cart: { [Key in keyof CartDTO]?: CartDTO[Key] | undefined } & {
-    region?: Partial<RegionDTO> | null | undefined
-    region_id?: string | undefined
-    customer?: Partial<CustomerDTO>
-    customer_id?: string | undefined
+  cart: {
+    id?: string | undefined
+    region_id?: string | null | undefined
+    customer_id?: string | null | undefined
+    sales_channel_id?: string | null | undefined
+    email?: string | null | undefined
+    currency_code?: string | undefined
+    locale?: string | null | undefined
+    region?: { currency_code?: string | undefined } | null | undefined
+    customer?: object | null | undefined
+    shipping_address?: object | null | undefined
+    items?: { id?: string | undefined; variant_id?: string | null | undefined; quantity?: BigNumberInput | undefined; unit_price?: BigNumberInput | undefined }[] | undefined
   }
   items?: Partial<
     | CreateCartCreateLineItemDTO

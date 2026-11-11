@@ -76,8 +76,8 @@ export interface PrepareLineItemDataInput {
   taxLines?: CreateOrderLineItemTaxLineDTO[]
   adjustments?: CreateOrderAdjustmentDTO[]
   cartId?: string | undefined
-  unitPrice?: BigNumberInput
-  isTaxInclusive: boolean
+  unitPrice?: BigNumberInput | undefined
+  isTaxInclusive: boolean | undefined
 }
 
 export function prepareLineItemData(data: PrepareLineItemDataInput) {

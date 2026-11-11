@@ -123,6 +123,22 @@ describe("native Variant/item Pricing contracts", () => {
       .toMatchObject({ _tag: "Failure", failure: { reason: "limitExceeded" } });
   });
 
+  it("keeps a separately issued Cart mutation pricing profile and refuses its sixty-fifth attribute", async () => {
+    const maximum = { currency_code: "usd", quantity: 2,
+      ...Object.fromEntries(Array.from({ length: 64 }, (_, index) => ["attribute-" + index, "value"])) };
+    expect(Result.getOrThrow(prepareVariantItemPricingContext(maximum, "cart-mutations"))).toEqual(maximum);
+    expect(prepareVariantItemPricingContext({ ...maximum, extra: true }, "cart-mutations"))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "limitExceeded" } });
+    expect(prepareVariantItemPricingContext(maximum, "cart-creation"))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "limitExceeded" } });
+    const runtime = await Effect.runPromise(makeLocalPricingCommands("cart-mutations"));
+    const definition = workflowModuleDefinition(runtime.workflow);
+    expect(definition?.source.profile).toBe("pricing-cart-mutations");
+    expect(commerceCommandIdentity(runtime.calculate)).toEqual({ name: "pricingCalculateCartMutations", mode: "read" });
+    expect(commerceCommandIdentity(runtime.count)).toEqual({ name: "pricingCartMutationCount", mode: "read" });
+    expect(definition?.graph.reads[0]?.computedObjects?.calculated_price).toBeDefined();
+  });
+
   it("retains native nulls and the independently represented exact raw amount", () => {
     const rounded = { ...complete, calculated_amount: 9007199254740992, raw_calculated_amount: { value: "9007199254740993.125", precision: 30 } };
     expect(Result.getOrThrow(output([rounded]))).toEqual([rounded]);

@@ -1,5 +1,7 @@
 // @ts-check
 import { storeCartHttpSourcePairs, verifyStoreCartHttpSelection, verifyStoreCartHttpSource, verifyStoreCartHttpSharedSources } from "./check-medusa-store-cart-source.mjs";
+import { cartMutationSourcePairs, verifyCartMutationSourceSelection, verifyCartMutationSource, verifyCartMutationOperationSelection } from "./check-medusa-cart-mutation-source.mjs";
+import { verifyNativeRelationPopulateFields } from "./check-medusa-test-port.mjs";
 import { storeProductSourcePairs, verifyStoreProductSelection, verifyStoreProductSource } from "./check-medusa-store-product-source.mjs";
 import { apiKeySourcePairs, verifyApiKeySelection, verifyApiKeySource } from "./check-medusa-api-key-source.mjs";
 import { customerAddressSourcePairs, verifyCustomerAddressSource, verifyCustomerAccountSelection, checkCustomerAccountSources } from "./check-medusa-customer-account-source.mjs";
@@ -1155,6 +1157,9 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
   verifyProductBatchAuthorizationHttpSelection(supplied.files);
   verifyStoreProductSelection(supplied.files);
   verifyStoreCartHttpSelection(supplied.files);
+  verifyCartMutationSourceSelection(supplied.files);
+  verifyCartMutationOperationSelection(readFileSync(path.join(root, "packages/medusa-adapter/src/workflows/cart/mutations.ts"), "utf8"),
+    readFileSync(path.join(root, "packages/medusa-adapter/src/workflows/cart/create-owned.ts"), "utf8"));
   verifyStoreCartHttpSharedSources(root);
   verifyParentQualifiedVariantBatchWorkflowSelection(supplied.files);
   verifyTax170SourceSelection(supplied.files);
@@ -1454,6 +1459,10 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
     readFileSync(path.join(root, "packages/medusa-drizzle/src/relation-query.ts"), "utf8"),
   );
   verifyNativeRelationScalarFields(
+    readFileSync(path.join(root, "third_party/medusa/upstream/packages/database/drizzle/src/medusa.ts"), "utf8"),
+    readFileSync(path.join(root, "packages/medusa-drizzle/src/relation-query.ts"), "utf8"),
+  );
+  verifyNativeRelationPopulateFields(
     readFileSync(path.join(root, "third_party/medusa/upstream/packages/database/drizzle/src/medusa.ts"), "utf8"),
     readFileSync(path.join(root, "packages/medusa-drizzle/src/relation-query.ts"), "utf8"),
   );
@@ -1765,6 +1774,8 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
       throw new Error("Customer selection adaptation outside its selected native source pair");
     if (file.classification === "cartCreationWorkflowFork" && !cartCreateWorkflowSourcePairs.some(pair => pair.target === file.target && pair.source === file.source && pair.classification === file.classification))
       throw new Error("Cart creation workflow outside its exact pinned source pairs");
+    if (file.classification === "cartMutationFork" && !cartMutationSourcePairs.some(pair => pair.target === file.target && pair.source === file.source && pair.classification === file.classification))
+      throw new Error("Cart mutation workflow outside its exact pinned source pairs");
     if (file.classification === "inventoryConfirmationFork" && !inventoryConfirmationSourcePairs.some(pair => pair.target === file.target && pair.source === file.source && pair.classification === file.classification))
       throw new Error("Inventory confirmation adaptation outside its selected native source pair");
     if (file.classification === "storeHttpFork" && (file.source === undefined || file.source !== pinnedHttpSource(file.target)))
@@ -1784,7 +1795,7 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
       (file.source !== pinnedHttpSource(file.target) ||
         file.classification !== (currencyHandlers.has(file.target) ? "importRelocation" : "unchanged")))
       throw new Error("Store Currency routes and middleware must retain their pinned provenance");
-    if (!["unchanged", "preserved", "unchangedTest", "importRelocation", "selectedExportFacade", "storeHttpFork", "testHarnessPort", "testPort", "testFixturePort", "workflowFork", "linkFork", "productServiceFork", "inventoryServiceFork", "promotionServiceFork", "notificationServiceFork", "lockingServiceFork", "salesChannelTypeFork", "stockLocationTypeFork", "regionServiceFork", "pricingServiceFork", "nativeRepositoryFork", "storeTypeFork", "storeCreationTypeFork", "priceListCreationTypeFork", "shippingProfileWorkflowTypeFork", "csvNormalizerFork", "schemaCompilerFork", "variantItemPricingFork", "paymentJoinerFork", "workflowCacheFork", "customerSelectionFork", "cartContextReadFork", "inventoryConfirmationFork", "taxLinesFork", "taxRateCreationFork", "taxRegionCreationFork", "nativeDatabaseConstraintFork", "taxRuleCreationFork", "taxRuleDeletionFork", "taxRateDeletionFork", "taxRuleReplacementFork", "taxRateUpdateFork", "updateMetadataFork", "taxRuleCreatorTypeFork", "orderArchiveFork", "orderArchiveCompensationFork", "orderSummaryPrecisionFork", "orderCompleteFork", "orderChangeUpdateFork", "orderChangeCancellationFork", "orderChangeDeclineFork", "orderChangeDeletionFork", "orderChangeCancellationRestoreFork", "paymentSessionTypeFork", "paymentLifecycleFork", "paymentAccountingFork", "orderRefundValidationFork", "apiKeyFork", "nativeBigNumberTypeFork", "parentQualifiedVariantDeletionFork", "parentQualifiedOptionDeletionFork", "parentQualifiedProductDeletionTypeFork", "parentQualifiedImageAssociationFork", "parentQualifiedImageAssociationTypeFork", "parentQualifiedVariantInventoryHttpFork", "parentQualifiedVariantBatchHttpFork", "parentQualifiedVariantBatchWorkflowFork", "productBatchAuthorizationHttpFork", "paymentCollectionWorkflowFork", "cartPaymentTotalsFork", "customerAddressUpdateFork", "cartCreationWorkflowFork", "authored"].includes(file.classification)) {
+    if (!["unchanged", "preserved", "unchangedTest", "importRelocation", "selectedExportFacade", "storeHttpFork", "testHarnessPort", "testPort", "testFixturePort", "workflowFork", "linkFork", "productServiceFork", "inventoryServiceFork", "promotionServiceFork", "notificationServiceFork", "lockingServiceFork", "salesChannelTypeFork", "stockLocationTypeFork", "regionServiceFork", "pricingServiceFork", "nativeRepositoryFork", "storeTypeFork", "storeCreationTypeFork", "priceListCreationTypeFork", "shippingProfileWorkflowTypeFork", "csvNormalizerFork", "schemaCompilerFork", "variantItemPricingFork", "paymentJoinerFork", "workflowCacheFork", "customerSelectionFork", "cartContextReadFork", "inventoryConfirmationFork", "taxLinesFork", "taxRateCreationFork", "taxRegionCreationFork", "nativeDatabaseConstraintFork", "taxRuleCreationFork", "taxRuleDeletionFork", "taxRateDeletionFork", "taxRuleReplacementFork", "taxRateUpdateFork", "updateMetadataFork", "taxRuleCreatorTypeFork", "orderArchiveFork", "orderArchiveCompensationFork", "orderSummaryPrecisionFork", "orderCompleteFork", "orderChangeUpdateFork", "orderChangeCancellationFork", "orderChangeDeclineFork", "orderChangeDeletionFork", "orderChangeCancellationRestoreFork", "paymentSessionTypeFork", "paymentLifecycleFork", "paymentAccountingFork", "orderRefundValidationFork", "apiKeyFork", "nativeBigNumberTypeFork", "parentQualifiedVariantDeletionFork", "parentQualifiedOptionDeletionFork", "parentQualifiedProductDeletionTypeFork", "parentQualifiedImageAssociationFork", "parentQualifiedImageAssociationTypeFork", "parentQualifiedVariantInventoryHttpFork", "parentQualifiedVariantBatchHttpFork", "parentQualifiedVariantBatchWorkflowFork", "productBatchAuthorizationHttpFork", "paymentCollectionWorkflowFork", "cartPaymentTotalsFork", "customerAddressUpdateFork", "cartCreationWorkflowFork", "cartMutationFork", "authored"].includes(file.classification)) {
       throw new Error(`Unadmitted source transformation: ${file.target}`);
     }
     if (file.target === "packages/medusa-pricing/src/services/pricing-module.ts" || file.classification === "pricingServiceFork") {
@@ -2026,6 +2037,8 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
         verifyCartCreationStepSource(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"));
       if (file.classification === "cartCreationWorkflowFork")
         verifyCartCreateWorkflowSource(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"), file.target);
+      if (file.classification === "cartMutationFork")
+        verifyCartMutationSource(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"), file.target);
       if (file.classification === "cartContextReadFork")
         verifyCartContextReadFork(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"), file.target);
       if (file.classification === "workflowCacheFork")
