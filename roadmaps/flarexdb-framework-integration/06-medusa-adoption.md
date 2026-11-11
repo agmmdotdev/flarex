@@ -19,6 +19,23 @@ work with retained system consumers must be inventoried before removal.
 
 ### Private commerce HTTP and app registration
 
+#### Testing a promoted HTTP route
+
+Keep route and middleware cases in `packages/medusa-http/test`. Exercise native
+workflow persistence and query semantics with the Medusa adapter's Core fixtures.
+For connected HTTP tests, the executor's private `createMedusaDOTestSuite`
+builds each suite's Worker entry on first use. Give each independent scenario
+a fresh Core fixture and a matching application profile. Group related HTTP
+requests on one warm object. Await `stop()` before opening a separate Core
+observer or starting another incarnation on the same data.
+
+The [Admin Product suite](../../apps/executor/test/adminProductApplicationDO.postgres.test.ts)
+checks committed price and inventory links after writes. The
+[Store Product suite](../../apps/executor/test/storeProductApplicationDO.postgres.test.ts)
+checks publishable-key and customer selection across recreation. Both use
+`FLAREX_CORE_POSTGRES_ENDPOINTS_FILE` for the local Workerd tests' serving and
+provisioning connections and skip when it is absent.
+
 #### Product HTTP promotion completion goal
 
 The in-scope pinned Product HTTP family runs on the existing private

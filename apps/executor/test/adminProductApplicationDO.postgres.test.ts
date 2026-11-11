@@ -1,12 +1,11 @@
 import { createCorePostgresFixture } from "@flarex/persistence-postgres/internal/system-test/core-persistence-fixture";
 import { prepareProductRequestFixture, observeProductRequestFixture, seedProductRequestInventory, seedProductRequestAssociations } from "@flarex/medusa-adapter/internal/system-test/product-request-fixture";
 import { Schema } from "effect";
-import { Miniflare } from "miniflare";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { bundleApplicationWorker } from "./support/bundleApplicationWorker";
-import { createExecutorApplicationSecretFixture, executorApplicationProfileFixture } from "./support/executorApplicationConfiguration";
+import { executorApplicationProfileFixture } from "./support/executorApplicationConfiguration";
+import { createMedusaDOTestSuite, type MedusaDOTestScenario } from "./support/medusaDOTestRunner";
 import { adminProductDOFixtureTarget } from "./support/adminProductDOFixtureIdentity";
 import { isSuccessfulProductReceipt, makeProductBenchmarkClient, productBenchmarkInput, runProductBenchmarkCohort,
   summarizeProductBenchmarkCohorts, type ProductBenchmarkCohort } from "./support/productDoBenchmark";
@@ -18,6 +17,7 @@ const endpoints = endpointPath === undefined ? undefined : Schema.decodeUnknownS
 }))(JSON.parse(await readFile(endpointPath, "utf8")));
 const privateToken = "private-native-admin-product-app-fixture";
 const adminCredential = "native-admin-product-identity-fixture";
+const suite = createMedusaDOTestSuite(new URL("./adminProductApplicationDO.workerd.worker.ts", import.meta.url));
 const path = "/admin/products?fields=id,title,handle,status,options.id,options.title,options.values.id,options.values.value";
 const managedPath = `${path},variants.id,variants.title,variants.sku,variants.manage_inventory,variants.options.id,variants.options.value,variants.options.option_id`;
 const productInput = { title: "Real DO Product", handle: "real-do-product", options: [{ title: "Size", values: ["One"] }] };
@@ -90,7 +90,7 @@ const decodeImageProduct = Schema.decodeUnknownSync(Schema.Struct({ product: Sch
 const decodeImageAssignment = Schema.decodeUnknownSync(Schema.Struct({ id: Schema.NonEmptyString,
   variant_id: Schema.NonEmptyString, image_id: Schema.NonEmptyString }));
 
-async function nativeJson(pending: ReturnType<Miniflare["dispatchFetch"]>, status = 200) {
+async function nativeJson(pending: ReturnType<MedusaDOTestScenario["request"]>, status = 200) {
   const response = await pending;
   const body = decodeNativeEnvelope(await response.json());
   expect(response.status, JSON.stringify(body)).toBe(status);
@@ -103,7 +103,7 @@ async function createAdminProductDOFixture(options: Readonly<{ leaseTracePhase?:
   if (endpoints === undefined) throw new Error("Admin Product app DO requires ordinary PostgreSQL");
   const physical = await createCorePostgresFixture(endpoints);
   let seed: Awaited<ReturnType<typeof prepareProductRequestFixture>> | undefined;
-  let runtime: Miniflare | undefined;
+  let runtime: MedusaDOTestScenario | undefined;
   let closed = false;
   let runtimeEpoch = 0;
   let ready: Promise<void> | undefined;
@@ -144,27 +144,9 @@ async function createAdminProductDOFixture(options: Readonly<{ leaseTracePhase?:
   };
   const stop = async () => {
     const current = runtime;
-    runtime = undefined;
     if (current === undefined) return;
-    const failures: unknown[] = [];
-    let predecessor: bigint | undefined;
-    try { predecessor = await leaseMetadata("DO close: pending request/bootstrap/resource drain"); }
-    catch (cause) { failures.push(cause); }
-    try {
-      const response = await current.dispatchFetch("https://native-admin.test/__proof/close", {
-        headers: { authorization: `Bearer ${privateToken}` },
-      });
-      if (!response.ok) throw new Error(await response.text());
-      const generation = await leaseMetadata("DO close: authenticated owner close completed");
-      if (predecessor !== undefined) expect(generation).toBe(predecessor);
-    } catch (cause) { failures.push(cause); }
-    try { await current.dispose(); } catch (cause) { failures.push(cause); }
-    try {
-      const generation = await leaseMetadata("DO close: Miniflare disposed");
-      if (predecessor !== undefined) expect(generation).toBe(predecessor);
-    } catch (cause) { failures.push(cause); }
-    ready = undefined;
-    if (failures.length > 0) throw new AggregateError(failures, "Admin Product DO cleanup failed");
+    try { await current.stop(); }
+    finally { ready = undefined; }
   };
   const close = async () => {
     if (closed) return;
@@ -185,55 +167,63 @@ async function createAdminProductDOFixture(options: Readonly<{ leaseTracePhase?:
     }, 2n); // The genuine fixture opens its initializer, then its application owner.
     const catalog = seed.catalog;
     const observe = () => {
-      if (runtime !== undefined) throw new Error("The Product DO must drain before independent observation");
+      if (runtime?.isRunning()) throw new Error("The Product DO must drain before independent observation");
       return acquired("Node observe", () => observeProductRequestFixture({ physical, catalog }));
     };
     const seedInventory = (input: Pick<Parameters<typeof seedProductRequestInventory>[0], "stocking" | "reservationBatches">) => {
-      if (runtime !== undefined) throw new Error("The Product DO must drain before native Inventory fixture seeding");
+      if (runtime?.isRunning()) throw new Error("The Product DO must drain before native Inventory fixture seeding");
       return acquired("Node Inventory seed", () => seedProductRequestInventory({ physical, catalog, ...input }));
     };
     const seedAssociations = (input: Pick<Parameters<typeof seedProductRequestAssociations>[0], "salesChannelsData" | "priceListsData">) => {
-      if (runtime !== undefined) throw new Error("The Product DO must drain before native association fixture seeding");
+      if (runtime?.isRunning()) throw new Error("The Product DO must drain before native association fixture seeding");
       return acquired("Node association seed", () => seedProductRequestAssociations({ physical, catalog, ...input }));
     };
     const initial = await observe();
-    const worker = await bundleApplicationWorker(new URL("./adminProductApplicationDO.workerd.worker.ts", import.meta.url));
     const base = executorApplicationProfileFixture();
     const profile = { ...base, ...adminProductDOFixtureTarget, persistenceNamespace: physical.namespace, instanceName: physical.instanceName };
-    const keys = await createExecutorApplicationSecretFixture(profile.keyId);
+    let predecessor: bigint | undefined;
+    runtime = await suite.createScenario({ profile, connectionString: endpoints.connectionString,
+      privateToken, className: "NativeAdminProductApplicationFixture", hostname: "native-admin.test",
+      headers: { origin: "https://admin.test" }, bindings: { ADMIN_PRODUCT_CREDENTIAL: adminCredential },
+      closeHooks: {
+        beforeClose: async () => {
+          predecessor = undefined;
+          predecessor = await leaseMetadata("DO close: pending request/bootstrap/resource drain");
+        },
+        afterClose: async () => {
+          const generation = await leaseMetadata("DO close: authenticated owner close completed");
+          if (predecessor !== undefined) expect(generation).toBe(predecessor);
+        },
+        afterDispose: async () => {
+          const generation = await leaseMetadata("DO close: Miniflare disposed");
+          if (predecessor !== undefined) expect(generation).toBe(predecessor);
+        },
+      } });
+    const scenario = runtime;
     const start = () => {
-      if (runtime !== undefined) throw new Error("Previous Product DO owner has not drained");
       if (closed) throw new Error("Product fixture is closed");
+      scenario.start();
       runtimeEpoch += 1;
       incarnation = undefined;
-      runtime = new Miniflare({ modules: [{ type: "ESModule", path: "worker.js", contents: worker }],
-        compatibilityDate: "2026-06-14", compatibilityFlags: ["nodejs_compat"],
-        bindings: { FLAREX_EXECUTOR_TOKEN: privateToken, ADMIN_PRODUCT_CREDENTIAL: adminCredential,
-          FLAREX_APPLICATION_PROFILES: JSON.stringify({ version: 1, profiles: [profile] }), FLAREX_APPLICATION_KEYS: keys },
-        hyperdrives: { HYPERDRIVE_CACHE_DISABLED: endpoints.connectionString }, workerLoaders: { LOADER: {} }, r2Buckets: ["ARTIFACTS"],
-        durableObjects: { APPLICATIONS: { className: "NativeAdminProductApplicationFixture", useSQLite: true } },
-      });
     };
     const request = async (input: unknown, requestOptions: Readonly<{ private?: boolean; admin?: string; path?: string; signal?: AbortSignal; method?: "POST" | "GET" | "DELETE" }>
       = { private: true, admin: adminCredential }) => {
-      const current = runtime;
-      if (current === undefined) throw new Error("Native Product DO is closed");
+      if (!scenario.isRunning()) throw new Error("Native Product DO is closed");
       if (options.leaseTracePhase !== undefined) {
         ready ??= acquired("Workerd DO boot", async () => {
           incarnation = await probeIncarnation();
-          const response = await current.dispatchFetch("https://native-admin.test/__proof/ready", {
-            headers: { authorization: `Bearer ${privateToken}` }, signal: AbortSignal.timeout(60_000),
+          const response = await scenario.request("/__proof/ready", {
+            headers: { origin: undefined }, signal: AbortSignal.timeout(60_000),
           });
           expect(response.status, await response.clone().text()).toBe(200);
           expect(await response.json()).toEqual({ ready: true });
         });
         await ready;
       }
-      return current.dispatchFetch(`https://native-admin.test${requestOptions.path ?? path}`, { method: requestOptions.method ?? "POST",
-        headers: { "content-type": "application/json", origin: "https://admin.test",
-          ...(requestOptions.private === true ? { authorization: `Bearer ${privateToken}` } : {}),
-          ...(requestOptions.admin === undefined ? {} : { "x-admin-fixture-token": requestOptions.admin }) },
-        ...(requestOptions.method === "GET" || (requestOptions.method === "DELETE" && input === undefined) ? {} : { body: JSON.stringify(input) }),
+      return scenario.request(requestOptions.path ?? path, { method: requestOptions.method ?? "POST",
+        private: requestOptions.private === true,
+        headers: { "content-type": "application/json", "x-admin-fixture-token": requestOptions.admin },
+        ...(requestOptions.method === "GET" || (requestOptions.method === "DELETE" && input === undefined) ? {} : { body: input }),
         ...(requestOptions.signal === undefined ? {} : { signal: requestOptions.signal }) });
     };
     const get = (path: string, options: Readonly<{ private?: boolean; admin?: string }> = { private: true, admin: adminCredential }) =>
@@ -241,9 +231,8 @@ async function createAdminProductDOFixture(options: Readonly<{ leaseTracePhase?:
     const remove = (path: string, options: Readonly<{ private?: boolean; admin?: string }> = { private: true, admin: adminCredential }) =>
       request(undefined, { ...options, path, method: "DELETE" });
     const probeIncarnation = async () => {
-      if (runtime === undefined) throw new Error("Native Product DO is closed");
-      const response = await runtime.dispatchFetch("https://native-admin.test/__proof/incarnation", {
-        headers: { authorization: `Bearer ${privateToken}` }, signal: AbortSignal.timeout(10_000),
+      const response = await scenario.request("/__proof/incarnation", {
+        headers: { origin: undefined }, signal: AbortSignal.timeout(10_000),
       });
       if (!response.ok) throw new Error(`Incarnation probe returned HTTP ${response.status}`);
       return Schema.decodeUnknownSync(Schema.Struct({ incarnation: Schema.NonEmptyString }))(await response.json()).incarnation;

@@ -2,16 +2,16 @@ import { createCorePostgresFixture } from "@flarex/persistence-postgres/internal
 import { prepareStoreProductRequestFixture, seedStoreProductRequestFixture, observeStoreProductRequestFixture } from "@flarex/medusa-adapter/internal/system-test/store-product-request-fixture";
 import { storeProductRequestTarget, storeProductToken, storeProductMultiToken } from "@flarex/medusa-adapter/internal/system-test/store-product-request-catalog";
 import { Schema } from "effect";
-import { Miniflare } from "miniflare";
 import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
-import { bundleApplicationWorker } from "./support/bundleApplicationWorker";
-import { createExecutorApplicationSecretFixture, executorApplicationProfileFixture } from "./support/executorApplicationConfiguration";
+import { executorApplicationProfileFixture } from "./support/executorApplicationConfiguration";
+import { createMedusaDOTestSuite } from "./support/medusaDOTestRunner";
 
 const endpointPath = process.env.FLAREX_CORE_POSTGRES_ENDPOINTS_FILE;
 const endpoints = endpointPath === undefined ? undefined : Schema.decodeUnknownSync(Schema.Struct({ connectionString: Schema.NonEmptyString,
   provisioningConnectionString: Schema.NonEmptyString }))(JSON.parse(await readFile(endpointPath, "utf8")));
 const privateToken = "private-native-store-product-do-proof";
+const suite = createMedusaDOTestSuite(new URL("./storeProductApplicationDO.workerd.worker.ts", import.meta.url));
 const object = Schema.decodeUnknownSync(Schema.JsonObject);
 const products = Schema.decodeUnknownSync(Schema.Struct({ products: Schema.Array(Schema.JsonObject), count: Schema.Number, offset: Schema.Number, limit: Schema.Number }));
 const product = Schema.decodeUnknownSync(Schema.Struct({ product: Schema.JsonObject }));
@@ -25,20 +25,9 @@ describe.runIf(endpoints !== undefined)("native Store Product reads in the actua
     if (endpoints === undefined) throw new Error("Store Product DO requires ordinary PostgreSQL");
     const physical = await createCorePostgresFixture(endpoints);
     let seed: Awaited<ReturnType<typeof prepareStoreProductRequestFixture>> | undefined;
-    let runtime: Miniflare | undefined;
+    let scenario: Awaited<ReturnType<typeof suite.createScenario>> | undefined;
     const primary: unknown[] = [];
     let phase = "initialization";
-    const stop = async () => {
-      const current = runtime; runtime = undefined;
-      if (current === undefined) return;
-      const failures: unknown[] = [];
-      try {
-        const closed = await current.dispatchFetch("https://native-store.test/__proof/close", { headers: { authorization: `Bearer ${privateToken}` } });
-        if (!closed.ok) throw new Error(await closed.text());
-      } catch (cause) { failures.push(cause); }
-      try { await current.dispose(); } catch (cause) { failures.push(cause); }
-      if (failures.length > 0) throw new AggregateError(failures, "Store Product DO shutdown failed");
-    };
     try {
       seed = await prepareStoreProductRequestFixture("postgres", { physical: { ...physical, close: async () => {} } });
       const seeded = await seedStoreProductRequestFixture(seed);
@@ -66,29 +55,23 @@ describe.runIf(endpoints !== undefined)("native Store Product reads in the actua
         .toMatchObject({ id, sku: `store-${name}` });
       await seed.fixture.close();
       phase = "bundle";
-      const worker = await bundleApplicationWorker(new URL("./storeProductApplicationDO.workerd.worker.ts", import.meta.url));
       const base = executorApplicationProfileFixture();
       const profile = { ...base, ...storeProductRequestTarget, persistenceNamespace: physical.namespace, instanceName: physical.instanceName };
-      const start = async () => {
-        runtime = new Miniflare({ modules: [{ type: "ESModule", path: "worker.js", contents: worker }], compatibilityDate: "2026-06-14", compatibilityFlags: ["nodejs_compat"],
-          bindings: { FLAREX_EXECUTOR_TOKEN: privateToken, FLAREX_APPLICATION_PROFILES: JSON.stringify({ version: 1, profiles: [profile] }),
-            FLAREX_APPLICATION_KEYS: await createExecutorApplicationSecretFixture(profile.keyId) },
-          hyperdrives: { HYPERDRIVE_CACHE_DISABLED: endpoints.connectionString }, workerLoaders: { LOADER: {} }, r2Buckets: ["ARTIFACTS"],
-          durableObjects: { APPLICATIONS: { className: "NativeStoreProductApplicationFixture", useSQLite: true } } });
-        await runtime.ready;
-      };
+      const host = await suite.createScenario({ profile, connectionString: endpoints.connectionString, privateToken,
+        className: "NativeStoreProductApplicationFixture", hostname: "native-store.test",
+        headers: { "x-publishable-api-key": storeProductToken, origin: "https://store.test" } });
+      scenario = host;
       const request = async (path: string, options: Readonly<{ status?: number; key?: string; customer?: string }> = {}) => {
-        if (runtime === undefined) throw new Error("Store Product DO is stopped");
         phase = path;
-        const response = await runtime.dispatchFetch(`https://native-store.test${path}`, { headers: { authorization: `Bearer ${privateToken}`,
-          "x-publishable-api-key": options.key ?? storeProductToken, origin: "https://store.test",
-          ...(options.customer === undefined ? {} : { "x-proof-customer-credential": options.customer }) } });
+        const response = await host.request(path, { headers: {
+          ...(options.key === undefined ? {} : { "x-publishable-api-key": options.key }),
+          "x-proof-customer-credential": options.customer } });
         const body = object(await response.json()); expect(response.status, JSON.stringify(body)).toBe(options.status ?? 200);
         expect(response.headers.get("access-control-allow-origin")).toBe("https://store.test"); return body;
       };
-      phase = "first Worker startup"; await start();
-      if (runtime === undefined) throw new Error("Store Product DO did not start");
-      expect((await runtime.dispatchFetch("https://native-store.test/store/products")).status).toBe(401);
+      phase = "first Worker startup"; host.start(); await host.ready();
+      expect((await host.request("/store/products", { private: false,
+        headers: { origin: undefined, "x-publishable-api-key": undefined } })).status).toBe(401);
       const defaults = products(await request("/store/products"));
       expect(defaults).toMatchObject({ count: 4, offset: 0, limit: 50 });
       expect(defaults.products.map(row => row.id).toSorted()).toEqual([seeded.baseId, seeded.nullId, seeded.overrideId, seeded.saleId].toSorted());
@@ -151,19 +134,19 @@ describe.runIf(endpoints !== undefined)("native Store Product reads in the actua
       for (const path of ["/store/products?limit=invalid", "/store/products?fields=__proto__.polluted", "/store/products?fields=variants.calculated_price.secret"])
         await request(path, { status: 400 });
       await request("/store/products", { key: "pk_missing", status: 400 });
-      phase = "first shutdown"; await stop();
+      phase = "first shutdown"; await host.stop();
       expect(await observeStoreProductRequestFixture({ physical, catalog: seed.catalog })).toEqual(before);
-      phase = "recreation"; await start();
+      phase = "recreation"; host.start(); await host.ready();
       expect(products(await request("/store/products"))).toEqual(defaults);
       expect(await priced("sale")).toEqual(sale);
       expect(await priced("base", "&country_code=us")).toEqual(taxed);
       expect(products(await request(`/store/products?fields=${fields}&country_code=us`))).toEqual(pricedCohort);
-      phase = "final shutdown"; await stop();
+      phase = "final shutdown"; await host.stop();
       expect(await observeStoreProductRequestFixture({ physical, catalog: seed.catalog })).toEqual(before);
     } catch (cause) { console.error("Store Product DO proof failed", { phase }); primary.push(cause); throw cause; }
     finally {
       const failures: unknown[] = [];
-      try { await stop(); } catch (cause) { failures.push(cause); }
+      try { await scenario?.stop(); } catch (cause) { failures.push(cause); }
       try { await seed?.fixture.close(); } catch (cause) { failures.push(cause); }
       try { await physical.close(); } catch (cause) { failures.push(cause); }
       if (failures.length > 0) throw new AggregateError([...primary, ...failures], "Store Product DO proof cleanup failed");
