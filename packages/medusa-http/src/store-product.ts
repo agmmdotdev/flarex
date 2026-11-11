@@ -12,7 +12,7 @@ export type StoreProductHttpOptions = {
   resolveCustomerPrincipal?(request: Request): AuthContext | undefined | Promise<AuthContext | undefined>
 }
 
-/** Native Store middleware owns key, customer, channel and pricing semantics. */
+/** Native Store Product and Collection routes retain their own middleware semantics. */
 export function createStoreProductHttpHandler(options: StoreProductHttpOptions): FetchHttpStaticHandler {
   const native = createFetchHttpStaticHandler({
     allowedMethods: ["GET"],

@@ -52,6 +52,9 @@ const nativeStoreApplicationDOExports = new Map([
     target: "packages/medusa-deps/src/awilix-portable.mjs" }],
 ]);
 const nativeStoreApplicationDOImports = new Map([
+  ["apps/executor/test/adminProductApplicationDO.workerd.worker.ts", new Set([
+    "@flarex/medusa-adapter/internal/system-test/store-product-request-catalog",
+  ])],
   ["apps/executor/test/storeCurrencyApplicationDO.workerd.worker.ts", new Set([
     "@flarex/medusa-adapter/internal/store-request-reads", "@flarex/medusa-adapter/internal/store-request-scope",
     "@flarex/medusa-adapter/internal/system-test/store-request-read-catalog", "@flarex/medusa-http/effect", "@medusajs/deps/awilix-portable",

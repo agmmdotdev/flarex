@@ -112,6 +112,10 @@ describe(`native Product HTTP data operations (${driver})`, () => {
             (name === "unsupported-product-workflow" ? reason.error.reason === "unsupportedProfile" : reason.error.reason === "adapterFailure" &&
               reason.error.cause instanceof MedusaError && reason.error.cause.type === MedusaError.Types.INVALID_DATA))).toBe(true);
         }
+        for (const order of [{ created_at: "DESC" }, { updated_at: "ASC" }] as const) {
+          const result = yield* Effect.result(operations.query.graph({ entity: "product", fields: ["id"], pagination: { order } }));
+          expect(result).toMatchObject({ _tag: "Failure", failure: { reason: "adapterFailure" } });
+        }
         expect(() => operations.admitProductRefetchFields(["id", "variants.price_set.unadmitted"]))
           .toThrow("requires supported response fields");
       }));

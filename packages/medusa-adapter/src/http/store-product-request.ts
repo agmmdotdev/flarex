@@ -15,8 +15,10 @@ import { StorePricingContext } from "../modules/pricing/input";
 import { commerceDecoder } from "../value/decoder";
 import { captureCommerceInput } from "../value/input";
 import { QueryLimit, QueryOffset } from "../query/decoder";
+import { decodeProductCollectionRead, decodeProductNamedRead } from "../modules/product/service-input";
+import { decodeProductCollectionOrder } from "../modules/product/collection-read";
 import { compileProductRequestCatalog, runProductRequestPromise } from "./product-request";
-import { prepareProductRequestReadGraph, presentProductReadFailure } from "./product-request-reads";
+import { prepareCategoryRequestRead, prepareProductRequestReadGraph, presentProductReadFailure } from "./product-request-reads";
 import { compileStoreRequestReadCatalog, makeStoreRequestReads } from "./store-request-reads";
 import { compileStoreProductContextReadCatalog, makeStoreProductContextReads, type StoreProductContextInitializations } from "./store-product-context-reads";
 
@@ -55,7 +57,7 @@ export const normalizeStoreProductQueryContext = (value: unknown) => Result.gen(
 });
 
 const decodeProductQuery = commerceDecoder(Schema.Struct({
-  entity: Schema.Literals(["product", "product_sales_channel", "product_variant_inventory_items", "sales_channels"]),
+  entity: Schema.Literals(["product", "product_collection", "product_tag", "product_type", "product_category", "product_sales_channel", "product_variant_inventory_items", "sales_channels"]),
   fields: Schema.Array(Schema.String.check(Schema.isLengthBetween(1, 256))).check(Schema.isLengthBetween(1, 256)),
   filters: Schema.optionalKey(Schema.JsonObject), context: Schema.optionalKey(Schema.JsonObject),
   pagination: Schema.optionalKey(Schema.Struct({ take: Schema.optionalKey(QueryLimit), skip: Schema.optionalKey(QueryOffset),
@@ -75,6 +77,10 @@ export const makeStoreProductRequestReads = Effect.fn("StoreProductRequest.makeR
   database: CoreDatabase; hostRuntime: PreparedHostRuntime; catalog: StoreProductRequestCatalog; identityAndAccessPolicy: Json;
 }>) {
   const prepared = yield* prepareProductRequestReadGraph(input.catalog.product, true, input.catalog.pricing.graph);
+  const productMember = prepared.members.find(member => member.source.name === "product");
+  const categoryRead = input.catalog.product.runtimes.product.graph.reads.find(read => read.model === input.catalog.product.runtimes.product.metadata.category.model);
+  if (productMember === undefined || categoryRead === undefined) return yield* commerceError("invalidAuthority");
+  const categories = prepareCategoryRequestRead(categoryRead, productMember.participant, input.catalog.product.runtimes.product.metadata);
   const auth = yield* makeStoreRequestReads({ ...input, catalog: input.catalog.auth });
   const contexts = yield* makeStoreProductContextReads({ ...input, catalog: input.catalog.context });
   const hosts = new Map<AtomicCommerceParticipant, { readonly commands: ReadonlySet<CommerceCommand>;
@@ -99,6 +105,17 @@ export const makeStoreProductRequestReads = Effect.fn("StoreProductRequest.makeR
     const query = yield* Effect.fromResult(decodeProductQuery(captured));
     const checked = options === undefined ? undefined
       : yield* Effect.fromResult(captureCommerceInput(options).pipe(Result.flatMap(decodeOptions)));
+    if (query.entity === "product_tag" || query.entity === "product_type")
+      yield* Effect.fromResult(decodeProductNamedRead({ filters: query.filters ?? {} }));
+    if (query.entity === "product_collection") {
+      yield* Effect.fromResult(decodeProductCollectionRead({ filters: query.filters ?? {} }));
+      if (query.pagination?.order !== undefined) yield* Effect.fromResult(decodeProductCollectionOrder(query.pagination.order));
+      // The pinned Collection route supplies no Product publication/channel
+      // filters. Refuse traversal in this private Store profile before reading;
+      // ordinary Admin Collection relation capabilities remain module-owned.
+      if (query.fields.some(field => field === "products" || field.startsWith("products.")))
+        return yield* commerceError("unsupportedProfile");
+    }
     const contextMap = yield* Effect.fromResult(normalizeStoreProductQueryContext(query.context ?? {}));
     let failure: Cause.Cause<CommerceTransactionError> | undefined;
     const context: GraphReadContext = {
@@ -110,13 +127,18 @@ export const makeStoreProductRequestReads = Effect.fn("StoreProductRequest.makeR
         return yield* host.read(command, args);
       }),
     };
+    const keyOptions = checked?.throwIfKeyNotFound === true ? { throwIfKeyNotFound: true } : undefined;
+    if (query.entity === "product_category") {
+      if (Object.keys(contextMap).length !== 0) return yield* commerceError("unsupportedProfile");
+      return yield* categories.execute(context, { ...query, entity: "product_category" }, keyOptions);
+    }
     // Locale is admitted and propagated by HTTP. This composition explicitly
     // refuses enabled Translation; the disabled native query branch is a no-op.
     return yield* prepared.graph.bind(context).graph({ entity: query.entity === "sales_channels" ? "sales_channel" : query.entity,
       fields: query.fields, filters: query.filters ?? {}, context: contextMap,
       pagination: { take: query.pagination?.take ?? commerceLimits.catalogRows, skip: query.pagination?.skip ?? 0,
         ...(query.pagination?.order === undefined ? {} : { order: query.pagination.order }) } },
-    checked?.throwIfKeyNotFound === true ? { throwIfKeyNotFound: true } : undefined);
+    keyOptions);
   }, presentProductReadFailure);
   const index = Effect.fn("StoreProductRequest.index")(function* (_value: unknown, _options?: unknown) {
     return yield* commerceError("adapterFailure", new MedusaError(MedusaError.Types.INVALID_DATA,

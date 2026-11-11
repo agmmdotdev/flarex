@@ -91,6 +91,7 @@ export const makeLocalProductCommands = Effect.fn("ProductAdapter.commands")(fun
     updateCategories: writes.updateCategories, upsertOptions: writes.upsertOptions, upsertVariants: writes.upsertVariants,
     upsertCollections: writes.upsertCollections, upsertCategories: writes.upsertCategories });
   const graph = yield* Effect.fromResult(productGraphDefinition(metadata, commands));
+  const storeGraph = yield* Effect.fromResult(productGraphDefinition(metadata, commands, true));
   const receipts = productCallReceipts(metadata);
   const admitted = new Set(Object.values(commands));
   const validateLogicalCall: LogicalCommerceCallValidation = Effect.fn("Product.validateNativeCall")(
@@ -148,5 +149,5 @@ export const makeLocalProductCommands = Effect.fn("ProductAdapter.commands")(fun
     { created: metadata.option.createdEvent, updated: metadata.option.updatedEvent, deleted: metadata.option.deletedEvent,
       valueCreated: metadata.value.createdEvent, valueUpdated: metadata.value.updatedEvent, valueDeleted: metadata.value.deletedEvent },
     { ...logicalPolicy, commands: Object.values(commands) }));
-  return { metadata, commands, withService, graph, workflow, variantUpdateWorkflow, productVariantInventoryLinkWorkflow, productUpdateWorkflow, productDeletionWorkflow, productBatchWorkflow, productTypeWorkflow, productCollectionWorkflow, productCategoryWorkflow, productOptionWorkflow, productImageVariantWorkflow, productVariantImageWorkflow, logicalPolicy };
+  return { metadata, commands, withService, graph, storeGraph, workflow, variantUpdateWorkflow, productVariantInventoryLinkWorkflow, productUpdateWorkflow, productDeletionWorkflow, productBatchWorkflow, productTypeWorkflow, productCollectionWorkflow, productCategoryWorkflow, productOptionWorkflow, productImageVariantWorkflow, productVariantImageWorkflow, logicalPolicy };
 });

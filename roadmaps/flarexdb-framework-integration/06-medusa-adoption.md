@@ -36,6 +36,32 @@ checks publishable-key and customer selection across recreation. Both use
 `FLAREX_CORE_POSTGRES_ENDPOINTS_FILE` for the local Workerd tests' serving and
 provisioning connections and skip when it is absent.
 
+#### Store catalog reads
+
+The private Store manifest includes list and detail GETs for Collections,
+Product Tags, Product Types and Product Categories. They use the common Store
+publishable-key and locale middleware and call native `query.graph` in the
+read-only Store composition. All four list responses include the matched
+count before pagination.
+
+- Collections default to ten rows ordered by `created_at DESC`. Core orders the
+  complete bounded cohort by the canonical timestamp and breaks ties by native
+  primary identity. The Store profile supports `id`, `title` and `handle`
+  equality and membership filters. Free text, timestamp filter operators,
+  logical filter trees and nested Collection Product expansion return 400.
+- Tags and Types default to fifty rows and expand `products`. The pinned
+  handlers apply no Product publication or Sales Channel filter to that
+  relation. A valid publishable key can therefore read a linked draft or a
+  Product outside its assigned channel through these endpoints. Admin Type
+  refetches retain their existing projection policy.
+- Categories default to fifty rows with parent and child projections. Native
+  middleware enforces active, non-internal roots. The native category service
+  also applies those flags when it reads the tree. Explicit `products` projections
+  return category members under the same native Product visibility behavior as
+  Tags and Types. An empty Category detail result serializes as `{}` with HTTP
+  200 in this pin. Missing Collection,
+  Tag and Type details return 404.
+
 #### Product HTTP promotion completion goal
 
 The in-scope pinned Product HTTP family runs on the existing private
@@ -52,8 +78,8 @@ Type/Tag/Category/Collection methods, global Variant reads and all four nested
 Inventory Link methods and both Product and scoped Variant batches. The two
 Product association endpoints owned by Sales Channel and Price List and the two
 Store Product reads are also connected, completing all fifty in-scope methods.
-Independent Inventory/Pricing CRUD and Store taxonomy families retain
-their own adoption scopes.
+Independent Inventory/Pricing CRUD retain their own adoption scopes. The eight
+Store catalog methods above are additional to the fifty Product methods.
 
 Store Product list/detail handlers and their native middleware have connected
 database and actual-host acceptance. The separate

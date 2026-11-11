@@ -1,5 +1,5 @@
 {
   "extends": "./tsconfig.json",
-  "include": ["src/http/store-product-request.ts", "test/store-product-request.test.ts", "test/store-product-query-context.test.ts", "test/store-product-context-read-contracts.test.ts", "test/store-product-pricing-graph.test.ts", "vitest.store-product-request.config.ts"],
+  "include": ["src/http/store-product-request.ts", "test/store-taxonomy-request.test.ts", "test/store-collection-request.test.ts", "test/store-product-request.test.ts", "test/store-product-query-context.test.ts", "test/store-product-context-read-contracts.test.ts", "test/store-product-pricing-graph.test.ts", "vitest.store-product-request.config.ts"],
   "exclude": []
 }

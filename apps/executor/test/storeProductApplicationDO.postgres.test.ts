@@ -12,6 +12,7 @@ const endpoints = endpointPath === undefined ? undefined : Schema.decodeUnknownS
   provisioningConnectionString: Schema.NonEmptyString }))(JSON.parse(await readFile(endpointPath, "utf8")));
 const privateToken = "private-native-store-product-do-proof";
 const suite = createMedusaDOTestSuite(new URL("./storeProductApplicationDO.workerd.worker.ts", import.meta.url));
+const adminSuite = createMedusaDOTestSuite(new URL("./adminProductApplicationDO.workerd.worker.ts", import.meta.url));
 const object = Schema.decodeUnknownSync(Schema.JsonObject);
 const products = Schema.decodeUnknownSync(Schema.Struct({ products: Schema.Array(Schema.JsonObject), count: Schema.Number, offset: Schema.Number, limit: Schema.Number }));
 const product = Schema.decodeUnknownSync(Schema.Struct({ product: Schema.JsonObject }));
@@ -21,6 +22,156 @@ const variant = (value: typeof Schema.JsonObject.Type) => {
 };
 
 describe.runIf(endpoints !== undefined)("native Store Product reads in the actual application DO", () => {
+  it("reads actual Admin-created Collections, Tags, Types and Categories from the same Core tenant across the Admin-to-Store handoff and Store recreation", async () => {
+    if (endpoints === undefined) throw new Error("Store Collection DO requires ordinary PostgreSQL");
+    const physical = await createCorePostgresFixture(endpoints);
+    let prepared: Awaited<ReturnType<typeof prepareStoreProductRequestFixture>> | undefined;
+    let admin: Awaited<ReturnType<typeof adminSuite.createScenario>> | undefined;
+    let store: Awaited<ReturnType<typeof suite.createScenario>> | undefined;
+    const primary: unknown[] = [];
+    let phase = "initialization";
+    try {
+      // Reuse the existing Store superset bootstrap. Taxonomy business rows
+      // start empty and are created exclusively by the promoted Admin route.
+      prepared = await prepareStoreProductRequestFixture("postgres", { physical: { ...physical, close: async () => {} } });
+      await prepared.fixture.close();
+      const profile = { ...executorApplicationProfileFixture(), ...storeProductRequestTarget,
+        persistenceNamespace: physical.namespace, instanceName: physical.instanceName };
+      const adminCredential = "native-store-collection-admin-identity";
+      admin = await adminSuite.createScenario({ profile, connectionString: endpoints.connectionString, privateToken,
+        className: "NativeAdminProductApplicationFixture", hostname: "native-collection-admin.test",
+        bindings: { ADMIN_PRODUCT_CREDENTIAL: adminCredential, ADMIN_PRODUCT_STORE_CATALOG: "true" },
+        headers: { "x-admin-fixture-token": adminCredential, origin: "https://admin.test" } });
+      const administrator = admin;
+      phase = "Admin startup"; administrator.start(); await administrator.ready();
+      const post = async (path: string, input: unknown) => {
+        phase = `Admin POST ${path}`;
+        const response = await administrator.request(path, { method: "POST", body: input });
+        const body = object(await response.json()); expect(response.status, JSON.stringify(body)).toBe(200); return body;
+      };
+      const create = async (title: string, handle: string) => {
+        const body = await post("/admin/collections", { title, handle, metadata: { private: "admin-only-default" } });
+        return Schema.decodeUnknownSync(Schema.Struct({ id: Schema.NonEmptyString, title: Schema.String, handle: Schema.String,
+          created_at: Schema.String, updated_at: Schema.String }))(body.collection);
+      };
+      const alpha = await create("Alpha Collection", "store-collection-alpha");
+      const beta = await create("Beta Collection", "store-collection-beta");
+      expect(alpha.id).not.toBe(beta.id);
+      const nativeId = Schema.decodeUnknownSync(Schema.Struct({ id: Schema.NonEmptyString }));
+      const tag = nativeId((await post("/admin/product-tags", { value: "Store DO Tag" })).product_tag);
+      const type = nativeId((await post("/admin/product-types", { value: "Store DO Type" })).product_type);
+      const root = nativeId((await post("/admin/product-categories", { name: "Public Root", handle: "store-do-root", is_active: true })).product_category);
+      const child = nativeId((await post("/admin/product-categories", { name: "Public Child", handle: "store-do-child", is_active: true,
+        parent_category_id: root.id })).product_category);
+      const internal = nativeId((await post("/admin/product-categories", { name: "Internal Category", handle: "store-do-internal",
+        is_active: true, is_internal: true, parent_category_id: root.id })).product_category);
+      const inactive = nativeId((await post("/admin/product-categories", { name: "Inactive Category", handle: "store-do-inactive",
+        is_active: false, parent_category_id: root.id })).product_category);
+      const linkedProducts = [];
+      for (const status of ["published", "draft"] as const) {
+        const created = nativeId((await post("/admin/products?fields=id", { title: `Taxonomy ${status}`, handle: `store-do-taxonomy-${status}`,
+          status, type_id: type.id, tags: [{ id: tag.id }], options: [{ title: "Size", values: ["One"] }],
+          variants: [{ title: "One", manage_inventory: false, options: { Size: "One" }, prices: [] }] })).product);
+        linkedProducts.push({ id: created.id, status });
+      }
+      phase = "Admin shutdown"; await administrator.stop();
+      const committed = await observeStoreProductRequestFixture({ physical, catalog: prepared.catalog });
+      store = await suite.createScenario({ profile, connectionString: endpoints.connectionString, privateToken,
+        className: "NativeStoreProductApplicationFixture", hostname: "native-collection-store.test",
+        headers: { "x-publishable-api-key": storeProductToken, origin: "https://store.test" } });
+      const host = store;
+      const request = async (path: string, options: Readonly<{ status?: number; key?: string | undefined }> = {}) => {
+        phase = path;
+        const response = await host.request(path, { headers: Object.hasOwn(options, "key") ? { "x-publishable-api-key": options.key } : {} });
+        const body = object(await response.json()); expect(response.status, JSON.stringify(body)).toBe(options.status ?? 200);
+        expect(response.headers.get("access-control-allow-origin")).toBe("https://store.test"); return body;
+      };
+      const collections = Schema.decodeUnknownSync(Schema.Struct({ collections: Schema.Array(Schema.JsonObject),
+        count: Schema.Number, offset: Schema.Number, limit: Schema.Number }));
+      phase = "Store startup"; host.start(); await host.ready();
+      const defaults = collections(await request("/store/collections"));
+      expect(defaults).toMatchObject({ count: 2, offset: 0, limit: 10 });
+      expect(defaults.collections).toEqual([beta, alpha]);
+      for (const row of defaults.collections) expect(Object.keys(row).toSorted()).toEqual(["id", "title", "handle", "created_at", "updated_at"].toSorted());
+      expect(collections(await request(`/store/collections?handle=${alpha.handle}&fields=id,title`)))
+        .toEqual({ collections: [{ id: alpha.id, title: alpha.title }], count: 1, offset: 0, limit: 10 });
+      expect(collections(await request(`/store/collections?id=${beta.id}&fields=id`)))
+        .toEqual({ collections: [{ id: beta.id }], count: 1, offset: 0, limit: 10 });
+      expect(collections(await request("/store/collections?title=Beta%20Collection&fields=id")))
+        .toEqual({ collections: [{ id: beta.id }], count: 1, offset: 0, limit: 10 });
+      expect(collections(await request("/store/collections?fields=id&order=title&offset=1&limit=1")))
+        .toEqual({ collections: [{ id: beta.id }], count: 2, offset: 1, limit: 1 });
+      const detail = await request(`/store/collections/${alpha.id}`);
+      expect(detail).toEqual({ collection: alpha });
+      expect(await request(`/store/collections/${beta.id}?fields=id,title`)).toEqual({ collection: { id: beta.id, title: beta.title } });
+      expect(await request("/store/collections/missing", { status: 404 })).toMatchObject({ type: "not_found", message: "Collection with id: missing was not found" });
+      for (const path of ["/store/collections", `/store/collections/${alpha.id}`]) {
+        await request(path, { key: undefined, status: 400 });
+        await request(path, { key: "pk_missing", status: 400 });
+      }
+      const taxonomySnapshots: Array<readonly [string, typeof Schema.JsonObject.Type]> = [];
+      const remember = async (path: string) => {
+        const body = await request(path); taxonomySnapshots.push([path, body]); return body;
+      };
+      const linkedIds = linkedProducts.map(row => row.id).toSorted();
+      for (const [family, entity, row, value] of [["product-tags", "product_tag", tag, "Store DO Tag"],
+        ["product-types", "product_type", type, "Store DO Type"]] as const) {
+        const path = `/store/${family}`;
+        const listed = await remember(path);
+        expect(listed).toMatchObject({ count: 1, offset: 0, limit: 50 });
+        const [listedRow] = variants(listed[`${entity}s`]);
+        expect(listedRow).toMatchObject({ id: row.id, value, metadata: null });
+        expect(variants(listedRow?.products).map(product => product.id).toSorted()).toEqual(linkedIds);
+        const detail = await remember(`${path}/${row.id}`);
+        expect(detail[entity]).toEqual(listedRow);
+        // These native taxonomy routes do not apply Store Product publication
+        // or sales-channel selection to their linked scalar Product rows.
+        expect(variants(object(detail[entity]).products)).toEqual(expect.arrayContaining(linkedProducts.map(product => expect.objectContaining(product))));
+        const selected = await request(`${path}/${row.id}?fields=id,value,products.id,products.status`);
+        expect(object(selected[entity])).toEqual({ id: row.id, value,
+          products: expect.arrayContaining(linkedProducts) });
+        expect(await request(`${path}?value=${encodeURIComponent(value)}&fields=id`))
+          .toEqual({ [`${entity}s`]: [{ id: row.id }], count: 1, offset: 0, limit: 50 });
+        await request(`${path}/missing`, { status: 404 });
+        for (const route of [path, `${path}/${row.id}`]) await request(route, { key: "pk_missing", status: 400 });
+      }
+      const categoryPath = "/store/product-categories";
+      const categoryList = await remember(categoryPath);
+      expect(categoryList).toMatchObject({ count: 2, offset: 0, limit: 50 });
+      expect(variants(categoryList.product_categories).map(row => row.id).toSorted()).toEqual([root.id, child.id].toSorted());
+      const rootDetail = await remember(`${categoryPath}/${root.id}`);
+      expect(rootDetail).toMatchObject({ product_category: { id: root.id, name: "Public Root", parent_category: null,
+        category_children: [{ id: child.id, name: "Public Child", parent_category_id: root.id }] } });
+      const childDetail = await remember(`${categoryPath}/${child.id}`);
+      expect(childDetail).toMatchObject({ product_category: { id: child.id, parent_category_id: root.id,
+        parent_category: { id: root.id, name: "Public Root" }, category_children: [] } });
+      expect(await request(`${categoryPath}?parent_category_id=${root.id}&fields=id,parent_category_id`))
+        .toEqual({ product_categories: [{ id: child.id, parent_category_id: root.id }], count: 1, offset: 0, limit: 50 });
+      expect(await request(`${categoryPath}/${child.id}?fields=id,name,parent_category.name`))
+        .toEqual({ product_category: { id: child.id, name: "Public Child", parent_category: { name: "Public Root" } } });
+      for (const hidden of [internal, inactive]) {
+        expect(await request(`${categoryPath}?id=${hidden.id}&fields=id`)).toEqual({ product_categories: [], count: 0, offset: 0, limit: 50 });
+        expect(await request(`${categoryPath}/${hidden.id}`)).toEqual({});
+      }
+      for (const route of [categoryPath, `${categoryPath}/${root.id}`]) await request(route, { key: "pk_missing", status: 400 });
+      phase = "Store shutdown"; await host.stop();
+      expect(await observeStoreProductRequestFixture({ physical, catalog: prepared.catalog })).toEqual(committed);
+      phase = "Store recreation"; host.start(); await host.ready();
+      expect(collections(await request("/store/collections"))).toEqual(defaults);
+      expect(await request(`/store/collections/${alpha.id}`)).toEqual(detail);
+      for (const [path, expected] of taxonomySnapshots) expect(await request(path)).toEqual(expected);
+      phase = "final Store shutdown"; await host.stop();
+      expect(await observeStoreProductRequestFixture({ physical, catalog: prepared.catalog })).toEqual(committed);
+    } catch (cause) { console.error("Store Collection DO proof failed", { phase }); primary.push(cause); throw cause; }
+    finally {
+      const failures: unknown[] = [];
+      for (const scenario of [admin, store]) try { await scenario?.stop(); } catch (cause) { failures.push(cause); }
+      try { await prepared?.fixture.close(); } catch (cause) { failures.push(cause); }
+      try { await physical.close(); } catch (cause) { failures.push(cause); }
+      if (failures.length > 0) throw new AggregateError([...primary, ...failures], "Store Collection DO proof cleanup failed");
+    }
+  }, 300_000);
+
   it("serves native defaults, customer pricing, tax and channel inventory and preserves every durable row across DO recreation", async () => {
     if (endpoints === undefined) throw new Error("Store Product DO requires ordinary PostgreSQL");
     const physical = await createCorePostgresFixture(endpoints);

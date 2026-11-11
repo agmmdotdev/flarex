@@ -10,12 +10,52 @@
     },
     {
       "relativePath": "packages/medusa-http/src/api/store/products/[id]/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa-http/src/api/store/collections/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa-http/src/api/store/collections/[id]/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa-http/src/api/store/product-tags/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa-http/src/api/store/product-tags/[id]/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa-http/src/api/store/product-types/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa-http/src/api/store/product-types/[id]/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa-http/src/api/store/product-categories/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa-http/src/api/store/product-categories/[id]/route.ts"
     }
   ],
   "middlewares": [
     {
       "relativePath": "packages/medusa-http/src/api/store/products/middlewares.ts",
       "exportName": "storeProductRoutesMiddlewares"
+    },
+    {
+      "relativePath": "packages/medusa-http/src/api/store/collections/middlewares.ts",
+      "exportName": "storeCollectionRoutesMiddlewares"
+    },
+    {
+      "relativePath": "packages/medusa-http/src/api/store/product-tags/middlewares.ts",
+      "exportName": "storeProductTagRoutesMiddlewares"
+    },
+    {
+      "relativePath": "packages/medusa-http/src/api/store/product-types/middlewares.ts",
+      "exportName": "storeProductTypeRoutesMiddlewares"
+    },
+    {
+      "relativePath": "packages/medusa-http/src/api/store/product-categories/middlewares.ts",
+      "exportName": "storeProductCategoryRoutesMiddlewares"
     }
   ]
 }

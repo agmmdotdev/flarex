@@ -1,14 +1,15 @@
-import { Cause, Clock, Effect, Result } from "effect";
+import { env as workerEnv } from "cloudflare:workers";
+import { Cause, Clock, Effect, Result, Schema } from "effect";
 import { asValue, createContainer } from "@medusajs/deps/awilix-portable";
 import { makePreparedHostRuntime } from "@flarex/persistence-postgres/internal/prepared-host-runtime";
 import { compileProductRequestCatalog, makeProductRequestOperations, makeProductRequestScopeFactory } from "@flarex/medusa-adapter/internal/product-request";
+import { compileStoreProductRequestFixtureCatalog } from "@flarex/medusa-adapter/internal/system-test/store-product-request-catalog";
 import { makeAdminProductEffectHttpHandler } from "@flarex/medusa-http/admin-product-effect";
 import { makeExecutorApplicationCredentials, executorApplicationSha256 } from "../src/applicationComposition";
 import { executorApplicationObjectConfiguration, readExecutorApplicationProfiles, type ExecutorApplicationEnv } from "../src/applicationConfiguration";
 import { makeApplicationDurableObject } from "../src/applicationDO";
 import { admitExecutorRequest } from "../src/requestLifecycle";
 import { executorApplicationProfileFixture } from "./support/executorApplicationConfiguration";
-import { adminProductDOFixtureTarget } from "./support/adminProductDOFixtureIdentity";
 
 interface NativeProductEnv extends ExecutorApplicationEnv {
   readonly ADMIN_PRODUCT_CREDENTIAL: string;
@@ -19,7 +20,17 @@ interface Env extends NativeProductEnv {
 
 // Only deterministic native definition production occurs here. Provisioning and
 // all initialization receipts are complete before this Worker starts.
-const catalog = await Effect.runPromise(compileProductRequestCatalog(adminProductDOFixtureTarget));
+const fixtureConfiguration = Schema.decodeUnknownSync(Schema.Struct({ FLAREX_APPLICATION_PROFILES: Schema.String,
+  ADMIN_PRODUCT_STORE_CATALOG: Schema.optionalKey(Schema.Literal("true")) }))(workerEnv);
+const fixtureProfile = Result.getOrThrow(readExecutorApplicationProfiles(fixtureConfiguration))[0];
+if (fixtureProfile === undefined) throw new Error("Missing private native Product fixture identity");
+// The Store handoff proof opens one already-initialized superset catalog. Its
+// Admin operations retain their original sources and mutation capabilities;
+// only the exact installed bundle proof changes for that explicit fixture.
+const storeCatalog = fixtureConfiguration.ADMIN_PRODUCT_STORE_CATALOG === "true"
+  ? (await Effect.runPromise(compileStoreProductRequestFixtureCatalog(fixtureProfile))).catalog : undefined;
+const catalog = storeCatalog === undefined ? await Effect.runPromise(compileProductRequestCatalog(fixtureProfile))
+  : { ...storeCatalog.product, bundle: storeCatalog.bundle };
 const workload = executorApplicationProfileFixture().workload;
 type NativeFixtureFailure = Effect.Error<ReturnType<typeof makeExecutorApplicationCredentials>>
   | Effect.Error<ReturnType<typeof makePreparedHostRuntime>> | Effect.Error<ReturnType<typeof makeProductRequestOperations>>;

@@ -17,14 +17,14 @@ type ProductGraphCommands = Readonly<Record<"count" | "countCategories" | "count
 
 /** Module-owned capabilities extend checked metadata; Category hydration and
  * Product's image-assignment path remain the actual services' responsibility. */
-export function productGraphDefinition(metadata: ProductRuntimeMetadata, commands: ProductGraphCommands): Result.Result<GraphModuleDefinition, ReturnType<typeof commerceError>> {
+export function productGraphDefinition(metadata: ProductRuntimeMetadata, commands: ProductGraphCommands, storeTaxonomy = false): Result.Result<GraphModuleDefinition, ReturnType<typeof commerceError>> {
   return Result.gen(function* () {
     const reads: GraphReadDefinition[] = [];
     const selected = [
       { entity: metadata.product, command: commands.count, paths: [...productRelations] },
       { entity: metadata.category, command: commands.countCategories, paths: ["products"] },
       { entity: metadata.collection, command: commands.countCollections },
-      { entity: metadata.type, command: commands.countTypes },
+      { entity: metadata.type, command: commands.countTypes, paths: storeTaxonomy ? ["products"] : [] },
       { entity: metadata.tag, command: commands.countTags },
       { entity: metadata.option, command: commands.countOptions },
       { entity: metadata.variant, command: commands.countVariants },
@@ -39,10 +39,11 @@ export function productGraphDefinition(metadata: ProductRuntimeMetadata, command
       );
       // The Product service assembles this from variants, images and assignments.
       if (entity === metadata.product) paths.push({ path: "variants.images", table: yield* metadata.readCatalog.table(metadata.image.table.name), many: true });
-      const orderable = entity === metadata.product ? ["id", "handle", "title", "status", "created_at", "updated_at"] : entity === metadata.category ? ["id", "rank"] : ["id"];
+      const orderable = entity === metadata.product ? ["id", "handle", "title", "status", "created_at", "updated_at"]
+        : entity === metadata.collection ? ["id", "title", "handle", "created_at", "updated_at"] : entity === metadata.category ? ["id", "rank"] : ["id"];
       const uniqueOrder = orderable.filter(field => field === "id" || entity.table.indexes.some(index => index.unique && index.columns.length === 1 && index.columns[0] === field));
       reads.push({ model: entity.model, command, table, paths, orderable, uniqueOrder,
-        multipleOrder: entity === metadata.category || entity === metadata.product, decode: entity === metadata.category ? decodeCategoryCount : decodeGraphCount });
+        multipleOrder: entity === metadata.category || entity === metadata.product || entity === metadata.collection, decode: entity === metadata.category ? decodeCategoryCount : decodeGraphCount });
     }
     // The retained method is pure static metadata and does not use its receiver.
     return { aliases: yield* moduleAliases(ProductModuleService.prototype.__joinerConfig()), reads };

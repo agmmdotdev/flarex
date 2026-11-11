@@ -271,7 +271,7 @@ export const prepareProductRequestReadGraph = Effect.fn("ProductRequest.prepareR
   // Native Store enrichment consumes the authentic remote-join identity even
   // when the caller selected only the calculated-price alias.
   const productGraph: GraphModuleDefinition = storePricing === undefined ? product.graph : {
-    ...product.graph, reads: product.graph.reads.map(read => read.model === root ? { ...read, nativeFields: true } : read),
+    ...product.storeGraph, reads: product.storeGraph.reads.map(read => read.model === root ? { ...read, nativeFields: true } : read),
   };
   const definitions: Readonly<Record<string, GraphModuleDefinition>> = {
     product: productGraph, pricing: storePricing ?? { aliases: [...pricing.graph.aliases, ...catalog.runtimes.pricingReads.graph.aliases],
@@ -326,7 +326,14 @@ export const makeProductRequestReads = Effect.fn("ProductRequest.makeReads")(fun
     const query = yield* Effect.fromResult(captureCommerceInput(value).pipe(Result.flatMap(decodeQuery)));
     const checkedOptions = options === undefined ? undefined
       : yield* Effect.fromResult(captureCommerceInput(options).pipe(Result.flatMap(decodeOptions)));
+    // Generic Core timestamp-order support does not activate this independent
+    // Admin HTTP capability; retain the private Product profile's refusal.
+    if (query.entity === "product" && (query.pagination?.order?.created_at !== undefined || query.pagination?.order?.updated_at !== undefined))
+      return yield* commerceError("unsupportedProfile");
     if (query.entity === "product_collection") {
+      // Admin's existing bounded profile retains scalar title/handle filters
+      // and id-only ordering; Store's expanded owner admission is independent.
+      if (Array.isArray(query.filters?.title) || Array.isArray(query.filters?.handle)) return yield* commerceError("unsupportedProfile");
       yield* Effect.fromResult(decodeProductCollectionRead({ filters: query.filters ?? {} }));
       if (query.pagination?.order !== undefined) yield* Effect.fromResult(decodeCollectionOrder(query.pagination.order));
     }

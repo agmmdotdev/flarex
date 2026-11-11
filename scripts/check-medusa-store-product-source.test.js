@@ -20,6 +20,10 @@ describe("selected native Store Product source provenance", () => {
     }
   });
   it.each([
+    ["store/collections/route.ts", "filters: req.filterableFields", "filters: {}"],
+    ["store/collections/route.ts", "locale: req.locale", "locale: undefined"],
+    ["store/collections/[id]/route.ts", "MedusaError.Types.NOT_FOUND", "MedusaError.Types.INVALID_DATA"],
+    ["store/collections/validators.ts", 'order: "-created_at"', 'order: "id"'],
     ["store/products/middlewares.ts", "salesChannelCount > 1", "salesChannelCount > 0"],
     ["store/products/middlewares.ts", "delete req.filterableFields.sales_channel_id", "void req.filterableFields.sales_channel_id"],
     ["store/products/middlewares.ts", "status: ProductStatus.PUBLISHED", "status: ProductStatus.DRAFT"],

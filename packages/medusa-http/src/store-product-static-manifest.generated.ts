@@ -2,7 +2,19 @@
 import type { StaticHttpResourceManifest } from "@medusajs/framework/http/static"
 import * as storeProductsRoute from "./api/store/products/route"
 import * as storeProductsByIdRoute from "./api/store/products/[id]/route"
+import * as storeCollectionsRoute from "./api/store/collections/route"
+import * as storeCollectionsByIdRoute from "./api/store/collections/[id]/route"
+import * as storeProductTagsRoute from "./api/store/product-tags/route"
+import * as storeProductTagsByIdRoute from "./api/store/product-tags/[id]/route"
+import * as storeProductTypesRoute from "./api/store/product-types/route"
+import * as storeProductTypesByIdRoute from "./api/store/product-types/[id]/route"
+import * as storeProductCategoriesRoute from "./api/store/product-categories/route"
+import * as storeProductCategoriesByIdRoute from "./api/store/product-categories/[id]/route"
 import { storeProductRoutesMiddlewares } from "./api/store/products/middlewares"
+import { storeCollectionRoutesMiddlewares } from "./api/store/collections/middlewares"
+import { storeProductTagRoutesMiddlewares } from "./api/store/product-tags/middlewares"
+import { storeProductTypeRoutesMiddlewares } from "./api/store/product-types/middlewares"
+import { storeProductCategoryRoutesMiddlewares } from "./api/store/product-categories/middlewares"
 
 export const storeProductHttpManifest = {
   routes: [
@@ -16,6 +28,46 @@ export const storeProductHttpManifest = {
       module: storeProductsByIdRoute,
       relativePath: "packages/medusa-http/src/api/store/products/[id]/route.ts",
     },
+    {
+      route: "/store/collections",
+      module: storeCollectionsRoute,
+      relativePath: "packages/medusa-http/src/api/store/collections/route.ts",
+    },
+    {
+      route: "/store/collections/:id",
+      module: storeCollectionsByIdRoute,
+      relativePath: "packages/medusa-http/src/api/store/collections/[id]/route.ts",
+    },
+    {
+      route: "/store/product-tags",
+      module: storeProductTagsRoute,
+      relativePath: "packages/medusa-http/src/api/store/product-tags/route.ts",
+    },
+    {
+      route: "/store/product-tags/:id",
+      module: storeProductTagsByIdRoute,
+      relativePath: "packages/medusa-http/src/api/store/product-tags/[id]/route.ts",
+    },
+    {
+      route: "/store/product-types",
+      module: storeProductTypesRoute,
+      relativePath: "packages/medusa-http/src/api/store/product-types/route.ts",
+    },
+    {
+      route: "/store/product-types/:id",
+      module: storeProductTypesByIdRoute,
+      relativePath: "packages/medusa-http/src/api/store/product-types/[id]/route.ts",
+    },
+    {
+      route: "/store/product-categories",
+      module: storeProductCategoriesRoute,
+      relativePath: "packages/medusa-http/src/api/store/product-categories/route.ts",
+    },
+    {
+      route: "/store/product-categories/:id",
+      module: storeProductCategoriesByIdRoute,
+      relativePath: "packages/medusa-http/src/api/store/product-categories/[id]/route.ts",
+    },
   ],
   middlewares: [
     {
@@ -25,6 +77,38 @@ export const storeProductHttpManifest = {
         },
       },
       source: "packages/medusa-http/src/api/store/products/middlewares.ts",
+    },
+    {
+      module: {
+        default: {
+          routes: storeCollectionRoutesMiddlewares,
+        },
+      },
+      source: "packages/medusa-http/src/api/store/collections/middlewares.ts",
+    },
+    {
+      module: {
+        default: {
+          routes: storeProductTagRoutesMiddlewares,
+        },
+      },
+      source: "packages/medusa-http/src/api/store/product-tags/middlewares.ts",
+    },
+    {
+      module: {
+        default: {
+          routes: storeProductTypeRoutesMiddlewares,
+        },
+      },
+      source: "packages/medusa-http/src/api/store/product-types/middlewares.ts",
+    },
+    {
+      module: {
+        default: {
+          routes: storeProductCategoryRoutesMiddlewares,
+        },
+      },
+      source: "packages/medusa-http/src/api/store/product-categories/middlewares.ts",
     },
   ],
 } satisfies StaticHttpResourceManifest

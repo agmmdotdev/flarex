@@ -6,9 +6,13 @@ const apiTarget = "packages/medusa-http/src/api/";
 const apiSource = "packages/medusa/src/api/";
 export const storeProductTypePaths = [
   "product/store/entitites.ts", "product/store/queries.ts", "product/store/responses.ts", "product/common.ts", "pricing/common.ts",
-  ...["collection", "product-category", "product-tag", "product-type"].flatMap(family => [family + "/common.ts", family + "/store/entities.ts"]),
+  ...["collection", "product-category", "product-tag", "product-type"].flatMap(family =>
+    ["common.ts", "store/entities.ts", "store/queries.ts", "store/responses.ts"].map(file => family + "/" + file)),
 ];
 export const storeProductSourcePairs = [
+  ...["collections", "product-tags", "product-types", "product-categories"].flatMap(family =>
+    ["route.ts", "[id]/route.ts", "middlewares.ts", "query-config.ts", "validators.ts", ...(family === "product-categories" ? ["helpers.ts"] : [])]
+      .map(file => ({ target: `${apiTarget}store/${family}/${file}`, source: `${upstream}${apiSource}store/${family}/${file}`, classification: "selectedExportFacade" }))),
   ...["route.ts", "[id]/route.ts", "middlewares.ts", "helpers.ts", "query-config.ts", "validators.ts"].map(file => ({
     target: apiTarget + "store/products/" + file, source: upstream + apiSource + "store/products/" + file, classification: "selectedExportFacade",
   })),
@@ -66,6 +70,7 @@ function relocateStoreTypes(native, target) {
       expected = expected.replace('"../../' + family + '"', '"../../' + family + '/store/entities"');
   }
   if (target.endsWith("product/store/responses.ts")) expected = expected.replace('"../store"', '"./entitites"');
+  if (target.endsWith("collection/store/responses.ts")) expected = expected.replace('from "."', 'from "./entities"');
   if (target.endsWith("collection/store/entities.ts") || target.endsWith("product-category/store/entities.ts"))
     expected = expected.replace('"../../product"', '"../../product/store/entitites"').replace('"../../product/store"', '"../../product/store/entitites"');
   return expected;
@@ -85,7 +90,16 @@ export function verifyStoreProductSource(native, promoted, target) {
     if (program(expected) !== program(promoted)) throw new Error(failure);
     return;
   }
-  if (target.endsWith("/store/products/route.ts")) {
+  if (/\/store\/(?:collections|product-tags|product-types|product-categories)\/route\.ts$/.test(target)) {
+    expected = expected.replace('from "@medusajs/framework/utils"', 'from "@medusajs/utils/common/container"');
+  } else if (/\/store\/(?:collections|product-tags|product-types|product-categories)\/\[id\]\/route\.ts$/.test(target)) {
+    expected = expected.replace('  ContainerRegistrationKeys,\n  MedusaError,\n} from "@medusajs/framework/utils"',
+      '  ContainerRegistrationKeys,\n} from "@medusajs/utils/common/container"\nimport { MedusaError } from "@medusajs/utils/common/errors"');
+  } else if (target.endsWith("/store/product-categories/middlewares.ts")) {
+    expected = expected.replace('from "@medusajs/framework"', 'from "@medusajs/framework/http"');
+  } else if (target.endsWith("/store/product-categories/helpers.ts")) {
+    expected = declarations(native, ["applyCategoryFilters"]);
+  } else if (target.endsWith("/store/products/route.ts")) {
     expected = expected.replace('import IndexEngineFeatureFlag from "../../../feature-flags/index-engine"\n', "").replaceAll("IndexEngineFeatureFlag.key", '"index_engine"')
       .replace('  ContainerRegistrationKeys,\n  FeatureFlag,\n  isPresent,\n  QueryContext,\n} from "@medusajs/framework/utils"',
         '  ContainerRegistrationKeys,\n} from "@medusajs/utils/common/container"\nimport { FeatureFlag } from "@medusajs/utils/feature-flags/flag-router"\nimport { isPresent } from "@medusajs/utils/common/is-present"\nimport { QueryContext } from "@medusajs/utils/modules-sdk/query-context"')

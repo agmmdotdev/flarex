@@ -62,6 +62,9 @@ describe("Medusa source-island boundary checker", () => {
     }).errors;
     expect(check(worker, workerImports)).toEqual([]);
     expect(check(test, testImports)).toEqual([]);
+    const writer = "apps/executor/test/adminProductApplicationDO.workerd.worker.ts";
+    expect(check(writer, [catalog])).toEqual([]);
+    for (const specifier of [root, fixture, http]) expect(check(writer, [specifier]).length).toBeGreaterThan(0);
     expect(check(worker, [fixture]).length).toBeGreaterThan(0);
     for (const specifier of [root, http, awilix]) expect(check(test, [specifier]).length).toBeGreaterThan(0);
     for (const importer of [worker.replace("storeProductApplicationDO", "adjacent"), test.replace("storeProductApplicationDO", "adjacent"),

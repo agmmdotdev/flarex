@@ -13,6 +13,7 @@ import { executeRead, orderedCatalog, type ReadPlan } from "../../query/read";
 import { preservePrimaryKeyOrFilterOrder } from "@medusajs/drizzle/relation-query";
 import type { WherePolicy } from "../../query/predicate";
 import type { CommerceRelationReadContext } from "../../query/relations";
+import { decodeProductCollectionOrder } from "./collection-read";
 
 const decodeEnvelope = commerceDecoder(QueryEnvelope, "unsupportedProfile");
 const decodeRelatedWhere = commerceDecoder(Schema.JsonObject, "unsupportedProfile");
@@ -20,9 +21,10 @@ const decodeOptions = commerceDecoder(Schema.Struct({
   fields: Schema.optionalKey(Schema.Array(Schema.String).check(Schema.isMinLength(1))),
   populate: Schema.optionalKey(Schema.Array(Schema.String)),
   limit: Schema.optionalKey(QueryLimit), offset: Schema.optionalKey(QueryOffset),
-  orderBy: Schema.optionalKey(Schema.Struct({ id: Schema.optionalKey(Schema.Literals(["ASC", "DESC"])) })),
+  orderBy: Schema.optionalKey(Schema.JsonObject),
   filters: Schema.optionalKey(Schema.Struct({ softDeletable: Schema.Struct({ withDeleted: Schema.Boolean }) })),
 }), "unsupportedProfile");
+const decodeIdentityOrder = commerceDecoder(Schema.Struct({ id: Schema.optionalKey(Schema.Literals(["ASC", "DESC"])) }), "unsupportedProfile");
 
 /** Internal service reads share the command's manager; this is no public DAL. */
 export const findProductRelated = Effect.fn("ProductAdapter.findRelated")(function* (
@@ -35,6 +37,10 @@ export const findProductRelated = Effect.fn("ProductAdapter.findRelated")(functi
   // Retain the entry's structural validation order before compiling capabilities.
   const where = yield* Effect.fromResult(decodeRelatedWhere(envelope.where ?? {}));
   const options = yield* Effect.fromResult(decodeOptions(envelope.options ?? {}));
+  const order = yield* Effect.fromResult((entity === metadata.collection ? decodeProductCollectionOrder : decodeIdentityOrder)(options.orderBy ?? {}));
+  const selectedOrder = Object.entries(order).find(([column]) => column !== "id");
+  const orderColumn = selectedOrder?.[0] ?? "id";
+  const direction = (selectedOrder?.[1] ?? order.id) === "DESC" ? "desc" : "asc";
   if (profileOptions.complete && (options.limit !== undefined || options.offset !== undefined))
     return yield* Effect.fail(commerceError("unsupportedProfile"));
   const relations = options.populate ?? [];
@@ -49,18 +55,17 @@ export const findProductRelated = Effect.fn("ProductAdapter.findRelated")(functi
     ? [{ kind: "isNull", column: "deleted_at" }] : [];
   if (decoded.kind === "and") children.push(...decoded.children);
   else children.push(decoded);
-  const direction = options.orderBy?.id === "DESC" ? "desc" : "asc";
   const result = yield* executeRead(ctx, metadata.readCatalog, {
     table: entity.table.name, projection, paths: relations, withDeleted, relationFilters, ordering: new Map(),
     query: { fields: projection.storageFields, take: options.limit ?? 15, skip: options.offset ?? 0,
-      order: { column: "id", direction }, predicate: { kind: "and", children } },
-    window: options.limit === undefined && options.offset === undefined
+      order: { column: orderColumn, direction }, predicate: { kind: "and", children } },
+    window: options.limit === undefined && options.offset === undefined && orderColumn === "id"
       ? { kind: "catalog", order: "id", select: orderedCatalog(direction) }
       : { kind: "database", countAt: "afterPopulation" },
   }, withCount);
   return profileOptions.nativeFilterOrder ? { ...result, rows: preservePrimaryKeyOrFilterOrder(result.rows, where,
     entity.table.columns.filter(column => column.primaryKey).map(column => column.name),
-    [["id", direction === "desc" ? "DESC" : "ASC"]]) } : result;
+    [[orderColumn, direction === "desc" ? "DESC" : "ASC"]]) } : result;
 });
 
 export const updateProductRelated = Effect.fn("ProductAdapter.updateRelated")(function* (

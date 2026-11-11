@@ -3,6 +3,7 @@ import { commerceDecoder } from "../../value/decoder";
 import { captureCommerceInput } from "../../value/input";
 import { commerceError, isJsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { VariantImagePairs } from "./variant-workflow-input";
+import { ProductCollectionTextFilter } from "./collection-read";
 
 const Read = Schema.Struct({
   id: Schema.optionalKey(Schema.String), filters: Schema.optionalKey(Schema.Json), config: Schema.optionalKey(Schema.Json),
@@ -30,7 +31,7 @@ export const decodeProductCollectionRead = commerceDecoder(Schema.Struct({
   ...Read.fields,
   filters: Schema.optionalKey(Schema.Struct({
     id: Schema.optionalKey(Schema.Union([Schema.String, Schema.Array(Schema.String).check(Schema.isMaxLength(256))])),
-    title: Schema.optionalKey(Schema.String), handle: Schema.optionalKey(Schema.String),
+    title: Schema.optionalKey(ProductCollectionTextFilter), handle: Schema.optionalKey(ProductCollectionTextFilter),
   })),
 }), "invalidInput");
 export const decodeVariantImageInput = commerceDecoder(Schema.Union([
