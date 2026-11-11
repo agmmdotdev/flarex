@@ -19,7 +19,7 @@ const request = (): CoreApplicationInvocationRequest => ({
   args: Result.getOrThrow(captureDocumentObject({ count: 9007199254740993n, zero: -0,
     bytes: new Uint8Array([1, 2, 3]).buffer })),
 });
-const query = (): CoreApplicationInvocationSuccess => ({
+const query = (): Extract<CoreApplicationInvocationSuccess, { readonly kind: "query" }> => ({
   format: "flarex.core-application.response", version: 1, kind: "query", route,
   functionPath: request().functionPath, requestKey: request().requestKey, value: 9007199254740993n,
   evaluation: { timestamp: 9007199254740993n, reads: [{ indexId: new Uint8Array(16).fill(1),
@@ -69,6 +69,37 @@ describe("Core whole-function protocol", () => {
     expect(decoded).not.toHaveProperty("readSet");
     expect(decoded).not.toHaveProperty("commitSeq");
   });
+
+  it("round trips physical and virtual metadata index identities without losing frontiers", () => {
+    const physical = new Uint8Array(16).fill(3);
+    const virtual = (prefix: number) => new Uint8Array([prefix, ...physical]);
+    const original: CoreApplicationInvocationSuccess = { ...query(), evaluation: {
+      timestamp: 100n,
+      reads: [physical, virtual(254), virtual(255)].map(indexId => ({ indexId,
+        intervals: [{ start: new Uint8Array([1]), end: null }] })),
+      metadataReadFrontiers: [{ timestamp: 90n, reads: [{ indexId: virtual(254),
+        intervals: [{ start: null, end: new Uint8Array([2]) }] }] },
+      { timestamp: 95n, reads: [{ indexId: virtual(255), intervals: [{ start: null, end: null }] }] }],
+    } };
+    const wire = Result.getOrThrow(encodeCoreApplicationInvocationSuccess(original));
+    const decoded = Result.getOrThrow(decodeCoreApplicationInvocationSuccess(JSON.parse(JSON.stringify(wire))));
+    expect(decoded).toEqual(original);
+    if (decoded.kind !== "query") throw new Error("Expected a query fixture");
+    expect(decoded.evaluation.reads[0]?.indexId).not.toBe(physical);
+  });
+
+  it.each(["", "11".repeat(15), "11".repeat(17), `fd${"11".repeat(16)}`,
+    `fe${"11".repeat(14)}`, `ff${"11".repeat(17)}`, `FE${"11".repeat(16)}`])(
+    "rejects malformed or unknown virtual index identity %s in every read location", indexId => {
+      const wire = Result.getOrThrow(encodeCoreApplicationInvocationSuccess(query()));
+      if (wire.kind !== "query") throw new Error("Expected a query fixture");
+      const read = { indexId, intervals: [{ start: null, end: null }] };
+      for (const evaluation of [
+        { ...wire.evaluation, reads: [read] },
+        { ...wire.evaluation, metadataReadFrontiers: [{ timestamp: "100", reads: [read] }] },
+      ]) expect(Result.isFailure(decodeCoreApplicationInvocationSuccess({ ...wire, evaluation }))).toBe(true);
+    },
+  );
 
   it.each(["-1", "01", "+1", "9223372036854775808", "9".repeat(100)])("rejects invalid timestamp %s", timestamp => {
     const output = query();

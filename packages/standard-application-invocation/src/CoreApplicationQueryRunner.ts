@@ -5,7 +5,7 @@ import {
   captureCoreApplicationProgramProfile,
   requireCoreApplicationProgramProfile,
 } from "@flarex/persistence-postgres/internal/core-application-program";
-import type { CoreReadToken } from "@flarex/persistence-postgres/internal/core";
+import type { CoreQueryTarget, CoreReadToken } from "@flarex/persistence-postgres/internal/core";
 import { captureExecutionDiagnosticContext } from "@flarex/persistence-postgres/internal/execution-diagnostics";
 import { Clock, Context, Data, Effect, Exit, Cause } from "effect";
 import { makeApplicationWorkerDefinition } from "flarex-backend/internal/application-worker-definition";
@@ -53,12 +53,16 @@ export function makeCoreApplicationQueryEvaluationRunner(configuration: Applicat
     argumentsValue: DocumentObject,
     argumentSemanticBytes: number,
     auth: ApplicationWorkerAuthV1,
+    queryTarget?: CoreQueryTarget,
   ) {
     const profile = expectedProfile === undefined ? undefined : yield* Effect.fromResult(expectedProfile);
     const sourcePin = profile?.sourcePackageHash === undefined ? undefined : {
       sourceArtifactRootSha256: profile.sourceArtifactRootSha256, sourcePackageHash: profile.sourcePackageHash,
     };
-    return yield* configuration.admission.withPermit("query", Effect.acquireUseRelease(database.beginQuery(functionPath, sourcePin), operation => Effect.gen(function* () {
+    if (queryTarget !== undefined) yield* database.assertQueryTarget(queryTarget);
+    const beginQuery = queryTarget === undefined ? database.beginQuery(functionPath, sourcePin)
+      : queryTarget.beginQuery(functionPath, sourcePin);
+    return yield* configuration.admission.withPermit("query", Effect.acquireUseRelease(beginQuery, operation => Effect.gen(function* () {
       const program = yield* readCoreApplicationProgram(operation.program, runner.sha256);
       if (profile !== undefined) yield* Effect.fromResult(requireCoreApplicationProgramProfile(program, profile));
       const target = program.runtimeTarget;
@@ -89,7 +93,7 @@ export function makeCoreApplicationQueryEvaluationRunner(configuration: Applicat
         captureExecutionDiagnosticContext(fiber), Clock.Clock, Context.get(fiber.context, Clock.Clock),
       )));
       const session = makeCoreApplicationReadSession({ transaction: operation.transaction,
-        revalidate: database.assertOpen }, callbackContext, configuration.queryCursor.broker, configuration.admission);
+        revalidate: queryTarget?.assertOpen ?? database.assertOpen }, callbackContext, configuration.queryCursor.broker, configuration.admission);
       const value = yield* Effect.uninterruptibleMask(restore => Effect.gen(function* () {
         const host = yield* Effect.exit(restore(runner.host.runTransaction({ definition, request, capability: session.target })));
         const drained = yield* Effect.exit(session.closeAndDrain);

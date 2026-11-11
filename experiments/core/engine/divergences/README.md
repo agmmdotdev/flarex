@@ -148,6 +148,8 @@ maintaining a competing completion log here.
 
 ## Selected native extensions
 
+- [Bounded fixed query targets](./bounded-query-targets.md): scoped Core snapshot/token-refresh source with current metadata fencing; actual live-query host/state cutover remains open.
+
 - [Native off-key non-null indexes](./native-compound-non-null-indexes.md) lower the selected history predicates to ordinary index ranges. Paired verification passed.
 
 - [Native Cart creation generation records](./native-cart-creation-generations.md) preserve generation and compensation facts across native requests. Paired verification passed.

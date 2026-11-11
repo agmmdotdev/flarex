@@ -11,7 +11,7 @@ import { decodeDocumentValue, encodeDocumentValue, type DocumentObject, type Doc
 import { encodeIndexValue } from "flarex-protocol/index-key";
 import { CoreProgramIdentitySchema, CoreApplicationSourcePinSchema, CoreNativeRootIdentitySchema, CoreSchemaWorkerOptionsSchema, CoreTransactionLimitsSchema, CoreTransactionError, issueCoreClaim, issueCoreNativeBinding,
   issueCoreNativeRootBinding, issueCoreApplicationInsertBinding, issueCoreApplicationReadBinding, issueCoreNativeInitializationBinding,
-  type CoreDatabase, type CoreDatabaseOptions, type CoreError,
+  type CoreDatabase, type CoreDatabaseOptions, type CoreError, type CoreQueryOperation, type CoreQueryTarget, type CoreReadToken,
   type CoreProgramPublication, type CoreSchemaProposal, type CoreSchemaStatus, type CoreProgramDefinition, type CoreProgramIdentity, type CoreRequestAcquisition,
   type CoreApplicationRegistrationMetadata, type CoreApplicationSourcePin,
   type CoreNativeBinding, type CoreNativeCommandDefinition, type CoreNativeCommandIdentity, type CoreNativeOperation,
@@ -28,8 +28,8 @@ import { CoreFinalizationVault, createCoreTransaction, prepareCoreTransactionIdG
   type CoreTransactionInternals, type CoreTransactionNativeAccess } from "./transaction";
 import { CORE_TRANSACTION_REFERENCE_LIMITS, CoreAccounting } from "./accounting";
 import { captureCoreDocument, captureCoreObject } from "./document";
-import { addTableWriteDependencies } from "./dependencies";
-import { CoreReadSetBuilder } from "./writeLog";
+import { addTableWriteDependencies, coreMetadataReadSet } from "./dependencies";
+import { CoreReadSetBuilder, type CoreReadSet } from "./writeLog";
 import { captureCoreTableNamespace, coreNamespaceKey,type CoreTableNamespace } from "./namespace";
 import { CoreSchemaModel } from "./schemaModel";
 import { captureCoreSchema, checkCoreSchemaIndexReferences, CoreSchemaError } from "./schemaTypes";
@@ -55,6 +55,7 @@ import { makeCoreApplicationDeploymentOwner } from "./applicationDeployment";
 import type { CoreSchemaSelection } from "./schemaRegistry";
 import { captureCoreNativeRootIdentity, captureCoreNativeRootRequestEvidence,
   type CoreNativeRootRequestEvidence } from "./nativeRootRequest";
+import { CoreIteratorPositiveBudgetSchema } from "./iteratorBudget";
 
 function schemaStatusValue(registry: CoreRegistry, proposal: CoreSchemaProposal, found: CoreSchemaSelection): CoreSchemaStatus {
   const state = found.metadata.state;
@@ -69,6 +70,8 @@ const NativeLimitsSchema = Schema.Struct({ maxIdentities: Schema.Int.check(Schem
   maximum: CORE_TRANSACTION_REFERENCE_LIMITS.documentsRead })), maxDocumentBytes: Schema.Int.check(Schema.isBetween({ minimum: 1,
   maximum: CORE_TRANSACTION_REFERENCE_LIMITS.bytesRead })) });
 const decodeNativeLimits = Schema.decodeUnknownEffect(NativeLimitsSchema);
+const decodeQueryTargetDuration = Schema.decodeUnknownEffect(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 10_000 })));
+const decodeQueryTargetCount = Schema.decodeUnknownEffect(CoreIteratorPositiveBudgetSchema);
 
 
 const RequestFields = { key: Schema.String, requestHash: Schema.String, leaseToken: Schema.BigInt,
@@ -256,6 +259,26 @@ function ownedProgram(definition: CoreProgramDefinition): Result.Result<CoreProg
   });
 }
 const nativeUnsupported = (message: string) => new CoreSchemaError({ reason: "unsupportedCapability", message });
+function copyQueryReads(reads: CoreReadSet): CoreReadSet {
+  const captured = new CoreReadSetBuilder();
+  for (const read of reads) for (const interval of read.intervals) captured.add(read.indexId, interval);
+  return captured.snapshot();
+}
+
+/** Buffers stay with the issuer; every public read receives detached bytes. */
+function ownedQueryToken(token: CoreReadToken): CoreReadToken {
+  const reads = copyQueryReads(token.reads);
+  const frontiers = token.metadataReadFrontiers?.map(frontier => ({
+    timestamp: frontier.timestamp, reads: copyQueryReads(frontier.reads),
+  }));
+  return Object.freeze({ timestamp: token.timestamp,
+    get reads() { return copyQueryReads(reads); },
+    ...(frontiers === undefined ? {} : { get metadataReadFrontiers() {
+      return Object.freeze(frontiers.map(frontier => Object.freeze({ timestamp: frontier.timestamp, reads: copyQueryReads(frontier.reads) })));
+    } }),
+  });
+}
+
 // Managed schema ownership includes private native tables; bootstrap system
 // tables belong to their separate model. Public activation results filter both.
 const schemaTables = (registry: CoreRegistry, namespace: CoreTableNamespace) => [...registry.tables.values()]
@@ -290,12 +313,16 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
   }).pipe(Effect.mapError(invalid));
   const operationCacheMaxBytes = yield* decodeOperationCacheBytes(options.operationCacheMaxBytes ?? 16 * 1024 * 1024)
     .pipe(Effect.mapError(invalid));
+  const maxQueryTargets = yield* decodeQueryTargetCount(options.maxQueryTargets ?? 64).pipe(Effect.mapError(invalid));
   const lease = yield* persistence.acquireLease();
   const initial = yield* bootstrapCore(persistence, lease, options);
   const scopeExclusion = new CoreNativeScopeExclusion();
   const committer = yield* makeCoreCommitter(persistence, lease, initial.timestamp, initial.registry, initial.resident, options, initial.retention, recovery, scopeExclusion);
   const vault = new CoreFinalizationVault();
   const claims = new WeakMap<CoreRequestClaim, ClaimData>();
+  const queryTokens = new WeakSet<CoreReadToken>();
+  const queryTargets = new WeakSet<CoreQueryTarget>();
+  let activeQueryTargets = 0;
   const nativeBindings = new WeakMap<object, CoreNativeAuthority & { readonly commands: readonly CoreNativeCommandDefinition[] }>();
   const nativeInitializationBindings = new WeakMap<object, Readonly<{ binding: CoreNativeBinding; command: CoreNativeCommandDefinition }>>();
   const nativeRootBindings = new WeakMap<object, NativeRootData>();
@@ -393,19 +420,24 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
     get: (at: bigint, tableId: Uint8Array, id: Uint8Array) => nativeHistoricalPoint(timestamp, at, tableId, id),
   });
 
-  const make = Effect.fn("CoreDatabase.transaction")(function* (at?: bigint, claim?: CoreRequestClaim, readonly = false, namespace:CoreTableNamespace = null, system = false) {
+  const make = Effect.fn("CoreDatabase.transaction")(function* (at?: bigint, claim?: CoreRequestClaim, readonly = false, namespace:CoreTableNamespace = null, system = false,
+    queryTarget?: Readonly<{ selected: Effect.Success<ReturnType<typeof start>>; assertOpen: Effect.Effect<void, CoreError>;
+      borrowed: Set<CoreTransactionInternals>; metadataReads: CoreReadSetBuilder;
+      register: (context: CoreTransactionInternals) => Result.Result<void, CoreError> }>) {
     namespace=yield* Effect.fromResult(Result.mapError(captureCoreTableNamespace(namespace),invalid));
-    const selected = yield* start(at);
+    const selected = queryTarget?.selected ?? (yield* start(at));
+    const assertOperationOpen = queryTarget?.assertOpen ?? assertOpen;
+    yield* assertOperationOpen;
     const minimum = yield* decodeCreationTimestamp((yield* committer.publishedTimestamp) + 1n).pipe(Effect.mapError(invalid));
     const wallClock = yield* decodeCreationTimestamp(yield* options.now).pipe(Effect.mapError(invalid));
     const now = wallClock > minimum ? wallClock : minimum;
     const idGenerator = yield* prepareCoreTransactionIdGenerator(options);
-    yield* assertOpen;
+    yield* assertOperationOpen;
     const context = createCoreTransaction({ snapshot: selected.snapshot, registry: selected.registry,
       residentReader: request => selected.resident.scan(request), operationCacheMaxBytes,
-      now, idGenerator, vault, limits: system ? CORE_TRANSACTION_REFERENCE_LIMITS : limits, readonly, namespace, ...(selected.counts===undefined?{}:{counts:selected.counts}), assertOwnerOpen: assertOpen,
+      now, idGenerator, vault, limits: system ? CORE_TRANSACTION_REFERENCE_LIMITS : limits, readonly, namespace, ...(selected.counts===undefined?{}:{counts:selected.counts}), assertOwnerOpen: assertOperationOpen,
       schemaBundles,
-      onClosed: () => borrowed.delete(context), ...(claim === undefined ? {} : { claim }) });
+      onClosed: () => { borrowed.delete(context); queryTarget?.borrowed.delete(context); }, ...(claim === undefined ? {} : { claim }) });
     return { ...selected, context };
   });
 
@@ -429,7 +461,9 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
     prepare: ReturnType<typeof make>,
     use: (selected: Effect.Success<ReturnType<typeof make>>) => Effect.Effect<Value, CoreError>,
     transferOnSuccess = false,
-  ) => Effect.flatMap(prepare, prepared => Effect.acquireUseRelease(registerBorrow(prepared), use, (selected, exit) =>
+    guard?: (selected: Effect.Success<ReturnType<typeof make>>) => Result.Result<void, CoreError>,
+  ) => Effect.flatMap(prepare, prepared => Effect.acquireUseRelease(registerBorrow(prepared,
+    guard === undefined ? undefined : () => guard(prepared)), use, (selected, exit) =>
     transferOnSuccess && Exit.isSuccess(exit) ? Effect.void : selected.context.transaction.abort())));
 
   const findRequestEntry = Effect.fn("CoreDatabase.findRequestEntry")(function* (
@@ -1342,6 +1376,109 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
         }) });
       }));
   });
+  const issueQueryToken = (input: CoreReadToken): CoreReadToken => {
+    const token = ownedQueryToken(input);
+    queryTokens.add(token);
+    return token;
+  };
+  const beginQuery = Effect.fn("CoreDatabase.beginQuery")((path: string, expectedApplication?: CoreApplicationSourcePin,
+    target?: Parameters<typeof make>[5]): Effect.Effect<CoreQueryOperation, CoreError> => {
+    const pin = expectedApplication === undefined ? undefined : decodeApplicationSourcePin(expectedApplication).pipe(Result.mapError(invalid));
+    return useTransaction(make(undefined, undefined, true, null, false, target), selected => Effect.gen(function* () {
+      if (pin !== undefined) yield* requireApplicationSourcePin(selected.context, yield* Effect.fromResult(pin));
+      const transaction = selected.context.transaction;
+      const program = yield* transaction.selectProgram(path);
+      const { timestamp, unixTime, usage, selectProgram, tableNumber, tableMappings, normalizeId, get, startQuery, scan } = transaction;
+      const finish = Effect.fn("CoreDatabase.finishApplicationQuery")(function* () {
+        const token = yield* selected.context.finishRead();
+        const metadataReads = yield* Effect.fromResult(coreMetadataReadSet(selected.registry, token.reads));
+        const frontiers = Object.freeze([...(token.metadataReadFrontiers ?? []),
+          ...(metadataReads.length === 0 ? [] : [{ timestamp: token.timestamp, reads: metadataReads }])]);
+        yield* committer.validateReadMetadata(frontiers);
+        yield* (target?.assertOpen ?? assertOpen);
+        if (target !== undefined) for (const frontier of frontiers) for (const read of frontier.reads)
+          for (const interval of read.intervals) target.metadataReads.add(read.indexId, interval);
+        return issueQueryToken({ ...token, metadataReadFrontiers: frontiers });
+      });
+      return Object.freeze({ program,
+        transaction: Object.freeze({ timestamp, unixTime, usage, selectProgram, tableNumber, tableMappings, normalizeId, get, startQuery, scan }),
+        finish, abort: transaction.abort });
+    }), true, target === undefined ? undefined : selected => target.register(selected.context));
+  });
+  const withQueryTarget: CoreDatabase["withQueryTarget"] = Effect.fn("CoreDatabase.withQueryTarget")(
+    function* <Value, Failure, Requirements>(targetOptions: Readonly<{ maximumElapsedMilliseconds: number }>,
+      use: (target: CoreQueryTarget) => Effect.Effect<Value, Failure, Requirements>) {
+      const duration = yield* decodeQueryTargetDuration(targetOptions.maximumElapsedMilliseconds).pipe(Effect.mapError(invalid));
+      const deadline = (yield* Clock.monotonicTimeNanos) + BigInt(duration) * 1_000_000n;
+      const operations = new Set<CoreTransactionInternals>();
+      let retained: Effect.Success<ReturnType<typeof startNative>> | undefined;
+      let metadataReads = new CoreReadSetBuilder();
+      let active = true;
+      return yield* Effect.acquireUseRelease(Effect.gen(function* () {
+        yield* assertOpen;
+        if (activeQueryTargets >= maxQueryTargets) return yield* new CoreTransactionError({ reason: "capacity" });
+        activeQueryTargets += 1;
+      }), () => Effect.gen(function* () {
+        retained = yield* startNative();
+        const timestamp = retained.timestamp;
+        const assertTargetOpen = Effect.gen(function* () {
+          yield* assertOpen;
+          if (!active) return yield* new CoreTransactionError({ reason: "closed" });
+          if ((yield* Clock.monotonicTimeNanos) >= deadline) return yield* new CoreTransactionError({ reason: "admissionExpired" });
+          yield* historyRetention.validateIndex(timestamp);
+          yield* historyRetention.validateDocument(timestamp);
+          yield* assertOpen;
+          if (!active) return yield* new CoreTransactionError({ reason: "closed" });
+          if ((yield* Clock.monotonicTimeNanos) >= deadline) return yield* new CoreTransactionError({ reason: "admissionExpired" });
+        });
+        yield* assertTargetOpen;
+        const target: CoreQueryTarget = Object.freeze({ timestamp, assertOpen: assertTargetOpen,
+          beginQuery: (path: string, pin?: CoreApplicationSourcePin) => Effect.suspend(() => retained === undefined
+            ? Effect.fail(new CoreTransactionError({ reason: "closed" }))
+            : beginQuery(path, pin, { selected: { timestamp: retained.timestamp, registry: retained.registry,
+              resident: retained.resident, snapshot: retained.snapshot, ...(retained.counts === undefined ? {} : { counts: retained.counts }) },
+              assertOpen: assertTargetOpen, borrowed: operations, metadataReads,
+              register: context => {
+                if (!active) return Result.fail(new CoreTransactionError({ reason: "closed" }));
+                operations.add(context);
+                return Result.succeed(undefined);
+              } })),
+          refresh: Effect.fn("CoreQueryTarget.refresh")(function* (token) {
+            yield* assertTargetOpen;
+            const selected = retained;
+            if (selected === undefined) return yield* new CoreTransactionError({ reason: "closed" });
+            if (!queryTokens.has(token)) return yield* invalid("Query token belongs to another owner");
+            if (token.timestamp > selected.timestamp) return yield* new CorePersistenceError({ reason: "invalidTarget" });
+            yield* committer.validateReadMetadata(token.metadataReadFrontiers ?? []);
+            const conflict = yield* Effect.fromResult(selected.writeLog.conflict(token.reads, token.timestamp));
+            yield* assertTargetOpen;
+            if (conflict !== undefined) return Option.none();
+            const refreshedMetadata = new CoreReadSetBuilder();
+            for (const frontier of token.metadataReadFrontiers ?? []) for (const read of frontier.reads)
+              for (const interval of read.intervals) {
+                refreshedMetadata.add(read.indexId, interval);
+                metadataReads.add(read.indexId, interval);
+              }
+            return Option.some(issueQueryToken({ ...token, timestamp: selected.timestamp,
+              metadataReadFrontiers: [{ timestamp: selected.timestamp, reads: refreshedMetadata.snapshot() }] }));
+          }),
+        });
+        queryTargets.add(target);
+        const value = yield* use(target);
+        yield* committer.validateReadMetadata([{ timestamp, reads: metadataReads.snapshot() }]);
+        yield* assertTargetOpen;
+        return value;
+      }).pipe(Effect.timeoutOrElse({ duration, orElse: () => Effect.fail(new CoreTransactionError({ reason: "admissionExpired" })) })),
+      () => Effect.gen(function* () {
+        active = false;
+        retained = undefined;
+        metadataReads = new CoreReadSetBuilder();
+        const outcomes = yield* Effect.forEach(operations, context => Effect.exit(context.transaction.abort()));
+        let failure: Cause.Cause<never> | undefined;
+        for (const outcome of outcomes) if (Exit.isFailure(outcome)) failure = failure === undefined ? outcome.cause : Cause.combine(failure, outcome.cause);
+        if (failure !== undefined) return yield* Effect.failCause(failure);
+      }).pipe(Effect.ensuring(Effect.sync(() => { activeQueryTargets -= 1; }))));
+    });
   const database: CoreDatabase = {
     assertOpen,
     readNativeRootRequestEvidence: Effect.fn("CoreDatabase.readNativeRootRequestEvidence")(function* (operations) {
@@ -1366,17 +1503,11 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
         scopeUuid: metadata.definition.identity.scopeUuid, epochUuid: metadata.definition.identity.epochUuid });
     }),
     close,
-    beginQuery: Effect.fn("CoreDatabase.beginQuery")((path, expectedApplication) => {
-      const pin = expectedApplication === undefined ? undefined : decodeApplicationSourcePin(expectedApplication).pipe(Result.mapError(invalid));
-      return useTransaction(make(undefined, undefined, true), selected => Effect.gen(function* () {
-        if (pin !== undefined) yield* requireApplicationSourcePin(selected.context, yield* Effect.fromResult(pin));
-        const transaction = selected.context.transaction;
-        const program = yield* transaction.selectProgram(path);
-        const { timestamp, unixTime, usage, selectProgram, tableNumber, tableMappings, normalizeId, get, startQuery, scan } = transaction;
-        return Object.freeze({ program,
-          transaction: Object.freeze({ timestamp, unixTime, usage, selectProgram, tableNumber, tableMappings, normalizeId, get, startQuery, scan }),
-          finish: selected.context.finishRead, abort: transaction.abort });
-      }), true);
+    beginQuery, withQueryTarget,
+    assertQueryTarget: Effect.fn("CoreDatabase.assertQueryTarget")(function* (target) {
+      yield* assertOpen;
+      if (!queryTargets.has(target)) return yield* invalid("Query target belongs to another owner");
+      yield* target.assertOpen;
     }),
     prepareSchema,prepareApplicationCandidate,activateApplicationCandidate,readActiveApplicationCandidate,readApplicationRegistration,readApplicationCandidate,abandonApplicationCandidate,schemaStatus,advanceSchema,advanceSchemaWork:schemaWorker.advanceWork,activateSchema,publishPrograms,
     bindNative, readNativeBinding, beginNative, bindNativeInitialization,

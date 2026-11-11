@@ -1,6 +1,6 @@
 import { defineModule, query, sourceModule, v } from "@flarex/application-definition";
 import { runQuery } from "@flarex/application-invocation";
-import { type CoreDatabase, type CoreReadToken } from "@flarex/persistence-postgres/internal/core";
+import { type CoreDatabase, type CoreReadToken, type CoreQueryTarget } from "@flarex/persistence-postgres/internal/core";
 import type { ApplicationCoreFixture } from "@flarex/persistence-postgres/internal/system-test/core-application-fixture";
 import { CORE_APPLICATION_COMPATIBILITY_DATE, CORE_APPLICATION_EPOCH_UUID, CORE_APPLICATION_SCOPE_UUID } from
   "@flarex/persistence-postgres/internal/system-test/core-application-fixture";
@@ -8,11 +8,12 @@ import { captureCoreApplicationProgramProfile, makeCoreApplicationPrograms } fro
 import { createApplicationNativeMutationSourceBundle } from
   "@flarex/persistence-postgres/internal/system-test/application-native-mutation-fixture";
 import { copyBytesToArrayBuffer } from "@flarex/utils/bytes";
-import { invokeApplicationQuery, makeApplicationQuerySystemLayer } from
+import { invokeApplicationQuery, makeApplicationQuerySystemLayer, makeCoreApplicationQueryEvaluationRunner } from
   "@flarex/standard-application-invocation/internal/application-query-system";
 import { invokeApplicationMutation, makeApplicationMutationSystemLayer } from
   "@flarex/standard-application-invocation/internal/application-mutation-system";
-import { Effect, Fiber, Result, Schema } from "effect";
+import { Effect, Fiber, Option, Result, Schema } from "effect";
+import { captureDocumentObjectWithSize } from "flarex-protocol/document-value";
 import { TransactionFunctionPathV1Schema, TransactionRequestKeyV1Schema } from "flarex-protocol/transaction-session";
 import { makeApplicationMutationTestLive } from "./applicationNativeMutationHarness";
 import { MiniflareApplicationWorkerLoader } from "./applicationNativeQueryHarness";
@@ -159,7 +160,6 @@ export async function proveCoreApplicationStandaloneSnapshot(fixture: Applicatio
         TransactionFunctionPathV1Schema.make("users:patchThroughInternal"), { id: fixture.documentId, fail: false },
         TransactionRequestKeyV1Schema.make("standalone-query:snapshot-race"),
       ).pipe(Effect.provide(mutationLayer))));
-      await fixture.advanceProgramHead();
     } finally { block.release(); }
     const old = decodeSnapshot(await held);
     const next = decodeSnapshot(await invoke(layer, "users:snapshotQuery", { id: fixture.documentId }));
@@ -167,6 +167,53 @@ export async function proveCoreApplicationStandaloneSnapshot(fixture: Applicatio
     const cold = await runSystemTestEffectV1(runQuery(typedReference, { id: fixture.documentId }).pipe(
       Effect.provide(await queryLayer(coldFixture, loader))));
     return { publication, old, next, cold, tokens, initialTimestamp: fixture.initialTimestamp, workerLoads: loader.loads };
+  } finally { await loader.dispose(); }
+}
+
+/** Independent expected values come from the fixture and actual mutation, not a refresh implementation. */
+export async function proveCoreApplicationFixedQueryTarget(fixture: ApplicationCoreFixture) {
+  const loader = new MiniflareApplicationWorkerLoader();
+  try {
+    const live = await makeApplicationMutationTestLive(fixture, loader);
+    const evaluate = makeCoreApplicationQueryEvaluationRunner(live);
+    const args = Result.getOrThrow(captureDocumentObjectWithSize({ id: fixture.documentId }));
+    const auth = { kind: "anonymous" } as const;
+    let released: CoreQueryTarget | undefined;
+    const fixed = await runSystemTestEffectV1(fixture.database.withQueryTarget(
+      { maximumElapsedMilliseconds: 10_000 }, target => Effect.gen(function* () {
+        released = target;
+        const first = yield* evaluate("users:typedQuery", args.value, args.semanticSizeBytes, auth, target);
+        const mutation = yield* Effect.scoped(invokeApplicationMutation(
+          TransactionFunctionPathV1Schema.make("users:patchThroughInternal"), { id: fixture.documentId, fail: false },
+          TransactionRequestKeyV1Schema.make("fixed-target:later-write"),
+        ).pipe(Effect.provide(makeApplicationMutationSystemLayer(live))));
+        const second = yield* evaluate("users:typedQuery", args.value, args.semanticSizeBytes, auth, target);
+        const refreshed = yield* target.refresh(first.token);
+        return { target: target.timestamp, first, second, mutation, unchanged: Option.isSome(refreshed) };
+      }),
+    ));
+    if (released === undefined) throw new Error("Fixed target was not acquired.");
+    const afterRelease = await runSystemTestEffectV1(Effect.exit(evaluate(
+      "users:typedQuery", args.value, args.semanticSizeBytes, auth, released,
+    )));
+    const later = await runSystemTestEffectV1(fixture.database.withQueryTarget(
+      { maximumElapsedMilliseconds: 10_000 }, target => Effect.gen(function* () {
+        const refreshed = yield* target.refresh(fixed.first.token);
+        const evaluation = yield* evaluate("users:typedQuery", args.value, args.semanticSizeBytes, auth, target);
+        return { target: target.timestamp, changed: Option.isNone(refreshed), evaluation };
+      }),
+    ));
+    const coldDatabase = await fixture.reopen();
+    const coldLive = await makeApplicationMutationTestLive({ ...fixture, database: coldDatabase }, loader);
+    const coldEvaluate = makeCoreApplicationQueryEvaluationRunner(coldLive);
+    const cold = await runSystemTestEffectV1(coldDatabase.withQueryTarget(
+      { maximumElapsedMilliseconds: 10_000 }, target => Effect.gen(function* () {
+        const refresh = yield* Effect.exit(target.refresh(fixed.first.token));
+        const evaluation = yield* coldEvaluate("users:typedQuery", args.value, args.semanticSizeBytes, auth, target);
+        return { refresh, evaluation };
+      }),
+    ));
+    return { fixed, later, cold, afterRelease, workerLoads: loader.loads };
   } finally { await loader.dispose(); }
 }
 
@@ -261,7 +308,7 @@ export async function proveCoreApplicationStandaloneMetadata(fixture: Applicatio
     const layer = makeApplicationQuerySystemLayer({ coreDatabase: observeReads(fixture.database, tokens), admission: live.admission,
       applicationRunner: live.applicationRunner, executionContextFactory: live.executionContextFactory, queryCursor: live.queryCursor });
     const block = loader.blockNextInvocation();
-    const held = runSystemTestEffectV1(runQuery(typedReference, { id: fixture.documentId }).pipe(Effect.provide(layer)));
+    const held = runSystemTestEffectV1(Effect.scoped(Effect.exit(invokeApplicationQuery("users:typedQuery", { id: fixture.documentId }).pipe(Effect.provide(layer)))));
     try {
       await block.started;
       const programs = await runSystemTestEffectV1(makeCoreApplicationPrograms({ manifest: nextDefinition.manifest,
@@ -275,7 +322,7 @@ export async function proveCoreApplicationStandaloneMetadata(fixture: Applicatio
     const badArguments = await runSystemTestEffectV1(Effect.scoped(Effect.exit(invokeApplicationQuery("users:typedQuery",
       { id: fixture.documentId }).pipe(Effect.provide(layer)))));
     const next = await invoke(layer, "users:typedQuery", { id: fixture.documentId, revision: "next" });
-    return { old, next, badArguments, tokens, workerLoads: loader.loads,
+    return { old, next, badArguments, tokens, initialTimestamp: fixture.initialTimestamp, workerLoads: loader.loads,
       roots: loader.revisionIds, coldAnalysisLoads: nextDefinition.coldAnalysisLoads };
   } finally { await loader.dispose(); }
 }

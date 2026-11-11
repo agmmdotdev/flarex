@@ -1808,6 +1808,14 @@ epoch-independent.
 
 ## Commit Feed Authority
 
+This section records the former dense physical feed. For translated-Core sync,
+the owner selected the pinned Convex log/retention contract in the
+[source retirement contract](../roadmaps/query-sync-engine/preflight/16-translated-core-source-retirement.md).
+Complete retained-interval dependency proof replaces its extra independent
+missing-commit corruption check; no durable per-commit receipt chain is required.
+The former reader retains its checks until its actual callers migrate. Mutation
+settlement, durable outcomes, publication and authorization guarantees remain.
+
 S08 introduces the first target-native commit-feed storage and bounded private
 reader. A scope-local commit header is keyed by native `(scope_uuid,
 commit_seq)`, carries its write `epoch_uuid`, exact typed-app-row

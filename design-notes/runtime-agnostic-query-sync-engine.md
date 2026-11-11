@@ -93,7 +93,8 @@ There are three integration contracts:
 
 1. **Query source/runtime:** resolve an authorized executable query reference,
    evaluate at a certified target, return observed dependencies and authority
-   evidence, and read correlated ordered changes. Source and evaluator may be
+   evidence, and read correlated ordered changes or obtain complete
+   source-certified dependency validity through a fixed target. Source and evaluator may be
    separate internal capabilities but are composed as one compatible source.
 2. **Sync state:** perform atomic semantic operations over query, session,
    progress and retained-result state. Do not replace transactional semantics

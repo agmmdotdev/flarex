@@ -498,11 +498,27 @@ export interface CoreQueryOperation {
   readonly abort: () => Effect.Effect<void>;
 }
 
+/** Borrowed fixed snapshot and retained-log proof, valid only inside its owner callback. */
+export interface CoreQueryTarget {
+  readonly timestamp: CoreTimestamp;
+  readonly assertOpen: Effect.Effect<void, CoreError>;
+  readonly beginQuery: (functionPath: string, expectedApplication?: CoreApplicationSourcePin) => Effect.Effect<CoreQueryOperation, CoreError>;
+  /** None means a tracked dependency changed in the complete retained interval. */
+  readonly refresh: (token: CoreReadToken) => Effect.Effect<Option.Option<CoreReadToken>, CoreError>;
+}
+
 export interface CoreDatabase {
   readonly assertOpen: Effect.Effect<void, CoreError>;
   /** Blocks admission and results, then closes and drains every borrowed operation. */
   readonly close: () => Effect.Effect<void>;
   readonly beginQuery: (functionPath: string, expectedApplication?: CoreApplicationSourcePin) => Effect.Effect<CoreQueryOperation, CoreError>;
+  /** Verify the exact borrowed target was issued by this database owner. */
+  readonly assertQueryTarget: (target: CoreQueryTarget) => Effect.Effect<void, CoreError>;
+  /** No physical transaction is held; exiting revokes and drains the borrowed target. */
+  readonly withQueryTarget: <Value, Failure, Requirements>(
+    options: Readonly<{ maximumElapsedMilliseconds: number }>,
+    use: (target: CoreQueryTarget) => Effect.Effect<Value, Failure, Requirements>,
+  ) => Effect.Effect<Value, Failure | CoreError, Requirements>;
   readonly prepareSchema: (input: Readonly<{ namespace?: CoreTableNamespace; schema?: unknown; native?: CoreNativeDefinition;
     bundle?: CoreSchemaBundle }>) => Effect.Effect<CoreSchemaProposal, CoreError>;
   /** Reads only an authenticated active registration and its complete live program closure. */
@@ -574,6 +590,8 @@ export interface CoreDatabaseOptions {
   /** Trusted host entropy; the portable Core owns transaction-local ID generation. */
   readonly randomBytes: (length: 16 | 32) => Effect.Effect<Uint8Array>;
   readonly maxInflight?: number;
+  /** Maximum simultaneously borrowed fixed query targets. Default: 64. */
+  readonly maxQueryTargets?: number;
   readonly maxConcurrentSaves?: number;
   readonly maxBatchDocuments?: number;
   readonly maxBatchBytes?: number;

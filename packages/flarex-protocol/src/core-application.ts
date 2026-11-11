@@ -16,9 +16,10 @@ const Timestamp = Schema.String.check(Schema.isPattern(/^(0|[1-9][0-9]{0,18})$/)
   Schema.makeFilter(value => /^(0|[1-9][0-9]{0,18})$/.test(value) && BigInt(value) <= 0x7fff_ffff_ffff_ffffn
     ? undefined : "Expected a nonnegative signed-64-bit timestamp"));
 const Hex = Schema.String.check(Schema.isPattern(/^(?:[0-9a-f]{2})*$/));
-const InternalId = Schema.String.check(Schema.isPattern(/^[0-9a-f]{32}$/));
+// Core conflict evidence includes physical IDs and its fe/ff-prefixed metadata identities.
+const IndexIdentity = Schema.String.check(Schema.isPattern(/^(?:[0-9a-f]{32}|f[ef][0-9a-f]{32})$/));
 const Interval = Schema.Struct({ start: Schema.NullOr(Hex), end: Schema.NullOr(Hex) }).annotate(strict);
-const Read = Schema.Struct({ indexId: InternalId, intervals: Schema.Array(Interval) }).annotate(strict);
+const Read = Schema.Struct({ indexId: IndexIdentity, intervals: Schema.Array(Interval) }).annotate(strict);
 const Frontier = Schema.Struct({ timestamp: Timestamp, reads: Schema.Array(Read) }).annotate(strict);
 const Evaluation = Schema.Struct({ timestamp: Timestamp, reads: Schema.Array(Read),
   metadataReadFrontiers: Schema.optionalKey(Schema.Array(Frontier)) }).annotate(strict);

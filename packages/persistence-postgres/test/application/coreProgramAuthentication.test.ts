@@ -28,7 +28,7 @@ function metadataDatabase(program: CoreProgramDefinition, forbidden: () => Effec
     selectProgram: () => Effect.succeed(program),
     resolveApplicationRequest: () => Effect.succeed({ kind: "missing" }),
     claimRequest: forbidden, claimApplicationRequest: forbidden, recoverRequest: forbidden, assertOpen: forbidden(), close: forbidden,
-    beginQuery: forbidden, prepareSchema: forbidden, readApplicationRegistration: forbidden, schemaStatus: forbidden, advanceSchemaWork: forbidden,
+    beginQuery: forbidden, withQueryTarget: forbidden, assertQueryTarget: forbidden, prepareSchema: forbidden, readApplicationRegistration: forbidden, schemaStatus: forbidden, advanceSchemaWork: forbidden,
     readApplicationCandidate: forbidden, abandonApplicationCandidate: forbidden,
     prepareApplicationCandidate: forbidden, activateApplicationCandidate: forbidden, readActiveApplicationCandidate: forbidden,
     advanceSchema: forbidden, activateSchema: forbidden, publishPrograms: forbidden, lookupProgram: forbidden,

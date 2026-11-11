@@ -67,6 +67,12 @@ for the standalone suite.
 
 ## Current Gaps
 
+- Migrate the actual baseline host to the [selected translated-Core log/retention contract](./preflight/16-translated-core-source-retirement.md)
+  before retiring its correlated source. The bounded Core target/refresh source
+  and actual Application Worker proof are implemented; the standalone service
+  and connected host/state replacement remain open.
+  Fixed-target token refresh supplies complete interval validity without the
+  former dense feed's extra missing-commit corruption check.
 - Prove selected-target snapshots, dependency completeness, authority changes
   and correlated feed/retention with the real execution owner.
 - Replace moving-latest completion with progress at fixed session targets while

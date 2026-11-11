@@ -4,7 +4,8 @@ import { expect, it } from "vitest";
 import { proveCoreApplicationNestedReadonly, proveCoreApplicationStandaloneCancelled,
   proveCoreApplicationStandalonePublicQuery, proveCoreApplicationStandaloneSnapshot,
   proveCoreApplicationStandaloneTerminals, proveCoreApplicationStandaloneMetadata,
-  proveCoreApplicationStandaloneIdentity, proveCoreApplicationConfiguredProgramProfile } from "../../support/applicationCoreStandaloneQueryHarness";
+  proveCoreApplicationStandaloneIdentity, proveCoreApplicationConfiguredProgramProfile,
+  proveCoreApplicationFixedQueryTarget } from "../../support/applicationCoreStandaloneQueryHarness";
 
 const readonlyMethods = { insert: "undefined", patch: "undefined", replace: "undefined", delete: "undefined",
   runMutation: "undefined", runAction: "undefined" };
@@ -38,7 +39,7 @@ export function defineApplicationCoreStandaloneQueryContract(adapter: Readonly<{
     expect(proof.tokens[0]?.reads.length).toBeGreaterThan(0);
   }, 120_000);
 
-  it("keeps query data, nested metadata and time at S through mutation publication and identical head republish", async () => {
+  it("keeps query data, nested metadata and time at S through mutation publication", async () => {
     const proof = await adapter.runScenario(proveCoreApplicationStandaloneSnapshot);
     expect(proof.publication.disposition).toBe("published");
     expect(proof.old.first).toMatchObject({ name: "Ada" });
@@ -53,6 +54,24 @@ export function defineApplicationCoreStandaloneQueryContract(adapter: Readonly<{
     expect(proof.tokens[0]?.timestamp).toBe(proof.initialTimestamp);
     expect(proof.tokens[1]?.timestamp).toBeGreaterThan(proof.initialTimestamp);
     expect(proof.cold).toBe("parent-after-success");
+  }, 120_000);
+
+  it("evaluates two actual Worker queries at one fixed target while later writes publish and refuses lost history", async () => {
+    const proof = await adapter.runScenario(proveCoreApplicationFixedQueryTarget);
+    expect(proof.fixed.first.value).toBe("Ada");
+    expect(proof.fixed.second.value).toBe("Ada");
+    expect(proof.fixed.first.token.timestamp).toBe(proof.fixed.target);
+    expect(proof.fixed.second.token.timestamp).toBe(proof.fixed.target);
+    expect(proof.fixed.mutation.disposition).toBe("published");
+    expect(proof.fixed.unchanged).toBe(true);
+    expect(proof.later.target).toBeGreaterThan(proof.fixed.target);
+    expect(proof.later.changed).toBe(true);
+    expect(proof.later.evaluation.value).toBe("parent-after-success");
+    expect(proof.later.evaluation.token.timestamp).toBe(proof.later.target);
+    expect(failures(proof.afterRelease)).toMatchObject([{ _tag: "CoreTransactionError", reason: "closed" }]);
+    expect(failures(proof.cold.refresh)).toMatchObject([{ _tag: "CoreTransactionError", reason: "invalidValue" }]);
+    expect(proof.cold.evaluation.value).toBe("parent-after-success");
+    expect(proof.workerLoads).toBe(5);
   }, 120_000);
 
   it("borrows parent mutation pending state while giving nested query functions only readonly capabilities", async () => {
@@ -94,15 +113,16 @@ export function defineApplicationCoreStandaloneQueryContract(adapter: Readonly<{
     expect(proof.completedTokens).toBe(1);
   }, 120_000);
 
-  it("keeps captured source and validators while later calls select a newly analyzed catalogue", async () => {
+  it("fences a captured query after code publication while later calls select the newly analyzed catalogue", async () => {
     const proof = await adapter.runScenario(proveCoreApplicationStandaloneMetadata);
-    expect(proof.old).toBe("Ada");
+    expect(failures(proof.old)).toMatchObject([{ _tag: "CoreTransactionError", reason: "authorityRevoked" }]);
     expect(proof.next).toBe(123);
     expect(Exit.isFailure(proof.badArguments)).toBe(true);
     expect(failures(proof.badArguments)).toMatchObject([{ _tag: "CoreApplicationProgramError", reason: "argumentsInvalid" }]);
     expect(proof.workerLoads).toBe(2);
     expect(new Set(proof.roots).size).toBe(2);
-    expect(proof.tokens[1]?.timestamp).toBeGreaterThan(proof.tokens[0]?.timestamp ?? 0n);
+    expect(proof.tokens).toHaveLength(1);
+    expect(proof.tokens[0]?.timestamp).toBeGreaterThan(proof.initialTimestamp);
     expect(proof.coldAnalysisLoads).toBe(2);
   }, 120_000);
 

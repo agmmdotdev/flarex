@@ -26,7 +26,7 @@ const publication: CoreProgramPublication = {
   programs: [{ identity: { functionPath: path, programHash: "old", schemaHash: "schema" }, metadata: { visibility: "public" } }] };
 export function registerCoreApplicationQueryScenarios(name: string, createFixture: () => Promise<CorePersistenceFixture>) {
 describe(name, () => {
-  it("holds query metadata, nested selection, data and time at S across publication, with no query write", async () => {
+  it("holds query metadata, nested selection, data and time at S and fences completion after publication", async () => {
     const fixture = await createFixture();
     try { await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
       const database = yield* openCoreDatabase(fixture.persistence, options);
@@ -47,9 +47,9 @@ describe(name, () => {
       expect(Option.getOrThrow(yield* query.transaction.get(documentId)).value).toBe(1);
       expect(query.transaction.unixTime).toBe(unixTime);
       const published = yield* database.publishedTimestamp;
-      const token = yield* query.finish();
-      expect(token.timestamp).toBe(timestamp);
-      expect(token.timestamp < published).toBe(true);
+      expect(timestamp < published).toBe(true);
+      expect(Result.getFailure(yield* Effect.result(query.finish()))).toEqual(
+        Option.some(expect.objectContaining({ reason: "authorityRevoked" })));
       expect(yield* database.publishedTimestamp).toBe(published);
       expect(Result.isFailure(yield* Effect.result(query.finish()))).toBe(true);
       expect(Result.isFailure(yield* Effect.result(query.transaction.get(documentId)))).toBe(true);

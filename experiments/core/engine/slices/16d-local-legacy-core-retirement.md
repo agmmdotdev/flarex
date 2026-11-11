@@ -57,3 +57,9 @@ when those callers execute through the translated owners with their supported
 behavior and meaningful coverage intact. The [consumer ledger](./16b-legacy-entrypoint-retirement.md)
 continues to identify these connected migrations. An old fixture or export
 alone does not establish a supported feature.
+
+The [sync source contract](../../../../roadmaps/query-sync-engine/preflight/16-translated-core-source-retirement.md)
+records the owner's explicit selection of pinned Convex log/retention semantics
+instead of the former dense feed's extra missing-commit corruption check. Its
+fixed-target Core source proof precedes the actual baseline host cutover;
+selecting that contract alone does not retire functional callers.
