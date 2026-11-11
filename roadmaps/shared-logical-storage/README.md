@@ -533,6 +533,23 @@ The generated five-table target, ordinary logical schema/index lifecycle and
 bounded core workers do not establish native adapter cutover or complete
 connected acceptance. Named old native targets retain their migration gates.
 
+Native Product retrieval now constructs its real schema, native commands and
+managed readers through the translated Core. Its four metadata axes preserve
+Product DML definitions and existing Core bounds. Constructor retirement requires
+paired installation, complete DTO/error, reader-reconstruction and resource
+cleanup proof; it does not promise a latency SLA under unavailable storage.
+
+The resource investigation remains open: ordinary PostgreSQL canceled small
+normal index inserts in the `tables` and `otherSourceDefinitions` 100-table
+configurations of `core-fixture.test.ts`. Later diagnosis observed `DataFileExtend`
+stalls without lock blocking or delayed protocol submission. That establishes
+those later relation-file extension waits, not the original timeouts' cause.
+Passing construction tests validate the caller migration without proving a
+resource correction. Keep the original evidence and unchanged statement limits,
+timeout classification, rollback/drain and uncertain-outcome handling. No Core
+algorithm defect has been established; do not add an adapter workaround, retry,
+fallback or performance claim to conceal a resource failure.
+
 Fresh core point reads use one document ID; retained legacy calls use a table
 name and ID. The HTTP-backed Worker test bridge forwards the actual argument
 list unchanged and records its final document-ID argument. This replaces its

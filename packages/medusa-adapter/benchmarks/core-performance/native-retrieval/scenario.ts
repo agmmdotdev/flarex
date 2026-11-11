@@ -5,7 +5,6 @@ import { Session } from "node:inspector/promises";
 import { fileURLToPath } from "node:url";
 import { isDeepStrictEqual } from "node:util";
 import { Effect, Schema } from "effect";
-import { Pool } from "pg";
 import ts from "@typescript/typescript6";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { ProductStatus } from "@medusajs/framework/utils/portable";
@@ -18,15 +17,10 @@ import {
 } from "../../../../../third_party/medusa/upstream/packages/medusa-test-utils/dist/module-test-persistence-adapter";
 import {
   productIntegrationTestRunner,
-  getLogicalProductRunnerFixture,
-} from "../../../test/support/logical-product-runner";
-import {
-  makeCommerceReadHost,
-} from "../../../../persistence-postgres/src/frameworks/commerceTransaction/read/host";
-import {
-  logicalCommerceBatchResources,
-} from "../../../../persistence-postgres/src/frameworks/commerceTransaction/resources";
+  getCoreProductRunnerFixture,
+} from "../../../test/support/core-product-runner";
 import { nativeRetrievalRelevantDemand } from "./fixtures";
+import { prepareRetrievalCoreFixture, retrievalCoreMetadataEvidence } from "./core-fixture";
 import {
   observeNativeRetrievalService,
   observePromotedRetrievalPrototype,
@@ -138,13 +132,13 @@ let nativeInstance: NativeProductModuleService | undefined;
 let flarexSetupStarted = 0;
 let server: Awaited<ReturnType<typeof openRetrievalServerObserver>> | undefined;
 let selectedDatabaseIdentities: readonly RetrievalDatabaseIdentity[] | undefined;
-const runtimeSettings: Partial<Record<Lane | "flarexControl", Awaited<ReturnType<typeof readRetrievalRuntimeSettings>>>> = {};
+const runtimeSettings: Partial<Record<Lane, Awaited<ReturnType<typeof readRetrievalRuntimeSettings>>>> = {};
 const runtimeSettingsAfter: typeof runtimeSettings = {};
 let runtimeStable: boolean | undefined;
 let sourcesBefore: Awaited<ReturnType<typeof sourceEvidence>> | undefined;
 let activeStage: "bootstrap" | "runtimeSettings" | "publicSeed" | "parity" | "nativeMissingErrors" | "measurement" | "runtimeSettingsAfter" = "bootstrap";
 let measurementComplete = false;
-let metadataEvidence: Pick<ReturnType<typeof getLogicalProductRunnerFixture>["currency"], "metadataCounts" | "metadataScaling"> | undefined;
+let metadataEvidence: ReturnType<typeof retrievalCoreMetadataEvidence> | undefined;
 
 // Error summaries are an explicit diagnostic projection. Exact native type and
 // message are asserted separately, including wrapped Commerce adapter causes.
@@ -180,15 +174,15 @@ async function sourceEvidence() {
     "third_party/medusa/upstream/packages/core/utils/src/modules-sdk/medusa-internal-service.ts",
     "third_party/medusa/upstream/packages/core/utils/src/dal/mikro-orm/mikro-orm-repository.ts",
     "packages/medusa-adapter/src/modules/product/commands/reads.ts",
+    "packages/medusa-adapter/src/modules/product/commands/services.ts",
+    "packages/medusa-adapter/src/modules/product/service.ts",
     "packages/medusa-adapter/src/modules/product/module.ts",
-    "packages/medusa-adapter/test/support/logical-product-runner.ts",
-    "packages/medusa-adapter/test/support/logical-currency-fixture.ts",
-    "packages/medusa-adapter/test/support/logical-product-fixture.ts",
-    "packages/persistence-postgres/test/storage/documents/logicalReadMetadataScalingTestSupport.ts",
+    "packages/medusa-adapter/test/support/core-product-runner.ts",
+    "packages/medusa-adapter/test/support/core-product-fixture.ts",
+    "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/core-fixture.ts",
     "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/fixtures.ts",
     "packages/medusa-adapter/src/module/persistence.ts",
     "packages/medusa-adapter/src/module/definition.ts",
-    "packages/persistence-postgres/test/application/applicationNativeMutationTestFixture.ts",
     "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/scenario.ts",
     "packages/medusa-adapter/vitest.native-retrieval.config.ts",
     "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/observation.ts",
@@ -214,89 +208,35 @@ async function sourceEvidence() {
     "tools/medusa/tsconfig.fork.json",
     "third_party/medusa/upstream/node_modules/pg-god/node_modules/tslib/tslib.js",
     "third_party/medusa/upstream/node_modules/pg-god/node_modules/tslib/package.json",
-    "packages/persistence-postgres/src/storage/documents/logicalDocuments/participantAdmission.ts",
-    "packages/persistence-postgres/src/storage/documents/logicalDocuments/relationalAdmission.ts",
-    "packages/persistence-postgres/src/storage/documents/logicalDocuments/documentAdmission.ts",
-    "packages/persistence-postgres/src/storage/documents/logicalDocuments/sourceAdmission.ts",
-    "packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts",
-    "packages/persistence-postgres/src/storage/documents/logicalDocuments/relationalQuery.ts",
-    "packages/persistence-postgres/src/storage/documents/logicalDocuments/indexReads.ts",
-    "packages/persistence-postgres/src/storage/catalog/logicalStorageReadiness.ts",
-    "packages/persistence-postgres/src/application/activation/acceptedBinding.ts",
-    "packages/persistence-postgres/src/application/activation/activationPersistence.ts",
-    "packages/persistence-postgres/src/application/activation/activeRead.ts",
-    "packages/persistence-postgres/src/application/activation/bindingAcceptance.ts",
-    "packages/persistence-postgres/src/application/activation/bindingPreparation.ts",
-    "packages/persistence-postgres/src/application/activation/capture.ts",
-    "packages/persistence-postgres/src/application/activation/constructionContracts.ts",
-    "packages/persistence-postgres/src/application/activation/contracts.ts",
-    "packages/persistence-postgres/src/application/activation/currentBinding.ts",
-    "packages/persistence-postgres/src/application/activation/currentEntryIdentity.ts",
-    "packages/persistence-postgres/src/application/activation/databaseBoundary.ts",
-    "packages/persistence-postgres/src/application/activation/errors.ts",
-    "packages/persistence-postgres/src/application/activation/finiteIdentity.ts",
-    "packages/persistence-postgres/src/application/activation/finitePreparation.ts",
-    "packages/persistence-postgres/src/application/activation/headCapture.ts",
-    "packages/persistence-postgres/src/application/activation/limits.ts",
-    "packages/persistence-postgres/src/application/activation/metadataProjection.ts",
-    "packages/persistence-postgres/src/application/activation/readBindingPublication.ts",
-    "packages/persistence-postgres/src/application/activation/repository.ts",
-    "packages/persistence-postgres/src/application/activation/repositoryIdentity.ts",
-    "packages/persistence-postgres/src/application/activation/selectionIdentity.ts",
-    "packages/persistence-postgres/src/application/activation/standaloneBinding.ts",
-    "packages/persistence-postgres/src/application/applicationActivationApi.ts",
-    "packages/persistence-postgres/src/application/activeHead/contracts.ts",
-    "packages/persistence-postgres/src/application/activeHead/errors.ts",
-    "packages/persistence-postgres/src/application/activeHead/identity.ts",
-    "packages/persistence-postgres/src/application/readiness/acceptance.ts",
-    "packages/persistence-postgres/src/application/readiness/activationTarget.ts",
-    "packages/persistence-postgres/src/application/readiness/bundle.ts",
-    "packages/persistence-postgres/src/application/readiness/coldEvidence.ts",
-    "packages/persistence-postgres/src/application/readiness/constructionContracts.ts",
-    "packages/persistence-postgres/src/application/readiness/contracts.ts",
-    "packages/persistence-postgres/src/application/readiness/controlSchema.ts",
-    "packages/persistence-postgres/src/application/readiness/databaseBoundary.ts",
-    "packages/persistence-postgres/src/application/readiness/errors.ts",
-    "packages/persistence-postgres/src/application/readiness/frames.ts",
-    "packages/persistence-postgres/src/application/readiness/identity.ts",
-    "packages/persistence-postgres/src/application/readiness/limits.ts",
-    "packages/persistence-postgres/src/application/readiness/outcomes.ts",
-    "packages/persistence-postgres/src/application/readiness/persistence.ts",
-    "packages/persistence-postgres/src/application/readiness/physicalCoverage.ts",
-    "packages/persistence-postgres/src/application/readiness/preparation.ts",
-    "packages/persistence-postgres/src/application/readiness/repository.ts",
-    "packages/persistence-postgres/src/application/readiness/storedAuthority.ts",
-    "packages/persistence-postgres/src/application/relations/applicationRelationReadinessFold.ts",
-    "packages/persistence-postgres/src/application/applicationActiveHeadRead.ts",
-    "packages/persistence-postgres/src/application/applicationBindingProjection.ts",
-    "packages/persistence-postgres/src/installation/physicalDefinitionLifecycle.ts",
+    "packages/medusa-adapter/src/schema/core-definition.ts",
+    "packages/medusa-adapter/src/modules/product/schema.ts",
+    "packages/medusa-adapter/src/modules/product/definition.ts",
+    "packages/persistence-postgres/src/core/database.ts",
+    "packages/persistence-postgres/src/core/committer.ts",
+    "packages/persistence-postgres/src/core/applicationOwner.ts",
+    "packages/persistence-postgres/src/core/schemaBundle.ts",
+    "packages/persistence-postgres/src/core/nativePolicy.ts",
+    "packages/persistence-postgres/src/core/nativeRelationalSchema.ts",
+    "packages/persistence-postgres/src/core/nativeRelationalQuery.ts",
+    "packages/persistence-postgres/src/core/nativeQuery.ts",
+    "packages/persistence-postgres/src/core/nativeObservations.ts",
+    "packages/persistence-postgres/src/core/nativeKeyProbe.ts",
+    "packages/persistence-postgres/src/core/protectedNativeMetadata.ts",
+    "packages/persistence-postgres/src/core/protectedNativeAuthority.ts",
+    "packages/persistence-postgres/src/core/indexCache.ts",
+    "packages/persistence-postgres/src/core/indexSnapshot.ts",
+    "packages/persistence-postgres/src/core/transaction.ts",
+    "packages/persistence-postgres/src/core/writeLog.ts",
+    "packages/persistence-postgres/src/database/coreDrizzleSchema.ts",
+    "packages/persistence-postgres/src/database/corePersistence/persistence.ts",
+    "packages/persistence-postgres/src/database/corePersistence/driver.ts",
+    "packages/persistence-postgres/src/database/corePersistence/physicalLayout.ts",
     "packages/persistence-postgres/src/execution/preparation/preparedHostRuntime.ts",
-    "packages/persistence-postgres/src/execution/preparation/preparedMetadataEpoch.ts",
-    "packages/persistence-postgres/src/execution/exactRunningAttemptTail.ts",
-    "packages/persistence-postgres/src/frameworks/commerceTransaction/admission.ts",
-    "packages/persistence-postgres/src/installation/frameworkSchema/binding/repository.ts",
-    "packages/persistence-postgres/src/installation/frameworkSchema/installation/runtime.ts",
-    "packages/persistence-postgres/src/frameworks/commerceTransaction/host.ts",
-    "packages/persistence-postgres/src/frameworks/commerceTransaction/borrowedLogicalAttempt.ts",
+    "packages/persistence-postgres/src/frameworks/commerceTransaction/nativeHost.ts",
+    "packages/persistence-postgres/src/frameworks/commerceTransaction/nativeOwnerHost.ts",
     "packages/medusa-adapter/src/query/read.ts",
     "packages/medusa-adapter/src/query/relations.ts",
-    "packages/persistence-postgres/src/storage/documents/appRows.ts",
-    "packages/persistence-postgres/src/database/postgres.ts",
-    "packages/persistence-postgres/src/execution/session/kernelContracts.ts",
-    "packages/persistence-postgres/src/database/locatedTransactionIdentity.ts",
-    "packages/persistence-postgres/src/execution/session/errors.ts",
-    "packages/persistence-postgres/src/execution/session/errorProjections.ts",
-    "packages/persistence-postgres/drizzle/meta/_journal.json",
   ];
-  if (managedRead) paths.push("packages/persistence-postgres/src/installation/installationLifecycle.ts",
-    "packages/persistence-postgres/src/database/postgresInstallationMaintenance.ts",
-    "packages/persistence-postgres/src/application/applicationStandaloneBinding.ts",
-    "packages/persistence-postgres/src/storage/documents/standaloneReadTransaction.ts",
-    "packages/persistence-postgres/src/storage/documents/standaloneReadSnapshot.ts",
-    "packages/persistence-postgres/src/storage/documents/logicalReadMetadata.ts",
-    "packages/persistence-postgres/src/storage/documents/logicalDocuments/readAdmission.ts",
-    "packages/persistence-postgres/src/frameworks/commerceTransaction/read/host.ts",
-    "packages/persistence-postgres/src/frameworks/commerceTransaction/read/configuration.ts");
   const sources = await Promise.all(paths.map(async path => ({ path, bytes: await readFile(new URL(path, root)) })));
   const methodNames = ["retrieveProduct", "getProductFindConfig_", "buildVariantImagesFromProduct",
     ...(relevantCount === undefined ? [] : ["listProducts"])];
@@ -358,11 +298,11 @@ describe("paired genuine native Product retrieval", () => {
             const settings = { mode, componentSpans, coldPoolClient, managedRead, coldPreparation, protocolTracing, warmups, sampleCount, concurrency: 1, nativeDatabase,
               metadataScale, relevantCount, metadataEvidence,
               preparationProfile: coldPreparation ? "actual native module init/read/shutdown and new managed Flarex host/read/close charged per request; installed schema and shared pools retained" : "retained hosts",
-              logicalDatabase: runtimeSettings.flarex?.database ?? "unavailable", selectedDatabaseIdentities,
+              coreDatabase: runtimeSettings.flarex?.database ?? "unavailable", selectedDatabaseIdentities,
               node: process.version, platform: process.platform, architecture: process.arch,
               nativeLifetime: coldPreparation ? "fresh real native module per callback over the runner-owned shared Knex connection" : "existing MikroORM module and per-call injected manager; no benchmark-owned context",
               flarexLifetime: "existing standalone CommerceHost.read with actual fresh request lifetime",
-              flarexPhysicalConnectionProfile: coldPoolClient ? "coldPoolClient; target/control idle clients destroyed outside request, connect/authentication and first Parse inside request" : "existing retained pools",
+              flarexPhysicalConnectionProfile: coldPoolClient ? "coldPoolClient; Core runtime idle clients destroyed outside request, connect/authentication and first Parse inside request" : "existing retained pools",
               nativePhysicalConnectionProfile: coldPoolClient ? "idle Knex sockets destroyed and empty pool reinitialized outside request; connect/authentication inside request" : "existing retained pool",
               protocolCoverage: protocolTracing ? "actual pg Connection method submissions; values and SQL bodies omitted; not server completion or wire bytes" : "unavailable; protocol observation disabled",
               diagnosticConnectionSettings: server?.settings ?? "unavailable in this mode", runtimeSettings, runtimeSettingsAfter,
@@ -396,8 +336,10 @@ describe("paired genuine native Product retrieval", () => {
         it("preserves complete scalar and collection DTOs, native errors and raw paired samples", async () => {
           activeStage = "runtimeSettings";
           sourcesBefore = await sourceEvidence();
-          const fixture = getLogicalProductRunnerFixture();
-          metadataEvidence = { metadataCounts: fixture.currency.metadataCounts, metadataScaling: fixture.currency.metadataScaling };
+          const fixture = getCoreProductRunnerFixture();
+          metadataEvidence = retrievalCoreMetadataEvidence(fixture.product.bundle, metadataScale);
+          const runtimePool = fixture.product.physical.runtimePool;
+          if (runtimePool === undefined) throw new Error("Retrieval comparison requires the actual Core PostgreSQL runtime pool");
           let resetNativeConnections: (() => Promise<number>) | undefined;
           const captureRuntimeSettings = async () => ({
             native: await useNative(async service => {
@@ -407,15 +349,13 @@ describe("paired genuine native Product retrieval", () => {
               if (typeof execute !== "function") throw new Error("Missing actual native manager.execute");
               return readRetrievalRuntimeSettings(async sql => Reflect.apply(execute, manager, [sql]));
             }),
-            flarex: await readRetrievalRuntimeSettings(async sql => (await fixture.currency.persistence.query(sql)).rows),
-            flarexControl: await readRetrievalRuntimeSettings(async sql =>
-              (await (fixture.currency.managedRead?.control ?? fixture.currency.control).query(sql)).rows),
+            flarex: await readRetrievalRuntimeSettings(async sql => (await runtimePool.query(sql)).rows),
           });
           Object.assign(runtimeSettings, await captureRuntimeSettings());
-          if (runtimeSettings.native === undefined || runtimeSettings.flarex === undefined || runtimeSettings.flarexControl === undefined)
+          if (runtimeSettings.native === undefined || runtimeSettings.flarex === undefined)
             throw new Error("Missing authenticated retrieval database identities");
           selectedDatabaseIdentities = selectRetrievalServerDatabases(nativeDatabase, runtimeSettings.native,
-            runtimeSettings.flarex, runtimeSettings.flarexControl);
+            runtimeSettings.flarex);
           for (const [label, runtime] of Object.entries(runtimeSettings)) {
             const tracking = runtime.settings["pg_stat_statements.track"];
             if (tracking?.status !== "observed")
@@ -463,7 +403,7 @@ describe("paired genuine native Product retrieval", () => {
             await flarex.createProducts(relevantSeed.products);
           }
           setup.flarexPublicSeedMs = performance.now() - flarexSeedStarted;
-          const { product, reader } = getLogicalProductRunnerFixture();
+          const { product, reader } = getCoreProductRunnerFixture();
           const retrieve = (lane: Lane, demand: RetrievalCase,
             components?: ReturnType<typeof observeRetrievalAcceptingComponents>, observations?: RetrievalObservation[]) => lane === "native"
             ? useNative(async service => {
@@ -478,13 +418,8 @@ describe("paired genuine native Product retrieval", () => {
                 return await service.listProducts(structuredClone(demand.filters), structuredClone(demand.config));
               } finally { restore?.(); }
             })
-            : Effect.runPromise(Effect.gen(function* () {
-              if (coldPreparation && product.managedReadHostInput === undefined)
-                return yield* Effect.fail(new Error("Missing managed host input"));
-              const selectedReader = coldPreparation
-                && product.managedReadHostInput !== undefined ? yield* makeCommerceReadHost({ ...product.managedReadHostInput,
-                  logicalResources: logicalCommerceBatchResources })
-                : reader;
+            : product.run(Effect.gen(function* () {
+              const selectedReader = coldPreparation ? yield* product.openReadHost() : reader;
               return yield* Effect.gen(function* () {
                 const config = { select: [...(demand.config.select ?? [])], relations: [...(demand.config.relations ?? [])] };
                 if (demand.operation === "retrieve") return yield* selectedReader.read(product.runtime.commands.retrieve,
@@ -529,11 +464,7 @@ describe("paired genuine native Product retrieval", () => {
               let coldPoolReset: Sample["coldPoolReset"];
               if (coldPoolClient) {
                 const resetStarted = performance.now();
-                const pools = lane === "native" ? [] : [fixture.currency.persistence,
-                  fixture.currency.managedRead?.control ?? fixture.currency.control].map(owner => {
-                  if (!("pool" in owner) || !(owner.pool instanceof Pool)) throw new Error("Cold retrieval requires actual PostgreSQL fixture pools");
-                  return owner.pool;
-                });
+                const pools = lane === "native" ? [] : [runtimePool];
                 const destroyedConnections: number[] = [];
                 if (lane === "native") {
                   if (resetNativeConnections === undefined) throw new Error("Missing actual native shared connection reset");
@@ -581,20 +512,8 @@ describe("paired genuine native Product retrieval", () => {
                     throw observationError;
                   }
                   const observed = sample.acceptingComponents;
-                  if (managedRead) {
-                    expect(observed.filter(span => span.name === "ApplicationActivation.withStandaloneBinding" &&
-                      span.outcome === "success")).toHaveLength(1);
-                    for (const name of ["StandaloneReadTransaction.enter", "LogicalReadMetadata.authenticateAndRegister",
-                      "PreparedMetadataEpoch.acceptFinalBatch"]) {
-                      expect(observed.filter(span => span.name === name && span.outcome === "success")).toHaveLength(1);
-                    }
-                    if (!coldPreparation) expect(observed.filter(span => span.name === "LogicalReadMetadata.checkCurrent"))
-                      .toHaveLength(0);
-                  } else {
-                    expect(observed.filter(span => (span.name === "ApplicationActivation.validateBindingBasisOwned" ||
-                      span.name === "ApplicationActivation.withPreparedBindingBasis") && span.outcome === "success")).toHaveLength(1);
-                    expect(observed.filter(span => span.name === "ApplicationReadiness.validateStoredIssuedReadiness" &&
-                      span.outcome === "success")).toHaveLength(1);
+                  for (const name of ["CommerceNativeHost.read", "CoreDatabase.beginNative", "CoreDatabase.finishNativeRead"]) {
+                    expect(observed.filter(span => span.name === name && span.outcome === "success")).toHaveLength(1);
                   }
                 }
                 // Preserve the complete DTO after EVERY invocation. No post-hoc projection.
@@ -603,30 +522,10 @@ describe("paired genuine native Product retrieval", () => {
                   expect(protocol.filter(entry => entry.method === "query" || entry.method === "execute"))
                     .toHaveLength(observations.filter(entry => entry.kind === "sql").length);
                   expect(protocol.every(entry => entry.outcome === "returned")).toBe(true);
-                  if (lane === "flarex") {
-                    if (managedRead) {
-                      const entries = observations.filter(entry => entry.kind === "sql" && entry.label.includes("fx_accept_finite_placement_frontier"));
-                      expect(entries).toHaveLength(1);
-                      const entry = entries[0];
-                      if (entry === undefined) throw new Error("Missing named standalone entry statement");
-                      const expectedName = `fx_sr_${hash(entry.label).slice(0, 56)}`;
-                      const binds = protocol.filter(value => value.method === "bind" && value.statementName?.startsWith("fx_sr_"));
-                      expect(binds).toHaveLength(1);
-                      expect(binds[0]?.statementName).toBe(expectedName);
-                      const parses = protocol.filter(value => value.method === "parse" && value.statementName?.startsWith("fx_sr_"));
-                      expect(parses).toHaveLength(coldPoolClient ? 1 : 0);
-                      for (const value of parses) {
-                        expect(value.statementName).toBe(expectedName);
-                        expect(value.sqlSha256).toBe(hash(entry.label));
-                      }
-                    }
-                    const names = new Set(protocol.filter(entry => entry.method === "bind" &&
-                      entry.statementName?.startsWith("fx_pm_")).map(entry => entry.statementName));
-                    if (!managedRead) expect(names.size).toBe(2);
-                    const parsed = protocol.filter(entry => entry.method === "parse" && entry.statementName?.startsWith("fx_pm_"));
-                    for (const entry of parsed) expect(entry.statementName).toBe(`fx_pm_${entry.sqlSha256?.slice(0, 56)}`);
-                    if (coldPoolClient && !managedRead) expect(parsed).toHaveLength(2);
-                  }
+                  // Current Core statement/protocol details remain raw observations;
+                  // former finite-placement and metadata-epoch counts are retired.
+                  if (lane === "flarex") expect(observations.filter(entry => entry.kind === "sql")
+                    .every(entry => !entry.label.includes("fx_accept_finite_placement_frontier"))).toBe(true);
                 }
               } finally {
                 for (const close of cleanups.toReversed()) close();
@@ -639,7 +538,7 @@ describe("paired genuine native Product retrieval", () => {
                     if (last.outcome === "success") {
                       const database = runtimeSettings[lane];
                       if (database === undefined) throw new Error("Missing authenticated sample database identity");
-                      requireRetrievalServerObservedCalls(database, last.server);
+                      if (lane === "native") requireRetrievalServerObservedCalls(database, last.server);
                     }
                   }
                 }
@@ -649,7 +548,7 @@ describe("paired genuine native Product retrieval", () => {
           activeStage = "runtimeSettingsAfter";
           Object.assign(runtimeSettingsAfter, await captureRuntimeSettings());
           runtimeStable = true;
-          for (const lane of ["native", "flarex", "flarexControl"] as const) {
+          for (const lane of ["native", "flarex"] as const) {
             const before = runtimeSettings[lane];
             const after = runtimeSettingsAfter[lane];
             // Pools may use a different connection; PID remains raw evidence
@@ -661,7 +560,7 @@ describe("paired genuine native Product retrieval", () => {
           if (!runtimeStable) throw new Error("Retrieval runtime identity or settings changed during measurement");
           measurementComplete = true;
         });
-      } }, { protectedRuntime: true, managedRead, ...(metadataScale === undefined ? {} : { readMetadataScale: metadataScale }) });
+      } }, { managedRead, prepareFixture: () => Effect.runPromise(prepareRetrievalCoreFixture(metadataScale)) });
     },
   });
 });

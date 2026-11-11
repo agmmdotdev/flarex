@@ -4,26 +4,17 @@ import { Client, type Pool, type PoolClient } from "pg";
 import { Tracer } from "effect";
 
 const acceptingSpanNames = new Set([
-  "ApplicationActivation.prepareBindingSelection",
-  "ApplicationReadiness.captureRows",
-  "ApplicationReadiness.prepareCapturedRows",
-  "ApplicationActivation.withValidatedBindingBasis",
-  "ApplicationActivation.withPreparedBindingBasis",
-  "ApplicationActivation.validateBindingBasisOwned",
-  "ApplicationReadiness.validateStoredIssuedReadiness",
-  "ApplicationReadiness.withStoredForBindingInTransaction",
-  "ApplicationReadiness.loadPhysicalReadiness",
-  "PreparedMetadataEpoch.authenticateTargetSnapshot",
-  "PreparedMetadataEpoch.guard",
-  "ApplicationActivation.withStandaloneBinding",
-  "ApplicationBindingProjection.withStandaloneEvidence",
-  "LogicalReadAdmission.with",
-  "LogicalReadMetadata.checkCurrent",
-  "LogicalReadMetadata.authenticateAndRegister",
-  "StandaloneReadTransaction.enter",
-  "PreparedMetadataEpoch.acceptFinalBatch",
-  "LogicalStorageReadiness.inspectReadDemand",
-  "InstallationLifecycle.acquire",
+  "CommerceNativeHost.makeReadHost",
+  "CommerceNativeHost.compose",
+  "CommerceNativeHost.readBinding",
+  "CommerceNativeHost.read",
+  "CommerceNativeHost.execute",
+  "CommerceNativeHost.invoke",
+  "CoreDatabase.bindNative",
+  "CoreDatabase.beginNative",
+  "CoreDatabase.startNative",
+  "CoreDatabase.openSnapshot",
+  "CoreDatabase.finishNativeRead",
 ]);
 
 export interface RetrievalComponentSpan {

@@ -9,7 +9,7 @@ import { commerceError, type Json, isJsonObject } from "@flarex/persistence-post
 import { commerceCommandIdentity } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import type { CommerceCommand } from "../../../persistence-postgres/src/frameworks/commerceTransaction/commands";
 import type { ProductRunnerOptions, ProductTestService } from "./runner-contract";
-import { createCoreProductFixture, type CoreProductFixture } from "./core-product-fixture";
+import { createCoreProductFixture, type CoreProductFixture, type CoreProductFixtureOptions } from "./core-product-fixture";
 
 type Fixture = { product: CoreProductFixture; reader: Pick<CoreProductFixture["host"], "read" | "close"> };
 let current = Option.none<Fixture>();
@@ -165,13 +165,16 @@ const service = new Proxy<object>({}, {
   },
 }) as ProductTestService; // Test-only compatibility boundary for the original full-service callback.
 
-export function productIntegrationTestRunner(options: ProductRunnerOptions, fixtureOptions?: Readonly<{ managedRead?: boolean }>): void {
+export function productIntegrationTestRunner(options: ProductRunnerOptions, fixtureOptions?: Readonly<{
+  managedRead?: boolean;
+  prepareFixture?: () => Promise<CoreProductFixtureOptions>;
+}>): void {
   describe(options.injectedDependencies ? "Product injected event bus" : "Product service", () => {
     beforeAll(async () => {
       if (options.moduleName !== "product") throw new Error("Only Product is admitted");
       const driver = process.env.FLAREX_TEST_DRIVER ?? "pglite";
       if (driver !== "pglite" && driver !== "postgres") throw new Error("Invalid Product driver");
-      const product = await createCoreProductFixture(driver);
+      const product = await createCoreProductFixture(driver, await fixtureOptions?.prepareFixture?.());
       try {
         const reader = fixtureOptions?.managedRead === true ? await product.run(product.openReadHost()) : product.host;
         current = Option.some({ product, reader });

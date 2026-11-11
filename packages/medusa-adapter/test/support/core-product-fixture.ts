@@ -90,6 +90,8 @@ export interface CoreProductFixtureOptions<Extension = undefined> {
   readonly physical?: CorePersistenceFixture;
   readonly target?: Readonly<{ scopeUuid: string; epochUuid: string }>;
   readonly sources?: readonly CoreSchemaSource[];
+  /** An authentic producer-issued Product definition for metadata-only fixture extensions. */
+  readonly definition?: CoreNativeDefinition;
   readonly candidate?: PreparedLogicalSchemaCandidate;
   readonly programs?: readonly CoreProgramDefinition[];
   readonly bindingSelectionTargets?: readonly (readonly CoreNativeBindingSelection[])[];
@@ -106,7 +108,8 @@ const commerceResult = <A, R>(work: Effect.Effect<A, ProductBuildFailure, R>) =>
  * Stable facades borrow fresh lazy services from its one composite generation. */
 export async function createCoreProductFixture<Extension = undefined>(driver: "pglite" | "postgres",
   options: CoreProductFixtureOptions<Extension> = {}): Promise<CoreProductFixture<Extension>> {
-  const suppliedPhysical = options.physical, wrapPersistence = options.wrapPersistence, prepareExtension = options.prepareGeneration;
+  const suppliedPhysical = options.physical, suppliedDefinition = options.definition;
+  const wrapPersistence = options.wrapPersistence, prepareExtension = options.prepareGeneration;
   const selectedTarget = options.target ?? coreProductFixtureTarget;
   const target = Object.freeze({ scopeUuid: selectedTarget.scopeUuid, epochUuid: selectedTarget.epochUuid });
   const sources = Object.freeze((options.sources ?? []).map(source => Object.freeze({ ...source })));
@@ -137,7 +140,7 @@ export async function createCoreProductFixture<Extension = undefined>(driver: "p
     const selected = await run(Effect.gen(function* () {
       const runtime = yield* makeLocalProductCommands();
       const commands = Object.freeze(Object.values(runtime.commands));
-      const definition = yield* compileProductCoreDefinition(target);
+      const definition = suppliedDefinition ?? (yield* compileProductCoreDefinition(target));
       const metadata = runtime.metadata;
       const revision = createHash("sha256").update("native-product-logical-suite").digest("hex");
       const names = [...new Set(metadata.entities.flatMap(entity => [entity.createdEvent, entity.updatedEvent, entity.deletedEvent, entity.restoredEvent]))];

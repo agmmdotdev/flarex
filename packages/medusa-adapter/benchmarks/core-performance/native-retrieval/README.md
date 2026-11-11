@@ -1,4 +1,70 @@
-# Paired native Product retrieval measurement
+# Paired native Product retrieval comparison
+
+Migration status: **Current Core construction; performance measurement paused.**
+The [resource investigation](../../../../../roadmaps/shared-logical-storage/README.md#translated-core-consumer-acceptance)
+retains the earlier ordinary PostgreSQL statement timeouts as an open diagnostic
+issue. Construction validation does not establish their cause or a correction.
+
+The executable comparison now uses the current Core Product fixture and runner.
+The native lane retains the pinned Medusa Product/MikroORM runner. Both lanes
+create Products and collections through native service paths and compare complete
+scalar/populated DTOs plus native missing-Product errors. The current fixture
+supplies one ordinary-role Core runtime pool, owner-managed readers and shared
+schema bundles. The old logical Product runner is removed.
+
+Performance measurement remains paused. No new timing, CPU or SQL-count result
+follows from this construction migration. Existing JSON, profiles, summaries and
+manifests are frozen evidence for their recorded historical sources.
+
+## Current correctness checks
+
+From the workspace root:
+
+```powershell
+pnpm exec tsrs -p packages/medusa-adapter/benchmarks/core-performance/native-retrieval/tsconfig.json --fast --noEmit
+pnpm exec vitest run --config packages/medusa-adapter/benchmarks/core-performance/native-retrieval/vitest.fixture.config.ts
+pnpm check:medusa-source-island-boundary
+```
+
+The construction suite compiles all eight metadata variants and exercises the
+1/10/100-row scalar and populated-collection lists, successful scalar/populated
+retrieval, native missing errors and recreated readers without importing the
+timing scenario. This suite proves the current Core construction and native
+service behavior; it does not run a fresh paired MikroORM comparison. Its PostgreSQL lane
+uses `FLAREX_TEST_DRIVER=postgres` and the repository's ordinary/provisioning test
+endpoints; the default lane is PGlite.
+
+Metadata axes install actual declarations through the native compiler and shared
+Core bundle. Tables, indexes and relations extend the Product source with unused
+declarations while preserving its DML tables; `otherSourceDefinitions` installs a
+separate native source. The 100-index and 100-relation variants partition unused
+declarations across tables to respect existing Core limits. Metadata counts
+describe the native bundle's declarations, excluding Core-private metadata and
+implicit indexes. This representation change means historical
+metadata timing is not directly comparable.
+
+Recreated readers use `product.openReadHost()`; runtime settings and resets use
+`product.physical.runtimePool`. Provisioning is setup-only; there is no second
+runtime control pool. The shared database selector retains optional control-pool
+identity checks for the still-admitted mixed native-read comparison. Current component observations name the executing
+`CommerceNativeHost` and Core snapshot/read-completion owners. Nested inclusive
+spans remain nonadditive. Protocol observations retain actual calls and hashes;
+old finite-placement statements and prepared-metadata statement counts retire.
+Core may satisfy warm reads locally, so its server diagnostics may honestly
+contain zero SQL calls. Native ORM retrieval still requires observed server
+calls. Zero SQL observations do not establish zero CPU or latency.
+
+The selected source inventory now fingerprints the executing Core owners,
+fixtures and direct Product definition producer. It is not a complete transitive
+source closure.
+Future measurements require the existing isolated prerequisites and explicit
+performance scope; construction cleanup runs only correctness checks.
+
+## Historical construction and measurement evidence
+
+The commands, reports and discussion below describe previous source checkpoints,
+including old runtime/control pools and acceptance mechanics. They are historical
+evidence, not current Core instructions or performance claims.
 
 This optional benchmark compares pinned native Medusa Product/MikroORM on real
 PostgreSQL with the promoted Product method running through protected Flarex

@@ -47,21 +47,28 @@ describe("native retrieval authenticated database coverage", () => {
     const runtime = await readRetrievalRuntimeSettings(async () => [{
       database: "logical retrieval", dbid: 102, role: "protected_runtime", userid: 202, pid: 302, settings: {},
     }]);
-    const control = { ...runtime, role: "fixture_owner", userid: 203, pid: 303 };
-    const selected = selectRetrievalServerDatabases("native_retrieval", native, runtime, control);
+    const selected = selectRetrievalServerDatabases("native_retrieval", native, runtime);
     expect(selected).toEqual([{ database: "native_retrieval", dbid: 101 }, { database: "logical retrieval", dbid: 102 }]);
     expect(selected.map(database => database.database)).not.toContain(connectionUrl.pathname.slice(1));
   });
 
-  it("refuses wrong native selection, split control/runtime databases and overlapping lanes", () => {
+  it("refuses wrong native selection and overlapping lanes", () => {
     const native = { database: "native", dbid: 101, role: "native_owner", userid: 201, pid: 301, settings: {} };
     const runtime = { database: "logical", dbid: 102, role: "runtime", userid: 202, pid: 302, settings: {} };
-    expect(() => selectRetrievalServerDatabases("wrong", native, runtime, runtime)).toThrow("Actual native database differs");
-    expect(() => selectRetrievalServerDatabases("native", native, runtime, { ...runtime, database: "other" }))
-      .toThrow("runtime and control database identities differ");
-    expect(() => selectRetrievalServerDatabases("native", native, runtime, { ...runtime, dbid: 999 }))
-      .toThrow("runtime and control database identities differ");
-    expect(() => selectRetrievalServerDatabases("native", native, native, native)).toThrow("must be distinct");
+    expect(() => selectRetrievalServerDatabases("wrong", native, runtime)).toThrow("Actual native database differs");
+    expect(() => selectRetrievalServerDatabases("native", native, native)).toThrow("must be distinct");
+  });
+
+  it("preserves control-pool identity checks for the retained finite comparison", () => {
+    const native = { database: "native", dbid: 101, role: "native_owner", userid: 201, pid: 301, settings: {} };
+    const runtime = { database: "logical", dbid: 102, role: "runtime", userid: 202, pid: 302, settings: {} };
+    const control = { ...runtime, role: "control", userid: 203, pid: 303 };
+    expect(selectRetrievalServerDatabases("native", native, runtime, control)).toEqual([
+      { database: "native", dbid: 101 }, { database: "logical", dbid: 102 },
+    ]);
+    for (const mismatched of [{ ...control, database: "other" }, { ...control, dbid: 999 }])
+      expect(() => selectRetrievalServerDatabases("native", native, runtime, mismatched))
+        .toThrow("Flarex runtime and control database identities differ");
   });
 
   it("refuses missing or mismatched observer catalog identities before claiming coverage", () => {

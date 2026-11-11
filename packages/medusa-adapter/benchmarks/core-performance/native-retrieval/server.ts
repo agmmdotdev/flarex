@@ -37,10 +37,10 @@ const decodeRuntimeSettings = Schema.decodeUnknownSync(Schema.Array(RuntimeSetti
  * path spelling. PostgreSQL connection URLs may encode the database name. */
 export function selectRetrievalServerDatabases(expectedNativeDatabase: string,
   native: typeof RuntimeSettings.Type, flarex: typeof RuntimeSettings.Type,
-  control: typeof RuntimeSettings.Type): readonly RetrievalDatabaseIdentity[] {
+  control?: typeof RuntimeSettings.Type): readonly RetrievalDatabaseIdentity[] {
   if (native.database !== expectedNativeDatabase)
     throw new Error("Actual native database differs from selected existing database");
-  if (flarex.database !== control.database || flarex.dbid !== control.dbid)
+  if (control !== undefined && (control.database !== flarex.database || control.dbid !== flarex.dbid))
     throw new Error("Flarex runtime and control database identities differ");
   if (native.database === flarex.database || native.dbid === flarex.dbid)
     throw new Error("Native and Flarex retrieval databases must be distinct");

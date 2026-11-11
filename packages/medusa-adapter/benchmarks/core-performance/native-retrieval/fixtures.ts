@@ -1,8 +1,8 @@
 import { ProductStatus } from "@medusajs/framework/utils/portable";
 import type { FindConfig, ProductTypes } from "@medusajs/framework/types";
-import type { LogicalReadMetadataScale } from "../../../../persistence-postgres/test/storage/documents/logicalReadMetadataScalingTestSupport";
+import type { RetrievalMetadataScale } from "./core-fixture";
 
-export const nativeRetrievalMetadataVariants: readonly LogicalReadMetadataScale[] =
+export const nativeRetrievalMetadataVariants: readonly RetrievalMetadataScale[] =
   (["tables", "indexes", "relations", "otherSourceDefinitions"] as const)
     .flatMap(axis => ([1, 100] as const).map(count => ({ axis, count })));
 

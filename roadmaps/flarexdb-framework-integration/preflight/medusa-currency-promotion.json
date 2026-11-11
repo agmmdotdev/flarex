@@ -417,7 +417,7 @@
     {
       "target": "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/README.md",
       "classification": "authored",
-      "targetSha256": "1b9bc5e6c7e28bb4b85089a96a7c66fd3f0ed852b94c38eb0074948147bc34d7"
+      "targetSha256": "510430ef704828ab5362429aba0ee8f468ec0b990013fad52b9a18b64ce7688b"
     },
     {
       "target": "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/authenticated-coverage-manifest.json",
@@ -495,6 +495,16 @@
       "targetSha256": "b0e60cf3ab7ea53871ee5f3bed420d834af52fe5adca5055ca62ff8e0c66e4d3"
     },
     {
+      "target": "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/core-fixture.test.ts",
+      "classification": "authored",
+      "targetSha256": "2940a566ed3d928e31fef93df1b2938641096474ddaa8d44e2f5bf879b0f3994"
+    },
+    {
+      "target": "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/core-fixture.ts",
+      "classification": "authored",
+      "targetSha256": "0cc20ff37d198b8ba90abfedfc533a17caea6015cd9023ef6b112095293cbc77"
+    },
+    {
       "target": "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/cpu-resumed-colocated-cpu-01.cpuprofile",
       "targetSha256": "2c8e441be1be70f7c6d17ca6f23becabfd0e944e929cb9f8d3c2ca23c688c7f3",
       "classification": "authored"
@@ -521,7 +531,7 @@
     },
     {
       "target": "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/fixtures.ts",
-      "targetSha256": "cc0821562d5f7ac0bc8fd3682c105f8e9e6f34db485b58583755bd9b5a9da97f",
+      "targetSha256": "c28dc8a23e5df6f0eb4bd1db50364e46a9fc3704e3ae5af1a9b09a300d2d07f0",
       "classification": "authored"
     },
     {
@@ -549,7 +559,7 @@
     {
       "target": "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/observation.ts",
       "classification": "authored",
-      "targetSha256": "c4ddfbffed7c6f2a39cbdef8cb8432bd867f176f6798a6269cc3a649ee91f983"
+      "targetSha256": "14b5b659912e204cc1361c90b6ddc48c1f9a84c2fe86976ec1c36119fcf4f4bf"
     },
     {
       "target": "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/quiet-acceptance-baseline.json",
@@ -669,7 +679,7 @@
     {
       "target": "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/scenario.ts",
       "classification": "authored",
-      "targetSha256": "3c59b01b9a765226e4d5702a2055e862e8197d9c15336b5521ea10906b904c93"
+      "targetSha256": "493115950df73db7a25b713583d45c62f279966f75932b52bcf49c7b5c94d996"
     },
     {
       "target": "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/server-authenticated-coverage.json.gz",
@@ -749,12 +759,12 @@
     {
       "target": "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/server.test.ts",
       "classification": "authored",
-      "targetSha256": "49522b7353904b6ebc185268b378a4f756dd24553eff9724d2b92c2c87dd2a1d"
+      "targetSha256": "0522a26fc01b99decb57ed12d1a89aed3ba25da958a467575d2723bfd3bbd75e"
     },
     {
       "target": "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/server.ts",
       "classification": "authored",
-      "targetSha256": "f4bedd0ba1cd733efaff65dd866438fefe5dd7dbe683dbd73b3943fd89c38998"
+      "targetSha256": "7026acf937fb33b8f826008970bf6b36a1c2385a0cff6a966b3bee82640ff064"
     },
     {
       "target": "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/settings-capture-failure-summary.json",
@@ -845,6 +855,11 @@
       "target": "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/tsconfig.json",
       "classification": "authored",
       "targetSha256": "c03d287f2c399905a521a2a7c5b331c163e5da761fddd31b46a7ec5169b7279a"
+    },
+    {
+      "target": "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/vitest.fixture.config.ts",
+      "classification": "authored",
+      "targetSha256": "fe4a3d8934358bd491967c047ddcf05297f3b14ce6c3ae75b8a996f0e0b6dee3"
     },
     {
       "target": "packages/medusa-adapter/package.json",
@@ -8016,7 +8031,7 @@
     {
       "target": "packages/medusa-adapter/test/support/core-product-fixture.ts",
       "classification": "authored",
-      "targetSha256": "f1ae4d0f38faf932f91dc5ec0f66d78c9878410b620a3e3c7c1cc23ce9f6d8ec"
+      "targetSha256": "0c7294d25c9eb94ffb147bc2df378bba9b6a37963f2d75dc3c01a6d09f9e012b"
     },
     {
       "target": "packages/medusa-adapter/test/support/core-product-managed-read-scenarios.ts",
@@ -8031,7 +8046,7 @@
     {
       "target": "packages/medusa-adapter/test/support/core-product-runner.ts",
       "classification": "authored",
-      "targetSha256": "3cf7b6894c4418de649ea54054a691946bad80f5fd52e6bb7cdcb430635f41ea"
+      "targetSha256": "caad2a62abef453b8bc522657fb5d60e4cc0a3abd50d4b6a38a041beae20948e"
     },
     {
       "target": "packages/medusa-adapter/test/support/core-product-sales-channel-link-fixture.ts",
@@ -8392,11 +8407,6 @@
       "target": "packages/medusa-adapter/test/support/logical-product-links-fixture.ts",
       "classification": "authored",
       "targetSha256": "5d49361af1d1a99ca59fd3b6e899351bbea44d40187c905ad161ff92dab41759"
-    },
-    {
-      "target": "packages/medusa-adapter/test/support/logical-product-runner.ts",
-      "classification": "authored",
-      "targetSha256": "0b2e7b1e9018c3e0f4257c2529cda0e65ef9337a85be1d8ab825bfdf3051d49a"
     },
     {
       "target": "packages/medusa-adapter/test/support/logical-product-sales-channel-link-fixture.ts",
