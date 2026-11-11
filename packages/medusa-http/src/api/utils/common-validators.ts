@@ -20,3 +20,27 @@ export const booleanString = () =>
     .transform((value) => {
       return value.toString().toLowerCase() === "true"
     })
+
+export function recursivelyNormalizeSchema<
+  Data extends object,
+  NormalizedData extends object
+>(transform: (data: Data) => NormalizedData): (data: Data) => NormalizedData {
+  type LogicalOperator = "$and" | "$or"
+  type InputLogicalData = Partial<Record<LogicalOperator, Data[]>>
+  type OutputLogicalData = Partial<Record<LogicalOperator, NormalizedData[]>>
+
+  return (data: Data) => {
+    const normalizedData = transform(data)
+    const logicalInput = normalizedData as NormalizedData & InputLogicalData
+    const logicalOutput = normalizedData as NormalizedData & OutputLogicalData
+
+    for (const key of ["$and", "$or"] as const) {
+      const value = logicalInput[key]
+      if (Array.isArray(value)) {
+        logicalOutput[key] = value.map(transform)
+      }
+    }
+
+    return logicalOutput
+  }
+}

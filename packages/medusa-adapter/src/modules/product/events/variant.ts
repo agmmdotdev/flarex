@@ -156,7 +156,8 @@ export function productLogicalVariantChangeEventPolicy(catalog: ProductRuntimeMe
       if (!isJsonObject(request)) return yield* Effect.fail(mismatch());
       if (typeof request.id === "string") {
         const mutation = variants.get(request.id);
-        if (mutation === undefined || mutation.operation === "insert" || requestedIds.has(request.id))
+        if (mutation === undefined || mutation.operation === "insert" || requestedIds.has(request.id) ||
+          request.product_id !== undefined && mutation.before?.product_id !== request.product_id)
           return yield* Effect.fail(mismatch());
         requestedIds.add(request.id);
       } else {

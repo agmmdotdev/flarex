@@ -583,11 +583,6 @@
       "source": "./src/link/links.ts",
       "default": "./dist/link/links.js"
     },
-    "./pricing/price-list-rules": {
-      "types": "./dist/pricing/price-list-rules.d.ts",
-      "source": "./src/pricing/price-list-rules.ts",
-      "default": "./dist/pricing/price-list-rules.js"
-    },
     "./common/filter-object-by-keys": {
       "types": "./dist/common/filter-object-by-keys.d.ts",
       "source": "./src/common/filter-object-by-keys.ts",
@@ -747,6 +742,21 @@
       "types": "./dist/product/get-variant-availability.d.ts",
       "source": "./src/product/get-variant-availability.ts",
       "default": "./dist/product/get-variant-availability.js"
+    },
+    "./pricing/builders": {
+      "types": "./dist/pricing/builders.d.ts",
+      "source": "./src/pricing/builders.ts",
+      "default": "./dist/pricing/builders.js"
+    },
+    "./modules-sdk/query-context": {
+      "types": "./dist/modules-sdk/query-context.d.ts",
+      "source": "./src/modules-sdk/query-context.ts",
+      "default": "./dist/modules-sdk/query-context.js"
+    },
+    "./totals/tax/index": {
+      "types": "./dist/totals/tax/index.d.ts",
+      "source": "./src/totals/tax/index.ts",
+      "default": "./dist/totals/tax/index.js"
     }
   },
   "license": "MIT",

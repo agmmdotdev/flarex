@@ -10,6 +10,11 @@ import { compileProductRequestCatalog, makeProductRequestOperations, type Produc
 import { createCoreNativeWorkflowFixture } from "./core-native-workflow-fixture";
 import { makeLocalInventoryCommands } from "../../src/modules/inventory/service";
 import { makeStockLocationCommands } from "../../src/modules/stock-location/service";
+import { makeLocalPricingCommands } from "../../src/modules/pricing/service";
+import { PriceListWorkflowInput } from "../../src/modules/pricing/list-input";
+import { prepareVariantPricingLink } from "../../src/links/variant-pricing-service";
+import { prepareSalesChannelCreationWorkflow, SalesChannelCreationInput } from "../../src/workflows/sales-channel/create";
+import { prepareCreatePriceListsWorkflow } from "../../src/workflows/pricing/create-price-lists";
 import { InventoryStockingInput, prepareInventoryStockingWorkflow } from "../../src/workflows/inventory/stock";
 import { prepareCreateReservationWorkflow } from "../../src/workflows/inventory/adjust-and-reserve";
 import type { ReservationCreates } from "../../src/modules/inventory/reservation-input";
@@ -29,7 +34,7 @@ export async function prepareProductRequestFixture(driver: "pglite" | "postgres"
     definition: source.definition, initialCommands: source.commands, initializationStepId: source.initialization.stepId, rows: [] })),
     eventDefinition: catalog.eventDefinition, ...(options.physical === undefined ? {} : { physical: options.physical }) });
   const use = <A, E>(work: (operations: ProductRequestOperations) => Effect.Effect<A, E, Scope.Scope>) => fixture.run(fixture.useGeneration(generation => Effect.gen(function* () {
-    const hostRuntime = yield* makePreparedHostRuntime({ maximumHosts: 37, maximumPreparedBytes: 8 * 1024 * 1024 });
+    const hostRuntime = yield* makePreparedHostRuntime({ maximumHosts: 41, maximumPreparedBytes: 8 * 1024 * 1024 });
     const operations = yield* makeProductRequestOperations({ database: generation.database, hostRuntime, catalog,
       identityAndAccessPolicy: { profile: "native-admin-product-request" }, revision: "d".repeat(64),
       subscribers: [{ id: "native-admin-product-request", revision: "e".repeat(64) }] });
@@ -94,6 +99,46 @@ export async function observeProductRequestFixture(input: ProductRequestDatabase
   }));
 }
 
+/** Test composition only: the existing native host owns every seed operation. */
+const prepareProductRequestSeedExecution = Effect.fn("ProductRequestFixture.prepareSeedExecution")(function* (
+  input: ProductRequestDatabaseInput, database: CoreDatabase,
+) {
+  const hostRuntime = yield* makePreparedHostRuntime({ maximumHosts: 8, maximumPreparedBytes: 8 * 1024 * 1024 });
+  const generationScope = yield* Effect.scope;
+  const execution: AtomicWorkflowExecution = {
+    identityAndAccessPolicy: { profile: "native-product-prerequisite-fixture" },
+    prepare: composition => Scope.provide(generationScope)(Effect.acquireRelease(makeAtomicCommerceNativeHost({ ...composition, database, hostRuntime,
+      bundle: input.catalog.bundle, sources: input.catalog.sources, eventStorage: { definition: input.catalog.eventDefinition } }), host => host.close)),
+  };
+  return execution;
+});
+
+/** The DO owner must be fully drained before opening this trusted seed owner. */
+export async function seedProductRequestAssociations(input: ProductRequestDatabaseInput & Readonly<{
+  salesChannelsData?: typeof SalesChannelCreationInput.Type.salesChannelsData;
+  priceListsData?: typeof PriceListWorkflowInput.Type.price_lists_data;
+}>) {
+  return useProductRequestDatabase(input, database => Effect.gen(function* () {
+    const execution = yield* prepareProductRequestSeedExecution(input, database);
+    const options = { execution, revision: "a".repeat(64), subscribers: [{ id: "product-association-fixture", revision: "b".repeat(64) }] };
+    const { salesChannelsData, priceListsData } = input;
+    const salesChannels = salesChannelsData === undefined ? [] : yield* Effect.gen(function* () {
+      const workflow = yield* Effect.acquireRelease(prepareSalesChannelCreationWorkflow({ ...options,
+        modules: { sales_channel: input.catalog.modules.sales_channel } }), workflow => workflow.close);
+      return yield* workflow.run(workflow.newRequestKey(), { salesChannelsData });
+    });
+    const priceLists = priceListsData === undefined ? [] : yield* Effect.gen(function* () {
+      const pricing = yield* makeLocalPricingCommands("price-list-creations"), link = yield* prepareVariantPricingLink();
+      const workflow = yield* Effect.acquireRelease(prepareCreatePriceListsWorkflow({ ...options, modules: {
+        pricing: { module: pricing.workflow, nativeStorage: input.catalog.modules.pricing.nativeStorage },
+        link: { module: link.workflow, nativeStorage: input.catalog.modules.variant_links.nativeStorage },
+      } }), workflow => workflow.close);
+      return yield* workflow.run(workflow.newRequestKey(), { price_lists_data: priceListsData });
+    });
+    return { salesChannels, priceLists };
+  }));
+}
+
 /** Trusted fixture seeding through the existing native Stock and Reservation
  * workflows, after the HTTP/DO owner has drained. No quantity logic lives here. */
 export async function seedProductRequestInventory(input: ProductRequestDatabaseInput & Readonly<{
@@ -101,13 +146,7 @@ export async function seedProductRequestInventory(input: ProductRequestDatabaseI
   reservationBatches?: readonly (typeof ReservationCreates.Type)[];
 }>) {
   return useProductRequestDatabase(input, database => Effect.gen(function* () {
-    const hostRuntime = yield* makePreparedHostRuntime({ maximumHosts: 8, maximumPreparedBytes: 8 * 1024 * 1024 });
-    const generationScope = yield* Effect.scope;
-    const execution: AtomicWorkflowExecution = {
-      identityAndAccessPolicy: { profile: "native-product-inventory-fixture" },
-      prepare: composition => Scope.provide(generationScope)(Effect.acquireRelease(makeAtomicCommerceNativeHost({ ...composition, database, hostRuntime,
-        bundle: input.catalog.bundle, sources: input.catalog.sources, eventStorage: { definition: input.catalog.eventDefinition } }), host => host.close)),
-    };
+    const execution = yield* prepareProductRequestSeedExecution(input, database);
     const inventory = yield* makeLocalInventoryCommands("stock");
     const stock = yield* makeStockLocationCommands("create");
     const member = { module: inventory.workflow, nativeStorage: input.catalog.modules.inventory.nativeStorage };

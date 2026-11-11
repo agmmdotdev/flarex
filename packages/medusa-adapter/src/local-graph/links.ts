@@ -19,6 +19,10 @@ export const GraphRemotePathSchema = Schema.Struct({ ...GraphRemotePathSelection
   sourceModel: Name, sourceKey: Name, linkModel: Name, sourceColumn: Name,
   targetColumn: Name, targetModel: Name, targetKey: Name,
   many: Schema.optionalKey(Schema.Literal(false)),
+  canonicalPath: Schema.optionalKey(GraphRemotePathSelectionSchema.fields.path),
+  targetSuffix: Schema.optionalKey(Name),
+  outputMany: Schema.optionalKey(Schema.Boolean),
+  forwardArgumentsOnPath: Schema.optionalKey(Schema.Array(GraphRemotePathSelectionSchema.fields.path).check(Schema.isMaxLength(4))),
 });
 /** Native Link metadata selects read-only paths with explicit complete-set bounds. */
 export type GraphRemotePathSelection = typeof GraphRemotePathSelectionSchema.Type;
@@ -29,7 +33,8 @@ const Endpoint = Schema.StructWithRest(Schema.Struct({ serviceName: Schema.Strin
   primaryKey: Name, foreignKey: Name, alias: Name }), Rest);
 const Extension = Schema.StructWithRest(Schema.Struct({ entity: Schema.optionalKey(Name), serviceName: Schema.String,
   fieldAlias: Schema.optionalKey(Schema.Record(Schema.String, Schema.Union([Schema.String,
-    Schema.StructWithRest(Schema.Struct({ path: Schema.String, isList: Schema.optionalKey(Schema.Boolean) }), Rest)]))),
+    Schema.StructWithRest(Schema.Struct({ path: Schema.String, isList: Schema.optionalKey(Schema.Boolean),
+      forwardArgumentsOnPath: Schema.optionalKey(Schema.Array(Schema.String)) }), Rest)]))),
   relationship: Schema.StructWithRest(Schema.Struct({ primaryKey: Name, foreignKey: Name, alias: Name, isList: Schema.optionalKey(Schema.Boolean) }), Rest),
 }), Rest);
 const decodeJoinerSchema = Schema.StructWithRest(Schema.Struct({ isLink: Schema.Literal(true), serviceName: Name,
@@ -100,12 +105,24 @@ export function nativeLinkGraphPaths(joiner: ModuleJoinerConfig, selections: rea
         const extension = extensions[0];
         const targets = native.relationships.filter(relation => relation.alias === pieces?.[1]);
         const target = targets[0];
-        if (pieces.length !== 2 || extensions.length !== 1 || extension === undefined || targets.length !== 1 || target === undefined ||
+        if (pieces.length < 2 || extensions.length !== 1 || extension === undefined || targets.length !== 1 || target === undefined ||
           source.foreignKey !== extension.relationship.primaryKey || source.primaryKey !== extension.relationship.foreignKey)
           return yield* Result.fail(commerceError("unsupportedProfile"));
+        const edgePath = pieces.slice(0, 2).join(".");
+        const canonicalNames = Object.entries(aliases.fieldAlias).filter(([, value]) => {
+          if (Array.isArray(value) && !value.some(alias => alias.entity === current)) return false;
+          return selectFieldAlias(value, current, selection.path.split(".").slice(0, -1)).path === edgePath;
+        }).map(([name]) => name);
+        const canonical = canonicalNames[0];
+        if (pieces.length > 2 && (canonicalNames.length !== 1 || canonical === undefined)) return yield* Result.fail(commerceError("unsupportedProfile"));
+        if (alias.forwardArgumentsOnPath?.some(path => path !== edgePath)) return yield* Result.fail(commerceError("unsupportedProfile"));
+        const prefix = selection.path.split(".").slice(0, -1);
         resolved = { sourceModel: current, sourceKey: source.primaryKey, linkModel,
           sourceColumn: source.foreignKey, targetColumn: target.foreignKey, targetModel: target.entity, targetKey: target.primaryKey,
-          ...(alias.isList === true || extension.relationship.isList === true ? {} : { many: false as const }) };
+          ...(extension.relationship.isList === true ? {} : { many: false as const }),
+          ...(canonical === undefined ? {} : { canonicalPath: [...prefix, canonical].join(".") }),
+          ...(pieces.length === 2 ? {} : { targetSuffix: pieces.slice(2).join("."), outputMany: alias.isList === true }),
+          ...(alias.forwardArgumentsOnPath === undefined ? {} : { forwardArgumentsOnPath: [...alias.forwardArgumentsOnPath] }) };
         current = target.entity;
       }
       if (resolved === undefined) return yield* Result.fail(commerceError("unsupportedProfile"));

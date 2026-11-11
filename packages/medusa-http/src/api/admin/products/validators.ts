@@ -3,6 +3,7 @@ import { z } from "@medusajs/framework/zod"
 import { applyAndAndOrOperators, booleanString } from "../../utils/common-validators"
 import { GetProductsParams, transformProductParams } from "../../utils/common-validators/products"
 import { createFindParams, createOperatorMap, createSelectParams, WithAdditionalData } from "../../utils/validators"
+import type { BatchWorkflowInput } from "@medusajs/framework/types"
 import { AdminGetProductVariantsParamsFields } from "../product-variants/validators"
 
 const statusEnum = z.nativeEnum(ProductStatus)
@@ -282,3 +283,16 @@ export type AdminBatchVariantInventoryItemsType = {
   update?: AdminBatchUpdateVariantInventoryItemType[]
   delete?: AdminBatchDeleteVariantInventoryItemType[]
 }
+
+export const AdminBatchUpdateProduct = UpdateProduct.extend({
+  id: z.string(),
+})
+
+
+export const AdminBatchUpdateProductVariant = UpdateProductVariant.extend({
+  id: z.string(),
+})
+
+
+export type AdminBatchProductsBody = BatchWorkflowInput<z.infer<typeof CreateProduct>, z.infer<typeof AdminBatchUpdateProduct>>
+export type AdminBatchProductVariantsBody = BatchWorkflowInput<z.infer<typeof CreateProductVariant>, z.infer<typeof AdminBatchUpdateProductVariant>>

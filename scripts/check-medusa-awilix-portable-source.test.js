@@ -3,7 +3,8 @@ import { builtinModules, createRequire } from "node:module";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { build } from "vite";
+import { build, defaultClientConditions } from "vite";
+import { Miniflare } from "miniflare";
 import * as portable from "../packages/medusa-deps/src/awilix-portable.mjs";
 import {
   awilixPortableDeclarations,
@@ -248,4 +249,72 @@ describe("pinned native Awilix portable extraction", () => {
     expect(observed.independentCradles).toBe(true);
     expect(observed.identifiers).toEqual(["system", "system"]);
   }, 60_000);
+
+  it("constructs the package-exported native System Tax provider under actual Workerd conditions", async () => {
+    const entry = fileURLToPath(new URL("../packages/medusa-adapter/test/__system-tax-workerd-witness__.mjs", import.meta.url)).replaceAll("\\", "/");
+    const workerSource = `
+      import SystemTaxService from "@medusajs/tax/providers/system";
+      const system = new SystemTaxService();
+      export default { async fetch() {
+        const lines = await system.getTaxLines([
+          { line_item: { id: "item_native" }, rates: [{ id: "rate_item", rate: 10, name: "Item Tax", code: "ITEM" }] },
+          { line_item: { id: "item_no_rates" }, rates: [] }
+        ], [
+          { shipping_line: { id: "shipping_native" }, rates: [{ id: "rate_shipping", rate: null, name: "Shipping Tax", code: "SHIP" }] }
+        ], { address: { country_code: "us" } });
+        return Response.json({ identifier: system.getIdentifier(), lines });
+      } };
+    `;
+    /** @type {Set<string>} */
+    const inputs = new Set();
+    const conditions = ["workerd", ...defaultClientConditions];
+    expect(conditions).not.toContain("source");
+    const result = await build({
+      configFile: false, logLevel: "silent", resolve: { conditions },
+      plugins: [{ name: "native-system-tax-workerd-package-witness", enforce: "pre",
+        resolveId(id) { if (id.replaceAll("\\", "/") === entry) return entry; },
+        load(id) {
+          if (id.replaceAll("\\", "/") === entry) return workerSource;
+          inputs.add(id.replaceAll("\\", "/"));
+        },
+      }],
+      build: { write: false, minify: false, target: "es2022", lib: { entry, formats: ["es"] } },
+    });
+    const chunks = (Array.isArray(result) ? result : [result]).flatMap(built => "output" in built ? built.output : [])
+      .filter(output => output.type === "chunk");
+    expect(chunks).toHaveLength(1);
+    const [chunk] = chunks;
+    if (chunk === undefined) throw new Error("Missing native System Tax worker bundle");
+    expect(chunk.imports).toEqual([]); expect(chunk.dynamicImports).toEqual([]);
+    const runtime = new Miniflare({ modules: [{ type: "ESModule", path: "worker.js", contents: chunk.code }],
+      compatibilityDate: "2026-06-14", compatibilityFlags: ["nodejs_compat"] });
+    try {
+      const response = await runtime.dispatchFetch("https://native-system-tax.test/");
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ identifier: "system", lines: [
+        { rate_id: "rate_item", rate: 10, name: "Item Tax", code: "ITEM", line_item_id: "item_native", provider_id: "system" },
+        { rate_id: "rate_shipping", rate: 0, name: "Shipping Tax", code: "SHIP", shipping_line_id: "shipping_native", provider_id: "system" },
+      ] });
+      expect([...inputs].some(input => input.endsWith("/packages/medusa-tax/src/providers/system.ts"))).toBe(true);
+      expect([...inputs].some(input => input.endsWith("/packages/medusa-tax/dist/providers/system.js"))).toBe(false);
+    } finally { await runtime.dispose(); }
+  }, 60_000);
+
+  it("pins the portable Tax leaf condition while retaining the default Node CommonJS provider", async () => {
+    const manifestUrl = new URL("../packages/medusa-tax/package.json", import.meta.url);
+    const manifest = JSON.parse(readFileSync(manifestUrl, "utf8"));
+    expect(Object.entries(manifest.exports["./providers/system"])).toEqual([
+      ["types", "./dist/providers/system.d.ts"], ["source", "./src/providers/system.ts"],
+      ["workerd", "./src/providers/system.ts"], ["default", "./dist/providers/system.js"],
+    ]);
+    for (const exported of ["./models", "./services", "./static-manifest"])
+      expect(Object.keys(manifest.exports[exported])).toEqual(["types", "source", "default"]);
+    const nodeTax = createRequire(manifestUrl);
+    expect(nodeTax.resolve("@medusajs/tax/providers/system").replaceAll("\\", "/"))
+      .toBe(fileURLToPath(new URL("../packages/medusa-tax/dist/providers/system.js", import.meta.url)).replaceAll("\\", "/"));
+    const commonJs = nodeTax("@medusajs/tax/providers/system");
+    const provider = new commonJs.default();
+    expect(provider.getIdentifier()).toBe("system");
+    expect(await provider.getTaxLines([], [], { address: { country_code: "us" } })).toEqual([]);
+  });
 });

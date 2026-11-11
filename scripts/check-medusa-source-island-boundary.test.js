@@ -34,6 +34,71 @@ const nativeControlPromotion = {
 };
 
 describe("Medusa source-island boundary checker", () => {
+  it("confines native Store Product DO imports to exact authored exports and named test consumers", () => {
+    const promotion = { sourceCommit: "test", buildFiles: [], testAliases: [], packages: [
+      { path: "packages/medusa-adapter", name: "@flarex/medusa-adapter", dependencies: {}, exports: [
+        "./internal/store-product-request", "./internal/system-test/store-product-request-catalog",
+        "./internal/system-test/store-product-request-fixture",
+      ] },
+      { path: "packages/medusa-http", name: "@flarex/medusa-http", dependencies: {}, exports: ["./store-product-effect"] },
+      { path: "packages/medusa-deps", name: "@medusajs/deps", dependencies: {}, exports: ["./awilix-portable"] },
+    ], files: ["packages/medusa-adapter/src/http/store-product-request.ts",
+      "packages/medusa-adapter/test/support/store-product-request-catalog.ts",
+      "packages/medusa-adapter/test/support/store-product-request-fixture.ts",
+      "packages/medusa-http/src/storeProductEffectHost.mts", "packages/medusa-deps/src/awilix-portable.mjs"]
+      .map(target => ({ target, targetSha256: "pinned", classification: "authored" })) };
+    const worker = "apps/executor/test/storeProductApplicationDO.workerd.worker.ts";
+    const test = "apps/executor/test/storeProductApplicationDO.postgres.test.ts";
+    const root = "@flarex/medusa-adapter/internal/store-product-request";
+    const catalog = "@flarex/medusa-adapter/internal/system-test/store-product-request-catalog";
+    const fixture = "@flarex/medusa-adapter/internal/system-test/store-product-request-fixture";
+    const http = "@flarex/medusa-http/store-product-effect";
+    const awilix = "@medusajs/deps/awilix-portable";
+    const workerImports = [root, catalog, http, awilix], testImports = [catalog, fixture];
+    /** @param {string} relativePath @param {string[]} specifiers @param {typeof promotion} [selected] */
+    const check = (relativePath, specifiers, selected = promotion) => analyzeMedusaSourceIslandBoundary({
+      ...emptyInput, currencyPromotion: selected,
+      rootSources: [{ relativePath, text: specifiers.map(specifier => `import ${JSON.stringify(specifier)};`).join("\n") }],
+    }).errors;
+    expect(check(worker, workerImports)).toEqual([]);
+    expect(check(test, testImports)).toEqual([]);
+    expect(check(worker, [fixture]).length).toBeGreaterThan(0);
+    for (const specifier of [root, http, awilix]) expect(check(test, [specifier]).length).toBeGreaterThan(0);
+    for (const importer of [worker.replace("storeProductApplicationDO", "adjacent"), test.replace("storeProductApplicationDO", "adjacent"),
+      worker.replace("/test/", "/src/"), test.replace("/test/", "/src/"),
+      worker.replace("storeProductApplicationDO", "storeCurrencyApplicationDO"), test.replace("storeProductApplicationDO", "storeCurrencyApplicationDO")])
+      for (const specifier of [root, catalog, fixture, http]) expect(check(importer, [specifier]).length).toBeGreaterThan(0);
+    for (const { importer, specifiers } of [{ importer: worker, specifiers: workerImports }, { importer: test, specifiers: testImports }])
+      for (const specifier of specifiers) {
+        expect(check(importer, [specifier + ".ts"]).length).toBeGreaterThan(0);
+        expect(check(importer, [specifier.replace(/\/([^/]+)$/, "/./$1")]).length).toBeGreaterThan(0);
+      }
+    for (const file of promotion.files) {
+      const importer = file.target.includes("fixture.ts") ? test : worker;
+      const specifiers = importer === test ? testImports : workerImports;
+      for (const altered of [
+        { ...promotion, files: promotion.files.filter(candidate => candidate !== file) },
+        { ...promotion, files: promotion.files.map(candidate => candidate === file ? { ...candidate, target: candidate.target + "-adjacent" } : candidate) },
+        { ...promotion, files: promotion.files.map(candidate => candidate === file ? { ...candidate, classification: "exactCopy" } : candidate) },
+      ]) expect(check(importer, specifiers, altered).length).toBeGreaterThan(0);
+    }
+    for (const owner of promotion.packages)
+      for (const exported of owner.exports) {
+        const altered = { ...promotion, packages: promotion.packages.map(candidate => candidate === owner
+          ? { ...candidate, exports: candidate.exports.filter(value => value !== exported) } : candidate) };
+        const importer = exported.endsWith("-fixture") ? test : worker;
+        expect(check(importer, importer === test ? testImports : workerImports, altered).length).toBeGreaterThan(0);
+      }
+    for (const altered of [
+      { ...promotion, packages: promotion.packages.map(owner => ({ ...owner, path: owner.path + "-adjacent" })) },
+      { ...promotion, packages: [] }, { ...promotion, files: [] },
+    ]) expect(check(worker, workerImports, altered).length).toBeGreaterThan(0);
+    for (const field of ["dependencies", "optionalDependencies", "peerDependencies"])
+      expect(analyzeMedusaSourceIslandBoundary({ ...emptyInput, currencyPromotion: promotion, rootManifests: [{
+        relativePath: "apps/executor/package.json", manifest: { [field]: { "@flarex/medusa-adapter": "workspace:*" } },
+      }] }).errors.length).toBeGreaterThan(0);
+  });
+
   it("confines native Admin Product DO imports to their verified test-only package exports", () => {
     const promotion = { sourceCommit: "test", buildFiles: [], testAliases: [], packages: [
       { path: "packages/medusa-adapter", name: "@flarex/medusa-adapter", dependencies: {},
@@ -131,6 +196,7 @@ describe("Medusa source-island boundary checker", () => {
   it("excludes only the exact native source proof tools while adjacent tooling remains denied", () => {
     const repoRoot = mkdtempSync(join(tmpdir(), "flarex-medusa-proof-boundary-"));
     const verifierPaths = ["scripts/check-medusa-shipping-option-source.mjs", "scripts/check-medusa-shipping-option-source.test.js",
+      "scripts/check-medusa-store-product-source.mjs", "scripts/check-medusa-store-product-source.test.js",
       "scripts/check-medusa-awilix-portable-source.mjs", "scripts/check-medusa-awilix-portable-source.test.js",
       "scripts/check-medusa-delivery-source.mjs", "scripts/check-medusa-json-assignment-source.mjs", "scripts/medusa-json-assignment.test.js",
       "scripts/check-medusa-db-error-source.mjs",

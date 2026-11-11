@@ -1,0 +1,21 @@
+{
+  "exportName": "storeProductHttpManifest",
+  "generatedBy": "pnpm --filter @flarex/medusa-http generate",
+  "manifestDirectory": "packages/medusa-http/src",
+  "outputPath": "packages/medusa-http/src/store-product-static-manifest.generated.ts",
+  "routeRoot": "packages/medusa-http/src/api",
+  "routes": [
+    {
+      "relativePath": "packages/medusa-http/src/api/store/products/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa-http/src/api/store/products/[id]/route.ts"
+    }
+  ],
+  "middlewares": [
+    {
+      "relativePath": "packages/medusa-http/src/api/store/products/middlewares.ts",
+      "exportName": "storeProductRoutesMiddlewares"
+    }
+  ]
+}

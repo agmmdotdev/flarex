@@ -63,6 +63,12 @@ export function prepareGraphRemotePaths(participants: readonly GraphParticipant[
           target.read.table.primaryKeys.length !== 1 || target.read.table.primaryKeys[0] !== path.targetKey ||
           !link.read.table.columns.includes(path.sourceColumn) || !link.read.table.columns.includes(path.targetColumn))
           return yield* Result.fail(commerceError("unsupportedProfile"));
+        if (path.targetSuffix !== undefined && (path.canonicalPath === undefined || path.many !== false ||
+          target.read.computedObjects?.[path.targetSuffix] === undefined && !target.read.paths.some(local => local.path === path.targetSuffix)))
+          return yield* Result.fail(commerceError("unsupportedProfile"));
+        if (path.targetSuffix !== undefined && (target.read.computedObjects?.[path.targetSuffix] !== undefined
+          ? path.outputMany !== false : target.read.paths.find(local => local.path === path.targetSuffix)?.many !== path.outputMany))
+          return yield* Result.fail(commerceError("unsupportedProfile"));
         const paths = byRoot.get(root.read.model) ?? new Map<string, ResolvedGraphRemotePath>();
         if (paths.has(path.path) || root.read.paths.some(local => local.path === path.path)) return yield* Result.fail(commerceError("unsupportedProfile"));
         paths.set(path.path, Object.freeze({ ...path, source, link, target }));
@@ -124,14 +130,16 @@ export const populateGraphRemotePaths = Effect.fn("LocalGraph.populateRemotePath
   paths: ReadonlyMap<string, ResolvedGraphRemotePath>,
   endpoints: ReadonlyMap<string, ResolvedGraphLinkEndpoint> = new Map(),
   direct: ReadonlyMap<string, ResolvedGraphDirectPath> = new Map(),
+  contexts: ReadonlyMap<string, JsonObject> = new Map(),
 ) {
   const complete = Effect.fn("LocalGraph.readCompleteRemote")(function* (
-    selected: GraphReadSelection, filters: JsonObject, fields: readonly string[], maximum: number, relations: readonly string[] = [],
+    selected: GraphReadSelection, filters: JsonObject, fields: readonly string[], maximum: number, relations: readonly string[] = [], pricingContext?: JsonObject,
   ) {
     const read = selected.read, column = read.orderable[0];
     if (column === undefined || read.result === "list") return yield* context.refuse(commerceError("unsupportedProfile"));
     const value = yield* context.call(selected.participant, selected.read.command, {
-      filters, config: { select: fields, relations, order: { [column]: "ASC" }, skip: 0, take: maximum },
+      filters: { ...filters, ...(pricingContext === undefined ? {} : { context: pricingContext }) },
+      config: { select: fields, relations, order: { [column]: "ASC" }, skip: 0, take: maximum },
     });
     return yield* checkedCommerceValue(context, () => read.decode(value).pipe(Result.flatMap(([found, count]) =>
       count > maximum ? Result.fail(commerceError("unsupportedProfile")) : found.length !== count
@@ -154,8 +162,10 @@ export const populateGraphRemotePaths = Effect.fn("LocalGraph.populateRemotePath
     parents: readonly JsonObject[], projection: ProjectionNode, prefix: string,
   ): Effect.fn.Return<JsonObject[], CommerceTransactionError> {
     const result = parents.map(row => ({ ...row }));
+    const completed = new Set<string>();
     for (const child of projection.children) {
       const name = prefix + child.name, path = paths.get(name);
+      if (completed.has(name)) continue;
       const endpoint = endpoints.get(name);
       const relation = direct.get(name);
       if (relation !== undefined) {
@@ -223,6 +233,62 @@ export const populateGraphRemotePaths = Effect.fn("LocalGraph.populateRemotePath
         }
         continue;
       }
+      if (path.canonicalPath !== undefined && projection.children.some(selected => {
+        const edge = paths.get(prefix + selected.name);
+        return edge !== undefined && edge.canonicalPath === path.canonicalPath && edge.targetSuffix !== undefined;
+      })) {
+        const cohort = projection.children.flatMap(selected => {
+          const selectedName = prefix + selected.name, edge = paths.get(selectedName);
+          return edge !== undefined && edge.canonicalPath === path.canonicalPath ? [{ selected, edge, name: selectedName }] : [];
+        });
+        for (const member of cohort) completed.add(member.name);
+        if (parents.length > path.maximumSources || cohort.some(member => member.edge.sourceKey !== path.sourceKey ||
+          member.edge.link !== path.link || member.edge.target !== path.target || member.edge.sourceColumn !== path.sourceColumn ||
+          member.edge.targetColumn !== path.targetColumn || member.edge.many !== path.many))
+          return yield* context.refuse(commerceError("unsupportedProfile"));
+        const sourceIds = yield* checkedCommerceValue(context, () => keys(parents, path.sourceKey));
+        const linkMaximum = Math.min(...cohort.map(member => member.edge.maximumLinks));
+        const links = sourceIds.length === 0 ? [] : yield* complete(path.link, { [path.sourceColumn]: sourceIds }, [path.sourceColumn, path.targetColumn], linkMaximum);
+        const linkedSources = yield* checkedCommerceValue(context, () => keys(links, path.sourceColumn));
+        if (linkedSources.some(id => !sourceIds.includes(id))) return yield* context.refuse(commerceError("storedCorruption"));
+        for (const group of groupHasManyRows(links, [path.sourceColumn]).values())
+          if (group.length > Math.min(...cohort.map(member => member.edge.maximumPerSource))) return yield* context.refuse(commerceError("unsupportedProfile"));
+        const targetIds = yield* checkedCommerceValue(context, () => keys(links, path.targetColumn));
+        const targetMaximum = Math.min(...cohort.map(member => member.edge.maximumTargets));
+        if (targetIds.length > targetMaximum) return yield* context.refuse(commerceError("unsupportedProfile"));
+        const selectedFields: string[] = [];
+        for (const member of cohort) {
+          if (member.edge.targetSuffix === undefined) {
+            const plan = yield* checkedCommerceValue(context, () => targetFields(path.target.read, member.selected.node, member.name + "."));
+            selectedFields.push(...projectionFields(plan.node));
+          } else selectedFields.push(...projectionFields(member.selected.node).map(field => member.edge.targetSuffix + "." + field));
+        }
+        const plan = yield* checkedCommerceValue(context, () => planGraphFields(path.target.read, [...new Set([...selectedFields, path.targetKey])], true));
+        const targets = targetIds.length === 0 ? [] : yield* complete(path.target, { [path.targetKey]: targetIds }, plan.select,
+          targetMaximum, plan.relations, contexts.get(path.canonicalPath));
+        const returnedIds = yield* checkedCommerceValue(context, () => keys(targets, path.targetKey));
+        if (returnedIds.length !== targets.length || returnedIds.some(id => !targetIds.includes(id))) return yield* context.refuse(commerceError("storedCorruption"));
+        const nested = yield* visit(targets, plan.node, path.canonicalPath + ".");
+        const grouped = groupManyToManyRows(nested, links, [path.targetKey], [path.sourceColumn], [path.targetColumn]);
+        for (const parent of result) {
+          const found = grouped.get(tupleKey(parent, [path.sourceKey])) ?? [];
+          if (path.many === false && found.length > 1) return yield* context.refuse(commerceError("storedCorruption"));
+          for (const member of cohort) {
+            if (member.edge.targetSuffix === undefined) {
+              if (path.many !== false) parent[member.selected.name] = found;
+              else if (found[0] !== undefined) parent[member.selected.name] = found[0];
+              else delete parent[member.selected.name];
+            } else {
+              const target = found[0];
+              if (target === undefined) { delete parent[member.selected.name]; continue; }
+              const value = target[member.edge.targetSuffix];
+              if (value === undefined) return yield* context.refuse(commerceError("storedCorruption"));
+              parent[member.selected.name] = value;
+            }
+          }
+        }
+        continue;
+      }
       if (parents.length > path.maximumSources) return yield* context.refuse(commerceError("unsupportedProfile"));
       const sourceIds = yield* checkedCommerceValue(context, () => keys(parents, path.sourceKey));
       if (sourceIds.length === 0) {
@@ -238,7 +304,7 @@ export const populateGraphRemotePaths = Effect.fn("LocalGraph.populateRemotePath
       if (targetIds.length > path.maximumTargets) return yield* context.refuse(commerceError("unsupportedProfile"));
       const plan = yield* checkedCommerceValue(context, () => targetFields(path.target.read, child.node, name + "."));
       const targets = targetIds.length === 0 ? [] : yield* complete(path.target, { [path.targetKey]: targetIds },
-        [...new Set([...plan.select, path.targetKey])], path.maximumTargets, plan.relations);
+        [...new Set([...plan.select, path.targetKey])], path.maximumTargets, plan.relations, contexts.get(path.canonicalPath ?? path.path));
       const returnedIds = yield* checkedCommerceValue(context, () => keys(targets, path.targetKey));
       if (returnedIds.length !== targets.length || returnedIds.some(id => !targetIds.includes(id)))
         return yield* context.refuse(commerceError("storedCorruption"));

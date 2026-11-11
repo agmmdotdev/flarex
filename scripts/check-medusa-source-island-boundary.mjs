@@ -38,8 +38,16 @@ const nativeStoreApplicationDOExports = new Map([
     exported: "./internal/system-test/store-request-read-catalog", target: "packages/medusa-adapter/test/support/store-request-read-catalog.ts" }],
   ["@flarex/medusa-adapter/internal/system-test/store-request-read-fixture", { name: "@flarex/medusa-adapter", path: "packages/medusa-adapter",
     exported: "./internal/system-test/store-request-read-fixture", target: "packages/medusa-adapter/test/support/store-request-read-fixture.ts" }],
+  ["@flarex/medusa-adapter/internal/store-product-request", { name: "@flarex/medusa-adapter", path: "packages/medusa-adapter",
+    exported: "./internal/store-product-request", target: "packages/medusa-adapter/src/http/store-product-request.ts" }],
+  ["@flarex/medusa-adapter/internal/system-test/store-product-request-catalog", { name: "@flarex/medusa-adapter", path: "packages/medusa-adapter",
+    exported: "./internal/system-test/store-product-request-catalog", target: "packages/medusa-adapter/test/support/store-product-request-catalog.ts" }],
+  ["@flarex/medusa-adapter/internal/system-test/store-product-request-fixture", { name: "@flarex/medusa-adapter", path: "packages/medusa-adapter",
+    exported: "./internal/system-test/store-product-request-fixture", target: "packages/medusa-adapter/test/support/store-product-request-fixture.ts" }],
   ["@flarex/medusa-http/effect", { name: "@flarex/medusa-http", path: "packages/medusa-http", exported: "./effect",
     target: "packages/medusa-http/src/effectHost.mts" }],
+  ["@flarex/medusa-http/store-product-effect", { name: "@flarex/medusa-http", path: "packages/medusa-http", exported: "./store-product-effect",
+    target: "packages/medusa-http/src/storeProductEffectHost.mts" }],
   ["@medusajs/deps/awilix-portable", { name: "@medusajs/deps", path: "packages/medusa-deps", exported: "./awilix-portable",
     target: "packages/medusa-deps/src/awilix-portable.mjs" }],
 ]);
@@ -50,6 +58,13 @@ const nativeStoreApplicationDOImports = new Map([
   ])],
   ["apps/executor/test/storeCurrencyApplicationDO.postgres.test.ts", new Set([
     "@flarex/medusa-adapter/internal/system-test/store-request-read-catalog", "@flarex/medusa-adapter/internal/system-test/store-request-read-fixture",
+  ])],
+  ["apps/executor/test/storeProductApplicationDO.workerd.worker.ts", new Set([
+    "@flarex/medusa-adapter/internal/store-product-request", "@flarex/medusa-adapter/internal/system-test/store-product-request-catalog",
+    "@flarex/medusa-http/store-product-effect", "@medusajs/deps/awilix-portable",
+  ])],
+  ["apps/executor/test/storeProductApplicationDO.postgres.test.ts", new Set([
+    "@flarex/medusa-adapter/internal/system-test/store-product-request-catalog", "@flarex/medusa-adapter/internal/system-test/store-product-request-fixture",
   ])],
 ]);
 const nativeProductApplicationDOExports = new Map([
@@ -97,7 +112,16 @@ function admitsNativeProductApplicationDOImport(promotion, relativePath, specifi
  * @param {string} relativePath @param {string} field @param {string} name @param {string} value */
 function admitsNativeStoreApplicationDOTestDependency(promotion, relativePath, field, name, value) {
   if (relativePath !== "apps/executor/package.json" || field !== "devDependencies" || value !== "workspace:*") return false;
-  const entries = [...nativeStoreApplicationDOExports.values()].filter(entry => entry.name === name);
+  // Preserve the original Currency fixture's dependency obligation. Adding
+  // another exact test importer does not grant or alter package dependencies.
+  const dependencyImports = new Set([
+    ...nativeStoreApplicationDOImports.get("apps/executor/test/storeCurrencyApplicationDO.workerd.worker.ts") ?? [],
+    ...nativeStoreApplicationDOImports.get("apps/executor/test/storeCurrencyApplicationDO.postgres.test.ts") ?? [],
+  ]);
+  const entries = [...dependencyImports].flatMap(specifier => {
+    const entry = nativeStoreApplicationDOExports.get(specifier);
+    return entry?.name === name ? [entry] : [];
+  });
   return entries.length > 0 && entries.every(entry => hasNativeStoreApplicationDOExport(promotion, entry));
 }
 const mixedProductTestFixture = "packages/executor/test/performance/support/mixedMutationProductFixture.ts";
@@ -983,6 +1007,8 @@ export function discoverRootToolSources(repoRoot) {
     "scripts/check-medusa-currency-portable.mjs",
     "scripts/check-medusa-source-island-boundary.mjs",
     "scripts/check-medusa-source-island-boundary.test.js",
+    "scripts/check-medusa-store-product-source.mjs",
+    "scripts/check-medusa-store-product-source.test.js",
   ]);
   const toolingFiles = ["scripts", "tools", "integration"].flatMap((directory) =>
     collectFiles(path.join(repoRoot, directory), (file) =>

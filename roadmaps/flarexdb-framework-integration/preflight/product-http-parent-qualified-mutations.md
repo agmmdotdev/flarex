@@ -143,6 +143,21 @@ callable `product_variant` Remote Query retains its own tree-shaped producer,
 checked projection and complete-array result; it delegates reads to the existing
 Variant graph. The batch response needs no independent refetch.
 
+## Variant batch contract
+
+The nested Variant batch supplies the URL Product to the native batch workflow.
+Its scoped validation step checks the combined existing update/delete cohort
+before any child runs. Both creation and update receive that Product explicitly;
+deletion forwards it to the existing scoped deletion child. The actual Product
+mutation and authenticated receipt check the selected row's parent, including
+tombstones. A supplied parent cannot resurrect or move a foreign Variant.
+Missing deletes retain their native no-op and requested-ID response behavior.
+
+The shared Variant parent-read receipt also serves the Inventory Link wrappers.
+It authenticates the actual read command and selection; HTTP prefetches and
+separate settlement lifetimes do not enforce this boundary. Existing unscoped
+batch callers retain native normalization and all three empty child calls.
+
 ## Remaining scope and gates
 
 Image/Variant associations and scoped Option deletion have bounded actual DO
@@ -150,8 +165,9 @@ acceptance, including durable graph checks across serialized owner recreation.
 The Core lease-handoff prerequisite is resolved for that host contract. Variant
 Inventory Links also have connected actual-host acceptance, including scoped
 refusals, quantity changes and native active/tombstoned rows across recreation.
-Variant batch update and deletion still require their own connected parent
-corrections; general managed-host election remains separate.
+Variant batch update and deletion also have bounded actual HTTP/DO acceptance
+through their scoped native mutation and receipt owners. General managed-host
+election remains separate.
 
 Preserve unscoped workflow and batch regressions. Prove scoped wrong-parent and
 mixed-ID behavior, complete valid deletion, shared Inventory rules, late

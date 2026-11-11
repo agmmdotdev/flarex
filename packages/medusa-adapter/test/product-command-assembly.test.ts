@@ -77,6 +77,31 @@ const expected = [
   ["softDeleteProductsForWorkflow","productSoftDeleteProductsForWorkflow","write",false],
   ["softDeleteVariantsForWorkflow","productSoftDeleteVariantsForWorkflow","write",false],
   ["countVariantsForDeletion","productVariantDeletionCount","read",true],
+  ["createTypesForWorkflow","productCreateTypesForWorkflow","write",false],
+  ["listTypesForWorkflow","productTypeListForWorkflow","read",true],
+  ["updateTypesBySelector","productUpdateTypesBySelector","write",false],
+  ["softDeleteTypesForWorkflow","productSoftDeleteTypesForWorkflow","write",false],
+  ["createCollectionsForWorkflow","productCreateCollectionsForWorkflow","write",false],
+  ["listCollectionsForWorkflow","productCollectionListForWorkflow","read",true],
+  ["updateCollectionsBySelector","productUpdateCollectionsBySelector","write",false],
+  ["softDeleteCollectionsForWorkflow","productSoftDeleteCollectionsForWorkflow","write",false],
+  ["createCategoriesForWorkflow","productCreateCategoriesForWorkflow","write",false],
+  ["listCategoriesForWorkflow","productCategoryListForWorkflow","read",true],
+  ["updateCategoriesBySelector","productUpdateCategoriesBySelector","write",false],
+  ["softDeleteCategoriesForWorkflow","productSoftDeleteCategoriesForWorkflow","write",false],
+  ["createOptionsForWorkflow","productCreateOptionsForWorkflow","write",false],
+  ["listOptionsForWorkflow","productOptionListForWorkflow","read",true],
+  ["updateOptionsBySelector","productUpdateOptionsBySelector","write",false],
+  ["softDeleteOptionsForWorkflow","productSoftDeleteOptionsForWorkflow","write",false],
+  ["countOptionsForWorkflow","productOptionCountForWorkflow","read",true],
+  ["addImageToVariantForImageWorkflow","productImageWorkflowCreateAssignment","write",false],
+  ["removeImageFromVariantForImageWorkflow","productImageWorkflowDeleteAssignment","write",false],
+  ["listVariantsForImageWorkflow","productImageWorkflowListVariants","read",true],
+  ["updateVariantsBySelectorForImageWorkflow","productImageWorkflowUpdateVariantsBySelector","write",false],
+  ["addImageToVariantForParentVariantImages","productParentVariantImageCreateAssignment","write",false],
+  ["removeImageFromVariantForParentVariantImages","productParentVariantImageDeleteAssignment","write",false],
+  ["listVariantsForParentVariantImages","productParentVariantImageListVariants","read",true],
+  ["updateVariantsBySelectorForParentVariantImages","productParentVariantImageUpdateVariantsBySelector","write",false],
   ["countImages","productImagecount","read",true],
   ["updateValues","productupdatevalue","write",false],
   ["updateCollections","productupdatecollection","write",false],
@@ -94,7 +119,9 @@ beforeAll(async () => { product = await Effect.runPromise(makeLocalProductComman
 describe("prepared Product command assembly", () => {
   it("preserves every registered command name, mode, order and graph marker", () => {
     expect(Object.keys(product)).toEqual(["metadata", "commands", "withService", "graph", "workflow",
-      "variantUpdateWorkflow", "productUpdateWorkflow", "productDeletionWorkflow", "logicalPolicy"]);
+      "variantUpdateWorkflow", "productVariantInventoryLinkWorkflow", "productUpdateWorkflow", "productDeletionWorkflow", "productBatchWorkflow",
+      "productTypeWorkflow", "productCollectionWorkflow", "productCategoryWorkflow", "productOptionWorkflow", "productImageVariantWorkflow",
+      "productVariantImageWorkflow", "logicalPolicy"]);
     expect(Object.isFrozen(product.commands)).toBe(true);
     expect(Object.entries(product.commands).map(([key, command]) => {
       const identity = commerceCommandIdentity(command);

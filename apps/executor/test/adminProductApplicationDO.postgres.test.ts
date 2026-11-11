@@ -1,5 +1,5 @@
 import { createCorePostgresFixture } from "@flarex/persistence-postgres/internal/system-test/core-persistence-fixture";
-import { prepareProductRequestFixture, observeProductRequestFixture, seedProductRequestInventory } from "@flarex/medusa-adapter/internal/system-test/product-request-fixture";
+import { prepareProductRequestFixture, observeProductRequestFixture, seedProductRequestInventory, seedProductRequestAssociations } from "@flarex/medusa-adapter/internal/system-test/product-request-fixture";
 import { Schema } from "effect";
 import { Miniflare } from "miniflare";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
@@ -192,6 +192,10 @@ async function createAdminProductDOFixture(options: Readonly<{ leaseTracePhase?:
       if (runtime !== undefined) throw new Error("The Product DO must drain before native Inventory fixture seeding");
       return acquired("Node Inventory seed", () => seedProductRequestInventory({ physical, catalog, ...input }));
     };
+    const seedAssociations = (input: Pick<Parameters<typeof seedProductRequestAssociations>[0], "salesChannelsData" | "priceListsData">) => {
+      if (runtime !== undefined) throw new Error("The Product DO must drain before native association fixture seeding");
+      return acquired("Node association seed", () => seedProductRequestAssociations({ physical, catalog, ...input }));
+    };
     const initial = await observe();
     const worker = await bundleApplicationWorker(new URL("./adminProductApplicationDO.workerd.worker.ts", import.meta.url));
     const base = executorApplicationProfileFixture();
@@ -244,7 +248,7 @@ async function createAdminProductDOFixture(options: Readonly<{ leaseTracePhase?:
       if (!response.ok) throw new Error(`Incarnation probe returned HTTP ${response.status}`);
       return Schema.decodeUnknownSync(Schema.Struct({ incarnation: Schema.NonEmptyString }))(await response.json()).incarnation;
     };
-    return { initial, catalog, start, stop, close, request, get, remove, observe, seedInventory, probeIncarnation };
+    return { initial, catalog, start, stop, close, request, get, remove, observe, seedInventory, seedAssociations, probeIncarnation };
   } catch (cause) {
     try { await close(); } catch (cleanup) { throw new AggregateError([cause, cleanup], "Product fixture setup and cleanup failed"); }
     throw cause;
@@ -2142,6 +2146,237 @@ describe.runIf(endpoints !== undefined)("native-ready private Admin Product in t
       catch (cause) { throw new AggregateError([...primary, cause], "Variant Inventory Link DO proof cleanup failed"); }
     }
   }, 360_000);
+
+  it("runs native Product batches and Sales Channel and Price List associations atomically across real DO recreation", async () => {
+    const fixture = await createAdminProductDOFixture();
+    const primary: unknown[] = [];
+    let phase = "seed Products";
+    try {
+      fixture.start();
+      const products = [];
+      for (const [name, sizes, amount] of [["Selected", ["One", "Two"], 101], ["Other", ["One"], 202], ["Delete", ["One"], 303], ["Tombstone", ["One"], 404]] as const) {
+        const body = await nativeJson(fixture.request({ title: `${name} Batch Association`, handle: `do-next-four-${name.toLowerCase()}`,
+          options: [{ title: "Size", values: [...sizes, "Next", "Last"] }], variants: sizes.map((size, index) => ({ title: `${name} ${size}`,
+            sku: `DO-NEXT-FOUR-${name}-${size}`, options: { Size: size }, prices: [{ amount: amount + index, currency_code: "usd" }] })) },
+        { private: true, admin: adminCredential, path: `${managedPath},variants.prices.*` }));
+        products.push({ product: decodeProduct(body).product, variants: decodeVariants(body).product.variants });
+      }
+      const selected = products[0], other = products[1], deletion = products[2];
+      const first = selected?.variants[0], second = selected?.variants[1], foreign = other?.variants[0];
+      if (selected === undefined || other === undefined || deletion === undefined || first === undefined || second === undefined || foreign === undefined)
+        throw new Error("Native next-four seed omitted Product or Variant IDs");
+      const tombstone = products[3], tombstoneVariant = tombstone?.variants[0];
+      if (tombstone === undefined || tombstoneVariant === undefined) throw new Error("Native tombstone seed omitted Product or Variant");
+      await nativeJson(fixture.remove(`/admin/products/${tombstone.product.id}/variants/${tombstoneVariant.id}`));
+      await fixture.stop();
+      phase = "seed native Sales Channels and Price Lists";
+      const seeded = await fixture.seedAssociations({ salesChannelsData: [{ name: "DO Selected Channel", description: "native channel", metadata: { keep: "yes" } },
+        { name: "DO Other Channel" }], priceListsData: ["DO Selected List", "DO Other List"].map(title => ({ title, description: "native Price List",
+        rules: { customer_group_id: ["group-a", "group-a"], region_id: ["region-a"] }, prices: [
+          { variant_id: first.id, currency_code: "usd", amount: 1.25, rules: { region_id: "region-a" } },
+          { variant_id: foreign.id, currency_code: "usd", amount: 2.5 },
+        ],
+      })) });
+      const channel = seeded.salesChannels[0], otherChannel = seeded.salesChannels[1], priceList = seeded.priceLists[0], otherList = seeded.priceLists[1];
+      if (channel === undefined || otherChannel === undefined || priceList === undefined || otherList === undefined) throw new Error("Native association seed omitted roots");
+      const before = await fixture.observe();
+      const selectedPriceSet = decodePriceLink(before.variantPriceSets.find(row => row.variant_id === first.id)).price_set_id;
+      const removedPrice = before.prices.find(row => row.price_list_id === priceList.id && row.price_set_id === selectedPriceSet);
+      if (removedPrice === undefined) throw new Error("Native seed omitted selected list Price");
+      const channelTable = fixture.catalog.sources.find(source => source.name === "product_links")?.definition.tables.find(table => table.localName === "product_sales_channel");
+      if (channelTable === undefined) throw new Error("Actual catalog omitted Product Sales Channel Link metadata");
+      const channelLinks = (snapshot: typeof before) => snapshot.rows.filter(row => row.table === channelTable.name).map(row => row.value);
+      const productBatch = "/admin/products/batch", variantBatch = `/admin/products/${selected.product.id}/variants/batch`;
+      const channelPath = `/admin/sales-channels/${channel.id}/products`, listPath = `/admin/price-lists/${priceList.id}/products`;
+      fixture.start();
+      const post = async (path: string, input: unknown, status = 200, admin = adminCredential) => {
+        phase = "POST " + path;
+        return nativeJson(fixture.request(input, { private: true, admin, path }), status);
+      };
+      const rich = async (id: string) => decodeReadProduct(await nativeJson(fixture.get(`/admin/products/${id}?fields=${readFields}`))).product;
+      await post(productBatch, { delete: [deletion.product.id] }, 403, `${adminCredential}-without-product-delete`);
+      await fixture.stop();
+      // Includes every stored event and failed outcome, not only committed roots.
+      expect(await fixture.observe()).toEqual(before);
+      fixture.start();
+      for (const [path, input] of [[productBatch, {}], [variantBatch, {}], [channelPath, { remove: [selected.product.id] }], [listPath, { remove: [selected.product.id] }]] as const) {
+        for (const admin of [`${adminCredential}-without-policy`, `${adminCredential}-read-only`, `${adminCredential}-variant-reader`]) await post(path, input, 403, admin);
+        for (const fields of ["unsupported_field", "__proto__.x"]) await post(path + "?fields=" + fields, input, 400);
+      }
+      await post(productBatch, { delete: Array.from({ length: 5 }, (_, index) => `product_over_${index}`) }, 400);
+      await post(variantBatch, { delete: Array.from({ length: 5 }, (_, index) => `variant_over_${index}`) }, 400);
+      await post(channelPath, { add: Array.from({ length: 5 }, (_, index) => `product_over_${index}`) }, 400);
+      await post(listPath, { remove: Array.from({ length: 5 }, (_, index) => `product_over_${index}`) }, 400);
+      await post(listPath, {}, 400);
+      await fixture.stop();
+      expect(await fixture.observe()).toEqual(before);
+      fixture.start();
+      const newVariant = { title: "Next", sku: "DO-NEXT-FOUR-CREATED-VARIANT", options: { Size: "Next" }, prices: [{ amount: 404, currency_code: "usd" }] };
+      await post(variantBatch, { create: [newVariant], update: [{ id: first.id, title: "Rollback" }, { id: foreign.id, title: "Foreign" }] }, 404);
+      await post(variantBatch, { create: [newVariant], delete: [second.id, foreign.id] }, 404);
+      await post(variantBatch, { create: [newVariant], update: [{ id: "variant_missing_next_four", title: "Missing" }] }, 400);
+      await post(variantBatch, { create: [newVariant], update: [{ id: tombstoneVariant.id, title: "Must not resurrect foreign Variant" }] }, 400);
+      await post(productBatch, { create: [{ title: "Rollback", handle: "do-next-four-rollback" }], update: [{ id: "product_missing_next_four", title: "Missing" }] }, 400);
+      await fixture.stop();
+      const refused = await fixture.observe();
+      expect(refused.outcomes.slice(0, before.outcomes.length)).toEqual(before.outcomes);
+      const failed = refused.outcomes.slice(before.outcomes.length);
+      expect(failed).toHaveLength(5);
+      expect(new Set(failed.map(outcome => outcome.value.key)).size).toBe(5);
+      for (const outcome of failed) expect(outcome.value).toMatchObject({ kind: "nativeRoot", state: "failed" });
+      for (const key of ["rows", "revisions", "indexes", "businessRows", "products", "options", "optionValues", "variants", "variantOptions",
+        "priceSets", "prices", "inventoryItems", "variantPriceSets", "variantInventoryItems"] as const) expect(refused[key]).toEqual(before[key]);
+      fixture.start();
+      expect(await post(variantBatch, { delete: [tombstoneVariant.id] })).toEqual({ created: [], updated: [],
+        deleted: { ids: [tombstoneVariant.id], object: "variant", deleted: true } });
+      for (const [path, object] of [[productBatch, "product"], [variantBatch, "variant"]] as const) for (const input of [{}, { create: [], update: [], delete: [] }])
+        expect(await post(path, input)).toEqual({ created: [], updated: [], deleted: { ids: [], object, deleted: true } });
+      expect(await post(channelPath, { add: [selected.product.id, other.product.id] })).toEqual({ sales_channel: channel });
+      expect(await post(`/admin/sales-channels/${otherChannel.id}/products`, { add: [selected.product.id] })).toEqual({ sales_channel: otherChannel });
+      expect(await post(channelPath, { add: [selected.product.id], remove: [selected.product.id] })).toEqual({ sales_channel: channel });
+      const expanded = await post(listPath + "?fields=id,title,prices.id,prices.id,prices.amount,prices.raw_amount,prices.currency_code,prices.price_rules.attribute,prices.price_rules.value",
+        { remove: ["product_missing_next_four"] });
+      expect(expanded).toMatchObject({ price_list: { id: priceList.id, title: "DO Selected List", prices: expect.arrayContaining([
+        expect.objectContaining({ amount: 1.25, raw_amount: expect.objectContaining({ value: expect.any(String), precision: expect.any(Number) }), rules: { region_id: "region-a" } }),
+        expect.objectContaining({ amount: 2.5, rules: {} }),
+      ]) } });
+      expect(expanded).not.toHaveProperty("price_list.prices.0.price_rules");
+      expect(expanded).not.toHaveProperty("price_list.prices.0.price_set");
+      const defaultList = await post(listPath, { remove: [selected.product.id] });
+      expect(defaultList).toMatchObject({ price_list: { id: priceList.id, title: "DO Selected List", type: "sale", status: "draft", starts_at: null, ends_at: null,
+        rules: { customer_group_id: ["group-a", "group-a"], region_id: ["region-a"] } } });
+      expect(defaultList).not.toHaveProperty("price_list.price_list_rules");
+      expect(defaultList).not.toHaveProperty("price_list.prices");
+      const otherGraph = await rich(other.product.id);
+      await fixture.stop();
+      const associated = await fixture.observe();
+      expect(channelLinks(associated).filter(row => row.sales_channel_id === channel.id && row.deleted_at === null))
+        .toEqual([expect.objectContaining({ product_id: other.product.id })]);
+      expect(channelLinks(associated).filter(row => row.sales_channel_id === otherChannel.id && row.deleted_at === null))
+        .toEqual([expect.objectContaining({ product_id: selected.product.id })]);
+      expect(channelLinks(associated).find(row => row.sales_channel_id === channel.id && row.product_id === selected.product.id)).toMatchObject({ deleted_at: expect.any(String) });
+      expect(associated.prices.find(row => row.id === removedPrice.id)).toMatchObject({ deleted_at: expect.any(String) });
+      expect(associated.prices.filter(row => row.id !== removedPrice.id)).toEqual(before.prices.filter(row => row.id !== removedPrice.id));
+      for (const key of ["products", "options", "optionValues", "variants", "variantOptions", "priceSets", "inventoryItems", "variantPriceSets", "variantInventoryItems"] as const)
+        expect(associated[key]).toEqual(before[key]);
+      const envelopeTable = fixture.catalog.eventDefinition.tables.find(table => table.privateEvent?.role === "envelope")?.name;
+      if (envelopeTable === undefined) throw new Error("Actual native catalog omitted event envelopes");
+      const assertBatchPublication = (snapshot: typeof before, predecessor: typeof before, contracts: readonly string[]) => {
+        const committed = snapshot.outcomes.filter(outcome => outcome.timestamp > predecessor.publishedTimestamp && outcome.value.state === "committed");
+        expect(committed).toHaveLength(1);
+        const root = committed[0];
+        if (root === undefined) throw new Error("Native batch omitted committed root");
+        const revisions = snapshot.revisions.filter(row => row.timestamp > predecessor.publishedTimestamp);
+        expect(revisions.length).toBeGreaterThan(0);
+        expect(revisions.every(row => row.timestamp === root.timestamp)).toBe(true);
+        const events = snapshot.rows.filter(row => row.table === envelopeTable && row.timestamp === root.timestamp).map(row => row.value);
+        for (const contract of contracts) expect(events).toContainEqual(expect.objectContaining({ envelope: expect.objectContaining({ contract }) }));
+      };
+      fixture.start();
+      const completeId = "prod_do_complete_missing_update";
+      expect(await post(productBatch, { update: [{ id: completeId, title: "DO Complete Missing Update", handle: "do-complete-missing-update" }] }))
+        .toMatchObject({ created: [], updated: [expect.objectContaining({ id: completeId, title: "DO Complete Missing Update", handle: "do-complete-missing-update",
+          status: "draft", variants: [] })], deleted: { ids: [], object: "product", deleted: true } });
+      await fixture.stop();
+      const completeCommitted = await fixture.observe();
+      assertBatchPublication(completeCommitted, associated, [fixture.catalog.productRuntime.metadata.product.createdEvent, "product.updated"]);
+      const completeInsert = completeCommitted.revisions.filter(row => row.timestamp > associated.publishedTimestamp && row.value?.id === completeId);
+      expect(completeInsert).toHaveLength(1);
+      expect(completeInsert[0]).toMatchObject({ previous: null, deleted: false });
+      fixture.start();
+      const mixedUpsertId = "prod_do_mixed_missing_update";
+      const mixedUpsert = await post(productBatch, { update: [{ id: selected.product.id, title: "DO Selected Mixed Upsert" },
+        { id: mixedUpsertId, title: "DO Mixed Missing Update", handle: "do-mixed-missing-update" }] });
+      expect(mixedUpsert).toMatchObject({ created: [], updated: expect.arrayContaining([
+        expect.objectContaining({ id: selected.product.id, title: "DO Selected Mixed Upsert" }),
+        expect.objectContaining({ id: mixedUpsertId, title: "DO Mixed Missing Update", handle: "do-mixed-missing-update", variants: [] }),
+      ]), deleted: { ids: [], object: "product", deleted: true } });
+      await fixture.stop();
+      const mixedUpsertCommitted = await fixture.observe();
+      assertBatchPublication(mixedUpsertCommitted, completeCommitted, [fixture.catalog.productRuntime.metadata.product.createdEvent,
+        fixture.catalog.productRuntime.metadata.product.updatedEvent, "product.updated"]);
+      const mixedUpsertRows = mixedUpsertCommitted.revisions.filter(row => row.timestamp > completeCommitted.publishedTimestamp &&
+        (row.value?.id === selected.product.id || row.value?.id === mixedUpsertId));
+      expect(mixedUpsertRows).toHaveLength(2);
+      expect(mixedUpsertRows).toEqual(expect.arrayContaining([
+        expect.objectContaining({ previous: null, value: expect.objectContaining({ id: mixedUpsertId }) }),
+        expect.objectContaining({ previous: expect.any(BigInt), value: expect.objectContaining({ id: selected.product.id }) }),
+      ]));
+      fixture.start();
+
+      const mixedProducts = await post(productBatch, { create: [{ title: "DO Batch Created", handle: "do-next-four-created", options: [{ title: "Size", values: ["One"] }],
+        variants: [{ title: "Created One", sku: "DO-NEXT-FOUR-CREATED", options: { Size: "One" }, prices: [{ amount: 505, currency_code: "usd" }] }] }],
+        update: [{ id: selected.product.id, title: "DO Selected Updated" }], delete: [deletion.product.id, "product_missing_do_mixed"] });
+      expect(mixedProducts).toMatchObject({ created: [expect.objectContaining({ title: "DO Batch Created", variants: [expect.objectContaining({ prices: [expect.objectContaining({ amount: 505 })] })] })],
+        updated: [expect.objectContaining({ id: selected.product.id, title: "DO Selected Updated" })], deleted: { ids: [deletion.product.id, "product_missing_do_mixed"], object: "product", deleted: true } });
+      const newProduct = Schema.decodeUnknownSync(Schema.Struct({ created: Schema.Array(Schema.Struct({ id: Schema.NonEmptyString })) }))(mixedProducts).created[0];
+      if (newProduct === undefined) throw new Error("Native Product batch omitted created Product");
+      const createdGraph = await rich(newProduct.id);
+      expect(await rich(other.product.id)).toEqual(otherGraph);
+      await fixture.stop();
+      const productCommitted = await fixture.observe();
+      assertBatchPublication(productCommitted, mixedUpsertCommitted, ["product.created", "product.updated", "product.deleted"]);
+      fixture.start();
+      const mixedVariants = await post(variantBatch, { create: [newVariant],
+        update: [{ id: first.id, title: "DO One Updated" }], delete: [second.id, "variant_missing_do_mixed"] });
+      expect(mixedVariants).toMatchObject({ created: [expect.objectContaining({ title: "Next", product_id: selected.product.id, prices: [expect.objectContaining({ amount: 404 })] })],
+        updated: [expect.objectContaining({ id: first.id, title: "DO One Updated" })], deleted: { ids: [second.id, "variant_missing_do_mixed"], object: "variant", deleted: true } });
+      const finalSelected = await rich(selected.product.id);
+      expect(finalSelected.variants).toHaveLength(2);
+      expect(new Set(finalSelected.variants.flatMap(row => row.prices.map(price => price.price_set_id))).size).toBe(2);
+      expect(new Set(finalSelected.variants.flatMap(row => row.inventory_items.map(link => link.inventory_item_id))).size).toBe(2);
+      for (const row of finalSelected.variants) {
+        expect(row.prices).toEqual(expect.arrayContaining([expect.objectContaining({ amount: row.id === first.id ? 101 : 404, currency_code: "usd" })]));
+        expect(row.inventory_items).toEqual([expect.objectContaining({ variant_id: row.id, required_quantity: 1,
+          inventory: { id: expect.any(String), sku: row.sku } })]);
+      }
+      expect(finalSelected.variants.find(row => row.id === first.id)).toMatchObject({ id: first.id, prices: expect.arrayContaining([expect.objectContaining({ price_set_id: selectedPriceSet, amount: 101 })]),
+        inventory_items: [expect.objectContaining(decodeInventoryLink(before.variantInventoryItems.find(row => row.variant_id === first.id)))] });
+      expect(await rich(other.product.id)).toEqual(otherGraph);
+      await fixture.stop();
+      const persisted = await fixture.observe();
+      assertBatchPublication(persisted, productCommitted, ["product-variant.created", "product-variant.updated", "product-variant.deleted"]);
+      const decodeDeleteEvent = Schema.decodeUnknownSync(Schema.Struct({ envelope: Schema.Struct({ contract: Schema.String,
+        message: Schema.Struct({ data: Schema.Struct({ id: Schema.Union([Schema.String, Schema.Array(Schema.String)]) }) }) }) }));
+      const deletionEvents = persisted.rows.filter(row => row.table === envelopeTable && row.timestamp > productCommitted.publishedTimestamp)
+        .map(row => decodeDeleteEvent(row.value)).filter(row => row.envelope.contract === "product-variant.deleted");
+      expect(deletionEvents.flatMap(row => { const id = row.envelope.message.data.id; return typeof id === "string" ? [id] : id; })).toEqual([second.id]);
+      fixture.start();
+      expect(await post(productBatch + "?fields=id,id", { update: [{ id: selected.product.id, title: "DO Selected Updated" }] }))
+        .toEqual({ created: [], updated: [{ id: selected.product.id }], deleted: { ids: [], object: "product", deleted: true } });
+      expect(await post(variantBatch + "?fields=id,id", { update: [{ id: first.id, title: "DO One Updated" }] }))
+        .toEqual({ created: [], updated: [{ id: first.id }], deleted: { ids: [], object: "variant", deleted: true } });
+      await fixture.stop();
+      const aliasesCommitted = await fixture.observe();
+      const aliasRoots = aliasesCommitted.outcomes.filter(outcome => outcome.timestamp > persisted.publishedTimestamp && outcome.value.state === "committed");
+      expect(aliasRoots).toHaveLength(2);
+      expect(new Set(aliasRoots.map(outcome => outcome.value.key)).size).toBe(2);
+      for (const key of ["options", "optionValues", "variantOptions", "priceSets", "prices", "inventoryItems", "variantPriceSets", "variantInventoryItems"] as const)
+        expect(aliasesCommitted[key]).toEqual(persisted[key]);
+      expect(aliasesCommitted.products.filter(row => row.id !== selected.product.id)).toEqual(persisted.products.filter(row => row.id !== selected.product.id));
+      expect(aliasesCommitted.variants.filter(row => row.id !== first.id)).toEqual(persisted.variants.filter(row => row.id !== first.id));
+      fixture.start();
+      expect(await rich(selected.product.id)).toEqual(finalSelected);
+      expect(await rich(other.product.id)).toEqual(otherGraph);
+      expect(await rich(newProduct.id)).toEqual(createdGraph);
+      expect(await rich(completeId)).toMatchObject({ id: completeId, title: "DO Complete Missing Update", handle: "do-complete-missing-update", status: "draft", variants: [] });
+      expect(await rich(mixedUpsertId)).toMatchObject({ id: mixedUpsertId, title: "DO Mixed Missing Update", handle: "do-mixed-missing-update", status: "draft", variants: [] });
+      expect(decodeNativeVariant(await nativeJson(fixture.get(`/admin/products/${selected.product.id}/variants/${first.id}`))).variant)
+        .toMatchObject({ id: first.id, title: "DO One Updated" });
+      expect(await post(channelPath, {})).toEqual({ sales_channel: channel });
+      expect(await post(listPath, { remove: [selected.product.id] })).toEqual(defaultList);
+      await fixture.stop();
+      const reread = await fixture.observe();
+      for (const key of ["rows", "revisions", "indexes", "businessRows", "products", "options", "optionValues", "variants", "variantOptions", "priceSets", "prices",
+        "inventoryItems", "variantPriceSets", "variantInventoryItems"] as const) expect(reread[key]).toEqual(aliasesCommitted[key]);
+
+
+    } catch (cause) { primary.push(cause); console.error("Native next-four DO proof failed", { phase }); throw cause; }
+    finally {
+      try { await fixture.close(); }
+      catch (cause) { throw new AggregateError([...primary, cause], "Native next-four DO proof cleanup failed"); }
+    }
+  }, 480_000);
 
   it.runIf(benchmarkEnabled)("warm DO closed-loop Product benchmark", async () => {
     const fixture = await createAdminProductDOFixture();

@@ -150,3 +150,5 @@ export type { CartWorkflowDTO, ConfirmVariantInventoryWorkflowInputDTO, CreateCa
 export type { ItemTaxLineDTO, ShippingTaxLineDTO } from "./tax/common";
 export type { AddItemAdjustmentAction, AddShippingMethodAdjustment, ComputeActionOptions, ComputeActions, RemoveItemAdjustmentAction, RemoveShippingMethodAdjustment } from "./promotion/common/compute-actions";
 export type { IPromotionModuleService } from "./promotion/service";
+export type { QueryContextType } from "./common/common";
+export type { TaxCalculationContext, TaxableItemDTO } from "./tax/common";

@@ -40,7 +40,7 @@ function serialize(input: unknown, options: unknown, relation: "none" | "foreign
 
 describe("scalar native populate serialization", () => {
   it("accepts the native populate marker for relation-free scalar projections without I/O", async () => {
-    const input = [{ id: "one", title: "key", target_id: null }];
+    const input = Object.freeze([Object.freeze({ id: "one", title: "key", target_id: null })]);
     const output = await Effect.runPromise(serialize(input, { populate: true }));
     expect(output).toEqual(input);
     expect(output).not.toBe(input);
@@ -58,6 +58,26 @@ describe("scalar native populate serialization", () => {
   it("preserves ordinary scalar serialization", async () => {
     expect(await Effect.runPromise(serialize({ id: "one", title: "key", target_id: null }, undefined)))
       .toEqual({ id: "one", title: "key", target_id: null });
+  });
+
+  it("hands native module formatters detached mutable DTOs without populate options", async () => {
+    const nested = Object.freeze({ labels: Object.freeze(["original"]) });
+    const input = Object.freeze([Object.freeze({ id: "one", metadata: nested })]);
+    const output = await Effect.runPromise(serialize(input, undefined));
+    expect(output).toEqual(input);
+    expect(Array.isArray(output)).toBe(true);
+    if (!Array.isArray(output)) throw new Error("Expected native scalar DTO array");
+    expect(Object.isFrozen(output[0])).toBe(false);
+    Object.assign(output[0], { computed: true });
+    const metadata: unknown = output[0]?.metadata;
+    expect(Object.isFrozen(metadata)).toBe(false);
+    if (metadata === null || typeof metadata !== "object") throw new Error("Expected nested native DTO metadata");
+    const labels: unknown = Reflect.get(metadata, "labels");
+    if (!Array.isArray(labels)) throw new Error("Expected nested native DTO labels");
+    expect(Reflect.set(metadata, "formatter", true)).toBe(true);
+    expect(Reflect.set(labels, "0", "changed")).toBe(true);
+    expect(input).toEqual([{ id: "one", metadata: { labels: ["original"] } }]);
+    expect(await Effect.runPromise(serialize(undefined, undefined))).toBeUndefined();
   });
 
   it("requires an explicit checked relationship profile for the populate marker", async () => {

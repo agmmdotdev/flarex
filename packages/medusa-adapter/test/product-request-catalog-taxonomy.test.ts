@@ -21,7 +21,7 @@ describe(`native catalog HTTP on Core (${driver})`, () => {
         const handler = createAdminProductHttpHandler({ adminCors: "https://admin.example", ...scope,
           resolveAdminPrincipal: () => ({ actor_id: "catalog-admin", actor_type: "user", auth_identity_id: "catalog-auth", app_metadata: {}, user_metadata: {} }),
           evaluateAdminPolicies: () => true, admitProductRefetchFields: operations.admitProductRefetchFields,
-          admitVariantRefetchFields: operations.admitVariantRefetchFields, admitCatalogRefetchFields: operations.admitCatalogRefetchFields });
+          admitVariantRefetchFields: operations.admitVariantRefetchFields, admitSalesChannelRefetchFields: operations.admitSalesChannelRefetchFields, admitPriceListRefetchFields: operations.admitPriceListRefetchFields, admitCatalogRefetchFields: operations.admitCatalogRefetchFields });
         const request = Effect.fn("CatalogHttp.request")(function* (path: string, method = "GET", body?: unknown) {
           const response = yield* Effect.promise(() => handler.handle(new Request("https://private.test" + path, {
             method, headers: { "content-type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) })));
@@ -86,7 +86,7 @@ describe(`native catalog HTTP on Core (${driver})`, () => {
         const handler = createAdminProductHttpHandler({ adminCors: "https://admin.example", ...scope,
           resolveAdminPrincipal: () => ({ actor_id: "catalog-admin", actor_type: "user", auth_identity_id: "catalog-auth", app_metadata: {}, user_metadata: {} }),
           evaluateAdminPolicies: () => true, admitProductRefetchFields: operations.admitProductRefetchFields,
-          admitVariantRefetchFields: operations.admitVariantRefetchFields, admitCatalogRefetchFields: operations.admitCatalogRefetchFields });
+          admitVariantRefetchFields: operations.admitVariantRefetchFields, admitSalesChannelRefetchFields: operations.admitSalesChannelRefetchFields, admitPriceListRefetchFields: operations.admitPriceListRefetchFields, admitCatalogRefetchFields: operations.admitCatalogRefetchFields });
         for (const family of ["product-types", "product-tags"]) for (const [path, method, body, status] of [
           ["?fields=id,unadmitted", "POST", { value: "Must not create" }, 400],
           ["?fields=*", "POST", { value: "Unsupported native empty relation star" }, 400],

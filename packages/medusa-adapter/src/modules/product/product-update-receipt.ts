@@ -46,8 +46,11 @@ export function productUpdateGraphReceipt(catalog: ProductRuntimeMetadata,
   return Effect.fn("ProductUpdate.validateBoundedGraph")(function* (call, activity, command) {
     yield* validate(call, activity, command);
     if (call.mode === "read") return;
-    const roots = new Set(activity.mutations.flatMap(mutation => mutation.table === catalog.product.table.name &&
-      typeof mutation.before?.id === "string" ? [mutation.before.id] : []));
+    const roots = new Set(activity.mutations.flatMap(mutation => {
+      if (mutation.table !== catalog.product.table.name) return [];
+      const row = mutation.before ?? mutation.after;
+      return typeof row?.id === "string" ? [row.id] : [];
+    }));
     if (roots.size > 4) return yield* Effect.fail(commerceError("unsupportedProfile"));
     const { previous, final, memberships } = yield* projectProductOwnedGraphs(catalog, activity);
     for (const graph of [previous, final]) {

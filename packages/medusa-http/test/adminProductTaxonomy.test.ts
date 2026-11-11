@@ -47,7 +47,9 @@ describe.each(families)("pinned native Admin $path HTTP", family => {
     const createRequestScope = vi.fn(() => createContainer().register({ workflows: asValue({ run }), query: asValue({ graph }), remoteQuery: asValue(remoteQuery), logger: asValue({ error() {}, info() {} }) }))
     const handler = createAdminProductHttpHandler({
       adminCors: "https://admin.example", resolveAdminPrincipal: () => options.anonymous ? undefined : user,
-      evaluateAdminPolicies: evaluate, admitVariantRefetchFields: () => undefined,
+      evaluateAdminPolicies: evaluate, admitSalesChannelRefetchFields: () => undefined,
+    admitPriceListRefetchFields: () => undefined,
+    admitVariantRefetchFields: () => undefined,
     admitProductRefetchFields: () => undefined, admitCatalogRefetchFields: admission, createRequestScope,
     })
     return { handler, run, graph, remoteQuery, read: category ? graph : remoteQuery, admission, evaluate, createRequestScope }

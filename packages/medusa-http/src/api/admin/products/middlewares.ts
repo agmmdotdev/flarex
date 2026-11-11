@@ -1,3 +1,4 @@
+import { CreateProduct, CreateProductVariant, AdminBatchUpdateProduct, AdminBatchUpdateProductVariant } from "./validators"
 import { maybeApplyLinkFilter, validateAndTransformBody, validateAndTransformQuery, type MiddlewareRoute } from "@medusajs/framework/http"
 import { FeatureFlag } from "@medusajs/utils/feature-flags/flag-router"
 import * as QueryConfig from "./query-config"
@@ -209,6 +210,54 @@ export const adminProductRoutesMiddlewares: MiddlewareRoute[] = [{
       {
         resource: "inventory_item",
         operation: "delete",
+      },
+    ],
+  },
+  {
+    method: ["POST"],
+    matcher: "/admin/products/batch",
+    bodyParser: {
+      sizeLimit: "2mb",
+    },
+    middlewares: [
+      validateAndTransformBody(
+        createBatchBody(CreateProduct, AdminBatchUpdateProduct)
+      ),
+      validateAndTransformQuery(
+        AdminGetProductParams,
+        QueryConfig.retrieveProductQueryConfig
+      ),
+    ],
+    policies: [
+      {
+        resource: "product",
+        operation: ["create", "update", "delete"],
+      },
+    ],
+  },
+  {
+    method: ["POST"],
+    matcher: "/admin/products/:id/variants/batch",
+    bodyParser: {
+      sizeLimit: "2mb",
+    },
+    middlewares: [
+      validateAndTransformBody(
+        createBatchBody(CreateProductVariant, AdminBatchUpdateProductVariant)
+      ),
+      validateAndTransformQuery(
+        AdminGetProductVariantParams,
+        QueryConfig.retrieveVariantConfig
+      ),
+    ],
+    policies: [
+      {
+        resource: "product_variant",
+        operation: [
+          "create",
+          "update",
+          "delete",
+        ],
       },
     ],
   },

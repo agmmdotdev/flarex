@@ -28,6 +28,8 @@ function fixture(options: { missing?: boolean; nullData?: boolean; deny?: string
     adminCors: "https://admin.example",
     resolveAdminPrincipal: () => options.anonymous ? undefined : user,
     evaluateAdminPolicies: evaluate,
+    admitSalesChannelRefetchFields: () => undefined,
+    admitPriceListRefetchFields: () => undefined,
     admitVariantRefetchFields: () => undefined,
     admitProductRefetchFields: admission,
     admitCatalogRefetchFields: () => undefined,

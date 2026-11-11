@@ -11,8 +11,11 @@ import type { GraphParticipant, GraphReadDefinition, GraphReadSelection, GraphRe
 import { populateGraphRemotePaths, prepareGraphRemotePaths, prepareGraphLinkEndpoints, validateGraphPathPrefixes } from "./remote-paths";
 import { prepareGraphDirectPaths } from "./direct-paths";
 import { prepareGraphKeyValidation, prepareGraphKeys, validateGraphPrimaryKey, validateGraphKeys } from "./key-validation";
+import { GraphQueryContexts, prepareGraphContexts } from "./context";
+import { captureGraphComputedObjects } from "./computed";
 
 const queryFields = {
+  context: Schema.optionalKey(GraphQueryContexts),
   fields: Schema.Array(Schema.String.check(Schema.isLengthBetween(1, 256))).check(Schema.isLengthBetween(1, 256)),
   filters: Schema.optionalKey(Schema.JsonObject),
   pagination: Schema.Struct({ take: QueryLimit, skip: Schema.optionalKey(QueryOffset),
@@ -92,6 +95,10 @@ export function prepareLocalGraph(participants: readonly GraphParticipant[]): Re
         const tables = new Map([input.table, ...input.paths.map(path => path.table)].map(table => [table.name, table]));
         const catalog = yield* makeReadCatalog([...tables.values()], new Map());
         const presentation = input.presentation === undefined ? undefined : yield* captureGraphPresentation(input.presentation, input.table);
+        const computedObjects = input.computedObjects === undefined ? undefined : yield* captureGraphComputedObjects(input.computedObjects);
+        if (computedObjects !== undefined && Object.keys(computedObjects).some(name => input.table.columns.includes(name) ||
+          presentation?.columns.includes(name) || input.paths.some(path => path.path === name)))
+          return yield* Result.fail(commerceError("unsupportedProfile"));
         const paths = [];
         const names = new Set<string>();
         for (const relation of input.paths) {
@@ -99,7 +106,10 @@ export function prepareLocalGraph(participants: readonly GraphParticipant[]): Re
             relation.nativeFields !== undefined && relation.nativeFields !== true) return yield* Result.fail(commerceError("unsupportedProfile"));
           names.add(relation.path);
           const presentation = relation.presentation === undefined ? undefined : yield* captureGraphPresentation(relation.presentation, relation.table);
+          const computedObjects = relation.computedObjects === undefined ? undefined : yield* captureGraphComputedObjects(relation.computedObjects);
+          const outputObject = relation.outputObject === undefined ? undefined : (yield* captureGraphComputedObjects({ output: relation.outputObject })).output;
           paths.push(Object.freeze({ ...relation, table: yield* catalog.table(relation.table.name),
+            ...(computedObjects === undefined ? {} : { computedObjects }), ...(outputObject === undefined ? {} : { outputObject }),
             ...(presentation === undefined ? {} : { presentation }),
             ...(relation.targetFields === undefined ? {} : { targetFields: Object.freeze([...relation.targetFields]) }),
             ...(relation.sourceFields === undefined ? {} : { sourceFields: Object.freeze([...relation.sourceFields]) }) }));
@@ -125,6 +135,7 @@ export function prepareLocalGraph(participants: readonly GraphParticipant[]): Re
           || (table.primaryKeys.length === 1 && !input.uniqueOrder.includes(identity))
           || input.orderable.some(field => !table.columns.includes(field)) || input.uniqueOrder.some(field => !input.orderable.includes(field))) return yield* Result.fail(commerceError("unsupportedProfile"));
         const read = Object.freeze({ ...input, table, paths: Object.freeze(paths),
+          ...(computedObjects === undefined ? {} : { computedObjects }),
           ...(presentation === undefined ? {} : { presentation }),
           ...(input.optionalFields === undefined ? {} : { optionalFields: Object.freeze([...input.optionalFields]) }),
           orderable: Object.freeze([...input.orderable]), uniqueOrder: Object.freeze([...input.uniqueOrder]) });
@@ -163,9 +174,13 @@ export function prepareLocalGraph(participants: readonly GraphParticipant[]): Re
       const expanded: GraphRelationPath[] = [
         ...entry.read.paths.map(path => entry.read.nativeFields === true && !path.many && nativePrefixes.some(prefix => prefix.startsWith(path.path + "."))
           ? Object.freeze({ ...path, nativeFields: true as const }) : path),
-        ...[...paths?.values() ?? []].map(path => Object.freeze({ path: path.path, table: path.target.read.table,
+        ...[...paths?.values() ?? []].map(path => Object.freeze({ path: path.path,
+          table: path.target.read.paths.find(local => local.path === path.targetSuffix)?.table ?? path.target.read.table,
           ...(path.target.read.presentation === undefined ? {} : { presentation: path.target.read.presentation }),
-          many: path.many !== false, optional: path.many === false, nativeFields: true as const, sourceFields: Object.freeze([path.sourceKey]) })),
+          ...(path.target.read.computedObjects === undefined ? {} : { computedObjects: path.target.read.computedObjects }),
+          ...(path.targetSuffix === undefined || path.target.read.computedObjects?.[path.targetSuffix] === undefined ? {}
+            : { outputObject: path.target.read.computedObjects[path.targetSuffix] }),
+          many: path.outputMany ?? path.many !== false, optional: path.many === false, nativeFields: true as const, sourceFields: Object.freeze([path.sourceKey]) })),
         ...[...direct?.values() ?? []].map(path => Object.freeze({ path: path.path, table: path.target.read.table,
           ...(path.target.read.presentation === undefined ? {} : { presentation: path.target.read.presentation }),
           many: path.many, optional: !path.many, ...(path.nativeFields === true ? { nativeFields: true as const } : {}),
@@ -178,7 +193,9 @@ export function prepareLocalGraph(participants: readonly GraphParticipant[]): Re
       const edges = [...paths?.values() ?? [], ...direct?.values() ?? [], ...endpoints?.values() ?? []];
       const declared = new Set(expanded.map(path => path.path));
       for (const edge of edges) for (const local of edge.target.read.paths) {
-        const path = edge.path + "." + local.path;
+        const suffix = "targetSuffix" in edge && typeof edge.targetSuffix === "string" ? edge.targetSuffix : undefined;
+        if (suffix !== undefined && !local.path.startsWith(suffix + ".")) continue;
+        const path = edge.path + "." + (suffix === undefined ? local.path : local.path.slice(suffix.length + 1));
         // A deeper explicit edge owns its target and descendants. Copy only
         // the selected target's original local metadata, never recursively
         // expanded metadata or a competing parent's relation definition.
@@ -207,6 +224,7 @@ export function prepareLocalGraph(participants: readonly GraphParticipant[]): Re
         const skip = args.pagination.skip ?? 0, take = args.pagination.take;
         if (keyPlan !== undefined && skip !== 0) return yield* context.refuse(commerceError("unsupportedProfile"));
         const remote = remotePaths.get(entry.read.model);
+        const contexts = yield* checkedCommerceValue(context, () => prepareGraphContexts(args.context ?? {}, args.fields, remote ?? new Map()));
         const endpoints = linkEndpoints.get(entry.read.model);
         const direct = directPaths.get(entry.read.model);
         const isRemote = (path: string) => [...remote?.keys() ?? [], ...direct?.keys() ?? [], ...endpoints?.keys() ?? []]
@@ -232,7 +250,7 @@ export function prepareLocalGraph(participants: readonly GraphParticipant[]): Re
             pkField: keyPlan.pkField, options: keyPlan.options });
         }
         const populated = selectedRemote.length === 0 ? rows
-          : yield* populateGraphRemotePaths(context, rows, fields.node, remote ?? new Map(), endpoints, direct);
+          : yield* populateGraphRemotePaths(context, rows, fields.node, remote ?? new Map(), endpoints, direct, contexts);
         return yield* checkedCommerceValue(context, () => graphResult(populated, count, fields, skip, take));
       });
       const list = Effect.fn("LocalGraph.list")(function* (input: unknown) {

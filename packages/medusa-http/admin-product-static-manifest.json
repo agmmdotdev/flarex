@@ -70,6 +70,18 @@
     },
     {
       "relativePath": "packages/medusa-http/src/api/admin/products/[id]/variants/inventory-items/batch/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa-http/src/api/admin/products/batch/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa-http/src/api/admin/products/[id]/variants/batch/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa-http/src/api/admin/sales-channels/[id]/products/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa-http/src/api/admin/price-lists/[id]/products/route.ts"
     }
   ],
   "middlewares": [
@@ -96,6 +108,14 @@
     {
       "relativePath": "packages/medusa-http/src/api/admin/product-variants/middlewares.ts",
       "exportName": "adminProductVariantRoutesMiddlewares"
+    },
+    {
+      "relativePath": "packages/medusa-http/src/api/admin/sales-channels/middlewares.ts",
+      "exportName": "adminSalesChannelRoutesMiddlewares"
+    },
+    {
+      "relativePath": "packages/medusa-http/src/api/admin/price-lists/middlewares.ts",
+      "exportName": "adminPriceListsRoutesMiddlewares"
     }
   ]
 }

@@ -6,6 +6,7 @@ export interface JoinerFieldAlias {
   readonly path: string
   readonly isList?: boolean
   readonly entity?: string
+  readonly forwardArgumentsOnPath?: readonly string[]
 }
 export interface JoinerFieldAliases {
   fieldAlias: Record<string, JoinerFieldAlias | JoinerFieldAlias[]>

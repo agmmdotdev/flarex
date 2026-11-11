@@ -33,7 +33,7 @@ const NativeOwner = makeApplicationDurableObject<NativeProductEnv, NativeFixture
     const profile = Result.getOrThrow(readExecutorApplicationProfiles(env))[0];
     if (profile === undefined) return yield* Effect.die("Missing private native Product fixture identity");
     const credentials = yield* makeExecutorApplicationCredentials(env, profile);
-    const hostRuntime = yield* makePreparedHostRuntime({ maximumHosts: 37, maximumPreparedBytes: 8 * 1024 * 1024 });
+    const hostRuntime = yield* makePreparedHostRuntime({ maximumHosts: 41, maximumPreparedBytes: 8 * 1024 * 1024 });
     const operations = yield* makeProductRequestOperations({ database: infrastructure.coreDatabase, hostRuntime, catalog,
       identityAndAccessPolicy: { profile: "native-admin-product-private-do-fixture" }, revision: "d".repeat(64),
       subscribers: [{ id: "native-admin-product-request", revision: "e".repeat(64) }] });
@@ -50,6 +50,7 @@ const NativeOwner = makeApplicationDurableObject<NativeProductEnv, NativeFixture
           : credential === `${env.ADMIN_PRODUCT_CREDENTIAL}-without-policy` ? "user_native_product_unprivileged"
           : credential === `${env.ADMIN_PRODUCT_CREDENTIAL}-variant-reader` ? "user_native_variant_reader"
           : credential === `${env.ADMIN_PRODUCT_CREDENTIAL}-option-reader` ? "user_native_option_reader"
+          : credential === `${env.ADMIN_PRODUCT_CREDENTIAL}-without-product-delete` ? "user_native_product_without_delete"
           : credential === `${env.ADMIN_PRODUCT_CREDENTIAL}-read-only` ? "user_native_product_reader" : undefined;
         return actor === undefined ? undefined : { actor_id: actor, actor_type: "user", auth_identity_id: "auth_native_product",
           app_metadata: {}, user_metadata: {} };
@@ -63,6 +64,8 @@ const NativeOwner = makeApplicationDurableObject<NativeProductEnv, NativeFixture
         if (principal.actor_id === "user_native_product_reader") return productRead;
         if (principal.actor_id === "user_native_variant_reader") return productRead || variantRead;
         if (principal.actor_id === "user_native_option_reader") return productRead || optionRead;
+        if (principal.actor_id === "user_native_product_without_delete") return policies.every(policy => policy.resource === "product"
+          && (Array.isArray(policy.operation) ? policy.operation : [policy.operation]).every(operation => ["read", "create", "update"].includes(operation)));
         return principal.actor_id === "user_native_product" && (productRead
           || (policies.length === 1 && policies.every(policy => typeof policy.resource === "string"
             && ["product_type", "product_tag", "product_category", "product_collection"].includes(policy.resource)
@@ -70,6 +73,13 @@ const NativeOwner = makeApplicationDurableObject<NativeProductEnv, NativeFixture
           || (policies.length === 1 && policies[0]?.resource === "product" && policies[0]?.operation === "delete")
           || (policies.length === 1 && policies[0]?.resource === "product_variant" && policies[0]?.operation === "create")
           || (policies.length === 1 && policies[0]?.resource === "product_variant" && policies[0]?.operation === "delete")
+          || (policies.length === 1 && policies[0]?.resource === "product" && Array.isArray(policies[0]?.operation)
+            && (policies[0].operation.length === 2 || policies[0].operation.length === 3)
+            && policies[0].operation.every((operation, index) => operation === ["create", "update", "delete"][index]))
+          || (policies.length === 1 && policies[0]?.resource === "product_variant" && Array.isArray(policies[0]?.operation)
+            && policies[0].operation.length === 3 && policies[0].operation.every((operation, index) => operation === ["create", "update", "delete"][index]))
+          || (policies.length === 1 && typeof policies[0]?.resource === "string" && ["sales_channel", "price_list"].includes(policies[0].resource)
+            && typeof policies[0]?.operation === "string" && ["read", "update"].includes(policies[0].operation))
           || variantRead
           || optionRead
           || (policies.length === 1 && policies[0]?.resource === "inventory_item"
@@ -82,6 +92,8 @@ const NativeOwner = makeApplicationDurableObject<NativeProductEnv, NativeFixture
       },
       admitProductRefetchFields: operations.admitProductRefetchFields,
       admitVariantRefetchFields: operations.admitVariantRefetchFields,
+      admitSalesChannelRefetchFields: operations.admitSalesChannelRefetchFields,
+      admitPriceListRefetchFields: operations.admitPriceListRefetchFields,
       admitCatalogRefetchFields: operations.admitCatalogRefetchFields });
     const dispatch = Effect.fn("NativeAdminProductApplicationFixture.dispatch")((request: Request) => {
       // Reached only through the real private owner admission and completed

@@ -6,6 +6,7 @@ import { commerceError, isJsonObject } from "@flarex/persistence-postgres/intern
 import type { ProductBatchWorkflowModule } from "../../modules/product/product-batch-workflow";
 import { ProductDeletionIds } from "../../modules/product/lifecycle";
 import { ProductLifecycleIds } from "../../modules/product/lifecycle";
+import { decodeVariantDeletionSelection } from "../../modules/product/lifecycle";
 import { ProductUpdateOutput, ProductUpdatePreimages, productUpdateData } from "../../modules/product/product-update-input";
 import { SimpleVariantInput, variantUpdateData } from "../../modules/product/variant-workflow-input";
 import { BasePriceInput, BasePricesUpdate } from "../../modules/pricing/input";
@@ -52,7 +53,6 @@ interface BatchInput<Host extends AtomicCommerceHost = AtomicCommerceHost> {
 const Id = ProductLifecycleIds.value;
 const IdRows = Schema.Array(Schema.StructWithRest(Schema.Struct({ id: Id }), [Schema.Record(Schema.String, Schema.Json)])).check(Schema.isMaxLength(4));
 const decodeIdRows = commerceDecoder(IdRows, "receiptMismatch");
-const decodeIds = commerceDecoder(ProductDeletionIds, "receiptMismatch");
 const decodeProducts = commerceDecoder(ProductUpdatePreimages, "receiptMismatch");
 const decodeInventoryLinks = commerceDecoder(VariantInventoryLinkRows, "receiptMismatch");
 const CreatedProducts = Schema.Array(ProductCreationOutput.value).check(Schema.isMaxLength(4));
@@ -60,9 +60,12 @@ const CreatedVariants = Schema.Array(ProductVariantInventoryOutput.value).check(
 export const ProductBatchOutput = Schema.Struct({ created: CreatedProducts, updated: ProductUpdateOutput, deleted: ProductDeletionIds });
 export const ProductVariantBatchOutput = Schema.Struct({ created: CreatedVariants, updated: ProductVariantUpdateOutput, deleted: ProductDeletionIds });
 
-const prepareInputs = Effect.fn("ProductBatch.prepareInputs")(function* <Host extends AtomicCommerceHost>(input: BatchInput<Host>) {
+const prepareInputs = Effect.fn("ProductBatch.prepareInputs")(function* <Host extends AtomicCommerceHost>(
+  input: BatchInput<Host> & { readonly admission?: "parent-qualified" }, kind?: "variant",
+) {
   const options = yield* Effect.fromResult(captureWorkflowRecord(input));
-  if (Object.keys(options).some(key => !["execution", "modules", "link", "revision", "subscribers"].includes(key)))
+  if (Object.keys(options).some(key => !["execution", "modules", "link", "revision", "subscribers", ...(kind === "variant" ? ["admission"] : [])].includes(key)) ||
+    options.admission !== undefined && options.admission !== "parent-qualified")
     return yield* Effect.fail(commerceError("unsupportedProfile"));
   const registrations = yield* Effect.fromResult(captureWorkflowRecord(options.modules));
   if (Object.keys(registrations).length !== 8) return yield* Effect.fail(commerceError("unsupportedProfile"));
@@ -103,7 +106,11 @@ const resultIds = (methods: readonly WorkflowMethod[]) => Effect.fn("ProductBatc
 });
 const requestedIds = (method: WorkflowMethod) => Effect.fn("ProductBatch.requestedIds")(function* (calls: WorkflowCallResults) {
   const ids: string[] = [];
-  for (const call of calls.calls(method)) ids.push(...yield* Effect.fromResult(decodeIds(call.input)));
+  for (const call of calls.calls(method)) {
+    const selected = yield* Effect.fromResult(decodeVariantDeletionSelection(call.input))
+      .pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
+    ids.push(...("id" in selected ? selected.id : selected));
+  }
   return ids;
 });
 
@@ -190,13 +197,20 @@ export const prepareProductBatchTaskWorkflow = Effect.fn("ProductBatch.prepareTa
   return yield* prepareTaskAtomicWorkflowHost(yield* prepareProductBatchDefinition(input));
 });
 
-export const prepareProductVariantBatchWorkflow = Effect.fn("ProductBatch.prepareVariant")(function* (input: BatchInput) {
-  const { options, captured, modules, shared, variant, inventoryDeletion } = yield* prepareInputs(input);
+export const prepareProductVariantBatchWorkflow = Effect.fn("ProductBatch.prepareVariant")(function* (
+  input: BatchInput & { readonly admission?: "parent-qualified" },
+) {
+  const { options, captured, modules, shared, variant, inventoryDeletion } = yield* prepareInputs(input, "variant");
+  const qualified = options.admission === "parent-qualified";
   const create = Schema.Struct({ ...SimpleVariantInput.fields, prices: Schema.optionalKey(Schema.Array(BasePriceInput).check(Schema.isMaxLength(2))) });
-  const update = variantUpdateData(variant.table.columns, { id: Id, prices: Schema.optionalKey(BasePricesUpdate) });
-  const boundary = Schema.Struct({ create: Schema.optionalKey(Schema.Array(create).check(Schema.isMaxLength(4))),
+  const update = variantUpdateData(variant.table.columns, { id: Id, prices: Schema.optionalKey(BasePricesUpdate),
+    product_id: Schema.optionalKey(Id),
+  }).check(Schema.makeFilter(row => qualified || row.product_id === undefined));
+  const boundary = Schema.Struct({ product_id: Schema.optionalKey(Id),
+    create: Schema.optionalKey(Schema.Array(create).check(Schema.isMaxLength(4))),
     update: Schema.optionalKey(Schema.Array(update).check(Schema.isMaxLength(4))), delete: Schema.optionalKey(ProductDeletionIds),
-  }).check(Schema.makeFilter(value => (value.create?.length ?? 0) + (value.update?.length ?? 0) + (value.delete?.length ?? 0) <= 4));
+  }).check(Schema.makeFilter(value => qualified ? value.product_id !== undefined : value.product_id === undefined),
+    Schema.makeFilter(value => (value.create?.length ?? 0) + (value.update?.length ?? 0) + (value.delete?.length ?? 0) <= 4));
   const resources = yield* Effect.fromResult(prepareWorkflowResources({ ...shared, product: { module: captured.product.module,
     methods: ["createProductVariants", "listProductVariants", "upsertProductVariants", "updateProductVariants", "softDeleteProductVariants", "countProductVariantsForBatch"], graph: true } }, true, { link: options.link }));
   const prepared = yield* Effect.fromResult(batchProductVariantsWorkflow.prepare()).pipe(Effect.mapError(cause => commerceError("unsupportedProfile", cause)));

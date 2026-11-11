@@ -21,33 +21,72 @@ work with retained system consumers must be inventoried before removal.
 
 #### Product HTTP promotion completion goal
 
-The active goal completes the pinned Product HTTP family on the existing private
+The in-scope pinned Product HTTP family runs on the existing private
 Effect/DO host and new Core, with bounded native profiles and explicit refusal
 outside their admitted capabilities. It does not activate mixed production app
 deployment or establish performance/scale acceptance.
 
 The pinned native inventory contains 51 Admin catalog method endpoints in 29
 route files: Products (28), global Product Variants (1), Product Types (5),
-Product Tags (5), Product Categories (6), and Collections (6). Forty-four
+Product Tags (5), Product Categories (6), and Collections (6). Forty-six
 endpoints have promoted handlers, native Core owners and connected private DO
 proof, including scoped Option deletion, both Image association directions and
 Type/Tag/Category/Collection methods, global Variant reads and all four nested
-Inventory Link methods. The goal also inventories the
-two Product association endpoints owned by Sales Channel and Price List and the
-two Store Product reads. Store Product list/detail are included in the goal.
+Inventory Link methods and both Product and scoped Variant batches. The two
+Product association endpoints owned by Sales Channel and Price List and the two
+Store Product reads are also connected, completing all fifty in-scope methods.
 Independent Inventory/Pricing CRUD and Store taxonomy families retain
 their own adoption scopes.
 
-| Slice | Remaining native HTTP work | State |
+Store Product list/detail handlers and their native middleware have connected
+database and actual-host acceptance. The separate
+read composition owns seventeen protected hosts: the existing eight catalog
+sources, Currency and publishable-key sources, and six Store/Region/Cart/Customer/
+Sales Channel Location/Tax context sources. It prepares no Admin mutation
+facades. Every service read retains its independent Core operation; bootstrap
+owns source admission and initialization before serving HTTP.
+
+Native Pricing owns calculated-price selection and tax-inclusivity decisions.
+The graph lowers authenticated native Link aliases to one canonical Price Set
+expansion and projects its already-validated computed DTO. Native tagged pricing
+context carries Region/currency and complete bounded customer-group membership.
+The Store Product read retains authenticated remote join keys needed by native
+enrichment, including the Variant ID when only calculated prices were selected.
+Store DI reuses the existing Product Promise presentation, returning detached
+mutable DTOs for native category, inventory and tax postprocessing while retaining
+Core's immutable values and full failure Causes. Native DAL serialization also
+owns a detached mutable DTO boundary: Pricing adds calculated prices to its
+serialized Price Set before returning through HTTP. It must not receive Core's
+frozen evidence as its mutable native result, including calculated-price-only
+projections without a stored-price relation. Tax uses the existing native
+System provider; other providers remain outside this profile. Translation-enabled
+requests and unsupported Index Engine queries refuse explicitly.
+
+The bounded System Tax profile retains four item lines, two Regions, eight Rates
+and sixteen Rules; Customer membership reads retain four active Groups and
+Inventory expansions retain eight Variant/Item IDs. A request or native default
+page exceeding an admitted complete cohort refuses rather than returning a
+partial price, tax, membership or availability result. These are private profile
+limits, not general Storefront capacity or scale acceptance.
+
+Store visibility preserves the executing pin: list drops its channel Link filter
+when the native channel count is at most one, while detail always applies it.
+The list validator maps `category_id` to `categories.id` before the default-filter
+callback reads the original key, so that request does not acquire the callback's
+internal/active Category flags. Detail separately filters internal Categories
+when that relation was requested. These are native behaviors, not additional
+privacy or ownership guarantees supplied by the adapter.
+
+| Slice | Native HTTP coverage | State |
 | --- | --- | --- |
 | Variant lifecycle | Collection/detail reads, creation, update and parent-qualified deletion connected | Connected |
 | Product options | Collection/detail reads, creation, update and scoped deletion connected | Connected |
 | Product associations | Both Image/Variant batch directions and Variant Inventory Link create/update/delete/batch connected | Connected |
-| Product batches | Product batch and nested Variant batch | Pending |
+| Product batches | Product batch and parent-qualified Variant batch, including the approved delete authorization gate | Connected |
 | Catalog taxonomy | Types/Tags and Categories/Collections, including Product membership endpoints, and global Variant list connected | Connected |
-| Cross-domain Product associations | Sales Channel Products and Price List Products | Pending |
+| Cross-domain Product associations | Sales Channel Products and Price List Products connected | Connected |
 | File and continuation flows | Export; deprecated multipart import and confirmation; current file/chunk imports and confirmation | Explicitly deferred while Task remains paused |
-| Store Product reads | Visibility, pricing, inventory availability, tax enrichment and locale | Pending |
+| Store Product reads | Native visibility, pricing, inventory availability, System Tax enrichment and locale handling with Translation disabled | Connected |
 
 Completion requires every in-scope method to have source-backed handlers,
 middleware, validators, policy and response behavior, a connected native
@@ -55,10 +94,20 @@ workflow/query owner and persistence proof, plus affected PGlite, ordinary-role
 PostgreSQL and actual Workerd/DO coverage. An unimplemented runtime/provider
 cannot be counted as a completed route merely because its handler is selected.
 
-Known remaining parent-ownership gaps must be resolved within the mutation owner:
-Variant batch updates can use the existing Variant's parent during native
-normalization, and deletion currently omits the route's Product ID.
-Separate HTTP reads followed by ID-only mutations are not the resolution.
+The nested Variant batch now checks the combined existing update/delete cohort
+inside its native workflow, then carries the URL Product through creation,
+update and scoped deletion. Final mutation and receipt owners enforce that
+constraint, including tombstoned rows. Separate HTTP reads followed by ID-only
+mutations do not enforce this boundary.
+
+The user approved correcting the pinned Product batch authorization gap. The
+promoted native HTTP policy requires Product create/update/delete permissions,
+matching Variant batch, including requests whose optional arms are empty. The
+pinned comparison remains unchanged; the single middleware source pair is
+classified as `productBatchAuthorizationHttpFork`. The host verifies the declared
+policy before response admission, workflow execution or refetch. A principal
+allowed read/create/update but denied delete receives HTTP 403 without durable
+acquisition or database changes. Other route policies retain their native rules.
 
 The user explicitly deferred these five file/continuation endpoints and kept
 the accepted Trigger-derived Task integration paused. They remain inventoried
@@ -213,9 +262,27 @@ workflow, including membership endpoints. Category reads admit bounded native
 parent/child tree projections and Product scalar/wildcard projections through
 the existing graph metadata and native service; native omissions remain distinct
 from unexpected missing stored scalars. Existing filter and cohort limits remain.
-The complete Admin profile owns twenty-nine prepared workflow facades and eight
+The complete Admin profile owns thirty-three prepared workflow facades and eight
 protected read hosts, so its two private full-profile compositions explicitly
-admit thirty-seven hosts with the existing byte cap. Shared Core defaults remain.
+admit forty-one hosts with the existing byte cap. Shared Core defaults remain.
+
+Product and Variant batches use their genuine native children under one atomic
+settlement. The bounded request admits four combined create/update/delete
+entries and four supplied nested Variants, with at most four old and four
+incoming Variant identities in the connected cohort. Unknown supplied Product
+IDs retain native upsert insertion when complete required fields are present;
+the update path does not derive a missing handle. Native active-graph result
+matching preserves raw historical observations and tombstones. These endpoints
+and the Sales Channel and Price List association handlers have connected
+actual-host acceptance. Product batch enforces its approved deletion permission
+gate before workflow execution.
+
+Sales Channel membership retains native remove-wins and Link tombstone behavior.
+Price List Product removal retains the native Variant-to-Price-Set-to-Price
+selection and native Price List Price batch workflow. Pricing owns bounded
+Price/Price List reads, native serialization and complete cohorts of eight;
+HTTP does not reconstruct prices or rules. Response fields are admitted before
+workflow execution, and the independent refetch retains the native envelope.
 
 Product creation admits native `tags: [{ id }]` and `categories: [{ id }]` along
 with the retained direct ID-array forms. The existing native Product service owns

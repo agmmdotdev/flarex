@@ -20,7 +20,7 @@ const makeHttp = Effect.fn("CategoryCollectionTest.makeHttp")(function* (operati
   const handler = createAdminProductHttpHandler({ adminCors: "https://admin.example", ...scopes,
     resolveAdminPrincipal: () => ({ actor_id: "taxonomy-admin", actor_type: "user", auth_identity_id: "taxonomy-auth", app_metadata: {}, user_metadata: {} }),
     evaluateAdminPolicies: () => true, admitProductRefetchFields: operations.admitProductRefetchFields,
-    admitVariantRefetchFields: operations.admitVariantRefetchFields, admitCatalogRefetchFields: operations.admitCatalogRefetchFields });
+    admitVariantRefetchFields: operations.admitVariantRefetchFields, admitSalesChannelRefetchFields: operations.admitSalesChannelRefetchFields, admitPriceListRefetchFields: operations.admitPriceListRefetchFields, admitCatalogRefetchFields: operations.admitCatalogRefetchFields });
   return Effect.fn("CategoryCollectionTest.request")(function* (path: string, method = "GET", body?: unknown, status = 200) {
     const response = yield* Effect.promise(() => handler.handle(new Request("https://private.test" + path, {
       method, headers: { "content-type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) })));
@@ -290,21 +290,21 @@ describe(`native Category and Collection HTTP on Core (${driver})`, () => {
     } finally { await tested.fixture.close(); }
   }, 300_000);
 
-  it("enforces the actual 37-host composition and releases all leases for reuse at the same byte budget", async () => {
+  it("enforces the actual 41-host composition and releases all leases for reuse at the same byte budget", async () => {
     const tested = await prepareProductRequestFixture(driver);
     try {
       await tested.fixture.run(tested.fixture.useGeneration(generation => Effect.scoped(Effect.gen(function* () {
         const input = { database: generation.database, catalog: tested.catalog,
           identityAndAccessPolicy: { profile: "native-admin-product-request" }, revision: "d".repeat(64),
           subscribers: [{ id: "native-admin-product-request", revision: "e".repeat(64) }] };
-        const tooSmall = yield* makePreparedHostRuntime({ maximumHosts: 36, maximumPreparedBytes: 8 * 1024 * 1024 });
+        const tooSmall = yield* makePreparedHostRuntime({ maximumHosts: 40, maximumPreparedBytes: 8 * 1024 * 1024 });
         const refused = yield* Effect.exit(Effect.scoped(makeProductRequestOperations({ ...input, hostRuntime: tooSmall })));
-        if (Exit.isSuccess(refused)) return yield* Effect.die(new Error("The actual composition unexpectedly fit in 36 hosts"));
+        if (Exit.isSuccess(refused)) return yield* Effect.die(new Error("The actual composition unexpectedly fit in 40 hosts"));
         const failures = refused.cause.reasons.flatMap(reason => Cause.isFailReason(reason) ? [reason.error] : []);
         expect(failures).toEqual([expect.objectContaining({ cause: expect.any(PreparedHostRuntimeError) })]);
         expect(failures.some(error => error.cause instanceof PreparedHostRuntimeError && error.cause.reason === "capacityExceeded")).toBe(true);
 
-        const runtime = yield* makePreparedHostRuntime({ maximumHosts: 37, maximumPreparedBytes: 8 * 1024 * 1024 });
+        const runtime = yield* makePreparedHostRuntime({ maximumHosts: 41, maximumPreparedBytes: 8 * 1024 * 1024 });
         const created = yield* Effect.scoped(Effect.gen(function* () {
           const operations = yield* makeProductRequestOperations({ ...input, hostRuntime: runtime });
           const request = yield* makeHttp(operations);
@@ -314,7 +314,7 @@ describe(`native Category and Collection HTTP on Core (${driver})`, () => {
           return { category, collection };
         }));
         // Scope closure cannot free a different runtime: this second complete
-        // bootstrap borrows the identical 37-host owner after explicit close.
+        // bootstrap borrows the identical 41-host owner after explicit close.
         yield* Effect.scoped(Effect.gen(function* () {
           const operations = yield* makeProductRequestOperations({ ...input, hostRuntime: runtime });
           const request = yield* makeHttp(operations);

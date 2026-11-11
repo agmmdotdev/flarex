@@ -2,6 +2,7 @@ import { Effect } from "effect";
 import { commerceServiceCommands } from "../../../module/commands";
 import type { ProductCommandServices } from "./services";
 import type { ProductTypes } from "@medusajs/framework/types";
+import { MedusaError } from "@medusajs/framework/utils/portable";
 import { defineCommerceCommand } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError, isJsonObject, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
 import { decodeVariantImageInput, decodeProductCreateInput } from "../service-input";
@@ -66,7 +67,9 @@ export function productMutationCommands({ metadata, withService, withCollectionS
       const existing = yield* store.find(ctx.manager, { take: ctx.resources.queryRows, order: { column: "id", direction: "asc" },
         predicate: { kind: "in", column: "id", values: claimed.map(row => row.id) },
       });
-      if (claimed.some(row => !existing.some(value => value.id === row.id && value.product_id === row.product_id))) return yield* ctx.refuse(commerceError("invalidInput"));
+      if (claimed.some(row => !existing.some(value => value.id === row.id && value.product_id === row.product_id)))
+        return yield* ctx.refuse(commerceError("adapterFailure", new MedusaError(MedusaError.Types.INVALID_DATA,
+          "Cannot update variants outside the specified Product")));
     }
     return copyRelatedInput(input);
   });

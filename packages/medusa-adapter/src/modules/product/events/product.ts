@@ -145,7 +145,7 @@ export function productLogicalInternalProductWriteEventPolicy(catalog: ProductRu
  * graph reconciliation to the same Product update receipt owner. */
 export function productLogicalUpsertEventPolicy(catalog: ProductRuntimeMetadata): LogicalCallReceiptValidation {
   const created = productLogicalCreateEventPolicy(catalog);
-  const updated = productLogicalUpdateEventPolicy(catalog);
+  const updated = productLogicalUpdateEventPolicy(catalog, "native-upsert");
   return Effect.fn("ProductEvents.validateLogicalUpsert")(function* (call, activity) {
     const requested = Array.isArray(call.input) ? call.input : [call.input];
     if (call.commandName !== "productUpsert" || call.mode !== "write" || requested.length === 0 ||
@@ -180,8 +180,9 @@ export function productLogicalSelectorUpdateEventPolicy(catalog: ProductRuntimeM
 /** A native Product update owns its root, direct children and declared
  * tag/category memberships. Core authenticates rows and FK targets; this
  * policy binds every transition and silent pivot to the root's native event. */
-export function productLogicalUpdateEventPolicy(catalog: ProductRuntimeMetadata) {
+export function productLogicalUpdateEventPolicy(catalog: ProductRuntimeMetadata, admission: "existing" | "native-upsert" = "existing") {
   const capture = productModuleEventCapture(catalog, defaultCommerceResources);
+  const creation = admission === "native-upsert" ? productLogicalCreateEventPolicy(catalog) : undefined;
   const validateLogicalCall: LogicalCallReceiptValidation = Effect.fn("ProductEvents.validateLogicalUpdate")(function* (call, activity) {
       const { mutations, lifecycle, observedRows } = activity;
     if (call.commandName !== "productUpdate") return yield* Effect.fail(commerceError("receiptMismatch"));
@@ -195,6 +196,7 @@ export function productLogicalUpdateEventPolicy(catalog: ProductRuntimeMetadata)
       [catalog.option.table.name, { entity: catalog.option, owner: catalog.foreignKeys.option }],
     ]);
     const roots = new Map<string, JsonObject>();
+    const insertedRoots = new Set<string>();
     const seen = new Set<string>();
     const childAttempts: Array<{ mutation: typeof mutations[number]; entity: ProductEntityMetadata; owner: string }> = [];
     const valueAttempts: Array<typeof mutations[number]> = [];
@@ -202,6 +204,12 @@ export function productLogicalUpdateEventPolicy(catalog: ProductRuntimeMetadata)
     for (const mutation of mutations) {
       if (mutation.table === catalog.product.table.name) {
         const before = mutation.before, after = mutation.after;
+        if (creation !== undefined && mutation.operation === "insert" && before === null && after !== null &&
+          typeof after.id === "string" && after.deleted_at === null && !roots.has(after.id)) {
+          roots.set(after.id, after);
+          insertedRoots.add(after.id);
+          continue;
+        }
         if ((mutation.operation !== "patch" && mutation.operation !== "replace") ||
           before === null || after === null || typeof before.id !== "string" || before.id !== after.id ||
           before.deleted_at !== null || after.deleted_at !== null || roots.has(before.id))
@@ -224,9 +232,12 @@ export function productLogicalUpdateEventPolicy(catalog: ProductRuntimeMetadata)
         return yield* Effect.fail(commerceError("receiptMismatch"));
       seen.add(identity);
     }
-    if (roots.size === 0 || mutations.some(mutation => pivots.has(mutation.table) &&
-      !roots.has(String((mutation.operation === "insert" ? mutation.after : mutation.before)?.[
-        pivots.get(mutation.table)?.productColumn ?? ""]))))
+    if (roots.size === 0 || mutations.some(mutation => {
+      const pivot = pivots.get(mutation.table);
+      if (pivot === undefined) return false;
+      const root = String((mutation.operation === "insert" ? mutation.after : mutation.before)?.[pivot.productColumn]);
+      return !roots.has(root) || insertedRoots.has(root) && mutation.operation !== "insert";
+    }))
       return yield* Effect.fail(commerceError("receiptMismatch"));
     const requested = Array.isArray(call.input) ? call.input : isJsonObject(call.input) && typeof call.input.id === "string" &&
       call.input.data !== undefined && isJsonObject(call.input.data)
@@ -245,7 +256,14 @@ export function productLogicalUpdateEventPolicy(catalog: ProductRuntimeMetadata)
       if (stored === undefined || !matchesResult(stored, result)) return yield* Effect.fail(commerceError("receiptMismatch"));
       returned.add(result.id);
     }
-    const expected = new Set([...roots.keys()].map(root => catalog.product.updatedEvent + ":" + root));
+    if (creation !== undefined && insertedRoots.size === roots.size) {
+      // Core's authenticated INSERT/before:null proves primary absence. Reuse
+      // the native creation receipt without applying creation-only defaults.
+      yield* creation.validateLogicalCall({ ...call, commandName: "productCreate" }, activity);
+      return;
+    }
+    const expected = new Set([...roots.keys()].map(root =>
+      (insertedRoots.has(root) ? catalog.product.createdEvent : catalog.product.updatedEvent) + ":" + root));
     const childIds = new Set<string>();
     const finalOptions = new Set<string>(), previousOptions = new Set<string>();
     const finalVariants = new Set<string>(), previousVariants = new Set<string>();
@@ -260,6 +278,7 @@ export function productLogicalUpdateEventPolicy(catalog: ProductRuntimeMetadata)
           : before !== null && after !== null && before.id === after.id &&
             before[owner] === after[owner] && before.deleted_at === null && after.deleted_at === null;
       if (!valid || row === null || typeof row.id !== "string" || !roots.has(String(row[owner])) ||
+        insertedRoots.has(String(row[owner])) && mutation.operation !== "insert" ||
         childIds.has(entity.table.name + ":" + row.id)) return yield* Effect.fail(commerceError("receiptMismatch"));
       childIds.add(entity.table.name + ":" + row.id);
       if (entity === catalog.option) {
@@ -302,6 +321,7 @@ export function productLogicalUpdateEventPolicy(catalog: ProductRuntimeMetadata)
             before.deleted_at === null && after.deleted_at === null;
       const beforeOption = before?.[catalog.foreignKeys.value], afterOption = after?.[catalog.foreignKeys.value];
       if (!valid || row === null || typeof row.id !== "string" ||
+        insertedRoots.has(optionProducts.get(String(row[catalog.foreignKeys.value])) ?? "") && mutation.operation !== "insert" ||
         (before !== null && (typeof beforeOption !== "string" || !previousOptions.has(beforeOption))) ||
         (after !== null && (typeof afterOption !== "string" || !finalOptions.has(afterOption))) ||
         childIds.has(catalog.value.table.name + ":" + row.id))
@@ -330,12 +350,14 @@ export function productLogicalUpdateEventPolicy(catalog: ProductRuntimeMetadata)
       if (row === null || (mutation.operation === "insert" ? mutation.before !== null : mutation.after !== null) ||
         typeof variantId !== "string" || typeof valueId !== "string" ||
         !ownedVariants.has(variantId) || !ownedValues.has(valueId) ||
+        insertedRoots.has(variantProducts.get(variantId) ?? "") && mutation.operation !== "insert" ||
         variantProducts.get(variantId) !== valueProducts.get(valueId) || seen.has(identity))
         return yield* Effect.fail(commerceError("receiptMismatch"));
       seen.add(identity);
     }
     const allowedEvents = new Map([
       [catalog.product.updatedEvent, { object: catalog.product.eventObject, action: CommonEvents.UPDATED }],
+      ...(creation === undefined ? [] : [[catalog.product.createdEvent, { object: catalog.product.eventObject, action: CommonEvents.CREATED }]] as const),
       ...[catalog.image, catalog.variant, catalog.option, catalog.value].flatMap(entity => [
         [entity.createdEvent, { object: entity.eventObject, action: CommonEvents.CREATED }],
         [entity.updatedEvent, { object: entity.eventObject, action: CommonEvents.UPDATED }],

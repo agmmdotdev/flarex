@@ -12,7 +12,7 @@ const scriptDirectory = path.dirname(fileURLToPath(import.meta.url))
 const medusaPackageRoot = path.resolve(scriptDirectory, "..")
 const projectRoot = path.resolve(medusaPackageRoot, "../..")
 const check = process.argv.includes("--check")
-for (const input of ["static-manifest.json", "admin-product-static-manifest.json"]) {
+for (const input of ["static-manifest.json", "admin-product-static-manifest.json", "store-product-static-manifest.json"]) {
   const manifestSpec = await readManifestSpec(path.join(medusaPackageRoot, input))
   const outputPath = path.join(projectRoot, manifestSpec.outputPath)
   const generated = await renderManifest(manifestSpec)

@@ -8,3 +8,7 @@ export { applyLocale } from "./middlewares/apply-locale"
 export { ensurePublishableApiKeyMiddleware } from "./middlewares/ensure-publishable-api-key"
 export { authenticate } from "./middlewares/authenticate-middleware"
 export * from "./utils/request-context"
+
+export { applyDefaultFilters } from "./middlewares/apply-default-filters"
+export { applyParamsAsFilters } from "./middlewares/apply-params-as-filters"
+export { clearFiltersByKey } from "./middlewares/clear-filters-by-key"

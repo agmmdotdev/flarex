@@ -1,3 +1,5 @@
+import { promiseAll } from "@medusajs/utils/common/promise-all"
+import type { BatchWorkflowOutput, HttpTypes } from "@medusajs/framework/types"
 import { ContainerRegistrationKeys } from "@medusajs/utils/common/container"
 import { Modules } from "@medusajs/utils/modules-sdk/definition"
 import { remoteQueryObjectFromString } from "@medusajs/utils/common/remote-query-object-from-string"
@@ -182,4 +184,94 @@ export const buildBatchVariantInventoryData = (
   }
 
   return results
+}
+
+export const refetchBatchProducts = async (
+  batchResult: BatchWorkflowOutput<ProductDTO>,
+  scope: MedusaRequest["scope"],
+  fields: string[]
+): Promise<HttpTypes.BatchResponse<ProductDTO>> => {
+  const remoteQuery = scope.resolve<<T>(input: ReturnType<typeof remoteQueryObjectFromString>) => Promise<T[]>>(ContainerRegistrationKeys.REMOTE_QUERY)
+  let created = Promise.resolve<ProductDTO[]>([])
+  let updated = Promise.resolve<ProductDTO[]>([])
+
+  if (batchResult.created.length) {
+    const createdQuery = remoteQueryObjectFromString({
+      entryPoint: "product",
+      variables: {
+        filters: { id: batchResult.created.map((p) => p.id) },
+      },
+      fields: remapKeysForProduct(fields ?? []),
+    })
+
+    created = remoteQuery<ProductDTO>(createdQuery)
+  }
+
+  if (batchResult.updated.length) {
+    const updatedQuery = remoteQueryObjectFromString({
+      entryPoint: "product",
+      variables: {
+        filters: { id: batchResult.updated.map((p) => p.id) },
+      },
+      fields: remapKeysForProduct(fields ?? []),
+    })
+
+    updated = remoteQuery<ProductDTO>(updatedQuery)
+  }
+
+  const [createdRes, updatedRes] = await promiseAll([created, updated])
+  return {
+    created: createdRes,
+    updated: updatedRes,
+    deleted: {
+      ids: batchResult.deleted,
+      object: "product",
+      deleted: true,
+    },
+  }
+}
+
+export const refetchBatchVariants = async (
+  batchResult: BatchWorkflowOutput<ProductVariantDTO>,
+  scope: MedusaRequest["scope"],
+  fields: string[]
+): Promise<HttpTypes.BatchResponse<ProductVariantDTO>> => {
+  const remoteQuery = scope.resolve<<T>(input: ReturnType<typeof remoteQueryObjectFromString>) => Promise<T[]>>(ContainerRegistrationKeys.REMOTE_QUERY)
+  let created = Promise.resolve<ProductVariantDTO[]>([])
+  let updated = Promise.resolve<ProductVariantDTO[]>([])
+
+  if (batchResult.created.length) {
+    const createdQuery = remoteQueryObjectFromString({
+      entryPoint: "variant",
+      variables: {
+        filters: { id: batchResult.created.map((v) => v.id) },
+      },
+      fields: remapKeysForVariant(fields ?? []),
+    })
+
+    created = remoteQuery<ProductVariantDTO>(createdQuery)
+  }
+
+  if (batchResult.updated.length) {
+    const updatedQuery = remoteQueryObjectFromString({
+      entryPoint: "variant",
+      variables: {
+        filters: { id: batchResult.updated.map((v) => v.id) },
+      },
+      fields: remapKeysForVariant(fields ?? []),
+    })
+
+    updated = remoteQuery<ProductVariantDTO>(updatedQuery)
+  }
+
+  const [createdRes, updatedRes] = await promiseAll([created, updated])
+  return {
+    created: createdRes,
+    updated: updatedRes,
+    deleted: {
+      ids: batchResult.deleted,
+      object: "variant",
+      deleted: true,
+    },
+  }
 }

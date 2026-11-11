@@ -101,9 +101,34 @@ exercise this connected correction; adapter error replacement would hide the
 owner defect.
 
 Keep the existing 64 expanded-node ceiling, counting repeated and skipped
-children. Actual prepared graphs have 57 Product-batch nodes and 32 Variant-batch
+children. Actual prepared graphs have 57 Product-batch nodes and 33 Variant-batch
 nodes. A larger graph must refuse, rather than silently raise the default or substitute an
-easier workflow.
+easier workflow. The Variant count includes the scoped parent-validation step;
+the unchanged unscoped branch performs no additional parent read.
+
+### Private HTTP admission
+
+The promoted Product batch handler keeps the native conditional child execution
+and requested deletion envelope. The nested Variant batch handler supplies the
+URL Product to the native workflow. A combined update/delete ownership read runs
+before child execution, while each final mutation and its receipt retain the
+same Product constraint. Missing deletions retain native no-op behavior; a live
+or tombstoned foreign parent cannot be reassigned through a claimed URL parent.
+Creation and update both receive the authoritative parent, and deletion receives
+the scoped selector. Existing unscoped workflow callers retain their contract.
+
+Native Product update is an upsert: an unknown supplied ID can insert when the
+native required fields are present. The receipt and event owner authenticate
+that insertion from actual mutations, with native module-created events and
+workflow-updated events. An omitted required handle is not derived by the update
+path. After rollback, the HTTP composition presents the authenticated required
+column refusal as native invalid data, preserving the original complete Cause.
+Unknown failures, mixed Causes, defects and interruption retain their original
+classification. The adapter adds no defaults or persistence prevalidation.
+
+Result matching uses the existing Product replacement projector to compare the
+native active graph. Raw observations and mutations still include tombstones;
+masking an inactive child does not erase its historical receipt evidence.
 
 ## Module And Resource Ownership
 

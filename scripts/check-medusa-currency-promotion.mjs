@@ -1,4 +1,5 @@
 // @ts-check
+import { storeProductSourcePairs, verifyStoreProductSelection, verifyStoreProductSource } from "./check-medusa-store-product-source.mjs";
 import { apiKeySourcePairs, verifyApiKeySelection, verifyApiKeySource } from "./check-medusa-api-key-source.mjs";
 import { customerAddressSourcePairs, verifyCustomerAddressSource, verifyCustomerAccountSelection, checkCustomerAccountSources } from "./check-medusa-customer-account-source.mjs";
 import { checkoutSourcePairs, verifyCheckoutSelection, verifyCheckoutSource } from "./check-medusa-checkout-source.mjs";
@@ -93,6 +94,20 @@ export const adminVariantInventoryHttpTargets = [
   "packages/medusa-http/src/api/admin/products/[id]/variants/inventory-items/batch/route.ts",
 ];
 const adminGlobalVariantRoute = "packages/medusa-http/src/api/admin/product-variants/route.ts";
+export const adminAtomicHttpTargets = [
+  "packages/medusa-http/src/api/admin/products/batch/route.ts",
+  "packages/medusa-http/src/api/admin/products/[id]/variants/batch/route.ts",
+  ...["sales-channels", "price-lists"].flatMap(family => ["[id]/products/route.ts", "helpers.ts", "middlewares.ts", "query-config.ts", "validators.ts"]
+    .map(file => "packages/medusa-http/src/api/admin/" + family + "/" + file)),
+];
+const parentQualifiedVariantBatchHttpTarget = adminAtomicHttpTargets[1];
+const pricingResponseBuildersTarget = "packages/medusa-utils/src/pricing/builders.ts";
+export const parentQualifiedVariantBatchWorkflowSourcePair = {
+  target: "packages/medusa-core-flows/src/product/workflows/batch-product-variants.ts",
+  source: "third_party/medusa/upstream/packages/core/core-flows/src/product/workflows/batch-product-variants.ts",
+  classification: "parentQualifiedVariantBatchWorkflowFork",
+};
+const variantBatchParentStepTarget = "packages/medusa-core-flows/src/product/steps/validate-product-variant-batch-parent.ts";
 const variantAvailabilityUtility = "packages/medusa-utils/src/product/get-variant-availability.ts";
 const catalogHttpRoot = "packages/medusa-http/src/api/admin/";
 export const adminProductCatalogHttpTargets = Object.freeze([
@@ -104,7 +119,13 @@ export const adminProductCatalogHttpTargets = Object.freeze([
   catalogHttpRoot + "collections/helpers.ts",
 ]);
 const productValidatorHelpersTarget = "packages/medusa-http/src/api/utils/validators.ts";
+export const productBatchAuthorizationHttpSourcePair = {
+  target: "packages/medusa-http/src/api/admin/products/middlewares.ts",
+  source: "third_party/medusa/upstream/packages/medusa/src/api/admin/products/middlewares.ts",
+  classification: "productBatchAuthorizationHttpFork",
+};
 const productHttpSelections = new Set([
+  ...adminAtomicHttpTargets.filter(target => target !== parentQualifiedVariantBatchHttpTarget),
   adminGlobalVariantRoute,
   "packages/medusa-http/src/api/admin/product-variants/middlewares.ts",
   ...adminProductCatalogHttpTargets,
@@ -126,6 +147,7 @@ const productHttpSelections = new Set([
   "packages/medusa-http/src/api/admin/products/utils/maybe-apply-price-lists-filter.ts",
   "packages/medusa-http/src/api/utils/common-validators/products.ts",
 ]);
+productHttpSelections.delete(productBatchAuthorizationHttpSourcePair.target);
 
 /** @param {string} native @param {readonly string[]} names */
 function selectProductRouteDeclarations(native, names) {
@@ -364,6 +386,271 @@ export function verifyAdminVariantInventoryMiddlewareSource(native, promoted, gl
     throw new Error("Changed native Variant inventory middleware policies or validators");
 }
 
+/** @param {readonly {source?: string, target: string, classification: string}[]} files */
+export function verifyAdminAtomicHttpSelection(files) {
+  for (const target of adminAtomicHttpTargets) {
+    const selected = files.filter(file => file.target === target);
+    const classification = target === parentQualifiedVariantBatchHttpTarget ? "parentQualifiedVariantBatchHttpFork" : "selectedExportFacade";
+    if (selected.length !== 1 || selected[0].source !== pinnedHttpSource(target) || selected[0].classification !== classification)
+      throw new Error("Atomic Admin HTTP selections must retain their exact pinned ownership classification");
+  }
+  if (files.some(file => file.classification === "parentQualifiedVariantBatchHttpFork" && file.target !== parentQualifiedVariantBatchHttpTarget))
+    throw new Error("Unselected parent-qualified Variant batch HTTP fork");
+}
+
+/** @param {string} native @param {string} name @param {readonly string[]} matchers */
+function selectAtomicHttpMiddlewareEntries(native, name, matchers) {
+  const parsed = ts.createSourceFile("middlewares.ts", native, ts.ScriptTarget.ESNext, true);
+  for (const statement of parsed.statements) {
+    if (!ts.isVariableStatement(statement)) continue;
+    for (const declaration of statement.declarationList.declarations) {
+      if (declaration.name.getText(parsed) !== name || !declaration.initializer || !ts.isArrayLiteralExpression(declaration.initializer)) continue;
+      const selected = declaration.initializer.elements.filter(element => ts.isObjectLiteralExpression(element) && element.properties.some(property =>
+        ts.isPropertyAssignment(property) && property.name.getText(parsed) === "matcher" && ts.isStringLiteral(property.initializer) && matchers.includes(property.initializer.text)));
+      if (selected.length !== matchers.length) throw new Error("Missing pinned atomic HTTP middleware");
+      return selected.map(element => element.getText(parsed));
+    }
+  }
+  throw new Error("Missing pinned atomic HTTP middleware");
+}
+
+/** Exact native handlers and selected family helpers/defaults. The Variant
+ * batch handler alone adds the URL Product to its root input. Direct native
+ * core-flow constructors are resolved through the existing workflow engine.
+ * @param {string} native @param {string} promoted @param {string} target */
+export function verifyAdminAtomicHttpSource(native, promoted, target) {
+  if (!adminAtomicHttpTargets.includes(target)) throw new Error("Unselected atomic Admin HTTP source");
+  /** @type {string[]} */
+  let imports = [];
+  let selected = "";
+  if (target === adminAtomicHttpTargets[0] || target === parentQualifiedVariantBatchHttpTarget) {
+    const variant = target === parentQualifiedVariantBatchHttpTarget;
+    const depth = variant ? "../../../" : "../";
+    imports = ['import { Modules } from "@medusajs/utils/modules-sdk/definition"',
+      `import { ${variant ? "refetchBatchVariants, remapVariantResponse" : "refetchBatchProducts, remapProductResponse"} } from "${depth}helpers"`];
+    // Preserve the promoted handler's import ordering along with its native body.
+    imports.reverse();
+    selected = selectProductRouteDeclarations(native, [variant ? "batchProductVariantsWorkflowId" : "batchProductsWorkflowId", "POST"]).join("\n");
+    if (variant) selected = selected.replace("const normalizedInput = {", "const normalizedInput = {\n    product_id: productId,");
+  } else if (target.includes("sales-channels/")) {
+    const file = target.slice(target.indexOf("sales-channels/") + "sales-channels/".length);
+    if (file === "[id]/products/route.ts") {
+      imports = ['import { Modules } from "@medusajs/utils/modules-sdk/definition"', 'import { refetchSalesChannel } from "../../helpers"'];
+      selected = selectProductRouteDeclarations(native, ["linkProductsToSalesChannelWorkflowId", "POST"]).join("\n");
+    } else if (file === "helpers.ts") {
+      imports = ['import { ContainerRegistrationKeys } from "@medusajs/utils/common/container"', 'import { remoteQueryObjectFromString } from "@medusajs/utils/common/remote-query-object-from-string"'];
+      selected = selectProductRouteDeclarations(native, ["refetchSalesChannel"]).join("\n");
+    } else if (file === "query-config.ts") {
+      selected = 'export const Entities = { sales_channel: "sales_channel" };\n' + selectProductRouteDeclarations(native, ["defaultAdminSalesChannelFields", "retrieveTransformQueryConfig"]).join("\n");
+    } else if (file === "validators.ts") {
+      imports = ['import { createSelectParams } from "../../utils/validators"'];
+      selected = selectProductRouteDeclarations(native, ["AdminGetSalesChannelParams"]).join("\n");
+    } else {
+      imports = ['import { validateAndTransformBody, validateAndTransformQuery } from "@medusajs/framework/http"', 'import * as QueryConfig from "./query-config"',
+        'import { Entities } from "./query-config"', 'import { createLinkBody } from "../../utils/validators"', 'import { AdminGetSalesChannelParams } from "./validators"'];
+      selected = "export const adminSalesChannelRoutesMiddlewares = [" + selectAtomicHttpMiddlewareEntries(native, "adminSalesChannelRoutesMiddlewares", ["/admin/sales-channels/*", "/admin/sales-channels/:id/products"]).join(",\n") + ",]";
+    }
+  } else {
+    const file = target.slice(target.indexOf("price-lists/") + "price-lists/".length);
+    if (file === "[id]/products/route.ts") {
+      imports = ['import { Modules } from "@medusajs/utils/modules-sdk/definition"', 'import { MedusaError } from "@medusajs/utils/common/errors"',
+        'import { fetchPriceList, fetchPriceListPriceIdsForProduct } from "../../helpers"'];
+      selected = selectProductRouteDeclarations(native, ["POST"]).join("\n")
+        .replace("const workflow = batchPriceListPricesWorkflow(req.scope)", "const workflow = req.scope.resolve(Modules.WORKFLOW_ENGINE)")
+        .replace("await workflow.run({", 'await workflow.run("batch-price-list-prices", {');
+    } else if (file === "helpers.ts") {
+      imports = ['import { buildPriceListRules, buildPriceSetPricesForCore } from "@medusajs/utils/pricing/builders"',
+        'import { ContainerRegistrationKeys } from "@medusajs/utils/common/container"', 'import { isPresent } from "@medusajs/utils/common/is-present"',
+        'import { MedusaError } from "@medusajs/utils/common/errors"', 'import { remoteQueryObjectFromString } from "@medusajs/utils/common/remote-query-object-from-string"'];
+      selected = selectProductRouteDeclarations(native, ["fetchPriceList", "transformPriceList", "fetchPriceListPriceIdsForProduct"]).join("\n");
+    } else if (file === "query-config.ts") {
+      selected = 'export const Entities = { price_list: "price_list", price: "price" };\n' + selectProductRouteDeclarations(native, ["adminPriceListRemoteQueryFields", "retrivePriceListQueryConfig", "listPriceListQueryConfig"]).join("\n");
+    } else if (file === "validators.ts") {
+      imports = ['import { z } from "@medusajs/framework/zod"', 'import { createSelectParams } from "../../utils/validators"'];
+      selected = selectProductRouteDeclarations(native, ["AdminGetPriceListParams", "AdminRemoveProductsPriceList"]).join("\n");
+    } else {
+      imports = ['import { validateAndTransformBody, validateAndTransformQuery } from "@medusajs/framework/http"', 'import * as QueryConfig from "./query-config"',
+        'import { Entities } from "./query-config"', 'import { AdminGetPriceListParams, AdminRemoveProductsPriceList } from "./validators"'];
+      selected = "export const adminPriceListsRoutesMiddlewares = [" + selectAtomicHttpMiddlewareEntries(native, "adminPriceListsRoutesMiddlewares", ["/admin/price-lists/*", "/admin/price-lists/:id/products"]).join(",\n") + ",]";
+    }
+  }
+  selected = selected.replaceAll("PolicyOperation.read", '"read"').replaceAll("PolicyOperation.update", '"update"');
+  if (productRouteRuntime([...imports, selected].join("\n")) !== productRouteRuntime(promoted))
+    throw new Error("Changed pinned atomic Admin HTTP behavior: " + target);
+}
+
+/** @param {readonly {target: string, source?: string, classification: string}[]} files */
+export function verifyProductBatchAuthorizationHttpSelection(files) {
+  const pair = productBatchAuthorizationHttpSourcePair;
+  const selected = files.filter(file => file.target === pair.target || file.source === pair.source);
+  if (selected.length !== 1 || selected[0].target !== pair.target || selected[0].source !== pair.source || selected[0].classification !== pair.classification)
+    throw new Error("Product batch authorization must retain its exact approved source fork");
+  if (files.some(file => file.classification === pair.classification && (file.target !== pair.target || file.source !== pair.source)))
+    throw new Error("Unselected Product batch authorization HTTP fork");
+}
+
+/** The approved public authorization correction adds Product delete to the
+ * collection batch policy. Every other selected native descriptor, policy,
+ * validator, middleware order and module import retains its previous meaning.
+ * @param {string} native @param {string} promoted */
+export function verifyProductBatchAuthorizationHttpSource(native, promoted) {
+  const failure = "Changed approved Product batch authorization HTTP fork";
+  const selections = [
+    ["", "/admin/products/*"], ["", "/admin/products/*/variants/*"], ["", "/admin/products/*/options/*"], ["", "/admin/products/*/variants/*/inventory-items/*"],
+    ["GET", "/admin/products/:id/options"], ["GET", "/admin/products/:id/options/:option_id"],
+    ["POST", "/admin/products/:id/options"], ["POST", "/admin/products/:id/options/:option_id"], ["DELETE", "/admin/products/:id/options/:option_id"],
+    ["GET", "/admin/products/:id/variants"], ["POST", "/admin/products/:id/images/:image_id/variants/batch"],
+    ["POST", "/admin/products/:id/variants/:variant_id/images/batch"], ["GET", "/admin/products/:id/variants/:variant_id"],
+    ["POST", "/admin/products/:id/variants"], ["POST", "/admin/products/:id/variants/:variant_id"], ["DELETE", "/admin/products/:id/variants/:variant_id"],
+    ["GET", "/admin/products"], ["GET", "/admin/products/:id"], ["POST", "/admin/products"], ["POST", "/admin/products/:id"], ["DELETE", "/admin/products/:id"],
+    ["POST", "/admin/products/:id/variants/inventory-items/batch"], ["POST", "/admin/products/:id/variants/:variant_id/inventory-items"],
+    ["POST", "/admin/products/:id/variants/:variant_id/inventory-items/:inventory_item_id"], ["DELETE", "/admin/products/:id/variants/:variant_id/inventory-items/:inventory_item_id"],
+    ["POST", "/admin/products/batch"], ["POST", "/admin/products/:id/variants/batch"],
+  ];
+  const parsed = ts.createSourceFile("middlewares.ts", native, ts.ScriptTarget.ESNext, true);
+  /** @type {Map<string, string>} */
+  const descriptors = new Map();
+  for (const statement of parsed.statements) {
+    if (!ts.isVariableStatement(statement)) continue;
+    for (const declaration of statement.declarationList.declarations) {
+      if (declaration.name.getText(parsed) !== "adminProductRoutesMiddlewares" || !declaration.initializer || !ts.isArrayLiteralExpression(declaration.initializer)) continue;
+      for (const element of declaration.initializer.elements) {
+        if (!ts.isObjectLiteralExpression(element)) throw new Error(failure);
+        let matcher = "", methods = "";
+        for (const property of element.properties) {
+          if (!ts.isPropertyAssignment(property)) continue;
+          if (property.name.getText(parsed) === "matcher" && ts.isStringLiteral(property.initializer)) matcher = property.initializer.text;
+          if (property.name.getText(parsed) === "method" && ts.isArrayLiteralExpression(property.initializer)) methods = property.initializer.elements.map(method => ts.isStringLiteral(method) ? method.text : "unsupported").join(",");
+        }
+        const key = methods + " " + matcher;
+        if (descriptors.has(key)) throw new Error(failure + ": duplicate native descriptor");
+        descriptors.set(key, element.getText(parsed));
+      }
+    }
+  }
+  const selected = selections.map(([method, matcher]) => {
+    const descriptor = descriptors.get(method + " " + matcher);
+    if (descriptor === undefined) throw new Error(failure + ": missing native descriptor");
+    if (matcher !== "/admin/products/batch") return descriptor;
+    const policy = "operation: [PolicyOperation.create, PolicyOperation.update]";
+    if (descriptor.split(policy).length !== 2) throw new Error(failure + ": authorization anchor");
+    return descriptor.replace(policy, "operation: [PolicyOperation.create, PolicyOperation.update, PolicyOperation.delete]");
+  }).join(",\n");
+  const imports = [
+    'import { CreateProduct, CreateProductVariant, AdminBatchUpdateProduct, AdminBatchUpdateProductVariant } from "./validators"',
+    'import { maybeApplyLinkFilter, validateAndTransformBody, validateAndTransformQuery } from "@medusajs/framework/http"',
+    'import { FeatureFlag } from "@medusajs/utils/feature-flags/flag-router"', 'import * as QueryConfig from "./query-config"',
+    'import { AdminBatchImageVariant, AdminBatchVariantImages, AdminCreateProduct, AdminCreateProductOption, AdminCreateProductVariant, AdminGetProductOptionParams, AdminGetProductOptionsParams, AdminGetProductParams, AdminGetProductVariantParams, AdminGetProductsParams, AdminUpdateProduct, AdminUpdateProductOption, AdminUpdateProductVariant } from "./validators"',
+    'import { AdminGetProductVariantsParams } from "../product-variants/validators"', 'import { createBatchBody } from "../../utils/validators"',
+    'import { AdminBatchCreateVariantInventoryItem, AdminBatchUpdateVariantInventoryItem, AdminBatchDeleteVariantInventoryItem, AdminCreateVariantInventoryItem, AdminUpdateVariantInventoryItem } from "./validators"',
+    'import { maybeApplyPriceListsFilter } from "./utils/maybe-apply-price-lists-filter"',
+  ];
+  let expected = [...imports, "export const adminProductRoutesMiddlewares = [" + selected + "]"].join("\n")
+    .replaceAll("IndexEngineFeatureFlag.key", '"index_engine"').replaceAll("DEFAULT_BATCH_ENDPOINTS_SIZE_LIMIT", '"2mb"');
+  for (const entity of ["product_variant", "product_option", "inventory_item", "product", "price"])
+    expected = expected.replaceAll("Entities." + entity, JSON.stringify(entity));
+  for (const operation of ["create", "read", "update", "delete"])
+    expected = expected.replaceAll("PolicyOperation." + operation, JSON.stringify(operation));
+  /** Ignore only inert trailing array commas; preserve sparse-array elisions.
+   * @param {string} source */
+  const runtime = source => {
+    /** @type {string[]} */
+    const tokens = JSON.parse(productRouteRuntime(source));
+    return JSON.stringify(tokens.filter((token, index) => token !== "," || tokens[index + 1] !== "]" || tokens[index - 1] === ","));
+  };
+  if (runtime(expected) !== runtime(promoted)) throw new Error(failure);
+}
+
+/** @param {string} native @param {string} promoted */
+export function verifyAdminProductBatchMiddlewareSource(native, promoted) {
+  verifyProductBatchAuthorizationHttpSource(native, promoted);
+}
+
+/** @param {string} native @param {string} promoted */
+export function verifyNativePricingResponseBuilders(native, promoted) {
+  verifyNativePriceListRuleBuilder(native, promoted);
+}
+
+/** @param {readonly {source?: string, target: string, classification: string}[]} files */
+export function verifyParentQualifiedVariantBatchWorkflowSelection(files) {
+  const pair = parentQualifiedVariantBatchWorkflowSourcePair;
+  const selected = files.filter(file => file.target === pair.target || file.source === pair.source);
+  if (selected.length !== 1 || selected[0].target !== pair.target || selected[0].source !== pair.source || selected[0].classification !== pair.classification)
+    throw new Error("Variant batch workflow must retain its explicit pinned parent ownership fork");
+  const authoredStep = files.filter(file => file.target === variantBatchParentStepTarget);
+  if (authoredStep.length !== 1 || authoredStep[0].classification !== "authored" || authoredStep[0].source !== undefined)
+    throw new Error("Variant batch parent step must retain its authored ownership classification");
+  if (files.some(file => file.classification === pair.classification && (file.target !== pair.target || file.source !== pair.source)))
+    throw new Error("Unselected parent-qualified Variant batch workflow fork");
+}
+
+/** Preserve native empty child execution, ordering and raw deleted IDs while
+ * admitting only the existing compact SDK adaptation and approved parent check.
+ * The ownership step is authored and is never represented as native parity.
+ * @param {string} native @param {string} promoted */
+export function verifyParentQualifiedVariantBatchWorkflowSource(native, promoted) {
+  const failure = "Changed parent-qualified native Variant batch workflow";
+  let expected = native.replaceAll("\r\n", "\n");
+  /** @param {string} before @param {string} after */
+  const replace = (before, after) => {
+    if (expected.split(before).length !== 2) throw new Error(failure + ": pinned adaptation anchor");
+    expected = expected.replace(before, after);
+  };
+  replace('from "@medusajs/framework/workflows-sdk"', 'from "@medusajs/workflows-sdk"');
+  replace('import { deleteProductVariantsWorkflow } from "./delete-product-variants"',
+    'import { deleteProductVariantsWorkflow } from "./delete-product-variants"\nimport { validateProductVariantBatchParentStep } from "../steps/validate-product-variant-batch-parent"');
+  replace(`    const normalizedInput = transform({ input }, (data) => {
+      return {
+        create: data.input.create ?? [],
+        update: data.input.update ?? [],
+        delete: data.input.delete ?? [],
+      }
+    })`, `    const checked = validateProductVariantBatchParentStep(transform({ input }, ({ input }) => ({
+      ...(input.product_id === undefined ? {} : { product_id: input.product_id }),
+      create: input.create ?? [], update: input.update ?? [], delete: input.delete ?? [],
+    })));
+    const normalizedInput = transform(checked, input => {
+      const parent = input.product_id;
+      return {
+        create: parent === undefined ? input.create : input.create.map(row => ({ ...row, product_id: parent })),
+        update: parent === undefined ? input.update : input.update.map(row => ({ ...row, product_id: parent })),
+        delete: input.delete,
+        ...(parent === undefined ? {} : { product_id: parent }),
+      };
+    });`);
+  replace(`      deleteProductVariantsWorkflow.runAsStep({
+        input: { ids: normalizedInput.delete },
+      })`, `      deleteProductVariantsWorkflow.runAsStep({ input: transform(normalizedInput, input => ({ ids: input.delete,
+        ...(input.product_id === undefined ? {} : { product_id: input.product_id }),
+      })) })`);
+  replace(`    const response = transform({ res, input }, (data) => {
+      return {
+        created: data.res[0],
+        updated: data.res[1],
+        deleted: data.input.delete ?? [],
+      }
+    })
+
+    return new WorkflowResponse(response)`,
+  "    return new WorkflowResponse(transform({ res, input }, data => ({ created: data.res[0], updated: data.res[1], deleted: data.input.delete ?? [] })));");
+  if (productRouteRuntime(expected) !== productRouteRuntime(promoted)) throw new Error(failure);
+
+  const parsed = ts.createSourceFile("batch-variants.ts", promoted, ts.ScriptTarget.ESNext, true);
+  const declarations = parsed.statements.filter(statement => ts.isInterfaceDeclaration(statement) && statement.name.text === "BatchProductVariantsWorkflowInput");
+  if (declarations.length !== 1) throw new Error(failure + ": input contract");
+  const requiredInput = `export interface BatchProductVariantsWorkflowInput extends BatchWorkflowInput<CreateProductVariantWorkflowInputDTO, UpdateProductVariantWorkflowInputDTO & { product_id?: string }> {
+    product_id?: string
+  }`;
+  /** @param {string} source */
+  const contractTokens = source => {
+    const scanner = ts.createScanner(ts.ScriptTarget.ESNext, true, ts.LanguageVariant.Standard, source);
+    const tokens = [];
+    while (scanner.scan() !== ts.SyntaxKind.EndOfFileToken) tokens.push(scanner.getTokenText());
+    return JSON.stringify(tokens);
+  };
+  if (contractTokens(requiredInput) !== contractTokens(declarations[0].getText(parsed))) throw new Error(failure + ": input contract");
+}
+
 /** All catalog HTTP files retain one exact pinned source and classification.
  * @param {readonly {source?: string, target: string, classification: string}[]} files */
 export function verifyAdminProductCatalogHttpSelection(files) {
@@ -464,16 +751,10 @@ export function verifyAdminProductLinkBodySource(native, promoted) {
   verifyAdminVariantInventoryDeclarations(native, promoted, ["createBatchBody"]);
 }
 
-/** The Admin wrapper closure excludes the unselected Store sales-channel branch.
+/** The canonical wrapper keeps both admitted native Admin and Store branches.
  * @param {string} native @param {string} promoted */
 export function verifyAdminVariantInventoryWrapperSource(native, promoted) {
-  const imports = [
-    'import { ContainerRegistrationKeys } from "@medusajs/utils/common/container"',
-    'import { getTotalVariantAvailability } from "@medusajs/utils/product/get-variant-availability"',
-  ];
-  const selected = selectProductRouteDeclarations(native, ["wrapVariantsWithTotalInventoryQuantity", "wrapVariants"]);
-  if (productRouteRuntime([...imports, ...selected].join("\n")) !== productRouteRuntime(promoted))
-    throw new Error("Changed native Admin variant inventory wrapper behavior");
+  verifyStoreProductSource(native, promoted, adminVariantInventoryWrapper);
 }
 
 /** Both total and sales-channel pure utility branches retain native runtime.
@@ -869,6 +1150,10 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
   verifyImageAssociationSourceSelection(supplied.files);
   verifyAdminProductCatalogHttpSelection(supplied.files);
   verifyAdminVariantInventoryHttpSelection(supplied.files);
+  verifyAdminAtomicHttpSelection(supplied.files);
+  verifyProductBatchAuthorizationHttpSelection(supplied.files);
+  verifyStoreProductSelection(supplied.files);
+  verifyParentQualifiedVariantBatchWorkflowSelection(supplied.files);
   verifyTax170SourceSelection(supplied.files);
   verifyNativeDatabaseConstraintSource(root);
   verifyNativeRequiredValidationSource(root);
@@ -966,7 +1251,7 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
     readFileSync(path.join(root, "packages/medusa-core-flows/src/price-list/steps/validate-price-lists.ts"), "utf8"));
   verifyNativePriceListRuleBuilder(
     readFileSync(path.join(root, sourcePrefix + "packages/core/utils/src/pricing/builders.ts"), "utf8"),
-    readFileSync(path.join(root, "packages/medusa-utils/src/pricing/price-list-rules.ts"), "utf8"));
+    readFileSync(path.join(root, "packages/medusa-utils/src/pricing/builders.ts"), "utf8"));
   verifyPriceListCreateCallbacks(
     readFileSync(path.join(root, sourcePrefix + "packages/core/core-flows/src/price-list/workflows/create-price-lists.ts"), "utf8"),
     readFileSync(path.join(root, "packages/medusa-core-flows/src/price-list/workflows/create-price-lists.ts"), "utf8"),
@@ -1307,7 +1592,7 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
   const priceListUpdateSources = ["price-list/workflows/update-price-lists.ts", "price-list/steps/update-price-lists.ts",
     "price-list/steps/validate-price-lists.ts"].map(relative => ["packages/medusa-core-flows/src/" + relative,
       sourcePrefix + "packages/core/core-flows/src/" + relative]);
-  const priceListRuleBuilderTarget = "packages/medusa-utils/src/pricing/price-list-rules.ts";
+  const priceListRuleBuilderTarget = "packages/medusa-utils/src/pricing/builders.ts";
   const priceListRuleBuilderSource = sourcePrefix + "packages/core/utils/src/pricing/builders.ts";
   const priceListPriceSources = ["price-list/workflows/create-price-list-prices.ts", "price-list/steps/create-price-list-prices.ts"];
   const priceListPriceUpdateSources = ["price-list/workflows/update-price-list-prices.ts", "price-list/steps/update-price-list-prices.ts"];
@@ -1484,6 +1769,8 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
     if (productHttpSelections.has(file.target) &&
       (file.source !== pinnedHttpSource(file.target) || file.classification !== "selectedExportFacade"))
       throw new Error("Admin Product HTTP selections must retain their pinned sources");
+    if (file.target === pricingResponseBuildersTarget && (file.classification !== "selectedExportFacade" || file.source !== sourcePrefix + "packages/core/utils/src/pricing/builders.ts"))
+      throw new Error("Pricing response builders must retain their exact pinned source and classification");
     if (file.target === productValidatorHelpersTarget &&
       (file.source !== pinnedHttpSource(file.target) || file.classification !== "storeHttpFork"))
       throw new Error("Admin Product validator helpers must retain their pinned source and classification");
@@ -1494,7 +1781,7 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
       (file.source !== pinnedHttpSource(file.target) ||
         file.classification !== (currencyHandlers.has(file.target) ? "importRelocation" : "unchanged")))
       throw new Error("Store Currency routes and middleware must retain their pinned provenance");
-    if (!["unchanged", "preserved", "unchangedTest", "importRelocation", "selectedExportFacade", "storeHttpFork", "testHarnessPort", "testPort", "testFixturePort", "workflowFork", "linkFork", "productServiceFork", "inventoryServiceFork", "promotionServiceFork", "notificationServiceFork", "lockingServiceFork", "salesChannelTypeFork", "stockLocationTypeFork", "regionServiceFork", "pricingServiceFork", "nativeRepositoryFork", "storeTypeFork", "storeCreationTypeFork", "priceListCreationTypeFork", "shippingProfileWorkflowTypeFork", "csvNormalizerFork", "schemaCompilerFork", "variantItemPricingFork", "paymentJoinerFork", "workflowCacheFork", "customerSelectionFork", "cartContextReadFork", "inventoryConfirmationFork", "taxLinesFork", "taxRateCreationFork", "taxRegionCreationFork", "nativeDatabaseConstraintFork", "taxRuleCreationFork", "taxRuleDeletionFork", "taxRateDeletionFork", "taxRuleReplacementFork", "taxRateUpdateFork", "updateMetadataFork", "taxRuleCreatorTypeFork", "orderArchiveFork", "orderArchiveCompensationFork", "orderSummaryPrecisionFork", "orderCompleteFork", "orderChangeUpdateFork", "orderChangeCancellationFork", "orderChangeDeclineFork", "orderChangeDeletionFork", "orderChangeCancellationRestoreFork", "paymentSessionTypeFork", "paymentLifecycleFork", "paymentAccountingFork", "orderRefundValidationFork", "apiKeyFork", "nativeBigNumberTypeFork", "parentQualifiedVariantDeletionFork", "parentQualifiedOptionDeletionFork", "parentQualifiedProductDeletionTypeFork", "parentQualifiedImageAssociationFork", "parentQualifiedImageAssociationTypeFork", "parentQualifiedVariantInventoryHttpFork", "paymentCollectionWorkflowFork", "cartPaymentTotalsFork", "customerAddressUpdateFork", "cartCreationWorkflowFork", "authored"].includes(file.classification)) {
+    if (!["unchanged", "preserved", "unchangedTest", "importRelocation", "selectedExportFacade", "storeHttpFork", "testHarnessPort", "testPort", "testFixturePort", "workflowFork", "linkFork", "productServiceFork", "inventoryServiceFork", "promotionServiceFork", "notificationServiceFork", "lockingServiceFork", "salesChannelTypeFork", "stockLocationTypeFork", "regionServiceFork", "pricingServiceFork", "nativeRepositoryFork", "storeTypeFork", "storeCreationTypeFork", "priceListCreationTypeFork", "shippingProfileWorkflowTypeFork", "csvNormalizerFork", "schemaCompilerFork", "variantItemPricingFork", "paymentJoinerFork", "workflowCacheFork", "customerSelectionFork", "cartContextReadFork", "inventoryConfirmationFork", "taxLinesFork", "taxRateCreationFork", "taxRegionCreationFork", "nativeDatabaseConstraintFork", "taxRuleCreationFork", "taxRuleDeletionFork", "taxRateDeletionFork", "taxRuleReplacementFork", "taxRateUpdateFork", "updateMetadataFork", "taxRuleCreatorTypeFork", "orderArchiveFork", "orderArchiveCompensationFork", "orderSummaryPrecisionFork", "orderCompleteFork", "orderChangeUpdateFork", "orderChangeCancellationFork", "orderChangeDeclineFork", "orderChangeDeletionFork", "orderChangeCancellationRestoreFork", "paymentSessionTypeFork", "paymentLifecycleFork", "paymentAccountingFork", "orderRefundValidationFork", "apiKeyFork", "nativeBigNumberTypeFork", "parentQualifiedVariantDeletionFork", "parentQualifiedOptionDeletionFork", "parentQualifiedProductDeletionTypeFork", "parentQualifiedImageAssociationFork", "parentQualifiedImageAssociationTypeFork", "parentQualifiedVariantInventoryHttpFork", "parentQualifiedVariantBatchHttpFork", "parentQualifiedVariantBatchWorkflowFork", "productBatchAuthorizationHttpFork", "paymentCollectionWorkflowFork", "cartPaymentTotalsFork", "customerAddressUpdateFork", "cartCreationWorkflowFork", "authored"].includes(file.classification)) {
       throw new Error(`Unadmitted source transformation: ${file.target}`);
     }
     if (file.target === "packages/medusa-pricing/src/services/pricing-module.ts" || file.classification === "pricingServiceFork") {
@@ -1618,6 +1905,16 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
       if (file.target === productValidatorHelpersTarget)
         verifyAdminProductLinkBodySource(readFileSync(path.join(root, file.source), "utf8"),
           readFileSync(path.join(root, file.target), "utf8"));
+      if (file.target === parentQualifiedVariantBatchWorkflowSourcePair.target)
+        verifyParentQualifiedVariantBatchWorkflowSource(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"));
+      if (storeProductSourcePairs.some(pair => pair.target === file.target))
+        verifyStoreProductSource(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"), file.target);
+      if (adminAtomicHttpTargets.includes(file.target))
+        verifyAdminAtomicHttpSource(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"), file.target);
+      if (file.target === "packages/medusa-http/src/api/admin/products/middlewares.ts")
+        verifyAdminProductBatchMiddlewareSource(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"));
+      if (file.target === pricingResponseBuildersTarget)
+        verifyNativePricingResponseBuilders(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"));
       if (file.target === "packages/medusa-http/src/api/admin/products/middlewares.ts" || file.target === "packages/medusa-http/src/api/admin/product-variants/middlewares.ts")
         verifyAdminVariantInventoryMiddlewareSource(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"), file.target.endsWith("product-variants/middlewares.ts"));
       if (file.target === "packages/medusa-http/src/api/admin/product-variants/query-config.ts")
@@ -1627,9 +1924,9 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
       if (adminVariantInventoryHttpTargets.includes(file.target))
         verifyAdminVariantInventoryHttpSource(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"), file.target);
       if (file.target === "packages/medusa-http/src/api/admin/products/helpers.ts")
-        verifyAdminVariantInventoryDeclarations(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"), ["refetchVariant", "buildBatchVariantInventoryData"]);
+        verifyAdminVariantInventoryDeclarations(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"), ["refetchVariant", "buildBatchVariantInventoryData", "refetchBatchProducts", "refetchBatchVariants"]);
       if (file.target === "packages/medusa-http/src/api/admin/products/validators.ts")
-        verifyAdminVariantInventoryDeclarations(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"), ["AdminCreateVariantInventoryItem", "AdminUpdateVariantInventoryItem", "AdminBatchCreateVariantInventoryItem", "AdminBatchUpdateVariantInventoryItem", "AdminBatchDeleteVariantInventoryItem"]);
+        verifyAdminVariantInventoryDeclarations(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"), ["AdminCreateVariantInventoryItem", "AdminUpdateVariantInventoryItem", "AdminBatchCreateVariantInventoryItem", "AdminBatchUpdateVariantInventoryItem", "AdminBatchDeleteVariantInventoryItem", "AdminBatchUpdateProduct", "AdminBatchUpdateProductVariant"]);
       if (file.target === adminProductRoute)
         verifyAdminProductPostSource(readFileSync(path.join(root, file.source), "utf8"),
           readFileSync(path.join(root, file.target), "utf8"));

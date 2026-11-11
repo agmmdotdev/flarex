@@ -7,6 +7,7 @@ import { prepareLocalGraph } from "../local-graph/query";
 import { decodeGraphRemotePaths, decodeGraphLinkEndpoints } from "../local-graph/links";
 import { decodeGraphDirectPaths } from "../local-graph/direct-paths";
 import { GraphPresentation, captureGraphPresentation } from "../local-graph/presentation";
+import { GraphComputedObjects, GraphComputedObject, captureGraphComputedObjects } from "../local-graph/computed";
 import { defineAtomicCommerceParticipant } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { captureCommerceInput } from "../value/input";
 import { commerceDecoder } from "../value/decoder";
@@ -94,8 +95,10 @@ const Table = Schema.Struct({ name: Schema.String, columns: Schema.Array(Schema.
   companions: Schema.Record(Schema.String, Schema.String) });
 const decodeGraphMetadata = commerceDecoder(Schema.Struct({ table: Table,
   presentation: Schema.optionalKey(GraphPresentation),
+  computedObjects: Schema.optionalKey(GraphComputedObjects),
   paths: Schema.Array(Schema.Struct({ path: Schema.String, table: Table, many: Schema.Boolean, optional: Schema.optionalKey(Schema.Boolean),
     presentation: Schema.optionalKey(GraphPresentation),
+    computedObjects: Schema.optionalKey(GraphComputedObjects), outputObject: Schema.optionalKey(GraphComputedObject),
     sourceFields: Schema.optionalKey(Schema.Array(Schema.String)), targetFields: Schema.optionalKey(Schema.Array(Schema.String)),
     nativeFields: Schema.optionalKey(Schema.Literal(true)) })),
   orderable: Schema.Array(Schema.String), uniqueOrder: Schema.Array(Schema.String),
@@ -203,7 +206,7 @@ function captureGraphDefinition(input: GraphModuleDefinition) {
       const read = yield* captureWorkflowRecord(source);
       let omittedPresentation = false;
       const metadata = yield* captureCommerceInput({ table: read.table, paths: read.paths, orderable: read.orderable, uniqueOrder: read.uniqueOrder,
-        optionalFields: read.optionalFields, presentation: read.presentation }, undefined, path => {
+        optionalFields: read.optionalFields, presentation: read.presentation, computedObjects: read.computedObjects }, undefined, path => {
           if (path[0] === "presentation" && path.length > 1 || path[0] === "paths" && path[2] === "presentation" && path.length > 3)
             omittedPresentation = true;
         }).pipe(Result.flatMap(decodeGraphMetadata));
@@ -213,12 +216,17 @@ function captureGraphDefinition(input: GraphModuleDefinition) {
         read.selectedFieldsOnly !== undefined && read.selectedFieldsOnly !== true ||
         read.nativeFields !== undefined && read.nativeFields !== true) return yield* Result.fail(commerceError("unsupportedProfile"));
       const presentation = metadata.presentation === undefined ? undefined : yield* captureGraphPresentation(metadata.presentation, metadata.table);
+      const computedObjects = metadata.computedObjects === undefined ? undefined : yield* captureGraphComputedObjects(metadata.computedObjects);
       const paths = [];
       for (const path of metadata.paths) {
         const presentation = path.presentation === undefined ? undefined : yield* captureGraphPresentation(path.presentation, path.table);
-        paths.push(Object.freeze({ ...path, ...(presentation === undefined ? {} : { presentation }) }));
+        const computedObjects = path.computedObjects === undefined ? undefined : yield* captureGraphComputedObjects(path.computedObjects);
+        const outputObject = path.outputObject === undefined ? undefined : (yield* captureGraphComputedObjects({ output: path.outputObject })).output;
+        paths.push(Object.freeze({ ...path, ...(presentation === undefined ? {} : { presentation }),
+          ...(computedObjects === undefined ? {} : { computedObjects }), ...(outputObject === undefined ? {} : { outputObject }) }));
       }
       reads.push(Object.freeze({ ...read, ...metadata, paths: Object.freeze(paths),
+        ...(computedObjects === undefined ? {} : { computedObjects }),
         ...(presentation === undefined ? {} : { presentation }),
         ...(metadata.optionalFields === undefined ? {} : { optionalFields: Object.freeze([...metadata.optionalFields]) }) }));
     }

@@ -7,7 +7,7 @@ import { commerceError, type Json } from "@flarex/persistence-postgres/internal/
 import { readCommerceRelationRows } from "../../query/relations";
 import { commerceDecoder } from "../../value/decoder";
 import { captureCommerceInput } from "../../value/input";
-import { PricingId } from "./input";
+import { PricingId, StorePricingContext, decodeStorePricingContext } from "./input";
 import { decodeExactNumeric, encodeExactNumeric, ExactNumericRaw } from "../../value/exact-numeric";
 
 const Numeric = Schema.Union([Schema.String, Schema.Number]);
@@ -24,15 +24,19 @@ export const VariantItemPricingCalculationInput = Schema.Struct({
   pricingContext: Schema.Struct({ context: Schema.optionalKey(Schema.JsonObject) }),
 });
 export const decodeVariantItemPricingCalculation = commerceDecoder(VariantItemPricingCalculationInput, "invalidInput");
+export const decodeStorePricingCalculation = commerceDecoder(Schema.Struct({ filters: Input.fields.filters,
+  pricingContext: Schema.Struct({ context: Schema.optionalKey(StorePricingContext) }),
+}), "invalidInput");
 const FlatContextPrimitive = Schema.Union([Schema.String, Schema.Number.check(Schema.isFinite()), Schema.Boolean]);
 const decodeFlatVariantItemPricingContext = commerceDecoder(Schema.Record(Schema.String,
   Schema.Union([FlatContextPrimitive, Schema.Array(FlatContextPrimitive)])), "invalidInput");
 /** The pinned utility owns nested/array/null normalization. Bound the resulting
  * non-control attributes before native candidate matching or indexed reads. */
-export type VariantItemPricingProfile = "variant-item-pricing" | "cart-creation";
+export type VariantItemPricingProfile = "variant-item-pricing" | "cart-creation" | "store-product-read";
 export function prepareVariantItemPricingContext(context: typeof Schema.JsonObject.Type, profile: VariantItemPricingProfile = "variant-item-pricing") {
   return Result.gen(function* () {
-    if (profile !== "variant-item-pricing" && profile !== "cart-creation") return yield* Result.fail(commerceError("unsupportedProfile"));
+    if (profile !== "variant-item-pricing" && profile !== "cart-creation" && profile !== "store-product-read") return yield* Result.fail(commerceError("unsupportedProfile"));
+    if (profile === "store-product-read") yield* decodeStorePricingContext(context);
     const flattened = yield* decodeFlatVariantItemPricingContext(flattenObjectToKeyValuePairs(context));
     // Closed complete-Cart context: the native Region/Country DTO and
     // customer_id require17 non-control attributes. Ordinary callers keep10.
@@ -90,10 +94,10 @@ const decodeListRules = commerceDecoder(Schema.Array(ListRuleRow), "storedCorrup
 export const calculateLogicalPrices = Effect.fn("Pricing.calculateLogical")(function* (
   ctx: CommerceCommandContext, input: unknown, profile: "scalar" | VariantItemPricingProfile = "scalar",
 ) {
-  if (profile !== "scalar" && profile !== "variant-item-pricing" && profile !== "cart-creation") return yield* ctx.refuse(commerceError("unsupportedProfile"));
+  if (profile !== "scalar" && profile !== "variant-item-pricing" && profile !== "cart-creation" && profile !== "store-product-read") return yield* ctx.refuse(commerceError("unsupportedProfile"));
   const captured = yield* Effect.fromResult(captureCommerceInput(input, ctx.resources));
   const { filters, values } = yield* profile !== "scalar" ? Effect.gen(function* () {
-    const parsed = yield* Effect.fromResult(decodeVariantItemPricingCalculation(captured));
+    const parsed = yield* Effect.fromResult((profile === "store-product-read" ? decodeStorePricingCalculation : decodeVariantItemPricingCalculation)(captured));
     yield* Effect.try({
       try: () => validatePricingCurrencyCode(parsed.pricingContext.context?.currency_code),
       catch: cause => cause,

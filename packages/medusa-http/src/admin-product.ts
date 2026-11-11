@@ -16,6 +16,10 @@ export type AdminProductHttpOptions = {
   admitProductRefetchFields(fields: readonly string[]): void
   /** Variant read owner rejects unsupported response fields before inventory mutations. */
   admitVariantRefetchFields(fields: readonly string[]): void
+  /** Sales Channel response admission precedes its membership workflow. */
+  admitSalesChannelRefetchFields(fields: readonly string[]): void
+  /** Price List response admission precedes native price preselection. */
+  admitPriceListRefetchFields(fields: readonly string[]): void
   /** Catalog read owner admission runs before native writes and update existence reads. */
   admitCatalogRefetchFields(entity: "product_type" | "product_tag" | "product_category" | "product_collection", fields: readonly string[]): void
 }
@@ -91,6 +95,30 @@ export function createAdminProductHttpHandler(options: AdminProductHttpOptions):
           method: ["POST", "DELETE"], matcher: "/admin/products/:id/variants/:variant_id/inventory-items/:inventory_item_id",
           middlewares: [(request, _response, next) => {
             options.admitVariantRefetchFields(remapKeysForVariant(request.queryConfig.fields))
+            next()
+          }],
+        }, {
+          method: ["POST"], matcher: "/admin/products/batch",
+          middlewares: [(request, _response, next) => {
+            options.admitProductRefetchFields(remapKeysForProduct(request.queryConfig.fields))
+            next()
+          }],
+        }, {
+          method: ["POST"], matcher: "/admin/products/:id/variants/batch",
+          middlewares: [(request, _response, next) => {
+            options.admitVariantRefetchFields(remapKeysForVariant(request.queryConfig.fields))
+            next()
+          }],
+        }, {
+          method: ["POST"], matcher: "/admin/sales-channels/:id/products",
+          middlewares: [(request, _response, next) => {
+            options.admitSalesChannelRefetchFields(request.queryConfig.fields)
+            next()
+          }],
+        }, {
+          method: ["POST"], matcher: "/admin/price-lists/:id/products",
+          middlewares: [(request, _response, next) => {
+            options.admitPriceListRefetchFields(request.queryConfig.fields)
             next()
           }],
         }, ...(["product_type", "product_tag", "product_category", "product_collection"] as const).flatMap(entity => ["", "/:id", ...(entity === "product_category" || entity === "product_collection" ? ["/:id/products"] : [])].map(suffix => ({

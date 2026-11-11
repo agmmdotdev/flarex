@@ -151,7 +151,7 @@ describe(`native Product Variant Inventory Link request operations (${driver})`,
         const http = createAdminProductHttpHandler({ ...scopes, adminCors: "https://admin.test",
           resolveAdminPrincipal: () => ({ actor_id: "admin", actor_type: "user", auth_identity_id: "auth", app_metadata: {}, user_metadata: {} }),
           evaluateAdminPolicies: () => true, admitProductRefetchFields: operations.admitProductRefetchFields,
-          admitCatalogRefetchFields: operations.admitCatalogRefetchFields, admitVariantRefetchFields: operations.admitVariantRefetchFields });
+          admitSalesChannelRefetchFields: operations.admitSalesChannelRefetchFields, admitPriceListRefetchFields: operations.admitPriceListRefetchFields, admitCatalogRefetchFields: operations.admitCatalogRefetchFields, admitVariantRefetchFields: operations.admitVariantRefetchFields });
         const request = Effect.fn("VariantInventoryProof.http")(function* (path: string, method = "GET", body?: unknown, status = 200) {
           phase = `${method} ${path}`;
           const response = yield* Effect.promise(() => http.handle(new Request("https://private.test" + path, { method,

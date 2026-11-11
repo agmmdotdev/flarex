@@ -1,5 +1,8 @@
+import { MedusaError } from "@medusajs/utils/common/errors"
+import { transformAndValidateSalesChannelIds } from "./filter-by-valid-sales-channels"
+import type { MedusaStoreRequest } from "@medusajs/framework/http"
 import { ContainerRegistrationKeys } from "@medusajs/utils/common/container"
-import { getTotalVariantAvailability } from "@medusajs/utils/product/get-variant-availability"
+import { getTotalVariantAvailability, getVariantAvailability } from "@medusajs/utils/product/get-variant-availability"
 import type { MedusaRequest } from "@medusajs/framework/http"
 
 export const wrapVariantsWithTotalInventoryQuantity = async (
@@ -41,4 +44,42 @@ const wrapVariants = (
 
     variant.inventory_quantity = availability[variant.id].availability
   }
+}
+
+export const wrapVariantsWithInventoryQuantityForSalesChannel = async (
+  req: MedusaStoreRequest<unknown>,
+  variants: VariantInput[]
+) => {
+  const salesChannelIds = transformAndValidateSalesChannelIds(req)
+
+  const publishableApiKeySalesChannelIds =
+    req.publishable_key_context!.sales_channel_ids ?? []
+
+  let channelsToUse: string
+
+  if (publishableApiKeySalesChannelIds.length === 1) {
+    channelsToUse = publishableApiKeySalesChannelIds[0]
+  } else if (salesChannelIds.length === 1) {
+    channelsToUse = salesChannelIds[0]
+  } else {
+    throw new MedusaError(
+      MedusaError.Types.INVALID_DATA,
+      `Inventory availability cannot be calculated in the given context. Either provide a single sales channel id or configure a single sales channel in the publishable key`
+    )
+  }
+
+  variants ??= []
+  const variantIds = variants.map((variant) => variant.id).flat(1)
+
+  if (!variantIds.length) {
+    return
+  }
+
+  const query = req.scope.resolve<Parameters<typeof getVariantAvailability>[0]>(ContainerRegistrationKeys.QUERY)
+  const availability = await getVariantAvailability(query, {
+    variant_ids: variantIds,
+    sales_channel_id: channelsToUse,
+  })
+
+  wrapVariants(variants, availability)
 }

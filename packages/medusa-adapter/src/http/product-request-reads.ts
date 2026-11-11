@@ -25,7 +25,7 @@ import { captureInventoryMetadata } from "../modules/inventory/schema";
 import type { ProductRequestCatalog } from "./product-request";
 
 const decodeQuery = commerceDecoder(Schema.Struct({
-  entity: Schema.Literals(["product", "product_sales_channel", "product_option", "variant", "product_variant_inventory_items", "product_type", "product_tag", "product_category", "product_collection"]),
+  entity: Schema.Literals(["product", "product_sales_channel", "product_option", "variant", "product_variant_inventory_items", "product_type", "product_tag", "product_category", "product_collection", "sales_channel", "price_lists", "prices"]),
   fields: Schema.Array(Schema.String.check(Schema.isLengthBetween(1, 256))).check(Schema.isLengthBetween(1, 256)),
   filters: Schema.optionalKey(Schema.JsonObject),
   pagination: Schema.optionalKey(Schema.Struct({ take: Schema.optionalKey(QueryLimit), skip: Schema.optionalKey(QueryOffset),
@@ -72,6 +72,13 @@ const decodeVariantRemoteQuery = commerceDecoder(Schema.Struct({ __value: Schema
     __args: Schema.Struct({ filters: Schema.Struct({ id: Schema.String.check(Schema.isLengthBetween(1, 256)) }) }),
   }), [Schema.Record(Schema.String, RemoteNodeMember)]),
 }) }), "unsupportedProfile");
+const RemoteRoot = Schema.StructWithRest(Schema.Struct({ fields: BoundedRemoteFields,
+  isServiceAccess: Schema.Literal(false), __args: Schema.Struct({ filters: Schema.JsonObject }) }),
+  [Schema.Record(Schema.String, RemoteNodeMember)]);
+const decodeAssociationRemoteQuery = commerceDecoder(Schema.Struct({ __value: Schema.Union([
+  Schema.Struct({ product: RemoteRoot }), Schema.Struct({ variant: RemoteRoot }), Schema.Struct({ variants: RemoteRoot }),
+  Schema.Struct({ sales_channel: RemoteRoot }), Schema.Struct({ price_lists: RemoteRoot }), Schema.Struct({ prices: RemoteRoot }),
+]) }), "unsupportedProfile");
 const decodeCategoryOrder = commerceDecoder(Schema.Struct({ id: Schema.optionalKey(Schema.Literals(["ASC", "DESC"])),
   rank: Schema.optionalKey(Schema.Literals(["ASC", "DESC"])) }), "unsupportedProfile");
 const decodeCollectionOrder = commerceDecoder(Schema.Struct({ id: Schema.optionalKey(Schema.Literals(["ASC", "DESC"])) }), "unsupportedProfile");
@@ -85,9 +92,7 @@ const catalogRemoteSelection = (captured: Json) => Result.gen(function* () {
   return { entity, args: node.__args, fields: [...node.fields, ...products?.fields.map(field => "products." + field) ?? []] };
 });
 
-const variantRemoteSelection = (captured: Json,
-  admitProjection: (fields: readonly string[]) => Result.Result<void, CommerceTransactionError>) => Result.gen(function* () {
-  const root = (yield* decodeVariantRemoteQuery(captured)).__value.product_variant;
+const flattenRemoteSelection = (root: typeof RemoteRoot.Type) => Result.gen(function* () {
   const fields = [...root.fields];
   const pending = Object.entries(root).filter(([key]) => key !== "fields" && key !== "__args" && key !== "isServiceAccess")
     .map(([path, node]) => ({ name: path, path, node, depth: 1 }));
@@ -102,15 +107,37 @@ const variantRemoteSelection = (captured: Json,
     if (fields.length > 256) return yield* Result.fail(commerceError("unsupportedProfile"));
     pending.push(...children.map(([name, child]) => ({ name, path: current.path + "." + name, node: child, depth: current.depth + 1 })));
   }
-  const query = yield* decodeQuery({ entity: "variant", fields });
+  return { args: root.__args, fields };
+});
+const variantRemoteSelection = (captured: Json,
+  admitProjection: (fields: readonly string[]) => Result.Result<void, CommerceTransactionError>) => Result.gen(function* () {
+  const root = (yield* decodeVariantRemoteQuery(captured)).__value.product_variant;
+  const selected = yield* flattenRemoteSelection(root);
+  const query = yield* decodeQuery({ entity: "variant", fields: selected.fields });
   yield* admitProjection(query.fields);
-  return { entity: "variant" as const, args: root.__args, fields: query.fields };
+  return { entity: "variant" as const, args: selected.args, fields: query.fields };
+});
+
+const associationRemoteSelection = (captured: Json,
+  admitProjection: (entity: string, fields: readonly string[]) => Result.Result<void, CommerceTransactionError>) => Result.gen(function* () {
+  const value = (yield* decodeAssociationRemoteQuery(captured)).__value;
+  const [entity, root] = "product" in value ? ["product", value.product] as const
+    : "variant" in value ? ["variant", value.variant] as const : "variants" in value ? ["variant", value.variants] as const
+    : "sales_channel" in value ? ["sales_channel", value.sales_channel] as const
+    : "price_lists" in value ? ["price_lists", value.price_lists] as const : ["prices", value.prices] as const;
+  const selected = yield* flattenRemoteSelection(root);
+  const query = yield* decodeQuery({ entity, fields: selected.fields });
+  yield* admitProjection(entity, query.fields);
+  return { entity, args: selected.args, fields: query.fields };
 });
 
 export const decodeProductCatalogRemoteQuery = (input: unknown) => captureCommerceInput(input).pipe(Result.flatMap(catalogRemoteSelection));
 export const decodeProductVariantRemoteQuery = (input: unknown,
   admitProjection: (fields: readonly string[]) => Result.Result<void, CommerceTransactionError>) =>
   captureCommerceInput(input).pipe(Result.flatMap(captured => variantRemoteSelection(captured, admitProjection)));
+export const decodeProductAssociationRemoteQuery = (input: unknown,
+  admitProjection: (entity: string, fields: readonly string[]) => Result.Result<void, CommerceTransactionError>) =>
+  captureCommerceInput(input).pipe(Result.flatMap(captured => associationRemoteSelection(captured, admitProjection)));
 
 /** Category's native service owns tree hydration and its projected recursive
  * DTO. RemoteJoiner preserves a nested wildcard verbatim, while selected root
@@ -187,7 +214,7 @@ export function prepareCategoryRequestRead(read: GraphReadDefinition, participan
 }
 
 /** Preserve the complete read Cause while projecting admitted query refusals to HTTP. */
-function presentProductReadFailure<A, R>(work: Effect.Effect<A, CommerceTransactionError, R>) {
+export function presentProductReadFailure<A, R>(work: Effect.Effect<A, CommerceTransactionError, R>) {
   return work.pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, error =>
     error.reason === "unsupportedProfile" || error.reason === "invalidInput" || error.reason === "limitExceeded"
       ? commerceError("adapterFailure", new MedusaError(MedusaError.Types.INVALID_DATA,
@@ -197,7 +224,9 @@ function presentProductReadFailure<A, R>(work: Effect.Effect<A, CommerceTransact
 
 /** Reuse the same native Link metadata and local graph planner as workflow
  * Query. Every row is returned by its original module's registered command. */
-export const prepareProductRequestReadGraph = Effect.fn("ProductRequest.prepareReadGraph")(function* (catalog: ProductRequestCatalog, variantProfile = false) {
+export const prepareProductRequestReadGraph = Effect.fn("ProductRequest.prepareReadGraph")(function* (
+  catalog: ProductRequestCatalog, variantProfile = false, storePricing?: GraphModuleDefinition,
+) {
   const { product, pricing, inventory, stock, sales, fulfillment, productLinks, variantLinks } = catalog.runtimes;
   const root = product.metadata.product.model, variant = product.metadata.variant.model;
   const bounds = { maximumSources: 128, maximumLinks: 128, maximumTargets: 128, maximumPerSource: 128 };
@@ -205,7 +234,8 @@ export const prepareProductRequestReadGraph = Effect.fn("ProductRequest.prepareR
   const remotePaths = yield* Effect.fromResult(nativeLinkGraphPaths(ProductSalesChannel, [{ root, path: "sales_channels", ...bounds }]));
   const shipping = yield* Effect.fromResult(nativeLinkGraphPaths(ProductShippingProfile, [{ root, path: "shipping_profile", ...bounds, maximumPerSource: 1 }]));
   const prices = yield* Effect.fromResult(nativeLinkGraphPaths(ProductVariantPriceSet,
-    [{ root, path: "variants.price_set", ...bounds, maximumPerSource: 1 }], variant));
+    (storePricing === undefined ? ["variants.price_set"] : ["variants.price_set", "variants.prices", "variants.calculated_price"])
+      .map(path => ({ root, path, ...bounds, maximumPerSource: 1 })), variant));
   const rich = yield* Effect.fromResult(nativeLinkGraphDirectPaths(ProductVariantInventoryItem,
     [{ root, path: "variants.inventory_items", maximumSources: 128, maximumTargets: 128, maximumPerSource: 128 }], variant));
   const richModel = rich[0]?.targetModel;
@@ -238,8 +268,14 @@ export const prepareProductRequestReadGraph = Effect.fn("ProductRequest.prepareR
       { root: richModel, path: "inventory.location_levels" }]) inventoryPaths.push(yield* Effect.fromResult(
       localGraphDirectPath(readCatalog, item.name, itemRead.model, levelRead.model, relation.name, { ...selection, ...directBounds })));
   }
+  // Native Store enrichment consumes the authentic remote-join identity even
+  // when the caller selected only the calculated-price alias.
+  const productGraph: GraphModuleDefinition = storePricing === undefined ? product.graph : {
+    ...product.graph, reads: product.graph.reads.map(read => read.model === root ? { ...read, nativeFields: true } : read),
+  };
   const definitions: Readonly<Record<string, GraphModuleDefinition>> = {
-    product: product.graph, pricing: pricing.graph, inventory: { ...inventoryGraph, directPaths: inventoryPaths },
+    product: productGraph, pricing: storePricing ?? { aliases: [...pricing.graph.aliases, ...catalog.runtimes.pricingReads.graph.aliases],
+      reads: [...pricing.graph.reads, ...catalog.runtimes.pricingReads.graph.reads] }, inventory: { ...inventoryGraph, directPaths: inventoryPaths },
     stock_location: stock.graph, sales_channel: sales.graph, fulfillment: fulfillment.graph,
     product_links: { ...productLinks.graph, remotePaths: [...remotePaths, ...shipping] },
     variant_links: { ...variantLinks.graph, remotePaths: [...prices, ...variantPrices], directPaths: [...rich, ...items, ...variantRich, ...variantItems] },
@@ -321,9 +357,18 @@ export const makeProductRequestReads = Effect.fn("ProductRequest.makeReads")(fun
   }, presentProductReadFailure);
   const remoteQuery = Effect.fn("ProductRequest.remoteCatalogQuery")(function* (value: unknown) {
     const captured = yield* Effect.fromResult(captureCommerceInput(value));
+    const remoteRoot = isJsonObject(captured) && isJsonObject(captured.__value ?? null) ? captured.__value : undefined;
     if (isJsonObject(captured) && captured.__value !== undefined && isJsonObject(captured.__value) && Object.hasOwn(captured.__value, "product_variant")) {
       const query = yield* Effect.fromResult(variantRemoteSelection(captured,
         fields => variants.graph.admitProjection("variant", fields)));
+      const selected = yield* graph({ entity: query.entity, fields: query.fields, filters: query.args.filters });
+      if (selected.data.length !== selected.metadata.count) return yield* commerceError("unsupportedProfile");
+      return selected.data;
+    }
+    if (remoteRoot !== undefined && isJsonObject(remoteRoot) &&
+      ["product", "variant", "variants", "sales_channel", "price_lists", "prices"].some(key => Object.hasOwn(remoteRoot, key))) {
+      const query = yield* Effect.fromResult(associationRemoteSelection(captured, (entity, fields) =>
+        (entity === "variant" ? variants : prepared).graph.admitProjection(entity, fields)));
       const selected = yield* graph({ entity: query.entity, fields: query.fields, filters: query.args.filters });
       if (selected.data.length !== selected.metadata.count) return yield* commerceError("unsupportedProfile");
       return selected.data;
@@ -343,5 +388,7 @@ export const makeProductRequestReads = Effect.fn("ProductRequest.makeReads")(fun
       ? categories.admitProjection(fields) : prepared.graph.admitProjection(entity, fields),
     admitProductRefetchFields: (fields: readonly string[]) => prepared.graph.admitProjection("product", fields),
     admitVariantRefetchFields: (fields: readonly string[]) => variants.graph.admitProjection("variant", fields),
+    admitSalesChannelRefetchFields: (fields: readonly string[]) => prepared.graph.admitProjection("sales_channel", fields),
+    admitPriceListRefetchFields: (fields: readonly string[]) => prepared.graph.admitProjection("price_lists", fields),
     close: Effect.forEach(closures, close => close, { discard: true }) });
 });

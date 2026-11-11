@@ -13,7 +13,7 @@ import { ProductUpdateSelector, ProductUpdateOutput, ProductUpdatePreimages, pro
 
 export function productUpdateWorkflowModule(source: CommerceModuleDescription,
   commands: { readonly list: CommerceCommand; readonly upsert: CommerceCommand; readonly updateProductsForWorkflow: CommerceCommand },
-  graph: GraphModuleDefinition, events: readonly string[], logical: WorkflowLogicalPolicy) {
+  graph: GraphModuleDefinition, events: readonly string[], productCreatedEvent: string, logical: WorkflowLogicalPolicy) {
   return Result.gen(function* () {
     const read = graph.reads.find(read => read.model === "Product");
     const variants = graph.reads.find(read => read.model === "ProductVariant");
@@ -30,7 +30,7 @@ export function productUpdateWorkflowModule(source: CommerceModuleDescription,
       encode: args => ({ filters: args[0], ...(args.length === 1 ? {} : { config: nativePreimageSelection(args[1], read) }) }), output: preimages });
     const upsertProducts = yield* defineWorkflowMethod({ command: commands.upsert,
       arguments: upsertArguments,
-      encode: ([rows]) => rows, output, moduleEvents: events });
+      encode: ([rows]) => rows, output, moduleEvents: [...events, productCreatedEvent] });
     const updateProducts = yield* defineWorkflowMethod({ command: commands.updateProductsForWorkflow,
       arguments: updateArguments,
       encode: ([selector, update]) => ({ selector, update }), output, moduleEvents: events });

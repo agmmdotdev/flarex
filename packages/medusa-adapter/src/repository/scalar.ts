@@ -176,14 +176,14 @@ export function prepareScalarRepository(table: SchemaTable, modelName: string, w
             captureCommerceInput(input, root.resources).pipe(Result.flatMap(decodeProjection)));
           if (projection !== undefined && decoded !== undefined)
             for (const row of Array.isArray(decoded) ? decoded : [decoded]) yield* Effect.fromResult(projection(row));
-          // SAFETY: the native serializer is an identity operation and can
-          // receive undefined after a zero-match scalar update. Its DAL generic
-          // still declares a DTO, including for selected scalar projections.
+          // SAFETY: native serialization preserves the selected DTO shape and
+          // can receive undefined after a zero-match scalar update. Its DAL
+          // generic still declares a DTO, including for partial projections.
           const output = decoded === undefined || normalizeProjection === undefined
             ? decoded : yield* normalizeProjection(decoded);
-          // Native populate serializers hand mutable DTOs to module formatters.
-          // Keep the bounded private capture separate from those mutations.
-          return (projection === undefined || output === undefined ? output : structuredClone(output)) as Output;
+          // Native module formatters receive mutable DTOs with or without
+          // populate options. Keep bounded private evidence detached from them.
+          return (output === undefined ? output : structuredClone(output)) as Output;
         }))),
         // Native internal services mutate entity metadata before writing. Keep
         // captured storage/projection evidence private and give DAL callers

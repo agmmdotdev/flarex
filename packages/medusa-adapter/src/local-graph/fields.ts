@@ -5,6 +5,7 @@ import type { ReadTable } from "../query/catalog";
 import { projectRows, type ProjectionNode } from "../query/projection";
 import type { GraphReadDefinition, GraphRelationPath } from "./model";
 import { graphSelectableColumns, type GraphPresentation } from "./presentation";
+import { computedObjectProjection, type GraphComputedObject } from "./computed";
 
 export interface GraphFieldPlan {
   readonly node: ProjectionNode;
@@ -24,6 +25,20 @@ export function planGraphFields(read: GraphReadDefinition, fields: readonly stri
     for (const field of fields) {
       const parts = field.split(".");
       if (parts.some(part => part.length === 0)) return yield* Result.fail(commerceError("unsupportedProfile"));
+      const output = read.paths.find(path => path.outputObject !== undefined && (field === path.path || field.startsWith(path.path + ".")));
+      if (output !== undefined) {
+        for (let index = 1; index <= output.path.split(".").length; index++) requested.add(output.path.split(".").slice(0, index).join("."));
+        continue;
+      }
+      const computed = [read, ...read.paths].find(owner => {
+        const base = "path" in owner ? owner.path + "." : "";
+        return Object.keys(owner.computedObjects ?? {}).some(name => field === base + name || field.startsWith(base + name + "."));
+      });
+      if (computed !== undefined) {
+        const base = "path" in computed ? computed.path : "";
+        if (base !== "") for (let index = 1; index <= base.split(".").length; index++) requested.add(base.split(".").slice(0, index).join("."));
+        continue;
+      }
       const column = parts.pop();
       const selected = parts.length === 0 ? read : paths.get(parts.join("."));
       if (column === undefined || selected === undefined || (column !== "*" && !graphSelectableColumns(selected).includes(column) &&
@@ -31,13 +46,14 @@ export function planGraphFields(read: GraphReadDefinition, fields: readonly stri
       for (let index = 1; index <= parts.length; index++) requested.add(parts.slice(0, index).join("."));
     }
     const tree = toPopulateTree(fields);
-    const root = yield* fieldProjection(tree, read.table, paths, "", read.selectedFieldsOnly !== true, native, [], read.optionalFields, read.nativeFields === true, read.presentation);
-    const fetch = read.selectedFieldsOnly === true ? yield* fieldProjection(tree, read.table, paths, "", true, native, [], read.optionalFields, read.nativeFields === true, read.presentation) : root;
+    const root = yield* fieldProjection(tree, read.table, paths, "", read.selectedFieldsOnly !== true, native, [], read.optionalFields, read.nativeFields === true, read.presentation, read.computedObjects);
+    const fetch = read.selectedFieldsOnly === true ? yield* fieldProjection(tree, read.table, paths, "", true, native, [], read.optionalFields, read.nativeFields === true, read.presentation, read.computedObjects) : root;
     // Hydration may need root keys not selected by the caller. Fetch all root
     // columns for relation reads, then mask them; all intermediate budgets apply.
     const selected = [...fetch.fields].filter(field => graphSelectableColumns(read).includes(field));
     const select = fetch.children.length === 0 ? selected : [...new Set([...read.table.columns, ...selected])];
-    return { node: root, scalarSelect: selected, select, relations: read.paths.filter(relation => requested.has(relation.path)).map(relation => relation.path),
+    return { node: root, scalarSelect: selected, select, relations: [...read.paths.filter(relation => requested.has(relation.path)).map(relation => relation.path),
+      ...Object.keys(read.computedObjects ?? {}).filter(name => tree.has(name))],
       project: rows => projectRows(rows, root) };
   });
 }
@@ -46,11 +62,23 @@ export function planGraphFields(read: GraphReadDefinition, fields: readonly stri
  * require selected scalars. Prefix normalization and row projection are reused. */
 function fieldProjection(tree: PopulateTree, table: ReadTable, paths: ReadonlyMap<string, GraphRelationPath>, prefix: string,
   companions: boolean, native: boolean, incoming: readonly string[] = [], optionalFields?: readonly string[], nativeGraph = false,
-  presentation?: GraphPresentation): Result.Result<ProjectionNode, CommerceTransactionError> {
+  presentation?: GraphPresentation, computedObjects?: Readonly<Record<string, GraphComputedObject>>): Result.Result<ProjectionNode, CommerceTransactionError> {
   return Result.gen(function* () {
     const fields = new Set<string>(incoming);
     const children: Array<ProjectionNode["children"][number]> = [];
     for (const [name, child] of tree) {
+      const computed = computedObjects?.[name];
+      if (computed !== undefined) {
+        children.push({ name, many: false, node: yield* computedObjectProjection(child, computed) });
+        continue;
+      }
+      const output = paths.get(prefix + name);
+      if (output?.outputObject !== undefined) {
+        if (native || nativeGraph && output.nativeFields === true) for (const key of output.sourceFields ?? []) fields.add(key);
+        children.push({ name, many: output.many, optional: output.optional === true,
+          node: yield* computedObjectProjection(child, output.outputObject) });
+        continue;
+      }
       if (child.size === 0) {
         for (const column of name === "*" ? graphSelectableColumns({ table, ...(presentation === undefined ? {} : { presentation }) }) : [name]) {
           fields.add(column);
@@ -69,7 +97,7 @@ function fieldProjection(tree: PopulateTree, table: ReadTable, paths: ReadonlyMa
         }
         children.push({ name, many: relation.many, optional: relation.optional === true,
           node: yield* fieldProjection(child, relation.table, paths, path + ".", companions, native,
-            retained ? relation.targetFields ?? relation.table.primaryKeys : [], undefined, nativeGraph, relation.presentation) });
+            retained ? relation.targetFields ?? relation.table.primaryKeys : [], undefined, nativeGraph, relation.presentation, relation.computedObjects) });
       }
     }
     return { fields, children, nullRelations: [], requireFields: true,

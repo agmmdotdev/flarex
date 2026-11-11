@@ -369,7 +369,7 @@ describe("native PriceList update callback provenance", () => {
 
 describe("native PriceList rule builder provenance", () => {
   const source = readFileSync("third_party/medusa/upstream/packages/core/utils/src/pricing/builders.ts", "utf8");
-  const target = readFileSync("packages/medusa-utils/src/pricing/price-list-rules.ts", "utf8");
+  const target = readFileSync("packages/medusa-utils/src/pricing/builders.ts", "utf8");
   it("admits the complete original helper with its exact type dependency", () => {
     expect(() => verifyNativePriceListRuleBuilder(source, target)).not.toThrow();
   });
@@ -614,18 +614,53 @@ describe("maintained Medusa test ports", () => {
       ["preference creation refusal", 'createPricePreferences: variantItemPricing || shipping', 'createPricePreferences: shipping'],
       ["native calculation visibility", 'calculatePrices: preferences || shipping', 'calculatePrices: variantItemPricing || preferences || shipping'],
       ["native calculation owner", 'native.calculatePrices.bind(native)', 'native.listPriceSets.bind(native)'],
-      ["calculation dispatch", 'commands.read(cartCreationPricing ? "pricingCalculateCartCreation" : "pricingCalculateVariantItems"', 'commands.write(cartCreationPricing ? "pricingCalculateCartCreation" : "pricingCalculateVariantItems"'],
-      ["calculation decoder", 'prepare(decodeVariantItemPricingCalculation)', 'prepare(decodePricingCalculation)'],
+      ["calculation dispatch", 'commands.read(storeProductRead ? "pricingCalculateStoreProducts" : cartCreationPricing ? "pricingCalculateCartCreation" : "pricingCalculateVariantItems"', 'commands.write(storeProductRead ? "pricingCalculateStoreProducts" : cartCreationPricing ? "pricingCalculateCartCreation" : "pricingCalculateVariantItems"'],
+      ["calculation decoder", 'prepare(storeProductRead ? decodeStorePricingCalculation : decodeVariantItemPricingCalculation)', 'prepare(decodePricingCalculation)'],
       ["calculation context", '[{ id: [...args.filters.id] }, args.pricingContext, context]', '[{ id: [...args.filters.id] }, {}, context]'],
       ["calculation receiver", 'Reflect.apply(service.calculatePrices, service,', 'Reflect.apply(service.calculatePrices, {},'],
       ["method command", 'defineWorkflowMethod({ command: calculate,', 'defineWorkflowMethod({ command: count,'],
       ["method output", 'commerceDecoder(VariantItemPricingCalculationOutput, "storedCorruption")', 'commerceDecoder(Schema.Unknown, "storedCorruption")'],
-      ["graph relation overgrant", 'paths: variantItemPricing ? [] : prepared.paths', 'paths: prepared.paths'],
+      ["graph relation overgrant", 'paths: variantItemPricing && !storeProductRead ? [] : prepared.paths', 'paths: prepared.paths'],
       ["calculation import", 'from "./calculation"', 'from "./other-calculation"'],
     ])("rejects variant item pricing service %s mutation", (_name, before, after) => {
       const changed = selected.replace(before, after);
       expect(changed).not.toBe(selected);
       expect(() => verifyPricingWorkflowSelection(original, changed, repository)).toThrow("Unadmitted native Pricing workflow selection");
+    });
+    it.each([
+      ["Store profile selector", 'const storeProductRead = admission === "store-product-read"', 'const storeProductRead = true'],
+      ["Store variant read-only selector", '|| cartCreationPricing || storeProductRead', '|| cartCreationPricing'],
+      ["Store profile name", 'storeProductRead ? "pricing-store-product-read"', 'storeProductRead ? "pricing-base-prices"'],
+      ["Store count write grant", 'commands.read("pricingStoreProductCount"', 'commands.write("pricingStoreProductCount"'],
+      ["Store count native owner", 'await service.listAndCountPriceSets(structuredClone(args.filters)', 'await service.listPriceSets(structuredClone(args.filters)'],
+      ["Store count decoder", 'prepare(decodeStorePriceSetRead)', 'prepare(decodePriceSetRead)'],
+      ["Store read input import owner", 'import { decodeStorePriceSetRead } from "./input";', 'import { decodeStorePriceSetRead } from "./other-input";'],
+      ["Store full DTO validation", 'decodeStorePriceSetCount(result, args.config?.relations?.includes("calculated_price") === true)', 'decodeGraphCount(result)'],
+      ["Store missing calculated DTO detection", 'args.config?.relations?.includes("calculated_price") === true', 'false'],
+      ["Store native context forwarding", 'structuredClone(args.filters) as FilterablePriceSetProps | undefined', '{} as FilterablePriceSetProps | undefined'],
+      ["Store calculated relation forwarding", 'structuredClone(args.config) as FindConfig<PriceSetDTO> | undefined', '{} as FindConfig<PriceSetDTO> | undefined'],
+      ["Store calculation decoder", 'storeProductRead ? decodeStorePricingCalculation : decodeVariantItemPricingCalculation', 'decodeVariantItemPricingCalculation'],
+      ["Store calculation identity", 'storeProductRead ? "pricingCalculateStoreProducts"', 'storeProductRead ? "pricingCalculateVariantItems"'],
+      ["Store computed projection grammar", 'calculated_price: storeCalculatedPriceObject', 'calculated_price: {}'],
+      ["Store graph DTO validator", 'decode: storeProductRead ? decodeStorePriceSetCount : decodeGraphCount', 'decode: decodeGraphCount'],
+      ["Store computed selection scope", '...(storeProductRead ? { computedObjects:', '...(variantItemPricing ? { computedObjects:'],
+      ["Store DTO import owner", 'from "./store-read"', 'from "./other-store-read"'],
+    ])("rejects Store Product Pricing service %s mutation", (_name, before, after) => {
+      expect(selected).toContain(before);
+      const changed = selected.replace(before, after);
+      expect(changed).not.toBe(selected);
+      expect(() => verifyPricingWorkflowSelection(original, changed, repository)).toThrow("Unadmitted native Pricing workflow selection");
+    });
+    it.each([
+      ["Store admission selector", '|| cartCreationPricing || admission === "store-product-read"', '|| cartCreationPricing'],
+      ["Store calculation profile", 'admission === "store-product-read" ? "store-product-read" :', 'admission === "store-product-read" ? "scalar" :'],
+      ["Store alternate calculation profile", 'admission === "store-product-read" ? "store-product-read" :', 'admission === "store-product-read" ? "cart-creation" :'],
+      ["Store unknown admission", '| "cart-creation" | "store-product-read";', '| "cart-creation" | "all-pricing";'],
+    ])("rejects Store Product Pricing repository %s mutation", (_name, before, after) => {
+      expect(repository).toContain(before);
+      const changed = repository.replace(before, after);
+      expect(changed).not.toBe(repository);
+      expect(() => verifyPricingWorkflowSelection(original, selected, changed)).toThrow("Unadmitted native Pricing workflow selection");
     });
     it.each([
       ["selector", 'variantItemPricing = admission === "variant-item-pricing" || cartCreationPricing', 'variantItemPricing = false'],
@@ -639,7 +674,7 @@ describe("maintained Medusa test ports", () => {
       ["calculation profile fallback", 'variantItemPricing ? "variant-item-pricing" : "scalar"', '"variant-item-pricing"'],
       ["calculation arguments", 'calculateLogicalPrices(ctx, { filters, pricingContext },', 'calculateLogicalPrices(ctx, { filters, pricingContext: {} },'],
       ["calculation owner", 'calculateLogicalPrices(ctx, { filters, pricingContext },', 'otherCalculatePrices(ctx, { filters, pricingContext },'],
-      ["admission union", '| "variant-item-pricing" | "cart-creation";', '| "all-pricing" | "cart-creation";'],
+      ["admission union", '| "variant-item-pricing" | "cart-creation" | "store-product-read";', '| "all-pricing" | "cart-creation" | "store-product-read";'],
     ])("rejects variant item pricing repository %s mutation", (_name, before, after) => {
       const changed = repository.replace(before, after);
       expect(changed).not.toBe(repository);

@@ -4,7 +4,7 @@ import type { FindConfig, ProductTypes } from "@medusajs/framework/types";
 import { commerceError, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
 import { commerceServiceCommands } from "../../../module/commands";
 import { decodeProductRead, decodeProductNamedRead, decodeProductCollectionRead, decodeProductCategoryRead,
-  decodeProductParentRead, decodeProductFindConfig, productReadFilters } from "../service-input";
+  decodeProductParentRead, decodeProductVariantRead, decodeProductFindConfig, productReadFilters } from "../service-input";
 
 type Context = Parameters<ProductCommandServices["withService"]>[0];
 type NamedRead = Result.Result.Success<ReturnType<typeof decodeProductNamedRead>>;
@@ -52,6 +52,7 @@ export function productReadCommands({ withService, withCategoryReadService, with
   const collection = relatedReadInput(decodeProductCollectionRead);
   const category = relatedReadInput(decodeProductCategoryRead);
   const parent = relatedReadInput(decodeProductParentRead);
+  const variant = relatedReadInput(decodeProductVariantRead);
   const imageInput = Effect.fn("ProductAdapter.imageReadInput")(function* (ctx: Context, input: Json) {
     const decoded = yield* Effect.fromResult(decodeProductRead(input)).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
     yield* Effect.fromResult(decodeProductFindConfig(decoded.config ?? {})).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
@@ -80,9 +81,9 @@ export function productReadCommands({ withService, withCategoryReadService, with
     countOptions: commands.read("productOptioncount", parent.list, ({ service, context }, args) => service.listAndCountProductOptions(args.filters, args.config as FindConfig<ProductTypes.ProductOptionDTO> | undefined, context)),
     countOptionsForWorkflow: options.read("productOptionCountForWorkflow", parent.list, ({ service, context }, args) =>
       service.listAndCountProductOptions(args.filters, args.config as FindConfig<ProductTypes.ProductOptionDTO> | undefined, context)),
-    listVariants: commands.read("productVariantlist", parent.list, ({ service, context }, args) => service.listProductVariants(args.filters, args.config as FindConfig<ProductTypes.ProductVariantDTO> | undefined, context)),
-    retrieveVariant: commands.read("productVariantretrieve", parent.retrieve, ({ service, context }, args) => service.retrieveProductVariant(args.id, args.config as FindConfig<ProductTypes.ProductVariantDTO> | undefined, context)),
-    countVariants: commands.read("productVariantcount", parent.list, ({ service, context }, args) => service.listAndCountProductVariants(args.filters, args.config as FindConfig<ProductTypes.ProductVariantDTO> | undefined, context)),
+    listVariants: commands.read("productVariantlist", variant.list, ({ service, context }, args) => service.listProductVariants(args.filters, args.config as FindConfig<ProductTypes.ProductVariantDTO> | undefined, context)),
+    retrieveVariant: commands.read("productVariantretrieve", variant.retrieve, ({ service, context }, args) => service.retrieveProductVariant(args.id, args.config as FindConfig<ProductTypes.ProductVariantDTO> | undefined, context)),
+    countVariants: commands.read("productVariantcount", variant.list, ({ service, context }, args) => service.listAndCountProductVariants(args.filters, args.config as FindConfig<ProductTypes.ProductVariantDTO> | undefined, context)),
     countImages: commands.read("productImagecount", imageInput, ({ service, context }, args) => service.listAndCountProductImages(
       args.filters as Parameters<typeof service.listAndCountProductImages>[0], args.config as Parameters<typeof service.listAndCountProductImages>[1], context)),
   };

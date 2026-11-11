@@ -62,3 +62,18 @@ export const PriceSetConfig = Schema.Struct({
 });
 export const decodePriceSetRead = commerceDecoder(Schema.Struct({ filters: Schema.optionalKey(PriceSetFilters), config: Schema.optionalKey(PriceSetConfig) }), "invalidInput");
 export const decodePriceSetRetrieve = commerceDecoder(Schema.Struct({ id: PricingId, config: Schema.optionalKey(PriceSetConfig) }), "invalidInput");
+
+/** Exact middleware-owned Store Product pricing context at the pinned source.
+ * Customer groups are complete or refused before any price-set read. */
+export const StorePricingContext = Schema.Struct({
+  region_id: Schema.optionalKey(PricingId), currency_code: Schema.optionalKey(Text),
+  customer: Schema.optionalKey(Schema.Struct({ groups: Schema.Array(Schema.Struct({ id: PricingId })).check(Schema.isMaxLength(16)) })),
+});
+export const decodeStorePricingContext = commerceDecoder(StorePricingContext, "invalidInput");
+export const StorePriceSetRead = Schema.Struct({
+  filters: Schema.optionalKey(Schema.Struct({ ...PriceSetFilters.fields, context: Schema.optionalKey(StorePricingContext) })),
+  config: Schema.optionalKey(Schema.Struct({ ...PriceSetConfig.fields,
+    relations: Schema.optionalKey(Schema.Array(Schema.Literals(["prices", "prices.price_rules", "calculated_price"])).check(Schema.isMaxLength(3))),
+  })),
+});
+export const decodeStorePriceSetRead = commerceDecoder(StorePriceSetRead, "invalidInput");

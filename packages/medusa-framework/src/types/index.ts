@@ -72,3 +72,5 @@ export type { CreateCustomerAddressDTO, UpdateCustomerAddressDTO, FilterableCust
 export type { AddItemAdjustmentAction, AddShippingMethodAdjustment, CartLineItemDTO, CartShippingMethodDTO, CartWorkflowDTO, ComputeActionOptions, ComputeActions, ConfirmVariantInventoryWorkflowInputDTO, CreateCartDTO, CreateCartWorkflowInputDTO, CreateLineItemDTO, CreateLineItemTaxLineDTO, CreateShippingMethodTaxLineDTO, CreateLineItemAdjustmentDTO, CreateShippingMethodAdjustmentDTO, IPromotionModuleService, ItemTaxLineDTO, ProductVariantDTO, RemoveItemAdjustmentAction, RemoveShippingMethodAdjustment, ShippingTaxLineDTO } from "@medusajs/types";
 
 export type * as HttpTypes from "@medusajs/types/http";
+
+export type { QueryContextType, TaxCalculationContext, TaxableItemDTO } from "@medusajs/types"

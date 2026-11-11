@@ -17,6 +17,7 @@
     "./providers/system": {
       "types": "./dist/providers/system.d.ts",
       "source": "./src/providers/system.ts",
+      "workerd": "./src/providers/system.ts",
       "default": "./dist/providers/system.js"
     },
     "./static-manifest": {

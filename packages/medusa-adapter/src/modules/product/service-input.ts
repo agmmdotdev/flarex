@@ -36,11 +36,19 @@ export const decodeProductCollectionRead = commerceDecoder(Schema.Struct({
 export const decodeVariantImageInput = commerceDecoder(Schema.Union([
   VariantImagePairs.value, VariantImagePairs,
 ]), "invalidInput");
+const ParentFilters = Schema.Struct({
+  id: Schema.optionalKey(Schema.Union([Schema.String, Schema.Array(Schema.String).check(Schema.isMaxLength(256))])),
+  title: Schema.optionalKey(Schema.String), product_id: Schema.optionalKey(Schema.String),
+});
 export const decodeProductParentRead = commerceDecoder(Schema.Struct({
-  ...Read.fields,
-  filters: Schema.optionalKey(Schema.Struct({
-    id: Schema.optionalKey(Schema.Union([Schema.String, Schema.Array(Schema.String).check(Schema.isMaxLength(256))])),
-    title: Schema.optionalKey(Schema.String), product_id: Schema.optionalKey(Schema.String),
+  ...Read.fields, filters: Schema.optionalKey(ParentFilters),
+}), "invalidInput");
+// Native Price List Product removal selects all Variants belonging to its
+// bounded Product cohort. Only Variant reads admit that parent-array producer;
+// Option reads and every mutation retain their existing input contracts.
+export const decodeProductVariantRead = commerceDecoder(Schema.Struct({ ...Read.fields,
+  filters: Schema.optionalKey(Schema.Struct({ ...ParentFilters.fields,
+    product_id: Schema.optionalKey(Schema.Union([Schema.String, Schema.Array(Schema.String).check(Schema.isMaxLength(4))])),
   })),
 }), "invalidInput");
 const CommandRead = Schema.Struct({ ...Read.fields, deletedAfter: Schema.optionalKey(Schema.String) });

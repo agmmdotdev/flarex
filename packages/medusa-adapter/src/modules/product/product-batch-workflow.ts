@@ -11,6 +11,9 @@ import type { ProductVariantUpdateWorkflowModule } from "./variant-update-workfl
 import type { ProductDeletionWorkflowModule } from "./product-deletion-workflow";
 import type { ProductRuntimeMetadata } from "./runtime-metadata";
 import { productBatchInitialVariantReceipt } from "./product-batch-receipt";
+import { isProductVariantParentRead, validateProductVariantParentRead } from "./variant-parent-read-receipt";
+import { variantUpdateData } from "./variant-workflow-input";
+import { ProductLifecycleIds } from "./lifecycle";
 
 /** One authentic Product view over the existing native command owners. The
  * read tokens also identify genuine Query calls in the root's transcript. */
@@ -34,6 +37,19 @@ export function productBatchWorkflowModule(source: CommerceModuleDescription, ca
     }
     const validateLogical = yield* productBatchInitialVariantReceipt(catalog, admittedUpdates, deletionCommand);
     const updatePolicy = update.logical;
+    const variantListCommand = workflowMethodDefinition(modules.variantUpdate.methods.listProductVariants)?.command;
+    if (variantListCommand === undefined) return yield* Result.fail(commerceError("invalidAuthority"));
+    const variantUpsert = workflowMethodDefinition(modules.variantUpdate.methods.upsertProductVariants);
+    if (variantUpsert === undefined) return yield* Result.fail(commerceError("invalidAuthority"));
+    // Scoped batch updates retain their parent claim at the genuine command and
+    // mutation receipt, before native updateVariants_ normalizes that field.
+    const variantEntry = variantUpdateData(variants.table.columns, {
+      id: ProductLifecycleIds.value, product_id: Schema.optionalKey(ProductLifecycleIds.value),
+    });
+    const variantArguments = commerceDecoder(Schema.Tuple([Schema.Array(variantEntry).check(Schema.isMaxLength(4))]), "invalidInput");
+    const upsertProductVariants = yield* defineWorkflowMethod<Result.Result.Success<ReturnType<typeof variantArguments>>, unknown>({ command: variantUpsert.command,
+      arguments: variantArguments,
+      encode: ([rows]) => rows, output: variantUpsert.output, moduleEvents: variantUpsert.moduleEvents });
     const argumentsDecoder = commerceDecoder(Schema.Tuple([Schema.JsonObject]), "invalidInput");
     const countProductVariantsForBatch = yield* defineWorkflowMethod({ command: variants.command, arguments: argumentsDecoder,
       encode: ([query]) => query, output: decodeGraphCount });
@@ -41,15 +57,18 @@ export function productBatchWorkflowModule(source: CommerceModuleDescription, ca
       methods: {
         createProducts: modules.creation.methods.createProducts, createProductVariants: modules.creation.methods.createProductVariants,
         listProducts: modules.update.methods.listProducts, upsertProducts: modules.update.methods.upsertProducts, updateProducts: modules.update.methods.updateProducts,
-        listProductVariants: modules.variantUpdate.methods.listProductVariants, upsertProductVariants: modules.variantUpdate.methods.upsertProductVariants,
+        listProductVariants: modules.variantUpdate.methods.listProductVariants, upsertProductVariants,
         updateProductVariants: modules.variantUpdate.methods.updateProductVariants,
         softDeleteProducts: modules.deletion.methods.softDeleteProducts, softDeleteProductVariants: modules.deletion.methods.softDeleteProductVariants,
         countProductVariantsForBatch,
       }, graph: deletion.graph, logical: { ...logical,
         validateLogical,
-        validateLogicalCall: Effect.fn("ProductBatch.validateNativeCall")((call: Parameters<LogicalCommerceCallValidation>[0],
-          activity: Parameters<LogicalCommerceCallValidation>[1], command: Parameters<LogicalCommerceCallValidation>[2]) =>
-          updateCommands.includes(command) ? updatePolicy.validateLogicalCall(call, activity, command) : logical.validateLogicalCall(call, activity, command)),
+        validateLogicalCall: Effect.fn("ProductBatch.validateNativeCall")(function* (call: Parameters<LogicalCommerceCallValidation>[0],
+          activity: Parameters<LogicalCommerceCallValidation>[1], command: Parameters<LogicalCommerceCallValidation>[2]) {
+          yield* updateCommands.includes(command) ? updatePolicy.validateLogicalCall(call, activity, command) : logical.validateLogicalCall(call, activity, command);
+          if (command === variantListCommand && isProductVariantParentRead(call.input))
+            yield* validateProductVariantParentRead(variants.table.name, call, activity);
+        }),
       } });
   });
 }

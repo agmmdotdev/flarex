@@ -10,8 +10,11 @@ import { capturePrivateCanonicalValue, commerceError, CommerceTransactionError, 
 import { type CommerceCommand, type AtomicCommerceEvents } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { compileProductCoreDefinition } from "../modules/product/schema";
 import { makeLocalProductCommands } from "../modules/product/service";
+import { prepareProductRequiredFailurePresentation } from "../modules/product/required-failure-presentation";
 import { compilePricingCoreDefinition } from "../modules/pricing/schema";
 import { makeLocalPricingCommands } from "../modules/pricing/service";
+import { makePricingCatalogReads } from "../modules/pricing/catalog-reads";
+import { makePriceListPriceBatchCommands } from "../modules/pricing/price-list-price-batch-service";
 import { compileInventoryCoreDefinition } from "../modules/inventory/schema";
 import { makeLocalInventoryCommands } from "../modules/inventory/service";
 import { compileStockLocationCoreDefinition } from "../modules/stock-location/schema";
@@ -22,6 +25,9 @@ import { compileShippingProfileCoreDefinition } from "../modules/fulfillment/shi
 import { makeLocalShippingProfileCommands } from "../modules/fulfillment/shipping-profile-service";
 import { compileProductLinksCoreDefinition } from "../links/product-definition";
 import { prepareLocalProductLinks } from "../links/product-service";
+import { prepareProductSalesChannelLink } from "../links/product-sales-channel-service";
+import { prepareVariantPricingLink } from "../links/variant-pricing-service";
+import { prepareProductBatchLinkResource } from "../links/product-batch-resource";
 import { compileVariantLinksCoreDefinition } from "../links/variant-definition";
 import { prepareLocalVariantLinks } from "../links/variant-service";
 import { prepareProductNativeLinkResource } from "../links/product-resource";
@@ -40,6 +46,9 @@ import { prepareProductTagWorkflow } from "../workflows/product/tag";
 import { prepareProductTagUpdateWorkflow } from "../workflows/product/tag-update";
 import { prepareProductTagDeleteWorkflow } from "../workflows/product/tag-delete";
 import { prepareProductCreationWorkflow } from "../workflows/product/creation";
+import { prepareProductBatchWorkflow, prepareProductVariantBatchWorkflow } from "../workflows/product/batch";
+import { prepareProductSalesChannelMembershipWorkflow } from "../workflows/product/sales-channel-membership";
+import { prepareBatchPriceListPricesWorkflow } from "../workflows/pricing/batch-price-list-prices";
 import { prepareProductUpdateWorkflow } from "../workflows/product/update";
 import { prepareProductDeletionWorkflow, prepareProductVariantDeletionWorkflow } from "../workflows/product/deletion";
 import { prepareProductVariantInventoryWorkflow } from "../workflows/product/variant-inventory";
@@ -57,6 +66,9 @@ export const compileProductRequestCatalog = Effect.fn("ProductRequest.compileCat
   target: Readonly<{ scopeUuid: string; epochUuid: string }>,
 ) {
   const product = yield* makeLocalProductCommands(), pricing = yield* makeLocalPricingCommands(), inventory = yield* makeLocalInventoryCommands();
+  const pricingReads = yield* makePricingCatalogReads(), priceListBatchPricing = yield* makePriceListPriceBatchCommands();
+  const salesMembershipLink = yield* prepareProductSalesChannelLink(), priceListVariantLink = yield* prepareVariantPricingLink();
+  const batchInventory = yield* makeLocalInventoryCommands("product-batches");
   const inventoryReads = yield* makeLocalInventoryCommands("variant-price-calculation");
   const stock = yield* makeStockLocationCommands(), sales = yield* makeLocalSalesChannelCommands(), fulfillment = yield* makeLocalShippingProfileCommands();
   const productLinks = yield* prepareLocalProductLinks(), variantLinks = yield* prepareLocalVariantLinks();
@@ -72,7 +84,8 @@ export const compileProductRequestCatalog = Effect.fn("ProductRequest.compileCat
     Result.map(native => Object.freeze({ name, definition, source: native, commands: Object.freeze([...commands]),
       initialization: Object.freeze({ stepId: `${name}-initial`, datasetSha256: empty.sha256Hex, expectedRowCount: 0 }) })));
   const productSource = yield* Effect.fromResult(source("product", yield* compileProductCoreDefinition(target), Object.values(product.commands)));
-  const pricingSource = yield* Effect.fromResult(source("pricing", yield* compilePricingCoreDefinition(target), pricing.commands));
+  const productRequiredFailurePresentation = yield* Effect.fromResult(prepareProductRequiredFailurePresentation({ metadata: product.metadata, definition: productSource.definition }));
+  const pricingSource = yield* Effect.fromResult(source("pricing", yield* compilePricingCoreDefinition(target), [...pricing.commands, ...pricingReads.commands]));
   const inventorySource = yield* Effect.fromResult(source("inventory", yield* compileInventoryCoreDefinition(target), inventory.commands));
   const stockSource = yield* Effect.fromResult(source("stock_location", yield* compileStockLocationCoreDefinition(target), stock.commands));
   const salesSource = yield* Effect.fromResult(source("sales_channel", yield* compileSalesChannelCoreDefinition(target), sales.commands));
@@ -110,6 +123,16 @@ export const compileProductRequestCatalog = Effect.fn("ProductRequest.compileCat
     variant_links: { module: variantUpdateLinks.workflow, nativeStorage: variantLinksSource.source } });
   const variantInventoryLinkModules = Object.freeze({ product: { module: product.productVariantInventoryLinkWorkflow, nativeStorage: productSource.source },
     variant_links: { module: variantUpdateLinks.workflow, nativeStorage: variantLinksSource.source } });
+  const batchModules = Object.freeze({ ...modules, product: { module: product.productBatchWorkflow, nativeStorage: productSource.source },
+    pricing: { module: updatePricing.workflow, nativeStorage: pricingSource.source },
+    inventory: { module: batchInventory.workflow, nativeStorage: inventorySource.source },
+    product_links: { module: deletionProductLinks.workflow, nativeStorage: productLinksSource.source },
+    variant_links: { module: deletionVariantLinks.workflow, nativeStorage: variantLinksSource.source } });
+  const batchLink = yield* Effect.fromResult(prepareProductBatchLinkResource({ ...deletionProductLinks.nativeServices,
+    ...deletionVariantLinks.nativeServices }, updatePricing.workflow));
+  const salesMembershipModule = Object.freeze({ module: salesMembershipLink.workflow, nativeStorage: productLinksSource.source });
+  const priceListBatchModules = Object.freeze({ pricing: { module: priceListBatchPricing.workflow, nativeStorage: pricingSource.source },
+    link: { module: priceListVariantLink.workflow, nativeStorage: variantLinksSource.source } });
   const optionModules = Object.freeze({ product: { module: product.productOptionWorkflow, nativeStorage: productSource.source } });
   const optionDeletionLink = yield* Effect.fromResult(prepareProductOptionDeletionLinkResource());
   const typeModules = Object.freeze({ product: { module: product.productTypeWorkflow, nativeStorage: productSource.source } });
@@ -120,8 +143,9 @@ export const compileProductRequestCatalog = Effect.fn("ProductRequest.compileCat
   const collectionDeletionLink = yield* Effect.fromResult(prepareProductCollectionDeletionLinkResource());
   const variantImageModules = Object.freeze({ product: { module: product.productVariantImageWorkflow, nativeStorage: productSource.source } });
   const imageVariantModules = Object.freeze({ product: { module: product.productImageVariantWorkflow, nativeStorage: productSource.source } });
-  return Object.freeze({ target: Object.freeze({ ...target }), sources, productSource, productRuntime: product,
-    runtimes: Object.freeze({ product, pricing, inventory, inventoryReads, stock, sales, fulfillment, productLinks, variantLinks }), modules, link, updateModules, updateLink,
+  return Object.freeze({ target: Object.freeze({ ...target }), sources, productSource, productRuntime: product, productRequiredFailurePresentation,
+    runtimes: Object.freeze({ product, pricing, pricingReads, inventory, inventoryReads, stock, sales, fulfillment, productLinks, variantLinks }), modules, link, updateModules, updateLink,
+    batchModules, batchLink, salesMembershipModule, priceListBatchModules,
     deletionModules, deletionLink, variantUpdateModules, variantUpdateNativeLinks: variantUpdateLinks.nativeServices, variantInventoryLinkModules, optionModules, optionDeletionLink, typeModules, typeDeletionLink, categoryModules, categoryDeletionLink, collectionModules, collectionDeletionLink, variantImageModules, imageVariantModules, bundle, eventDefinition });
 });
 export type ProductRequestCatalog = Effect.Success<ReturnType<typeof compileProductRequestCatalog>>;
@@ -154,6 +178,14 @@ export const makeProductRequestOperations = Effect.fn("ProductRequest.makeOperat
     nativeLinks: input.catalog.variantUpdateNativeLinks, revision: input.revision, subscribers: input.subscribers });
   const variantInventoryLinks = yield* prepareProductVariantInventoryLinkWorkflows({ execution, modules: input.catalog.variantInventoryLinkModules,
     nativeInventoryLink: input.catalog.variantUpdateNativeLinks.inventory, revision: input.revision, subscribers: input.subscribers });
+  const productBatch = yield* prepareProductBatchWorkflow({ execution, modules: input.catalog.batchModules, link: input.catalog.batchLink,
+    revision: input.revision, subscribers: input.subscribers });
+  const variantBatch = yield* prepareProductVariantBatchWorkflow({ execution, admission: "parent-qualified", modules: input.catalog.batchModules, link: input.catalog.batchLink,
+    revision: input.revision, subscribers: input.subscribers });
+  const salesMembership = yield* prepareProductSalesChannelMembershipWorkflow({ execution, link: input.catalog.salesMembershipModule,
+    revision: input.revision, subscribers: input.subscribers });
+  const priceListBatch = yield* prepareBatchPriceListPricesWorkflow({ execution, modules: input.catalog.priceListBatchModules,
+    revision: input.revision, subscribers: input.subscribers });
   const optionCreation = yield* prepareProductOptionCreationWorkflow({ execution, modules: input.catalog.optionModules,
     revision: input.revision, subscribers: input.subscribers });
   const optionUpdate = yield* prepareProductOptionUpdateWorkflow({ execution, modules: input.catalog.optionModules,
@@ -201,6 +233,14 @@ export const makeProductRequestOperations = Effect.fn("ProductRequest.makeOperat
     Result.getOrThrowWith(read.admitVariantRefetchFields(fields), cause => new MedusaError(MedusaError.Types.INVALID_DATA,
       "The private Variant profile requires supported response fields before execution.", undefined, undefined, { cause }));
   };
+  const admitSalesChannelRefetchFields = (fields: readonly string[]): void => {
+    Result.getOrThrowWith(read.admitSalesChannelRefetchFields(fields), cause => new MedusaError(MedusaError.Types.INVALID_DATA,
+      "The private Sales Channel profile requires supported response fields before execution.", undefined, undefined, { cause }));
+  };
+  const admitPriceListRefetchFields = (fields: readonly string[]): void => {
+    Result.getOrThrowWith(read.admitPriceListRefetchFields(fields), cause => new MedusaError(MedusaError.Types.INVALID_DATA,
+      "The private Price List profile requires supported response fields before execution.", undefined, undefined, { cause }));
+  };
   const admitCatalogRefetchFields = (entity: "product_type" | "product_tag" | "product_category" | "product_collection", fields: readonly string[]): void => {
     Result.getOrThrowWith(read.admitCatalogRefetchFields(entity, fields), cause => new MedusaError(MedusaError.Types.INVALID_DATA,
       "The private catalog profile requires supported response fields before execution.", undefined, undefined, { cause }));
@@ -213,6 +253,22 @@ export const makeProductRequestOperations = Effect.fn("ProductRequest.makeOperat
       "Product workflow input is outside the private supported profile; each workflow retains its existing bounded input contract.",
       undefined, "Product workflow admission refused", { cause }));
     switch (name) {
+      case "batch-products": {
+        const args = yield* Effect.fromResult(captureCommerceInput(value).pipe(Result.flatMap(productBatch.decodeInput), Result.mapError(refusal)));
+        return { result: yield* productBatch.run(productBatch.newRequestKey(), args) };
+      }
+      case "batch-product-variants": {
+        const args = yield* Effect.fromResult(captureCommerceInput(value).pipe(Result.flatMap(variantBatch.decodeInput), Result.mapError(refusal)));
+        return { result: yield* variantBatch.run(variantBatch.newRequestKey(), args) };
+      }
+      case "link-products-to-sales-channel": {
+        const args = yield* Effect.fromResult(captureCommerceInput(value).pipe(Result.flatMap(salesMembership.decodeInput), Result.mapError(refusal)));
+        return { result: yield* salesMembership.run(salesMembership.newRequestKey(), args) };
+      }
+      case "batch-price-list-prices": {
+        const args = yield* Effect.fromResult(captureCommerceInput(value).pipe(Result.flatMap(priceListBatch.decodeInput), Result.mapError(refusal)));
+        return { result: yield* priceListBatch.run(priceListBatch.newRequestKey(), args) };
+      }
       case "create-products": {
         const args = yield* Effect.fromResult(captureCommerceInput(value).pipe(Result.flatMap(workflow.decodeInput), Result.mapError(refusal)));
         return { result: yield* workflow.run(workflow.newRequestKey(), args) };
@@ -331,7 +387,11 @@ export const makeProductRequestOperations = Effect.fn("ProductRequest.makeOperat
       }
       default: return yield* commerceError("unsupportedProfile");
     }
-  });
+  }, input.catalog.productRequiredFailurePresentation);
+  function runWorkflow(name: "batch-products", value: unknown): Effect.Effect<{ result: Effect.Success<ReturnType<typeof productBatch.run>> }, CommerceTransactionError>;
+  function runWorkflow(name: "batch-product-variants", value: unknown): Effect.Effect<{ result: Effect.Success<ReturnType<typeof variantBatch.run>> }, CommerceTransactionError>;
+  function runWorkflow(name: "link-products-to-sales-channel", value: unknown): Effect.Effect<{ result: Effect.Success<ReturnType<typeof salesMembership.run>> }, CommerceTransactionError>;
+  function runWorkflow(name: "batch-price-list-prices", value: unknown): Effect.Effect<{ result: Effect.Success<ReturnType<typeof priceListBatch.run>> }, CommerceTransactionError>;
   function runWorkflow(name: "create-products", value: unknown): Effect.Effect<{ result: Effect.Success<ReturnType<typeof workflow.run>> }, CommerceTransactionError>;
   function runWorkflow(name: "update-products", value: unknown): Effect.Effect<{ result: Effect.Success<ReturnType<typeof update.run>> }, CommerceTransactionError>;
   function runWorkflow(name: "delete-products", value: unknown): Effect.Effect<{ result: null }, CommerceTransactionError>;
@@ -366,7 +426,7 @@ export const makeProductRequestOperations = Effect.fn("ProductRequest.makeOperat
   const index = Effect.fn("ProductRequest.unsupportedIndex")(() => Effect.fail(commerceError("adapterFailure",
     new MedusaError(MedusaError.Types.NOT_ALLOWED, "Index engine is outside the admitted Product profile"))));
   return Object.freeze({ runWorkflow, query: Object.freeze({ graph: read.graph, index }), remoteQuery: read.remoteQuery,
-    admitProductRefetchFields, admitVariantRefetchFields, admitCatalogRefetchFields,
+    admitProductRefetchFields, admitVariantRefetchFields, admitCatalogRefetchFields, admitSalesChannelRefetchFields, admitPriceListRefetchFields,
     close: workflow.close.pipe(Effect.ensuring(update.close), Effect.ensuring(deletion.close), Effect.ensuring(variantDeletion.close), Effect.ensuring(variantCreation.close), Effect.ensuring(variantUpdate.close),
       Effect.ensuring(optionCreation.close), Effect.ensuring(optionUpdate.close), Effect.ensuring(optionDeletion.close),
       Effect.ensuring(variantImages.close), Effect.ensuring(imageVariants.close),
@@ -374,14 +434,15 @@ export const makeProductRequestOperations = Effect.fn("ProductRequest.makeOperat
       Effect.ensuring(tagCreation.close), Effect.ensuring(tagUpdate.close), Effect.ensuring(tagDeletion.close)).pipe(
       Effect.ensuring(categoryCreation.close), Effect.ensuring(categoryUpdate.close), Effect.ensuring(categoryDeletion.close), Effect.ensuring(categoryMembership.close),
       Effect.ensuring(collectionCreation.close), Effect.ensuring(collectionUpdate.close), Effect.ensuring(collectionDeletion.close), Effect.ensuring(collectionMembership.close),
-      Effect.ensuring(variantInventoryLinks.create.close), Effect.ensuring(variantInventoryLinks.update.close), Effect.ensuring(variantInventoryLinks.dismiss.close), Effect.ensuring(variantInventoryLinks.batch.close), Effect.ensuring(read.close)) });
+      Effect.ensuring(variantInventoryLinks.create.close), Effect.ensuring(variantInventoryLinks.update.close), Effect.ensuring(variantInventoryLinks.dismiss.close), Effect.ensuring(variantInventoryLinks.batch.close)).pipe(
+      Effect.ensuring(productBatch.close), Effect.ensuring(variantBatch.close), Effect.ensuring(salesMembership.close), Effect.ensuring(priceListBatch.close), Effect.ensuring(read.close)) });
 });
 export type ProductRequestOperations = Effect.Success<ReturnType<typeof makeProductRequestOperations>>;
 
 /** Foreign HTTP Promise presentation retains the complete authoritative Cause.
  * Only one actual Medusa refusal plus its rollback markers receives native HTTP
  * status. Defects, interruption, mixed failures and uncertainty remain unknown. */
-async function runProductRequestPromise<A, E>(work: Effect.Effect<A, E>): Promise<A> {
+export async function runProductRequestPromise<A, E>(work: Effect.Effect<A, E>): Promise<A> {
   const exit = await Effect.runPromiseExit(work);
   // Native middleware mutates its DTOs (for example inventory_quantity). The
   // foreign HTTP caller owns a detached copy, never Core's immutable values.

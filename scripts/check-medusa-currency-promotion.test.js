@@ -2,6 +2,9 @@
 import { verifyPriceListDeleteSelection, verifyPriceListDeleteCallbacks, verifyPriceListUpdateCallbacks, verifyNativePriceListRuleBuilder, verifyPriceListCreateCallbacks, verifyPricePreferenceDeleteCallbacks, verifyPricePreferenceUpdateCallbacks, verifyPricePreferenceCreateCallbacks, verifySalesChannelProductLinkCallbacks, verifyTestPort, verifyPricingWorkflowSelection, verifyInventoryLevelDeleteCallbacks, verifyInventoryItemDeleteCallbacks, verifyInventoryLevelBatchCallbacks, verifyInventoryItemCreateCallbacks, verifyStoreDeleteCallbacks, verifyStoreCreateCallbacks, verifyStoreCreationTypes, verifyReservationLineItemDeletionCallbacks, verifyStoreUpdateCallbacks, verifyShippingProfileUpdateCallbacks, verifyShippingProfileCreateCallbacks, verifyShippingOptionRuleBatchCallbacks, verifyLocationFulfillmentSetCallbacks, verifyShippingProfileDeleteCallbacks, verifyShippingOptionTypeCreateCallbacks, verifyShippingOptionTypeUpdateCallbacks, verifyShippingOptionTypeDeleteCallbacks, verifyServiceZoneCreateCallbacks, verifyServiceZoneDeleteCallbacks, verifyFulfillmentSetDeleteCallbacks, verifyServiceZoneUpdateCallbacks, verifyNativeToManyInitialization, verifyNativeRelationScalarFields } from "./check-medusa-test-port.mjs";
 import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { adminAtomicHttpTargets, verifyAdminAtomicHttpSelection, verifyAdminAtomicHttpSource, verifyAdminProductBatchMiddlewareSource, verifyNativePricingResponseBuilders } from "./check-medusa-currency-promotion.mjs";
+import { parentQualifiedVariantBatchWorkflowSourcePair, verifyParentQualifiedVariantBatchWorkflowSelection, verifyParentQualifiedVariantBatchWorkflowSource } from "./check-medusa-currency-promotion.mjs";
+import { productBatchAuthorizationHttpSourcePair, verifyProductBatchAuthorizationHttpSelection, verifyProductBatchAuthorizationHttpSource } from "./check-medusa-currency-promotion.mjs";
 import { verifyAdminGlobalVariantQueryConfigSource, verifyAdminVariantInventoryMiddlewareSource, adminVariantInventoryHttpTargets, verifyAdminVariantInventoryHttpSource, verifyAdminVariantInventoryHttpSelection, verifyAdminGlobalVariantHttpSource, verifyAdminVariantInventoryDeclarations, admitsCurrencyImport, verifyCurrencyPromotion, verifyStoreCurrencyHandlerSource, verifyAdminProductPostSource, verifyAdminProductDetailSource, verifyAdminProductVariantSource, verifyAdminProductOptionSource, adminProductCatalogHttpTargets, verifyAdminProductCatalogHttpSource, verifyAdminProductCatalogHttpSelection, verifyAdminProductLinkBodySource, verifyAdminVariantInventoryWrapperSource, verifyVariantAvailabilityUtilitySource, verifyModuleTypeFork, verifyNativeBigNumberTypeSource, nativeBigNumberSourcePair, verifyStoreTypeFork, verifyInventoryReservationRestoreFork, verifyStoreCreationTypeFork, verifyPriceListCreationTypeFork, verifyShippingProfileWorkflowTypeFork, verifyLinkCascadeReturnMapFork } from "./check-medusa-currency-promotion.mjs";
 import { analyzeMedusaSourceIslandBoundary } from "./check-medusa-source-island-boundary.mjs";
 import { verifyInventoryConfirmationPreparationTest } from "./check-medusa-inventory-confirmation-source.mjs";
@@ -366,7 +369,7 @@ describe("native PriceList update promotion provenance", () => {
 
 describe("native PriceList rule builder promotion provenance", () => {
   const source = "third_party/medusa/upstream/packages/core/utils/src/pricing/builders.ts";
-  const target = "packages/medusa-utils/src/pricing/price-list-rules.ts";
+  const target = "packages/medusa-utils/src/pricing/builders.ts";
   const native = readFileSync(source, "utf8"), helper = readFileSync(target, "utf8");
   it("admits only the selected complete original helper and exact erased import", () => {
     expect(() => verifyNativePriceListRuleBuilder(native, helper)).not.toThrow();
@@ -3109,5 +3112,162 @@ describe("global Variant native query defaults", () => {
     expect(() => verifyAdminGlobalVariantQueryConfigSource(native, promoted)).not.toThrow();
     for (const changed of [promoted.replace('"*product",', ''), promoted.replace('defaultLimit: 50', 'defaultLimit: 500'), promoted.replace('"*prices"', '"id"')])
       expect(() => verifyAdminGlobalVariantQueryConfigSource(native, changed)).toThrow();
+  });
+});
+
+describe("native Admin atomic batch HTTP provenance", () => {
+  const pairs = adminAtomicHttpTargets.map(target => ({ target,
+    source: target.replace("packages/medusa-http/", "third_party/medusa/upstream/packages/medusa/"),
+    classification: target === adminAtomicHttpTargets[1] ? "parentQualifiedVariantBatchHttpFork" : "selectedExportFacade",
+  }));
+  it("pins every selected family file and the explicit Variant parent fork", () => {
+    expect(() => verifyAdminAtomicHttpSelection(pairs)).not.toThrow();
+    for (const mutation of [{ classification: "selectedExportFacade" }, { source: pairs[1].source + ".other" }])
+      expect(() => verifyAdminAtomicHttpSelection(pairs.map((pair, index) => index === 1 ? { ...pair, ...mutation } : pair))).toThrow();
+    expect(() => verifyAdminAtomicHttpSelection(pairs.slice(1))).toThrow();
+    expect(() => verifyAdminAtomicHttpSelection([...pairs, { source: pairs[1].source, target: "packages/medusa-http/src/other.ts", classification: "parentQualifiedVariantBatchHttpFork" }])).toThrow();
+  });
+  it.each(pairs)("retains pinned complete selected runtime for $target", ({ source, target }) => {
+    const native = readFileSync(source, "utf8");
+    const promoted = readFileSync(target, "utf8");
+    expect(() => verifyAdminAtomicHttpSource(native, promoted, target)).not.toThrow();
+    for (const suffix of ["\nthrow new Error('side effect');\n", "\nexport const extra = true;\n", '\nimport "unlisted";\n'])
+      expect(() => verifyAdminAtomicHttpSource(native, promoted + suffix, target)).toThrow();
+  });
+  it.each([
+    ["products/batch/route.ts", "input: req.validatedBody", "input: {}"],
+    ["products/batch/route.ts", "deleted: batchResults.deleted", "deleted: result.deleted"],
+    ["products/[id]/variants/batch/route.ts", "const normalizedInput = {\n    product_id: productId,", "const normalizedInput = {"],
+    ["products/[id]/variants/batch/route.ts", "delete: req.validatedBody.delete", "delete: []"],
+    ["sales-channels/[id]/products/route.ts", "      remove,", "      remove: [],"],
+    ["sales-channels/helpers.ts", 'entryPoint: "sales_channel"', 'entryPoint: "product"'],
+    ["sales-channels/query-config.ts", '  "metadata",', ""],
+    ["sales-channels/middlewares.ts", 'operation: "update"', 'operation: "create"'],
+    ["price-lists/[id]/products/route.ts", "if (!remove.length)", "if (false)"],
+    ["price-lists/[id]/products/route.ts", 'workflow.run("batch-price-list-prices",', 'workflow.run("batch-products",'],
+    ["price-lists/[id]/products/route.ts", "delete: productPriceIds", "delete: remove"],
+    ["price-lists/helpers.ts", "price_list_id: priceListId", "price_list_id: undefined"],
+    ["price-lists/helpers.ts", 'entryPoint: "variants"', 'entryPoint: "product"'],
+    ["price-lists/helpers.ts", "product_id: productIds", "id: productIds"],
+    ["price-lists/helpers.ts", "buildPriceListRules(priceList.price_list_rules)", "priceList.price_list_rules"],
+    ["price-lists/helpers.ts", "delete priceList.price_list_rules", "void priceList.price_list_rules"],
+    ["price-lists/query-config.ts", "isList: true", "isList: false"],
+    ["price-lists/query-config.ts", '  "price_list_rules.value",', ""],
+    ["price-lists/middlewares.ts", "QueryConfig.listPriceListQueryConfig", "QueryConfig.retrivePriceListQueryConfig"],
+    ["price-lists/validators.ts", "remove: z.array(z.string()).optional()", "remove: z.array(z.string())"],
+  ])("refuses changed native behavior %s %s", (relative, before, after) => {
+    const target = "packages/medusa-http/src/api/admin/" + relative;
+    const native = readFileSync(target.replace("packages/medusa-http/", "third_party/medusa/upstream/packages/medusa/"), "utf8");
+    const promoted = readFileSync(target, "utf8").replaceAll("\r\n", "\n");
+    expect(promoted).toContain(before);
+    expect(() => verifyAdminAtomicHttpSource(native, promoted.replace(before, after), target)).toThrow();
+  });
+  it("retains approved Product batch authorization and native Variant batch, bodies and byte metadata", () => {
+    const native = readFileSync("third_party/medusa/upstream/packages/medusa/src/api/admin/products/middlewares.ts", "utf8");
+    const promoted = readFileSync("packages/medusa-http/src/api/admin/products/middlewares.ts", "utf8");
+    expect(() => verifyAdminProductBatchMiddlewareSource(native, promoted)).not.toThrow();
+    for (const changed of [promoted.replace('operation: ["create", "update", "delete"]', 'operation: ["create", "update"]'),
+      promoted.replace("createBatchBody(CreateProductVariant, AdminBatchUpdateProductVariant)", "createBatchBody(CreateProductVariant, UpdateProductVariant)"),
+      promoted.replaceAll('sizeLimit: "2mb"', 'sizeLimit: "20mb"')])
+      expect(() => verifyAdminProductBatchMiddlewareSource(native, changed)).toThrow();
+  });
+  it("retains native batch refetch ordering, conditions and deletion envelopes", () => {
+    const native = readFileSync("third_party/medusa/upstream/packages/medusa/src/api/admin/products/helpers.ts", "utf8");
+    const promoted = readFileSync("packages/medusa-http/src/api/admin/products/helpers.ts", "utf8");
+    const names = ["refetchBatchProducts", "refetchBatchVariants"];
+    expect(() => verifyAdminVariantInventoryDeclarations(native, promoted, names)).not.toThrow();
+    for (const changed of [promoted.replace("if (batchResult.created.length)", "if (true)"), promoted.replace("promiseAll([created, updated])", "Promise.all([created, updated])"),
+      promoted.replace('object: "variant"', 'object: "product"')])
+      expect(() => verifyAdminVariantInventoryDeclarations(native, changed, names)).toThrow();
+  });
+  it("retains native required batch IDs", () => {
+    const native = readFileSync("third_party/medusa/upstream/packages/medusa/src/api/admin/products/validators.ts", "utf8");
+    const promoted = readFileSync("packages/medusa-http/src/api/admin/products/validators.ts", "utf8").replaceAll("\r\n", "\n");
+    const names = ["AdminBatchUpdateProduct", "AdminBatchUpdateProductVariant"];
+    expect(() => verifyAdminVariantInventoryDeclarations(native, promoted, names)).not.toThrow();
+    expect(() => verifyAdminVariantInventoryDeclarations(native, promoted.replace("UpdateProduct.extend({\n  id: z.string()", "UpdateProduct.extend({\n  id: z.string().optional()"), names)).toThrow();
+  });
+  it("retains pinned native Pricing response builders without unrelated functions", () => {
+    const native = readFileSync("third_party/medusa/upstream/packages/core/utils/src/pricing/builders.ts", "utf8");
+    const promoted = readFileSync("packages/medusa-utils/src/pricing/builders.ts", "utf8");
+    expect(() => verifyNativePricingResponseBuilders(native, promoted)).not.toThrow();
+    for (const changed of [promoted.replace("delete price.price_rules", "void price.price_rules"), promoted.replace("productVariant?.id ?? undefined", '"foreign"'),
+      promoted.replace("rules,", "rules: {},"), promoted + "\nexport const extra = true;\n"])
+      expect(() => verifyNativePricingResponseBuilders(native, changed)).toThrow();
+  });
+});
+
+describe("parent-qualified native Variant batch workflow provenance", () => {
+  const pair = parentQualifiedVariantBatchWorkflowSourcePair;
+  const step = { target: "packages/medusa-core-flows/src/product/steps/validate-product-variant-batch-parent.ts", classification: "authored" };
+  const native = readFileSync(pair.source, "utf8");
+  const promoted = readFileSync(pair.target, "utf8").replaceAll("\r\n", "\n");
+  it("pins the exact workflow fork and separate authored ownership step", () => {
+    expect(() => verifyParentQualifiedVariantBatchWorkflowSelection([pair, step])).not.toThrow();
+    for (const mutation of [{ classification: "workflowFork" }, { source: pair.source + ".other" }, { target: pair.target + ".other" }])
+      expect(() => verifyParentQualifiedVariantBatchWorkflowSelection([{ ...pair, ...mutation }, step])).toThrow();
+    expect(() => verifyParentQualifiedVariantBatchWorkflowSelection([pair])).toThrow();
+    expect(() => verifyParentQualifiedVariantBatchWorkflowSelection([pair, { ...step, classification: "selectedExportFacade", source: pair.source }])).toThrow();
+    expect(() => verifyParentQualifiedVariantBatchWorkflowSelection([pair, step, { ...pair, target: "packages/medusa-core-flows/src/other.ts" }])).toThrow();
+  });
+  it("retains pinned native children, empty arms, output order and requested deletion IDs", () => {
+    expect(() => verifyParentQualifiedVariantBatchWorkflowSource(native, promoted)).not.toThrow();
+  });
+  it.each([
+    ["parent guard", "validateProductVariantBatchParentStep(transform", "(transform"],
+    ["checked parent flow", "transform(checked, input =>", "transform(input, input =>"],
+    ["authoritative create parent", "input.create.map(row => ({ ...row, product_id: parent }))", "input.create"],
+    ["authoritative update parent", "input.update.map(row => ({ ...row, product_id: parent }))", "input.update"],
+    ["stripped update parent", "input.update.map(row => ({ ...row, product_id: parent }))", "input.update.map(({ product_id, ...row }) => row)"],
+    ["unscoped update behavior", "parent === undefined ? input.update", "parent === undefined ? []"],
+    ["scoped delete parent", "deleteProductVariantsWorkflow.runAsStep({ input: transform(normalizedInput, input => ({ ids: input.delete,\n        ...(input.product_id === undefined ? {} : { product_id: input.product_id }),\n      })) })", "deleteProductVariantsWorkflow.runAsStep({ input: { ids: normalizedInput.delete } })"],
+    ["empty native child", "createProductVariantsWorkflow.runAsStep({ input: { product_variants: normalizedInput.create } })", "[]"],
+    ["native child order", "created: data.res[0], updated: data.res[1]", "created: data.res[1], updated: data.res[0]"],
+    ["requested deletion IDs", "deleted: data.input.delete ?? []", "deleted: data.res[2]"],
+    ["optional parent contract", "  product_id?: string", "  product_id: string"],
+    ["update parent contract", "UpdateProductVariantWorkflowInputDTO & { product_id?: string }", "UpdateProductVariantWorkflowInputDTO"],
+  ])("refuses changed %s", (_name, before, after) => {
+    expect(promoted).toContain(before);
+    expect(() => verifyParentQualifiedVariantBatchWorkflowSource(native, promoted.replace(before, after))).toThrow();
+  });
+  it("rejects extra module execution or workflow exports", () => {
+    for (const suffix of ["\nthrow new Error('side effect');\n", "\nexport const unrelated = true;\n"])
+      expect(() => verifyParentQualifiedVariantBatchWorkflowSource(native, promoted + suffix)).toThrow();
+  });
+});
+
+describe("approved Product batch authorization HTTP fork provenance", () => {
+  const pair = productBatchAuthorizationHttpSourcePair;
+  const native = readFileSync(pair.source, "utf8");
+  const promoted = readFileSync(pair.target, "utf8").replaceAll("\r\n", "\n");
+  it("pins only the exact approved middleware source pair and explicit classification", () => {
+    expect(() => verifyProductBatchAuthorizationHttpSelection([pair])).not.toThrow();
+    for (const mutation of [{ target: pair.target + ".other" }, { source: pair.source + ".other" }, { classification: "selectedExportFacade" }, { classification: "authored" }])
+      expect(() => verifyProductBatchAuthorizationHttpSelection([{ ...pair, ...mutation }])).toThrow();
+    expect(() => verifyProductBatchAuthorizationHttpSelection([])).toThrow();
+    expect(() => verifyProductBatchAuthorizationHttpSelection([pair, pair])).toThrow();
+    expect(() => verifyProductBatchAuthorizationHttpSelection([pair, { ...pair, target: "packages/medusa-http/src/api/admin/other/middlewares.ts", source: pair.source + ".other" }])).toThrow();
+  });
+  it("permits only the approved delete permission addition across the complete selected module", () => {
+    expect(() => verifyProductBatchAuthorizationHttpSource(native, promoted)).not.toThrow();
+  });
+  it.each([
+    ["missing Product delete", 'operation: ["create", "update", "delete"]', 'operation: ["create", "update"]'],
+    ["missing Product create", 'operation: ["create", "update", "delete"]', 'operation: ["update", "delete"]'],
+    ["permission evaluation order", 'operation: ["create", "update", "delete"]', 'operation: ["delete", "create", "update"]'],
+    ["neighboring read policy", 'operation: "read"', 'operation: "update"'],
+    ["neighboring delete policy", 'operation: "delete"', 'operation: "read"'],
+    ["body schema", "createBatchBody(CreateProduct, AdminBatchUpdateProduct)", "createBatchBody(CreateProduct, UpdateProduct)"],
+    ["neighboring response query", "QueryConfig.retrieveProductQueryConfig", "QueryConfig.listProductQueryConfig"],
+    ["native index branch", '"index_engine"', '"translation"'],
+    ["batch route binding", 'matcher: "/admin/products/batch"', 'matcher: "/admin/products/export"'],
+    ["neighboring import", 'from "@medusajs/utils/feature-flags/flag-router"', 'from "unlisted"'],
+  ])("refuses changed %s", (_name, before, after) => {
+    expect(promoted).toContain(before);
+    expect(() => verifyProductBatchAuthorizationHttpSource(native, promoted.replace(before, after))).toThrow();
+  });
+  it("rejects extra policies, exports and module effects", () => {
+    for (const suffix of ["\nexport const extraPolicy = true;\n", "\nthrow new Error('module effect');\n"])
+      expect(() => verifyProductBatchAuthorizationHttpSource(native, promoted + suffix)).toThrow();
   });
 });

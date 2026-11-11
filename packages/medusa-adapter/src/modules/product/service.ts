@@ -126,6 +126,7 @@ export const makeLocalProductCommands = Effect.fn("ProductAdapter.commands")(fun
   const productUpdateWorkflow = yield* Effect.fromResult(productUpdateWorkflowModule(description, commands, graph,
     [metadata.product.updatedEvent, ...[metadata.option, metadata.value, metadata.variant, metadata.image]
       .flatMap(entity => [entity.createdEvent, entity.updatedEvent, entity.deletedEvent])],
+    metadata.product.createdEvent,
     { ...logicalPolicy, validateLogicalCall: productUpdateGraphReceipt(metadata, validateLogicalCall), commands: Object.values(commands) }));
   const productDeletionWorkflow = yield* Effect.fromResult(productDeletionWorkflowModule(description,
     { list: commands.list, softDeleteProducts: deletion.softDeleteProducts, softDeleteVariants: deletion.softDeleteVariants, countVariants: deletion.countVariants }, graph,

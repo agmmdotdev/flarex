@@ -21,6 +21,8 @@ import type { GraphModuleDefinition } from "../../local-graph/model";
 import { PriceSetsInput, PriceListsInput, PricePreferencesInput, PricingId, decodePriceSetCreate, decodePriceListCreate, decodePricePreferenceCreate, decodePriceSetRead, decodePriceSetRetrieve,
   PriceSetsUpsertInput, PriceSetsUpdateInput, PriceSetFilters, decodePriceSetUpsert, decodePriceSetUpdate,
 } from "./input";
+import { decodeStorePriceSetRead } from "./input";
+import { decodeStorePriceSetCount, storeCalculatedPriceObject } from "./store-read";
 import { compilePriceListCreationContracts, decodePriceListDeletionIds, decodePriceListDeletionArguments } from "./list-input";
 import { pricingListCreationPolicy } from "./list-creation-receipt";
 import { PriceListUpdatesInput, PriceListUpdateReadInput, PriceListUpdateReadConfig, decodePriceListUpdate, decodePriceListUpdateRead,
@@ -36,7 +38,7 @@ import { pricingListPriceUpdatePolicy } from "./price-list-price-update-receipt"
 import { compilePriceListPriceRemovalContracts, PriceListPriceRemovalReadInput, decodePriceListPriceRemovalRead,
   decodePriceListPriceRemovalLifecycleArguments } from "./price-list-price-removal-input";
 import { pricingPriceListPriceRemovalPolicy } from "./price-list-price-removal-receipt";
-import { decodePricingCalculation, decodeVariantItemPricingCalculation, VariantItemPricingCalculationInput, VariantItemPricingCalculationOutput } from "./calculation";
+import { decodePricingCalculation, decodeVariantItemPricingCalculation, decodeStorePricingCalculation, VariantItemPricingCalculationInput, VariantItemPricingCalculationOutput } from "./calculation";
 import { pricingLogicalCreateEventPolicy } from "./events";
 import { pricingLogicalMutationEventPolicy } from "./mutation-events";
 import { NativePreimageConfig, nativePreimageSelection } from "../../workflow/preimage";
@@ -76,8 +78,9 @@ export function shippingPricingLifecycleServiceDefinition(input: unknown) {
 }
 
 export const makeLocalPricingCommands = Effect.fn("PricingAdapter.commands")(function* (admission: PricingRepositoryAdmission = "create") {
-  if (admission !== "create" && admission !== "variant-updates" && admission !== "product-updates" && admission !== "price-preferences" && admission !== "price-preference-updates" && admission !== "price-preference-deletions" && admission !== "price-list-creations" && admission !== "price-list-updates" && admission !== "price-list-deletions" && admission !== "price-list-price-creations" && admission !== "price-list-price-updates" && admission !== "price-list-price-removals" && admission !== "shipping-options" && admission !== "shipping-option-updates" && admission !== "variant-item-pricing" && admission !== "cart-creation") return yield* Effect.fail(commerceError("unsupportedProfile"));
-  const cartCreationPricing = admission === "cart-creation", variantItemPricing = admission === "variant-item-pricing" || cartCreationPricing;
+  if (admission !== "create" && admission !== "variant-updates" && admission !== "product-updates" && admission !== "price-preferences" && admission !== "price-preference-updates" && admission !== "price-preference-deletions" && admission !== "price-list-creations" && admission !== "price-list-updates" && admission !== "price-list-deletions" && admission !== "price-list-price-creations" && admission !== "price-list-price-updates" && admission !== "price-list-price-removals" && admission !== "shipping-options" && admission !== "shipping-option-updates" && admission !== "variant-item-pricing" && admission !== "cart-creation" && admission !== "store-product-read") return yield* Effect.fail(commerceError("unsupportedProfile"));
+  const storeProductRead = admission === "store-product-read";
+  const cartCreationPricing = admission === "cart-creation", variantItemPricing = admission === "variant-item-pricing" || cartCreationPricing || storeProductRead;
   const mutable = admission === "variant-updates" || admission === "product-updates", lifecycle = admission === "product-updates";
   const preferenceUpdates = admission === "price-preference-updates";
   const preferenceDeletions = admission === "price-preference-deletions";
@@ -121,7 +124,7 @@ export const makeLocalPricingCommands = Effect.fn("PricingAdapter.commands")(fun
     };
     const module = yield* defineCommerceModule({ name: "flarex-pricing-local",
       models: [PriceSet, Price, PriceRule, PriceList, PriceListRule, PricePreference],
-      profile: { name: cartCreationPricing ? "pricing-cart-creation" : variantItemPricing ? "pricing-variant-item-pricing" : listPriceRemovals ? "pricing-price-list-price-removals" : listPriceUpdates ? "pricing-price-list-price-updates" : listPriceCreations ? "pricing-price-list-price-creations" : listDeletions ? "pricing-price-list-deletions" : listUpdates ? "pricing-price-list-updates" : listCreations ? "pricing-price-list-creations" : shippingUpdates ? "pricing-shipping-option-updates" : shipping ? "pricing-shipping-options" : preferenceDeletions ? "pricing-price-preference-deletions" : preferenceUpdates ? "pricing-price-preference-updates" : preferences ? "pricing-price-preferences" : lifecycle ? "pricing-product-updates" : mutable ? "pricing-variant-updates" : "pricing-base-prices", capabilities: [], bind },
+      profile: { name: storeProductRead ? "pricing-store-product-read" : cartCreationPricing ? "pricing-cart-creation" : variantItemPricing ? "pricing-variant-item-pricing" : listPriceRemovals ? "pricing-price-list-price-removals" : listPriceUpdates ? "pricing-price-list-price-updates" : listPriceCreations ? "pricing-price-list-price-creations" : listDeletions ? "pricing-price-list-deletions" : listUpdates ? "pricing-price-list-updates" : listCreations ? "pricing-price-list-creations" : shippingUpdates ? "pricing-shipping-option-updates" : shipping ? "pricing-shipping-options" : preferenceDeletions ? "pricing-price-preference-deletions" : preferenceUpdates ? "pricing-price-preference-updates" : preferences ? "pricing-price-preferences" : lifecycle ? "pricing-product-updates" : mutable ? "pricing-variant-updates" : "pricing-base-prices", capabilities: [], bind },
       extensions: { pricingRepository: { mode: "add", create: ({ binding }) => ({ calculatePrices: binding.calculatePrices } satisfies PricingRepositoryService) } },
       service: ({ binding, dependencies, context }) => {
         const container = { ...dependencies, [Modules.EVENT_BUS]: binding.eventBus };
@@ -280,17 +283,25 @@ export const makeLocalPricingCommands = Effect.fn("PricingAdapter.commands")(fun
       return null;
     });
     const list = commands.read("pricingList", prepare(decodePriceSetRead), ({ service, context }, args) => service.listPriceSets(args.filters as FilterablePriceSetProps | undefined, args.config as FindConfig<PriceSetDTO> | undefined, context));
-    const count = commands.read("pricingCount", prepare(decodePriceSetRead), ({ service, context }, args) => service.listAndCountPriceSets(args.filters as FilterablePriceSetProps | undefined, args.config as FindConfig<PriceSetDTO> | undefined, context));
+    const count = storeProductRead
+      ? commands.read("pricingStoreProductCount", prepare(decodeStorePriceSetRead), async ({ service, context }, args) => {
+        const result = await service.listAndCountPriceSets(structuredClone(args.filters) as FilterablePriceSetProps | undefined,
+          structuredClone(args.config) as FindConfig<PriceSetDTO> | undefined, context);
+        return Result.getOrThrow(decodeStorePriceSetCount(result, args.config?.relations?.includes("calculated_price") === true));
+      })
+      : commands.read("pricingCount", prepare(decodePriceSetRead), ({ service, context }, args) => service.listAndCountPriceSets(args.filters as FilterablePriceSetProps | undefined, args.config as FindConfig<PriceSetDTO> | undefined, context));
     const retrieve = commands.read("pricingRetrieve", prepare(decodePriceSetRetrieve), ({ service, context }, args) => service.retrievePriceSet(args.id, args.config as FindConfig<PriceSetDTO> | undefined, context));
     const calculate = variantItemPricing
-      ? commands.read(cartCreationPricing ? "pricingCalculateCartCreation" : "pricingCalculateVariantItems", prepare(decodeVariantItemPricingCalculation), ({ service, context }, args): Promise<unknown> =>
+      ? commands.read(storeProductRead ? "pricingCalculateStoreProducts" : cartCreationPricing ? "pricingCalculateCartCreation" : "pricingCalculateVariantItems", prepare(storeProductRead ? decodeStorePricingCalculation : decodeVariantItemPricingCalculation), ({ service, context }, args): Promise<unknown> =>
         Reflect.apply(service.calculatePrices, service, [{ id: [...args.filters.id] }, args.pricingContext, context]))
       : commands.read("pricingCalculate", prepare(decodePricingCalculation), ({ service, context }, args) =>
         service.calculatePrices({ id: [...args.filters.id] }, args.pricingContext, context));
     const joiner = pricingStaticResources.joinerConfig;
     if (!joiner) return yield* Result.fail(commerceError("unsupportedProfile"));
     const graph: GraphModuleDefinition = preferences || listCreations || listUpdates || listDeletions || listPrices ? { aliases: [], reads: [] } : { aliases: yield* moduleAliases({ ...joiner, alias: (Array.isArray(joiner.alias) ? joiner.alias : joiner.alias === undefined ? [] : [joiner.alias]).filter(alias => alias.entity === "PriceSet") }),
-      reads: [{ model: "PriceSet", command: count, table: prepared.table, paths: variantItemPricing ? [] : prepared.paths, orderable: ["id"], uniqueOrder: ["id"], multipleOrder: false, decode: decodeGraphCount }],
+      reads: [{ model: "PriceSet", command: count, table: prepared.table, paths: variantItemPricing && !storeProductRead ? [] : prepared.paths,
+        ...(storeProductRead ? { computedObjects: { calculated_price: storeCalculatedPriceObject }, selectedFieldsOnly: true as const, nativeFields: true as const } : {}),
+        orderable: ["id"], uniqueOrder: ["id"], multipleOrder: false, decode: storeProductRead ? decodeStorePriceSetCount : decodeGraphCount }],
     };
     const decodeShippingCreateArguments = commerceDecoder(Schema.Tuple([ShippingPriceSetsInput]), "invalidInput");
     const decodeSelectedCreateArguments = (value: unknown): Result.Result<readonly [typeof ShippingPriceSetsInput.Type], CommerceTransactionError> =>

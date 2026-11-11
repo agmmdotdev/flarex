@@ -28,6 +28,16 @@
       "types": "./dist/adminProductEffectHost.d.mts",
       "source": "./src/adminProductEffectHost.mts",
       "default": "./dist/adminProductEffectHost.mjs"
+    },
+    "./store-product": {
+      "types": "./dist/store-product.d.ts",
+      "source": "./src/store-product.ts",
+      "default": "./dist/store-product.js"
+    },
+    "./store-product-effect": {
+      "types": "./dist/storeProductEffectHost.d.mts",
+      "source": "./src/storeProductEffectHost.mts",
+      "default": "./dist/storeProductEffectHost.mjs"
     }
   },
   "dependencies": {

@@ -22,6 +22,8 @@ function fixture(options: { anonymous?: boolean; deny?: string; admissionError?:
   const handler = createAdminProductHttpHandler({
     adminCors: "https://admin.example", resolveAdminPrincipal: () => options.anonymous ? undefined : principal,
     evaluateAdminPolicies: evaluate, admitProductRefetchFields: () => undefined, admitCatalogRefetchFields: () => undefined,
+    admitSalesChannelRefetchFields: () => undefined,
+    admitPriceListRefetchFields: () => undefined,
     admitVariantRefetchFields: admission,
     createRequestScope: () => createContainer().register({ query: asValue({ graph }), remoteQuery: asValue(remoteQuery), workflows: asValue({ run }), logger: asValue({ error() {}, info() {} }) }),
   })
