@@ -16,9 +16,6 @@ import {
   ScopeSyncQueryModelSha256Error,
 } from "flarex-protocol/internal/scope-sync-query-model-v1";
 import {
-  ScopeSyncQueryGenerationSequenceV1Schema,
-} from "flarex-protocol/internal/scope-sync-v1";
-import {
   canonicalizeApplicationRuntimeTargetV1,
 } from "flarex-protocol/internal/application-runtime-target-v1";
 import {
@@ -33,9 +30,6 @@ import { SOURCE_ARTIFACT_V2_ROLE_EXECUTION } from
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApplicationExecutionHostError } from
   "flarex-backend/internal/application-execution-host";
-import {
-  captureScopeSyncQueryEvaluationProjectionV1Result,
-} from "flarex-backend/internal/query-sync-model-v1";
 
 const operations = vi.hoisted(() => ({
   open: vi.fn(),
@@ -406,18 +400,6 @@ describe("Application query system", () => {
       },
       { dependencyCapture: "evaluation" },
     );
-    const projected = captureScopeSyncQueryEvaluationProjectionV1Result({
-      ...receipt,
-      generation: ScopeSyncQueryGenerationSequenceV1Schema.make(1n),
-    });
-    expect(Result.isSuccess(projected)).toBe(true);
-    if (Result.isSuccess(projected)) {
-      expect(projected.success.evaluation).toMatchObject({
-        namespaceId: "00000000-0000-4000-8000-000000000001",
-        sourceEpoch: "00000000-0000-4000-8000-000000000002",
-        snapshotSequence: 7n,
-      });
-    }
   });
 
   it("refuses evaluation evidence when the selected source root is incoherent", async () => {

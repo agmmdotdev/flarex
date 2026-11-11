@@ -1,5 +1,7 @@
 # Convex mechanism divergence records
 
+- [Query checkpoint reconstruction](./query-checkpoint-reconstruction.md) preserves bounded private sync-object recovery with derived SQLite progress and Core-owned fixed-target evidence.
+
 - [Write-log generation snapshots](./write-log-generation-snapshots.md) reuse immutable committed conflict views until append or retention pruning.
 
 - [Native policy match reuse](./native-policy-match-reuse.md) retains immutable comparison evidence while the live registry owns authority.

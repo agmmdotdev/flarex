@@ -1,12 +1,13 @@
 import { randomBytes } from "node:crypto";
-import { Cause, Clock, Deferred, Effect, Exit, Fiber, Option, Result } from "effect";
+import { Cause, Clock, Data, Deferred, Effect, Exit, Fiber, Option, Result } from "effect";
 import { describe, expect, it } from "vitest";
 import { openCoreDatabase } from "../../src/core/database";
-import type { CoreDatabase, CoreDatabaseOptions, CoreQueryOperation, CoreQueryTarget, CoreReadToken } from "../../src/core/api";
+import type { CoreApplicationRegistration, CoreDatabase, CoreDatabaseOptions, CoreQueryOperation, CoreQueryTarget, CoreReadToken } from "../../src/core/api";
 import { CorePersistenceError, type CorePersistence } from "../../src/core/contracts";
 import { captureCoreSchema } from "../../src/core/schemaTypes";
 import type { CorePersistenceFixture } from "./fixture";
 import { activateCoreSchema, CORE_SCHEMA_WORKER_TEST_OPTIONS } from "./schemaFixture";
+import { activateApplication, prepareApplication } from "./applicationDeploymentFixture";
 
 const path = "items:read";
 const options: CoreDatabaseOptions = { schemaWorker: CORE_SCHEMA_WORKER_TEST_OPTIONS,
@@ -16,6 +17,13 @@ const schema = Result.getOrThrow(captureCoreSchema({ schemaValidation: true, tab
   indexes: [{ indexDescriptor: "by_value", fields: ["value"] }], stagedDbIndexes: [] }] }));
 const publication = { programs: [{ identity: { functionPath: path, programHash: "original", schemaHash: "schema" }, metadata: {} }] };
 const budget = { maximumElapsedMilliseconds: 10_000 };
+const registration = (): CoreApplicationRegistration => ({ deploymentId: "query-target-registration",
+  scopeUuid: "74bd6a8e-8dd1-414b-9515-0f342e8c5762", epochUuid: "e56ca002-c0b7-4881-8105-a8d7c23cf70d",
+  sourceArtifactRootSha256: "a".repeat(64), sourcePackageHash: "a".repeat(64), analyzerIdentity: "c".repeat(64),
+  analyzerPolicyIdentity: "flarex.application-analysis-policy/compat=2026-10-01;fetch=deny", compatibilityDate: "2026-10-01", generation: 1,
+  programs: [{ identity: { functionPath: "items:other", programHash: "e".repeat(64), schemaHash: "f".repeat(64) }, metadata: { purpose: "query" } },
+    { identity: { functionPath: path, programHash: "d".repeat(64), schemaHash: "f".repeat(64) }, metadata: { purpose: "query" } }],
+});
 const prepare = Effect.fn("CoreQueryTargetScenario.prepare")(function* (database: CoreDatabase) {
   yield* activateCoreSchema(database, schema, publication);
   const transaction = yield* database.begin();
@@ -37,6 +45,158 @@ const evaluate = Effect.fn("CoreQueryTargetScenario.evaluate")(function* (target
 
 export function registerCoreQueryTargetScenarios(name: string, createFixture: () => Promise<CorePersistenceFixture>) {
 describe(name, () => {
+  for (const trigger of ["external interruption", "deadline"] as const)
+  it(`preserves callback cleanup failure and interruption after ${trigger}`, async () => {
+    const fixture = await createFixture();
+    try { await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+      class CallbackCleanupFailure extends Data.TaggedError("CallbackCleanupFailure")<{ readonly marker: string }> {}
+      const cleanupFailure = new CallbackCleanupFailure({ marker: trigger });
+      const entered = yield* Deferred.make<CoreQueryTarget>();
+      const database = yield* openCoreDatabase(fixture.persistence, { ...options, maxQueryTargets: 1 });
+      const { first } = yield* prepare(database);
+      const running = yield* Effect.forkChild(database.withQueryTarget({ maximumElapsedMilliseconds: trigger === "deadline" ? 500 : 10_000 },
+        target => Effect.acquireUseRelease(target.beginQuery(path), () => Effect.andThen(Deferred.succeed(entered, target), Effect.never),
+          operation => Effect.andThen(operation.abort(), Effect.fail(cleanupFailure)))));
+      const target = yield* Deferred.await(entered);
+      if (trigger === "external interruption") yield* Fiber.interrupt(running);
+      const outcome = yield* Fiber.await(running);
+      expect(Exit.isFailure(outcome) && outcome.cause.reasons.some(reason => Cause.isFailReason(reason) && reason.error === cleanupFailure)).toBe(true);
+      expect(Exit.isFailure(outcome) && Cause.hasInterrupts(outcome.cause)).toBe(true);
+      expect(Result.getFailure(yield* Effect.result(target.assertOpen))).toEqual(Option.some(expect.objectContaining({ reason: "closed" })));
+      yield* database.withQueryTarget(budget, next => evaluate(next, first));
+    }))); } finally { await fixture.close(); }
+  }, 30_000);
+
+  it("certifies sparse saved intervals against one captured log while ordinary snapshots are pruned", async () => {
+    const fixture = await createFixture();
+    try { await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+      let now = 1_000_000_000n;
+      const database = yield* openCoreDatabase(fixture.persistence, { ...options, now: Effect.sync(() => now) });
+      const { first, second } = yield* prepare(database);
+      const saved = yield* database.publishedTimestamp;
+      now += 20_000_000_000n;
+      yield* patch(database, second, 11);
+      yield* database.withQueryTarget(budget, target => Effect.gen(function* () {
+        const after = saved + 123n;
+        const interval = yield* target.retainedInterval(after);
+        expect(interval).toMatchObject({ after, through: target.timestamp });
+        expect(interval.retainedFrom).toBeLessThanOrEqual(saved);
+        expect(Object.isFrozen(interval)).toBe(true);
+        now += 11_000_000_000n;
+        yield* patch(database, first, 2);
+        now += 11_000_000_000n;
+        yield* patch(database, first, 3);
+        expect(Result.getFailure(yield* Effect.result(database.begin({ at: target.timestamp })))).toEqual(
+          Option.some(expect.objectContaining({ reason: "outOfRetention" })));
+        expect(yield* target.retainedInterval(after)).toEqual(interval);
+        expect(yield* target.retainedInterval(target.timestamp)).toEqual({
+          after: target.timestamp, through: target.timestamp, retainedFrom: interval.retainedFrom,
+        });
+        expect(Result.getFailure(yield* Effect.result(target.retainedInterval(target.timestamp + 1n)))).toEqual(
+          Option.some(expect.objectContaining({ reason: "invalidTarget" })));
+        for (const invalid of [-1n, 0x8000_0000_0000_0000n])
+          expect(Result.getFailure(yield* Effect.result(target.retainedInterval(invalid)))).toEqual(
+            Option.some(expect.objectContaining({ reason: "invalidValue" })));
+      }));
+    }))); } finally { await fixture.close(); }
+  }, 30_000);
+
+  it("refuses a saved checkpoint before a cold owner's retained edge and a cursor ahead of its target", async () => {
+    const fixture = await createFixture();
+    try {
+      const saved = await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+        const database = yield* openCoreDatabase(fixture.persistence, options);
+        const { first } = yield* prepare(database);
+        const before = yield* database.publishedTimestamp;
+        const latest = yield* patch(database, first, 2);
+        return { before, latest };
+      })));
+      const reopened = await fixture.reopen();
+      await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+        const database = yield* openCoreDatabase(reopened, options);
+        yield* database.withQueryTarget(budget, target => Effect.gen(function* () {
+          expect(target.timestamp).toBe(saved.latest);
+          expect(yield* target.retainedInterval(saved.latest)).toEqual({
+            after: saved.latest, through: saved.latest, retainedFrom: saved.latest,
+          });
+          expect(Result.getFailure(yield* Effect.result(target.retainedInterval(saved.before)))).toEqual(
+            Option.some(expect.objectContaining({ reason: "outOfRetention" })));
+          expect(Result.getFailure(yield* Effect.result(target.retainedInterval(saved.latest + 1n)))).toEqual(
+            Option.some(expect.objectContaining({ reason: "invalidTarget" })));
+        }));
+      })));
+    } finally { await fixture.close(); }
+  }, 30_000);
+
+  it("authenticates the complete Application registration at its captured target without selecting latest", async () => {
+    const fixture = await createFixture();
+    try { await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+      let now = 1_000_000_000n;
+      const database = yield* openCoreDatabase(fixture.persistence, { ...options, now: Effect.sync(() => now) });
+      expect(yield* database.withQueryTarget(budget, target => target.readApplicationRegistration())).toEqual(Option.none());
+      const frame = registration();
+      yield* activateApplication(database, schema, { programs: frame.programs, applicationRegistration: frame });
+      const writer = yield* database.begin();
+      const id = yield* writer.insert("items", { value: 1 });
+      yield* database.commit(yield* writer.finalize());
+      yield* database.withQueryTarget(budget, target => Effect.gen(function* () {
+        now += 11_000_000_000n;
+        yield* patch(database, id, 2);
+        now += 11_000_000_000n;
+        yield* patch(database, id, 3);
+        expect(Result.getFailure(yield* Effect.result(database.begin({ at: target.timestamp })))).toEqual(
+          Option.some(expect.objectContaining({ reason: "outOfRetention" })));
+        const actual = Option.getOrThrow(yield* target.readApplicationRegistration());
+        expect(actual).toMatchObject({ deploymentId: frame.deploymentId, sourcePackageHash: frame.sourcePackageHash,
+          sourceArtifactRootSha256: frame.sourceArtifactRootSha256, programs: frame.programs.map(program => ({ identity: program.identity })) });
+        expect(actual.programs).toHaveLength(2);
+        expect(Object.isFrozen(actual)).toBe(true);
+        expect(Object.isFrozen(actual.programs)).toBe(true);
+        expect((yield* target.retainedInterval(target.timestamp)).through).toBe(target.timestamp);
+      }));
+    }))); } finally { await fixture.close(); }
+  }, 30_000);
+
+  it("fences registration reads and buffered evidence for pending and current Application replacement", async () => {
+    const fixture = await createFixture();
+    try { await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+      const saved = yield* Deferred.make<void>(), release = yield* Deferred.make<void>();
+      let armed = false;
+      const persistence: CorePersistence = { ...fixture.persistence, write: (lease, batch) => fixture.persistence.write(lease, batch).pipe(
+        Effect.andThen(Effect.suspend(() => {
+          if (!armed) return Effect.void;
+          armed = false;
+          return Effect.andThen(Deferred.succeed(saved, undefined), Deferred.await(release));
+        })),
+      ) };
+      const database = yield* openCoreDatabase(persistence, options);
+      const first = registration();
+      yield* activateApplication(database, schema, { programs: first.programs, applicationRegistration: first });
+      const replacement = { ...first, sourcePackageHash: "b".repeat(64), programs: first.programs.slice(0, 1) };
+      const candidate = yield* prepareApplication(database, { schema, registration: replacement });
+      const observed = yield* Effect.result(database.withQueryTarget(budget, target => Effect.gen(function* () {
+        const previous = Option.getOrThrow(yield* target.readApplicationRegistration());
+        expect(previous.sourcePackageHash).toBe(first.sourcePackageHash);
+        expect(previous.programs).toHaveLength(2);
+        armed = true;
+        const publishing = yield* Effect.forkChild(database.activateApplicationCandidate(candidate.candidateId, { programs: replacement.programs }));
+        yield* Deferred.await(saved);
+        expect(yield* database.publishedTimestamp).toBe(target.timestamp);
+        expect(Result.getFailure(yield* Effect.result(target.readApplicationRegistration()))).toEqual(
+          Option.some(expect.objectContaining({ reason: "authorityRevoked" })));
+        yield* Deferred.succeed(release, undefined);
+        yield* Fiber.join(publishing);
+        expect(Result.getFailure(yield* Effect.result(target.readApplicationRegistration()))).toEqual(
+          Option.some(expect.objectContaining({ reason: "authorityRevoked" })));
+        return previous;
+      }).pipe(Effect.ensuring(Deferred.succeed(release, undefined)))));
+      expect(Result.getFailure(observed)).toEqual(Option.some(expect.objectContaining({ reason: "authorityRevoked" })));
+      const current = Option.getOrThrow(yield* database.withQueryTarget(budget, target => target.readApplicationRegistration()));
+      expect(current.sourcePackageHash).toBe(replacement.sourcePackageHash);
+      expect(current.programs).toEqual(replacement.programs.map(program => ({ identity: program.identity })));
+    }))); } finally { await fixture.close(); }
+  }, 30_000);
+
   it("evaluates multiple queries at one fixed target while later relevant writes continue", async () => {
     const fixture = await createFixture();
     try { await Effect.runPromise(Effect.scoped(Effect.gen(function* () {

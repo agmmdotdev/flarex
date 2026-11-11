@@ -58,20 +58,29 @@ Executor query work and network delivery occur outside its local state
 transactions. Gateway connection resources may be separated for capacity, but
 session consistency/reconnect logic is not reimplemented in that gateway.
 
-`DeploymentSyncDO` currently exposes only a private catch-up probe. The source,
-tracked-query producer and generation-4 state adapter are private baseline work,
-not completed fixed-target sessions or production delivery. The
+`DeploymentSyncDO` exposes only a private catch-up probe. Its selected
+[translated Core cutover](../roadmaps/query-sync-engine/preflight/16-translated-core-source-retirement.md)
+is a fixed-target checkpoint consumer for an empty query set; it preserves
+bounded progress and reconstruction without claiming fixed-target sessions or
+production delivery. Historical generation-4 records remain private baseline
+evidence; its unconsumed adapter runtime and compatibility closure are retired.
+The
 [source/host record](../roadmaps/query-sync-engine/preflight/13-qsync-fx02-postgres-host-composition.md)
 and [producer record](../roadmaps/query-sync-engine/preflight/14-qsync-fx02-c-application-query-evidence.md)
 retain that evidence and the known durable-execution-material gap.
 
 ## Exact Source Contract
 
-Postgres remains the only committed-data authority. Source positions use the
-existing scope/epoch/commit contract, not timestamps or transport offsets.
-Epoch rollover fences old work but does not reset authoritative data or reuse
-scope-lifetime commit numbers. The source feed captures complete committed
-facts, retention and authority coherently; direct wakes never supply truth.
+Postgres remains the only committed-data authority. The selected translated
+source binds published Core timestamps to the Application deployment, scope,
+epoch and authenticated source identity. These positions are sparse; subtraction
+does not count commits. The former scope/epoch/dense-commit contract remains with
+its named unmigrated consumers and is not a wrapper for Core timestamps. Epoch
+replacement fences old work without resetting authoritative data. A captured
+log interval or complete dependency-validity certificate must correlate target,
+retention and current authority; direct wakes never supply truth. The owner
+selected pinned Convex log/retention semantics rather than the former feed's
+extra independent missing-commit corruption evidence.
 
 The bridge must prove selected-target logical snapshots or an equivalent
 certified coherent query-set snapshot. Existing current-snapshot producer evidence
@@ -96,11 +105,13 @@ transport failure cannot be called transaction rollback.
 
 Reuse logical read observation from the actual query runtime. Successful missing
 point reads and empty ranges are dependencies, and nested reads share one
-snapshot. The current query producer conservatively captures table dependencies
-for index reads; retain correctness before optimizing precision. Do not leak
-physical OCC handles into the service or claim fine-grained range support already
-exists. Framework and relation consumers must supply complete receipts through
-the same execution owner, not add their own sync algorithms.
+snapshot. The translated Core captures exact index intervals, including its
+virtual metadata identities. Preserve that evidence at the source instead of
+flattening it into the former producer's equality/table keys. Core tokens are
+trusted source evidence, never untrusted subscription inputs or physical commit
+capabilities. Complete service query tracking remains a separate gate. Framework
+and relation consumers must use the same execution owner instead of adding
+their own sync algorithms.
 
 The bridge binds canonical function/arguments, code/schema/runtime policy and
 effective authorization. Query sharing never uses equal text alone. All mutable
@@ -123,7 +134,10 @@ source-owned and requires its retention contract. It is not an indefinite lease
 on all history for every disconnected browser. A resume request older than
 retained evidence resets rather than claiming complete incremental replay.
 
-Preserve the replayable commit feed and reliable wake evidence. A host recovery
+Preserve retained source coverage and reliable wake evidence. Source-certified
+token validity over a complete retained interval can replace raw feed
+enumeration; do not fabricate dense commits or a second durable receipt chain.
+A host recovery
 owner must close lost direct wakes before any results are queued, plus missed
 notifications on active connections. A checkpoint mirror, if justified, may lag
 actual progress but never lead, and cannot become a second query registry.
@@ -136,7 +150,7 @@ The database's business-event outbox and mutation journals/outcomes are unaffect
 
 ## Deferred Work And Exit Gate
 
-Cache actors, sharding, precise range matching, external result stores and
+Cache actors, sharding, additional service indexes, external result stores and
 additional transports require measured need and separate ownership proofs.
 Durable Streams is optional, not a blocker for the ordinary query path or the
 owner of portable session consistency. App schema evolution does not normally

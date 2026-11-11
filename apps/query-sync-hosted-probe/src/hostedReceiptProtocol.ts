@@ -10,8 +10,8 @@ const StrictParseOptions = Object.freeze({
 });
 
 const InitialOutcomeSchema = Schema.Struct({
-  state: Schema.Literal("continuationRequired"),
-  reason: Schema.Literal("admittedBatchLimitReached"),
+  state: Schema.Literal("checkpointReady"),
+  initialContinuation: Schema.Literal("stateTransitionLimitReached"),
   cursor: Schema.String,
 }).annotate(StrictStructOptions);
 

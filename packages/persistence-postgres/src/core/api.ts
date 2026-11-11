@@ -5,7 +5,8 @@ import type { CoreSchemaError } from "./schemaTypes";
 import type {
   CoreIndexCursor, CoreIndexRef, CoreInterval, CoreOrder, CorePersistenceError, CoreTimestamp,
 } from "./contracts";
-import type { CoreReadSet } from "./writeLog";
+import type { CoreReadSet, CoreRetainedInterval } from "./writeLog";
+export type { CoreRetainedInterval } from "./writeLog";
 import type { JsonObject } from "flarex-protocol/json";
 import { CoreTableIteratorResourceBudgetSchema, CoreIteratorPositiveBudgetSchema } from "./iteratorBudget";
 import type { CoreNativeDefinition, CoreNativeIdentity, CoreNativeTablePolicy } from "./nativePolicy";
@@ -502,6 +503,10 @@ export interface CoreQueryOperation {
 export interface CoreQueryTarget {
   readonly timestamp: CoreTimestamp;
   readonly assertOpen: Effect.Effect<void, CoreError>;
+  /** Full captured-log coverage for a saved checkpoint; no fabricated query token. */
+  readonly retainedInterval: (after: CoreTimestamp) => Effect.Effect<CoreRetainedInterval, CoreError>;
+  /** Authenticate registration and its complete live closure at this target. */
+  readonly readApplicationRegistration: () => Effect.Effect<Option.Option<CoreApplicationRegistrationMetadata>, CoreError>;
   readonly beginQuery: (functionPath: string, expectedApplication?: CoreApplicationSourcePin) => Effect.Effect<CoreQueryOperation, CoreError>;
   /** None means a tracked dependency changed in the complete retained interval. */
   readonly refresh: (token: CoreReadToken) => Effect.Effect<Option.Option<CoreReadToken>, CoreError>;

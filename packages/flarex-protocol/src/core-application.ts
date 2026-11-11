@@ -26,6 +26,8 @@ const Evaluation = Schema.Struct({ timestamp: Timestamp, reads: Schema.Array(Rea
 const Route = Schema.Struct({ deploymentId: Text, scopeUuid: Uuid, epochUuid: Uuid }).annotate(strict);
 const WallTime = Schema.Finite.check(Schema.makeFilter(value => value >= 0 ? undefined : "Expected nonnegative epoch milliseconds"));
 export type CoreApplicationRouteIdentity = typeof Route.Type;
+export const CoreApplicationRouteIdentitySchema = Route;
+export const CoreApplicationTimestampSchema = Timestamp;
 
 const requestHeader = {
   format: Schema.Literal("flarex.core-application.request"), version: Schema.Literal(1),

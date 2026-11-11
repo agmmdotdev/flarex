@@ -63,3 +63,10 @@ records the owner's explicit selection of pinned Convex log/retention semantics
 instead of the former dense feed's extra missing-commit corruption check. Its
 fixed-target Core source proof precedes the actual baseline host cutover;
 selecting that contract alone does not retire functional callers.
+
+The connected private checkpoint consumer now uses the canonical Application
+Core source and its bounded SQLite checkpoint owner. Its former correlated
+reader/HTTP/client and unconsumed generation-4 SQLite adapter, migration codecs
+and test-only construction retire together. The separate functional legacy
+executor live-query/delivery system, Task and finite/native callers retain their
+named migration gates; this checkpoint is not a complete reactive-service cutover.

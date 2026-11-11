@@ -544,8 +544,8 @@ function initialReceipt() {
     objectName: "deployment-sync:93000000-0000-4000-8000-000000000001",
     bootId: "boot-initial",
     outcome: Object.freeze({
-      state: "continuationRequired",
-      reason: "admittedBatchLimitReached",
+      state: "checkpointReady",
+      initialContinuation: "stateTransitionLimitReached",
       cursor: "1",
     }),
   });

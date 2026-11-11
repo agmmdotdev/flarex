@@ -3,7 +3,7 @@
  * at db914cf06e2b06ee985646611b9e12ed7a770318: JsonPackedValue is stored as an internal-JSON string.
  * Copyright 2026 Convex, Inc., FSL-1.1-Apache-2.0 (convex-backend/LICENSE.md).
  */
-import { Cause, Clock, Effect, Exit, Option, Result, Schema, Semaphore } from "effect";
+import { Cause, Clock, Effect, Exit, Fiber, Option, Result, Schema, Semaphore } from "effect";
 import { bytesEqual } from "@flarex/utils/bytes";
 import { compareUtf16Strings } from "@flarex/utils/strings";
 import { isJsonObject, type Json } from "flarex-protocol/json";
@@ -278,6 +278,39 @@ function ownedQueryToken(token: CoreReadToken): CoreReadToken {
     } }),
   });
 }
+
+/** The callback owns fallible cleanup. Race only its Exit waiter so RC.112's
+ * loser cancellation cannot discard the callback's completed cleanup Cause. */
+const runQueryTargetCallback = Effect.fn("CoreDatabase.runQueryTargetCallback")(<Value, Failure, Requirements>(
+  work: Effect.Effect<Value, Failure, Requirements>, milliseconds: number,
+): Effect.Effect<Value, Failure | CoreTransactionError, Requirements> => Effect.uninterruptibleMask(restore => Effect.gen(function* () {
+  const callback = yield* Effect.forkChild(restore(work));
+  const waited = yield* Effect.exit(restore(Effect.raceFirst(
+    Fiber.await(callback).pipe(Effect.map(exit => ({ kind: "callback" as const, exit }))),
+    Effect.sleep(milliseconds).pipe(Effect.andThen(Effect.fiberId),
+      Effect.map(interruptor => ({ kind: "deadline" as const, interruptor }))),
+  )));
+  if (Exit.isFailure(waited)) {
+    yield* Fiber.interrupt(callback);
+    const completed = yield* Fiber.await(callback);
+    return yield* Effect.failCause(Exit.isFailure(completed)
+      ? Cause.combine(waited.cause, completed.cause) : waited.cause);
+  }
+  if (waited.value.kind === "callback") {
+    const completed = waited.value.exit;
+    if (Exit.isFailure(completed)) return yield* Effect.failCause(completed.cause);
+    return completed.value;
+  }
+  const interruptor = waited.value.interruptor;
+  yield* Fiber.interruptAs(callback, interruptor);
+  const completed = yield* Fiber.await(callback);
+  if (Exit.isFailure(completed)) {
+    const ownTimeout = completed.cause.reasons.length > 0 && completed.cause.reasons.every(reason =>
+      Cause.isInterruptReason(reason) && reason.fiberId === interruptor);
+    if (!ownTimeout) return yield* Effect.failCause(completed.cause);
+  }
+  return yield* new CoreTransactionError({ reason: "admissionExpired" });
+})));
 
 // Managed schema ownership includes private native tables; bootstrap system
 // tables belong to their separate model. Public activation results filter both.
@@ -1381,6 +1414,19 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
     queryTokens.add(token);
     return token;
   };
+  const finishApplicationRead = Effect.fn("CoreDatabase.finishApplicationRead")(function* (
+    selected: Effect.Success<ReturnType<typeof make>>, target?: Parameters<typeof make>[5],
+  ) {
+    const token = yield* selected.context.finishRead();
+    const metadataReads = yield* Effect.fromResult(coreMetadataReadSet(selected.registry, token.reads));
+    const frontiers = Object.freeze([...(token.metadataReadFrontiers ?? []),
+      ...(metadataReads.length === 0 ? [] : [{ timestamp: token.timestamp, reads: metadataReads }])]);
+    yield* committer.validateReadMetadata(frontiers);
+    yield* (target?.assertOpen ?? assertOpen);
+    if (target !== undefined) for (const frontier of frontiers) for (const read of frontier.reads)
+      for (const interval of read.intervals) target.metadataReads.add(read.indexId, interval);
+    return { ...token, metadataReadFrontiers: frontiers };
+  });
   const beginQuery = Effect.fn("CoreDatabase.beginQuery")((path: string, expectedApplication?: CoreApplicationSourcePin,
     target?: Parameters<typeof make>[5]): Effect.Effect<CoreQueryOperation, CoreError> => {
     const pin = expectedApplication === undefined ? undefined : decodeApplicationSourcePin(expectedApplication).pipe(Result.mapError(invalid));
@@ -1390,15 +1436,7 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
       const program = yield* transaction.selectProgram(path);
       const { timestamp, unixTime, usage, selectProgram, tableNumber, tableMappings, normalizeId, get, startQuery, scan } = transaction;
       const finish = Effect.fn("CoreDatabase.finishApplicationQuery")(function* () {
-        const token = yield* selected.context.finishRead();
-        const metadataReads = yield* Effect.fromResult(coreMetadataReadSet(selected.registry, token.reads));
-        const frontiers = Object.freeze([...(token.metadataReadFrontiers ?? []),
-          ...(metadataReads.length === 0 ? [] : [{ timestamp: token.timestamp, reads: metadataReads }])]);
-        yield* committer.validateReadMetadata(frontiers);
-        yield* (target?.assertOpen ?? assertOpen);
-        if (target !== undefined) for (const frontier of frontiers) for (const read of frontier.reads)
-          for (const interval of read.intervals) target.metadataReads.add(read.indexId, interval);
-        return issueQueryToken({ ...token, metadataReadFrontiers: frontiers });
+        return issueQueryToken(yield* finishApplicationRead(selected, target));
       });
       return Object.freeze({ program,
         transaction: Object.freeze({ timestamp, unixTime, usage, selectProgram, tableNumber, tableMappings, normalizeId, get, startQuery, scan }),
@@ -1418,7 +1456,7 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
         yield* assertOpen;
         if (activeQueryTargets >= maxQueryTargets) return yield* new CoreTransactionError({ reason: "capacity" });
         activeQueryTargets += 1;
-      }), () => Effect.gen(function* () {
+      }), () => runQueryTargetCallback(Effect.gen(function* () {
         retained = yield* startNative();
         const timestamp = retained.timestamp;
         const assertTargetOpen = Effect.gen(function* () {
@@ -1432,17 +1470,36 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
           if ((yield* Clock.monotonicTimeNanos) >= deadline) return yield* new CoreTransactionError({ reason: "admissionExpired" });
         });
         yield* assertTargetOpen;
-        const target: CoreQueryTarget = Object.freeze({ timestamp, assertOpen: assertTargetOpen,
-          beginQuery: (path: string, pin?: CoreApplicationSourcePin) => Effect.suspend(() => retained === undefined
-            ? Effect.fail(new CoreTransactionError({ reason: "closed" }))
-            : beginQuery(path, pin, { selected: { timestamp: retained.timestamp, registry: retained.registry,
+        const captureTarget = (): Result.Result<NonNullable<Parameters<typeof make>[5]>, CoreError> => retained === undefined
+            ? Result.fail(new CoreTransactionError({ reason: "closed" }))
+            : Result.succeed({ selected: { timestamp: retained.timestamp, registry: retained.registry,
               resident: retained.resident, snapshot: retained.snapshot, ...(retained.counts === undefined ? {} : { counts: retained.counts }) },
               assertOpen: assertTargetOpen, borrowed: operations, metadataReads,
               register: context => {
                 if (!active) return Result.fail(new CoreTransactionError({ reason: "closed" }));
                 operations.add(context);
                 return Result.succeed(undefined);
-              } })),
+              } });
+        const target: CoreQueryTarget = Object.freeze({ timestamp, assertOpen: assertTargetOpen,
+          beginQuery: (path: string, pin?: CoreApplicationSourcePin) => Effect.suspend(() => Effect.flatMap(
+            Effect.fromResult(captureTarget()), captured => beginQuery(path, pin, captured))),
+          retainedInterval: Effect.fn("CoreQueryTarget.retainedInterval")(function* (after: bigint) {
+            yield* assertTargetOpen;
+            const capturedAfter = yield* decodeCreationTimestamp(after).pipe(Effect.mapError(invalid));
+            const selected = retained;
+            if (selected === undefined) return yield* new CoreTransactionError({ reason: "closed" });
+            const interval = yield* Effect.fromResult(selected.writeLog.retainedInterval(capturedAfter));
+            yield* assertTargetOpen;
+            return interval;
+          }),
+          readApplicationRegistration: Effect.fn("CoreQueryTarget.readApplicationRegistration")(function* () {
+            const captured = yield* Effect.fromResult(captureTarget());
+            return yield* useTransaction(make(undefined, undefined, true, null, true, captured), selected => Effect.gen(function* () {
+              const registration = yield* selected.context.runSystem(readActiveCoreApplicationRegistration(selected.context, checkedApplicationRegistrations));
+              yield* finishApplicationRead(selected, captured);
+              return registration;
+            }), false, selected => captured.register(selected.context));
+          }),
           refresh: Effect.fn("CoreQueryTarget.refresh")(function* (token) {
             yield* assertTargetOpen;
             const selected = retained;
@@ -1468,7 +1525,7 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
         yield* committer.validateReadMetadata([{ timestamp, reads: metadataReads.snapshot() }]);
         yield* assertTargetOpen;
         return value;
-      }).pipe(Effect.timeoutOrElse({ duration, orElse: () => Effect.fail(new CoreTransactionError({ reason: "admissionExpired" })) })),
+      }), duration),
       () => Effect.gen(function* () {
         active = false;
         retained = undefined;

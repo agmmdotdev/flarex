@@ -7,6 +7,7 @@
     "src"
   ],
   "exports": {
+    "./internal/checkpoint": "./src/checkpoint/index.ts",
     "./internal/change": "./src/change/index.ts",
     "./internal/kernel": "./src/kernel/index.ts",
     "./internal/orchestration": "./src/orchestration/index.ts",

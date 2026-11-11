@@ -71,7 +71,7 @@ export function makeApplicationExecutorGateway(legacy: ExecutorWorker) {
         return legacy.fetch(new Request(request, { body: copyBytesToArrayBuffer(captured.bytes) }), env);
       }
 
-      const matched = /^\/applications\/([^/]+)\/(control|profile|invoke|deployment|push\/start|push\/[^/]+(?:\/(?:finish|abandon))?)$/.exec(pathname);
+      const matched = /^\/applications\/([^/]+)\/(control|profile|invoke|query-checkpoint|deployment|push\/start|push\/[^/]+(?:\/(?:finish|abandon))?)$/.exec(pathname);
       if (matched === null) return failure("not_found", "Unknown application route.", 404);
       let deploymentId: string;
       try { deploymentId = decodeURIComponent(matched[1] ?? ""); }

@@ -1,12 +1,14 @@
 # Translated Core source retirement
 
 Status: **Convex log/retention contract selected; bounded Core and actual
-Application Worker source proof implemented. Actual baseline host cutover remains open.**
+Application Worker source and private checkpoint consumer implemented. Full query/session cutover remains open.**
 
 The owner confirms there is no deployed data to migrate and requires preserving
-supported behavior while removing the previous core. The old sync source remains
-a functional caller of scope clocks, commit headers and change facts. A source
-proof alone does not remove that caller or complete live-query activation.
+supported behavior while removing the previous core. The former correlated
+source and its actual private checkpoint caller have migrated together. Separate
+functional legacy executor live-query and delivery paths retain their own
+callers; this cutover does not complete live-query activation or retire their
+shared tables.
 
 ## Source guarantee disposition
 
@@ -18,10 +20,11 @@ to reproduce it. This disposition is specific to replacement sync source evidenc
 It does not weaken mutation settlement, outcomes, fencing, atomic persistence,
 index integrity, authorization or retained-interval validation.
 
-The former feed's interior/tail header-gap and child-evidence cases describe its
-implementation and remain meaningful while that feed serves actual callers.
-They must not be weakened to pretend that the old source already migrated.
-No-data disposition removes conversion obligations, not functional callers.
+The correlated reader's dedicated interior/tail header-gap and child-evidence
+tests retire with that reader under this explicit guarantee disposition. The
+separate legacy commit feed retains its actual consumers and owner tests; its
+independent mutation/settlement guarantees do not change. No-data disposition
+removes conversion obligations, not functional callers.
 
 Independent current-Core, accepted-direction and pinned-source challenges agree
 on `db914cf06e2b06ee985646611b9e12ed7a770318`'s `write_log.rs` token-refresh
@@ -60,12 +63,91 @@ ordinary-role PostgreSQL lanes and the actual Worker query owner where relevant.
 
 ## Remaining cutover
 
-`CatchUpProbe -> CatchUpHost -> makeNamespaceCatchUp` still uses the dense
-baseline and generation-4 state. It cannot consume this source capability by an
-import swap. A connected fixed-target host/state replacement must preserve its
-bounded catch-up/reopen behavior before the old correlated reader and schema can
-retire. Do not fabricate dense commits, flatten index intervals into obsolete
-equality keys, weaken old tests or remove the Core subscription refusal early.
+### Selected actual checkpoint consumer
+
+Independent current-owner, accepted-direction and pinned-Convex challenges
+converged on the next connected runtime slice. `DeploymentSyncDO` exposes only
+`runCatchUpProbe`; its actual constructor does not register, evaluate or publish
+query rows. Those generation-4 methods have separate test-only consumers. The
+additional actual caller is `apps/query-sync-hosted-probe`, including its source
+fixture, receipt protocol and reconstruction harness. Migrate that whole caller
+graph with the backend host, rather than preserving a dense source for it.
+
+The successor is a fixed-target checkpoint consumer for an empty query set.
+Preserve private authorization, canonical scope routing, explicit fresh
+initialization, bounded continuation, concurrent calls, scope isolation, lost
+responses, persisted reopen, retained-history loss and source replacement.
+Timestamp gaps are positions, not counts of committed batches. Its bounded
+budget counts actual source reads and atomic state transitions.
+
+The current Core target requires two connected additions: a retained-interval
+check for an arbitrary saved checkpoint, and authenticated Application
+registration read against that same target. A fabricated empty read token or a
+separate latest registration read cannot provide these proofs. The existing
+canonical Application owner must execute them inside one bounded callback and
+return detached source-bound evidence; no target capability crosses transport.
+
+The portable sync owner supplies the narrow checkpoint coordinator and an
+independent synthetic-source oracle. The Cloudflare adapter owns one fail-closed
+SQLite checkpoint record and atomic compare/advance. A stale overlapping reply
+must not regress progress or replace source identity. Sync-object reconstruction
+may resume while the same Core retains the interval; Core reconstruction may
+honestly require history reset. A malformed stored record must not initialize
+as fresh state, and no generation-4 runtime fallback remains.
+
+The [checkpoint reconstruction divergence](../../../../experiments/core/engine/divergences/query-checkpoint-reconstruction.md)
+records durable derived progress versus pinned Convex's RAM processing frontier.
+This state is never commit authority or ongoing delivery authorization.
+
+Ownership: Core owns interval/metadata proof and paired database regressions;
+the source bridge owns strict protocol, canonical Application routing and
+authentication; the sync host owns SQLite/probe/hosted-harness adoption; the
+portable coordinator owns fixed-target progress and synthetic interleavings.
+Validate actual Workerd authorization, bounds, response loss, overlap,
+isolation and reopen, alongside paired real-source tests. Remove the displaced
+source adapter, executor route/handler, transport codec and persistence reader
+when their last actual caller moves. Shared commit-feed writers/tables retain
+any independently named consumers. Full sessions, query invalidation, subscriber
+tracking and browser integration remain their separate gates.
+
+The checkpoint transport requires interruption to drain Fetch acquisition and
+body cancellation before its source operation settles. The shared backend
+`readBackendBoundedBody` previously allowed interruption to finish while the
+underlying stream cancellation remained pending. Its held-cancellation witness
+must remain at that reader's owner; correct its single read/cancel lifetime and
+retain owner and checkpoint-client regressions. Do not hide the missing drain
+with a second adapter reader, detached cleanup, swallowed cleanup failures or
+an extra timeout. Byte-limit classification and the complete interruption/Cause
+remain required.
+
+Core's generic query-target callback has the same full-Cause obligation. The
+former callback timeout race could discard its child's fallible cleanup on
+deadline or external interruption, even though target-owned cleanup remained
+outside the race. The corrected Core callback owner races only an Exit waiter
+against its timer, joins the callback explicitly and retains all cleanup causes.
+Only that timer's own cancellation is ordinary deadline expiry. Keep both
+callback witnesses at Core and the corresponding source/probe witnesses at their
+actual consumers.
+
+`CatchUpProbe -> CatchUpHost -> runCheckpointTurn` now uses the Core source and
+current checkpoint state. The former backend source client, executor route,
+HTTP codec and persistence reader retire with their exports and dedicated tests.
+The displaced generation-4 SQLite adapter and generations 1–4 migration/row/
+evaluation/publication closure had no other functional caller and retire with
+their test-only DOs. The legacy Application producer keeps its direct identity,
+authority, snapshot, dependency, result and completion assertions; only the old
+adapter projection assertion disappears. Historical records remain frozen.
+
+An overlapping fresh request must not jump over a concurrently established
+checkpoint below its certificate's retained edge. Reject that compare/advance
+without mutation; a subsequent turn requests the actual saved position and can
+receive explicit history loss. Timeout and external interruption must join the
+source child and preserve its full cleanup Cause. Only the timeout owner's own
+interrupt reasons constitute ordinary expiry.
+
+Do not fabricate dense commits, flatten exact index intervals, remove the Core
+subscription refusal or claim that this empty-query checkpoint replaces the
+separate functional legacy executor query/delivery system.
 
 The standalone synthetic source and independent oracle, service tracking,
 session/query-set protocol, state replacement and production client integration

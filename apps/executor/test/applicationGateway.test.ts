@@ -40,6 +40,16 @@ function fixture() {
 }
 
 describe("configured application gateway", () => {
+  it("routes private checkpoints to the same canonical owner after admission", async () => {
+    const f = fixture();
+    const path = `/applications/${f.profile.deploymentId}/query-checkpoint`;
+    expect((await f.gateway.fetch(f.request(path, {}), f.env)).status).toBe(200);
+    expect(f.names).toEqual([f.profile.canonicalName]);
+    expect(f.legacyCalls()).toBe(0);
+    expect((await f.gateway.fetch(f.request(path), f.env)).status).toBe(405);
+    expect((await f.gateway.fetch(f.request(path, {}, "wrong-secret"), f.env)).status).toBe(401);
+    expect(f.names).toEqual([f.profile.canonicalName]);
+  });
   it("exposes only trusted control inventory before a source is installed", async () => {
     const f = fixture();
     const response = await f.gateway.fetch(f.request(`/applications/${f.profile.deploymentId}/control`), f.env);

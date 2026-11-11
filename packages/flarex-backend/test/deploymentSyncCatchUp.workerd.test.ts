@@ -1,17 +1,7 @@
-import {
-  decodeQuerySyncSourceReadRequestV1,
-  encodeQuerySyncSourceReadResponseV1,
-  querySyncSourceReadMediaTypeV1,
-} from "@flarex/executor-http/internal-query-sync-source-read-v1";
-import type {
-  CatchUpTurnBudget,
-} from "@flarex/query-sync/internal/orchestration";
-import { copyBytesToArrayBuffer } from "@flarex/utils/bytes";
+import type { CheckpointBudget } from "@flarex/query-sync/internal/checkpoint";
 import { Result } from "effect";
-import {
-  CommitSeqSchema,
-  decodeScopeEpochUuidV1,
-} from "flarex-protocol/storage-authority";
+import { decodeCoreQueryCheckpointRequest, encodeCoreQueryCheckpointResponse,
+  type CoreQueryCheckpointRequest } from "flarex-protocol/internal/core-query-checkpoint";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -23,552 +13,255 @@ import { build, type Plugin } from "vite";
 const PROBE_TOKEN = "query-sync-probe-secret";
 const EXECUTOR_TOKEN = "executor-secret";
 const EPOCH = "92000000-0000-4000-8000-000000000001";
-const REPLACEMENT_EPOCH = "92000000-0000-4000-8000-000000000002";
-
-const BUDGET: CatchUpTurnBudget = Object.freeze({
-  sourceReads: 32,
-  admittedBatches: 4_096,
-  sourceTransportBytes: 16 * 1_024 * 1_024,
-  modelSemanticWorkUnits: 65_536,
-  modelSemanticBytes: 16 * 1_024 * 1_024,
-  dependencyKeyExaminations: 65_536,
-  canonicalDependencyBytes: 16 * 1_024 * 1_024,
-  newWorkWindowMilliseconds: 10_000,
-});
-
-type SourceMode = "page" | "historyUnavailable" | "epochReplaced";
-
+const SOURCE_ID = "ab".repeat(32);
+const BUDGET: CheckpointBudget = Object.freeze({ sourceReads: 1, stateTransitions: 2, maximumElapsedMilliseconds: 10_000 });
 interface SourceFixture {
-  readonly mode: SourceMode;
-  readonly epochUuid: string;
-  readonly sequences: readonly bigint[];
+  readonly through: bigint;
+  readonly retainedFrom?: bigint;
+  readonly sourceId?: string;
+  readonly epochUuid?: string;
+  readonly malformed?: boolean;
 }
+interface RuntimeOptions {
+  readonly beforeResponse?: (request: CoreQueryCheckpointRequest, snapshot: SourceFixture) => Promise<void>;
+  readonly probeToken?: string | null;
+  readonly persistPath?: string;
+  readonly executorToken?: string;
+}
+let workerBundle = "";
+beforeAll(async () => { workerBundle = await bundleWorker(); }, 120_000);
+afterAll(() => { workerBundle = ""; });
 
-let workerBundle: string;
-
-beforeAll(async () => {
-  workerBundle = await bundleWorker();
-}, 120_000);
-
-afterAll(() => {
-  workerBundle = "";
-});
-
-describe("DeploymentSyncDO private catch-up host in Workerd", () => {
-  it("fails closed when the probe is disabled, unauthorized, or malformed", async () => {
+describe("DeploymentSyncDO fixed-target checkpoint in Workerd", () => {
+  it("refuses disabled, unauthorized, malformed and misrouted probes", async () => {
     const scope = testScope(1);
-    const sources = new Map([[scope, pageSource(0n)]]);
+    const sources = new Map([[scope, { through: 0n }]]);
     const disabled = makeRuntime(sources, { probeToken: null });
     const enabled = makeRuntime(sources);
     try {
-      await expect(invoke(disabled, scope, probeRequest(scope, {
-        authorizeFreshInitialization: true,
-      }))).resolves.toEqual({
-        ok: false,
-        error: {
-          tag: "DeploymentSyncCatchUpProbeAuthorizationError",
-          reason: "probeDisabled",
-        },
+      expect(await invoke(disabled, scope, probeRequest(scope, true))).toMatchObject({
+        ok: false, error: { tag: "DeploymentSyncCatchUpProbeAuthorizationError", reason: "probeDisabled" },
       });
-      await expect(invoke(enabled, scope, {
-        ...probeRequest(scope, { authorizeFreshInitialization: true }),
-        authorizationToken: "wrong-secret",
-      })).resolves.toEqual({
-        ok: false,
-        error: {
-          tag: "DeploymentSyncCatchUpProbeAuthorizationError",
-          reason: "unauthorized",
-        },
+      expect(await invoke(enabled, scope, { ...probeRequest(scope, true), authorizationToken: "wrong" })).toMatchObject({
+        ok: false, error: { tag: "DeploymentSyncCatchUpProbeAuthorizationError", reason: "unauthorized" },
       });
-      await expect(invoke(enabled, scope, {
-        ...probeRequest(scope, { authorizeFreshInitialization: true }),
-        unexpected: true,
-      })).resolves.toEqual({
-        ok: false,
-        error: {
-          tag: "DeploymentSyncCatchUpProbeRequestError",
-          reason: "invalidRequest",
-        },
+      expect(await invoke(enabled, scope, { ...probeRequest(scope, true), unexpected: true })).toMatchObject({
+        ok: false, error: { tag: "DeploymentSyncCatchUpProbeRequestError", reason: "invalidRequest" },
       });
-    } finally {
-      await disabled.dispose();
-      await enabled.dispose();
-    }
+      expect(await invoke(enabled, testScope(2), probeRequest(scope, true))).toMatchObject({
+        ok: false, error: { tag: "DeploymentCheckpointBindingError", reason: "routeScopeMismatch" },
+      });
+      expect(await invoke(enabled, scope, probeRequest(scope, false))).toMatchObject({
+        ok: false, error: { tag: "CheckpointError", reason: "initializationRequired" },
+      });
+    } finally { await disabled.dispose(); await enabled.dispose(); }
   });
 
-  it("runs bounded contiguous catch-up and replays a lost response", async () => {
-    const scope = testScope(2);
-    const sources = new Map([[scope, pageSource(3n)]]);
+  it("bounds initialization, accepts sparse progress, and replays a lost response", async () => {
+    const scope = testScope(3);
+    const sources = new Map([[scope, { through: 6000n }]]);
     const runtime = makeRuntime(sources);
     try {
-      const firstBudget = { ...BUDGET, admittedBatches: 2 };
-      const lost = await dispatch(runtime, scope, probeRequest(scope, {
-        authorizeFreshInitialization: true,
-        budget: firstBudget,
-      }));
+      expect(await invoke(runtime, scope, probeRequest(scope, true, { ...BUDGET, stateTransitions: 1 }))).toMatchObject({
+        ok: true, value: { kind: "continuationRequired", reason: "stateTransitionLimitReached",
+          progress: { sourceReads: 0, stateTransitions: 1, lastCheckpoint: null } },
+      });
+      const lost = await dispatch(runtime, scope, probeRequest(scope, false));
       expect(lost.status).toBe(200);
-      await expect(lost.json()).resolves.toMatchObject({
-        ok: true,
-        value: {
-          _tag: "continuationRequired",
-          reason: "admittedBatchLimitReached",
-          progress: {
-            admittedBatches: 2,
-            lastDurableCursor: { appliedThroughSequence: "2" },
-          },
-        },
+      await lost.body?.cancel();
+      expect(await invoke(runtime, scope, probeRequest(scope, false))).toMatchObject({
+        ok: true, value: { kind: "caughtUp", target: { position: "6000" }, checkpoint: { position: "6000" },
+          progress: { sourceReads: 1, stateTransitions: 1 } },
       });
-
-      await expect(invoke(runtime, scope, probeRequest(scope, {
-        authorizeFreshInitialization: false,
-        budget: firstBudget,
-      }))).resolves.toMatchObject({
-        ok: true,
-        value: {
-          _tag: "caughtUp",
-          cursor: { appliedThroughSequence: "3" },
-          progress: {
-            admittedBatches: 1,
-            lastDurableCursor: { appliedThroughSequence: "3" },
-          },
-        },
+      sources.set(scope, { through: 40000n });
+      expect(await invoke(runtime, scope, probeRequest(scope, false))).toMatchObject({
+        ok: true, value: { kind: "caughtUp", target: { position: "40000" },
+          progress: { sourceReads: 1, stateTransitions: 1, lastCheckpoint: { position: "40000" } } },
       });
-
-      await expect(invoke(runtime, scope, probeRequest(scope, {
-        authorizeFreshInitialization: false,
-      }))).resolves.toMatchObject({
-        ok: true,
-        value: {
-          _tag: "caughtUp",
-          cursor: { appliedThroughSequence: "3" },
-          progress: {
-            admittedBatches: 0,
-            settledBatchTransitions: 0,
-          },
-        },
-      });
-    } finally {
-      await runtime.dispose();
-    }
+    } finally { await runtime.dispose(); }
   });
 
-  it("rejects a source gap and returns history and epoch evidence", async () => {
-    const gapScope = testScope(3);
-    const historyScope = testScope(4);
-    const epochScope = testScope(5);
-    const sources = new Map<string, SourceFixture>([
-      [gapScope, {
-        mode: "page",
-        epochUuid: EPOCH,
-        sequences: Object.freeze([2n]),
-      }],
-      [historyScope, {
-        mode: "historyUnavailable",
-        epochUuid: EPOCH,
-        sequences: Object.freeze([1n, 2n]),
-      }],
-      [epochScope, {
-        mode: "epochReplaced",
-        epochUuid: REPLACEMENT_EPOCH,
-        sequences: Object.freeze([]),
-      }],
-    ]);
+  it("preserves history, source replacement and cursor-ahead refusals", async () => {
+    const scope = testScope(4);
+    const sources = new Map<string, SourceFixture>([[scope, { through: 1n }]]);
     const runtime = makeRuntime(sources);
     try {
-      await expect(invoke(runtime, gapScope, probeRequest(gapScope, {
-        authorizeFreshInitialization: true,
-      }))).resolves.toEqual({
-        ok: false,
-        error: {
-          tag: "ChangeSourceCorruptionError",
-          reason: "nonContiguousPage",
-        },
+      await invoke(runtime, scope, probeRequest(scope, true));
+      sources.set(scope, { through: 5n, retainedFrom: 2n });
+      expect(await invoke(runtime, scope, probeRequest(scope, false))).toMatchObject({
+        ok: true, value: { kind: "resetRequired", reason: "historyUnavailable", progress: { lastCheckpoint: { position: "1" } } },
       });
-      await expect(invoke(runtime, historyScope, probeRequest(historyScope, {
-        authorizeFreshInitialization: true,
-      }))).resolves.toMatchObject({
-        ok: true,
-        value: { _tag: "historyUnavailable" },
+      sources.set(scope, { through: 5n, sourceId: "cd".repeat(32) });
+      expect(await invoke(runtime, scope, probeRequest(scope, false))).toMatchObject({
+        ok: true, value: { kind: "resetRequired", reason: "sourceReplaced" },
       });
-      await expect(invoke(runtime, epochScope, probeRequest(epochScope, {
-        authorizeFreshInitialization: true,
-      }))).resolves.toMatchObject({
-        ok: true,
-        value: {
-          _tag: "epochReplaced",
-          evidence: { source: "changeSource" },
-        },
+      sources.set(scope, { through: 5n, epochUuid: "92000000-0000-4000-8000-000000000002" });
+      expect(await invoke(runtime, scope, probeRequest(scope, false))).toMatchObject({
+        ok: true, value: { kind: "resetRequired", reason: "sourceReplaced" },
       });
-    } finally {
-      await runtime.dispose();
-    }
+      sources.set(scope, { through: 0n });
+      expect(await invoke(runtime, scope, probeRequest(scope, false))).toMatchObject({
+        ok: false, error: { tag: "CheckpointError", reason: "invalidCheckpoint" },
+      });
+    } finally { await runtime.dispose(); }
   });
 
-  it("proves same-scope overlap while isolating a second scope", async () => {
-    const firstScope = testScope(6);
-    const secondScope = testScope(7);
-    const sources = new Map<string, SourceFixture>([
-      [firstScope, pageSource(1n)],
-      [secondScope, pageSource(2n)],
-    ]);
-    const sourceBarrier = makeTwoReadSourceBarrier(firstScope);
-    const runtime = makeRuntime(sources, {
-      beforeSourceResponse: sourceBarrier.beforeSourceResponse,
-    });
+  it("keeps an older overlapping target fixed without regressing durable progress or another scope", async () => {
+    const scope = testScope(5);
+    const other = testScope(6);
+    const sources = new Map<string, SourceFixture>([[scope, { through: 1n }], [other, { through: 17n }]]);
+    let openFirst: (() => void) | undefined;
+    let markFirst: (() => void) | undefined;
+    const held = new Promise<void>(resolve => { openFirst = resolve; });
+    const entered = new Promise<void>(resolve => { markFirst = resolve; });
+    const runtime = makeRuntime(sources, { beforeResponse: async (request, snapshot) => {
+      if (request.route.scopeUuid === scope && snapshot.through === 6000n) { markFirst?.(); await held; }
+    } });
     try {
-      const [firstA, firstB, second] = await Promise.all([
-        invoke(runtime, firstScope, probeRequest(firstScope, {
-          authorizeFreshInitialization: true,
-        })),
-        invoke(runtime, firstScope, probeRequest(firstScope, {
-          authorizeFreshInitialization: true,
-        })),
-        invoke(runtime, secondScope, probeRequest(secondScope, {
-          authorizeFreshInitialization: true,
-        })),
-      ]);
-      expect(firstA).toMatchObject({
-        ok: true,
-        value: { _tag: "caughtUp", cursor: { appliedThroughSequence: "1" } },
+      await invoke(runtime, scope, probeRequest(scope, true));
+      sources.set(scope, { through: 6000n });
+      const older = invoke(runtime, scope, probeRequest(scope, false));
+      await entered;
+      sources.set(scope, { through: 40000n });
+      expect(await invoke(runtime, scope, probeRequest(scope, false))).toMatchObject({
+        ok: true, value: { kind: "caughtUp", target: { position: "40000" }, checkpoint: { position: "40000" } },
       });
-      expect(firstB).toMatchObject({
-        ok: true,
-        value: { _tag: "caughtUp", cursor: { appliedThroughSequence: "1" } },
+      expect(await invoke(runtime, other, probeRequest(other, true))).toMatchObject({
+        ok: true, value: { kind: "caughtUp", checkpoint: { position: "17" } },
       });
-      expect(second).toMatchObject({
-        ok: true,
-        value: { _tag: "caughtUp", cursor: { appliedThroughSequence: "2" } },
-      });
-      expect(sourceBarrier.requestedAfterCommitSeqExclusive).toEqual([0n, 0n]);
-    } finally {
-      await runtime.dispose();
-    }
+      openFirst?.();
+      expect(await older).toMatchObject({ ok: true, value: { kind: "caughtUp", target: { position: "6000" },
+        checkpoint: { position: "40000" }, progress: { lastCheckpoint: { position: "40000" } } } });
+    } finally { openFirst?.(); await runtime.dispose(); }
   });
 
-  it("recovers persisted cursor state after object reconstruction", async () => {
-    const scope = testScope(8);
-    const sources = new Map<string, SourceFixture>([[scope, pageSource(2n)]]);
-    const persistPath = await mkdtemp(join(tmpdir(), "flarex-fx02b-"));
+  it("resumes a ready checkpoint across object reconstruction", async () => {
+    const scope = testScope(7);
+    const sources = new Map<string, SourceFixture>([[scope, { through: 6000n }]]);
+    const persistPath = await mkdtemp(join(tmpdir(), "flarex-checkpoint-"));
     let first: Miniflare | undefined;
     let second: Miniflare | undefined;
     try {
       first = makeRuntime(sources, { persistPath });
-      await expect(invoke(first, scope, probeRequest(scope, {
-        authorizeFreshInitialization: true,
-      }))).resolves.toMatchObject({
-        ok: true,
-        value: { _tag: "caughtUp", cursor: { appliedThroughSequence: "2" } },
+      expect(await invoke(first, scope, probeRequest(scope, true))).toMatchObject({
+        ok: true, value: { kind: "caughtUp", checkpoint: { position: "6000" } },
       });
-      await first.dispose();
-      first = undefined;
-
-      sources.set(scope, pageSource(3n));
+      await first.dispose(); first = undefined;
+      sources.set(scope, { through: 40000n });
       second = makeRuntime(sources, { persistPath });
-      await expect(invoke(second, scope, probeRequest(scope, {
-        authorizeFreshInitialization: false,
-      }))).resolves.toMatchObject({
-        ok: true,
-        value: {
-          _tag: "caughtUp",
-          cursor: { appliedThroughSequence: "3" },
-          progress: { admittedBatches: 1 },
-        },
+      expect(await invoke(second, scope, probeRequest(scope, false))).toMatchObject({
+        ok: true, value: { kind: "caughtUp", checkpoint: { position: "40000" }, progress: { stateTransitions: 1 } },
       });
     } finally {
       if (first !== undefined) await first.dispose();
       if (second !== undefined) await second.dispose();
       await rm(persistPath, { recursive: true, force: true });
     }
-  }, 120_000);
+  });
+
+  it.each(["position", "empty", "catalog"] as const)("refuses %s corruption without fresh fallback", async corrupt => {
+    const scope = testScope(corrupt === "position" ? 8 : corrupt === "empty" ? 9 : 10);
+    const runtime = makeRuntime(new Map([[scope, { through: 1n }]]));
+    try {
+      await invoke(runtime, scope, probeRequest(scope, true));
+      await runtime.dispatchFetch("https://deployment-sync.test", { method: "POST", body: JSON.stringify({
+        objectName: `deployment-sync:${scope}`, corrupt,
+      }) });
+      expect(await invoke(runtime, scope, probeRequest(scope, true))).toMatchObject({ ok: false,
+        error: { tag: "CheckpointError", reason: corrupt === "catalog" ? "stateIncompatible" : "stateCorrupt" } });
+    } finally { await runtime.dispose(); }
+  });
+
+  it("refuses an unauthenticated source and malformed source certificate", async () => {
+    const scope = testScope(11);
+    const sources = new Map<string, SourceFixture>([[scope, { through: 1n }]]);
+    const unauthorized = makeRuntime(sources, { executorToken: "wrong-secret" });
+    const malformed = makeRuntime(new Map([[scope, { through: 1n, malformed: true }]]));
+    try {
+      expect(await invoke(unauthorized, scope, probeRequest(scope, true))).toMatchObject({
+        ok: false, error: { tag: "CheckpointError", reason: "sourceUnavailable" },
+      });
+      expect(await invoke(malformed, scope, probeRequest(scope, true))).toMatchObject({
+        ok: false, error: { tag: "CheckpointError", reason: "invalidEvidence" },
+      });
+    } finally { await unauthorized.dispose(); await malformed.dispose(); }
+  });
+
+  it("preserves interruption and failed foreign body cleanup through the real probe boundary", async () => {
+    const scope = testScope(12);
+    const runtime = makeRuntime(new Map());
+    try {
+      const response = await runtime.dispatchFetch("https://deployment-sync.test", { method: "POST", body: JSON.stringify({
+        operation: "probeInterruptedBodyCause", objectName: `deployment-sync:${scope}`, request: probeRequest(scope, true),
+      }) });
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ failed: true, interrupted: true, cleanupFailure: true });
+    } finally { await runtime.dispose(); }
+  });
 });
 
-function pageSource(latest: bigint): SourceFixture {
-  return Object.freeze({
-    mode: "page",
-    epochUuid: EPOCH,
-    sequences: Object.freeze(Array.from(
-      { length: Number(latest) },
-      (_value, index) => BigInt(index + 1),
-    )),
-  });
+function probeRequest(scopeUuid: string, authorizeFreshInitialization: boolean, budget: CheckpointBudget = BUDGET) {
+  return { authorizationToken: PROBE_TOKEN, route: { deploymentId: "checkpoint-test", scopeUuid, epochUuid: EPOCH },
+    budget, authorizeFreshInitialization };
 }
-
-function probeRequest(
-  scopeUuid: string,
-  options: Readonly<{
-    readonly authorizeFreshInitialization: boolean;
-    readonly budget?: CatchUpTurnBudget;
-  }>,
-) {
-  return Object.freeze({
-    authorizationToken: PROBE_TOKEN,
-    observation: Object.freeze({
-      format: "flarex.scope-sync-active-head-observation",
-      version: 1,
-      scopeUuid,
-      epochUuid: EPOCH,
-      storageGeneration: "flarexdb_v1",
-      storageGenerationFence: "1",
-      observedAtCommitSeq: "0",
-      activationSequence: "1",
-      activeHeadSha256Hex: "00".repeat(32),
-    }),
-    budget: options.budget ?? BUDGET,
-    authorizeFreshInitialization: options.authorizeFreshInitialization,
-  });
-}
-
-function makeRuntime(
-  sources: Map<string, SourceFixture>,
-  options: Readonly<{
-    readonly beforeSourceResponse?: (
-      scopeUuid: string,
-      requestedAfterCommitSeqExclusive: bigint,
-    ) => Promise<void>;
-    readonly probeToken?: string | null;
-    readonly persistPath?: string;
-  }> = {},
-): Miniflare {
-  const probeToken = options.probeToken === undefined
-    ? PROBE_TOKEN
-    : options.probeToken;
-  return new Miniflare({
-    modules: [{
-      type: "ESModule",
-      path: "worker.js",
-      contents: workerBundle,
-    }],
+function makeRuntime(sources: Map<string, SourceFixture>, options: RuntimeOptions = {}): Miniflare {
+  const probeToken = options.probeToken === undefined ? PROBE_TOKEN : options.probeToken;
+  return new Miniflare({ modules: [{ type: "ESModule", path: "worker.js", contents: workerBundle }],
     compatibilityDate: "2026-06-14",
-    bindings: {
-      FLAREX_EXECUTOR_TOKEN: EXECUTOR_TOKEN,
-      ...(probeToken === null
-        ? {}
-        : { FLAREX_QUERY_SYNC_PROBE_TOKEN: probeToken }),
-    },
-    serviceBindings: {
-      FLAREX_EXECUTOR: (request: Request) => sourceResponse(
-        request,
-        sources,
-        options.beforeSourceResponse,
-      ),
-    },
-    durableObjects: {
-      DEPLOYMENT_SYNCS: {
-        className: "DeploymentSyncDO",
-        useSQLite: true,
-      },
-    },
-    ...(options.persistPath === undefined
-      ? {}
-      : { durableObjectsPersist: options.persistPath }),
-  });
+    bindings: { FLAREX_EXECUTOR_TOKEN: options.executorToken ?? EXECUTOR_TOKEN,
+      ...(probeToken === null ? {} : { FLAREX_QUERY_SYNC_PROBE_TOKEN: probeToken }) },
+    serviceBindings: { FLAREX_EXECUTOR: (request: Request) => sourceResponse(request, sources, options.beforeResponse) },
+    durableObjects: { DEPLOYMENT_SYNCS: { className: "DeploymentSyncDO", useSQLite: true } },
+    ...(options.persistPath === undefined ? {} : { durableObjectsPersist: options.persistPath }) });
 }
-
-async function sourceResponse(
-  request: Request,
-  sources: Map<string, SourceFixture>,
-  beforeSourceResponse?: (
-    scopeUuid: string,
-    requestedAfterCommitSeqExclusive: bigint,
-  ) => Promise<void>,
-): Promise<Response> {
-  if (request.headers.get("authorization") !== `Bearer ${EXECUTOR_TOKEN}`) {
-    return new Response(null, { status: 401 });
-  }
-  const decoded = unwrap(decodeQuerySyncSourceReadRequestV1(
-    new Uint8Array(await request.arrayBuffer()),
-  )).value;
-  const source = sources.get(decoded.scopeUuid);
-  if (source === undefined) return new Response(null, { status: 404 });
-  await beforeSourceResponse?.(
-    decoded.scopeUuid,
-    decoded.requestedAfterCommitSeqExclusive,
-  );
-  const currentEpoch = decodeScopeEpochUuidV1(source.epochUuid);
-  const latestValue = source.sequences.at(-1) ?? 0n;
-  const latest = CommitSeqSchema.make(latestValue);
-  const zero = CommitSeqSchema.make(0n);
-  const one = CommitSeqSchema.make(1n);
-  const replayableAfter = source.mode === "historyUnavailable" ? one : zero;
-  const retainedFrom = source.mode === "historyUnavailable"
-    ? CommitSeqSchema.make(2n)
-    : latestValue === 0n ? null : one;
-  const common = {
-    codecVersion: 1 as const,
-    scopeUuid: decoded.scopeUuid,
-    syncModelId: decoded.syncModelId,
-    requestedSourceEpoch: decoded.requestedSourceEpoch,
-    requestedAfterCommitSeqExclusive:
-      decoded.requestedAfterCommitSeqExclusive,
-    currentSourceEpoch: currentEpoch,
-    observedLatestCommitSeq: latest,
-    replayableAfterCommitSeqExclusive: replayableAfter,
-    retainedFromCommitSeqInclusive: retainedFrom,
-  };
-  if (source.mode !== "page") {
-    return encodedResponse({
-      ...common,
-      kind: source.mode,
-    });
-  }
-  if (decoded.requestedAfterCommitSeqExclusive > latest) {
-    return encodedResponse({ ...common, kind: "cursorAhead" as const });
-  }
-  const available = source.sequences.filter(sequence =>
-    sequence > decoded.requestedAfterCommitSeqExclusive
-  );
-  const selected = available.slice(
-    0,
-    decoded.budget.maximumCommittedBatches,
-  );
-  const readThroughValue = selected.at(-1)
-    ?? decoded.requestedAfterCommitSeqExclusive;
-  const readThrough = CommitSeqSchema.make(readThroughValue);
-  const hasMore = readThrough < latest;
-  return encodedResponse({
-    ...common,
-    kind: "page" as const,
-    commits: Object.freeze(selected.map(sequence => Object.freeze({
-      scopeUuid: decoded.scopeUuid,
-      epochUuid: currentEpoch,
-      commitSeq: CommitSeqSchema.make(sequence),
-      committedAtMilliseconds: 1_788_134_400_000 + Number(sequence),
-      appRowChanges: Object.freeze([]),
-      relationAdjacencyChanges: Object.freeze([]),
-    }))),
-    readThroughCommitSeq: readThrough,
-    hasMore,
-    authorityObservation: hasMore ? null : Object.freeze({
-      format: "flarex.scope-sync-active-head-observation",
-      version: 1,
-      scopeUuid: decoded.scopeUuid,
-      epochUuid: currentEpoch,
-      storageGeneration: "flarexdb_v1",
-      storageGenerationFence: 1n,
-      observedAtCommitSeq: latest,
-      activationSequence: 1n,
-      activeHeadSha256Hex: "00".repeat(32),
-    }),
-  });
+async function sourceResponse(request: Request, sources: Map<string, SourceFixture>, beforeResponse: RuntimeOptions["beforeResponse"]): Promise<Response> {
+  if (request.headers.get("authorization") !== `Bearer ${EXECUTOR_TOKEN}`) return Response.json({}, { status: 401 });
+  const json: unknown = await request.json();
+  const decoded = unwrap(decodeCoreQueryCheckpointRequest(json));
+  const source = sources.get(decoded.route.scopeUuid);
+  if (source === undefined) return Response.json({}, { status: 404 });
+  await beforeResponse?.(decoded, source);
+  if (source.malformed) return Response.json({ kind: "certified" });
+  const retainedFrom = source.retainedFrom ?? 0n;
+  const sourceId = source.sourceId ?? SOURCE_ID;
+  const epochUuid = source.epochUuid ?? EPOCH;
+  const after = decoded.after === null ? null : BigInt(decoded.after);
+  if (after !== null && after > source.through) return Response.json({ format: "flarex.core-application.failure", version: 1,
+    error: { code: "invalid_checkpoint", message: "Invalid checkpoint" } }, { status: 409 });
+  const kind = decoded.route.epochUuid !== epochUuid || decoded.sourceId !== null && decoded.sourceId !== sourceId
+    ? "sourceReplaced" : after !== null && after < retainedFrom ? "historyUnavailable" : "certified";
+  return Response.json(unwrap(encodeCoreQueryCheckpointResponse({ format: "flarex.core-query-checkpoint.response", version: 1,
+    kind, route: { ...decoded.route, epochUuid }, sourceId, after: decoded.after,
+    retainedFrom: retainedFrom.toString(), through: source.through.toString() })));
 }
-
-function makeTwoReadSourceBarrier(scopeUuid: string): Readonly<{
-  readonly requestedAfterCommitSeqExclusive: bigint[];
-  readonly beforeSourceResponse: (
-    requestedScopeUuid: string,
-    requestedAfterCommitSeqExclusive: bigint,
-  ) => Promise<void>;
-}> {
-  const requestedAfterCommitSeqExclusive: bigint[] = [];
-  let openBarrier: (() => void) | undefined;
-  const barrier = new Promise<void>(resolve => {
-    openBarrier = resolve;
-  });
-  return Object.freeze({
-    requestedAfterCommitSeqExclusive,
-    beforeSourceResponse: async (requestedScopeUuid, requestedAfter) => {
-      if (requestedScopeUuid !== scopeUuid) return;
-      requestedAfterCommitSeqExclusive.push(requestedAfter);
-      if (requestedAfterCommitSeqExclusive.length === 2) openBarrier?.();
-      await barrier;
-    },
-  });
-}
-
-function encodedResponse(value: unknown): Response {
-  const encoded = unwrap(encodeQuerySyncSourceReadResponseV1(
-    value,
-    16 * 1_024 * 1_024,
-  ));
-  return new Response(copyBytesToArrayBuffer(encoded.bytes), {
-    status: 200,
-    headers: {
-      "content-length": String(encoded.bytes.byteLength),
-      "content-type": querySyncSourceReadMediaTypeV1,
-    },
-  });
-}
-
-async function invoke(
-  runtime: Miniflare,
-  scopeUuid: string,
-  request: unknown,
-): Promise<unknown> {
+async function invoke(runtime: Miniflare, scopeUuid: string, request: unknown): Promise<unknown> {
   const response = await dispatch(runtime, scopeUuid, request);
-  if (response.status !== 200) {
-    throw new Error(
-      `Expected Workerd status 200, received ${response.status}: ${await response.text()}`,
-    );
-  }
+  expect(response.status).toBe(200);
   return await response.json();
 }
-
-async function dispatch(
-  runtime: Miniflare,
-  scopeUuid: string,
-  request: unknown,
-) {
-  return await runtime.dispatchFetch("https://deployment-sync.test", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      objectName: `deployment-sync:${scopeUuid}`,
-      request,
-    }),
-  });
+function dispatch(runtime: Miniflare, scopeUuid: string, request: unknown) {
+  return runtime.dispatchFetch("https://deployment-sync.test", { method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ objectName: `deployment-sync:${scopeUuid}`, request }) });
 }
-
-function testScope(ordinal: number): string {
-  return `91000000-0000-4000-8000-${ordinal.toString().padStart(12, "0")}`;
-}
-
+function testScope(ordinal: number): string { return `91000000-0000-4000-8000-${ordinal.toString().padStart(12, "0")}`; }
 function unwrap<A, E>(result: Result.Result<A, E>): A {
   if (Result.isFailure(result)) throw result.failure;
   return result.success;
 }
-
 async function bundleWorker(): Promise<string> {
   const backendDirectory = dirname(dirname(fileURLToPath(import.meta.url)));
-  const output = await build({
-    configFile: false,
-    logLevel: "silent",
-    plugins: [workspacePackageResolution()],
-    build: {
-      write: false,
-      target: "es2022",
-      lib: {
-        entry: join(
-          backendDirectory,
-          "test/deploymentSyncCatchUp.workerd.worker.ts",
-        ),
-        formats: ["es"],
-        fileName: "worker",
-      },
-      rolldownOptions: { external: ["cloudflare:workers"] },
-    },
-  });
-  const chunks = (Array.isArray(output) ? output : [output]).flatMap(result =>
-    "output" in result ? result.output : []
-  );
-  const worker = chunks.find(chunk =>
-    chunk.type === "chunk" && chunk.fileName === "worker.js"
-  );
-  if (worker === undefined || worker.type !== "chunk") {
-    throw new Error("Deployment sync catch-up worker bundle missing.");
-  }
+  const output = await build({ configFile: false, logLevel: "silent", plugins: [workspacePackageResolution()],
+    build: { write: false, target: "es2022", lib: { entry: join(backendDirectory, "test/deploymentSyncCatchUp.workerd.worker.ts"),
+      formats: ["es"], fileName: "worker" }, rolldownOptions: { external: ["cloudflare:workers"] } } });
+  const chunks = (Array.isArray(output) ? output : [output]).flatMap(result => "output" in result ? result.output : []);
+  const worker = chunks.find(chunk => chunk.type === "chunk" && chunk.fileName === "worker.js");
+  if (worker === undefined || worker.type !== "chunk") throw new Error("Checkpoint worker bundle missing");
   return worker.code;
 }
-
 function workspacePackageResolution(): Plugin {
-  return {
-    name: "flarex-deployment-sync-catch-up-test-resolution",
-    resolveId(id) {
-      if (
-        id.startsWith("@flarex/")
-        || id === "flarex-protocol"
-        || id.startsWith("flarex-protocol/")
-      ) return fileURLToPath(import.meta.resolve(id));
-      return undefined;
-    },
-  };
+  return { name: "flarex-checkpoint-test-resolution", resolveId(id) {
+    if (id.startsWith("@flarex/") || id === "flarex-protocol" || id.startsWith("flarex-protocol/"))
+      return fileURLToPath(import.meta.resolve(id));
+    return undefined;
+  } };
 }

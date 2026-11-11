@@ -8,62 +8,48 @@ export const readBackendBoundedBody = Effect.fn("BackendBoundedBody.read")(
       readonly limitExceeded: () => LimitError;
       readonly resourceFailure: (cause: unknown) => ResourceError;
     }>,
-  ): Effect.Effect<Uint8Array, LimitError | ResourceError> =>
-    Effect.tryPromise({
-      try: signal => readBoundedBodyPromise(body, maximumBodyBytes, signal),
-      catch: cause => cause instanceof BackendBodyTooLarge
-        ? errors.limitExceeded()
-        : errors.resourceFailure(cause),
-    }),
+  ): Effect.Effect<Uint8Array, LimitError | ResourceError> => {
+    if (body === null) return Effect.succeed(new Uint8Array());
+    return Effect.gen(function* () {
+      let ended = false;
+      return yield* Effect.acquireUseRelease(
+        Effect.try({ try: () => body.getReader(), catch: errors.resourceFailure }),
+        reader => Effect.gen(function* () {
+          const chunks: Uint8Array[] = [];
+          let totalBytes = 0;
+          let reads = 0;
+          const maximumReads = maximumBodyBytes === Number.MAX_SAFE_INTEGER
+            ? Number.MAX_SAFE_INTEGER : maximumBodyBytes + 1;
+          while (true) {
+            const next = yield* Effect.tryPromise({ try: () => reader.read(), catch: cause => {
+              // An errored stream is terminal. Cancelling it would repeat this
+              // same rejection instead of contributing a distinct cleanup error.
+              ended = true;
+              return errors.resourceFailure(cause);
+            } });
+            if (next.done) { ended = true; break; }
+            reads++;
+            if (reads > maximumReads) return yield* Effect.fail(errors.limitExceeded());
+            const chunk = new Uint8Array(next.value);
+            const candidateBytes = totalBytes + chunk.byteLength;
+            if (!Number.isSafeInteger(candidateBytes) || candidateBytes > maximumBodyBytes)
+              return yield* Effect.fail(errors.limitExceeded());
+            if (chunk.byteLength > 0) chunks.push(chunk);
+            totalBytes = candidateBytes;
+          }
+          const bytes = new Uint8Array(totalBytes);
+          let offset = 0;
+          for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+          return bytes;
+        }),
+        reader => {
+          const release = Effect.sync(() => reader.releaseLock());
+          // Release is uninterruptible: cancellation must settle before its
+          // reader can leave the owner. A cleanup failure retains the use Cause.
+          return ended ? release : Effect.tryPromise({ try: () => reader.cancel(), catch: errors.resourceFailure })
+            .pipe(Effect.ensuring(release));
+        },
+      );
+    });
+  },
 );
-
-async function readBoundedBodyPromise(
-  body: ReadableStream<Uint8Array> | null,
-  maximumBodyBytes: number,
-  signal: AbortSignal,
-): Promise<Uint8Array> {
-  if (body === null) return new Uint8Array();
-  const reader = body.getReader();
-  const chunks: Uint8Array[] = [];
-  let totalBytes = 0;
-  let reads = 0;
-  const maximumReads = maximumBodyBytes === Number.MAX_SAFE_INTEGER
-    ? Number.MAX_SAFE_INTEGER
-    : maximumBodyBytes + 1;
-  const abort = () => {
-    void reader.cancel(signal.reason).catch(() => undefined);
-  };
-  signal.addEventListener("abort", abort, { once: true });
-  try {
-    while (true) {
-      const next = await reader.read();
-      if (next.done) break;
-      reads += 1;
-      if (reads > maximumReads) {
-        await reader.cancel().catch(() => undefined);
-        throw new BackendBodyTooLarge();
-      }
-      const chunk = new Uint8Array(next.value);
-      const candidateBytes = totalBytes + chunk.byteLength;
-      if (!Number.isSafeInteger(candidateBytes) ||
-        candidateBytes > maximumBodyBytes) {
-        await reader.cancel().catch(() => undefined);
-        throw new BackendBodyTooLarge();
-      }
-      if (chunk.byteLength > 0) chunks.push(chunk);
-      totalBytes = candidateBytes;
-    }
-  } finally {
-    signal.removeEventListener("abort", abort);
-    reader.releaseLock();
-  }
-  const bytes = new Uint8Array(totalBytes);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return bytes;
-}
-
-class BackendBodyTooLarge extends Error {}

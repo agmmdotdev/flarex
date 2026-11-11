@@ -8,9 +8,7 @@ import {
   createPostgresClientPersistence,
   createPostgresClientSharedScopeAuthorityProvisioner,
 } from "@flarex/persistence-postgres/postgres-client";
-import { createPostgresClientScopeSyncChangeSourceReaderV1 } from
-  "@flarex/persistence-postgres/internal/scope-sync-change-source-read-v1";
-import { Client, type ClientConfig } from "pg";
+import { Client } from "pg";
 import { Effect } from "effect";
 
 import {
@@ -19,9 +17,6 @@ import {
 } from "./requestLifecycle";
 import { makeDeploymentProjectScopeLookupHostV1 } from "./deploymentProjectScopeLookup";
 import { deploymentProjectScopeLookupPathV1 } from "@flarex/executor-http/internal-deployment-project-scope-lookup-v1";
-import { querySyncSourceReadPathV1 } from
-  "@flarex/executor-http/internal-query-sync-source-read-v1";
-import { makeQuerySyncSourceReadHostV1 } from "./querySyncSourceRead";
 import { makeApplicationExecutorGateway, type ExecutorApplicationGatewayEnv } from "./applicationGateway";
 
 export { FlarexApplication } from "./application";
@@ -33,9 +28,7 @@ const sharedScopePhysicalLocator = Object.freeze({
 }) satisfies SharedDatabaseScopePhysicalLocator;
 
 const productionDependencies = {
-  createClient: (connectionString, request) => new Client(
-    executorPostgresClientConfigForRequest(connectionString, request),
-  ),
+  createClient: connectionString => new Client({ connectionString }),
   createHandler: ({ client, capabilityToken }) => {
     const persistence = createPostgresClientPersistence(client);
     const executorPersistence = withReadyDeploymentAuthority(
@@ -57,22 +50,11 @@ const productionDependencies = {
         ),
       },
     );
-    const querySyncSourceRead = makeQuerySyncSourceReadHostV1(
-      createPostgresClientScopeSyncChangeSourceReaderV1(client),
-      {
-        reportResourceFailure: ({ operation }) => Effect.logError(
-          "Flarex query-sync source read failed.",
-          Object.freeze({ operation, cause: "redacted" }),
-        ),
-      },
-    );
     return (request) => {
       const pathname = new URL(request.url).pathname;
       return pathname === deploymentProjectScopeLookupPathV1
         ? deploymentScopeLookup(request)
-        : pathname === querySyncSourceReadPathV1
-          ? querySyncSourceRead(request)
-          : executorHandler(request);
+        : executorHandler(request);
     };
   },
   onCleanupError: ({ primaryError, cleanupError }) => {
@@ -82,20 +64,6 @@ const productionDependencies = {
     });
   },
 } satisfies RequestScopedExecutorWorkerDependencies<Client>;
-
-export function executorPostgresClientConfigForRequest(
-  connectionString: string,
-  request: Request,
-): ClientConfig {
-  return new URL(request.url).pathname === querySyncSourceReadPathV1
-    ? Object.freeze({
-        connectionString,
-        connectionTimeoutMillis: 60_000,
-        options: "-c statement_timeout=60000 -c transaction_timeout=60000",
-        query_timeout: 60_000,
-      })
-    : Object.freeze({ connectionString });
-}
 
 export function createExecutorWorker() {
   return makeApplicationExecutorGateway(createRequestScopedExecutorWorker(productionDependencies));

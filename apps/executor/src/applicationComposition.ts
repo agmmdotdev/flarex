@@ -1,10 +1,11 @@
 import { canonicalizeApplicationManifest, canonicalizeApplicationManifestWire } from "@flarex/analysis/application-analysis";
 import { CoreApplicationTransportError, makeCoreApplicationHttpHandler, readCoreApplicationJsonBody } from "@flarex/executor-http/internal/core-application";
+import { makeCoreQueryCheckpointHttpHandler } from "@flarex/executor-http/internal/core-query-checkpoint";
 import { compileCoreApplicationSchema } from "@flarex/persistence-postgres/internal/core-application-schema";
 import { makeCoreApplicationPrograms } from
   "@flarex/persistence-postgres/internal/core-application-program";
 import { CoreSchemaError, type CoreDatabase, type CoreError,
-  type CoreApplicationCandidate as StoredCandidate, type CoreApplicationRegistrationMetadata } from "@flarex/persistence-postgres/internal/core";
+  type CoreApplicationCandidate as StoredCandidate } from "@flarex/persistence-postgres/internal/core";
 import { makeCoreApplicationMutationInvocationPort, prepareApplicationMutationIdentityAccessPolicy } from
   "@flarex/standard-application-invocation/internal/application-mutation-system";
 import { makeCoreApplicationQueryEvaluationRunner } from
@@ -23,6 +24,8 @@ import { DeploymentProtocolValidationError, PushSourcePackage } from "flarex-pro
 import { PublicApplicationSourceError, publicApplicationSourcePackageMetadata } from "flarex-backend/internal/public-application-source";
 import { createQueryCursorBroker } from "flarex-protocol/query-cursor";
 import { TransactionAuthorizationGrantIdV1Schema } from "flarex-protocol/transaction-session";
+import { coreQueryCheckpointPath } from "flarex-protocol/internal/core-query-checkpoint";
+import { ExecutorApplicationCheckpointError, matchesConfiguredRegistration, readExecutorApplicationCheckpoint } from "./applicationQueryCheckpoint";
 import { admitExecutorRequest } from "./requestLifecycle";
 import { ExecutorApplicationConfigurationError, readExecutorApplicationKey, readExecutorApplicationProfiles,
   type ExecutorApplicationEnv, type ExecutorApplicationProfile } from "./applicationConfiguration";
@@ -111,13 +114,6 @@ const compileExecutorApplicationDefinition = Effect.fn("ExecutorApplication.comp
     sha256: executorApplicationSha256 });
   return Object.freeze({ schema, programs, canonical });
 });
-
-function matchesConfiguredRegistration(registration: CoreApplicationRegistrationMetadata, profile: ExecutorApplicationProfile) {
-  return registration.deploymentId === profile.deploymentId && registration.scopeUuid === profile.scopeUuid
-    && registration.epochUuid === profile.epochUuid && registration.analyzerIdentity === profile.analyzerIdentity
-    && registration.analyzerPolicyIdentity === profile.analyzerPolicyIdentity && registration.compatibilityDate === profile.compatibilityDate
-    && registration.generation === profile.generation;
-}
 
 /** Discovery borrows authenticated active identity; operator inventory has no uploaded source pins. */
 export const assertExecutorApplicationProfile = Effect.fn("ExecutorApplication.assertProfile")(function* (
@@ -226,6 +222,11 @@ const abandonExecutorApplicationPush = Effect.fn("ExecutorApplication.abandonPus
 export function executorApplicationFailureResponse(cause: Cause.Cause<unknown>): Response {
   const reason = cause.reasons.length === 1 ? cause.reasons[0] : undefined;
   const error = reason !== undefined && Cause.isFailReason(reason) ? reason.error : undefined;
+  if (error instanceof ExecutorApplicationCheckpointError) return Response.json({
+    format: "flarex.core-application.failure", version: 1,
+    error: { code: error.reason === "invalidCheckpoint" ? "invalid_checkpoint" : "checkpoint_unavailable",
+      message: "The configured checkpoint operation could not complete." },
+  }, { status: error.reason === "invalidCheckpoint" ? 409 : error.reason === "scopeMismatch" ? 403 : 503 });
   const status = error instanceof ExecutorApplicationCompositionError
     ? error.reason === "candidateNotFound" ? 404 : error.reason === "candidateConflict" ? 409 : error.reason === "unsupportedSource" ? 400 : 503
     : error instanceof PublicApplicationSourceError ? error.reason === "limitExceeded" ? 413 : 400
@@ -287,12 +288,19 @@ export const makeExecutorApplicationComposition = Effect.fn("ExecutorApplication
     authorize: (request: Request) => Effect.succeed(Result.isSuccess(admitExecutorRequest(request, env))), execute,
     maximumRequestBytes: profile.http.maximumRequestBytes, maximumResponseBytes: profile.http.maximumResponseBytes,
   });
+  const checkpoint = makeCoreQueryCheckpointHttpHandler({ route: { deploymentId: profile.deploymentId, scopeUuid: profile.scopeUuid, epochUuid: profile.epochUuid },
+    authorize: (request: Request) => Effect.succeed(Result.isSuccess(admitExecutorRequest(request, env))),
+    execute: input => infrastructure.admission.withPermit("query", readExecutorApplicationCheckpoint(infrastructure.coreDatabase,
+      profile, input, executorApplicationSha256)),
+    maximumRequestBytes: profile.http.maximumRequestBytes, maximumResponseBytes: profile.http.maximumResponseBytes,
+  });
   const dispatch = Effect.fn("ExecutorApplication.dispatch")(function* (request: Request) {
     const admitted = admitExecutorRequest(request, env);
     if (Result.isFailure(admitted)) return admitted.failure;
     const path = new URL(request.url).pathname;
     yield* infrastructure.assertFreshCoreApplicationDeployment(profile.deploymentId);
     if (path === coreApplicationInvocationPath(profile.deploymentId)) return yield* invoke(request);
+    if (path === coreQueryCheckpointPath(profile.deploymentId)) return yield* checkpoint(request);
     if (path === coreApplicationProfilePath(profile.deploymentId) && request.method === "GET") {
       const encoded = yield* Effect.fromResult(encodeCoreApplicationProfile(
         yield* assertExecutorApplicationProfile(infrastructure.coreDatabase, profile)));

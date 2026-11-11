@@ -51,7 +51,6 @@
     "./internal/application-query-serving": "./src/application/applicationQueryServing.ts",
     "./internal/postgres-client-lifetime": "./src/database/postgresClientLifetime.ts",
     "./internal/commit-feed": "./src/commit/commitFeed.ts",
-    "./internal/scope-sync-change-source-read-v1": "./src/sync/scopeSyncChangeSourceReadV1.ts",
     "./internal/scope-sync-active-head-observation-v1": "./src/sync/scopeSyncActiveHeadObservationV1.ts",
     "./internal/scope-execution": "./src/scope/execution/ScopeExecution.ts",
     "./internal/application-mutation-admission": "./src/application/applicationMutationAdmission.ts",

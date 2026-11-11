@@ -1,4 +1,5 @@
 import { Cause, Result } from "effect";
+import { DeploymentSyncDO } from "flarex-backend/worker";
 import { makeExecutorApplicationOptions } from "../src/application";
 import { makeApplicationDurableObject } from "../src/applicationDO";
 import { executorApplicationFailureResponse } from "../src/applicationComposition";
@@ -6,9 +7,11 @@ import { readExecutorApplicationProfiles, type ExecutorApplicationEnv } from "..
 import { makeApplicationExecutorGateway } from "../src/applicationGateway";
 import { admitExecutorRequest } from "../src/requestLifecycle";
 export { FlarexApplicationAnalysisHost } from "../../analyzer/src/ApplicationAnalysisEntrypoint";
+export { DeploymentSyncDO };
 
 interface Env extends ExecutorApplicationEnv {
   readonly APPLICATIONS: DurableObjectNamespace<ConfiguredApplicationDO>;
+  readonly DEPLOYMENT_SYNCS: DurableObjectNamespace<DeploymentSyncDO>;
 }
 
 /** Native-binding observation around the real configured production owner. */
@@ -61,6 +64,10 @@ export default {
     if (path.startsWith("/__proof/")) {
       const profile = Result.getOrThrow(readExecutorApplicationProfiles(env))[0];
       if (profile === undefined) throw new Error("The configured proof needs one operator profile.");
+      if (path === "/__proof/sync-checkpoint") {
+        const body: unknown = await request.json();
+        return Response.json(await env.DEPLOYMENT_SYNCS.getByName(`deployment-sync:${profile.scopeUuid}`).runCatchUpProbe(body));
+      }
       return env.APPLICATIONS.getByName(path === "/__proof/wrong-object" ? "unregistered-object" : profile.canonicalName).fetch(request);
     }
     const response = await gateway.fetch(request, env);

@@ -15,6 +15,7 @@ import { coreApplicationInvocationPath, coreApplicationProfilePath, coreApplicat
   decodeCoreApplicationCandidate, decodeCoreApplicationInvocationSuccess, decodeCoreApplicationProfile,
   encodeCoreApplicationInvocationRequest, type CoreApplicationInvocationRequest } from "flarex-protocol/internal/core-application";
 import { TransactionFunctionPathV1Schema, TransactionRequestKeyV1Schema } from "flarex-protocol/transaction-session";
+import { coreQueryCheckpointPath, decodeCoreQueryCheckpointResponse, type CoreQueryCheckpointRequest } from "flarex-protocol/internal/core-query-checkpoint";
 import { bundleApplicationWorker } from "./support/bundleApplicationWorker";
 import { createExecutorApplicationSecretFixture, executorApplicationProfileFixture } from "./support/executorApplicationConfiguration";
 
@@ -23,6 +24,7 @@ const endpoints = endpointPath === undefined ? undefined : Schema.decodeUnknownS
   connectionString: Schema.NonEmptyString, provisioningConnectionString: Schema.NonEmptyString,
 }))(JSON.parse(await readFile(endpointPath, "utf8")));
 const token = "configured-app-owner-private-proof";
+const checkpointProbeToken = "configured-sync-probe-private-proof";
 type Profile = ReturnType<typeof executorApplicationProfileFixture>;
 type InvocationProfile = Profile & Pick<CoreApplicationInvocationRequest, "sourceArtifactRootSha256" | "sourcePackageHash">;
 
@@ -65,9 +67,16 @@ describe.runIf(endpoints !== undefined)("configured production app owner in actu
     try {
       runtime = makeRuntime(worker, directory, { ...profile, maximumRegistrationSteps: 1 }, keys);
       const path = coreApplicationInvocationPath(profile.deploymentId);
+      const checkpointPath = coreQueryCheckpointPath(profile.deploymentId);
+      const checkpointRequest: CoreQueryCheckpointRequest = { format: "flarex.core-query-checkpoint.request", version: 1,
+        route: { deploymentId: profile.deploymentId, scopeUuid: profile.scopeUuid, epochUuid: profile.epochUuid },
+        after: null, sourceId: null, maximumElapsedMilliseconds: 10_000 };
+      const syncCheckpointRequest = { authorizationToken: checkpointProbeToken, route: checkpointRequest.route,
+        budget: { sourceReads: 1, stateTransitions: 2, maximumElapsedMilliseconds: 10_000 }, authorizeFreshInitialization: true };
       const discovery = coreApplicationProfilePath(profile.deploymentId);
       const denied = await active().dispatchFetch(`https://configured-owner.test${path}`, { method: "POST", body: "{}" });
       expect(denied.status).toBe(401);
+      expect((await active().dispatchFetch(`https://configured-owner.test${checkpointPath}`, { method: "POST", body: "{}" })).status).toBe(401);
       expect((await request(active(), "/__proof/wrong-object")).status).toBe(500);
       expect((await request(active(), discovery)).status).toBe(503);
       expect(await sourceReads(active())).toBe(0);
@@ -92,6 +101,18 @@ describe.runIf(endpoints !== undefined)("configured production app owner in actu
       expect(discovered.status, await discovered.clone().text()).toBe(200);
       expect(Result.getOrThrow(decodeCoreApplicationProfile(await discovered.json()))).toMatchObject({ kind: "core",
         sourceArtifactRootSha256: candidate.sourceArtifactRootSha256, sourcePackageHash: candidate.sourcePackageHash });
+      const freshCheckpointResponse = await request(active(), checkpointPath, checkpointRequest);
+      expect(freshCheckpointResponse.status, await freshCheckpointResponse.clone().text()).toBe(200);
+      const freshCheckpoint = Result.getOrThrow(decodeCoreQueryCheckpointResponse(await freshCheckpointResponse.json()));
+      expect(freshCheckpoint.kind).toBe("certified");
+      const savedCheckpointRequest = { ...checkpointRequest, sourceId: freshCheckpoint.sourceId, after: freshCheckpoint.through };
+      const syncCheckpointResponse = await request(active(), "/__proof/sync-checkpoint", syncCheckpointRequest);
+      expect(syncCheckpointResponse.status, await syncCheckpointResponse.clone().text()).toBe(200);
+      const syncCheckpoint = Schema.decodeUnknownSync(Schema.Struct({ ok: Schema.Literal(true),
+        value: Schema.Struct({ kind: Schema.Literal("caughtUp"),
+          checkpoint: Schema.Struct({ sourceId: Schema.String, position: Schema.String }) }) }))(await syncCheckpointResponse.json());
+      expect(syncCheckpoint.value.checkpoint.sourceId).toBe(freshCheckpoint.sourceId);
+      expect(syncCheckpoint.value.checkpoint.position).toBe(freshCheckpoint.through);
       const invocationProfile = { ...profile, sourceArtifactRootSha256: candidate.sourceArtifactRootSha256,
         sourcePackageHash: candidate.sourcePackageHash };
       expect((await request(active(), `/applications/${profile.deploymentId}/register`, {})).status).toBe(404);
@@ -107,11 +128,28 @@ describe.runIf(endpoints !== undefined)("configured production app owner in actu
       const committed = Result.getOrThrow(decodeCoreApplicationInvocationSuccess(trace.committed));
       if (committed.kind !== "mutation") throw new Error("Expected committed mutation trace.");
       expect(committed.disposition).toBe("published");
+      expect(BigInt(syncCheckpoint.value.checkpoint.position)).toBeLessThan(committed.publishedTimestamp);
+      const warmCheckpointResponse = await request(active(), checkpointPath, savedCheckpointRequest);
+      expect(warmCheckpointResponse.status, await warmCheckpointResponse.clone().text()).toBe(200);
+      const warmCheckpoint = Result.getOrThrow(decodeCoreQueryCheckpointResponse(await warmCheckpointResponse.json()));
+      expect(warmCheckpoint.kind).toBe("certified");
+      expect(warmCheckpoint.sourceId).toBe(freshCheckpoint.sourceId);
+      expect(BigInt(warmCheckpoint.through)).toBeGreaterThanOrEqual(committed.publishedTimestamp);
       const id = Schema.decodeUnknownSync(Schema.String)(committed.value);
       await stop();
 
       runtime = makeRuntime(worker, directory, profile, keys);
       const replayResponse = await request(active(), path, create);
+      const coldCheckpointResponse = await request(active(), checkpointPath, savedCheckpointRequest);
+      expect(coldCheckpointResponse.status, await coldCheckpointResponse.clone().text()).toBe(200);
+      const coldCheckpoint = Result.getOrThrow(decodeCoreQueryCheckpointResponse(await coldCheckpointResponse.json()));
+      expect(coldCheckpoint.kind).toBe("historyUnavailable");
+      expect(coldCheckpoint.sourceId).toBe(freshCheckpoint.sourceId);
+      const restoredSyncCheckpoint = await request(active(), "/__proof/sync-checkpoint", { ...syncCheckpointRequest,
+        authorizeFreshInitialization: false });
+      expect(restoredSyncCheckpoint.status, await restoredSyncCheckpoint.clone().text()).toBe(200);
+      expect(await restoredSyncCheckpoint.json()).toMatchObject({ ok: true,
+        value: { kind: "resetRequired", reason: "historyUnavailable" } });
       expect(replayResponse.status, await replayResponse.clone().text()).toBe(200);
       const replay = Result.getOrThrow(decodeCoreApplicationInvocationSuccess(await replayResponse.json()));
       if (replay.kind !== "mutation") throw new Error("Expected replayed mutation.");
@@ -149,6 +187,12 @@ describe.runIf(endpoints !== undefined)("configured production app owner in actu
       const secondFinish = await request(active(), `${coreApplicationPushPath(profile.deploymentId, second.pushId)}/finish`, {});
       expect(secondFinish.status, await secondFinish.clone().text()).toBe(200);
       expect(Result.getOrThrow(decodeCoreApplicationCandidate(await secondFinish.json())).pushId).toBe(second.pushId);
+      const replacedCheckpointResponse = await request(active(), checkpointPath, savedCheckpointRequest);
+      expect(replacedCheckpointResponse.status, await replacedCheckpointResponse.clone().text()).toBe(200);
+      const replacedCheckpoint = Result.getOrThrow(decodeCoreQueryCheckpointResponse(await replacedCheckpointResponse.json()));
+      expect(replacedCheckpoint.kind).toBe("sourceReplaced");
+      expect(replacedCheckpoint.sourceId).not.toBe(freshCheckpoint.sourceId);
+      const secondCheckpointRequest = { ...checkpointRequest, sourceId: replacedCheckpoint.sourceId, after: replacedCheckpoint.through };
       const readsBeforeHistoricalReplay = await sourceReads(active());
       const historicalResponse = await request(active(), path, { ...create, kind: "infer" });
       expect(historicalResponse.status, await historicalResponse.clone().text()).toBe(200);
@@ -190,6 +234,11 @@ describe.runIf(endpoints !== undefined)("configured production app owner in actu
       expect(authCandidate.sourcePackageHash).not.toBe(second.sourcePackageHash);
       const authFinish = await request(active(), `${coreApplicationPushPath(profile.deploymentId, authCandidate.pushId)}/finish`, {});
       expect(authFinish.status, await authFinish.clone().text()).toBe(200);
+      const authCheckpointResponse = await request(active(), checkpointPath, secondCheckpointRequest);
+      expect(authCheckpointResponse.status, await authCheckpointResponse.clone().text()).toBe(200);
+      const authCheckpoint = Result.getOrThrow(decodeCoreQueryCheckpointResponse(await authCheckpointResponse.json()));
+      expect(authCheckpoint.kind).toBe("sourceReplaced");
+      expect(authCheckpoint.sourceId).not.toBe(replacedCheckpoint.sourceId);
       const authProfile = { ...secondProfile, sourcePackageHash: authCandidate.sourcePackageHash };
       const readsBeforeStaleAuth = await sourceReads(active());
       for (const [kind, functionPath, args, requestKey] of [
@@ -261,11 +310,14 @@ function makeRuntime(worker: string, directory: string, profile: Profile, keys: 
   if (endpoints === undefined) throw new Error("Missing configured owner PostgreSQL endpoints.");
   return new Miniflare({ name: "configured-application-proof", modules: [{ type: "ESModule", path: "worker.js", contents: worker }],
     compatibilityDate: "2026-06-14", compatibilityFlags: ["nodejs_compat"],
-    bindings: { FLAREX_EXECUTOR_TOKEN: token, FLAREX_APPLICATION_PROFILES: JSON.stringify({ version: 1, profiles: [profile] }),
+    bindings: { FLAREX_EXECUTOR_TOKEN: token, FLAREX_QUERY_SYNC_PROBE_TOKEN: checkpointProbeToken,
+      FLAREX_APPLICATION_PROFILES: JSON.stringify({ version: 1, profiles: [profile] }),
       FLAREX_APPLICATION_KEYS: keys },
     hyperdrives: { HYPERDRIVE_CACHE_DISABLED: endpoints.connectionString }, workerLoaders: { LOADER: {} },
-    serviceBindings: { APPLICATION_ANALYZER: { name: "configured-application-proof", entrypoint: "FlarexApplicationAnalysisHost" } },
+    serviceBindings: { FLAREX_EXECUTOR: "configured-application-proof",
+      APPLICATION_ANALYZER: { name: "configured-application-proof", entrypoint: "FlarexApplicationAnalysisHost" } },
     r2Buckets: ["ARTIFACTS"], r2Persist: join(directory, "r2"), durableObjectsPersist: join(directory, "do"),
-    durableObjects: { APPLICATIONS: { className: "ConfiguredApplicationDO", useSQLite: true } },
+    durableObjects: { APPLICATIONS: { className: "ConfiguredApplicationDO", useSQLite: true },
+      DEPLOYMENT_SYNCS: { className: "DeploymentSyncDO", useSQLite: true } },
   } satisfies MiniflareOptions);
 }

@@ -2,7 +2,7 @@
 
 ## Status And Scope
 
-**Accepted replacement direction; not implemented or activated.** The target is
+**Accepted replacement direction; private checkpoint consumer implemented.** The full target remains
 an independently testable versioned live-query service with automatic query
 subscriptions, fixed snapshot targets, consistent session query sets and bounded
 reconstruction/reset recovery. The
@@ -10,12 +10,15 @@ reconstruction/reset recovery. The
 owns those decisions. This roadmap owns sequencing, gaps and exit conditions.
 
 The previous pure kernel, nine-operation state port, operation-scoped planners,
-reference orchestration, Flarex mappings and generation-4 SQLite adapter remain
-implemented private baseline evidence. The correlated Postgres source, private
-catch-up host and application-query evidence producer are also baseline work.
-`DeploymentSyncDO` exposes a private catch-up probe, not a complete live-query
-service. No fixed-target session protocol, replacement state layout, automatic
-client integration or production delivery is claimed complete here.
+reference orchestration and portable models remain private baseline evidence.
+The actual `DeploymentSyncDO` catch-up probe and hosted probe harness now use a
+fixed-target Core source, portable checkpoint coordinator and one-record SQLite
+state. The displaced correlated source/HTTP/client and generation-4 SQLite
+adapter, migration codecs and test-only construction are retired. No production
+caller installed queries into that adapter. The checkpoint consumer processes
+an empty query set; full fixed-target sessions, automatic client integration and
+production delivery remain unimplemented. The separate functional legacy
+executor live-query/delivery path and its protocols retain their caller gates.
 
 This is query-result synchronization, not arbitrary row replication, offline
 writes, conflict resolution, a universal event bus or another schema/query
@@ -67,12 +70,12 @@ for the standalone suite.
 
 ## Current Gaps
 
-- Migrate the actual baseline host to the [selected translated-Core log/retention contract](./preflight/16-translated-core-source-retirement.md)
-  before retiring its correlated source. The bounded Core target/refresh source
-  and actual Application Worker proof are implemented; the standalone service
-  and connected host/state replacement remain open.
-  Fixed-target token refresh supplies complete interval validity without the
-  former dense feed's extra missing-commit corruption check.
+- Extend the [selected translated-Core source](./preflight/16-translated-core-source-retirement.md)
+  from the implemented private checkpoint consumer to the full standalone
+  query/service contract. Core target/refresh, same-target registration and
+  retained-interval proof serve the actual canonical Application host. Complete
+  interval validity does not require the former dense feed's extra independent
+  missing-commit corruption evidence.
 - Prove selected-target snapshots, dependency completeness, authority changes
   and correlated feed/retention with the real execution owner.
 - Replace moving-latest completion with progress at fixed session targets while
@@ -94,7 +97,7 @@ No implementation gate is completed by this documentation change.
 | Gate | Outcome | Status |
 | --- | --- | --- |
 | `LQ-D0` | Record the replacement product, ownership, guarantees, breaks and proof obligations | Documentation decision only |
-| `LQ-S1` | Freeze the narrow source/service contract; executable synthetic source and independent oracle; one early real Flarex snapshot/dependency/feed feasibility witness | Next focused preflight; not implemented |
+| `LQ-S1` | Freeze the narrow source/service contract; executable synthetic source and independent oracle; one early real Flarex snapshot/dependency/feed feasibility witness | Core and checkpoint-source track implemented; standalone query/service track open |
 | `LQ-S2` | Fixed-target query tracking and bounded shared result versions; preserve future dirty work; prove progress under sustained writes | Pending S1 |
 | `LQ-S3` | Portable session query sets, automatic interest lifecycle, atomic transitions, mutation visibility and reset protocol through a loopback client | Pending S1/S2 |
 | `LQ-S4` | Sync-owned executable material/leases/progress; reusable local SQLite adapter; rollback, reopen, loss/reset and boundedness proofs | Pending approved state contract; may overlap S2/S3 |
@@ -132,5 +135,7 @@ engine benchmarks from actual query and transport costs. Real Postgres and
 Cloudflare evidence remains necessary for their adapters; a local passing suite
 is not a production-portability or capacity claim.
 
-No schemas, migrations, data, runtime APIs, dependencies, routes or callers change
-in this documentation decision. No blanket destructive reset is authorized.
+The owner authorized local old-format retirement with no retained database data.
+The new checkpoint adapter has no generation-4 conversion or fallback; unknown
+existing storage fails closed. Full session state replacement retains its own
+implementation and conformance gates.

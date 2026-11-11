@@ -17,6 +17,12 @@ export interface CoreIndexRead {
 export type CoreReadSet = readonly CoreIndexRead[];
 export interface CoreIndexKeys { readonly indexId: Uint8Array; readonly keys: readonly Uint8Array[] }
 export interface CoreConflict { readonly indexId: Uint8Array; readonly key: Uint8Array; readonly timestamp: CoreTimestamp }
+export interface CoreRetainedInterval {
+  readonly after: CoreTimestamp;
+  readonly through: CoreTimestamp;
+  /** The captured log proves every interval starting at or after this edge. */
+  readonly retainedFrom: CoreTimestamp;
+}
 
 export function keyInInterval(key: Uint8Array, interval: CoreInterval): boolean {
   return (interval.start === null || compareBytesLexicographically(key, interval.start) >= 0)
@@ -161,6 +167,13 @@ export class CoreWriteLogSnapshot {
     this.#indexes = indexes;
     this.#transitions = transitions;
     Object.freeze(this);
+  }
+
+  /** Complete retained coverage, independent of any query's dependency set. */
+  retainedInterval(after: CoreTimestamp): Result.Result<CoreRetainedInterval, CorePersistenceError> {
+    if (after > this.timestamp) return Result.fail(new CorePersistenceError({ reason: "invalidTarget" }));
+    if (after < this.minimumTimestamp) return Result.fail(new CorePersistenceError({ reason: "outOfRetention" }));
+    return Result.succeed(Object.freeze({ after, through: this.timestamp, retainedFrom: this.minimumTimestamp }));
   }
 
   /** Native first-capture coherence, distinct from Source's every-write conflicts. */

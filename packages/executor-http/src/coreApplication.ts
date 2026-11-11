@@ -27,6 +27,7 @@ const PositiveBytes = Schema.Int.check(Schema.makeFilter(value =>
 const decodePositiveBytes = Schema.decodeUnknownSync(PositiveBytes);
 const decodeCapabilityToken = Schema.decodeUnknownSync(Schema.String.check(Schema.isMinLength(1)));
 const limits = Schema.decodeUnknownSync(Schema.Struct({ maximumRequestBytes: PositiveBytes, maximumResponseBytes: PositiveBytes }));
+export const captureCoreApplicationHttpBounds = limits;
 const defaultMaximumBytes = 32 * 1024 * 1024;
 const encoder = new TextEncoder();
 const decoder = new TextDecoder("utf-8", { fatal: true });

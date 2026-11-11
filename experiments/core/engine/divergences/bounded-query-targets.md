@@ -1,7 +1,7 @@
 # Bounded fixed query targets
 
 Design status: **Selected for the authorized old-core caller migration**.
-Implementation status: **Core and Application source correction; consumer cutover open**.
+Implementation status: **Core and private checkpoint consumer implemented; full query/session cutover open**.
 Measurement status: **Unmeasured**.
 Owner: [translated-Core source contract](../../../../roadmaps/query-sync-engine/preflight/16-translated-core-source-retirement.md).
 
@@ -56,11 +56,11 @@ remain with their current owners. The authoritative evaluation codec admits
 physical 16-byte index identities and exactly the Core-owned `fe`/`ff` 17-byte
 virtual metadata identities. It does not omit metadata evidence for transport.
 
-This is the necessary Core source correction before the accepted fixed-target
-live-query replacement. It does not activate subscriptions or retire the dense
-private catch-up host/state by itself. The source contract names that remaining
-caller; standalone service/session/state gates remain open. No durable table or
-deployed data conversion is introduced by this adaptation.
+The private checkpoint host consumes detached evidence from this Core source;
+its former dense source and generation-4 state closure retire together. This
+does not activate subscriptions or complete the standalone query/service/session
+gates. The checkpoint adapter owns its bounded SQLite progress; no new durable
+PostgreSQL family or deployed-data conversion is introduced.
 
 Paired owner and actual Worker scenarios cover fixed data, dependency refresh,
 metadata fencing, escaped/foreign capabilities, retention, deadline and cleanup.

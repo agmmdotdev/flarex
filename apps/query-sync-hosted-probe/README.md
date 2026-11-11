@@ -1,7 +1,9 @@
-# FX02-B Hosted Catch-Up Probe
+# Fixed-Target Hosted Checkpoint Probe
 
-This private app proves the deployed restart gate for the production-inert
-query-sync catch-up host. It is evidence tooling, not a production sync API.
+This private app exercises the restart harness for the private fixed-target
+query checkpoint host. Its source is synthetic; Core source and retained-log
+proofs belong to the separate paired database and canonical Application tests.
+Existing hosted receipts remain historical evidence for their recorded sources.
 
 The hosted runner owns exactly two temporary Cloudflare Workers:
 
@@ -13,6 +15,12 @@ The hosted runner owns exactly two temporary Cloudflare Workers:
 `DeploymentSyncProbeDO` subclasses the real backend `DeploymentSyncDO` only to
 attach a per-constructor boot ID to its private RPC receipt. Catch-up, source,
 state, capability, budget, and failure behavior remain owned by the real host.
+Initialization first proves bounded continuation after one SQLite transition,
+then a second call anchors source checkpoint `1`. The receipt labels that
+combined result `checkpointReady` and records the initial continuation reason.
+Reconstruction resumes that ready checkpoint through synthetic fixed target `2`.
+Positions are sparse timestamps, and budgets count source reads and state
+transitions. This harness does not register queries or prove subscriptions.
 
 The run is fail-closed. It refuses to reuse either Worker name, generates three
 distinct ephemeral bearer values, sends them to Wrangler through a scoped
@@ -40,7 +48,7 @@ retained so the remaining host binding is diagnosable and not silently broken.
 Local validation:
 
 ```text
-pnpm --filter @flarex/query-sync-hosted-probe typecheck
+pnpm exec tsrs -p apps/query-sync-hosted-probe/tsconfig.json --fast --noEmit
 pnpm --filter @flarex/query-sync-hosted-probe test
 pnpm --filter @flarex/query-sync-hosted-probe deploy:source:dry-run
 pnpm --filter @flarex/query-sync-hosted-probe deploy:host:dry-run

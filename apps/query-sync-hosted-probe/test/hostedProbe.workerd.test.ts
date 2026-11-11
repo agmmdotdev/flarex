@@ -76,8 +76,8 @@ describe("FX02-B isolated hosted probe", () => {
           workerVersionId: "version-initial",
           objectName: "deployment-sync:93000000-0000-4000-8000-000000000001",
           outcome: {
-            state: "continuationRequired",
-            reason: "admittedBatchLimitReached",
+            state: "checkpointReady",
+            initialContinuation: "stateTransitionLimitReached",
             cursor: "1",
           },
         },

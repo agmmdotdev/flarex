@@ -6,7 +6,7 @@ import {
   FX02B_IDENTITY_PATH,
   FX02B_INITIAL_PATH,
   FX02B_PROBE_OBJECT_NAME,
-  FX02B_PROBE_OBSERVATION,
+  FX02B_PROBE_ROUTE,
   FX02B_RESUME_BUDGET,
   FX02B_RESUME_PATH,
 } from "./fixture";
@@ -99,16 +99,24 @@ export const fx02bHostWorker = {
       }
       const receipt = await stub.runHostedCatchUpProbe(Object.freeze({
         authorizationToken: configuration.probeToken,
-        observation: FX02B_PROBE_OBSERVATION,
+        route: FX02B_PROBE_ROUTE,
         budget: route === "initialize"
           ? FX02B_INITIAL_BUDGET
           : FX02B_RESUME_BUDGET,
         authorizeFreshInitialization: route === "initialize",
       }));
+      // Anchor a real source checkpoint before reconstruction. The first bounded
+      // call proves continuation; the next call settles the captured source target.
+      const anchored = route === "initialize" && receipt.outcome.ok
+        && receipt.outcome.value.kind === "continuationRequired"
+        ? await stub.runHostedCatchUpProbe(Object.freeze({ authorizationToken: configuration.probeToken,
+          route: FX02B_PROBE_ROUTE, budget: FX02B_RESUME_BUDGET, authorizeFreshInitialization: false }))
+        : undefined;
       const hostedReceipt = projectHostedReceipt(
         route,
         configuration,
         receipt,
+        anchored,
       );
       if (hostedReceipt === null) {
         return privateJson({ error: "unexpected_probe_outcome" }, 409);
@@ -155,6 +163,7 @@ function projectHostedReceipt(
   phase: Exclude<ProbeRoute, "identity">,
   configuration: Fx02bHostConfiguration,
   receipt: Fx02bHostedDoReceipt,
+  anchored: Fx02bHostedDoReceipt | undefined,
 ): Fx02bHostedReceipt | null {
   if (!receipt.outcome.ok) return null;
   const common = {
@@ -166,27 +175,28 @@ function projectHostedReceipt(
   } as const;
   if (phase === "initialize") {
     if (
-      receipt.outcome.value._tag !== "continuationRequired"
-      || receipt.outcome.value.reason !== "admittedBatchLimitReached"
+      receipt.outcome.value.kind !== "continuationRequired"
+      || receipt.outcome.value.reason !== "stateTransitionLimitReached"
+      || anchored === undefined || anchored.bootId !== receipt.bootId || !anchored.outcome.ok
+      || anchored.outcome.value.kind !== "caughtUp"
     ) return null;
     return Object.freeze({
       ...common,
       phase,
       outcome: Object.freeze({
-        state: receipt.outcome.value._tag,
-        reason: receipt.outcome.value.reason,
-        cursor: String(receipt.outcome.value.progress.lastDurableCursor
-          .appliedThroughSequence),
+        state: "checkpointReady" as const,
+        initialContinuation: receipt.outcome.value.reason,
+        cursor: anchored.outcome.value.checkpoint.position,
       }),
     });
   }
-  if (receipt.outcome.value._tag !== "caughtUp") return null;
+  if (receipt.outcome.value.kind !== "caughtUp") return null;
   return Object.freeze({
     ...common,
     phase,
     outcome: Object.freeze({
-      state: receipt.outcome.value._tag,
-      cursor: String(receipt.outcome.value.cursor.appliedThroughSequence),
+      state: receipt.outcome.value.kind,
+      cursor: receipt.outcome.value.checkpoint.position,
     }),
   });
 }
