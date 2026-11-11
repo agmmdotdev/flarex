@@ -6,7 +6,8 @@ import { captureInstalledWorkflowModules, type AtomicWorkflowExecution } from ".
 import { workflowModuleDefinition } from "../../src/workflow/module";
 import { cartCreationModuleNames } from "../../src/workflows/cart/creation-graph";
 import { prepareCreateCartWorkflow, type CartCreationHooks } from "../../src/workflows/cart/create-cart";
-import { cartCreationCoreDefinitions, cartCreationRuntimes } from "./cart-creation-runtimes";
+import { cartCreationCoreDefinitions } from "../../src/workflows/cart/creation-runtimes";
+import { cartCreationRuntimes } from "./cart-creation-runtimes";
 import { createCoreNativeWorkflowFixture, type CoreNativeWorkflowSource } from "./core-native-workflow-fixture";
 import { orderFixtureHosts } from "./core-order-fixture";
 

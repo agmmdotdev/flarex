@@ -103,3 +103,12 @@ function addRelationsToCalculateTotals(config: FindConfig<Record<string, unknown
 
 /** Required native Line Item total-output fields; optional detail totals stay gated. */
 export function lineItemTotalsFields(): readonly string[] { return ["quantity","unit_price","subtotal","original_subtotal","total","original_total","discount_total","discount_subtotal","discount_tax_total","tax_total","original_tax_total"] }
+
+/** Direct BigNumber outputs of native decorateCartTotals. Selection triggers
+ * remain includeCartTotals' separate native contract above. */
+export function cartTotalOutputFields(): readonly string[] { return [
+  "total", "subtotal", "tax_total", "discount_total", "discount_subtotal", "discount_tax_total",
+  "credit_line_total", "credit_line_subtotal", "credit_line_tax_total", "original_total", "original_subtotal", "original_tax_total",
+  "item_total", "item_subtotal", "item_tax_total", "item_discount_total", "original_item_total", "original_item_subtotal", "original_item_tax_total",
+  "shipping_total", "shipping_subtotal", "shipping_tax_total", "shipping_discount_total", "original_shipping_tax_total", "original_shipping_subtotal", "original_shipping_total",
+] }

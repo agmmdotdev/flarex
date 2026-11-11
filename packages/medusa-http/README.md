@@ -1,5 +1,38 @@
 # Private Medusa HTTP
 
+## Store Cart creation and retrieval
+
+`@flarex/medusa-http/store-cart` exports `createStoreCartHttpHandler` for
+`POST /store/carts` and `GET /store/carts/:id`.
+`@flarex/medusa-http/store-cart-effect` mounts the same native handlers in an
+Effect HTTP host. The host supplies Store CORS, request scopes, a verified
+optional Customer principal and the Cart graph's `admitCartRefetchFields`.
+
+The native middleware validates the publishable key, applies locale and selects
+the key's sole Sales Channel when the body omits one. A key with multiple
+channels requires an explicit selection; a mismatched channel returns the native
+400 error envelope before workflow execution. The shared Fetch adapter honors
+native accumulated request errors before subsequent middleware or the handler.
+GET retains the pinned publishable-key policy and native missing-Cart 404.
+
+Creation runs the genuine eighteen-source Cart workflow with one Core outcome
+and native event family. The complete response projection is admitted before
+creation, and the handler subsequently refetches the committed Cart through
+callable Remote Query. The default native response includes computed totals,
+items and their selected Product relations, Customer Groups, Region Countries,
+Addresses, Promotions and Payment Collection/Session projections. Service reads
+retain their independent protected operations. Unsupported projections refuse.
+The executing native pin omits bare `items.variant` and the nonmodel Address
+`region_code` fields; explicit nested Variant fields use the genuine relation.
+
+This bounded profile retains four creation items and four promotion codes,
+existing complete-cohort read limits and the local System Tax provider. The
+native HTTP schemas retain their nullable members; explicit null values outside
+the current native workflow input profile return 400 before durable acquisition.
+Translation-enabled requests refuse. Other Cart mutation and checkout routes,
+mixed app deployment and capacity acceptance remain separate gates. See the
+[Cart HTTP scope](../../roadmaps/flarexdb-framework-integration/preflight/store-cart-http.md).
+
 ## Store Currency reads
 
 This package serves `GET /store/currencies` and `GET /store/currencies/:code`.

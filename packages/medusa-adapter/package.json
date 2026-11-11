@@ -4,6 +4,9 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./internal/store-cart-request": "./src/http/store-cart-request.ts",
+    "./internal/system-test/store-cart-request-fixture": "./test/support/store-cart-request-fixture.ts",
+    "./internal/system-test/store-cart-request-catalog": "./test/support/store-cart-request-catalog.ts",
     "./internal/product-request": "./src/http/product-request.ts",
     "./internal/store-product-request": "./src/http/store-product-request.ts",
     "./internal/system-test/store-product-request-fixture": "./test/support/store-product-request-fixture.ts",

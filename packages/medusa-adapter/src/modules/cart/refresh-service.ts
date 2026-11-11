@@ -4,7 +4,7 @@ import type { ICartCreationOwnershipService } from "@medusajs/types/cart/creatio
 import type { CartModuleService } from "@medusajs/cart/services";
 import { cartCreationModels } from "@medusajs/cart/creation-models";
 import { cartStaticResources } from "@medusajs/cart/static-manifest";
-import { lineItemTotalsFields } from "@medusajs/cart/utils/totals-selection";
+import { cartTotalsFields, lineItemTotalsFields } from "@medusajs/cart/utils/totals-selection";
 import { Modules, buildModuleResourceEventName } from "@medusajs/framework/utils/portable";
 import { commerceError, defaultCommerceResources } from "@flarex/persistence-postgres/internal/commerce-values";
 import { commerceCommandPreparation, commerceServiceCommands } from "../../module/commands";
@@ -158,7 +158,8 @@ export const makeCartCreationWorkflowCommands = Effect.fn("CartCreation.workflow
     // computed properties in nested graph wildcards; every table/key remains
     // genuine DML metadata, including direct DAL Line Item reads.
     const paths = (yield* relationPaths(read.catalog, "cart", read.paths, { nativeFields: true })).map(path =>
-      path.table.name === storedItem.name ? { ...path, presentation: itemPresentation } : path);
+      path.table.name === storedItem.name ? { ...path, presentation: itemPresentation, optionalFields: ["product", "variant"] } :
+        path.path === "shipping_address" || path.path === "billing_address" ? { ...path, optionalFields: ["region_code"] } : path);
     const joiner = cartStaticResources.joinerConfig;
     if (joiner === undefined) return yield* Result.fail(commerceError("unsupportedProfile"));
     const admitted = [create, compensate, count, countLines, countShipping, list, listItemTax, listShippingTax, setItemTax, setShippingTax, addItemAdjustments, softDeleteItemAdjustments, restoreItemAdjustments,
@@ -170,6 +171,7 @@ export const makeCartCreationWorkflowCommands = Effect.fn("CartCreation.workflow
         addShippingMethodAdjustments, softDeleteShippingMethodAdjustments, restoreShippingMethodAdjustments },
       graph: { aliases: (yield* moduleAliases(joiner)).filter(alias => ["Cart", "LineItem", "ShippingMethod"].includes(alias.model)), reads: [{ model: "Cart", command: count,
         table: stored, presentation, paths, nativeFields: true,
+        optionalFields: cartTotals.filter(name => !cartTotalsFields().includes(name)).flatMap(name => [name, "raw_" + name]),
         orderable: ["id"], uniqueOrder: ["id"], multipleOrder: false, decode: decodeGraphCount },
         { model: "LineItem", command: countLines, table: yield* read.catalog.table("cart_line_item"), paths: [], nativeFields: true,
           orderable: ["id"], uniqueOrder: ["id"], multipleOrder: false, decode: decodeGraphCount },

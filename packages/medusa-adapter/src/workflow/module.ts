@@ -100,7 +100,8 @@ const decodeGraphMetadata = commerceDecoder(Schema.Struct({ table: Table,
     presentation: Schema.optionalKey(GraphPresentation),
     computedObjects: Schema.optionalKey(GraphComputedObjects), outputObject: Schema.optionalKey(GraphComputedObject),
     sourceFields: Schema.optionalKey(Schema.Array(Schema.String)), targetFields: Schema.optionalKey(Schema.Array(Schema.String)),
-    nativeFields: Schema.optionalKey(Schema.Literal(true)) })),
+    nativeFields: Schema.optionalKey(Schema.Literal(true)),
+    optionalFields: Schema.optionalKey(Schema.Array(Schema.String).check(Schema.isMaxLength(16))) })),
   orderable: Schema.Array(Schema.String), uniqueOrder: Schema.Array(Schema.String),
   optionalFields: Schema.optionalKey(Schema.Array(Schema.String).check(Schema.isMaxLength(16))),
 }), "unsupportedProfile");
@@ -223,6 +224,7 @@ function captureGraphDefinition(input: GraphModuleDefinition) {
         const computedObjects = path.computedObjects === undefined ? undefined : yield* captureGraphComputedObjects(path.computedObjects);
         const outputObject = path.outputObject === undefined ? undefined : (yield* captureGraphComputedObjects({ output: path.outputObject })).output;
         paths.push(Object.freeze({ ...path, ...(presentation === undefined ? {} : { presentation }),
+          ...(path.optionalFields === undefined ? {} : { optionalFields: Object.freeze([...path.optionalFields]) }),
           ...(computedObjects === undefined ? {} : { computedObjects }), ...(outputObject === undefined ? {} : { outputObject }) }));
       }
       reads.push(Object.freeze({ ...read, ...metadata, paths: Object.freeze(paths),

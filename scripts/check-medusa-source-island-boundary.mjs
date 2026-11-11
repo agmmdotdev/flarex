@@ -30,6 +30,14 @@ const dependencyFields = [
 ];
 const islandPrefix = "third_party/medusa/upstream/";
 const nativeStoreApplicationDOExports = new Map([
+  ["@flarex/medusa-adapter/internal/store-cart-request", { name: "@flarex/medusa-adapter", path: "packages/medusa-adapter",
+    exported: "./internal/store-cart-request", target: "packages/medusa-adapter/src/http/store-cart-request.ts" }],
+  ["@flarex/medusa-adapter/internal/system-test/store-cart-request-catalog", { name: "@flarex/medusa-adapter", path: "packages/medusa-adapter",
+    exported: "./internal/system-test/store-cart-request-catalog", target: "packages/medusa-adapter/test/support/store-cart-request-catalog.ts" }],
+  ["@flarex/medusa-adapter/internal/system-test/store-cart-request-fixture", { name: "@flarex/medusa-adapter", path: "packages/medusa-adapter",
+    exported: "./internal/system-test/store-cart-request-fixture", target: "packages/medusa-adapter/test/support/store-cart-request-fixture.ts" }],
+  ["@flarex/medusa-http/store-cart-effect", { name: "@flarex/medusa-http", path: "packages/medusa-http", exported: "./store-cart-effect",
+    target: "packages/medusa-http/src/storeCartEffectHost.mts" }],
   ["@flarex/medusa-adapter/internal/store-request-reads", { name: "@flarex/medusa-adapter", path: "packages/medusa-adapter",
     exported: "./internal/store-request-reads", target: "packages/medusa-adapter/src/http/store-request-reads.ts" }],
   ["@flarex/medusa-adapter/internal/store-request-scope", { name: "@flarex/medusa-adapter", path: "packages/medusa-adapter",
@@ -52,6 +60,13 @@ const nativeStoreApplicationDOExports = new Map([
     target: "packages/medusa-deps/src/awilix-portable.mjs" }],
 ]);
 const nativeStoreApplicationDOImports = new Map([
+  ["apps/executor/test/storeCartApplicationDO.workerd.worker.ts", new Set([
+    "@flarex/medusa-adapter/internal/store-cart-request", "@flarex/medusa-adapter/internal/system-test/store-cart-request-catalog",
+    "@flarex/medusa-http/store-cart-effect", "@medusajs/deps/awilix-portable",
+  ])],
+  ["apps/executor/test/storeCartApplicationDO.postgres.test.ts", new Set([
+    "@flarex/medusa-adapter/internal/system-test/store-cart-request-catalog", "@flarex/medusa-adapter/internal/system-test/store-cart-request-fixture",
+  ])],
   ["apps/executor/test/adminProductApplicationDO.workerd.worker.ts", new Set([
     "@flarex/medusa-adapter/internal/system-test/store-product-request-catalog",
   ])],
@@ -1019,6 +1034,8 @@ export function discoverRootToolSources(repoRoot) {
     "scripts/check-medusa-source-island-boundary.test.js",
     "scripts/check-medusa-store-product-source.mjs",
     "scripts/check-medusa-store-product-source.test.js",
+    "scripts/check-medusa-store-cart-source.mjs",
+    "scripts/check-medusa-store-cart-source.test.js",
   ]);
   const toolingFiles = ["scripts", "tools", "integration"].flatMap((directory) =>
     collectFiles(path.join(repoRoot, directory), (file) =>

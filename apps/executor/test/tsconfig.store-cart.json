@@ -1,0 +1,5 @@
+{
+  "extends": "../tsconfig.json",
+  "include": ["storeCartApplicationDO.workerd.worker.ts", "storeCartApplicationDO.postgres.test.ts"],
+  "exclude": []
+}

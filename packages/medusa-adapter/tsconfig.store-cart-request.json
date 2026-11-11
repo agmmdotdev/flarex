@@ -1,0 +1,5 @@
+{
+  "extends": "./tsconfig.json",
+  "include": ["src/http/store-cart-request.ts", "test/store-cart-request.test.ts", "test/store-cart-projection.test.ts", "test/local-graph-presentation.test.ts", "test/local-graph.test.ts", "test/support/core-cart-create-root-fixture.ts", "test/support/store-cart-request-catalog.ts", "test/support/store-cart-request-fixture.ts", "vitest.store-cart-request.config.ts"],
+  "exclude": []
+}

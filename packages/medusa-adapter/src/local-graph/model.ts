@@ -27,6 +27,8 @@ export interface GraphRelationPath {
   readonly targetFields?: readonly string[];
   /** Native graph forwarding retains this selected edge's actual join keys. */
   readonly nativeFields?: true;
+  /** Named nonpersistent native leaves; an absent value stays omitted. */
+  readonly optionalFields?: readonly string[];
 }
 
 interface GraphReadMetadata {

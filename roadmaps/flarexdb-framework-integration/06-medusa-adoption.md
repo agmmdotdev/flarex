@@ -82,6 +82,32 @@ name and currency code are supported. The Store page limit is 256. The Cart
 context retains its separate eight-Region bound. Deeper Country traversal and
 payment-provider expansion are outside this Store profile.
 
+#### Store Cart creation and retrieval
+
+The selected [Cart HTTP profile](./preflight/store-cart-http.md) connects
+`POST /store/carts` and `GET /store/carts/:id` to the genuine eighteen-source
+native creation workflow and its existing Core owners. Creation admits the full
+requested response projection before execution, settles once with native events,
+then performs the pinned callable Remote Query refetch. Retrieval prepares only
+protected service reads and promises no common snapshot across those calls.
+
+The native default response preserves Cart/item totals, selected Product and
+taxonomy relations, Customer Groups, Region Countries, Addresses, Promotions,
+and Payment Collection/Sessions. Publishable-key validation, verified optional
+Customer selection, locale and Sales Channel middleware retain their native
+contracts. The shared framework Fetch owner now honors accumulated `req.errors`
+with the native Express wrapper's 400 envelope before the next handler; Cart
+does not supply a second authorization check. GET retains native key access
+without an added Customer ownership condition and returns 404 for a missing Cart.
+The pinned default bare Variant and nonmodel Address `region_code` leaves remain
+omitted; explicit nested Variant fields retain their genuine native traversal.
+
+The private profile retains existing four-item, four-promotion-code and complete
+read-cohort bounds. Explicit nulls outside the native workflow input profile and
+unsupported response fields refuse before mutation. Other Cart mutations,
+checkout HTTP, translation, remote providers, mixed deployment and capacity
+acceptance retain their separate gates.
+
 #### Product HTTP promotion completion goal
 
 The in-scope pinned Product HTTP family runs on the existing private

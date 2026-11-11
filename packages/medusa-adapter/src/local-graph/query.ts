@@ -103,7 +103,11 @@ export function prepareLocalGraph(participants: readonly GraphParticipant[]): Re
         const names = new Set<string>();
         for (const relation of input.paths) {
           if (names.has(relation.path) || relation.path.split(".").some(part => !/^[a-z][a-z0-9_]*$/.test(part)) ||
-            relation.nativeFields !== undefined && relation.nativeFields !== true) return yield* Result.fail(commerceError("unsupportedProfile"));
+            relation.nativeFields !== undefined && relation.nativeFields !== true ||
+            relation.optionalFields !== undefined && (input.nativeFields !== true || relation.optionalFields.length > 16 ||
+              new Set(relation.optionalFields).size !== relation.optionalFields.length || relation.optionalFields.some(field =>
+                !/^[a-z][a-z0-9_]*$/.test(field) || graphSelectableColumns(relation).includes(field) ||
+                Object.hasOwn(relation.computedObjects ?? {}, field)))) return yield* Result.fail(commerceError("unsupportedProfile"));
           names.add(relation.path);
           const presentation = relation.presentation === undefined ? undefined : yield* captureGraphPresentation(relation.presentation, relation.table);
           const computedObjects = relation.computedObjects === undefined ? undefined : yield* captureGraphComputedObjects(relation.computedObjects);
@@ -111,6 +115,7 @@ export function prepareLocalGraph(participants: readonly GraphParticipant[]): Re
           paths.push(Object.freeze({ ...relation, table: yield* catalog.table(relation.table.name),
             ...(computedObjects === undefined ? {} : { computedObjects }), ...(outputObject === undefined ? {} : { outputObject }),
             ...(presentation === undefined ? {} : { presentation }),
+            ...(relation.optionalFields === undefined ? {} : { optionalFields: Object.freeze([...relation.optionalFields]) }),
             ...(relation.targetFields === undefined ? {} : { targetFields: Object.freeze([...relation.targetFields]) }),
             ...(relation.sourceFields === undefined ? {} : { sourceFields: Object.freeze([...relation.sourceFields]) }) }));
         }

@@ -72,6 +72,7 @@ export function createFetchHttpStaticHandler(options: FetchHttpAdapterOptions & 
       let proceed = true
       for (const middleware of sorted.slice(0, routeIndex)) {
         if ("isRoute" in middleware || !matchesMiddleware(middleware, request.method, url.pathname)) continue
+        if (respondToRequestErrors(req, res)) { proceed = false; break }
         if (middleware.policies !== undefined) {
           const verifier = options.verifyPolicies
           if (!verifier) throw new Error("The private HTTP policy verifier is missing")
@@ -83,7 +84,7 @@ export function createFetchHttpStaticHandler(options: FetchHttpAdapterOptions & 
         if (nextError) throw nextError
         if (!nextCalled) { proceed = false; break }
       }
-      if (proceed) await route.handler(req, res)
+      if (proceed && !respondToRequestErrors(req, res)) await route.handler(req, res)
     } catch (error) {
       await onError(error, req, res, (nextError) => { if (nextError) throw nextError })
     }
@@ -92,6 +93,16 @@ export function createFetchHttpStaticHandler(options: FetchHttpAdapterOptions & 
   return { handle, isPathHandled, async tryHandle(request) {
     return isPathHandled(new URL(request.url).pathname) ? handle(request) : undefined
   } }
+}
+/** The native Express wrapHandler checks accumulated validation errors before
+ * each middleware/route. Fetch owns the same boundary without Express next. */
+function respondToRequestErrors(req: MedusaRequest, res: MedusaResponse): boolean {
+  if (!req.errors?.length) return false
+  res.status(400).json({
+    errors: req.errors,
+    message: "Provided request body contains errors. Please check the data and retry the request",
+  })
+  return true
 }
 function matchesMiddleware(middleware: MiddlewareDescriptor, method: string, pathname: string): boolean {
   return matchesResource(middleware, method, pathname)

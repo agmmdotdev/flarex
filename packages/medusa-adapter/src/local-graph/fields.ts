@@ -42,7 +42,7 @@ export function planGraphFields(read: GraphReadDefinition, fields: readonly stri
       const column = parts.pop();
       const selected = parts.length === 0 ? read : paths.get(parts.join("."));
       if (column === undefined || selected === undefined || (column !== "*" && !graphSelectableColumns(selected).includes(column) &&
-        !(parts.length === 0 && read.optionalFields?.includes(column)))) return yield* Result.fail(commerceError("unsupportedProfile"));
+        !selected.optionalFields?.includes(column))) return yield* Result.fail(commerceError("unsupportedProfile"));
       for (let index = 1; index <= parts.length; index++) requested.add(parts.slice(0, index).join("."));
     }
     const tree = toPopulateTree(fields);
@@ -97,7 +97,7 @@ function fieldProjection(tree: PopulateTree, table: ReadTable, paths: ReadonlyMa
         }
         children.push({ name, many: relation.many, optional: relation.optional === true,
           node: yield* fieldProjection(child, relation.table, paths, path + ".", companions, native,
-            retained ? relation.targetFields ?? relation.table.primaryKeys : [], undefined, nativeGraph, relation.presentation, relation.computedObjects) });
+            retained ? relation.targetFields ?? relation.table.primaryKeys : [], relation.optionalFields, nativeGraph, relation.presentation, relation.computedObjects) });
       }
     }
     return { fields, children, nullRelations: [], requireFields: true,

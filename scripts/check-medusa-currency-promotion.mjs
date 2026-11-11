@@ -1,4 +1,5 @@
 // @ts-check
+import { storeCartHttpSourcePairs, verifyStoreCartHttpSelection, verifyStoreCartHttpSource, verifyStoreCartHttpSharedSources } from "./check-medusa-store-cart-source.mjs";
 import { storeProductSourcePairs, verifyStoreProductSelection, verifyStoreProductSource } from "./check-medusa-store-product-source.mjs";
 import { apiKeySourcePairs, verifyApiKeySelection, verifyApiKeySource } from "./check-medusa-api-key-source.mjs";
 import { customerAddressSourcePairs, verifyCustomerAddressSource, verifyCustomerAccountSelection, checkCustomerAccountSources } from "./check-medusa-customer-account-source.mjs";
@@ -1153,6 +1154,8 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
   verifyAdminAtomicHttpSelection(supplied.files);
   verifyProductBatchAuthorizationHttpSelection(supplied.files);
   verifyStoreProductSelection(supplied.files);
+  verifyStoreCartHttpSelection(supplied.files);
+  verifyStoreCartHttpSharedSources(root);
   verifyParentQualifiedVariantBatchWorkflowSelection(supplied.files);
   verifyTax170SourceSelection(supplied.files);
   verifyNativeDatabaseConstraintSource(root);
@@ -1884,6 +1887,8 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
     noSymlinks(root, file.target);
     if (sha256(readFileSync(path.join(root, file.target))) !== file.targetSha256) throw new Error(`Changed promotion target: ${file.target}`);
     if (file.source !== undefined) {
+      if (storeCartHttpSourcePairs.some(pair => pair.target === file.target))
+        verifyStoreCartHttpSource(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"), file.target);
       if (checkoutSourcePairs.some(pair => pair.target === file.target))
         verifyCheckoutSource(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"), file.target);
       if (apiKeySourcePairs.some(pair => pair.target === file.target))
@@ -1971,7 +1976,8 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
       if (file.classification === "cartPaymentTotalsFork")
         verifyCartPaymentTotalsSource(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"),
           readFileSync(path.join(root, "packages/medusa-cart/src/utils/totals-selection.ts"), "utf8"),
-          readFileSync(path.join(root, sourcePrefix + "packages/core/utils/src/totals/line-item/index.ts"), "utf8"));
+          readFileSync(path.join(root, sourcePrefix + "packages/core/utils/src/totals/line-item/index.ts"), "utf8"),
+          readFileSync(path.join(root, sourcePrefix + "packages/core/utils/src/totals/cart/index.ts"), "utf8"));
       if (file.classification === "paymentCollectionWorkflowFork")
         verifyPaymentCollectionSource(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"), file.target);
       if (file.classification === "importRelocation" && /^packages\/medusa-(product|pricing)\/src\/models\/[^/]+\.ts$/.test(file.target))
@@ -2115,6 +2121,18 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
 /** @param {Promotion | undefined} promotion @param {string} file @param {string} specifier */
 export function admitsCurrencyImport(promotion, file, specifier) {
   if (!promotion || ![...promotion.files, ...promotion.buildFiles].some((entry) => entry.target === file)) return false;
+  // This isolated preflight checks the real native HTTP default projection.
+  // Neither source becomes an adapter runtime dependency or public export.
+  if (file === "packages/medusa-adapter/test/store-cart-projection.test.ts") {
+    const references = new Map([
+      ["../../medusa-framework/src/http/utils/get-query-config", { target: "packages/medusa-framework/src/http/utils/get-query-config.ts",
+        source: "third_party/medusa/upstream/packages/core/framework/src/http/utils/get-query-config.ts" }],
+      ["../../medusa-http/src/api/store/carts/query-config", { target: "packages/medusa-http/src/api/store/carts/query-config.ts",
+        source: "third_party/medusa/upstream/packages/medusa/src/api/store/carts/query-config.ts" }],
+    ]);
+    const reference = references.get(specifier);
+    if (reference !== undefined && promotion.files.some(entry => entry.target === reference.target && entry.source === reference.source)) return true;
+  }
   if (promotion.testAliases.some((alias) => alias.importer === file && alias.specifier === specifier)) return true;
   // Exact verified wrappers register complete pinned files in their fixture.
   // This is not a runtime export or a general cross-package edge.

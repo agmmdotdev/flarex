@@ -41,6 +41,13 @@ const decodeRemote = commerceDecoder(Schema.Struct({ __value: Schema.Struct({ cu
     order: Schema.optionalKey(Schema.Record(ScalarField, Schema.Literals(["ASC", "DESC", "asc", "desc"]))),
   }),
 }) }) }), "unsupportedProfile");
+const decodeKeyRemote = commerceDecoder(Schema.Struct({ __value: Schema.Struct({ api_key: Schema.Struct({
+  fields: Schema.Tuple([]), isServiceAccess: Schema.Literal(false),
+  __args: Schema.Struct({ filters: Schema.Struct({ token: Token }) }),
+  sales_channels: Schema.Struct({ fields: Schema.Tuple([Schema.Literal("id")]) }),
+}) }) }), "unsupportedProfile");
+const decodeRemoteEntity = commerceDecoder(Schema.Struct({ __value: Schema.Record(Schema.Literals(["currency", "api_key"]),
+  Schema.optionalKey(Schema.JsonObject)) }), "unsupportedProfile");
 const decodeKeys = commerceDecoder(Schema.Array(Schema.Struct({ id: Schema.String, token: Schema.String,
   revoked_at: Schema.NullOr(Schema.String) })), "storedCorruption");
 const decodeLinks = commerceDecoder(Schema.Array(Schema.Struct({ publishable_key_id: Schema.String,
@@ -111,8 +118,20 @@ export const makeStoreRequestReads = Effect.fn("StoreRequestReads.make")(functio
   const keyCommand = input.catalog.apiKey.commands[0], linkCommand = input.catalog.apiKeySalesChannel.commands[0];
   if (keyCommand === undefined || linkCommand === undefined) return yield* commerceError("invalidAuthority");
   const values = yield* Effect.fromResult(currencyValueProfile);
+  const readKeyChannels = Effect.fn("StoreRequestReads.keyChannels")(function* (filters: { token: string; type: "publishable" }) {
+    const keys = yield* Effect.fromResult(decodeKeys(yield* apiKey.read(keyCommand, filters)));
+    const channels = keys.length === 0 ? [] : yield* Effect.fromResult(decodeLinks(yield* links.read(linkCommand, keys.map(key => key.id))));
+    return { keys, channels };
+  });
   const remoteQuery = Effect.fn("StoreRequestReads.remoteQuery")(function* (inputQuery: unknown) {
     const captured = yield* Effect.fromResult(captureCommerceInput(inputQuery));
+    const envelope = yield* Effect.fromResult(decodeRemoteEntity(captured));
+    if (envelope.__value.api_key !== undefined) {
+      const query = (yield* Effect.fromResult(decodeKeyRemote(captured))).__value.api_key;
+      const { keys, channels } = yield* readKeyChannels({ ...query.__args.filters, type: "publishable" });
+      return keys.map(key => ({ sales_channels: channels.filter(link => link.publishable_key_id === key.id)
+        .map(link => ({ id: link.sales_channel_id })) }));
+    }
     const { fields: requestedFields, __args: args } = (yield* Effect.fromResult(decodeRemote(captured))).__value.currency;
     // Native MikroORM discards the HTTP FieldParser's implicit nonmodel id,
     // and always hydrates/serializes the actual DML primary key, code.
@@ -144,7 +163,7 @@ export const makeStoreRequestReads = Effect.fn("StoreRequestReads.make")(functio
     const captured = yield* Effect.fromResult(captureCommerceInput(inputQuery));
     const query = yield* Effect.fromResult(decodeGraph(captured));
     if (options !== undefined) yield* Effect.fromResult(decodeGraphOptions(yield* Effect.fromResult(captureCommerceInput(options))));
-    const keys = yield* Effect.fromResult(decodeKeys(yield* apiKey.read(keyCommand, query.filters)));
+    const { keys, channels } = yield* readKeyChannels(query.filters);
     if (keys.length === 0) return { data: [] };
     // Pinned RemoteJoiner.query fetches its root before handleExpands; each
     // remote-fetch-data service call receives filters/options and no shared
@@ -153,7 +172,6 @@ export const makeStoreRequestReads = Effect.fn("StoreRequestReads.make")(functio
     // does not promise a snapshot shared across key and Link service calls.
     // third_party/medusa/upstream/packages/core/orchestration/src/joiner/remote-joiner.ts
     // third_party/medusa/upstream/packages/core/modules-sdk/src/remote-query/remote-fetch-data.ts
-    const channels = yield* Effect.fromResult(decodeLinks(yield* links.read(linkCommand, keys.map(key => key.id))));
     return { data: keys.map(key => ({ ...key, sales_channels_link: channels.filter(link => link.publishable_key_id === key.id)
       .map(link => ({ sales_channel_id: link.sales_channel_id })) })) };
   });

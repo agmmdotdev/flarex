@@ -78,7 +78,8 @@ export function preparePromotionComputeQuery(table: "promotion" | "promotion_cam
     if (!graph && (value.options.limit !== undefined || value.options.offset !== undefined))
       return yield* Result.fail(commerceError("unsupportedProfile"));
     if (graph) {
-      if (!("id" in value.options.orderBy) || value.options.populate.length || !value.options.fields?.length || value.options.fields.some(field => field !== "id" && field !== "code"))
+      if (!("id" in value.options.orderBy) || value.options.populate.some(path => path !== "application_method") ||
+        !value.options.fields?.length || value.options.fields.length > 256)
         return yield* Result.fail(commerceError("unsupportedProfile"));
       return { value, active: false as const, graph: true as const, predicate: yield* compileWhere(value.where, rootWhere) };
     }

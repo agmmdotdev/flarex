@@ -34,6 +34,16 @@
       "source": "./src/store-product.ts",
       "default": "./dist/store-product.js"
     },
+    "./store-cart": {
+      "types": "./dist/store-cart.d.ts",
+      "source": "./src/store-cart.ts",
+      "default": "./dist/store-cart.js"
+    },
+    "./store-cart-effect": {
+      "types": "./dist/storeCartEffectHost.d.mts",
+      "source": "./src/storeCartEffectHost.mts",
+      "default": "./dist/storeCartEffectHost.mjs"
+    },
     "./store-product-effect": {
       "types": "./dist/storeProductEffectHost.d.mts",
       "source": "./src/storeProductEffectHost.mts",

@@ -34,6 +34,74 @@ const nativeControlPromotion = {
 };
 
 describe("Medusa source-island boundary checker", () => {
+  it("confines native Store Cart DO imports to exact authored exports and named test consumers", () => {
+    const promotion = { sourceCommit: "test", buildFiles: [], testAliases: [], packages: [
+      { path: "packages/medusa-adapter", name: "@flarex/medusa-adapter", dependencies: {}, exports: [
+        "./internal/store-cart-request", "./internal/system-test/store-cart-request-catalog",
+        "./internal/system-test/store-cart-request-fixture",
+      ] },
+      { path: "packages/medusa-http", name: "@flarex/medusa-http", dependencies: {}, exports: ["./store-cart-effect"] },
+      { path: "packages/medusa-deps", name: "@medusajs/deps", dependencies: {}, exports: ["./awilix-portable"] },
+    ], files: ["packages/medusa-adapter/src/http/store-cart-request.ts",
+      "packages/medusa-adapter/test/support/store-cart-request-catalog.ts",
+      "packages/medusa-adapter/test/support/store-cart-request-fixture.ts",
+      "packages/medusa-http/src/storeCartEffectHost.mts", "packages/medusa-deps/src/awilix-portable.mjs"]
+      .map(target => ({ target, targetSha256: "pinned", classification: "authored" })) };
+    const worker = "apps/executor/test/storeCartApplicationDO.workerd.worker.ts";
+    const test = "apps/executor/test/storeCartApplicationDO.postgres.test.ts";
+    const root = "@flarex/medusa-adapter/internal/store-cart-request";
+    const catalog = "@flarex/medusa-adapter/internal/system-test/store-cart-request-catalog";
+    const fixture = "@flarex/medusa-adapter/internal/system-test/store-cart-request-fixture";
+    const http = "@flarex/medusa-http/store-cart-effect";
+    const awilix = "@medusajs/deps/awilix-portable";
+    const workerImports = [root, catalog, http, awilix], testImports = [catalog, fixture];
+    /** @param {string} relativePath @param {string[]} specifiers @param {typeof promotion} [selected] */
+    const check = (relativePath, specifiers, selected = promotion) => analyzeMedusaSourceIslandBoundary({
+      ...emptyInput, currencyPromotion: selected,
+      rootSources: [{ relativePath, text: specifiers.map(specifier => `import ${JSON.stringify(specifier)};`).join("\n") }],
+    }).errors;
+    expect(check(worker, workerImports)).toEqual([]);
+    expect(check(test, testImports)).toEqual([]);
+    const writer = "apps/executor/test/adminProductApplicationDO.workerd.worker.ts";
+    expect(check(writer, [catalog]).length).toBeGreaterThan(0);
+    for (const specifier of [root, fixture, http]) expect(check(writer, [specifier]).length).toBeGreaterThan(0);
+    expect(check(worker, [fixture]).length).toBeGreaterThan(0);
+    for (const specifier of [root, http, awilix]) expect(check(test, [specifier]).length).toBeGreaterThan(0);
+    for (const importer of [worker.replace("storeCartApplicationDO", "adjacent"), test.replace("storeCartApplicationDO", "adjacent"),
+      worker.replace("/test/", "/src/"), test.replace("/test/", "/src/"),
+      worker.replace("storeCartApplicationDO", "storeCurrencyApplicationDO"), test.replace("storeCartApplicationDO", "storeCurrencyApplicationDO")])
+      for (const specifier of [root, catalog, fixture, http]) expect(check(importer, [specifier]).length).toBeGreaterThan(0);
+    for (const { importer, specifiers } of [{ importer: worker, specifiers: workerImports }, { importer: test, specifiers: testImports }])
+      for (const specifier of specifiers) {
+        expect(check(importer, [specifier + ".ts"]).length).toBeGreaterThan(0);
+        expect(check(importer, [specifier.replace(/\/([^/]+)$/, "/./$1")]).length).toBeGreaterThan(0);
+      }
+    for (const file of promotion.files) {
+      const importer = file.target.includes("fixture.ts") ? test : worker;
+      const specifiers = importer === test ? testImports : workerImports;
+      for (const altered of [
+        { ...promotion, files: promotion.files.filter(candidate => candidate !== file) },
+        { ...promotion, files: promotion.files.map(candidate => candidate === file ? { ...candidate, target: candidate.target + "-adjacent" } : candidate) },
+        { ...promotion, files: promotion.files.map(candidate => candidate === file ? { ...candidate, classification: "exactCopy" } : candidate) },
+      ]) expect(check(importer, specifiers, altered).length).toBeGreaterThan(0);
+    }
+    for (const owner of promotion.packages)
+      for (const exported of owner.exports) {
+        const altered = { ...promotion, packages: promotion.packages.map(candidate => candidate === owner
+          ? { ...candidate, exports: candidate.exports.filter(value => value !== exported) } : candidate) };
+        const importer = exported.endsWith("-fixture") ? test : worker;
+        expect(check(importer, importer === test ? testImports : workerImports, altered).length).toBeGreaterThan(0);
+      }
+    for (const altered of [
+      { ...promotion, packages: promotion.packages.map(owner => ({ ...owner, path: owner.path + "-adjacent" })) },
+      { ...promotion, packages: [] }, { ...promotion, files: [] },
+    ]) expect(check(worker, workerImports, altered).length).toBeGreaterThan(0);
+    for (const field of ["dependencies", "optionalDependencies", "peerDependencies"])
+      expect(analyzeMedusaSourceIslandBoundary({ ...emptyInput, currencyPromotion: promotion, rootManifests: [{
+        relativePath: "apps/executor/package.json", manifest: { [field]: { "@flarex/medusa-adapter": "workspace:*" } },
+      }] }).errors.length).toBeGreaterThan(0);
+  });
+
   it("confines native Store Product DO imports to exact authored exports and named test consumers", () => {
     const promotion = { sourceCommit: "test", buildFiles: [], testAliases: [], packages: [
       { path: "packages/medusa-adapter", name: "@flarex/medusa-adapter", dependencies: {}, exports: [

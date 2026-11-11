@@ -1,6 +1,6 @@
 import { Effect, Result, Schema } from "effect";
 import type { DAL } from "@medusajs/framework/types";
-import { cartTotalsFields } from "@medusajs/cart/utils/totals-selection";
+import { cartTotalsFields, cartTotalOutputFields } from "@medusajs/cart/utils/totals-selection";
 import { describeToManyRelation, fillEmptyToManyRelations } from "@medusajs/drizzle/relation-query";
 import type { CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError, isJsonObject, type Json, type JsonObject, type CommerceTransactionError } from "@flarex/persistence-postgres/internal/commerce-values";
@@ -46,7 +46,7 @@ export function prepareCartPaymentRead(metadata: Effect.Success<ReturnType<typeo
     const byName = new Map(entities.map(entity => [entity.table.name, entity]));
     const cart = byName.get("cart");
     if (cart === undefined) return yield* Result.fail(commerceError("unsupportedProfile"));
-    const totals = cartTotalsFields(), rawTotals = new Set(totals.map(name => "raw_" + name));
+    const totals = profile === "creation" ? cartTotalOutputFields() : cartTotalsFields(), rawTotals = new Set(totals.map(name => "raw_" + name));
     const paths = profile !== "payment" ? [...cartPaymentPaths, "shipping_address", "billing_address"] : [...cartPaymentPaths];
     const admittedPaths: ReadonlySet<string> = profile !== "payment" ? new Set(paths) : allowedPaths;
     const relations = new Map<string, Map<string, CommerceRelation>>();
@@ -90,7 +90,8 @@ export function prepareCartPaymentRead(metadata: Effect.Success<ReturnType<typeo
         return yield* Result.fail(commerceError("unsupportedProfile"));
       // raw_total is computed by the actual Cart service after serialization;
       // it is never a storage column or an independently accepted total.
-      const fields = value.options.fields?.filter(field => profile !== "payment" ? !rawTotals.has(field) : field !== "raw_total");
+      const fields = value.options.fields?.filter(field => profile !== "payment" ? !rawTotals.has(field) &&
+        !(profile === "creation" && totals.includes(field)) : field !== "raw_total");
       return { table, projection: yield* compileProjection(catalog, table, fields, paths, table === cart.table.name ? projection : children),
         paths, withDeleted: false, relationFilters: [], ordering: new Map(),
         query: { skip: 0, order: { column: "id", direction: "asc" }, predicate: { kind: "and", children: [

@@ -9,7 +9,7 @@ import { defineCommerceModule } from "../../module/definition";
 import { commerceCommandPreparation, commerceServiceCommands } from "../../module/commands";
 import { commerceModuleEventBus } from "../../module/events";
 import { defineWorkflowMethod, defineWorkflowModule } from "../../workflow/module";
-import { moduleAliases } from "../../local-graph/module";
+import { moduleAliases, relationPaths } from "../../local-graph/module";
 import { decodeGraphCount } from "../../local-graph/query";
 import { captureNativeNumericDto } from "../../value/native-numeric";
 import { capturePromotionMetadata } from "./schema";
@@ -51,7 +51,8 @@ export const makePromotionComputeCommands = Effect.fn("Promotion.computeCommands
     const commands = [compute, read], joiner = promotionStaticResources.joinerConfig;
     if (joiner === undefined) return yield* Result.fail(commerceError("unsupportedProfile"));
     const graph = { aliases: (yield* moduleAliases(joiner)).filter(alias => alias.model === "Promotion"),
-      reads: [{ model: "Promotion", command: read, table: prepared.table, paths: [], orderable: ["id"], uniqueOrder: ["id"],
+      reads: [{ model: "Promotion", command: read, table: prepared.table,
+        paths: yield* relationPaths(prepared.catalog, "promotion", ["application_method"], { nativeFields: true }), orderable: ["id"], uniqueOrder: ["id"],
         multipleOrder: false, decode: decodeGraphCount }] };
     const workflow = yield* defineWorkflowModule({ name: Modules.PROMOTION, source: module.description, methods: { computeActions },
       graph, logical: { ...policy, commands } });

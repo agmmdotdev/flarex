@@ -55,6 +55,58 @@ const variants: Json = [[{ id: "v", title: "Variant", display: 7, raw_display: {
 const prepared = (selected = participants()) => Result.getOrThrow(prepareLocalGraph(selected));
 
 describe("authenticated graph presentation fields", () => {
+  it("omits exact native nested leaves without traversing bare remote relations and preserves real child selections", async () => {
+    const optionalFields = ["variant"];
+    const selected = participants({ ...local(), optionalFields });
+    const source = selected[0];
+    if (source === undefined) throw new Error("Missing native graph source");
+    const module = Result.getOrThrow(defineWorkflowModule({ name: "native-nested-presentation",
+      source: { name: "test", profile: "test" }, methods: {}, graph: source.module }));
+    optionalFields.push("secret");
+    const definition = workflowModuleDefinition(module);
+    if (definition === undefined) throw new Error("Missing captured native module");
+    const graph = prepared([{ ...source, module: definition.graph }, ...selected.slice(1)]);
+    const calls: Call[] = [];
+    const fields = ["items.id", "items.variant"];
+    expect(Result.isSuccess(graph.admitProjection("cart", fields))).toBe(true);
+    expect((await runEffect(graph.bind(context([rows], calls)).native(query(fields)))).data)
+      .toEqual([{ id: "c", items: [{ id: "i" }] }]);
+    expect(calls.map(call => call.command)).toEqual([cartCommand]);
+    expect(calls[0]?.args).toMatchObject({ config: { select: ["id"], relations: ["items"] } });
+    const expanded: Call[] = [];
+    expect((await runEffect(graph.bind(context([rows, variants], expanded)).graph(query([
+      "items.variant", "items.variant.title",
+    ])))).data).toEqual([{ items: [{ variant_id: "v", variant: { id: "v", title: "Variant" } }] }]);
+    expect(expanded.map(call => call.command)).toEqual([cartCommand, variantCommand]);
+    for (const field of ["items.secret", "items.variant.secret"]) {
+      const refused: Call[] = [];
+      expect(await runEffectFailure(graph.bind(context([], refused)).graph(query([field]))))
+        .toMatchObject({ reason: "unsupportedProfile" });
+      expect(refused).toEqual([]);
+    }
+    expect(await runEffectFailure(graph.bind(context([[[{ id: "c", items: [{ variant_id: "v" }] }], 1]])).graph(query(fields))))
+      .toMatchObject({ reason: "storedCorruption" });
+    const directOptional = ["variant"];
+    const directGraph = prepared(participants({ ...local(), optionalFields: directOptional }));
+    directOptional.push("secret");
+    expect(Result.isFailure(directGraph.admitProjection("cart", ["items.secret"]))).toBe(true);
+  });
+
+  it("rejects nested optional metadata outside native profiles and stored-column shadowing", () => {
+    for (const optionalFields of [["id"], ["total"], ["variant", "variant"], ["nested.field"],
+      Array.from({ length: 17 }, (_, index) => `field_${index}`)]) {
+      expect(Result.isFailure(prepareLocalGraph(participants({ ...local(), optionalFields })))).toBe(true);
+    }
+    const selected = participants({ ...local(), optionalFields: ["variant"] });
+    const source = selected[0];
+    if (source === undefined) throw new Error("Missing native graph source");
+    const reads = source.module.reads.map(read => {
+      const { nativeFields: _nativeFields, ...ordinary } = read;
+      return ordinary;
+    });
+    expect(Result.isFailure(prepareLocalGraph([{ ...source, module: { ...source.module, reads } }, ...selected.slice(1)]))).toBe(true);
+  });
+
   it.each(["computed", "stored"] as const)("retains %s numeric companions in a direct-only fetch without overfetching key-only reads", async kind => {
     const stored = { ...cartTable, columns: kind === "stored" ? ["id", "unselected", "total", "raw_total"] : ["id", "unselected"],
       companions: kind === "stored" ? { total: "raw_total" } : {} };

@@ -19,6 +19,18 @@ function handler(middlewares: MiddlewareFunction[] = [], GET: RouteHandler = (re
   })
 }
 describe("selected pinned Fetch HTTP profile", () => {
+  it("preserves native wrapHandler request errors before later middleware and the route", async () => {
+    const calls: string[] = []
+    const http = handler([
+      (req, _res, next) => { calls.push("scope"); req.errors.push("Sales channel is outside this key"); next() },
+      (_req, _res, next) => { calls.push("later"); next() },
+    ], (_req, res) => { calls.push("write"); res.json({ created: true }) })
+    const response = await http.handle(new Request("https://medusa.test/store/currencies/usd"))
+    expect(response.status).toBe(400)
+    expect(await response.json()).toEqual({ errors: ["Sales channel is outside this key"],
+      message: "Provided request body contains errors. Please check the data and retry the request" })
+    expect(calls).toEqual(["scope"])
+  })
   // Checked against pinned http/utils/field-filtering/field-parser.ts at SOURCE.json.
   it("retains pinned field-parser default, replacement, modifier and relation vectors", () => {
     const vectors: [string | undefined, string[], string[]][] = [
