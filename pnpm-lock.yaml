@@ -246,24 +246,24 @@ importers:
         specifier: ^8.22.0
         version: 8.22.0
     devDependencies:
-      '@flarex/medusa-adapter':
-        specifier: workspace:*
-        version: link:../../packages/medusa-adapter
-      '@flarex/medusa-http':
-        specifier: workspace:*
-        version: link:../../packages/medusa-http
-      '@medusajs/deps':
-        specifier: workspace:*
-        version: link:../../packages/medusa-deps
       '@flarex/application-definition':
         specifier: workspace:*
         version: link:../../packages/application-definition
       '@flarex/application-invocation':
         specifier: workspace:*
         version: link:../../packages/application-invocation
+      '@flarex/medusa-adapter':
+        specifier: workspace:*
+        version: link:../../packages/medusa-adapter
+      '@flarex/medusa-http':
+        specifier: workspace:*
+        version: link:../../packages/medusa-http
       '@flarex/system-test':
         specifier: workspace:*
         version: link:../../packages/system-test
+      '@medusajs/deps':
+        specifier: workspace:*
+        version: link:../../packages/medusa-deps
       '@types/node':
         specifier: 'catalog:'
         version: 24.13.2
@@ -920,12 +920,6 @@ importers:
 
   packages/medusa-adapter:
     dependencies:
-      '@medusajs/cart':
-        specifier: workspace:*
-        version: link:../medusa-cart
-      '@medusajs/api-key':
-        specifier: workspace:*
-        version: link:../medusa-api-key
       '@flarex/analysis':
         specifier: workspace:*
         version: link:../analysis
@@ -941,6 +935,12 @@ importers:
       '@flarex/utils':
         specifier: workspace:*
         version: link:../utils
+      '@medusajs/api-key':
+        specifier: workspace:*
+        version: link:../medusa-api-key
+      '@medusajs/cart':
+        specifier: workspace:*
+        version: link:../medusa-cart
       '@medusajs/core-flows':
         specifier: workspace:*
         version: link:../medusa-core-flows
@@ -1026,12 +1026,12 @@ importers:
         specifier: workspace:*
         version: link:../flarex-protocol
     devDependencies:
-      '@flarex/medusa-http':
-        specifier: workspace:*
-        version: link:../medusa-http
       '@flarex/application-schema-definition':
         specifier: workspace:*
         version: link:../application-schema-definition
+      '@flarex/medusa-http':
+        specifier: workspace:*
+        version: link:../medusa-http
       '@medusajs/framework':
         specifier: workspace:*
         version: link:../medusa-framework
@@ -1050,6 +1050,21 @@ importers:
       pg:
         specifier: 8.22.0
         version: 8.22.0
+
+  packages/medusa-api-key:
+    dependencies:
+      '@medusajs/framework':
+        specifier: workspace:*
+        version: link:../medusa-framework
+      '@medusajs/modules-sdk':
+        specifier: workspace:*
+        version: link:../medusa-modules-sdk
+      '@medusajs/types':
+        specifier: workspace:*
+        version: link:../medusa-types
+      '@medusajs/utils':
+        specifier: workspace:*
+        version: link:../medusa-utils
 
   packages/medusa-cart:
     dependencies:
@@ -1072,26 +1087,8 @@ importers:
         specifier: 'catalog:'
         version: 4.0.0-rc.112
 
-  packages/medusa-api-key:
-    dependencies:
-      '@medusajs/framework':
-        specifier: workspace:*
-        version: link:../medusa-framework
-      '@medusajs/modules-sdk':
-        specifier: workspace:*
-        version: link:../medusa-modules-sdk
-      '@medusajs/types':
-        specifier: workspace:*
-        version: link:../medusa-types
-      '@medusajs/utils':
-        specifier: workspace:*
-        version: link:../medusa-utils
-
   packages/medusa-core-flows:
     dependencies:
-      '@medusajs/orchestration':
-        specifier: workspace:*
-        version: link:../medusa-orchestration
       '@medusajs/deps':
         specifier: workspace:*
         version: link:../medusa-deps
@@ -1101,6 +1098,9 @@ importers:
       '@medusajs/modules-sdk':
         specifier: workspace:*
         version: link:../medusa-modules-sdk
+      '@medusajs/orchestration':
+        specifier: workspace:*
+        version: link:../medusa-orchestration
       '@medusajs/types':
         specifier: workspace:*
         version: link:../medusa-types
