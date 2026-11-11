@@ -2089,7 +2089,7 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
     // Selection has settled. Inspection, ordering and projection are bounded
     // synchronous owner work; retain lazy row order inside one Result fold.
     const candidates = yield* lifetime.fromResult(Result.gen(function* () {
-      const inspectedRows: { row: PendingDocument; document: JsonObject; order: Uint8Array; matches?: boolean }[] = [];
+      const inspectedRows: { row: PendingDocument; document: JsonObject; order: Uint8Array; tieOrder: Uint8Array; matches?: boolean }[] = [];
       const generations = new Set<string>();
       for (const row of selected.values()) {
         if (row.current === null) continue;
@@ -2120,10 +2120,10 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
     const matches = query.postgresPredicate === undefined ? candidates.map(candidate => candidate.matches === true) :
       yield* evaluateRelationalPredicate(table, query, candidates.map(candidate => candidate.document));
     const result = yield* lifetime.fromResult(Result.gen(function* () {
-      const matched: { document: JsonObject; order: Uint8Array; documentId: AppDocumentIdV1; insertionOrder?: LogicalInsertionOrder }[] = [];
+      const matched: { document: JsonObject; order: Uint8Array; tieOrder: Uint8Array; documentId: AppDocumentIdV1; insertionOrder?: LogicalInsertionOrder }[] = [];
       const generations = new Set<string>();
       for (const [index, candidate] of candidates.entries()) {
-        const { row, document, order } = candidate;
+        const { row, document, order, tieOrder } = candidate;
         if (matches[index] === true) {
           if (query.postgresPredicate !== undefined) yield* markRowUse(row.documentId);
           if (query.postgresPredicate !== undefined && query.storageInsertion) {
@@ -2134,7 +2134,7 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
             if (generations.has(encoded)) return yield* Result.fail(error("storedCorruption"));
             generations.add(encoded);
           }
-          matched.push({ document, order, documentId: row.documentId,
+          matched.push({ document, order, tieOrder, documentId: row.documentId,
             ...(row.insertionOrder === undefined ? {} : { insertionOrder: row.insertionOrder }) });
         }
       }
@@ -2144,7 +2144,7 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
           return compareLogicalInsertionOrder(left.insertionOrder, right.insertionOrder) * (query.direction === "asc" ? 1 : -1);
         }
         const ordered = compareBytesLexicographically(left.order, right.order) * (query.direction === "asc" ? 1 : -1);
-        return ordered || left.documentId.localeCompare(right.documentId);
+        return ordered || compareBytesLexicographically(left.tieOrder, right.tieOrder) || left.documentId.localeCompare(right.documentId);
       });
       const docs: JsonObject[] = [];
       const orderedIdentities: JsonObject[] = [];
@@ -2226,7 +2226,7 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
     const query = yield* compileRelationalRead(table, captured.value, preparation, captured);
     // Page frontiers prove a returned prefix and successor, not the complete
     // count/selection recorded by a relational selection receipt.
-    if (query.includeIdentities || query.storageInsertion || query.search !== null || query.direction !== "asc" || query.selections !== null && query.selections.length > 1)
+    if (query.includeIdentities || query.storageInsertion || query.timestampOrder || query.search !== null || query.direction !== "asc" || query.selections !== null && query.selections.length > 1)
       return yield* Effect.fail(error("invalidInput"));
     if (query.offset >= callIdentityLimit) return yield* Effect.fail(error("limitExceeded"));
     if (query.selections?.length === 0) {

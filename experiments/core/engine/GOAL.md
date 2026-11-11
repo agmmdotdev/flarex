@@ -33,6 +33,16 @@ Core implementation have paired owner proof and actual serialized Node/Workerd
 reconstruction with Option deletion and Variant/Inventory consumers. Final
 review and delivery remain required. This adds no general leader-election or
 managed-host acceptance.
+## Store Collections timestamp ordering
+
+Store Collections requires complete relational reads ordered by a non-null
+`timestamptz` column. The Core owner admits the canonical instants already
+accepted by the relational value contract. The owner proof covers both sort
+directions, equal timestamps across adjacent pages, and refusal of nullable
+order columns and examined timestamp pages. The consumer gates are Store
+Collections through PGlite, ordinary-role PostgreSQL and the private Workerd
+app DO. See the [relational query divergence](./divergences/native-relational-query-plans.md).
+
 ## Finish line
 
 Translate pinned Convex core logic and its physical persistence schema into

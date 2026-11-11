@@ -158,9 +158,10 @@ export function prepareRelationalRead<Failure>(table: RelationalTableDefinition,
     const storageInsertion = "kind" in query.order;
     const orderColumnName = "column" in query.order ? query.order.column : key;
     const orderColumn = columnForName(orderColumnName);
+    const timestampOrder = !storageInsertion && orderColumn?.type === "timestamptz";
     if (fields.length === 0 || fields.length > table.columns.length || new Set(fields).size !== fields.length ||
         fields.some(field => columnForName(field) === undefined) ||
-        (!storageInsertion && ((orderColumn?.type !== "text" && orderColumn?.type !== "integer" && orderColumn?.type !== "doublePrecision") || orderColumn.nullable)))
+        (!storageInsertion && ((orderColumn?.type !== "text" && orderColumn?.type !== "integer" && orderColumn?.type !== "doublePrecision" && !timestampOrder) || orderColumn?.nullable)))
       return yield* Result.fail(error("invalidInput"));
     const take = query.take ?? pageRows;
     if (take > pageRows) return yield* Result.fail(error("limitExceeded"));
@@ -481,20 +482,36 @@ export function prepareRelationalRead<Failure>(table: RelationalTableDefinition,
         return yield* Result.fail(error("invalidInput"));
       // This is order inspection only. Complete row validity/provenance belongs
       // to the execution owner, before projection or predicate evaluation.
+      const emptyTie = new Uint8Array(0);
       const inspectOrder = (row: JsonObject) => Result.gen(function* () {
-        if (storageInsertion) return { order: new Uint8Array() };
+        const tieOrder = timestampOrder ? yield* Result.gen(function* () {
+          const values: ReturnType<typeof orderedIndexValueFromFlarexValueV1>[] = [];
+          for (const field of identity) {
+            const value = row[field];
+            if (typeof value !== "string" || !isRelationalColumnValue("text", false, value))
+              return yield* Result.fail(error("storedCorruption"));
+            values.push(orderedIndexValueFromFlarexValueV1(value));
+          }
+          return yield* Result.try({ try: () => orderedIndexKeyHexV1ToBytes(encodeOrderedIndexComponentsV1(values)),
+            catch: cause => { if (cause instanceof OrderedIndexKeyTooLargeError) return error("limitExceeded", cause); throw cause; } });
+        }) : emptyTie;
+        if (storageInsertion) return { order: new Uint8Array(), tieOrder };
         if (orderColumn === undefined) return yield* Result.fail(error("invalidInput"));
         const value = row[orderColumnName];
         if (!isRelationalColumnValue(orderColumn.type, false, value ?? null)) return yield* Result.fail(error("storedCorruption"));
         // Native text sorting uses complete UTF-8 bytes, independently of the
         // selected PostgreSQL predicate's native text comparison semantics.
-        if (orderColumn.type === "text" && typeof value === "string") return { order: new TextEncoder().encode(value) };
+        // The existing timestamp transport requires UTC .sss ISO text in years
+        // 0001..9999, so complete bytes have PostgreSQL instant order. Native
+        // primary identity breaks timestamp ties ascending in either direction.
+        if ((orderColumn.type === "text" || timestampOrder) && typeof value === "string")
+          return { order: new TextEncoder().encode(value), tieOrder };
         const order = yield* Result.try({ try: () => orderedIndexKeyHexV1ToBytes(
           encodeOrderedIndexComponentsV1([orderedIndexValueFromFlarexValueV1(value)])),
           catch: cause => { if (cause instanceof OrderedIndexKeyTooLargeError) return error("limitExceeded", cause); throw cause; } });
-        return { order };
+        return { order, tieOrder };
       });
-      return Object.freeze({ key, identityColumns: identity, selections, search: json !== null ? null : search, json, storageInsertion,
+      return Object.freeze({ key, identityColumns: identity, selections, search: json !== null ? null : search, json, storageInsertion, timestampOrder,
         includeIdentities: query.includeIdentities === true,
         requiresIndexedNullAnchor: selections === null && planned.unindexedText && search === null && json === null,
         requiredNulls: Object.freeze([...filter.requiredNulls]),
@@ -513,7 +530,7 @@ export function prepareRelationalRead<Failure>(table: RelationalTableDefinition,
         offset: query.skip ?? 0, limit: take, direction: query.order.direction, orderColumn: orderColumnName, fields: Object.freeze([...fields]),
         postgresPredicate, inspectOrder,
         inspect: (row: JsonObject) => postgresPredicate === undefined
-          ? inspectOrder(row).pipe(Result.map(({ order }) => ({ matches: filter.matches(row), order })))
+          ? inspectOrder(row).pipe(Result.map(order => ({ matches: filter.matches(row), ...order })))
           : Result.fail(error("invalidInput")),
       });
     });

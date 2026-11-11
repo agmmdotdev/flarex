@@ -25,6 +25,19 @@ this does not implement Source UDF search or promise a separate trigram/JSON
 index engine. Unavailable indexed-null anchors refuse. Candidate capture remains
 bounded; there is no unbounded scan fallback or adapter SQL.
 
+Complete native reads can order a non-null `timestamptz` column. The accepted
+row value is a four-digit, nonzero-year UTC instant with exactly three
+fractional digits. Its UTF-8 bytes sort chronologically. When instants compare
+equal, both sort directions use the ascending native primary-key tuple in
+Core's ordered UTF-8 encoding. The native PostgreSQL reader also orders ties
+by primary identity; database text collation governs its text comparison.
+Count and offset/limit use the same matched cohort. The pinned Convex
+index appends document identity to ordered values (`crates/common/src/index.rs`);
+native primary identity is supplied by the authenticated relational definition.
+The ordinary Core index suffix can order ties differently. Examined-page
+reads therefore continue to refuse timestamp order, including when an index
+starts with that column.
+
 The [declared equality correction](./native-declared-equality-indexes.md) implements
 missing lowering of authenticated unconditional native scalar declarations.
 It reuses these ordinary indexes and observations with paired owner proof;

@@ -60,6 +60,7 @@ interface InspectedRow {
   readonly id: string;
   readonly row: JsonObject;
   readonly order: Uint8Array;
+  readonly tieOrder: Uint8Array;
   readonly matches: boolean;
   readonly creationTime: unknown;
 }
@@ -84,7 +85,7 @@ const inspectCoreNativeRelationalCohort = Effect.fn("CoreNativeRelational.inspec
       const row = yield* coreNativeRelationalRow(document);
       yield* policy.rows.validate(row, "storedCorruption");
       const inspected = yield* query.postgresPredicate === undefined ? query.inspect(row)
-        : query.inspectOrder(row).pipe(Result.map(({ order }) => ({ order, matches: false })));
+        : query.inspectOrder(row).pipe(Result.map(order => ({ ...order, matches: false })));
       if (query.postgresPredicate === undefined && inspected.matches
         && (typeof document._creationTime !== "number" || !Number.isFinite(document._creationTime)))
         return yield* Result.fail(failure("storedCorruption"));
@@ -97,7 +98,7 @@ const inspectCoreNativeRelationalCohort = Effect.fn("CoreNativeRelational.inspec
 function projectCoreNativeRelationalCohort(inspectedRows: readonly InspectedRow[], query: Query, purpose: "rows" | "count" | "complete",
   verdicts?: readonly (boolean | null)[]) {
   return Result.gen(function* () {
-    const matched: { readonly id: string; readonly row: JsonObject; readonly order: Uint8Array; readonly creationTime: number }[] = [];
+    const matched: { readonly id: string; readonly row: JsonObject; readonly order: Uint8Array; readonly tieOrder: Uint8Array; readonly creationTime: number }[] = [];
     for (const [ordinal, member] of inspectedRows.entries()) {
       if (!(verdicts === undefined ? member.matches : verdicts[ordinal] === true)) continue;
       if (typeof member.creationTime !== "number" || !Number.isFinite(member.creationTime))
@@ -106,6 +107,7 @@ function projectCoreNativeRelationalCohort(inspectedRows: readonly InspectedRow[
     }
     matched.sort((left, right) => (query.storageInsertion ? left.creationTime - right.creationTime
       : compareBytesLexicographically(left.order, right.order)) * (query.direction === "asc" ? 1 : -1)
+      || compareBytesLexicographically(left.tieOrder, right.tieOrder)
       || (left.id < right.id ? -1 : left.id > right.id ? 1 : 0));
     const rows: JsonObject[] = [];
     const orderedIdentities: Readonly<Record<string, string>>[] = [];
@@ -167,7 +169,7 @@ export const executeCoreNativeRelationalPage = Effect.fn("CoreNativeRelational.p
   operations: Pick<CoreNativeOperations, "findPage">, table: CoreTableDefinition,
   declaration: CoreNativeTableDeclaration, policy: CoreNativeRelationalRowPolicy, query: Query,
 ) {
-  if (query.includeIdentities || query.storageInsertion || query.search !== null || query.json !== null
+  if (query.includeIdentities || query.storageInsertion || query.timestampOrder || query.search !== null || query.json !== null
     || query.postgresPredicate !== undefined || query.direction !== "asc" || query.selections !== null && query.selections.length > 1)
     return yield* new CoreQueryInputError({ reason: "invalidQuery" });
   if (query.selections?.length === 0) return { rows: Object.freeze([]), hasMore: false };
