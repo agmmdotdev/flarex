@@ -179,6 +179,13 @@ const preparedTargetMetadataTestImports = new Map([
 /** @typedef {{ specifier: string, target: string, classification?: "cartCreationWorkflowFork", source?: string }} SelectedTestImport */
 /** @type {Map<string, SelectedTestImport[]>} */
 const finiteContractTestImports = new Map([
+  ["packages/executor/test/performance/support/coreMixedProductFixture.ts", [{
+    specifier: "../../../../medusa-adapter/src/modules/product/attempt", target: "packages/medusa-adapter/src/modules/product/attempt.ts",
+  }, {
+    specifier: "../../../../medusa-adapter/test/support/core-product-fixture", target: "packages/medusa-adapter/test/support/core-product-fixture.ts",
+  }, {
+    specifier: "../../../../medusa-adapter/test/support/product-attempt-seed", target: "packages/medusa-adapter/test/support/product-attempt-seed.ts",
+  }]],
   ["packages/persistence-postgres/test/frameworks/atomicCommerce/participantInsertValidationScenario.ts", [{
     specifier: "../../../../medusa-adapter/test/support/logical-currency-fixture", target: "packages/medusa-adapter/test/support/logical-currency-fixture.ts",
   }]],

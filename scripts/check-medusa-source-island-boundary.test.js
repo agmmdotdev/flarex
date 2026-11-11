@@ -560,6 +560,13 @@ describe("Medusa source-island boundary checker", () => {
     const edges = [
       { importer: "packages/flarex-backend/test/support/privatePayloadReverseReadCommands.ts",
         specifier: "@flarex/medusa-adapter/internal/product-attempt", target: "packages/medusa-adapter/src/modules/product/attempt.ts" },
+      ...[{
+        specifier: "../../../../medusa-adapter/src/modules/product/attempt", target: "packages/medusa-adapter/src/modules/product/attempt.ts",
+      }, {
+        specifier: "../../../../medusa-adapter/test/support/core-product-fixture", target: "packages/medusa-adapter/test/support/core-product-fixture.ts",
+      }, {
+        specifier: "../../../../medusa-adapter/test/support/product-attempt-seed", target: "packages/medusa-adapter/test/support/product-attempt-seed.ts",
+      }].map(edge => ({ importer: "packages/executor/test/performance/support/coreMixedProductFixture.ts", ...edge })),
       { importer: "packages/persistence-postgres/test/execution/finiteIndexedBodyPermission.test.ts",
         specifier: "../../../medusa-adapter/test/support/native-product-attempt-seed", target: "packages/medusa-adapter/test/support/native-product-attempt-seed.ts" },
       { importer: "packages/persistence-postgres/test/execution/finitePreparedSourceComposition.test.ts",

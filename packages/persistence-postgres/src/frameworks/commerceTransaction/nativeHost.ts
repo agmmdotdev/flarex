@@ -4,17 +4,16 @@ import { TransactionRequestKeyV1Schema } from "flarex-protocol/transaction-sessi
 import type { CoreDatabase, CoreNativeBinding, CoreNativeInitializationBinding, CoreNativeOperation, CoreNativeOperations, CoreNativeLimits, CoreNativeRootBinding, CoreRequestClaim, CoreRequestIdentity } from "../../core/api";
 import type { CoreSchemaBundle } from "../../core/schemaBundle";
 import { CoreNativeBudgetError, isCoreDefinitiveCommitRefusal } from "../../core/api";
-import { makeBoundedRequestLifetime, type BoundedRequestContext } from "../../execution/preparation/boundedRequestLifetime";
+import { makeBoundedRequestLifetime } from "../../execution/preparation/boundedRequestLifetime";
 import { chargeHostPreparation, retainPreparedHost, PreparedHostRuntimeError, type PreparedHostRuntime } from "../../execution/preparation/preparedHostRuntime";
 import { capturePrivateCanonicalValue } from "../../installation/frameworkSchema/privateCanonicalValue";
 import { canonicalizeJsonOutcome } from "../../values/jsonOutcome";
 import { getCommerceCommand, type CommerceCommand, type CommerceHost } from "./commands";
-import { makeCommerceCommandContext } from "./context";
 import { captureCommerceJsonData, projectCommerceJsonFailure } from "./json";
 import type { CommerceInitialization } from "./initializationContract";
 import { planLogicalInitializationBatches } from "./initializationRows";
 import { commerceError, commerceLimits, type CommerceTransactionError } from "./model";
-import { makeNativeCommerceParticipant } from "./nativeStore";
+import { makeBorrowedNativeCommerceInvocation } from "./nativeInvocation";
 import { projectCoreCommerceFailure } from "./nativeFailure";
 import { commerceNativeInitializationCommand, makeNativeCommerceInitialization } from "./nativeInitialization";
 import { captureCommerceResources, defaultCommerceResources, logicalCommerceWorkingSetLimits, type CommerceResources } from "./resources";
@@ -221,23 +220,11 @@ const compose = Effect.fn("CommerceNativeHost.compose")(function* (hostInput: Re
           `native/${metadata.definition.identity.scopeUuid}/${familyId}`, eventPolicy, resources.eventMessages);
       const result = yield* Effect.gen(function* () {
         yield* lifetime.fromResult(lifetime.charge(evidenceBytes));
-        const working = yield* makeNativeCommerceParticipant(operation.operations, metadata, lifetime, lifetime.context, id, operation.unixTime, resources);
-        const invoke = Effect.fn("CommerceNativeHost.invoke")(function* (
-          context: BoundedRequestContext, child: CommerceCommand, value: Json,
-        ): Effect.fn.Return<Json, CommerceTransactionError> {
-          const selected = yield* select(child);
-          if (command.mode === "read" && selected.command.mode !== "read") return yield* commerceError("invalidAuthority");
-          yield* lifetime.checkpoint(context);
-          const captured = yield* lifetime.fromResult(captureCommerceJsonData(value, lifetime.remainingBytes()));
-          yield* lifetime.fromResult(lifetime.charge(captured.bytes));
-          const output = yield* observeExecution(`NativeCommerce.invoke/${selected.definition.name}`, selected.definition.run(makeCommerceCommandContext(lifetime, working, id, context, invoke,
-            (manager, event) => lifetime.operation(manager, id, "write", eventCapture === undefined || eventSelection === undefined
-              ? Effect.fail(commerceError("unadmittedEvent")) : eventCapture.captureSelected(eventSelection, event))), captured.value));
-          yield* lifetime.checkpoint(context);
-          const capturedOutput = yield* lifetime.fromResult(captureCommerceJsonData(output, lifetime.remainingBytes()));
-          yield* lifetime.fromResult(lifetime.charge(capturedOutput.bytes));
-          return capturedOutput.value;
-        });
+        const { working, invoke } = yield* makeBorrowedNativeCommerceInvocation({ operations: operation.operations,
+          metadata, commands, lifetime, transactionId: id, unixTime: operation.unixTime, resources, mode: command.mode,
+          readBinding: readBinding(), ...(eventCapture === undefined || eventSelection === undefined ? {} : {
+            captureEvent: (_manager, event) => eventCapture.captureSelected(eventSelection, event).pipe(Effect.asVoid),
+          }) });
         let value: Json;
         if (token === null) {
           for (const table of metadata.tables) if (!(yield* coreResult(operation.operations.isEmpty(table.name))))

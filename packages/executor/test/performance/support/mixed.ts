@@ -1,6 +1,7 @@
 import { Schema } from "effect";
 import { expect } from "vitest";
 import { prepareMixedMutationPerformanceSeries } from "./mixedMutationProductFixture";
+import { prepareCoreMixedProductScenario } from "./coreMixedProductScenario";
 import type { CorePerformanceScenario } from "./scenario";
 import type { MixedMutationPerformanceTrace } from "../../../../persistence-postgres/test/performance/mixedMutationPerformanceTrace";
 import { verifyProductLaunchWorkflow } from "./workflowResult";
@@ -15,12 +16,13 @@ const decodePayload = Schema.decodeUnknownSync(Schema.Struct({
 export async function prepareMixedScenario(name: "mixed-product" | "mixed-payload" | "mixed-workflow",
   sampleCount: number, driver: "postgres" | "pglite" = "postgres", postgresEndpoints?: PostgresFixtureEndpoints
 ): Promise<CorePerformanceScenario & { setTrace(trace: MixedMutationPerformanceTrace | undefined): void }> {
-  const profile = name === "mixed-product" ? "product" : name === "mixed-payload" ? "productPayload" : "workflow";
+  if (name === "mixed-product") return prepareCoreMixedProductScenario(sampleCount, driver, postgresEndpoints);
+  const profile = name === "mixed-payload" ? "productPayload" : "workflow";
   const series = await prepareMixedMutationPerformanceSeries({ driver, suffix: `core-perf-${name}`,
     profile, sampleCount, ...(postgresEndpoints === undefined ? {} : { postgresEndpoints }) });
   return {
     workload: { flow: name, cardinality: { applicationRoots: 1, productRoots: 1,
-      payloadRoots: name === "mixed-product" ? 0 : 1, workflows: name === "mixed-workflow" ? 1 : 0 },
+      payloadRoots: 1, workflows: name === "mixed-workflow" ? 1 : 0 },
       limitations: ["Original finite business graph has fixed cardinality across size selections."] },
     timings: { provisionAndPrepareMs: series.provisioningMilliseconds,
       runtimeConstructionMs: series.preparedModuleMilliseconds,
@@ -43,15 +45,13 @@ export async function prepareMixedScenario(name: "mixed-product" | "mixed-payloa
           if (outcome === undefined) throw new Error("Missing settled mixed result");
           expect(result).toEqual(outcome.returnedValue);
           const committedProduct = await verifyMixedProductResult(outcome, profile);
-          if (name !== "mixed-product") {
-            const payload = decodePayload(outcome.returnedValue);
-            expect(payload.created).toMatchObject({ title: outcome.seed.newTitle, score: 0, enabled: false });
-            expect(payload.afterHook).toMatchObject({ id: payload.created.id, score: 1, enabled: false });
-            expect(payload.final).toMatchObject({ id: payload.created.id, score: 1, enabled: true });
-            expect(await outcome.fixture.readCurrentPayloadPost(payload.created.id)).toMatchObject({
-              id: payload.created.id, title: outcome.seed.newTitle, score: 1, enabled: true,
-            });
-          }
+          const payload = decodePayload(outcome.returnedValue);
+          expect(payload.created).toMatchObject({ title: outcome.seed.newTitle, score: 0, enabled: false });
+          expect(payload.afterHook).toMatchObject({ id: payload.created.id, score: 1, enabled: false });
+          expect(payload.final).toMatchObject({ id: payload.created.id, score: 1, enabled: true });
+          expect(await outcome.fixture.readCurrentPayloadPost(payload.created.id)).toMatchObject({
+            id: payload.created.id, title: outcome.seed.newTitle, score: 1, enabled: true,
+          });
           if (name === "mixed-workflow") {
             const workflow = Schema.decodeUnknownSync(Schema.Struct({ workflow: Schema.Unknown }))(result).workflow;
             const graph = verifyProductLaunchWorkflow(workflow, outcome.seed.productId, outcome.seed.tagId, outcome.seed.newTitle);

@@ -539,6 +539,15 @@ Product DML definitions and existing Core bounds. Constructor retirement require
 paired installation, complete DTO/error, reader-reconstruction and resource
 cleanup proof; it does not promise a latency SLA under unavailable storage.
 
+The selected `mixed-product` scenario now constructs one current Core root for
+Application insertion/patching, native Product update/retrieve/list, events and
+the stored outcome. Its trusted portable host uses the existing mutation kernel
+and callback drain; it makes no Worker isolation claim. Legacy finite tracing,
+diagnostics and publication observation fail closed on this selected scenario.
+Mixed Payload, workflow, repeated Product and private-reference consumers still
+use their named finite constructors. The [focused migration](../../experiments/core/engine/slices/16e-mixed-product-consumer.md)
+does not retire their shared fixture or authorize performance measurement.
+
 The resource investigation remains open: ordinary PostgreSQL canceled small
 normal index inserts in the `tables` and `otherSourceDefinitions` 100-table
 configurations of `core-fixture.test.ts`. Later diagnosis observed `DataFileExtend`

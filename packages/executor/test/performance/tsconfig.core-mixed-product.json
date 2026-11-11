@@ -1,0 +1,11 @@
+{
+  "extends": "./tsconfig.json",
+  "include": [
+    "coreMixedProduct.test.ts",
+    "vitest.core-mixed.config.ts",
+    "support/coreMixedProductFixture.ts",
+    "support/coreMixedProductRuntime.ts",
+    "support/coreMixedProductScenario.ts",
+    "support/mixed.ts"
+  ]
+}
