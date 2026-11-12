@@ -2,7 +2,7 @@ import { validateAndTransformBody, validateAndTransformQuery, type MiddlewareFun
 import { ensurePublishableKeyAndSalesChannelMatch } from "../../utils/middlewares/common/ensure-pub-key-sales-channel-match"
 import { maybeAttachPublishableKeyScopes } from "../../utils/middlewares/common/maybe-attach-pub-key-scopes"
 import * as QueryConfig from "./query-config"
-import { StoreCreateCart, StoreGetCartsCart, StoreUpdateCart, StoreAddCartLineItem, StoreUpdateCartLineItem, StoreAddCartPromotions, StoreRemoveCartPromotions } from "./validators"
+import { StoreCreateCart, StoreGetCartsCart, StoreUpdateCart, StoreAddCartLineItem, StoreUpdateCartLineItem, StoreAddCartPromotions, StoreRemoveCartPromotions, StoreCalculateCartTaxes } from "./validators"
 
 export const storeCartRoutesMiddlewares: MiddlewareRoute[] = [
   {
@@ -77,6 +77,17 @@ export const storeCartRoutesMiddlewares: MiddlewareRoute[] = [
     matcher: "/store/carts/:id/promotions",
     middlewares: [
       validateAndTransformBody(StoreAddCartPromotions),
+      validateAndTransformQuery(
+        StoreGetCartsCart,
+        QueryConfig.retrieveTransformQueryConfig
+      ),
+    ],
+  },
+  {
+    method: ["POST"],
+    matcher: "/store/carts/:id/taxes",
+    middlewares: [
+      validateAndTransformBody(StoreCalculateCartTaxes),
       validateAndTransformQuery(
         StoreGetCartsCart,
         QueryConfig.retrieveTransformQueryConfig

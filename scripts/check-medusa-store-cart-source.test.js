@@ -46,10 +46,15 @@ describe("native Store Cart HTTP source preservation", () => {
       ["store/carts/[id]/promotions/route.ts", "payload.promo_codes.length > 0", "payload.promo_codes.length >= 0"],
       ["store/carts/[id]/promotions/route.ts", "force_refresh_payment_collection: true", "force_refresh_payment_collection: false"],
       ["store/carts/[id]/promotions/route.ts", "action: PromotionActions.REMOVE", "action: PromotionActions.REPLACE"],
+      ["store/carts/[id]/taxes/route.ts", '"update-tax-lines"', '"upsert-tax-lines"'],
+      ["store/carts/[id]/taxes/route.ts", "force_tax_calculation: true", "force_tax_calculation: false"],
+      ["store/carts/[id]/taxes/route.ts", "cart_id: req.params.id", "cart_id: req.validatedBody.cart_id"],
       ["store/carts/query-config.ts", '"item_total"', '"unsupported_total"'],
       ["store/carts/validators.ts", ".gt(0)", ".gte(0)"],
       ["store/carts/validators.ts", ".gte(0)", ".gt(0)"],
+      ["store/carts/validators.ts", "StoreCalculateCartTaxes = createSelectParams()", "StoreCalculateCartTaxes = createSelectParams().strict()"],
       ["store/carts/middlewares.ts", 'matcher: "/store/carts/:id/line-items"', 'matcher: "/store/carts/:id/promotions"'],
+      ["store/carts/middlewares.ts", "validateAndTransformBody(StoreCalculateCartTaxes)", "validateAndTransformBody(StoreUpdateCart)"],
       ["utils/middlewares/common/ensure-pub-key-sales-channel-match.ts", "pubKeySalesChannels.length > 1", "pubKeySalesChannels.length > 2"]]) {
       const pair = storeCartHttpSourcePairs.find(pair => pair.target.endsWith(suffix));
       if (!pair) throw new Error("Missing Cart mutation witness");

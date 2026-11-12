@@ -213,13 +213,83 @@ describe("selected native Store Cart HTTP", () => {
     expect(f.remoteQuery).not.toHaveBeenCalled()
   })
 
+  it("forces native Tax calculation for the route Cart and refetches query fields while ignoring validated body fields", async () => {
+    for (const body of [{}, { fields: "unsupported.body" }]) {
+      const f = fixture({ verified: true })
+      const response = await f.handler.handle(request(`/${cart.id}/taxes?fields=id,total`, body))
+      expect(response.status, await response.clone().text()).toBe(200)
+      expect(await response.json()).toEqual({ cart })
+      expect(f.run).toHaveBeenCalledExactlyOnceWith("update-tax-lines", { input: { cart_id: cart.id, force_tax_calculation: true } })
+      expect(f.admit).toHaveBeenCalledExactlyOnceWith(["id", "total"])
+      expect(f.admit.mock.invocationCallOrder[0]).toBeLessThan(f.run.mock.invocationCallOrder[0]!)
+      expect(f.run.mock.invocationCallOrder[0]).toBeLessThan(f.remoteQuery.mock.invocationCallOrder[0]!)
+      expect(f.remoteQuery).toHaveBeenCalledExactlyOnceWith({ __value: { cart: { fields: ["id", "total"], isServiceAccess: false,
+        __args: { filters: { id: cart.id } } } } })
+      expect(response.headers.get("access-control-allow-origin")).toBe("https://store.example")
+    }
+    const defaults = fixture()
+    expect((await defaults.handler.handle(request(`/${cart.id}/taxes`, { fields: "id" }))).status).toBe(200)
+    expect(defaults.admit.mock.calls[0]?.[0]).toEqual(expect.arrayContaining(["total", "items.tax_lines.rate", "payment_collection.payment_sessions.*"]))
+    expect(defaults.admit.mock.calls[0]?.[0].length).toBeGreaterThan(100)
+  })
+
+  it("retains native Tax body validation before response admission or workflow execution", async () => {
+    // The native zodValidator makes object bodies strict at validation time.
+    for (const body of [undefined, null, { fields: 42 }, { fields: null }, { fields: [] },
+      { cart_id: "cart_foreign" }, { force_tax_calculation: false }, { additional_data: {} }]) {
+      const f = fixture()
+      const response = await f.handler.handle(request(`/${cart.id}/taxes`, body, {}, "POST"))
+      expect(response.status).toBe(400)
+      expect(f.run).not.toHaveBeenCalled()
+      expect(f.admit).not.toHaveBeenCalled()
+      expect(f.remoteQuery).not.toHaveBeenCalled()
+    }
+  })
+
+  it("preserves Tax workflow failures without refetch and preserves missing post-workflow Cart refusal", async () => {
+    for (const [type, status, message] of [[MedusaError.Types.INVALID_DATA, 400, "country code is required to calculate taxes"],
+      [MedusaError.Types.NOT_FOUND, 404, "Cart not found"]] as const) {
+      const f = fixture()
+      f.run.mockRejectedValueOnce(new MedusaError(type, message))
+      const response = await f.handler.handle(request(`/${cart.id}/taxes`, {}))
+      expect(response.status).toBe(status)
+      expect(await response.json()).toMatchObject({ type, message })
+      expect(f.run).toHaveBeenCalledTimes(1)
+      expect(f.remoteQuery).not.toHaveBeenCalled()
+    }
+    const missing = fixture({ absent: true })
+    const response = await missing.handler.handle(request(`/${cart.id}/taxes`, {}))
+    expect(response.status).toBe(404)
+    expect(await response.json()).toMatchObject({ type: "not_found", message: `Cart with id '${cart.id}' not found` })
+    expect(missing.run).toHaveBeenCalledTimes(1)
+    expect(missing.remoteQuery).toHaveBeenCalledTimes(1)
+    expect(missing.run.mock.invocationCallOrder[0]).toBeLessThan(missing.remoteQuery.mock.invocationCallOrder[0]!)
+  })
+
+  it("refuses invalid keys and enabled translation before native Tax execution", async () => {
+    for (const options of [{ invalid: true }, { revoked: true }]) {
+      const f = fixture(options)
+      expect((await f.handler.handle(request(`/${cart.id}/taxes`, {}))).status).toBe(400)
+      expect(f.run).not.toHaveBeenCalled()
+      expect(f.admit).not.toHaveBeenCalled()
+      expect(f.remoteQuery).not.toHaveBeenCalled()
+    }
+    FeatureFlag.setFlag("translation", true)
+    const translated = fixture()
+    expect((await translated.handler.handle(request(`/${cart.id}/taxes`, {}))).status).toBe(400)
+    expect(translated.run).not.toHaveBeenCalled()
+    expect(translated.admit).not.toHaveBeenCalled()
+    expect(translated.remoteQuery).not.toHaveBeenCalled()
+  })
+
   it("refuses unsupported projections before every newly selected native mutation", async () => {
     for (const [path, body, method] of [[`/${cart.id}`, {}, "POST"],
       [`/${cart.id}/line-items`, { variant_id: "variant_native", quantity: 1 }, "POST"],
       [`/${cart.id}/line-items/item_native`, { quantity: 0 }, "POST"],
       [`/${cart.id}/line-items/item_native`, undefined, "DELETE"],
       [`/${cart.id}/promotions`, { promo_codes: [] }, "POST"],
-      [`/${cart.id}/promotions`, { promo_codes: ["PROMO10"] }, "DELETE"]] as const) {
+      [`/${cart.id}/promotions`, { promo_codes: ["PROMO10"] }, "DELETE"],
+      [`/${cart.id}/taxes`, {}, "POST"]] as const) {
       const f = fixture({ refuseFields: true })
       const response = await f.handler.handle(request(path + "?fields=id,unsupported.path", body, {}, method))
       expect(response.status).toBe(400)
@@ -245,7 +315,8 @@ describe("selected native Store Cart HTTP", () => {
       [`/${cart.id}/line-items/item_native`, { quantity: 0 }, "POST"],
       [`/${cart.id}/line-items/item_native`, undefined, "DELETE"],
       [`/${cart.id}/promotions`, { promo_codes: [] }, "POST"],
-      [`/${cart.id}/promotions`, { promo_codes: ["PROMO10"] }, "DELETE"]] as const) {
+      [`/${cart.id}/promotions`, { promo_codes: ["PROMO10"] }, "DELETE"],
+      [`/${cart.id}/taxes`, {}, "POST"]] as const) {
       const f = fixture({ revoked: true })
       expect((await f.handler.handle(request(path, body, {}, method))).status).toBe(400)
       expect(f.run).not.toHaveBeenCalled()
@@ -264,7 +335,8 @@ describe("selected native Store Cart HTTP", () => {
     expect(deletePreflight.headers.get("access-control-allow-methods")).toContain("DELETE")
     expect((await f.handler.handle(request())).status).toBe(404)
     expect((await f.handler.handle(request("/cart_native", {}, {}, "PATCH"))).status).toBe(404)
-    expect((await f.handler.handle(request("/cart_native/taxes", {}))).status).toBe(404)
+    expect((await f.handler.handle(request("/cart_native/taxes"))).status).toBe(404)
+    expect((await f.handler.handle(request("/cart_native/taxes", undefined, {}, "DELETE"))).status).toBe(404)
     expect((await f.handler.handle(request("/cart_native/customer", {}))).status).toBe(404)
     expect(f.graph).not.toHaveBeenCalled()
     expect(f.run).not.toHaveBeenCalled()

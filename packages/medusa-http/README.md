@@ -1,12 +1,12 @@
 # Private Medusa HTTP
 
-## Store Cart creation, retrieval, updates and promotion codes
+## Store Cart creation, retrieval, updates, promotion codes and Tax refresh
 
 `@flarex/medusa-http/store-cart` exports `createStoreCartHttpHandler` for
 `POST /store/carts`, `GET /store/carts/:id`, `POST /store/carts/:id`,
 `POST /store/carts/:id/line-items` and `POST`/`DELETE` on
 `/store/carts/:id/line-items/:line_id`, plus `POST`/`DELETE` on
-`/store/carts/:id/promotions`.
+`/store/carts/:id/promotions`, and `POST /store/carts/:id/taxes`.
 `@flarex/medusa-http/store-cart-effect` mounts the same native handlers in an
 Effect HTTP host. The host supplies Store CORS, request scopes, a verified
 optional Customer principal and the Cart graph's `admitCartRefetchFields`.
@@ -48,6 +48,16 @@ complete lifecycle includes Tax and Adjustment history uses the existing shared
 operation budgets independently of the four-item input bound. Deletion visits
 every selected descendant; an operation exceeding those budgets refuses with
 full business rollback.
+
+Explicit Tax refresh runs native `update-tax-lines` with forced calculation,
+including Regions with automatic taxes disabled. A shipping country is required
+even for an empty Cart. The strict native body accepts `{}` or `{ fields }`,
+but response fields come from the query. Projection admission precedes mutation
+and the response refetches committed state. Native Tax replacement emits module
+events without `cart.updated` and leaves Payment Collections and Sessions
+unchanged. The pinned workflow omits `completed_at` from its fetch, so completed
+Carts also refresh and return 200. See the
+[Tax scope](../../roadmaps/flarexdb-framework-integration/preflight/store-cart-taxes-http.md).
 
 This bounded profile retains four creation items and four promotion codes,
 existing complete-cohort read limits and the local System Tax provider. The

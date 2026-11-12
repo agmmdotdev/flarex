@@ -110,6 +110,16 @@ Collection refresh, including changed-amount System Session invalidation. Both
 methods admit the response before mutation and refetch after commit. Only native
 participant module events are emitted; no `cart.updated` event is added.
 
+The [explicit Tax profile](./preflight/store-cart-taxes-http.md) adds
+`POST /store/carts/:id/taxes` through native `update-tax-lines`. It forces
+calculation even when Region automatic taxes are disabled, retains native Tax
+replacement history and refetches committed Cart totals. A shipping country is
+required even for empty Carts. Only participant module events are emitted;
+Payment Collection amounts and Sessions remain unchanged. The pinned native
+workflow's selected fields omit `completed_at`, so completed Carts also refresh
+and return 200. Ordinary construction and existing root
+budgets remain authoritative.
+
 The native default response preserves Cart/item totals, selected Product and
 taxonomy relations, Customer Groups, Region Countries, Addresses, Promotions,
 and Payment Collection/Sessions. Publishable-key validation, verified optional
@@ -133,7 +143,7 @@ bounds. The issued mutation graph admits 243 nodes and one shared root allowance
 of 1,065 operations; default authoring, creation and participant bounds remain distinct.
 Cart updates admit nullable Address members and metadata. Explicit nulls outside
 the separate creation input profile and unsupported response fields refuse before
-mutation. Dedicated Shipping Method mutations, explicit Tax refresh, checkout HTTP,
+mutation. Dedicated Shipping Method mutations and checkout HTTP,
 translation, remote providers, mixed deployment and capacity acceptance retain
 their separate gates.
 

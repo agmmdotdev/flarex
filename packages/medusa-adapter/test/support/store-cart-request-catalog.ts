@@ -16,6 +16,31 @@ export const storeCartLogger: Logger = { panic() {}, shouldLog: () => false, set
   silly() {}, debug() {}, verbose() {}, http() {}, info() {}, warn() {}, log() {} };
 
 type Row = Readonly<{ table: string; row: JsonObject }>;
+const taxCartCases = ["manual", "failure", "replay", "completed"] as const;
+/** Manual calculation endpoints shared unchanged by Node and Workerd. The
+ * native Tax provider replaces the deliberately stale zero-rate Cart rows. */
+export const storeCartTaxSeedRows: Readonly<Record<string, readonly Row[]>> = {
+  region: [{ table: "region", row: { id: "reg-http-tax-manual", name: "Manual Cart Tax Region", currency_code: "usd", automatic_taxes: false } }],
+  cart: [...taxCartCases.flatMap(name => [
+    { table: "cart_address", row: { id: `addr-http-tax-${name}`, country_code: "us" } },
+    { table: "cart", row: { id: `cart-http-tax-${name}`, currency_code: "usd", region_id: "reg-http-tax-manual", sales_channel_id: "sc-create-root",
+      shipping_address_id: `addr-http-tax-${name}`, ...(name === "completed" ? { completed_at: "2026-01-01T00:00:00.000Z" } : {}) } },
+    { table: "cart_line_item", row: { id: `line-http-tax-${name}`, cart_id: `cart-http-tax-${name}`, title: "Manual Tax item", variant_id: "variant-create-root",
+      product_id: "prod-create-root", quantity: 1, unit_price: "12.5", raw_unit_price: { value: "12.5", precision: 20 } } },
+    { table: "cart_line_item_tax_line", row: { id: `tax-http-stale-${name}`, item_id: `line-http-tax-${name}`, code: "STALE", rate: 0, provider_id: "tp_system" } },
+  ]),
+  { table: "cart_address", row: { id: "addr-http-tax-empty", country_code: "us" } },
+  { table: "cart", row: { id: "cart-http-tax-empty", currency_code: "usd", region_id: "reg-http-tax-manual", sales_channel_id: "sc-create-root",
+    shipping_address_id: "addr-http-tax-empty" } },
+  { table: "cart", row: { id: "cart-http-tax-no-country", currency_code: "usd", region_id: "reg-http-tax-manual", sales_channel_id: "sc-create-root" } },
+  { table: "cart", row: { id: "cart-http-tax-no-country-item", currency_code: "usd", region_id: "reg-http-tax-manual", sales_channel_id: "sc-create-root" } },
+  { table: "cart_line_item", row: { id: "line-http-tax-no-country", cart_id: "cart-http-tax-no-country-item", title: "No country Tax item",
+    quantity: 1, unit_price: "12.5", raw_unit_price: { value: "12.5", precision: 20 } } }],
+  payment: [{ table: "payment_collection", row: { id: "paycol-http-tax-manual", currency_code: "usd", amount: "12.5", raw_amount: { value: "12.5", precision: 20 } } },
+    { table: "payment_session", row: { id: "payses-http-tax-manual", payment_collection_id: "paycol-http-tax-manual", provider_id: "pp_system_default",
+      currency_code: "usd", amount: "12.5", raw_amount: { value: "12.5", precision: 20 }, data: {}, context: {}, status: "pending" } }],
+  cart_payment_collection_links: [{ table: "cart_payment_collection", row: { id: "link-http-tax-manual", cart_id: "cart-http-tax-manual", payment_collection_id: "paycol-http-tax-manual" } }],
+};
 const promotionPaymentCases = [
   { cart: "cart-http-promotion-payment", item: "line-http-promotion-payment", collection: "paycol-http-promotions", session: "payses-http-promotions", amount: "13.75", automatic: false },
   { cart: "cart-http-promotion-equal", item: "line-http-promotion-equal", collection: "paycol-http-promotions-equal", session: "payses-http-promotions-equal", amount: "12.65", automatic: true },
@@ -46,6 +71,11 @@ export const storeCartPromotionSeedRows: Readonly<Record<string, readonly Row[]>
     id: `link-${value.collection}`, cart_id: value.cart, payment_collection_id: value.collection } })),
   cart_promotion_links: [{ table: "cart_promotion", row: { id: "link-http-promotion-equal", cart_id: "cart-http-promotion-equal", promotion_id: "promo-create-root" } }],
 };
+/** The existing Workerd Cart proof exercises both native mutation slices. */
+export const storeCartTaxProofSeedRows: Readonly<Record<string, readonly Row[]>> = Object.fromEntries(
+  [...new Set([...Object.keys(storeCartPromotionSeedRows), ...Object.keys(storeCartTaxSeedRows)])]
+    .map(name => [name, [...(storeCartPromotionSeedRows[name] ?? []), ...(storeCartTaxSeedRows[name] ?? [])]]));
+
 export const storeCartMutationSeedRows: Readonly<Record<string, readonly Row[]>> = {
   region: [{ table: "region", row: { id: "reg-cart-update", name: "Cart Update Region", currency_code: "usd" } },
     { table: "region_country", row: { iso_2: "gb", iso_3: "gbr", num_code: "826", name: "UNITED KINGDOM", display_name: "United Kingdom", region_id: "reg-cart-update" } }],

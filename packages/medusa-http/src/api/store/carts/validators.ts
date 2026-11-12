@@ -68,6 +68,11 @@ export const UpdateCart = z
 
 export const StoreUpdateCart = WithAdditionalData(UpdateCart)
 
+export type StoreCalculateCartTaxesType = z.infer<
+  typeof StoreCalculateCartTaxes
+>
+export const StoreCalculateCartTaxes = createSelectParams()
+
 export type StoreAddCartLineItemType = z.infer<typeof StoreAddCartLineItem>
 
 export const StoreAddCartLineItem = z.object({

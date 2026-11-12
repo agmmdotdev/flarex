@@ -7,6 +7,7 @@ import { updateLineItemInCartWorkflow } from "../src/cart/workflows/update-line-
 import { deleteLineItemsWorkflow } from "../src/line-item/workflows/delete-line-items";
 import { refreshCartItemsWorkflow } from "../src/cart/workflows/refresh-cart-items";
 import { updateCartPromotionsWorkflow } from "../src/cart/workflows/update-cart-promotions";
+import { updateTaxLinesWorkflow } from "../src/cart/workflows/update-tax-lines";
 
 const wrappers = {
   updateCart: createWorkflow({ name: "native-cart-update-operation-count", constructionProfile: nativeCartMutationProfile },
@@ -101,6 +102,18 @@ it("fits the dedicated native promotion wrapper within ordinary authoring and th
   const prepared = Result.getOrThrow(root.prepare()), count = countControlOperations(prepared);
   expect(count).toEqual({ nodes: 32, conditions: 4, branchResults: 4, transforms: 8, callbackChildren: 0, operations: 70 });
   expect(prepared.nodeCount).toBe(32);
+  expect(prepared.nodeCount).toBeLessThanOrEqual(64);
+  expect(prepared.identity.constructionProfile).toBeUndefined();
+  expect(new TextEncoder().encode(JSON.stringify(prepared.identity)).byteLength).toBeLessThan(64 * 1024);
+});
+
+it("fits the dedicated native explicit Tax wrapper within ordinary authoring and the existing root allowance", () => {
+  const root = createWorkflow("native-cart-taxes-ordinary-wrapper", (input: WorkflowData<NonNullable<typeof updateTaxLinesWorkflow[" input"]>>) => {
+    updateTaxLinesWorkflow.runAsStep({ input }); return new WorkflowResponse(null);
+  });
+  const prepared = Result.getOrThrow(root.prepare()), count = countControlOperations(prepared);
+  expect(count).toEqual({ nodes: 10, conditions: 1, branchResults: 1, transforms: 2, callbackChildren: 0, operations: 23 });
+  expect(count.nodes).toBe(prepared.nodeCount);
   expect(prepared.nodeCount).toBeLessThanOrEqual(64);
   expect(prepared.identity.constructionProfile).toBeUndefined();
   expect(new TextEncoder().encode(JSON.stringify(prepared.identity)).byteLength).toBeLessThan(64 * 1024);

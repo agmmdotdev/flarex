@@ -18,6 +18,7 @@ import { cartCreationModuleNames, prepareCartCreationModules } from "../workflow
 import { prepareCreateCartWorkflow, type CartCreationHooks } from "../workflows/cart/create-cart";
 import { prepareCartMutationWorkflows, type CartMutationHooks } from "../workflows/cart/mutations";
 import { prepareCartPromotionsWorkflow } from "../workflows/cart/promotions";
+import { prepareCartTaxesWorkflow } from "../workflows/cart/taxes";
 import { captureInstalledWorkflowModules, type AtomicWorkflowExecution } from "../workflow/host";
 import { workflowModuleDefinition } from "../workflow/module";
 import { commerceDecoder } from "../value/decoder";
@@ -137,6 +138,8 @@ export const makeStoreCartRequestRuntime = Effect.fn("StoreCartRequest.makeRunti
   const promotions = yield* prepareCartPromotionsWorkflow({ execution, modules: input.catalog.modules,
     salesChannelRead: input.catalog.runtimes.salesChannelRead, link: input.catalog.runtimes.link, logger: input.catalog.runtimes.logger,
     revision: input.revision, subscribers: input.subscribers });
+  const taxes = yield* prepareCartTaxesWorkflow({ execution, modules: input.catalog.modules,
+    salesChannelRead: input.catalog.runtimes.salesChannelRead, revision: input.revision, subscribers: input.subscribers });
   const admitCartRefetchFields = (fields: readonly string[]): void => {
     Result.getOrThrowWith(graph.admitProjection("cart", fields), cause => new MedusaError(MedusaError.Types.INVALID_DATA,
       "The private Cart profile requires supported response fields before execution.", undefined, undefined, { cause }));
@@ -168,6 +171,10 @@ export const makeStoreCartRequestRuntime = Effect.fn("StoreCartRequest.makeRunti
         const args = yield* Effect.fromResult(promotions.decodeInput(captured));
         return { result: yield* promotions.run(promotions.newRequestKey(), args) };
       }
+      case "update-tax-lines": {
+        const args = yield* Effect.fromResult(taxes.decodeInput(captured));
+        return { result: yield* taxes.run(taxes.newRequestKey(), args) };
+      }
       default: return yield* commerceError("unsupportedProfile");
     }
   }, presentCartFailure);
@@ -191,7 +198,7 @@ export const makeStoreCartRequestRuntime = Effect.fn("StoreCartRequest.makeRunti
   }, presentCartFailure);
   return Object.freeze({ admitCartRefetchFields, runWorkflow, remoteQuery, query: auth.query,
     close: Effect.forEach(closures, close => close, { discard: true }).pipe(Effect.ensuring(auth.close), Effect.ensuring(workflow.close),
-      Effect.ensuring(Effect.forEach(Object.values(mutations), host => host.close, { discard: true })), Effect.ensuring(promotions.close)) });
+      Effect.ensuring(Effect.forEach(Object.values(mutations), host => host.close, { discard: true })), Effect.ensuring(promotions.close), Effect.ensuring(taxes.close)) });
 });
 export type StoreCartRequestRuntime = Effect.Success<ReturnType<typeof makeStoreCartRequestRuntime>>;
 

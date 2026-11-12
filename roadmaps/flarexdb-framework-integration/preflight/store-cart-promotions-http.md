@@ -95,6 +95,6 @@ deletion. Retained native inverses remain distinct from atomic root abort.
 The existing four-code/item and complete-cohort bounds remain. Existing Shipping
 Method reads are retained; nonempty Shipping adjustment mutations still refuse
 through the Cart owner, while empty action branches can skip. Shipping Method
-lifecycle, remote providers, explicit Tax HTTP, Customer association, checkout HTTP,
+lifecycle, remote providers, Customer association, checkout HTTP,
 transport-loss retry, mixed deployment, capacity and production activation retain
 their separate gates.
