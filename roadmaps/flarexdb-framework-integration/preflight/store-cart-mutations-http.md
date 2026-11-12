@@ -31,6 +31,38 @@ and atomic event publication remain required. The existing
 [native composition contract](../../workflow-foundations/15-native-workflow-composition.md)
 owns this deliberate execution difference.
 
+## Lifecycle history admission
+
+Status: owner correction implemented and validated for the bounded private profile.
+
+Repeated Promotion refresh retains Adjustment tombstones. Line deletion must
+visit that complete history, but the Cart mutation repository and receipt used
+the four-item authoring bound for every descendant table. The connected witness
+therefore returned HTTP 400 with `limitExceeded` after otherwise supported code
+changes. Native deletion must succeed when its complete closure fits the
+existing shared resource budgets.
+
+Correct the Cart lifecycle owner and its full event/receipt capture chain.
+Requested Line Item roots and ordinary authoring, reads and updates keep their
+existing bounds. Declared Line Item cascade descendants use the existing
+query-row, write-batch and event-ID capacity for complete historical cohorts.
+The per-family ceiling is their minimum, currently 256; aggregate Core identity
+accounting includes the parents and other observations, so that ceiling does
+not establish that 256 descendants fit one operation.
+Admit the whole plan before applying it; retain exact descendant membership,
+native updated/deleted event classification, full native restore behavior and
+the physical-delete proof. Core aggregate identities, remaining request calls,
+bytes, facts and deadlines still bound the complete operation. No partial
+history, extra transaction, Core resource increase or new settlement is selected.
+
+Physical-delete receipt construction uses the complete root-reachable FK
+cascade family, verified against the native Line Item descendants. The full Cart
+catalog also contains unrelated Cart-root protocol and business relationships;
+passing those to the Line Item receipt made its family contract inconsistent.
+Runtime traversal still uses the full checked catalog, while receipt correlation
+admits only the verified Line Item, Tax and Adjustment family and rejects
+additional observations or mutations.
+
 ## Native behavior
 
 Cart updates retain native null/omission handling, Customer and Sales Channel

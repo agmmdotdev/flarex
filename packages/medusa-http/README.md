@@ -44,9 +44,10 @@ force Payment Collection refresh and refetch the committed Cart. Changed totals
 invalidate local System Payment Sessions through their native owner. This
 workflow emits participant module events without an added `cart.updated` event.
 Native refresh retains Adjustment tombstones. A later line deletion whose
-complete lifecycle history exceeds the existing four-row non-Address cohort
-returns private-profile HTTP 400 with full business rollback. Larger history
-closures remain outside this bounded profile.
+complete lifecycle includes Tax and Adjustment history uses the existing shared
+operation budgets independently of the four-item input bound. Deletion visits
+every selected descendant; an operation exceeding those budgets refuses with
+full business rollback.
 
 This bounded profile retains four creation items and four promotion codes,
 existing complete-cohort read limits and the local System Tax provider. The

@@ -122,10 +122,11 @@ The pinned default bare Variant and nonmodel Address `region_code` leaves remain
 omitted; explicit nested Variant fields retain their genuine native traversal.
 
 The private profile retains existing four-item, four-promotion-code and complete
-read-cohort bounds. Cart lifecycle closure also retains its existing four-row
-non-Address bound, including tombstoned Adjustment history. Repeated Promotion
-refresh can exceed that deletion closure; HTTP 400 and atomic business rollback
-remain required, and larger lifecycle histories retain a separate capacity gate.
+read-cohort bounds. Cart lifecycle admits complete Line Item Tax and Adjustment
+history independently of those input bounds, including tombstoned descendants.
+Its existing shared query, write and event capacities, aggregate identity and
+request budgets still bound deletion and retained restore; overflow must refuse
+with atomic business rollback.
 Mutation Pricing has a separate sixty-four-attribute context
 profile; ordinary and standalone creation Pricing retain their ten/seventeen
 bounds. The issued mutation graph admits 243 nodes and one shared root allowance

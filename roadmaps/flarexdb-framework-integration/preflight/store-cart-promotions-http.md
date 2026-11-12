@@ -76,22 +76,21 @@ lifecycle and events retain their existing checks. Both connected regressions
 now preserve native HTTP 200. No Core, projection, extra transaction or limit
 change is selected.
 
-The complete Cart lifecycle closure retains a separate existing four-row bound
-per non-Address table. Native Promotion recomputation retains tombstoned
-Adjustment rows, and native line deletion traverses that history. Repeated code
-changes can therefore make a later deletion exceed this bound even with one
-live item and one active adjustment. Such deletion must return private-profile
-HTTP 400 and roll back all business rows and events; it is outside the admitted
-closure. Do not filter historical descendants or widen the bound. Successful
-fresh-Cart deletion and history-rich refusal remain separate witnesses. Larger
-lifecycle-history capacity requires its own owner and admission work.
+Native Promotion recomputation retains tombstoned Adjustment rows, and native
+line deletion traverses that history. The
+[Cart lifecycle owner](./store-cart-mutations-http.md#lifecycle-history-admission)
+admits complete Line Item Tax and Adjustment history independently of the
+four-item authoring bound. Existing shared query, write, event, identity, byte
+and request budgets retain their authority; a larger operation still refuses
+atomically. Complete descendant events, retained restore and successful deletion
+after repeated code changes remain required.
 
 Private acceptance covers PGlite and ordinary-role PostgreSQL witnesses for native
 apply/remove/empty replacement, automatic Promotions, refused requests, totals,
 populated Payment refresh, late failure rollback and same-key outcome recovery.
 Actual Workerd HTTP preserves committed results and durable inventory across
-recreation, including successful bounded mutations and history-rich deletion
-refusal. Retained native inverses remain distinct from atomic root abort.
+recreation, including successful bounded mutations and complete history-rich
+deletion. Retained native inverses remain distinct from atomic root abort.
 
 The existing four-code/item and complete-cohort bounds remain. Existing Shipping
 Method reads are retained; nonempty Shipping adjustment mutations still refuse

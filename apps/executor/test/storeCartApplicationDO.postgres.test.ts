@@ -15,6 +15,9 @@ const decodeCart = Schema.decodeUnknownSync(Schema.Struct({ cart: Schema.JsonObj
 const decodeId = Schema.decodeUnknownSync(Schema.NonEmptyString);
 const isCreatedEnvelope = Schema.is(Schema.Struct({ contract: Schema.Literal("cart.created") }));
 const isUpdatedEnvelope = Schema.is(Schema.Struct({ contract: Schema.Literal("cart.updated") }));
+const isCartModuleEnvelope = Schema.is(Schema.Struct({ message: Schema.Struct({
+  metadata: Schema.Struct({ source: Schema.Literal("cart"), object: Schema.String, action: Schema.String }),
+  data: Schema.Struct({ id: Schema.Union([Schema.String, Schema.Array(Schema.String)]) }) }) }));
 
 describe.runIf(endpoints !== undefined)("native Store Cart HTTP in the actual application DO", () => {
   it("creates and refetches native guest and customer Carts, refuses invalid requests without writes and preserves the graph across recreation", async () => {
@@ -151,18 +154,43 @@ describe.runIf(endpoints !== undefined)("native Store Cart HTTP in the actual ap
       expect(afterHistory.outcomes.filter(row => row.value.kind === "nativeRoot" && row.value.state === "committed")).toHaveLength(9);
       expect(afterHistory.rows.filter(row => isUpdatedEnvelope(row.value.envelope))).toHaveLength(1);
 
-      // Native lifecycle traverses tombstoned Adjustment descendants too. This
-      // history exceeds the existing four-row closure; fresh-Cart deletion
-      // remains covered below without filtering history or widening the cap.
-      phase = "complete lifecycle history refusal"; host.start(); await host.ready();
+      phase = "complete lifecycle history deletion"; host.start(); await host.ready();
       const historyItems = Schema.decodeUnknownSync(Schema.Array(Schema.JsonObject))(historyCart.items);
-      await request(`/store/carts/${historyId}/line-items/${decodeId(historyItems[0]?.id)}`, { method: "DELETE" }, 400);
+      const historyLineId = decodeId(historyItems[0]?.id);
+      const historyDeleted = await (await request(`/store/carts/${historyId}/line-items/${historyLineId}`, { method: "DELETE" })).json();
+      expect(historyDeleted).toMatchObject({ id: historyLineId, object: "line-item", deleted: true, parent: { id: historyId, items: [], total: 0 } });
+      historyCart = Schema.decodeUnknownSync(Schema.Struct({ parent: Schema.JsonObject }))(historyDeleted).parent;
+      expect(decodeCart(await (await request(`/store/carts/${historyId}`)).json()).cart).toEqual(historyCart);
       await host.stop();
       committed = await observeStoreCartRequestFixture({ physical, catalog: prepared.catalog });
       const historyKeys = new Set(afterHistory.outcomes.map(outcome => outcome.value.key));
-      const historyRefusals = committed.outcomes.filter(outcome => !historyKeys.has(outcome.value.key));
-      expect(historyRefusals).toEqual([expect.objectContaining({ value: expect.objectContaining({ kind: "nativeRoot", state: "failed" }) })]);
-      expect(committed).toEqual({ ...afterHistory, outcomes: expect.arrayContaining([...afterHistory.outcomes, ...historyRefusals]) });
+      const historyOutcomes = committed.outcomes.filter(outcome => !historyKeys.has(outcome.value.key));
+      expect(historyOutcomes).toEqual([expect.objectContaining({ value: expect.objectContaining({ kind: "nativeRoot", state: "committed" }) })]);
+      const historyLine = committed.rows.find(row => row.value.id === historyLineId);
+      expect(historyLine?.value.deleted_at).toEqual(expect.any(String));
+      expect(historyOutcomes[0]?.timestamp).toEqual(historyLine?.timestamp);
+      const historyMessages = committed.rows.filter(row => row.timestamp === historyLine?.timestamp).map(row => row.value.envelope)
+        .filter(isCartModuleEnvelope).map(envelope => envelope.message);
+      for (const object of ["line_item_tax_line", "line_item_adjustment"]) {
+        const table = prepared.catalog.sources.find(source => source.name === "cart")?.definition.tables.find(table => table.localName === `cart_${object}`)?.name;
+        if (table === undefined) throw new Error("Missing native Cart descendant table");
+        const children = afterHistory.rows.filter(row => row.table === table && row.value.item_id === historyLineId);
+        expect(children.length).toBeGreaterThan(object === "line_item_adjustment" ? 8 : 0);
+        for (const child of children) {
+          const { deleted_at: _deleted, updated_at: _updated, ...retained } = child.value;
+          const changed = committed.rows.find(row => row.table === table && row.value.id === child.value.id);
+          expect(changed).toMatchObject({ timestamp: historyLine?.timestamp,
+            value: { ...retained, deleted_at: expect.any(String), updated_at: expect.any(String) } });
+        }
+        for (const action of ["deleted", "updated"]) {
+          const actual = historyMessages.filter(message => message.metadata.object === object && message.metadata.action === action)
+            .flatMap(message => typeof message.data.id === "string" ? [message.data.id] : message.data.id).sort();
+          const expected = children.filter(child => action === "deleted" ? child.value.deleted_at === null : child.value.deleted_at !== null)
+            .map(child => child.value.id).sort();
+          expect(actual).toEqual(expected);
+        }
+      }
+      expect(committed.rows.filter(row => isUpdatedEnvelope(row.value.envelope))).toHaveLength(2);
       phase = "mutation projection refusal"; host.start(); await host.ready();
       await request(`/store/carts/${guestId}?fields=id,unsupported_field`, { method: "POST", body: { metadata: { refused: true } } }, 400);
       const firstLineId = decodeId(items[0]?.id);
@@ -208,11 +236,11 @@ describe.runIf(endpoints !== undefined)("native Store Cart HTTP in the actual ap
       await host.stop();
       const mutated = await observeStoreCartRequestFixture({ physical, catalog: prepared.catalog });
       expect(mutated.rows.filter(row => row.table === cartTable)).toHaveLength(initialCartCount + 2);
-      expect(mutated.outcomes.filter(row => row.value.kind === "nativeRoot" && row.value.state === "committed")).toHaveLength(15);
+      expect(mutated.outcomes.filter(row => row.value.kind === "nativeRoot" && row.value.state === "committed")).toHaveLength(16);
       expect(mutated.outcomes.filter(row => row.value.kind === "nativeRoot" && row.value.state === "failed"))
         .toEqual(lateRejected.outcomes.filter(row => row.value.kind === "nativeRoot" && row.value.state === "failed"));
       const updatedEvents = mutated.rows.filter(row => isUpdatedEnvelope(row.value.envelope));
-      expect(updatedEvents).toHaveLength(8);
+      expect(updatedEvents).toHaveLength(9);
       for (const event of updatedEvents) expect(mutated.outcomes).toContainEqual(expect.objectContaining({ timestamp: event.timestamp,
         value: expect.objectContaining({ state: "committed" }) }));
       expect(mutated.rows.filter(row => isCreatedEnvelope(row.value.envelope))).toEqual(createdEvents);

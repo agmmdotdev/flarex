@@ -1,4 +1,5 @@
 import { Schema } from "effect";
+import { defaultCommerceResources } from "@flarex/persistence-postgres/internal/commerce-values";
 import { commerceDecoder } from "../../value/decoder";
 import { ExactNumericRaw } from "../../value/exact-numeric";
 import { ScalarId } from "../../repository/scalar-id-read";
@@ -9,6 +10,11 @@ const Text = Schema.optionalKey(Schema.NullOr(Schema.String));
 const Amount = Schema.Union([Schema.String, Schema.Finite, Schema.Struct(ExactNumericRaw.fields)]);
 const Metadata = Schema.optionalKey(Schema.NullOr(Schema.JsonObject));
 export const CartMutationIds = Schema.Array(ScalarId).pipe(Schema.mutable).check(Schema.isMaxLength(4));
+/** Lifecycle descendants retain complete native history, independently of the
+ * four-root authoring shape. Existing shared resource owners remain ceilings. */
+export const cartLineHistoryMaximum = Math.min(defaultCommerceResources.queryRows,
+  defaultCommerceResources.writeBatchRows, defaultCommerceResources.eventIds);
+export const CartLineHistoryIds = Schema.Array(ScalarId).check(Schema.isLengthBetween(1, cartLineHistoryMaximum));
 const Selection = Schema.Union([ScalarId, CartMutationIds]);
 export const CartMutationAddress = Schema.Struct({ ...RootAddress.fields, id: Schema.optionalKey(ScalarId) });
 export const CartMutationPatch = Schema.Struct({ id: ScalarId, region_id: Text, customer_id: Text, sales_channel_id: Text,

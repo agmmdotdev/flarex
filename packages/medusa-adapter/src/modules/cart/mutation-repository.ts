@@ -16,7 +16,7 @@ import { compileWhere, type WherePolicy } from "../../query/predicate";
 import { executeRead } from "../../query/read";
 import { replaceGraphRows } from "../../write/replace";
 import type { GraphCatalog, ReplacementProfile } from "../../write/graph-model";
-import { CartMutationIds } from "./mutation-input";
+import { CartMutationIds, cartLineHistoryMaximum } from "./mutation-input";
 import { CartMutationTaxLines } from "./mutation-input";
 import { bindCommerceRelationRows } from "../../query/relations";
 import { hasChangedFields } from "@medusajs/drizzle/mutation-plan";
@@ -54,6 +54,22 @@ export function prepareCartMutationRepository(refresh: Refresh) {
       address = refresh.entities.find(entity => entity.table.name === "cart_address"),
       line = refresh.entities.find(entity => entity.table.name === "cart_line_item");
     if (cart === undefined || address === undefined || line === undefined) return yield* Result.fail(commerceError("unsupportedProfile"));
+    const descendants = new Set(line.table.relationships.filter(relation => relation.cascadeDelete).map(relation => relation.targetTable));
+    const historyTables = [refresh.refresh.tax.table.name, refresh.refresh.adjustment.table.name];
+    if (descendants.size !== historyTables.length || historyTables.some(table => !descendants.has(table)))
+      return yield* Result.fail(commerceError("unsupportedProfile"));
+    const physicalFamily = new Set([line.table.name]);
+    let priorSize = -1;
+    while (priorSize !== physicalFamily.size) {
+      priorSize = physicalFamily.size;
+      for (const table of refresh.metadata.tables) if (table.foreignKeys.some(key => key.onDelete === "cascade" && physicalFamily.has(key.referencedTable)))
+        physicalFamily.add(table.name);
+    }
+    if (physicalFamily.size !== descendants.size + 1 || [...descendants].some(table => !physicalFamily.has(table)))
+      return yield* Result.fail(commerceError("unsupportedProfile"));
+    const lifecycleTables = refresh.metadata.tables.filter(table => physicalFamily.has(table.name));
+    const selectionMaximum = (table: string) => table === address.table.name ? 8 : 4;
+    const lifecycleMaximum = (table: string) => descendants.has(table) ? cartLineHistoryMaximum : selectionMaximum(table);
     const addressScalar = yield* prepareScalarRepository(address.table, address.model, scalarIdWhere);
     const query = (table: string, input: unknown) => Result.gen(function* () {
       if (table === address.table.name) return yield* addressScalar.query(input);
@@ -77,9 +93,9 @@ export function prepareCartMutationRepository(refresh: Refresh) {
       const supplied = yield* normalized(yield* decode(input));
       return { supplied, key: supplied.id === undefined ? undefined : yield* decodeId(supplied.id) };
     }) };
-    const admitSelection = (table: string, rows: readonly JsonObject[]) => Result.gen(function* () {
+    const admitSelection = (table: string, rows: readonly JsonObject[], maximum = selectionMaximum(table)) => Result.gen(function* () {
       const entity = refresh.byName.get(table);
-      if (entity === undefined || rows.length > (table === address.table.name ? 8 : 4)) return yield* Result.fail(commerceError("limitExceeded"));
+      if (entity === undefined || rows.length > maximum) return yield* Result.fail(commerceError("limitExceeded"));
       for (const row of rows) yield* entity.complete(projectNativeRow(row));
     });
     const profile: ReplacementProfile = { catalog, operation: "update", nativeUpdateStatements: true,
@@ -151,8 +167,9 @@ export function prepareCartMutationRepository(refresh: Refresh) {
             : yield* Effect.fromResult(decodeIds(captured));
           const owner = medusaLifecycle(ctx, { tables: refresh.metadata.tables, entities: refresh.entities }, operation);
           const selected = yield* owner.roots(line.table, requested);
-          const plan = yield* owner.plan(line.table, selected), changed = yield* plan.apply();
-          for (const entity of refresh.entities) yield* Effect.fromResult(admitSelection(entity.table.name, plan.rows(entity.table)));
+          const plan = yield* owner.plan(line.table, selected);
+          for (const entity of refresh.entities) yield* Effect.fromResult(admitSelection(entity.table.name, plan.rows(entity.table), lifecycleMaximum(entity.table.name)));
+          const changed = yield* plan.apply();
           const ids: string[] = [];
           for (const row of changed.roots) ids.push(yield* Effect.fromResult(decodeId(row.id)));
           if (operation === "delete") return { ids, rows: changed.roots, cascades: changed.cascades };
@@ -216,6 +233,6 @@ export function prepareCartMutationRepository(refresh: Refresh) {
         }))) };
       return { ...bound, repository, lineItemRepository, addressRepository, lineItemTaxLineRepository, shippingMethodTaxLineRepository };
     };
-    return { ...refresh, bind, mutation: { cart, address, line, query, catalog, profile, admitSelection } };
+    return { ...refresh, bind, mutation: { cart, address, line, query, catalog, profile, admitSelection, lifecycleMaximum, lifecycleTables } };
   });
 }

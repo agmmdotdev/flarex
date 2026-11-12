@@ -20,6 +20,7 @@ import { captureExactNumericRow } from "../../value/exact-numeric";
 import { decodeCartItemAdjustments, decodeCartItemTaxRead, decodeCartShippingTaxRead,
   decodeCartSetItemTaxInput, decodeCartSetShippingTaxInput, decodeCartRefreshIds, decodeCartEmptyShippingAdjustments } from "./refresh-input";
 import type { prepareCartCreationRefreshRepository } from "./refresh-repository";
+import { CartLineHistoryIds } from "./mutation-input";
 
 type Prepared = Result.Result.Success<ReturnType<typeof prepareCartCreationRefreshRepository>>;
 const mismatch = (phase?: string) => commerceError("receiptMismatch", phase === undefined ? undefined : { phase });
@@ -29,7 +30,7 @@ const event = moduleEventDecoder(Schema.Struct({ name: Schema.String,
   metadata: Schema.Struct({ source: Schema.Literal(Modules.CART),
     object: Schema.Literals(["line_item_tax_line", "shipping_method_tax_line", "line_item_adjustment"]),
     action: Schema.Literals(["created", "updated", "deleted", "restored"]) }),
-  data: Schema.Struct({ id: Schema.Union([Schema.String, Schema.Array(Schema.String).check(Schema.isLengthBetween(1, 4))]) }) }), defaultCommerceResources);
+  data: Schema.Struct({ id: Schema.Union([Schema.String, CartLineHistoryIds]) }) }), defaultCommerceResources);
 export const captureCartCreationRefreshEvent = Effect.fn("CartCreation.captureRefreshEvent")(function* (input: unknown) {
   const message = yield* event(input);
   if (message.name !== buildModuleResourceEventName({ prefix: Modules.CART, objectName: message.metadata.object, action: message.metadata.action }))

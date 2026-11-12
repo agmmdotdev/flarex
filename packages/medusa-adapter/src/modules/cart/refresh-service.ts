@@ -28,7 +28,7 @@ import { cartMutationPolicy, captureCartMutationEvent } from "./mutation-receipt
 import { CartMutationUpdates, CartMutationAddressUpdates, CartMutationLineCreates, CartMutationLineEntries, CartMutationLineFilters,
   CartMutationLinePatch, CartMutationIds, CartMutationRead, decodeCartMutationUpdates, decodeCartMutationAddressUpdates,
   decodeCartMutationLineCreates, decodeCartMutationLineUpdate, decodeCartMutationRead, decodeCartMutationIds,
-  CartMutationTaxLines, decodeCartMutationTaxLines } from "./mutation-input";
+  CartLineHistoryIds, CartMutationTaxLines, decodeCartMutationTaxLines } from "./mutation-input";
 import { cartCreationRefreshPolicy, captureCartCreationRefreshEvent } from "./refresh-receipt";
 import { CartItemTaxRead, CartShippingTaxRead, CartItemTaxLines, CartEmptyShippingTaxLines, CartItemAdjustments, CartRefreshIds, CartEmptyShippingAdjustments,
   decodeCartItemTaxRead, decodeCartShippingTaxRead, decodeCartSetItemTaxInput, decodeCartSetShippingTaxInput,
@@ -165,7 +165,7 @@ export const makeCartCreationWorkflowCommands = Effect.fn("CartCreation.workflow
     const creationPolicy = cartCreationPolicy(creation, decodeCartRootCreates), readPolicy = cartPaymentReadPolicy(read, "completion"), refreshPolicy = cartCreationRefreshPolicy(prepared);
     const decodeEvent = moduleEventDecoder(Schema.Struct({ name: Schema.String,
       metadata: Schema.Struct({ source: Schema.Literal(Modules.CART), object: Schema.String, action: Schema.String }),
-      data: Schema.Struct({ id: Schema.Union([ScalarId, Schema.Array(ScalarId).check(Schema.isLengthBetween(1, 8))]) }) }), defaultCommerceResources);
+      data: Schema.Struct({ id: Schema.Union([ScalarId, CartLineHistoryIds]) }) }), defaultCommerceResources);
     const capture = Effect.fn("CartCreationWorkflow.captureEvent")(function* (input: unknown) {
       const envelope = yield* decodeEvent(input);
       return yield* (["line_item_tax_line", "shipping_method_tax_line", "line_item_adjustment"].includes(envelope.metadata.object)

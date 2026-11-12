@@ -1,11 +1,13 @@
 import { afterAll, beforeAll, expect, it } from "vitest";
-import { Effect, Exit, Result, Schema } from "effect";
+import { Cause, Effect, Exit, Result, Schema } from "effect";
 import { createStep, createWorkflow, StepResponse, WorkflowResponse, type WorkflowData } from "@medusajs/workflows-sdk";
 import { deleteLineItemsStep } from "@medusajs/core-flows/line-item/delete-line-items-step";
+import { buildModuleResourceEventName, Modules } from "@medusajs/framework/utils/portable";
 import { commerceError, defaultCommerceResources, isJsonObject, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
 import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { defineCommerceEventContract } from "../../persistence-postgres/src/frameworks/atomicCommerce/events";
 import { makeCartCreationWorkflowCommands } from "../src/modules/cart/refresh-service";
+import { cartLineHistoryMaximum } from "../src/modules/cart/mutation-input";
 import type { LogicalCallReceiptValidation } from "../src/repository/call-receipt";
 import { prepareAtomicWorkflowHost } from "../src/workflow/host";
 import { prepareWorkflowResources } from "../src/workflow/resources";
@@ -25,6 +27,8 @@ async function prepare() {
   const tax = defineAtomicCommerceCommand("cartMutationProbeTax", (ctx, input) => ctx.call(participant, cart.setItemTax, input));
   const adjustment = defineAtomicCommerceCommand("cartMutationProbeAdjustment", (ctx, input) => ctx.call(participant, cart.addItemAdjustments, input));
   const removeAdjustment = defineAtomicCommerceCommand("cartMutationProbeRemoveAdjustment", (ctx, input) => ctx.call(participant, cart.softDeleteItemAdjustments, input));
+  const physicalDelete = defineAtomicCommerceCommand("cartMutationProbePhysicalDelete", (ctx, input) => ctx.call(participant, cart.deleteLines, input));
+  const shippingTax = defineAtomicCommerceCommand("cartMutationProbeShippingTax", (ctx, input) => ctx.call(participant, cart.setShippingTax, input));
   const list = defineAtomicCommerceCommand("cartMutationProbeList", (ctx, input) => ctx.call(participant, cart.list, input));
   const policy = cart.logicalEventPolicy(), traces: Trace[] = [];
   const event = defineCommerceEventContract({ name: "nativeCartMutationEvents", revision: "a".repeat(64), internal: true, decode: policy.capture });
@@ -35,7 +39,7 @@ async function prepare() {
       }) }], requestCallLimit: 512, executionIsolation: "scopeExclusive", operationScheduling: "queued", borrowedOperationScheduling: "queued",
     events: { producerRevision: "b".repeat(64), subscribers: [{ id: "native-cart-mutation-probe", revision: "c".repeat(64) }], contracts: [event],
       validate: messages => messages.some(message => !message.internal) ? Effect.fail(commerceError("unadmittedEvent")) : Effect.void },
-    commands: [seed, tax, adjustment, removeAdjustment, list] }));
+    commands: [seed, tax, adjustment, removeAdjustment, physicalDelete, shippingTax, list] }));
   cleanup.push(() => Effect.runPromise(host.close));
   const native = createWorkflow("native-cart-line-delete-retained-node", (input: WorkflowData<string[]>) => new WorkflowResponse(deleteLineItemsStep(input)));
   const node = Result.getOrThrow(native.prepare()).nodes.find(node => node.name === "delete-line-items");
@@ -43,11 +47,11 @@ async function prepare() {
   const invoke = node.invoke, compensate = node.compensate;
   const resources = Result.getOrThrow(prepareWorkflowResources({ cart: { module: cart.workflow,
     methods: ["softDeleteLineItems", "restoreLineItems"], graph: false } }, true));
-  const makeProbe = async (lateFailure: boolean) => {
+  const makeProbe = async (lateFailure: boolean, restore = true) => {
     const retained = createStep("native-cart-line-retained-inverse", resources.callback(async (ids: string[], context) => {
       const response = await invoke(ids, context);
       if (!(response instanceof StepResponse)) throw new Error("Missing native LineItem deletion payload");
-      await compensate(response.compensateInput, context);
+      if (restore) await compensate(response.compensateInput, context);
       if (lateFailure) throw new Error("After native LineItem retained inverse");
       return new StepResponse(null);
     }));
@@ -72,8 +76,15 @@ async function prepare() {
   await run(adjustment, [{ item_id: "cali-retained", amount: 1, code: "RETAINED", promotion_id: "promo-retained" }]);
   const read = () => run(list, { filters: { id: "cart-retained" }, config: { relations: ["items", "items.tax_lines", "items.adjustments"] } });
   return { fixture, cart, policy, traces, read, makeProbe,
-    addAdjustment: (code: string) => run(adjustment, [{ item_id: "cali-retained", amount: 1, code, promotion_id: "promo-retained" }]),
-    removeAdjustment: (id: string) => run(removeAdjustment, [id]) };
+    createCart: (id: string, item: string) => run(seed, [{ id, currency_code: "usd", items: [{ id: item, title: "Native history item", quantity: 1, unit_price: 12.5 }] }]),
+    setTax: (id: string, item: string, code: string) => run(tax, { cart_id: id, tax_lines: [{ item_id: item, code, rate: 10 }] }),
+    addAdjustment: (code: string, item = "cali-retained") => run(adjustment, [{ item_id: item, amount: 1, code, promotion_id: "promo-retained" }]),
+    removeAdjustment: (id: string) => run(removeAdjustment, [id]),
+    addAdjustments: (item: string, count: number) => run(adjustment, Array.from({ length: count }, (_, index) => ({ item_id: item, amount: 1, code: "AUTHORED-" + index }))),
+    setTaxes: (id: string, item: string, count: number) => run(tax, { cart_id: id,
+      tax_lines: Array.from({ length: count }, (_, index) => ({ item_id: item, code: "AUTHORED-" + index, rate: 10 })) }),
+    clearShippingTax: (id: string) => run(shippingTax, { cart_id: id, tax_lines: [] }),
+    physicalDelete: (ids: string[]) => run(physicalDelete, ids) };
 }
 beforeAll(async () => { connected = await prepare(); }, 240_000);
 afterAll(async () => { await finishOrderFixture(cleanup.reverse()); }, 120_000);
@@ -130,3 +141,144 @@ it("retains native updated events for already tombstoned cascade children and re
     expect.objectContaining({ id: priorId, code: "PREVIOUS", deleted_at: null }),
   ]) }] }]);
 });
+
+it("executes native deletion and its retained inverse across complete Tax and Adjustment history beyond authoring cohorts", async () => {
+  const cart = "cart-native-history", item = "cali-native-history";
+  await connected.createCart(cart, item);
+  const decodeRows = Schema.decodeUnknownSync(Schema.Array(Schema.Struct({ id: Schema.NonEmptyString })));
+  const taxIds: string[] = [], adjustmentIds: string[] = [];
+  for (let ordinal = 0; ordinal < 10; ordinal++) {
+    const tax = decodeRows(await connected.setTax(cart, item, "HISTORY-" + ordinal))[0]?.id;
+    const adjustment = decodeRows(await connected.addAdjustment("HISTORY-" + ordinal, item))[0]?.id;
+    if (tax === undefined || adjustment === undefined) throw new Error("Missing genuine native history row");
+    taxIds.push(tax); adjustmentIds.push(adjustment);
+    if (ordinal > 0) {
+      const previous = adjustmentIds[ordinal - 1];
+      if (previous === undefined) throw new Error("Missing prior native Adjustment");
+      await connected.removeAdjustment(previous);
+    }
+  }
+  const before = await connected.fixture.readRows("cart", [item, ...taxIds, ...adjustmentIds]);
+  expect(before.filter(row => row.deleted_at === null)).toHaveLength(3);
+  const probe = await connected.makeProbe(false);
+  const key = probe.newRequestKey(), fault = connected.fixture.loseNextNativeRootAcknowledgement();
+  const result = await Effect.runPromiseExit(probe.run(key, [item]));
+  expect(Exit.isSuccess(result), Exit.isFailure(result) ? Cause.pretty(result.cause) : undefined).toBe(true);
+  expect(fault).toMatchObject({ armed: false, failures: 1 });
+  const trace = connected.traces.findLast(trace => trace.call.commandName === "cartSoftDeleteLinesForMutations");
+  const inverse = connected.traces.findLast(trace => trace.call.commandName === "cartRestoreLinesForMutations");
+  const firstEvent = trace?.call.events[0], firstTax = before.find(row => row.id === taxIds[0]);
+  if (trace === undefined || inverse === undefined || firstEvent === undefined || firstTax === undefined)
+    throw new Error("Missing native complete-history lifecycle evidence");
+  const nativeMap = Schema.decodeUnknownSync(Schema.Record(Schema.String, Schema.Array(Schema.Union([
+    Schema.NonEmptyString, Schema.Struct({ id: Schema.NonEmptyString }),
+  ]))));
+  const mappedIds = (value: unknown) => Object.values(nativeMap(value)).flatMap(rows => rows.map(row => typeof row === "string" ? row : row.id)).sort();
+  expect(mappedIds(trace.call.result)).toEqual([item, ...taxIds, ...adjustmentIds].sort());
+  expect(mappedIds(inverse.call.result)).toEqual([item, ...taxIds, ...adjustmentIds].sort());
+  expect(inverse.call.events).toEqual([]);
+  const decodeEvent = Schema.decodeUnknownSync(Schema.Struct({ metadata: Schema.Struct({ object: Schema.String, action: Schema.String }),
+    data: Schema.Struct({ id: Schema.Union([Schema.String, Schema.Array(Schema.String)]) }) }));
+  const events = trace.call.events.map(event => decodeEvent(event));
+  for (const [object, ids] of [["line_item_tax_line", taxIds], ["line_item_adjustment", adjustmentIds]] as const) {
+    expect(trace.activity.lifecycle.filter(change => change.table === "cart_" + object)).toHaveLength(ids.length);
+    for (const [action, expected] of [["deleted", ids.slice(-1)], ["updated", ids.slice(0, -1)]] as const) {
+      const actual = events.filter(event => event.metadata.object === object && event.metadata.action === action)
+        .flatMap(event => typeof event.data.id === "string" ? [event.data.id] : event.data.id);
+      expect(actual.sort()).toEqual([...expected].sort());
+    }
+  }
+  expect(await connected.fixture.readRows("cart", taxIds)).toEqual(expect.arrayContaining(taxIds.map(id => expect.objectContaining({ id, deleted_at: null }))));
+  expect(await connected.fixture.readRows("cart", adjustmentIds)).toEqual(expect.arrayContaining(adjustmentIds.map(id => expect.objectContaining({ id, deleted_at: null }))));
+  const after = await connected.fixture.readRows("cart", [item, ...taxIds, ...adjustmentIds]);
+  for (const row of before) {
+    const current = after.find(current => current.id === row.id);
+    if (current === undefined) throw new Error("Native inverse omitted a historical descendant");
+    const { updated_at: _oldUpdated, deleted_at: _oldDeleted, ...previous } = row;
+    const { updated_at: _newUpdated, deleted_at: _newDeleted, ...restored } = current;
+    expect(restored).toEqual(previous); expect(current.deleted_at).toBeNull();
+  }
+  const committed = await connected.fixture.snapshot(), calls = connected.traces.length;
+  expect(await Effect.runPromise(probe.run(key, [item]))).toBeNull();
+  expect(connected.traces).toHaveLength(calls); expect(await connected.fixture.snapshot()).toEqual(committed);
+  const late = await connected.makeProbe(true), failed = await Effect.runPromiseExit(late.run(late.newRequestKey(), [item]));
+  expect(Exit.isFailure(failed)).toBe(true);
+  if (Exit.isFailure(failed)) expect(Cause.pretty(failed.cause)).toContain("After native LineItem retained inverse");
+  expect(await connected.fixture.snapshot()).toEqual(committed);
+  for (const changed of [
+    { ...trace, call: { ...trace.call, events: trace.call.events.slice(1) } },
+    { ...trace, call: { ...trace.call, events: [...trace.call.events, firstEvent] } },
+    { ...trace, activity: { ...trace.activity, lifecycle: trace.activity.lifecycle.slice(1) } },
+    { ...trace, activity: { ...trace.activity, relationalReads: trace.activity.relationalReads.slice(1) } },
+    { ...trace, activity: { ...trace.activity, observedRows: trace.activity.observedRows.filter(row => row.row.id !== taxIds[0]) } },
+    { ...trace, activity: { ...trace.activity, observedRows: [...trace.activity.observedRows, {
+      table: "cart_line_item_tax_line", row: { ...firstTax, id: "forged-extra-history" },
+    }] } },
+  ]) expect(Exit.isFailure(await Effect.runPromiseExit(connected.policy.validateLogicalCall(changed.call, changed.activity)))).toBe(true);
+  const five = await Effect.runPromiseExit(probe.run(probe.newRequestKey(), [item, "root-2", "root-3", "root-4", "root-5"]));
+  expect(Exit.isFailure(five)).toBe(true); expect(await connected.fixture.snapshot()).toEqual(committed);
+  expect(await connected.physicalDelete([item])).toBeNull();
+  expect(await connected.fixture.readRows("cart", [item, ...taxIds, ...adjustmentIds])).toEqual([]);
+  const physical = connected.traces.findLast(trace => trace.call.commandName === "cartDeleteLinesForMutations");
+  const parent = (await connected.fixture.readRows("cart", [cart]))[0];
+  if (physical === undefined || parent === undefined) throw new Error("Missing genuine physical LineItem family evidence");
+  const changedParent = { ...parent, metadata: { unrelated_writer: true } };
+  for (const activity of [
+    { ...physical.activity, observedRows: [...physical.activity.observedRows, {
+      table: "cart_line_item_tax_line", row: { ...firstTax, id: "unrelated-history", item_id: "cali-retained" },
+    }] },
+    { ...physical.activity, observedRows: [...physical.activity.observedRows, { table: "cart", row: changedParent }],
+      mutations: [...physical.activity.mutations, { ordinal: physical.activity.mutations.length, table: "cart", operation: "patch" as const,
+        before: parent, after: changedParent }] },
+  ]) expect(Exit.isFailure(await Effect.runPromiseExit(connected.policy.validateLogicalCall(physical.call, activity)))).toBe(true);
+}, 120_000);
+
+it("retains ordinary authored cohorts and exact refresh event receipts despite larger descendant event capture", async () => {
+  const before = await connected.fixture.snapshot();
+  await expect(connected.addAdjustments("cali-retained", 5)).rejects.toBeDefined();
+  await expect(connected.setTaxes("cart-retained", "cali-retained", 5)).rejects.toBeDefined();
+  expect(await connected.fixture.snapshot()).toEqual(before);
+  const created = connected.traces.find(trace => trace.call.commandName === "cartAddItemAdjustmentsForCreation");
+  if (created === undefined || created.call.events[0] === undefined) throw new Error("Missing genuine ordinary refresh event");
+  const ids = Array.from({ length: 5 }, (_, index) => "extra-event-" + index);
+  const event = { name: buildModuleResourceEventName({ prefix: Modules.CART, objectName: "line_item_adjustment", action: "created" }),
+    metadata: { source: Modules.CART, object: "line_item_adjustment", action: "created" }, data: { id: ids } };
+  expect(Exit.isSuccess(await Effect.runPromiseExit(connected.policy.capture(event)))).toBe(true);
+  expect(Exit.isFailure(await Effect.runPromiseExit(connected.policy.validateLogicalCall({ ...created.call, events: [event] }, created.activity)))).toBe(true);
+  await connected.clearShippingTax("cart-retained");
+  const shipping = connected.traces.findLast(trace => trace.call.commandName === "cartSetShippingTaxForCreation");
+  if (shipping === undefined) throw new Error("Missing genuine empty Shipping Tax refresh");
+  const shippingEvent = { ...event,
+    name: buildModuleResourceEventName({ prefix: Modules.CART, objectName: "shipping_method_tax_line", action: "created" }),
+    metadata: { ...event.metadata, object: "shipping_method_tax_line" } };
+  expect(Exit.isSuccess(await Effect.runPromiseExit(connected.policy.capture(shippingEvent)))).toBe(true);
+  expect(Exit.isFailure(await Effect.runPromiseExit(connected.policy.validateLogicalCall({ ...shipping.call, events: [shippingEvent] }, shipping.activity)))).toBe(true);
+  const rootEvent = { ...event,
+    name: buildModuleResourceEventName({ prefix: Modules.CART, objectName: "line_item", action: "updated" }),
+    metadata: { ...event.metadata, object: "line_item", action: "updated" }, data: { id: [...ids, "extra-6", "extra-7", "extra-8", "extra-9"] } };
+  expect(Exit.isFailure(await Effect.runPromiseExit(connected.policy.capture(rootEvent)))).toBe(true);
+});
+
+it("retains shared native capacity refusal for overflowing complete history without lifecycle writes or events", async () => {
+  const cartId = "cart-history-overflow", itemId = "cali-history-overflow";
+  const oversized = await prepare();
+  await oversized.createCart(cartId, itemId);
+  // Every committed native refresh authors at most four rows and replaces the
+  // previous active cohort. Complete stored history may exceed one request.
+  for (let count = 0; count <= cartLineHistoryMaximum; count += 4) await oversized.setTaxes(cartId, itemId, 4);
+  const history = (await oversized.fixture.readRows("cart")).filter(row => row.item_id === itemId && typeof row.rate === "number");
+  expect(history.length).toBeGreaterThan(cartLineHistoryMaximum);
+  expect(history.filter(row => row.deleted_at === null)).toHaveLength(4);
+  const before = await oversized.fixture.snapshot(), probe = await oversized.makeProbe(false, false);
+  const failed = await Effect.runPromiseExit(probe.run(probe.newRequestKey(), [itemId]));
+  expect(Exit.isFailure(failed)).toBe(true);
+  const reasons = (value: unknown): string[] => {
+    if (Cause.isCause(value)) return value.reasons.flatMap(reason => Cause.isFailReason(reason) ? reasons(reason.error)
+      : Cause.isDieReason(reason) ? reasons(reason.defect) : ["Interrupt"]);
+    if (!(value instanceof Error)) return [];
+    return [...("reason" in value && typeof value.reason === "string" ? [value.reason] : []), ...reasons(value.cause)];
+  };
+  if (Exit.isFailure(failed)) expect(reasons(failed.cause)).toEqual(expect.arrayContaining(["limitExceeded", "capacity"]));
+  expect(oversized.traces.some(trace => trace.call.commandName === "cartSoftDeleteLinesForMutations")).toBe(false);
+  expect(await oversized.fixture.snapshot()).toEqual(before);
+}, 240_000);

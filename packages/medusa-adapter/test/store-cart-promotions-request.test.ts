@@ -1,6 +1,5 @@
 import { afterAll, beforeAll, expect, it, vi } from "vitest";
-import { Cause, Effect, Exit, Result, Schema } from "effect";
-import { CommerceTransactionError } from "@flarex/persistence-postgres/internal/commerce-values";
+import { Cause, Effect, Result, Schema } from "effect";
 import { asValue, createContainer } from "@medusajs/deps/awilix-portable";
 import { createStoreCartHttpHandler } from "@flarex/medusa-http/store-cart";
 import { SystemPaymentProvider } from "@medusajs/payment/providers/system";
@@ -18,6 +17,9 @@ const driver = Schema.decodeUnknownSync(Schema.Literals(["pglite", "postgres"]))
 const decodeCart = Schema.decodeUnknownSync(Schema.Struct({ cart: Schema.JsonObject }));
 const decodeId = Schema.decodeUnknownSync(Schema.NonEmptyString);
 const decodeRows = Schema.decodeUnknownSync(Schema.Array(Schema.JsonObject));
+const decodeDeleted = Schema.decodeUnknownSync(Schema.Struct({ parent: Schema.JsonObject }));
+const isCartModuleEvent = Schema.is(Schema.Struct({ metadata: Schema.Struct({ source: Schema.Literal("cart"), object: Schema.String, action: Schema.String }),
+  data: Schema.Struct({ id: Schema.Union([Schema.String, Schema.Array(Schema.String)]) }) }));
 let tested: Awaited<ReturnType<typeof prepareStoreCartRequestFixture>>;
 beforeAll(async () => { tested = await prepareStoreCartRequestFixture(driver, { additionalRows: storeCartPromotionSeedRows }); }, 600_000);
 afterAll(async () => { await tested?.fixture.close(); }, 60_000);
@@ -45,7 +47,6 @@ const codes = (cart: typeof Schema.JsonObject.Type) => decodeRows(cart.promotion
 function failures(value: unknown): string[] {
   if (Cause.isCause(value)) return value.reasons.flatMap(reason => Cause.isFailReason(reason) ? failures(reason.error)
     : Cause.isDieReason(reason) ? failures(reason.defect) : ["Interrupt"]);
-  if (value instanceof CommerceTransactionError) return [value.reason, ...failures(value.cause)];
   if (value instanceof Error) return [value.name, value.message, ...failures(value.cause)];
   return [];
 }
@@ -82,15 +83,37 @@ it("adds, repeats, removes and clears native codes while preserving automatic pr
   expect(decodeCart(merged.value).cart).toMatchObject({ subtotal: 25, items: [{ quantity: 2, unit_price: 12.5 }] });
   const line = decodeRows(decodeCart(merged.value).cart.items)[0];
   if (line === undefined) throw new Error("Missing native Cart Line Item after promotion history");
-  // Native refresh retains adjustment tombstones. The existing deletion
-  // profile admits at most four complete rows per non-Address table.
-  const beforeDeletion = await tested.fixture.snapshot();
-  const refused = await request(`/store/carts/${id}/line-items/${decodeId(line.id)}`, { method: "DELETE" });
-  expect(refused.status, JSON.stringify(refused.value)).toBe(400);
-  expect(await tested.fixture.snapshot()).toEqual(beforeDeletion);
-  const deletion = await tested.use(runtime => Effect.exit(runtime.runWorkflow("delete-line-items", { cart_id: id, ids: [decodeId(line.id)] })));
-  expect(Exit.isFailure(deletion) ? failures(deletion.cause) : []).toContain("limitExceeded");
-  expect(await tested.fixture.snapshot()).toEqual(beforeDeletion);
+  const lineId = decodeId(line.id), beforeDeletion = await tested.fixture.snapshot();
+  const deleted = await request(`/store/carts/${id}/line-items/${lineId}`, { method: "DELETE" });
+  expect(deleted.status, JSON.stringify(deleted.value)).toBe(200);
+  expect(deleted.value).toMatchObject({ id: lineId, object: "line-item", deleted: true, parent: { id, items: [], total: 0 } });
+  expect(decodeCart((await request(`/store/carts/${id}`)).value).cart).toEqual(decodeDeleted(deleted.value).parent);
+  const afterDeletion = await tested.fixture.snapshot();
+  const removedLine = afterDeletion.rows.find(row => row.value.id === lineId);
+  expect(removedLine?.value.deleted_at).toEqual(expect.any(String));
+  const messages = afterDeletion.events.filter(event => event.timestamp === removedLine?.timestamp).map(event => event.envelope.message).filter(isCartModuleEvent);
+  for (const object of ["line_item_tax_line", "line_item_adjustment"]) {
+    const table = tested.catalog.sources.find(source => source.name === "cart")?.definition.tables.find(table => table.localName === `cart_${object}`)?.name;
+    if (table === undefined) throw new Error("Missing native Cart descendant table");
+    const children = beforeDeletion.rows.filter(row => row.table === table && row.value.item_id === lineId);
+    expect(children.length).toBeGreaterThan(object === "line_item_adjustment" ? 8 : 0);
+    for (const child of children) {
+      const { deleted_at: _deleted, updated_at: _updated, ...retained } = child.value;
+      const changed = afterDeletion.rows.find(row => row.table === table && row.value.id === child.value.id);
+      expect(changed).toMatchObject({ timestamp: removedLine?.timestamp,
+        value: { ...retained, deleted_at: expect.any(String), updated_at: expect.any(String) } });
+    }
+    for (const action of ["deleted", "updated"]) {
+      const actual = messages.filter(message => message.metadata.object === object && message.metadata.action === action)
+        .flatMap(message => typeof message.data.id === "string" ? [message.data.id] : message.data.id).sort();
+      const expected = children.filter(child => action === "deleted" ? child.value.deleted_at === null : child.value.deleted_at !== null)
+        .map(child => child.value.id).sort();
+      expect(actual).toEqual(expected);
+    }
+  }
+  expect(afterDeletion.outcomes).toHaveLength(beforeDeletion.outcomes.length + 1);
+  expect(afterDeletion.events.filter(event => event.envelope.contract === "cart.updated")).toHaveLength(
+    beforeDeletion.events.filter(event => event.envelope.contract === "cart.updated").length + 1);
 });
 
 it("forces native Payment Collection amount refresh and Session deletion, but retains equal-amount Sessions", async () => {
