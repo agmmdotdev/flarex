@@ -101,6 +101,15 @@ Complete response fields are admitted before mutation and refetched after commit
 POST item update retains Cart membership checking; pinned DELETE selects IDs
 directly and refreshes the requested parent Cart.
 
+The [dedicated promotion-code profile](./preflight/store-cart-promotions-http.md)
+adds `POST`/`DELETE /store/carts/:id/promotions` through the genuine native
+Promotion workflow. Nonempty POST adds codes, empty POST replaces the selected
+codes and DELETE removes them; eligible automatic Promotions still participate.
+Native adjustments and exact Cart–Promotion Links settle with forced Payment
+Collection refresh, including changed-amount System Session invalidation. Both
+methods admit the response before mutation and refetch after commit. Only native
+participant module events are emitted; no `cart.updated` event is added.
+
 The native default response preserves Cart/item totals, selected Product and
 taxonomy relations, Customer Groups, Region Countries, Addresses, Promotions,
 and Payment Collection/Sessions. Publishable-key validation, verified optional
@@ -113,13 +122,17 @@ The pinned default bare Variant and nonmodel Address `region_code` leaves remain
 omitted; explicit nested Variant fields retain their genuine native traversal.
 
 The private profile retains existing four-item, four-promotion-code and complete
-read-cohort bounds. Mutation Pricing has a separate sixty-four-attribute context
+read-cohort bounds. Cart lifecycle closure also retains its existing four-row
+non-Address bound, including tombstoned Adjustment history. Repeated Promotion
+refresh can exceed that deletion closure; HTTP 400 and atomic business rollback
+remain required, and larger lifecycle histories retain a separate capacity gate.
+Mutation Pricing has a separate sixty-four-attribute context
 profile; ordinary and standalone creation Pricing retain their ten/seventeen
 bounds. The issued mutation graph admits 243 nodes and one shared root allowance
 of 1,065 operations; default authoring, creation and participant bounds remain distinct.
 Cart updates admit nullable Address members and metadata. Explicit nulls outside
 the separate creation input profile and unsupported response fields refuse before
-mutation. Dedicated Shipping Method/Promotion mutations, checkout HTTP,
+mutation. Dedicated Shipping Method mutations, explicit Tax refresh, checkout HTTP,
 translation, remote providers, mixed deployment and capacity acceptance retain
 their separate gates.
 

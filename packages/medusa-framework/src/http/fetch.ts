@@ -67,7 +67,7 @@ export function createFetchHttpStaticHandler(options: FetchHttpAdapterOptions & 
       // it. This private host additionally enforces its configured hard cap.
       const bodyParserConfig = bodyParserConfigRoutes.find((resource) => matchesResource(resource, request.method, url.pathname))
       const bodyParserDisabled = bodyParserConfig?.config === false
-      if (!bodyParserDisabled && request.method === "POST") req.body = await parseFetchJsonBody(request, jsonBodyLimit)
+      if (!bodyParserDisabled) req.body = await parseFetchJsonBody(request, jsonBodyLimit)
       await options.prepareRequest?.(req, request)
       let proceed = true
       for (const middleware of sorted.slice(0, routeIndex)) {

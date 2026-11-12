@@ -31,6 +31,22 @@ export const CreateCart = z
 
 export const StoreCreateCart = WithAdditionalData(CreateCart)
 
+export type StoreAddCartPromotionsType = z.infer<typeof StoreAddCartPromotions>
+export const StoreAddCartPromotions = z
+  .object({
+    promo_codes: z.array(z.string()),
+  })
+  .strict()
+
+export type StoreRemoveCartPromotionsType = z.infer<
+  typeof StoreRemoveCartPromotions
+>
+export const StoreRemoveCartPromotions = z
+  .object({
+    promo_codes: z.array(z.string()),
+  })
+  .strict()
+
 const StoreCartUpsertAddress = AddressPayload.merge(z.object({
 	id: z.string().optional(),
 }))

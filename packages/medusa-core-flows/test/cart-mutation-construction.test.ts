@@ -6,6 +6,7 @@ import { addToCartWorkflow } from "../src/cart/workflows/add-to-cart";
 import { updateLineItemInCartWorkflow } from "../src/cart/workflows/update-line-item-in-cart";
 import { deleteLineItemsWorkflow } from "../src/line-item/workflows/delete-line-items";
 import { refreshCartItemsWorkflow } from "../src/cart/workflows/refresh-cart-items";
+import { updateCartPromotionsWorkflow } from "../src/cart/workflows/update-cart-promotions";
 
 const wrappers = {
   updateCart: createWorkflow({ name: "native-cart-update-operation-count", constructionProfile: nativeCartMutationProfile },
@@ -91,4 +92,16 @@ it("bounds the shared mutation operation allowance from every native node and fr
     counts.push(count.operations);
   }
   expect(512 + Math.max(...counts)).toBe(1065);
+});
+
+it("fits the dedicated native promotion wrapper within ordinary authoring and the existing root allowance", () => {
+  const root = createWorkflow("native-cart-promotions-ordinary-wrapper", (input: WorkflowData<NonNullable<typeof updateCartPromotionsWorkflow[" input"]>>) => {
+    updateCartPromotionsWorkflow.runAsStep({ input }); return new WorkflowResponse(null);
+  });
+  const prepared = Result.getOrThrow(root.prepare()), count = countControlOperations(prepared);
+  expect(count).toEqual({ nodes: 32, conditions: 4, branchResults: 4, transforms: 8, callbackChildren: 0, operations: 70 });
+  expect(prepared.nodeCount).toBe(32);
+  expect(prepared.nodeCount).toBeLessThanOrEqual(64);
+  expect(prepared.identity.constructionProfile).toBeUndefined();
+  expect(new TextEncoder().encode(JSON.stringify(prepared.identity)).byteLength).toBeLessThan(64 * 1024);
 });

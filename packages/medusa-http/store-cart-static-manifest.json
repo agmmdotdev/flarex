@@ -8,7 +8,8 @@
     { "relativePath": "packages/medusa-http/src/api/store/carts/route.ts" },
     { "relativePath": "packages/medusa-http/src/api/store/carts/[id]/route.ts" },
     { "relativePath": "packages/medusa-http/src/api/store/carts/[id]/line-items/route.ts" },
-    { "relativePath": "packages/medusa-http/src/api/store/carts/[id]/line-items/[line_id]/route.ts" }
+    { "relativePath": "packages/medusa-http/src/api/store/carts/[id]/line-items/[line_id]/route.ts" },
+    { "relativePath": "packages/medusa-http/src/api/store/carts/[id]/promotions/route.ts" }
   ],
   "middlewares": [
     { "relativePath": "packages/medusa-http/src/api/store/carts/middlewares.ts", "exportName": "storeCartRoutesMiddlewares" }

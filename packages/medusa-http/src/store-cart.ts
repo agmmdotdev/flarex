@@ -43,6 +43,7 @@ export function createStoreCartHttpHandler(options: StoreCartHttpOptions): Fetch
           { method: ["POST"], matcher: "/store/carts/:id", middlewares: [admitProjection] },
           { method: ["POST"], matcher: "/store/carts/:id/line-items", middlewares: [admitProjection] },
           { method: ["POST", "DELETE"], matcher: "/store/carts/:id/line-items/:line_id", middlewares: [admitProjection] },
+          { method: ["POST", "DELETE"], matcher: "/store/carts/:id/promotions", middlewares: [admitProjection] },
         ] } } },
       ],
     },

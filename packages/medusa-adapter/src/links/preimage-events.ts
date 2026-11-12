@@ -162,7 +162,11 @@ export function linkPreimageEventPolicy(input: { readonly tableName: string; rea
     const observedLinks: Row[] = [];
     for (const observation of activity.observedRows.filter(observation => observation.table === tableName)) {
       const row = yield* Effect.fromResult(normalize(observation.row));
-      if (row === null || !targets.has(key(row))) return yield* Effect.fail(mismatch()); observedLinks.push(row);
+      if (row === null) return yield* Effect.fail(mismatch());
+      // Core records source-confined candidate dependencies before residual
+      // selection. Decode excluded siblings too; only requested pairs may
+      // supply preimage evidence. Mutation/fence/event targets stay checked.
+      if (targets.has(key(row))) observedLinks.push(row);
     }
     const observedHeads = new Map<string, string>();
     for (const observation of activity.observedRows.filter(observation => observation.table === "link_pair_revision")) {

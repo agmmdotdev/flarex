@@ -4,6 +4,7 @@ import * as storeCartsRoute from "./api/store/carts/route"
 import * as storeCartsByIdRoute from "./api/store/carts/[id]/route"
 import * as storeCartsByIdLineItemsRoute from "./api/store/carts/[id]/line-items/route"
 import * as storeCartsByIdLineItemsByLine_idRoute from "./api/store/carts/[id]/line-items/[line_id]/route"
+import * as storeCartsByIdPromotionsRoute from "./api/store/carts/[id]/promotions/route"
 import { storeCartRoutesMiddlewares } from "./api/store/carts/middlewares"
 
 export const storeCartHttpManifest = {
@@ -27,6 +28,11 @@ export const storeCartHttpManifest = {
       route: "/store/carts/:id/line-items/:line_id",
       module: storeCartsByIdLineItemsByLine_idRoute,
       relativePath: "packages/medusa-http/src/api/store/carts/[id]/line-items/[line_id]/route.ts",
+    },
+    {
+      route: "/store/carts/:id/promotions",
+      module: storeCartsByIdPromotionsRoute,
+      relativePath: "packages/medusa-http/src/api/store/carts/[id]/promotions/route.ts",
     },
   ],
   middlewares: [

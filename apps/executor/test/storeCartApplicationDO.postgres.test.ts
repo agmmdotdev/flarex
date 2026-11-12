@@ -3,7 +3,7 @@ import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import { createCorePostgresFixture } from "@flarex/persistence-postgres/internal/system-test/core-persistence-fixture";
 import { prepareStoreCartRequestFixture, observeStoreCartRequestFixture } from "@flarex/medusa-adapter/internal/system-test/store-cart-request-fixture";
-import { storeCartRequestTarget, storeCartToken, storeCartMultiToken, storeCartRevokedToken } from "@flarex/medusa-adapter/internal/system-test/store-cart-request-catalog";
+import { storeCartRequestTarget, storeCartToken, storeCartMultiToken, storeCartRevokedToken, storeCartPromotionSeedRows } from "@flarex/medusa-adapter/internal/system-test/store-cart-request-catalog";
 import { executorApplicationProfileFixture } from "./support/executorApplicationConfiguration";
 import { createMedusaDOTestSuite } from "./support/medusaDOTestRunner";
 
@@ -25,7 +25,7 @@ describe.runIf(endpoints !== undefined)("native Store Cart HTTP in the actual ap
     let phase = "bootstrap";
     const primary: unknown[] = [];
     try {
-      prepared = await prepareStoreCartRequestFixture("postgres", { physical: { ...physical, close: async () => {} } });
+      prepared = await prepareStoreCartRequestFixture("postgres", { physical: { ...physical, close: async () => {} }, additionalRows: storeCartPromotionSeedRows });
       await prepared.fixture.close();
       const baseline = await observeStoreCartRequestFixture({ physical, catalog: prepared.catalog });
       const profile = { ...executorApplicationProfileFixture(), ...storeCartRequestTarget,
@@ -91,10 +91,11 @@ describe.runIf(endpoints !== undefined)("native Store Cart HTTP in the actual ap
       expect(await (await request(`/store/carts/${customerId}?fields=id,items.variant.id`)).json())
         .toMatchObject({ cart: { id: customerId, items: [{ variant: { id: "variant-create-root" } }] } });
       await host.stop();
-      const committed = await observeStoreCartRequestFixture({ physical, catalog: prepared.catalog });
+      let committed = await observeStoreCartRequestFixture({ physical, catalog: prepared.catalog });
       const cartTable = prepared.catalog.sources.find(source => source.name === "cart")?.definition.tables.find(table => table.localName === "cart")?.name;
       if (cartTable === undefined) throw new Error("Missing native Cart table identity");
-      expect(committed.rows.filter(row => row.table === cartTable)).toHaveLength(2);
+      const initialCartCount = baseline.rows.filter(row => row.table === cartTable).length;
+      expect(committed.rows.filter(row => row.table === cartTable)).toHaveLength(initialCartCount + 2);
       expect(committed.outcomes.filter(row => row.value.kind === "nativeRoot" && row.value.state === "committed")).toHaveLength(2);
       expect(committed.outcomes.filter(row => row.value.kind === "nativeRoot" && row.value.state === "failed"))
         .toEqual(rejected.outcomes.filter(row => row.value.kind === "nativeRoot" && row.value.state === "failed"));
@@ -105,10 +106,73 @@ describe.runIf(endpoints !== undefined)("native Store Cart HTTP in the actual ap
         expect(createdEvents).toContainEqual(expect.objectContaining({ timestamp: cartRow?.timestamp }));
         expect(committed.outcomes).toContainEqual(expect.objectContaining({ timestamp: cartRow?.timestamp }));
       }
+
+      phase = "native promotion codes and Payment refresh"; host.start(); await host.ready();
+      const historyId = "cart-http-promotion-equal";
+      let historyCart = decodeCart(await (await request(`/store/carts/${historyId}`)).json()).cart;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        historyCart = decodeCart(await (await request(`/store/carts/${historyId}/promotions`, { method: "POST", body: { promo_codes: ["HTTP-CART"] } })).json()).cart;
+        expect(historyCart).toMatchObject({ id: historyId, discount_total: 3.3, total: 10.45,
+          promotions: expect.arrayContaining([expect.objectContaining({ id: "promo-create-root", code: "NATIVE-CART", is_automatic: true }),
+          expect.objectContaining({ code: "HTTP-CART", is_automatic: false })]) });
+        expect(Schema.decodeUnknownSync(Schema.Array(Schema.JsonObject))(historyCart.promotions)).toHaveLength(2);
+      }
+      historyCart = decodeCart(await (await request(`/store/carts/${historyId}/promotions`, { method: "DELETE", body: { promo_codes: ["HTTP-CART"] } })).json()).cart;
+      expect(historyCart).toMatchObject({ discount_total: 1.1, total: 12.65, promotions: [{ code: "NATIVE-CART" }] });
+      historyCart = decodeCart(await (await request(`/store/carts/${historyId}/promotions`, { method: "POST", body: { promo_codes: ["HTTP-CART"] } })).json()).cart;
+      expect(historyCart).toMatchObject({ discount_total: 3.3, total: 10.45 });
+      historyCart = decodeCart(await (await request(`/store/carts/${historyId}/promotions`, { method: "POST", body: { promo_codes: [] } })).json()).cart;
+      expect(historyCart).toMatchObject({ discount_total: 1.1, total: 12.65, promotions: [{ code: "NATIVE-CART" }] });
+      const paymentCart = decodeCart(await (await request("/store/carts/cart-http-promotion-payment/promotions", {
+        method: "POST", body: { promo_codes: ["HTTP-CART"] } })).json()).cart;
+      expect(paymentCart).toMatchObject({ id: "cart-http-promotion-payment", discount_total: 3.3, total: 10.45,
+        payment_collection: { id: "paycol-http-promotions", amount: 10.45, payment_sessions: [] } });
+      await host.stop();
+      const promoted = await observeStoreCartRequestFixture({ physical, catalog: prepared.catalog });
+      expect(promoted.outcomes.filter(row => row.value.kind === "nativeRoot" && row.value.state === "committed")).toHaveLength(8);
+      expect(promoted.rows.filter(row => isCreatedEnvelope(row.value.envelope))).toEqual(createdEvents);
+      expect(promoted.rows.filter(row => isUpdatedEnvelope(row.value.envelope))).toEqual([]);
+      const paymentCollectionTable = prepared.catalog.sources.find(source => source.name === "payment")?.definition.tables.find(table => table.localName === "payment_collection")?.name;
+      const paymentRow = promoted.rows.find(row => row.table === paymentCollectionTable && row.value.id === "paycol-http-promotions");
+      expect(paymentRow).toBeDefined();
+      expect(promoted.outcomes).toContainEqual(expect.objectContaining({ timestamp: paymentRow?.timestamp,
+        value: expect.objectContaining({ kind: "nativeRoot", state: "committed" }) }));
+      const paymentEvents = promoted.rows.filter(row => row.timestamp === paymentRow?.timestamp && row.value.envelope !== undefined);
+      expect(paymentEvents).toEqual(expect.arrayContaining([
+        expect.objectContaining({ value: expect.objectContaining({ envelope: expect.objectContaining({ contract: "payment.payment-collection.updated" }) }) }),
+        expect.objectContaining({ value: expect.objectContaining({ envelope: expect.objectContaining({ contract: "payment.payment-session.deleted" }) }) }),
+      ]));
+      phase = "line item update after promotion history"; host.start(); await host.ready();
+      historyCart = decodeCart(await (await request(`/store/carts/${historyId}/line-items`, { method: "POST", body: {
+        variant_id: "variant-create-root", quantity: 1 } })).json()).cart;
+      expect(historyCart).toMatchObject({ subtotal: 25, items: [{ quantity: 2 }] });
+      await host.stop();
+      const afterHistory = await observeStoreCartRequestFixture({ physical, catalog: prepared.catalog });
+      expect(afterHistory.outcomes.filter(row => row.value.kind === "nativeRoot" && row.value.state === "committed")).toHaveLength(9);
+      expect(afterHistory.rows.filter(row => isUpdatedEnvelope(row.value.envelope))).toHaveLength(1);
+
+      // Native lifecycle traverses tombstoned Adjustment descendants too. This
+      // history exceeds the existing four-row closure; fresh-Cart deletion
+      // remains covered below without filtering history or widening the cap.
+      phase = "complete lifecycle history refusal"; host.start(); await host.ready();
+      const historyItems = Schema.decodeUnknownSync(Schema.Array(Schema.JsonObject))(historyCart.items);
+      await request(`/store/carts/${historyId}/line-items/${decodeId(historyItems[0]?.id)}`, { method: "DELETE" }, 400);
+      await host.stop();
+      committed = await observeStoreCartRequestFixture({ physical, catalog: prepared.catalog });
+      const historyKeys = new Set(afterHistory.outcomes.map(outcome => outcome.value.key));
+      const historyRefusals = committed.outcomes.filter(outcome => !historyKeys.has(outcome.value.key));
+      expect(historyRefusals).toEqual([expect.objectContaining({ value: expect.objectContaining({ kind: "nativeRoot", state: "failed" }) })]);
+      expect(committed).toEqual({ ...afterHistory, outcomes: expect.arrayContaining([...afterHistory.outcomes, ...historyRefusals]) });
       phase = "mutation projection refusal"; host.start(); await host.ready();
       await request(`/store/carts/${guestId}?fields=id,unsupported_field`, { method: "POST", body: { metadata: { refused: true } } }, 400);
       const firstLineId = decodeId(items[0]?.id);
       await request(`/store/carts/${customerId}/line-items/${firstLineId}?fields=id,unsupported_field`, { method: "DELETE" }, 400);
+      for (const method of ["POST", "DELETE"] as const) {
+        await request(`/store/carts/${customerId}/promotions?fields=id,unsupported_field`, { method, body: { promo_codes: ["HTTP-CART"] } }, 400);
+        await request(`/store/carts/${customerId}/promotions`, { method, body: { promo_codes: "HTTP-CART" } }, 400);
+        await request(`/store/carts/${customerId}/promotions`, { method, body: { promo_codes: ["HTTP-CART"] },
+          headers: { "x-publishable-api-key": storeCartRevokedToken } }, 400);
+      }
       await host.stop();
       expect(await observeStoreCartRequestFixture({ physical, catalog: prepared.catalog })).toEqual(committed);
 
@@ -143,12 +207,12 @@ describe.runIf(endpoints !== undefined)("native Store Cart HTTP in the actual ap
       expect(customer.items).toEqual([]);
       await host.stop();
       const mutated = await observeStoreCartRequestFixture({ physical, catalog: prepared.catalog });
-      expect(mutated.rows.filter(row => row.table === cartTable)).toHaveLength(2);
-      expect(mutated.outcomes.filter(row => row.value.kind === "nativeRoot" && row.value.state === "committed")).toHaveLength(8);
+      expect(mutated.rows.filter(row => row.table === cartTable)).toHaveLength(initialCartCount + 2);
+      expect(mutated.outcomes.filter(row => row.value.kind === "nativeRoot" && row.value.state === "committed")).toHaveLength(15);
       expect(mutated.outcomes.filter(row => row.value.kind === "nativeRoot" && row.value.state === "failed"))
         .toEqual(lateRejected.outcomes.filter(row => row.value.kind === "nativeRoot" && row.value.state === "failed"));
       const updatedEvents = mutated.rows.filter(row => isUpdatedEnvelope(row.value.envelope));
-      expect(updatedEvents).toHaveLength(7);
+      expect(updatedEvents).toHaveLength(8);
       for (const event of updatedEvents) expect(mutated.outcomes).toContainEqual(expect.objectContaining({ timestamp: event.timestamp,
         value: expect.objectContaining({ state: "committed" }) }));
       expect(mutated.rows.filter(row => isCreatedEnvelope(row.value.envelope))).toEqual(createdEvents);
@@ -158,6 +222,8 @@ describe.runIf(endpoints !== undefined)("native Store Cart HTTP in the actual ap
       // GET retains the native publishable-key contract; no customer ownership
       // policy is invented by the adapter during public Cart retrieval.
       expect(decodeCart(await (await request(`/store/carts/${customerId}`)).json()).cart).toEqual(customer);
+      expect(decodeCart(await (await request("/store/carts/cart-http-promotion-payment")).json()).cart).toEqual(paymentCart);
+      expect(decodeCart(await (await request(`/store/carts/${historyId}`)).json()).cart).toEqual(historyCart);
       await request(`/store/carts/${customerId}`, { headers: { "x-publishable-api-key": storeCartRevokedToken } }, 400);
       await host.stop();
       expect(await observeStoreCartRequestFixture({ physical, catalog: prepared.catalog })).toEqual(mutated);

@@ -2,7 +2,7 @@ import { Cause, Clock, Effect, Result, Schema } from "effect";
 import { asValue, createContainer } from "@medusajs/deps/awilix-portable";
 import { makePreparedHostRuntime } from "@flarex/persistence-postgres/internal/prepared-host-runtime";
 import { makeStoreCartRequestRuntime, makeStoreCartRequestScopeFactory } from "@flarex/medusa-adapter/internal/store-cart-request";
-import { compileStoreCartRequestFixtureCatalog, storeCartLogger } from "@flarex/medusa-adapter/internal/system-test/store-cart-request-catalog";
+import { compileStoreCartRequestFixtureCatalog, storeCartLogger, storeCartPromotionSeedRows } from "@flarex/medusa-adapter/internal/system-test/store-cart-request-catalog";
 import { makeStoreCartEffectHttpHandler } from "@flarex/medusa-http/store-cart-effect";
 import { makeExecutorApplicationCredentials, executorApplicationSha256 } from "../src/applicationComposition";
 import { executorApplicationObjectConfiguration, readExecutorApplicationProfiles, type ExecutorApplicationEnv } from "../src/applicationConfiguration";
@@ -11,7 +11,7 @@ import { admitExecutorRequest } from "../src/requestLifecycle";
 import { executorApplicationProfileFixture } from "./support/executorApplicationConfiguration";
 
 interface Env extends ExecutorApplicationEnv { readonly APPLICATIONS: DurableObjectNamespace<NativeStoreCartApplicationFixture> }
-const { catalog } = await Effect.runPromise(compileStoreCartRequestFixtureCatalog());
+const { catalog } = await Effect.runPromise(compileStoreCartRequestFixtureCatalog(undefined, storeCartPromotionSeedRows));
 const workload = executorApplicationProfileFixture().workload;
 const failsCartUpdate = Schema.is(Schema.Struct({ additional_data: Schema.Struct({ fail_cart_hook: Schema.Literal(true) }) }));
 type Failure = Effect.Error<ReturnType<typeof makeExecutorApplicationCredentials>>

@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { Cause, Effect, Exit, Schema } from "effect";
 import { LinkPreimageOperationHandleSchema } from "@medusajs/link-modules";
 import { PromotionActions } from "@medusajs/framework/utils/portable";
@@ -74,6 +74,41 @@ describe("native exact Link preimages on Core", { concurrent: false }, () => {
     await connected.run({ action: "compensate", handle: connected.handle(input) });
     const after = await selected(cart); expect(after.filter(row => row.promotion_id !== added.foreign)).toEqual(before);
     expect(after.find(row => row.promotion_id === added.foreign)?.deleted_at).toBeTypeOf("string");
+  }, 120_000);
+  it.each([false, true])("retains excluded inactive=%s sibling dependencies without changing native preimage targets", async inactive => {
+    const cart = "cart-excluded-" + inactive, target = { primary: cart, foreign: "excluded-target" },
+      sibling = { primary: cart, foreign: "excluded-sibling" };
+    await connected.run({ action: "create", pairs: [[cart, target.foreign, {}], [cart, sibling.foreign, {}]] });
+    if (inactive) await connected.run({ action: "dismiss", pairs: [[cart, sibling.foreign]] });
+    const before = await selected(cart), input = request("excluded-preimage-" + inactive, [{ action: "create", pairs: [target] }]);
+    const observed = vi.spyOn(connected.links.policy, "validateLogicalCall");
+    try {
+      const exit = await Effect.runPromiseExit(connected.host.run(connected.host.newRequestKey(), { action: "apply", request: input }));
+      const captured = observed.mock.calls.find(([call]) => call.commandName === "cartPromotionApplyPreimages");
+      if (captured === undefined) throw new Error("Missing real native preimage call evidence");
+      const activity = captured[1], siblingRow = before.find(row => row.promotion_id === sibling.foreign);
+      if (siblingRow === undefined) throw new Error("Missing excluded sibling");
+      expect(activity.observedRows).toContainEqual({ table: "cart_promotion", row: siblingRow });
+      expect(activity.relationalReads.filter(read => read.table === "cart_promotion").every(read => read.total === 1 && read.returned === 1)).toBe(true);
+      expect(Exit.isSuccess(exit), Exit.isFailure(exit) ? Cause.pretty(exit.cause) : undefined).toBe(true);
+      expect((await selected(cart)).find(row => row.promotion_id === sibling.foreign)).toEqual(siblingRow);
+      expect((await selected(cart)).find(row => row.promotion_id === target.foreign)?.id).not.toBe(before.find(row => row.promotion_id === target.foreign)?.id);
+      const forward = connected.evidence("cartPromotionApplyPreimages");
+      for (const changed of [
+        { ...forward, activity: { ...forward.activity, observedRows: forward.activity.observedRows.map(observation =>
+          observation.table === "cart_promotion" && observation.row.promotion_id === sibling.foreign
+            ? { ...observation, row: { ...observation.row, updated_at: "forged-timestamp" } } : observation) } },
+        { ...forward, activity: { ...forward.activity, mutations: forward.activity.mutations.map(mutation =>
+          mutation.table === "cart_promotion" && mutation.after !== null
+            ? { ...mutation, after: { ...mutation.after, promotion_id: sibling.foreign } } : mutation) } },
+      ]) {
+        const refused = await Effect.runPromiseExit(connected.links.policy.validateLogicalCall(changed.call, changed.activity));
+        expect(Exit.isFailure(refused)).toBe(true);
+        if (Exit.isFailure(refused)) expect(failureReasons(refused.cause)).toContain("receiptMismatch");
+      }
+      await connected.run({ action: "compensate", handle: connected.handle(input) });
+      expect(await selected(cart)).toEqual(before);
+    } finally { observed.mockRestore(); }
   }, 120_000);
   it("retains default refusal and covers the complete four-old/four-new cohort with its named allowance", async () => {
     const cart = "cart-maximum", old = Array.from({ length: 4 }, (_, index) => ({ primary: cart, foreign: "old-" + index })),

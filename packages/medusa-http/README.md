@@ -1,11 +1,12 @@
 # Private Medusa HTTP
 
-## Store Cart creation, retrieval and updates
+## Store Cart creation, retrieval, updates and promotion codes
 
 `@flarex/medusa-http/store-cart` exports `createStoreCartHttpHandler` for
 `POST /store/carts`, `GET /store/carts/:id`, `POST /store/carts/:id`,
 `POST /store/carts/:id/line-items` and `POST`/`DELETE` on
-`/store/carts/:id/line-items/:line_id`.
+`/store/carts/:id/line-items/:line_id`, plus `POST`/`DELETE` on
+`/store/carts/:id/promotions`.
 `@flarex/medusa-http/store-cart-effect` mounts the same native handlers in an
 Effect HTTP host. The host supplies Store CORS, request scopes, a verified
 optional Customer principal and the Cart graph's `admitCartRefetchFields`.
@@ -36,6 +37,17 @@ membership condition; POST item update retains the native Cart-local lookup.
 Update routes preserve their own middleware contracts: the creation-only Sales
 Channel assignment/check and verified Customer injection are not added there.
 
+Promotion POST adds nonempty `promo_codes` and uses native replacement for an
+empty list; DELETE removes the specified codes. Eligible automatic Promotions
+still participate. Both methods run the native adjustment and Link workflow,
+force Payment Collection refresh and refetch the committed Cart. Changed totals
+invalidate local System Payment Sessions through their native owner. This
+workflow emits participant module events without an added `cart.updated` event.
+Native refresh retains Adjustment tombstones. A later line deletion whose
+complete lifecycle history exceeds the existing four-row non-Address cohort
+returns private-profile HTTP 400 with full business rollback. Larger history
+closures remain outside this bounded profile.
+
 This bounded profile retains four creation items and four promotion codes,
 existing complete-cohort read limits and the local System Tax provider. The
   native HTTP schemas retain their nullable members. Cart updates support nullable
@@ -44,10 +56,11 @@ existing complete-cohort read limits and the local System Tax provider. The
   retains its seventeen-attribute bound. Creation retains its separate input profile, where
   unsupported explicit null values return 400 before durable acquisition.
 Translation-enabled requests refuse. Customer replacement, Shipping Method and
-dedicated Promotion mutation routes, and checkout routes,
+checkout routes,
 mixed app deployment and capacity acceptance remain separate gates. See the
 [Cart creation/retrieval scope](../../roadmaps/flarexdb-framework-integration/preflight/store-cart-http.md)
-and [Cart update/line-item scope](../../roadmaps/flarexdb-framework-integration/preflight/store-cart-mutations-http.md).
+and [Cart update/line-item scope](../../roadmaps/flarexdb-framework-integration/preflight/store-cart-mutations-http.md),
+with the [promotion-code scope](../../roadmaps/flarexdb-framework-integration/preflight/store-cart-promotions-http.md).
 
 ## Store Currency reads
 

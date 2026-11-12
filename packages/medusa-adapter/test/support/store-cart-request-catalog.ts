@@ -16,6 +16,36 @@ export const storeCartLogger: Logger = { panic() {}, shouldLog: () => false, set
   silly() {}, debug() {}, verbose() {}, http() {}, info() {}, warn() {}, log() {} };
 
 type Row = Readonly<{ table: string; row: JsonObject }>;
+const promotionPaymentCases = [
+  { cart: "cart-http-promotion-payment", item: "line-http-promotion-payment", collection: "paycol-http-promotions", session: "payses-http-promotions", amount: "13.75", automatic: false },
+  { cart: "cart-http-promotion-equal", item: "line-http-promotion-equal", collection: "paycol-http-promotions-equal", session: "payses-http-promotions-equal", amount: "12.65", automatic: true },
+  { cart: "cart-http-promotion-failure", item: "line-http-promotion-failure", collection: "paycol-http-promotions-failure", session: "payses-http-promotions-failure", amount: "13.75", automatic: false },
+] as const;
+const rawPromotionAmount = (value: string) => ({ value, precision: 20 });
+/** Existing business endpoints for promotion HTTP; requested adjustments and
+ * Link transitions are produced by the actual native workflow under test. */
+export const storeCartPromotionSeedRows: Readonly<Record<string, readonly Row[]>> = {
+  promotion: [{ table: "promotion", row: { id: "promo-http-cart", code: "HTTP-CART", type: "standard", status: "active", is_automatic: false } },
+    { table: "promotion_application_method", row: { id: "promomethod-http-cart", promotion_id: "promo-http-cart", value: "2", raw_value: rawPromotionAmount("2"),
+      currency_code: "usd", type: "fixed", target_type: "items", allocation: "each" } }],
+  cart: [{ table: "cart", row: { id: "cart-http-promotions-completed", currency_code: "usd", region_id: "reg-create-root", sales_channel_id: "sc-create-root",
+    completed_at: "2026-01-01T00:00:00.000Z" } }, ...promotionPaymentCases.flatMap(value => [
+    { table: "cart", row: { id: value.cart, currency_code: "usd", region_id: "reg-create-root", sales_channel_id: "sc-create-root" } },
+    { table: "cart_line_item", row: { id: value.item, cart_id: value.cart, title: "Native promotion item", variant_id: "variant-create-root", product_id: "prod-create-root",
+      quantity: 1, unit_price: "12.5", raw_unit_price: rawPromotionAmount("12.5") } },
+    { table: "cart_line_item_tax_line", row: { id: `tax-${value.item}`, item_id: value.item, code: "NATIVE-US", rate: 10, provider_id: "tp_system" } },
+    ...(value.automatic ? [{ table: "cart_line_item_adjustment", row: { id: `adj-${value.item}`, item_id: value.item, code: "NATIVE-CART", promotion_id: "promo-create-root",
+      amount: "1", raw_amount: rawPromotionAmount("1") } }] : []),
+  ])],
+  payment: promotionPaymentCases.flatMap(value => [
+    { table: "payment_collection", row: { id: value.collection, currency_code: "usd", amount: value.amount, raw_amount: rawPromotionAmount(value.amount) } },
+    { table: "payment_session", row: { id: value.session, payment_collection_id: value.collection, provider_id: "pp_system_default", currency_code: "usd",
+      amount: value.amount, raw_amount: rawPromotionAmount(value.amount), data: {}, context: {}, status: "pending" } },
+  ]),
+  cart_payment_collection_links: promotionPaymentCases.map(value => ({ table: "cart_payment_collection", row: {
+    id: `link-${value.collection}`, cart_id: value.cart, payment_collection_id: value.collection } })),
+  cart_promotion_links: [{ table: "cart_promotion", row: { id: "link-http-promotion-equal", cart_id: "cart-http-promotion-equal", promotion_id: "promo-create-root" } }],
+};
 export const storeCartMutationSeedRows: Readonly<Record<string, readonly Row[]>> = {
   region: [{ table: "region", row: { id: "reg-cart-update", name: "Cart Update Region", currency_code: "usd" } },
     { table: "region_country", row: { iso_2: "gb", iso_3: "gbr", num_code: "826", name: "UNITED KINGDOM", display_name: "United Kingdom", region_id: "reg-cart-update" } }],

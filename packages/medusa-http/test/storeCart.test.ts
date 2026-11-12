@@ -166,11 +166,60 @@ describe("selected native Store Cart HTTP", () => {
     expect(response.headers.get("access-control-allow-origin")).toBe("https://store.example")
   })
 
+  it("adds and removes promotion codes through the native workflow and independently refetches the Cart", async () => {
+    for (const [method, promo_codes, action] of [
+      ["POST", ["PROMO10", "PROMO10"], "add"],
+      ["POST", [], "replace"],
+      ["DELETE", ["PROMO10"], "remove"],
+      ["DELETE", [], "remove"],
+    ] as const) {
+      const f = fixture({ verified: true })
+      const response = await f.handler.handle(request(`/${cart.id}/promotions?fields=id,total`, { promo_codes }, {}, method))
+      expect(response.status, await response.clone().text()).toBe(200)
+      expect(await response.json()).toEqual({ cart })
+      expect(f.run).toHaveBeenCalledExactlyOnceWith("update-cart-promotions", { input: {
+        cart_id: cart.id, promo_codes, action, force_refresh_payment_collection: true,
+      } })
+      expect(f.admit).toHaveBeenCalledExactlyOnceWith(["id", "total"])
+      expect(f.admit.mock.invocationCallOrder[0]).toBeLessThan(f.run.mock.invocationCallOrder[0]!)
+      expect(f.run.mock.invocationCallOrder[0]).toBeLessThan(f.remoteQuery.mock.invocationCallOrder[0]!)
+      expect(f.remoteQuery).toHaveBeenCalledExactlyOnceWith({ __value: { cart: { fields: ["id", "total"], isServiceAccess: false,
+        __args: { filters: { id: cart.id } } } } })
+      expect(response.headers.get("access-control-allow-origin")).toBe("https://store.example")
+    }
+  })
+
+  it("retains strict native promotion validation before response admission or execution", async () => {
+    for (const method of ["POST", "DELETE"]) {
+      for (const body of [{}, { promo_codes: null }, { promo_codes: "PROMO10" }, { promo_codes: [1] },
+        { promo_codes: [], action: "replace" }, { promo_codes: [], additional_data: {} }]) {
+        const f = fixture()
+        expect((await f.handler.handle(request(`/${cart.id}/promotions`, body, {}, method))).status).toBe(400)
+        expect(f.run).not.toHaveBeenCalled()
+        expect(f.admit).not.toHaveBeenCalled()
+        expect(f.remoteQuery).not.toHaveBeenCalled()
+      }
+    }
+  })
+
+  it("retains native promotion failure without performing the post-workflow refetch", async () => {
+    const f = fixture()
+    f.run.mockRejectedValueOnce(new MedusaError(MedusaError.Types.INVALID_DATA, "The promotion code UNKNOWN is invalid"))
+    const response = await f.handler.handle(request(`/${cart.id}/promotions`, { promo_codes: ["UNKNOWN"] }))
+    expect(response.status).toBe(400)
+    expect(await response.json()).toMatchObject({ type: "invalid_data", message: "The promotion code UNKNOWN is invalid" })
+    expect(f.admit).toHaveBeenCalledTimes(1)
+    expect(f.run).toHaveBeenCalledTimes(1)
+    expect(f.remoteQuery).not.toHaveBeenCalled()
+  })
+
   it("refuses unsupported projections before every newly selected native mutation", async () => {
     for (const [path, body, method] of [[`/${cart.id}`, {}, "POST"],
       [`/${cart.id}/line-items`, { variant_id: "variant_native", quantity: 1 }, "POST"],
       [`/${cart.id}/line-items/item_native`, { quantity: 0 }, "POST"],
-      [`/${cart.id}/line-items/item_native`, undefined, "DELETE"]] as const) {
+      [`/${cart.id}/line-items/item_native`, undefined, "DELETE"],
+      [`/${cart.id}/promotions`, { promo_codes: [] }, "POST"],
+      [`/${cart.id}/promotions`, { promo_codes: ["PROMO10"] }, "DELETE"]] as const) {
       const f = fixture({ refuseFields: true })
       const response = await f.handler.handle(request(path + "?fields=id,unsupported.path", body, {}, method))
       expect(response.status).toBe(400)
@@ -194,7 +243,9 @@ describe("selected native Store Cart HTTP", () => {
     for (const [path, body, method] of [[`/${cart.id}`, {}, "POST"],
       [`/${cart.id}/line-items`, { variant_id: "v", quantity: 1 }, "POST"],
       [`/${cart.id}/line-items/item_native`, { quantity: 0 }, "POST"],
-      [`/${cart.id}/line-items/item_native`, undefined, "DELETE"]] as const) {
+      [`/${cart.id}/line-items/item_native`, undefined, "DELETE"],
+      [`/${cart.id}/promotions`, { promo_codes: [] }, "POST"],
+      [`/${cart.id}/promotions`, { promo_codes: ["PROMO10"] }, "DELETE"]] as const) {
       const f = fixture({ revoked: true })
       expect((await f.handler.handle(request(path, body, {}, method))).status).toBe(400)
       expect(f.run).not.toHaveBeenCalled()
@@ -213,7 +264,7 @@ describe("selected native Store Cart HTTP", () => {
     expect(deletePreflight.headers.get("access-control-allow-methods")).toContain("DELETE")
     expect((await f.handler.handle(request())).status).toBe(404)
     expect((await f.handler.handle(request("/cart_native", {}, {}, "PATCH"))).status).toBe(404)
-    expect((await f.handler.handle(request("/cart_native/promotions", {}))).status).toBe(404)
+    expect((await f.handler.handle(request("/cart_native/taxes", {}))).status).toBe(404)
     expect((await f.handler.handle(request("/cart_native/customer", {}))).status).toBe(404)
     expect(f.graph).not.toHaveBeenCalled()
     expect(f.run).not.toHaveBeenCalled()
