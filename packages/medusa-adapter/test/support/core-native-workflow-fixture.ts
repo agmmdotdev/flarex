@@ -198,7 +198,10 @@ export async function createCoreNativeWorkflowFixture(driver: "pglite" | "postgr
             commands: configuredSource.initialCommands, initialization: selection.initialization,
             identityAndAccessPolicy: { profile: "native-workflow-initialization", source: configuredSource.name },
             resources: logicalCommerceBatchResources, nativeLimits: { maxIdentities: 2048, maxDocumentBytes: 65_536 } }),
-          host => host.initialize(seedRows), host => host.close);
+          host => host.initialize(seedRows).pipe(Effect.catchCause(cause =>
+            Effect.logError("Native workflow fixture initialization failed", {
+              source: configuredSource.name, rowCount: configuredSource.rows.length,
+            }, cause).pipe(Effect.andThen(Effect.failCause(cause))))), host => host.close);
         }
       }), database => database.close()));
       const facadeRuntime = yield* makePreparedHostRuntime({ maximumHosts: 32, maximumPreparedBytes: 8 * 1024 * 1024 });

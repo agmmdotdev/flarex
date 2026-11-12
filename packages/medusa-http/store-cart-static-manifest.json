@@ -5,14 +5,39 @@
   "outputPath": "packages/medusa-http/src/store-cart-static-manifest.generated.ts",
   "routeRoot": "packages/medusa-http/src/api",
   "routes": [
-    { "relativePath": "packages/medusa-http/src/api/store/carts/route.ts" },
-    { "relativePath": "packages/medusa-http/src/api/store/carts/[id]/route.ts" },
-    { "relativePath": "packages/medusa-http/src/api/store/carts/[id]/line-items/route.ts" },
-    { "relativePath": "packages/medusa-http/src/api/store/carts/[id]/line-items/[line_id]/route.ts" },
-    { "relativePath": "packages/medusa-http/src/api/store/carts/[id]/promotions/route.ts" },
-    { "relativePath": "packages/medusa-http/src/api/store/carts/[id]/taxes/route.ts" }
+    {
+      "relativePath": "packages/medusa-http/src/api/store/carts/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa-http/src/api/store/carts/[id]/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa-http/src/api/store/carts/[id]/line-items/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa-http/src/api/store/carts/[id]/line-items/[line_id]/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa-http/src/api/store/carts/[id]/promotions/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa-http/src/api/store/carts/[id]/taxes/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa-http/src/api/store/carts/[id]/shipping-methods/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa-http/src/api/store/shipping-options/route.ts"
+    }
   ],
   "middlewares": [
-    { "relativePath": "packages/medusa-http/src/api/store/carts/middlewares.ts", "exportName": "storeCartRoutesMiddlewares" }
+    {
+      "relativePath": "packages/medusa-http/src/api/store/carts/middlewares.ts",
+      "exportName": "storeCartRoutesMiddlewares"
+    },
+    {
+      "relativePath": "packages/medusa-http/src/api/store/shipping-options/middlewares.ts",
+      "exportName": "storeShippingOptionRoutesMiddlewares"
+    }
   ]
 }

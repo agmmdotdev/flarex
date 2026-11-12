@@ -23,8 +23,8 @@ const detailPlace: ModuleJoinerConfig = { isLink: true, serviceName: "DetailPlac
   relationships: [
     { serviceName: "catalog", entity: "Detail", primaryKey: "id", foreignKey: "detail_id", alias: "detail" },
     { serviceName: "places", entity: "Place", primaryKey: "id", foreignKey: "place_id", alias: "place" },
-  ], extends: [{ serviceName: "catalog", entity: "Detail", fieldAlias: { place: "places_link.place" },
-    relationship: { primaryKey: "detail_id", foreignKey: "id", alias: "places_link", serviceName: "DetailPlaceLink" } }],
+  ], extends: [{ serviceName: "catalog", entity: "Detail", fieldAlias: { places: { path: "places_link.place", isList: true } },
+    relationship: { primaryKey: "detail_id", foreignKey: "id", alias: "places_link", serviceName: "DetailPlaceLink", isList: true } }],
 };
 const placeCredential: ModuleJoinerConfig = { isLink: true, serviceName: "PlaceCredentialLink", alias: [{ name: "place_credential", entity: "LinkPlaceCredential" }],
   relationships: [
@@ -142,6 +142,26 @@ describe("bounded native callable Query boundaries", () => {
         cause: { type: "not_found", message: "StockLocation id not found: sloc" } });
     }, singletonParticipants());
   });
+
+  it.each([["cart", "Cart"], ["payment", "Payment"], ["order", "Order"], ["refund_reason", "RefundReason"]])(
+    "uses the native %s singleton key owner in the same query", async (alias, model) => {
+      const selected: GraphParticipant[] = [{ participant: defineAtomicCommerceParticipant("neutral-native-singleton"), module: {
+        aliases: [{ name: alias, model }], reads: [read(model, containerRead, table(alias))],
+      } }];
+      const input = { entryPoint: alias, fields: ["id"], variables: { id: "missing" } };
+      await withQuery([[[], 0]], async (query, calls) => {
+        const missing = query(input, singletonOptions);
+        await expect(missing).rejects.toHaveProperty("cause.message", `${model} id not found: missing`);
+        await expect(missing).rejects.toMatchObject({ reason: "adapterFailure",
+          cause: { type: "not_found", message: `${model} id not found: missing` } });
+        expect(calls).toEqual([{ command: containerRead, args: { filters: { id: ["missing"] },
+          config: { select: ["id"], relations: [], order: { id: "ASC" }, skip: 0, take: 256 } } }]);
+      }, selected);
+      await withQuery([[[{ id: "present" }], 1]], async (query, calls) => {
+        expect(await query({ ...input, variables: { id: "present" } }, singletonOptions)).toEqual([{ id: "present" }]);
+        expect(calls).toHaveLength(1);
+      }, selected);
+    });
 
   it("allows native not-found recovery before an unrelated Query without latching refusal", async () => {
     const owner = await runEffect(makeCommercePromiseOwner());

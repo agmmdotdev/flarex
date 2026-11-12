@@ -6,8 +6,9 @@ import { paymentCollectionSourcePairs, verifyPaymentCollectionSelection, verifyP
 const read = file => readFileSync(new URL("../" + file, import.meta.url), "utf8");
 const itemTotalsSource = read("third_party/medusa/upstream/packages/core/utils/src/totals/line-item/index.ts");
 const cartTotalsSource = read("third_party/medusa/upstream/packages/core/utils/src/totals/cart/index.ts");
+const shippingTotalsSource = read("third_party/medusa/upstream/packages/core/utils/src/totals/shipping-method/index.ts");
 /** @param {string} source @param {string} target @param {string} helper */
-const verifyTotals = (source, target, helper) => verifyCartPaymentTotalsSource(source, target, helper, itemTotalsSource, cartTotalsSource);
+const verifyTotals = (source, target, helper) => verifyCartPaymentTotalsSource(source, target, helper, itemTotalsSource, cartTotalsSource, shippingTotalsSource);
 test("requires each exact native workflow selection once", () => {
   verifyPaymentCollectionSelection(paymentCollectionSourcePairs);
   assert.throws(() => verifyPaymentCollectionSelection(paymentCollectionSourcePairs.slice(1)));
@@ -63,8 +64,19 @@ test("retains exact required native Line Item total metadata", () => {
   const target = read("packages/medusa-cart/src/services/cart-module.ts"), helper = read("packages/medusa-cart/src/utils/totals-selection.ts");
   verifyTotals(source, target, helper);
   assert.throws(() => verifyTotals(source, target, helper.replace('"original_subtotal"', '"invented_total"')));
-  assert.throws(() => verifyCartPaymentTotalsSource(source, target, helper, itemTotalsSource.replace("subtotal: BigNumber", "subtotal?: BigNumber"), cartTotalsSource));
+  assert.throws(() => verifyCartPaymentTotalsSource(source, target, helper, itemTotalsSource.replace("subtotal: BigNumber", "subtotal?: BigNumber"), cartTotalsSource, shippingTotalsSource));
   assert.throws(() => verifyTotals(source, target, helper.replace('"credit_line_total"', '"invented_credit_total"')));
   assert.throws(() => verifyCartPaymentTotalsSource(source, target, helper, itemTotalsSource,
-    cartTotalsSource.replace("cart.credit_line_total = new BigNumber", "cart.credit_line_total = Number")));
+    cartTotalsSource.replace("cart.credit_line_total = new BigNumber", "cart.credit_line_total = Number"), shippingTotalsSource));
+});
+
+test("retains exact native Shipping output metadata without inventing totals", () => {
+  const source = read("third_party/medusa/upstream/packages/modules/cart/src/services/cart-module.ts");
+  const target = read("packages/medusa-cart/src/services/cart-module.ts"), helper = read("packages/medusa-cart/src/utils/totals-selection.ts");
+  verifyTotals(source, target, helper);
+  assert.throws(() => verifyTotals(source, target, helper.replace('"amount", "subtotal"', '"amount", "invented_shipping_total"')));
+  for (const changed of [shippingTotalsSource.replace("subtotal: BigNumber", "subtotal?: BigNumber"),
+    shippingTotalsSource.replace("original_total: BigNumber", "original_total: number"),
+    shippingTotalsSource.replace("  original_tax_total: BigNumber", "")])
+    assert.throws(() => verifyCartPaymentTotalsSource(source, target, helper, itemTotalsSource, cartTotalsSource, changed));
 });

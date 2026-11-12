@@ -17,9 +17,10 @@ import { executeRead } from "../../query/read";
 import { replaceGraphRows } from "../../write/replace";
 import type { GraphCatalog, ReplacementProfile } from "../../write/graph-model";
 import { CartMutationIds, cartLineHistoryMaximum } from "./mutation-input";
-import { CartMutationTaxLines } from "./mutation-input";
+import { CartMutationTaxLines, CartMutationShippingTaxLines } from "./mutation-input";
 import { bindCommerceRelationRows } from "../../query/relations";
 import { hasChangedFields } from "@medusajs/drizzle/mutation-plan";
+import { fillEmptyToManyRelations } from "@medusajs/drizzle/relation-query";
 import type { prepareCartCreationRefreshRepository } from "./refresh-repository";
 
 type Refresh = Result.Result.Success<ReturnType<typeof prepareCartCreationRefreshRepository>>;
@@ -32,10 +33,12 @@ const text = commerceDecoder(Schema.Union([ScalarId, CartMutationIds]), "unsuppo
 const normalized = commerceDecoder(Schema.JsonObject, "unsupportedProfile");
 const quantity = commerceDecoder(Schema.FiniteFromString, "invalidInput");
 const taxInputs = commerceDecoder(CartMutationTaxLines, "unsupportedProfile");
-const emptyTax = commerceDecoder(Schema.Array(Schema.Never).check(Schema.isMaxLength(0)), "unsupportedProfile");
+const shippingTaxInputs = commerceDecoder(CartMutationShippingTaxLines, "unsupportedProfile");
 const where: WherePolicy = { ...scalarIdWhere, fields: new Map([...scalarIdWhere.fields,
   ["cart_id", { column: "cart_id", decode: text }], ["variant_id", { column: "variant_id", decode: text }],
   ["is_custom_price", { column: "is_custom_price", decode: commerceDecoder(Schema.Boolean, "unsupportedProfile") }]]) };
+const shippingWhere: WherePolicy = { ...scalarIdWhere, fields: new Map([...scalarIdWhere.fields,
+  ["cart_id", { column: "cart_id", decode: text }]]) };
 
 /** The native arithmetic seam carries exact decimal strings between steps;
  * this declared DML number column uses its finite numeric storage contract. */
@@ -52,8 +55,13 @@ export function prepareCartMutationRepository(refresh: Refresh) {
   return Result.gen(function* () {
     const cart = refresh.entities.find(entity => entity.table.name === "cart"),
       address = refresh.entities.find(entity => entity.table.name === "cart_address"),
-      line = refresh.entities.find(entity => entity.table.name === "cart_line_item");
-    if (cart === undefined || address === undefined || line === undefined) return yield* Result.fail(commerceError("unsupportedProfile"));
+      line = refresh.entities.find(entity => entity.table.name === "cart_line_item"),
+      shipping = refresh.entities.find(entity => entity.table.name === "cart_shipping_method");
+    if (cart === undefined || address === undefined || line === undefined || shipping === undefined)
+      return yield* Result.fail(commerceError("unsupportedProfile"));
+    if (shipping.table.relationships.some(relation => relation.cascadeDelete) || refresh.metadata.tables.some(table =>
+      table.foreignKeys.some(key => key.referencedTable === shipping.table.name && key.onDelete === "cascade")))
+      return yield* Result.fail(commerceError("unsupportedProfile"));
     const descendants = new Set(line.table.relationships.filter(relation => relation.cascadeDelete).map(relation => relation.targetTable));
     const historyTables = [refresh.refresh.tax.table.name, refresh.refresh.adjustment.table.name];
     if (descendants.size !== historyTables.length || historyTables.some(table => !descendants.has(table)))
@@ -71,14 +79,15 @@ export function prepareCartMutationRepository(refresh: Refresh) {
     const selectionMaximum = (table: string) => table === address.table.name ? 8 : 4;
     const lifecycleMaximum = (table: string) => descendants.has(table) ? cartLineHistoryMaximum : selectionMaximum(table);
     const addressScalar = yield* prepareScalarRepository(address.table, address.model, scalarIdWhere);
+    const shippingScalar = yield* prepareScalarRepository(shipping.table, shipping.model, scalarIdWhere);
     const query = (table: string, input: unknown) => Result.gen(function* () {
       if (table === address.table.name) return yield* addressScalar.query(input);
       if (table === cart.table.name) return yield* refresh.query(input);
-      if (table !== line.table.name) return yield* Result.fail(commerceError("unsupportedProfile"));
+      if (table !== line.table.name && table !== shipping.table.name) return yield* Result.fail(commerceError("unsupportedProfile"));
       const captured = yield* envelope(input);
       const plan = yield* refresh.queryTable(table, { ...captured, where: {} });
       return { ...plan, query: { ...plan.query, predicate: { kind: "and" as const,
-        children: [yield* compileWhere(captured.where, where), { kind: "isNull" as const, column: "deleted_at" }] } } };
+        children: [yield* compileWhere(captured.where, table === shipping.table.name ? shippingWhere : where), { kind: "isNull" as const, column: "deleted_at" }] } } };
     });
     const decoders = new Map(refresh.entities.map(entity => [entity.table.name,
       commerceRowDecoder([...entity.table.columns.filter(column => !["created_at", "updated_at", "deleted_at"].includes(column.name)).map(column => column.name),
@@ -140,7 +149,8 @@ export function prepareCartMutationRepository(refresh: Refresh) {
             const id = yield* Effect.fromResult(decodeId(capturedEntity.id));
             const retained = Object.fromEntries(entity.table.columns.map(column => [column.name, capturedEntity[column.name]]));
             const before = yield* Effect.fromResult(entity.complete(yield* Effect.fromResult(captureCommerceInput(retained))));
-            const nativePatch = entity === line ? yield* captureCartMutationLine(pair.update, entity.numbers)
+            const nativePatch = entity === line ? yield* captureCartMutationLine(pair.update, entity.numbers) : entity === shipping
+              ? yield* captureExactNumericRow(pair.update, entity.numbers, false, "nativeRaw")
               : yield* captureNativeDateRecord(pair.update, entity === cart ? ["completed_at"] : []);
             const patch = yield* Effect.fromResult(captureCommerceInput(nativePatch).pipe(Result.flatMap(normalized)));
             const original = entity === cart ? bound.originals.get(id) : originals.get(entity.table.name + ":" + id);
@@ -156,18 +166,18 @@ export function prepareCartMutationRepository(refresh: Refresh) {
             const changed = yield* replaceGraphRows(ctx, profile, target, [{ ...patch, id }], { relations: paths });
             for (const row of changed.entities) results.push(row);
             for (const [action, event] of [["created", "afterCreate"], ["updated", "afterUpdate"]] as const)
-              for (const model of [cart.model, address.model, line.model])
+              for (const model of [cart.model, address.model, line.model, shipping.model])
                 yield* events.rows(event, model, (changed.performedActions[action][model] ?? []).map(row => ({ ...row })), shared);
           }
           return bound.remember(structuredClone(results), entity.table.name);
         })));
-      const lifecycle = (operation: "delete" | "softDelete" | "restore", input: unknown, shared: Parameters<DAL.RepositoryService["softDelete"]>[1]) =>
+      const lifecycle = (target: typeof line, operation: "delete" | "softDelete" | "restore", input: unknown, shared: Parameters<DAL.RepositoryService["softDelete"]>[1]) =>
         bridge.executeInput(shared, input, (ctx, captured) => bridge.checked(ctx, Effect.gen(function* () {
           const requested = operation === "delete" ? (yield* Effect.fromResult(decodeDelete(captured))).$or.map(row => row.id)
             : yield* Effect.fromResult(decodeIds(captured));
           const owner = medusaLifecycle(ctx, { tables: refresh.metadata.tables, entities: refresh.entities }, operation);
-          const selected = yield* owner.roots(line.table, requested);
-          const plan = yield* owner.plan(line.table, selected);
+          const selected = yield* owner.roots(target.table, requested);
+          const plan = yield* owner.plan(target.table, selected);
           for (const entity of refresh.entities) yield* Effect.fromResult(admitSelection(entity.table.name, plan.rows(entity.table), lifecycleMaximum(entity.table.name)));
           const changed = yield* plan.apply();
           const ids: string[] = [];
@@ -183,13 +193,13 @@ export function prepareCartMutationRepository(refresh: Refresh) {
                 originalEntity: { deleted_at: typeof row.id === "string" ? before.get(row.id) : undefined } }));
             }
           }
-          return { ids, rows: bound.remember(changed.roots, line.table.name), cascades: changed.cascades };
+          return { ids, rows: bound.remember(changed.roots, target.table.name), cascades: changed.cascades };
         })));
       const repository: DAL.RepositoryService = { ...bound.repository, update: update(cart) };
-      const tax = refresh.refresh.tax;
-      const upsertItemTax: DAL.RepositoryService["upsert"] = (input, shared) => bridge.executeInput(shared, input,
+      const upsertTax = (isShipping: boolean): DAL.RepositoryService["upsert"] => (input, shared) => bridge.executeInput(shared, input,
         (ctx, captured) => bridge.checked(ctx, Effect.gen(function* () {
-          const data = yield* Effect.fromResult(taxInputs(captured));
+          const tax = isShipping ? refresh.refresh.shippingTax : refresh.refresh.tax;
+          const data = isShipping ? yield* Effect.fromResult(shippingTaxInputs(captured)) : yield* Effect.fromResult(taxInputs(captured));
           const scalar = tax.scalar.bind(root, owner, events, bridge);
           const ids = data.flatMap(row => row.id === undefined ? [] : [row.id]);
           const existing = ids.length ? yield* bindCommerceRelationRows({ ...ctx, admitSelection }, { includeIdentities: true })(tax.table.name,
@@ -221,18 +231,28 @@ export function prepareCartMutationRepository(refresh: Refresh) {
           return bound.remember([...inserted, ...retained], tax.table.name);
         })));
       const lineItemRepository: DAL.RepositoryService = { ...bound.lineItemRepository, find: find(line.table.name), findAndCount: countLines,
-        update: update(line), delete: async (input, shared) => (await lifecycle("delete", input, shared)).ids,
-        softDelete: async (input, shared) => { const changed = await lifecycle("softDelete", input, shared); return [changed.rows, changed.cascades]; },
-        restore: async (input, shared) => { const changed = await lifecycle("restore", input, shared); return [changed.rows, changed.cascades]; } };
+        update: update(line), delete: async (input, shared) => (await lifecycle(line, "delete", input, shared)).ids,
+        softDelete: async (input, shared) => { const changed = await lifecycle(line, "softDelete", input, shared); return [changed.rows, changed.cascades]; },
+        restore: async (input, shared) => { const changed = await lifecycle(line, "restore", input, shared); return [changed.rows, changed.cascades]; } };
+      const shippingMethodRepository: DAL.RepositoryService = { ...bound.shippingMethodRepository, find: find(shipping.table.name), update: update(shipping),
+        create: (input, shared) => bridge.executeInput(shared, input, (ctx, captured) => bridge.checked(ctx, Effect.gen(function* () {
+          if (shared === undefined || !events.isSubscribed(shared)) return yield* ctx.refuse(commerceError("unadmittedEvent"));
+          const rows = yield* refresh.normalize(captured, shipping);
+          const written = yield* shippingScalar.bind(root, owner, events, bridge).createRows(ctx, rows, shared);
+          yield* Effect.fromResult(admitSelection(shipping.table.name, written));
+          const detached = structuredClone(written);
+          fillEmptyToManyRelations(detached, new Map(shipping.table.relationships.map(relationship => [relationship.name, { relationship }])));
+          return bound.remember(detached, shipping.table.name);
+        }))),
+        delete: async (input, shared) => (await lifecycle(shipping, "delete", input, shared)).ids,
+        softDelete: async (input, shared) => { const changed = await lifecycle(shipping, "softDelete", input, shared); return [changed.rows, changed.cascades]; },
+        restore: async (input, shared) => { const changed = await lifecycle(shipping, "restore", input, shared); return [changed.rows, changed.cascades]; } };
       const addressRepository: DAL.RepositoryService = { ...bound.addressRepository, find: find(address.table.name), update: update(address) };
-      const lineItemTaxLineRepository: DAL.RepositoryService = { ...bound.lineItemTaxLineRepository, upsert: upsertItemTax };
-      const shippingMethodTaxLineRepository: DAL.RepositoryService = { ...bound.shippingMethodTaxLineRepository, upsert: (input, shared) =>
-        bridge.executeInput(shared, input, (ctx, captured) => bridge.checked(ctx, Effect.gen(function* () {
-          yield* Effect.fromResult(emptyTax(captured));
-          return bound.remember([], refresh.refresh.shippingTax.table.name);
-        }))) };
-      return { ...bound, repository, lineItemRepository, addressRepository, lineItemTaxLineRepository, shippingMethodTaxLineRepository };
+      const lineItemTaxLineRepository: DAL.RepositoryService = { ...bound.lineItemTaxLineRepository, upsert: upsertTax(false) };
+      const shippingMethodTaxLineRepository: DAL.RepositoryService = { ...bound.shippingMethodTaxLineRepository, upsert: upsertTax(true) };
+      return { ...bound, repository, lineItemRepository, shippingMethodRepository, addressRepository, lineItemTaxLineRepository, shippingMethodTaxLineRepository };
     };
-    return { ...refresh, bind, mutation: { cart, address, line, query, catalog, profile, admitSelection, lifecycleMaximum, lifecycleTables } };
+    return { ...refresh, bind, mutation: { cart, address, line, shipping, query, catalog, profile, admitSelection, lifecycleMaximum, lifecycleTables,
+      shippingLifecycleTables: [shipping.table], shippingNode: { entity: shipping.graph, steps: [], omitRelations: [] } } };
   });
 }

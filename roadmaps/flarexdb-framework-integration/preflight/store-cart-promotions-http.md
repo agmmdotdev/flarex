@@ -92,9 +92,9 @@ Actual Workerd HTTP preserves committed results and durable inventory across
 recreation, including successful bounded mutations and complete history-rich
 deletion. Retained native inverses remain distinct from atomic root abort.
 
-The existing four-code/item and complete-cohort bounds remain. Existing Shipping
-Method reads are retained; nonempty Shipping adjustment mutations still refuse
-through the Cart owner, while empty action branches can skip. Shipping Method
-lifecycle, remote providers, Customer association, checkout HTTP,
+The existing four-code/item and complete-cohort bounds remain. Populated Shipping
+adjustments and Shipping Method lifecycle are selected by the connected
+[Shipping HTTP profile](./store-cart-shipping-http.md). Remote providers,
+Customer association, checkout completion HTTP,
 transport-loss retry, mixed deployment, capacity and production activation retain
 their separate gates.

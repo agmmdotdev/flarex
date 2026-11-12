@@ -49,6 +49,7 @@ describe("Medusa source-island boundary checker", () => {
       .map(target => ({ target, targetSha256: "pinned", classification: "authored" })) };
     const worker = "apps/executor/test/storeCartApplicationDO.workerd.worker.ts";
     const test = "apps/executor/test/storeCartApplicationDO.postgres.test.ts";
+    const shippingTest = "apps/executor/test/storeCartShippingApplicationDO.postgres.test.ts";
     const root = "@flarex/medusa-adapter/internal/store-cart-request";
     const catalog = "@flarex/medusa-adapter/internal/system-test/store-cart-request-catalog";
     const fixture = "@flarex/medusa-adapter/internal/system-test/store-cart-request-fixture";
@@ -62,16 +63,21 @@ describe("Medusa source-island boundary checker", () => {
     }).errors;
     expect(check(worker, workerImports)).toEqual([]);
     expect(check(test, testImports)).toEqual([]);
+    expect(check(shippingTest, testImports)).toEqual([]);
     const writer = "apps/executor/test/adminProductApplicationDO.workerd.worker.ts";
     expect(check(writer, [catalog]).length).toBeGreaterThan(0);
     for (const specifier of [root, fixture, http]) expect(check(writer, [specifier]).length).toBeGreaterThan(0);
     expect(check(worker, [fixture]).length).toBeGreaterThan(0);
-    for (const specifier of [root, http, awilix]) expect(check(test, [specifier]).length).toBeGreaterThan(0);
+    for (const importer of [test, shippingTest])
+      for (const specifier of [root, http, awilix]) expect(check(importer, [specifier]).length).toBeGreaterThan(0);
     for (const importer of [worker.replace("storeCartApplicationDO", "adjacent"), test.replace("storeCartApplicationDO", "adjacent"),
       worker.replace("/test/", "/src/"), test.replace("/test/", "/src/"),
       worker.replace("storeCartApplicationDO", "storeCurrencyApplicationDO"), test.replace("storeCartApplicationDO", "storeCurrencyApplicationDO")])
       for (const specifier of [root, catalog, fixture, http]) expect(check(importer, [specifier]).length).toBeGreaterThan(0);
-    for (const { importer, specifiers } of [{ importer: worker, specifiers: workerImports }, { importer: test, specifiers: testImports }])
+    for (const importer of [shippingTest.replace("/test/", "/src/"), shippingTest.replace("storeCartShippingApplicationDO", "adjacent")])
+      for (const specifier of [root, catalog, fixture, http]) expect(check(importer, [specifier]).length).toBeGreaterThan(0);
+    for (const { importer, specifiers } of [{ importer: worker, specifiers: workerImports }, { importer: test, specifiers: testImports },
+      { importer: shippingTest, specifiers: testImports }])
       for (const specifier of specifiers) {
         expect(check(importer, [specifier + ".ts"]).length).toBeGreaterThan(0);
         expect(check(importer, [specifier.replace(/\/([^/]+)$/, "/./$1")]).length).toBeGreaterThan(0);

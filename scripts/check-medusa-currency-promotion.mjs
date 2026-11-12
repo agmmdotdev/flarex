@@ -1346,6 +1346,8 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
     readFileSync(path.join(root, sourcePrefix + "packages/core/types/src/pricing/service.ts"), "utf8"),
     readFileSync(path.join(root, "packages/medusa-adapter/src/modules/pricing/service.ts"), "utf8"),
     readFileSync(path.join(root, "packages/medusa-adapter/src/modules/pricing/repository.ts"), "utf8"),
+    readFileSync(path.join(root, "packages/medusa-adapter/src/modules/pricing/calculation.ts"), "utf8"),
+    readFileSync(path.join(root, "packages/medusa-adapter/src/modules/pricing/cart-shipping-context.ts"), "utf8"),
   );
   const pricingSource = readFileSync(path.join(root, sourcePrefix + "packages/modules/pricing/src/services/pricing-module.ts"), "utf8");
   const pricingTarget = readFileSync(path.join(root, "packages/medusa-pricing/src/services/pricing-module.ts"), "utf8");
@@ -1988,7 +1990,8 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
         verifyCartPaymentTotalsSource(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"),
           readFileSync(path.join(root, "packages/medusa-cart/src/utils/totals-selection.ts"), "utf8"),
           readFileSync(path.join(root, sourcePrefix + "packages/core/utils/src/totals/line-item/index.ts"), "utf8"),
-          readFileSync(path.join(root, sourcePrefix + "packages/core/utils/src/totals/cart/index.ts"), "utf8"));
+          readFileSync(path.join(root, sourcePrefix + "packages/core/utils/src/totals/cart/index.ts"), "utf8"),
+          readFileSync(path.join(root, sourcePrefix + "packages/core/utils/src/totals/shipping-method/index.ts"), "utf8"));
       if (file.classification === "paymentCollectionWorkflowFork")
         verifyPaymentCollectionSource(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"), file.target);
       if (file.classification === "importRelocation" && /^packages\/medusa-(product|pricing)\/src\/models\/[^/]+\.ts$/.test(file.target))

@@ -8,6 +8,8 @@ import { deleteLineItemsWorkflow } from "../src/line-item/workflows/delete-line-
 import { refreshCartItemsWorkflow } from "../src/cart/workflows/refresh-cart-items";
 import { updateCartPromotionsWorkflow } from "../src/cart/workflows/update-cart-promotions";
 import { updateTaxLinesWorkflow } from "../src/cart/workflows/update-tax-lines";
+import { listShippingOptionsForCartWorkflow } from "../src/cart/workflows/list-shipping-options-for-cart";
+import { addShippingMethodToCartWorkflow } from "../src/cart/workflows/add-shipping-method-to-cart";
 
 const wrappers = {
   updateCart: createWorkflow({ name: "native-cart-update-operation-count", constructionProfile: nativeCartMutationProfile },
@@ -117,4 +119,24 @@ it("fits the dedicated native explicit Tax wrapper within ordinary authoring and
   expect(prepared.nodeCount).toBeLessThanOrEqual(64);
   expect(prepared.identity.constructionProfile).toBeUndefined();
   expect(new TextEncoder().encode(JSON.stringify(prepared.identity)).byteLength).toBeLessThan(64 * 1024);
+});
+
+it("fits genuine Shipping listing and addition within the existing authoring and mutation envelopes", () => {
+  const list = createWorkflow("native-cart-shipping-list-construction-wrapper",
+    (input: WorkflowData<NonNullable<typeof listShippingOptionsForCartWorkflow[" input"]>>) =>
+      new WorkflowResponse(listShippingOptionsForCartWorkflow.runAsStep({ input })));
+  const add = createWorkflow({ name: "native-cart-shipping-add-construction-wrapper", constructionProfile: nativeCartMutationProfile },
+    (input: WorkflowData<NonNullable<typeof addShippingMethodToCartWorkflow[" input"]>>) => {
+      addShippingMethodToCartWorkflow.runAsStep({ input }); return new WorkflowResponse(null);
+    });
+  const preparedList = Result.getOrThrow(list.prepare()), preparedAdd = Result.getOrThrow(add.prepare());
+  const listing = countControlOperations(preparedList), addition = countControlOperations(preparedAdd);
+  expect(listing.nodes).toBe(preparedList.nodeCount);
+  expect(listing.nodes).toBeLessThanOrEqual(64);
+  expect(preparedList.identity.constructionProfile).toBeUndefined();
+  expect(addition.nodes).toBe(preparedAdd.nodeCount);
+  expect(addition.nodes).toBeLessThanOrEqual(243);
+  expect(preparedAdd.identity.constructionProfile).toEqual({ profile: "nativeCartMutation", maximumNodes: 243 });
+  expect(512 + addition.operations).toBeLessThanOrEqual(1065);
+  expect(new TextEncoder().encode(JSON.stringify(preparedAdd.identity)).byteLength).toBeLessThan(64 * 1024);
 });

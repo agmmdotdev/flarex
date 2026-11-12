@@ -18,7 +18,7 @@ import { captureCommerceInput } from "../../value/input";
 import { captureNativeNumericDto } from "../../value/native-numeric";
 import { captureExactNumericRow } from "../../value/exact-numeric";
 import { decodeCartItemAdjustments, decodeCartItemTaxRead, decodeCartShippingTaxRead,
-  decodeCartSetItemTaxInput, decodeCartSetShippingTaxInput, decodeCartRefreshIds, decodeCartEmptyShippingAdjustments } from "./refresh-input";
+  decodeCartSetItemTaxInput, decodeCartSetShippingTaxInput, decodeCartRefreshIds, decodeCartShippingAdjustments } from "./refresh-input";
 import type { prepareCartCreationRefreshRepository } from "./refresh-repository";
 import { CartLineHistoryIds } from "./mutation-input";
 
@@ -28,7 +28,7 @@ const decodeReceiptIds = commerceDecoder(Schema.Array(Schema.String), "receiptMi
 const decodeLifecycleResult = commerceDecoder(Schema.Struct({ ids: Schema.Array(Schema.String) }), "receiptMismatch");
 const event = moduleEventDecoder(Schema.Struct({ name: Schema.String,
   metadata: Schema.Struct({ source: Schema.Literal(Modules.CART),
-    object: Schema.Literals(["line_item_tax_line", "shipping_method_tax_line", "line_item_adjustment"]),
+    object: Schema.Literals(["line_item_tax_line", "shipping_method_tax_line", "line_item_adjustment", "shipping_method_adjustment"]),
     action: Schema.Literals(["created", "updated", "deleted", "restored"]) }),
   data: Schema.Struct({ id: Schema.Union([Schema.String, CartLineHistoryIds]) }) }), defaultCommerceResources);
 export const captureCartCreationRefreshEvent = Effect.fn("CartCreation.captureRefreshEvent")(function* (input: unknown) {
@@ -45,14 +45,8 @@ export function cartCreationRefreshPolicy(prepared: Prepared) {
   const { refresh } = prepared;
   const validateLogicalCall: LogicalCallReceiptValidation = Effect.fn("CartCreation.validateRefreshCall")(function* (call, activity) {
     if (activity.setNull.length || activity.referenceReplacements.length) return yield* Effect.fail(mismatch());
-    if (["cartAddEmptyShippingAdjustmentsForCreation", "cartSoftDeleteEmptyShippingAdjustmentsForCreation", "cartRestoreEmptyShippingAdjustmentsForCreation"].includes(call.commandName)) {
-      yield* Effect.fromResult(decodeCartEmptyShippingAdjustments(call.input));
-      if (call.mode !== "write" || call.events.length || activity.mutations.length || activity.lifecycle.length || activity.relationalReads.length || activity.observedRows.length ||
-        !jsonEqual(call.result, call.commandName === "cartAddEmptyShippingAdjustmentsForCreation" ? [] : {})) return yield* Effect.fail(mismatch());
-      return;
-    }
     type Row = JsonObject & { readonly id: string };
-    const state = new Map<string, Map<string, Row>>(), used = new Set<string>(), parentItems = new Set<string>();
+    const state = new Map<string, Map<string, Row>>(), used = new Set<string>(), parents = new Map<string, Set<string>>();
     const put = (table: string, row: Row) => { const rows = state.get(table) ?? new Map<string, Row>(); rows.set(row.id, row); state.set(table, rows); };
     const complete = (table: string, input: unknown): Result.Result<Row, CommerceTransactionError> => Result.gen(function* () {
       const entity = prepared.byName.get(table);
@@ -94,7 +88,9 @@ export function cartCreationRefreshPolicy(prepared: Prepared) {
         const row = state.get(table)?.get(identity.id);
         if (row === undefined) return yield* Effect.fail(mismatch());
         ids.add(identity.id); selected.push(structuredClone(row)); used.add(table + ":" + identity.id);
-        if (table === "cart_line_item") parentItems.add(identity.id);
+        if (table === "cart_line_item" || table === "cart_shipping_method") {
+          const group = parents.get(table) ?? new Set<string>(); group.add(identity.id); parents.set(table, group);
+        }
       }
       yield* Effect.fromResult(refresh.admitSelection(table, selected));
       return selected;
@@ -168,33 +164,35 @@ export function cartCreationRefreshPolicy(prepared: Prepared) {
     } else if (call.commandName === "cartSetItemTaxForCreation" || call.commandName === "cartSetShippingTaxForCreation") {
       if (call.mode !== "write") return yield* Effect.fail(mismatch());
       const shipping = call.commandName === "cartSetShippingTaxForCreation";
-      const input = yield* Effect.fromResult(shipping ? decodeCartSetShippingTaxInput(call.input) : decodeCartSetItemTaxInput(call.input));
+      const input = shipping ? yield* Effect.fromResult(decodeCartSetShippingTaxInput(call.input)) : yield* Effect.fromResult(decodeCartSetItemTaxInput(call.input));
+      const tax = shipping ? refresh.shippingTax : refresh.tax;
       const inserted: JsonObject[] = [];
-      for (const line of input.tax_lines) inserted.push(yield* captureExactNumericRow(line, refresh.tax.numbers, false, "nativeRaw"));
-      if (shipping && activity.mutations.some(mutation => mutation.operation === "insert")) return yield* Effect.fail(mismatch());
-      expected = shipping ? [] : yield* creates(refresh.tax, inserted);
+      for (const line of input.tax_lines) inserted.push(yield* captureExactNumericRow(line, tax.numbers, false, "nativeRaw"));
+      expected = yield* creates(tax, inserted);
       const generated = activity.mutations.filter(mutation => mutation.operation === "insert").map(mutation => mutation.after?.id);
       const generatedIds = yield* Effect.fromResult(decodeReceiptIds(generated));
       if (generatedIds.length) {
-        const existing = yield* readRows(refresh.tax.table.name, { kind: "and", children: [{ kind: "in", column: "id", values: generatedIds }, { kind: "isNull", column: "deleted_at" }] });
+        const existing = yield* readRows(tax.table.name, { kind: "and", children: [{ kind: "in", column: "id", values: generatedIds }, { kind: "isNull", column: "deleted_at" }] });
         if (existing.length) return yield* Effect.fail(mismatch());
       }
-      const removed = yield* refresh.selectTaxRemoval(readRows, shipping ? { shipping_method: { cart_id: input.cart_id } } :
+      const removed = yield* refresh.selectTaxRemoval(readRows, shipping ? { shipping_method: { cart_id: input.cart_id }, ...(generatedIds.length ? { id: { $nin: generatedIds } } : {}) } :
         { item: { cart_id: input.cart_id }, ...(generatedIds.length ? { id: { $nin: generatedIds } } : {}) }, shipping);
       const removedIds = []; for (const row of removed) { if (typeof row.id !== "string") return yield* Effect.fail(mismatch()); removedIds.push(row.id); }
       yield* lifecycle(shipping ? refresh.shippingTax : refresh.tax, removedIds, "softDelete");
-    } else if (call.commandName === "cartAddItemAdjustmentsForCreation") {
+    } else if (call.commandName === "cartAddItemAdjustmentsForCreation" || call.commandName === "cartAddShippingAdjustmentsForCreation") {
       if (call.mode !== "write" || activity.lifecycle.length || activity.mutations.some(mutation => mutation.operation !== "insert")) return yield* Effect.fail(mismatch());
-      const input = yield* Effect.fromResult(decodeCartItemAdjustments(call.input)), normalized = [];
-      for (const row of input) normalized.push(yield* captureExactNumericRow(row, refresh.adjustment.numbers, false, "nativeRaw"));
-      expected = yield* creates(refresh.adjustment, normalized);
-    } else if (call.commandName === "cartSoftDeleteItemAdjustmentsForCreation" || call.commandName === "cartRestoreItemAdjustmentsForCreation") {
+      const shipping = call.commandName === "cartAddShippingAdjustmentsForCreation", adjustment = shipping ? refresh.shippingAdjustment : refresh.adjustment;
+      const input = shipping ? yield* Effect.fromResult(decodeCartShippingAdjustments(call.input)) : yield* Effect.fromResult(decodeCartItemAdjustments(call.input)), normalized = [];
+      for (const row of input) normalized.push(yield* captureExactNumericRow(row, adjustment.numbers, false, "nativeRaw"));
+      expected = yield* creates(adjustment, normalized);
+    } else if (["cartSoftDeleteItemAdjustmentsForCreation", "cartRestoreItemAdjustmentsForCreation", "cartSoftDeleteShippingAdjustmentsForCreation", "cartRestoreShippingAdjustmentsForCreation"].includes(call.commandName)) {
       if (call.mode !== "write" || activity.mutations.some(mutation => mutation.operation !== "patch")) return yield* Effect.fail(mismatch());
-      const input = yield* Effect.fromResult(decodeCartRefreshIds(call.input)), operation = call.commandName === "cartSoftDeleteItemAdjustmentsForCreation" ? "softDelete" : "restore";
-      if (input.length) yield* refresh.selectAdjustmentLifecycle(readRows, input, operation);
-      const rows = yield* lifecycle(refresh.adjustment, input, operation), joiner = cartStaticResources.joinerConfig;
+      const shipping = call.commandName.includes("Shipping"), adjustment = shipping ? refresh.shippingAdjustment : refresh.adjustment;
+      const input = yield* Effect.fromResult(decodeCartRefreshIds(call.input)), operation = call.commandName.startsWith("cartSoftDelete") ? "softDelete" : "restore";
+      if (input.length) yield* refresh.selectAdjustmentLifecycle(readRows, input, operation, shipping);
+      const rows = yield* lifecycle(adjustment, input, operation), joiner = cartStaticResources.joinerConfig;
       if (joiner === undefined) return yield* Effect.fail(mismatch());
-      expected = mapObjectTo(rows.length ? { [refresh.adjustment.model]: rows } : {}, buildModelsNameToLinkableKeysMap(joiner.linkableKeys ?? {}));
+      expected = mapObjectTo(rows.length ? { [adjustment.model]: rows } : {}, buildModelsNameToLinkableKeysMap(joiner.linkableKeys ?? {}));
     } else return yield* Effect.fail(mismatch());
     if (reads.size) return yield* Effect.fail(mismatch("unconsumedReads"));
     for (const observation of activity.observedRows) if (!used.has(observation.table + ":" + observation.row.id)) {
@@ -203,8 +201,10 @@ export function cartCreationRefreshPolicy(prepared: Prepared) {
       // deleted by an earlier native callback in this same root. The exact
       // active query and core match vector exclude it from returned rows;
       // retain its authenticated parent membership rather than dropping it.
-      if (call.commandName !== "cartSetItemTaxForCreation" || observation.table !== refresh.tax.table.name ||
-        typeof row?.deleted_at !== "string" || typeof row.item_id !== "string" || !parentItems.has(row.item_id))
+      const tax = call.commandName === "cartSetItemTaxForCreation" ? refresh.tax : call.commandName === "cartSetShippingTaxForCreation" ? refresh.shippingTax : undefined;
+      const parentTable = tax === refresh.tax ? "cart_line_item" : "cart_shipping_method", parentId = tax === undefined ? undefined : row?.[tax.foreignKey];
+      if (tax === undefined || observation.table !== tax.table.name || typeof row?.deleted_at !== "string" ||
+        typeof parentId !== "string" || !parents.get(parentTable)?.has(parentId))
         return yield* Effect.fail(mismatch("unaccountedObservations"));
     }
     if (!jsonEqual(yield* Effect.fromResult(captureNativeNumericDto(expected)), call.result)) return yield* Effect.fail(mismatch("result"));

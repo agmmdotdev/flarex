@@ -43,6 +43,17 @@ const decodeGraphArguments = commerceDecoder(Schema.Union([
 const TaggedCalculation = Schema.StructWithRest(Schema.Struct({ __type: Schema.Literal("QueryContext") }),
   [Schema.Record(Schema.String, Schema.Json)]);
 const decodeNativeContext = commerceDecoder(Schema.Struct({ calculated_price: Schema.optionalKey(TaggedCalculation) }), "unsupportedProfile");
+const ShippingContext = Schema.Record(Schema.String, Schema.Json).check(Schema.makeFilter(value => Object.keys(value).length <= 16));
+const ShippingIds = Schema.Union([Schema.String, Schema.Array(Schema.String).check(Schema.isMaxLength(4))]);
+const ShippingAddress = Schema.Struct({ country_code: Schema.optionalKey(Schema.NullOr(Schema.String)), province_code: Schema.optionalKey(Schema.NullOr(Schema.String)),
+  city: Schema.optionalKey(Schema.NullOr(Schema.String)), postal_expression: Schema.optionalKey(Schema.NullOr(Schema.String)) });
+const decodeShippingRemote = commerceDecoder(Schema.Tuple([Schema.Struct({ entryPoint: Schema.Literal("shipping_options"), fields: Fields,
+  variables: Schema.Struct({ id: Schema.optionalKey(ShippingIds), context: Schema.optionalKey(ShippingContext),
+    filters: Schema.Struct({ id: Schema.optionalKey(ShippingIds), fulfillment_set_id: Schema.Array(Schema.String).check(Schema.isMaxLength(4)), address: ShippingAddress }),
+    calculated_price: Schema.optionalKey(Schema.Struct({ context: Schema.JsonObject })) }),
+}), Schema.Struct({ throwIfKeyNotFound: Schema.Literal(false), throwIfRelationNotFound: Schema.optionalKey(Schema.Undefined) })]), "unsupportedProfile");
+const decodeShippingContext = commerceDecoder(Schema.StructWithRest(Schema.Struct({ __type: Schema.Literal("QueryContext") }),
+  [Schema.Record(Schema.String, Schema.Json)]), "unsupportedProfile");
 
 /** The native Variant graph ABI forwards this tagged calculation context. Its
  * selected graph edge and Pricing owner still admit the actual calculation. */
@@ -62,6 +73,17 @@ export function bindWorkflowQuery(graph: PreparedLocalGraph, context: AtomicComm
   const query = graph.bind(context);
   const remote = (...args: unknown[]) => owner.run(Effect.gen(function* () {
     if (args.length === 2) {
+      const candidate = yield* checkedCommerceValue(context, () => captureWorkflowInput(args));
+      const shipping = decodeShippingRemote(candidate);
+      if (Result.isSuccess(shipping)) {
+        const [input] = shipping.success, { id, context: eligibility, filters, calculated_price } = input.variables;
+        const result = yield* query.native({ entity: "shipping_options", fields: input.fields, filters: { ...filters,
+          ...(eligibility === undefined ? {} : { context: eligibility }), ...(id === undefined ? {} : { id }) },
+          ...(calculated_price === undefined ? {} : { context: { calculated_price: calculated_price.context } }),
+          pagination: { take: commerceLimits.catalogRows } });
+        if (result.metadata.count !== result.data.length) return yield* context.refuse(commerceError("unsupportedProfile"));
+        return result.data;
+      }
       const [input, options] = yield* checkedCommerceValue(context, () => captureWorkflowInput(args).pipe(Result.flatMap(decodeSingleton)));
       // The pinned singleton RemoteQuery and graph both remove hydration-only
       // join columns. Existing array-ID and service callers retain their native
@@ -69,10 +91,10 @@ export function bindWorkflowQuery(graph: PreparedLocalGraph, context: AtomicComm
       const selector = input.entryPoint === "order_payment_collection"
         ? { column: "payment_collection_id", value: input.variables.payment_collection_id }
         : { column: "id", value: input.variables.id };
-      // Financial singleton roots use the shared native primary-key check.
+      // Selected singleton roots use the shared native primary-key check.
       // The selected module metadata owns the entity name and key semantics.
       const keyOptions: { readonly throwIfKeyNotFound: true } | undefined =
-        input.entryPoint === "payment" || input.entryPoint === "order" || input.entryPoint === "refund_reason"
+        input.entryPoint === "payment" || input.entryPoint === "order" || input.entryPoint === "refund_reason" || input.entryPoint === "cart"
           ? { throwIfKeyNotFound: true } : undefined;
       const data = yield* input.entryPoint === "fulfillment"
         ? query.list({ entity: input.entryPoint, fields: input.fields, filters: { id: [input.variables.id] } })
@@ -112,9 +134,14 @@ export function bindWorkflowQuery(graph: PreparedLocalGraph, context: AtomicComm
     const keyOptions = options !== undefined && "throwIfKeyNotFound" in options ? { throwIfKeyNotFound: options.throwIfKeyNotFound } : undefined;
     const plan = yield* checkedCommerceValue(context, () => prepareWorkflowGraphQuery({ ...input, ...(keyOptions === undefined ? {} : { options: keyOptions }) }, commerceLimits.catalogRows)
       .pipe(Result.mapError(cause => commerceError("unsupportedProfile", cause))));
-    const calculation = plan.query.context === undefined ? undefined : yield* checkedCommerceValue(context,
+    const shipping = plan.query.entity === "shipping_options" && plan.query.context !== undefined
+      ? yield* checkedCommerceValue(context, () => decodeShippingContext(plan.query.context)) : undefined;
+    const calculation = plan.query.context === undefined || shipping !== undefined ? undefined : yield* checkedCommerceValue(context,
       () => normalizeWorkflowGraphContext(plan.query.entity, plan.query.context));
-    const result = yield* query.graph({ ...plan.query, ...(calculation === undefined ? {} : { context: calculation }) }, keyOptions);
+    const { context: _inputContext, ...plainQuery } = plan.query;
+    const eligibility = shipping === undefined ? undefined : Object.fromEntries(Object.entries(shipping).filter(([key]) => key !== "__type"));
+    const result = yield* query.graph({ ...plainQuery, ...(calculation === undefined ? {} : { context: calculation }),
+      ...(eligibility === undefined ? {} : { filters: { ...plan.query.filters, context: eligibility } }) }, keyOptions);
     yield* checkedCommerceValue(context, () => plan.validate(result).pipe(Result.mapError(cause => commerceError("unsupportedProfile", cause))));
     return result;
   }));

@@ -54,7 +54,7 @@ const allowedPaths: ReadonlySet<string> = new Set(cartPaymentPaths);
 /** Read-only native Cart totals input. All nine native models are compiled;
  * only the seven relation paths needed by the genuine total selector can read. */
 export function prepareCartPaymentRead(metadata: Effect.Success<ReturnType<typeof captureCartMetadata>>["frame"], profile: "payment" | "checkout" | "creation" = "payment",
-  numericPresentation: "reserialize" | "nativeOrm" = "reserialize") {
+  numericPresentation: "reserialize" | "nativeOrm" = "reserialize", workflowProfile: "cart" | "cart-shipping" = "cart") {
   return Result.gen(function* () {
     const entities = yield* Result.all(metadata.tables.map(table => Result.gen(function* () {
       return { table, complete: yield* compileCompleteRow(table), projection: yield* compileRowProjection(table),
@@ -125,6 +125,12 @@ export function prepareCartPaymentRead(metadata: Effect.Success<ReturnType<typeo
         window: { kind: "catalog", order: "id", select: orderedCatalog("asc") } } satisfies ReadPlan;
     });
     const query = (input: unknown) => queryTable(cart.table.name, input);
+    // The Shipping composition omits Store and therefore requires the native
+    // Cart's Sales Channel before native fallback selection. Authenticate the
+    // same selected row in the DAL and its logical receipt.
+    const admitReadProfile = (table: string, row: JsonObject): Result.Result<void, CommerceTransactionError> => workflowProfile === "cart-shipping" && table === cart.table.name &&
+      (typeof row.sales_channel_id !== "string" || row.sales_channel_id.length === 0)
+      ? Result.fail(commerceError("unsupportedProfile")) : Result.succeed(undefined);
     const present = Effect.fn("CartPayment.present")(function* (input: Json, table: string): Effect.fn.Return<Json, CommerceTransactionError> {
       const entity = byName.get(table);
       if (entity === undefined) return yield* Effect.fail(commerceError("storedCorruption"));
@@ -160,6 +166,7 @@ export function prepareCartPaymentRead(metadata: Effect.Success<ReturnType<typeo
           if (rows.length > (profile === "creation" && table === "cart_address" ? 8 : 4)) return yield* Result.fail(commerceError("limitExceeded"));
           for (const row of rows) {
             const checked = yield* entity.complete(projectNativeRow(row));
+            yield* admitReadProfile(table, checked);
             if (table === cart.table.name && typeof checked.id === "string") originals.set(checked.id, checked);
           }
         }) }, catalog, plan, count);
@@ -249,6 +256,6 @@ export function prepareCartPaymentRead(metadata: Effect.Success<ReturnType<typeo
       const lineItemRepository = childRepository("cart_line_item"), shippingMethodRepository = childRepository("cart_shipping_method");
       return { ...bound, repository, lineItemRepository, shippingMethodRepository, denied, remember, originals };
     };
-    return { cart, entities, byName, catalog, relations: catalog.relations, paths, totals, profile, query, queryTable, present, bind };
+    return { cart, entities, byName, catalog, relations: catalog.relations, paths, totals, profile, query, queryTable, present, admitReadProfile, bind };
   });
 }

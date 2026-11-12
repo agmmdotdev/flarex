@@ -40,7 +40,8 @@ describe("native direct graph Query ABI", () => {
       expect(await connected.query.graph(input, cache)).toEqual(result);
       expect(await connected.query.graph({ ...input, entity: "variants" }, cache)).toEqual(result);
       expect(await connected.query.graph(input)).toEqual(result);
-      expect(connected.calls).toEqual(Array.from({ length: 3 }, () => ({ filters: input.filters,
+      expect(await connected.query.graph(input, { ...cache, throwIfKeyNotFound: true })).toEqual(result);
+      expect(connected.calls).toEqual(Array.from({ length: 4 }, () => ({ filters: input.filters,
         config: { select: ["id"], relations: [], order: { id: "ASC" }, skip: 0, take: commerceLimits.catalogRows } })));
       expect({ input, cache }).toEqual(before); expect(connected.refusals).toEqual([]);
     } finally { await Effect.runPromise(connected.owner.close); }
@@ -62,7 +63,7 @@ describe("native direct graph Query ABI", () => {
   it("latches malformed options and argument bags before dispatch even when rejection is caught", async () => {
     const connected = await bind();
     const invalidOptions: unknown[] = [{}, undefined, null, { cache: true }, { cache: {} }, { cache: { enable: false } },
-      { cache: { enable: true, ttl: 10 } }, { cache: { enable: true }, throwIfKeyNotFound: true }];
+      { cache: { enable: true, ttl: 10 } }, { cache: { enable: true }, throwIfRelationNotFound: true }];
     try {
       for (const options of invalidOptions) {
         const before = connected.refusals.length;

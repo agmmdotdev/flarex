@@ -15,12 +15,13 @@ import { ScalarId } from "../../repository/scalar-id-read";
 import { captureWorkflowRecord } from "../../workflow/configuration";
 import { prepareAtomicWorkflowHost, type AtomicWorkflowExecution, type WorkflowCallResults } from "../../workflow/host";
 import { orderedWorkflowIdEvents } from "../../workflow/events";
-import { prepareWorkflowResources } from "../../workflow/resources";
+import { prepareWorkflowResources, type PreparedWorkflowResources } from "../../workflow/resources";
 import { promotionComputeResources } from "../../workflow/policy";
 import { cartCreationResources } from "./create-owned";
 import { cartCreationResourceSelections, type prepareCartCreationResources } from "./create-cart";
 import { prepareCartCreationModules, type CartCreationModules } from "./creation-graph";
 import type { WorkflowModule } from "../../workflow/module";
+import { prepareCartShippingModules, type CartShippingLinks } from "./shipping-graph";
 
 const NullableText = Schema.optionalKey(Schema.NullOr(Schema.String));
 const NullableMetadata = Schema.optionalKey(Schema.NullOr(Schema.JsonObject));
@@ -46,19 +47,32 @@ type Kind = "updateCart" | "addLineItem" | "updateLineItem" | "deleteLineItems";
 // One shared root: the existing512 operation envelope plus at most553 SDK
 // captures/checkpoints in the issued243-node mutation closure. Creation and
 // participant resources retain their existing bounds.
-const cartMutationRequestCallLimit = 1065;
+export const cartMutationRequestCallLimit = 1065;
 
-/** Resource selection reuses the existing authenticated eighteen-source graph.
- * Mutation roots do not expose Cart creation or its ownership compensator. */
-export function prepareCartMutationResources(modules: CartCreationModules,
-  inventory: Preparation[1], link: Preparation[2], logger: Preparation[3]) {
-  const selections = cartCreationResourceSelections(modules);
-  return prepareWorkflowResources({ ...selections, cart: { module: modules.cart.module, graph: true as const,
-    methods: ["updateCarts", "listCarts", "listAndCountCarts", "listAddresses", "updateAddresses", "listLineItems", "addLineItems", "updateLineItems",
+const cartMutationMethods = ["updateCarts", "listCarts", "listAndCountCarts", "listAddresses", "updateAddresses", "listLineItems", "addLineItems", "updateLineItems",
       "deleteLineItems", "softDeleteLineItems", "restoreLineItems", "listLineItemTaxLines", "listShippingMethodTaxLines",
       "setLineItemTaxLines", "setShippingMethodTaxLines", "upsertLineItemTaxLines", "upsertShippingMethodTaxLines", "addLineItemAdjustments", "softDeleteLineItemAdjustments", "restoreLineItemAdjustments",
-      "addShippingMethodAdjustments", "softDeleteShippingMethodAdjustments", "restoreShippingMethodAdjustments"] as const } },
-  true, { inventory, link, logger }, { absent: ["caching"] });
+      "addShippingMethodAdjustments", "softDeleteShippingMethodAdjustments", "restoreShippingMethodAdjustments"] as const;
+
+/** The standalone eighteen-source profile retains native Store fallback. */
+export function prepareCartMutationResources(modules: CartCreationModules,
+  inventory: Preparation[1], link: Preparation[2], logger: Preparation[3]) {
+  return prepareWorkflowResources({ ...cartCreationResourceSelections(modules),
+    cart: { module: modules.cart.module, graph: true, methods: cartMutationMethods } },
+    true, { inventory, link, logger }, { absent: ["caching"] });
+}
+
+/** Shipping-capable Carts already have a Sales Channel. The nineteen-source
+ * selection retains Inventory and all native projections without Store fallback. */
+export function prepareCartShippingMutationResources(modules: CartCreationModules,
+  inventory: Preparation[1], link: Preparation[2], logger: Preparation[3], shippingLinks: CartShippingLinks) {
+  const { store: _store, ...selections } = cartCreationResourceSelections(modules);
+  return prepareWorkflowResources({ ...selections, cart: { module: modules.cart.module, graph: true,
+    methods: [...cartMutationMethods, "addShippingMethods", "deleteShippingMethods", "softDeleteShippingMethods", "restoreShippingMethods", "listShippingMethods", "updateShippingMethods"] },
+  fulfillment: { module: modules.fulfillment.module, graph: true, methods: ["validateFulfillmentData", "calculateShippingOptionsPrices"] },
+  location_fulfillment_set_links: { module: shippingLinks.location_fulfillment_set_links.module, graph: true, methods: [], expose: false },
+  shipping_option_price_set_links: { module: shippingLinks.shipping_option_price_set_links.module, graph: true, methods: [], expose: false },
+  }, true, { inventory, link, logger }, { absent: ["caching"] });
 }
 
 function mutationEvents(kind: Kind, modules: CartCreationModules) {
@@ -99,12 +113,17 @@ export const prepareCartMutationWorkflows = Effect.fn("CartMutation.prepareRoots
   readonly execution: AtomicWorkflowExecution; readonly modules: CartCreationModules; readonly salesChannelRead: WorkflowModule;
   readonly link: Preparation[2]; readonly logger: Preparation[3]; readonly revision: string; readonly subscribers: AtomicCommerceEvents["subscribers"];
   readonly hooks?: CartMutationHooks;
+  readonly shippingLinks?: CartShippingLinks;
 }) {
   const options = yield* Effect.fromResult(captureWorkflowRecord(input));
-  if (Object.keys(options).some(key => !["execution", "modules", "salesChannelRead", "link", "logger", "revision", "subscribers", "hooks"].includes(key)) ||
+  if (Object.keys(options).some(key => !["execution", "modules", "salesChannelRead", "link", "logger", "revision", "subscribers", "hooks", "shippingLinks"].includes(key)) ||
     FeatureFlag.isFeatureEnabled("translation")) return yield* commerceError("unsupportedProfile");
-  const selected = yield* prepareCartCreationModules(options.modules, options.salesChannelRead), modules = selected.modules;
-  const resources = yield* Effect.fromResult(prepareCartMutationResources(modules, selected.inventory, options.link, options.logger));
+  const selected = yield* prepareCartCreationModules(options.modules, options.salesChannelRead);
+  const shippingLinks = options.shippingLinks === undefined ? undefined : yield* Effect.fromResult(prepareCartShippingModules(selected.modules, options.shippingLinks));
+  const modules = shippingLinks ?? selected.modules;
+  const resources: PreparedWorkflowResources = shippingLinks === undefined
+    ? yield* Effect.fromResult(prepareCartMutationResources(modules, selected.inventory, options.link, options.logger))
+    : yield* Effect.fromResult(prepareCartShippingMutationResources(modules, selected.inventory, options.link, options.logger, shippingLinks));
   const registered = yield* Effect.fromResult(captureWorkflowRecord(options.hooks ?? {}));
   if (Object.keys(registered).some(key => key !== "cartUpdated") || registered.cartUpdated !== undefined && typeof registered.cartUpdated !== "function")
     return yield* commerceError("unsupportedProfile");
@@ -121,10 +140,11 @@ export const prepareCartMutationWorkflows = Effect.fn("CartMutation.prepareRoots
     deleteLineItems: createWorkflow({ name: "native-cart-delete-line-items-atomic", constructionProfile: nativeCartMutationProfile },
       (value: WorkflowData<typeof DeleteCartLineItemsInput.Type>) => { deleteLineItemsWorkflow.runAsStep({ input: value }); return new WorkflowResponse(null); }),
   };
-  const { inventory, ...others } = modules;
+  const { inventory, ...legacyOthers } = modules, { store: _store, ...shippingOthers } = legacyOthers;
+  const others = shippingLinks === undefined ? legacyOthers : shippingOthers;
   const composition = { execution: options.execution, modules: { ...others, inventory_graph: inventory,
     cart: { ...modules.cart, logicalResources: cartCreationResources }, promotion: { ...modules.promotion, logicalResources: promotionComputeResources } },
-  revision: options.revision, subscribers: options.subscribers, identityEncoding: "resourceAndDefinitionDigest" as const, requestParticipantLimit: 18,
+  revision: options.revision, subscribers: options.subscribers, identityEncoding: "resourceAndDefinitionDigest" as const, requestParticipantLimit: options.shippingLinks === undefined ? 18 : 19,
   requestCallLimit: cartMutationRequestCallLimit, executionIsolation: "scopeExclusive" as const, operationScheduling: "queued" as const,
   borrowedOperationScheduling: "queued" as const };
   const prepare = Effect.fn("CartMutation.prepareDefinition")(function* (kind: Kind) {

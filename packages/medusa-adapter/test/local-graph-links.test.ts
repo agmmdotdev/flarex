@@ -6,6 +6,8 @@ import { commerceError, type Json } from "@flarex/persistence-postgres/internal/
 import { captureVariantInventoryLinkMetadata } from "../src/composition/product-variant-inventory-schema";
 import { defineGraphReadCommand } from "../src/local-graph/commands";
 import { nativeLinkGraphPaths } from "../src/local-graph/links";
+import { ShippingOptionPriceSet } from "@medusajs/link-modules";
+import type { ModuleJoinerConfig } from "@medusajs/framework/types";
 import { prepareLocalGraph, decodeGraphCount } from "../src/local-graph/query";
 import type { GraphModuleDefinition, GraphParticipant, GraphRemotePath } from "../src/local-graph/model";
 import { defineWorkflowModule, workflowModuleDefinition } from "../src/workflow/module";
@@ -63,6 +65,75 @@ const query = (fields: string[] = ["id", "inventory.id", "inventory.variants.id"
 const graph = (remotePaths: readonly GraphRemotePath[] = paths) => Result.getOrThrow(prepareLocalGraph(participants(remotePaths)));
 
 describe("native Link-derived local graph paths", () => {
+  it("groups authenticated suffix aliases without requiring a synthetic public endpoint alias", () => {
+    const neutral: ModuleJoinerConfig = { serviceName: "left_right", isLink: true,
+      alias: [{ name: ["pairs"], entity: "Pair" }], primaryKeys: ["id", "left_id", "right_id"],
+      relationships: [{ serviceName: "left", entity: "Left", primaryKey: "id", foreignKey: "left_id", alias: "left" },
+        { serviceName: "right", entity: "Right", primaryKey: "id", foreignKey: "right_id", alias: "right" }],
+      extends: [{ serviceName: "left", entity: "Left", relationship: { serviceName: "left_right", primaryKey: "left_id", foreignKey: "id", alias: "right_link" },
+        fieldAlias: { details: { path: "right_link.right.details" }, calculation: { path: "right_link.right.calculation", forwardArgumentsOnPath: ["right_link.right"] } } }] };
+    const selection = { root: "Left", path: "details", maximumSources: 4, maximumLinks: 4, maximumTargets: 4, maximumPerSource: 1 };
+    expect(Result.getOrThrow(nativeLinkGraphPaths(neutral, [selection, { ...selection, path: "calculation" }]))).toMatchObject([
+      { path: "details", canonicalPath: "right_link.right", targetSuffix: "details", sourceModel: "Left", targetModel: "Right" },
+      { path: "calculation", canonicalPath: "right_link.right", targetSuffix: "calculation", forwardArgumentsOnPath: ["right_link.right"] },
+    ]);
+    const ambiguous = structuredClone(neutral), extension = ambiguous.extends?.[0];
+    if (extension === undefined) throw new Error("Missing neutral suffix extension");
+    extension.fieldAlias = { ...extension.fieldAlias, right: "right_link.right", duplicate: "right_link.right" };
+    expect(Result.isFailure(nativeLinkGraphPaths(ambiguous, [selection]))).toBe(true);
+    const foreign = structuredClone(neutral), forwarded = foreign.extends?.[0];
+    if (forwarded === undefined) throw new Error("Missing neutral forwarding extension");
+    forwarded.fieldAlias = { calculation: { path: "right_link.right.calculation", forwardArgumentsOnPath: ["foreign_link.right"] } };
+    expect(Result.isFailure(nativeLinkGraphPaths(foreign, [{ ...selection, path: "calculation" }]))).toBe(true);
+  });
+  it("preserves the real Shipping Option PriceSet suffix-only aliases", () => {
+    const selection = { root: "ShippingOption", path: "prices", maximumSources: 4, maximumLinks: 4, maximumTargets: 4, maximumPerSource: 1 };
+    expect(Result.getOrThrow(nativeLinkGraphPaths(ShippingOptionPriceSet, [selection, { ...selection, path: "calculated_price" }]))).toMatchObject([
+      { path: "prices", canonicalPath: "price_set_link.price_set", targetSuffix: "prices", outputMany: true },
+      { path: "calculated_price", canonicalPath: "price_set_link.price_set", targetSuffix: "calculated_price", forwardArgumentsOnPath: ["price_set_link.price_set"] },
+    ]);
+  });
+  it.each(["neutral", "shipping"])("preserves missing list and singleton suffix semantics for %s Link metadata", async kind => {
+    const neutral: ModuleJoinerConfig = { serviceName: "left_right", isLink: true,
+      alias: [{ name: "pairs", entity: "Pair" }], primaryKeys: ["left_id", "right_id"],
+      relationships: [{ serviceName: "left", entity: "Left", primaryKey: "id", foreignKey: "left_id", alias: "left" },
+        { serviceName: "right", entity: "Right", primaryKey: "id", foreignKey: "right_id", alias: "right" }],
+      extends: [{ serviceName: "left", entity: "Left", relationship: { serviceName: "left_right", primaryKey: "left_id", foreignKey: "id", alias: "right_link" },
+        fieldAlias: { details: { path: "right_link.right.details", isList: true }, calculation: { path: "right_link.right.calculation" } } }] };
+    const names = kind === "shipping" ? ["prices", "calculated_price"] as const : ["details", "calculation"] as const;
+    const selected = Result.getOrThrow(nativeLinkGraphPaths(kind === "shipping" ? ShippingOptionPriceSet : neutral, names.map(path => ({
+      root: kind === "shipping" ? "ShippingOption" : "Left", path, maximumSources: 4, maximumLinks: 4, maximumTargets: 4, maximumPerSource: 1,
+    }))));
+    const first = selected[0];
+    if (first === undefined) throw new Error("Missing authenticated suffix path");
+    const scalar = (name: string) => ({ name, columns: ["id"], primaryKeys: ["id"], foreignKeys: [], companions: {} });
+    const read = (model: string, command: typeof variantRead, table = scalar(model.toLowerCase())) => ({ model, command, table,
+      paths: [], orderable: [table.primaryKeys[0]!], uniqueOrder: table.primaryKeys.length === 1 ? table.primaryKeys : [], multipleOrder: false, decode: decodeGraphCount });
+    const modules: GraphParticipant[] = [
+      { participant: productParticipant, module: { aliases: [{ name: "source", model: first.sourceModel }], reads: [read(first.sourceModel, variantRead)] } },
+      { participant: inventoryParticipant, module: { aliases: [{ name: "target", model: first.targetModel }], reads: [{ ...read(first.targetModel, inventoryRead),
+        paths: [{ path: names[0], table: scalar("detail"), many: true, sourceFields: ["id"] },
+          { path: names[1], table: scalar("calculation"), many: false, optional: true, sourceFields: ["id"] }] }] } },
+      { participant: linkParticipant, module: { aliases: [{ name: "pairs", model: first.linkModel }], remotePaths: selected,
+        reads: [read(first.linkModel, linkRead, { name: "pairs", columns: [first.sourceColumn, first.targetColumn],
+          primaryKeys: [first.sourceColumn, first.targetColumn], foreignKeys: [], companions: {} })] } },
+    ];
+    const graph = Result.getOrThrow(prepareLocalGraph(modules));
+    const input = { entity: "source", fields: ["id", `${names[0]}.id`, `${names[1]}.id`], pagination: { take: 4 } };
+    const roots = [[{ id: "linked" }, { id: "unlinked" }], 2] satisfies Json;
+    const links = [[{ [first.sourceColumn]: "linked", [first.targetColumn]: "target" }], 1] satisfies Json;
+    const target = { id: "target", [names[0]]: [{ id: "detail" }], [names[1]]: { id: "calculation" } };
+    const calls: Call[] = [];
+    expect((await runEffect(graph.bind(context([roots, links, [[target], 1]], calls)).native(input))).data)
+      .toEqual([{ id: "linked", [names[0]]: [{ id: "detail" }], [names[1]]: { id: "calculation" } }, { id: "unlinked", [names[0]]: [] }]);
+    expect(calls.map(call => call.command)).toEqual([variantRead, linkRead, inventoryRead]);
+    expect((await runEffect(graph.bind(context([roots, [[], 0]])).native(input))).data)
+      .toEqual([{ id: "linked", [names[0]]: [] }, { id: "unlinked", [names[0]]: [] }]);
+    expect((await runEffect(graph.bind(context([roots, links, [[], 0]])).native(input))).data)
+      .toEqual([{ id: "linked", [names[0]]: [] }, { id: "unlinked", [names[0]]: [] }]);
+    expect(await runEffectFailure(graph.bind(context([roots, links, [[{ ...target, [names[0]]: null }], 1]])).native(input)))
+      .toHaveProperty("reason", "storedCorruption");
+  });
   it("captures workflow module paths before composition and keeps ordinary modules unchanged", () => {
     const selected = participants(), endpoint = selected[0], link = selected[2];
     if (endpoint === undefined || link === undefined) throw new Error("Missing graph fixture");

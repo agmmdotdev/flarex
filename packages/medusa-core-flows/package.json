@@ -270,6 +270,7 @@
     "./cart/create-shipping-method-adjustments-step": "./src/cart/steps/create-shipping-method-adjustments.ts",
     "./cart/remove-line-item-adjustments-step": "./src/cart/steps/remove-line-item-adjustments.ts",
     "./cart/remove-shipping-method-adjustments-step": "./src/cart/steps/remove-shipping-method-adjustments.ts",
+    "./cart/remove-shipping-method-from-cart-step": "./src/cart/steps/remove-shipping-method-from-cart.ts",
     "./cart/get-actions-to-compute-from-promotions-step": "./src/cart/steps/get-actions-to-compute-from-promotions.ts",
     "./cart/get-promotion-codes-to-apply-step": "./src/cart/steps/get-promotion-codes-to-apply.ts",
     "./cart/prepare-adjustments-from-promotion-actions-step": "./src/cart/steps/prepare-adjustments-from-promotion-actions.ts",
@@ -281,7 +282,14 @@
     "./common/dismiss-links": "./src/common/workflows/dismiss-links.ts",
     "./common/batch-links": "./src/common/workflows/batch-links.ts",
     "./common/update-remote-links-step": "./src/common/steps/update-remote-links.ts",
-    "./product/product-variant-inventory-links": "./src/product/workflows/product-variant-inventory-links.ts"
+    "./product/product-variant-inventory-links": "./src/product/workflows/product-variant-inventory-links.ts",
+    "./cart/list-shipping-options-for-cart": "./src/cart/workflows/list-shipping-options-for-cart.ts",
+    "./cart/add-shipping-method-to-cart": "./src/cart/workflows/add-shipping-method-to-cart.ts",
+    "./cart/add-shipping-method-to-cart-step": "./src/cart/steps/add-shipping-method-to-cart.ts",
+    "./cart/validate-shipping-options-price-step": "./src/cart/steps/validate-shipping-options-price.ts",
+    "./common/cart-mutation-query-views": "./src/common/steps/cart-mutation-query-views.ts",
+    "./common/cart-mutation-shipping-query-views": "./src/common/steps/cart-mutation-shipping-query-views.ts",
+    "./common/get-translated-shipping-options-step": "./src/common/steps/get-translated-shipping-option.ts"
   },
   "dependencies": {
     "@medusajs/deps": "workspace:*",

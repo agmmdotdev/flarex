@@ -1,15 +1,17 @@
 # Private Medusa HTTP
 
-## Store Cart creation, retrieval, updates, promotion codes and Tax refresh
+## Store Cart creation, retrieval and checkout preparation
 
 `@flarex/medusa-http/store-cart` exports `createStoreCartHttpHandler` for
 `POST /store/carts`, `GET /store/carts/:id`, `POST /store/carts/:id`,
 `POST /store/carts/:id/line-items` and `POST`/`DELETE` on
 `/store/carts/:id/line-items/:line_id`, plus `POST`/`DELETE` on
-`/store/carts/:id/promotions`, and `POST /store/carts/:id/taxes`.
+`/store/carts/:id/promotions`, `POST /store/carts/:id/taxes`,
+`GET /store/shipping-options` and `POST /store/carts/:id/shipping-methods`.
 `@flarex/medusa-http/store-cart-effect` mounts the same native handlers in an
 Effect HTTP host. The host supplies Store CORS, request scopes, a verified
 optional Customer principal and the Cart graph's `admitCartRefetchFields`.
+Shipping discovery also requires the Shipping graph's `admitShippingOptionFields`.
 
 The native middleware validates the publishable key, applies locale and selects
 the key's sole Sales Channel when the body omits one. A key with multiple
@@ -59,15 +61,28 @@ unchanged. The pinned workflow omits `completed_at` from its fetch, so completed
 Carts also refresh and return 200. See the
 [Tax scope](../../roadmaps/flarexdb-framework-integration/preflight/store-cart-taxes-http.md).
 
+Shipping discovery runs the native Cart workflow with geographic, Sales Channel,
+option-rule and Pricing context through the installed Links. It returns the
+native mandatory fields even when `fields=id`; pagination arguments do not
+truncate the workflow result. Selection accepts strict `{ option_id, data? }`,
+validates the local Manual provider's method data and replaces the previous
+Shipping Method through the native workflow. Shipping Tax, promotions, Payment
+refresh and one `cart.updated` event settle together. Replaced methods retain
+their Tax and Adjustment children. Existing Cart update flows use the connected
+Shipping graph when selected by the HTTP host. The named HTTP Cart read profile
+requires an assigned Sales Channel; ordinary standalone reads retain nullable
+channel eligibility. See the
+[Shipping scope](../../roadmaps/flarexdb-framework-integration/preflight/store-cart-shipping-http.md).
+
 This bounded profile retains four creation items and four promotion codes,
 existing complete-cohort read limits and the local System Tax provider. The
   native HTTP schemas retain their nullable members. Cart updates support nullable
-  address members and metadata. The Cart HTTP Pricing profile admits at most
-  sixty-four flattened context attributes; the standalone creation Pricing profile
+  address members and metadata. The Shipping Pricing profile admits 92 declared
+  native paths alongside the existing 64 other context leaves, for a derived
+  ceiling of 156. Ordinary mutation Pricing retains 64 attributes; standalone creation Pricing
   retains its seventeen-attribute bound. Creation retains its separate input profile, where
   unsupported explicit null values return 400 before durable acquisition.
-Translation-enabled requests refuse. Customer replacement, Shipping Method and
-checkout routes,
+Translation-enabled requests refuse. Customer replacement and checkout completion,
 mixed app deployment and capacity acceptance remain separate gates. See the
 [Cart creation/retrieval scope](../../roadmaps/flarexdb-framework-integration/preflight/store-cart-http.md)
 and [Cart update/line-item scope](../../roadmaps/flarexdb-framework-integration/preflight/store-cart-mutations-http.md),

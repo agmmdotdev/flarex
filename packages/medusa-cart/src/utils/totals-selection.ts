@@ -1,4 +1,5 @@
 import type { FindConfig } from "@medusajs/framework/types"
+import type { getShippingMethodsTotals } from "@medusajs/framework/utils/portable"
 import { deduplicate } from "@medusajs/framework/utils/portable"
 
 /** Native Cart total selection shared with authenticated read receipts. */
@@ -103,6 +104,11 @@ function addRelationsToCalculateTotals(config: FindConfig<Record<string, unknown
 
 /** Required native Line Item total-output fields; optional detail totals stay gated. */
 export function lineItemTotalsFields(): readonly string[] { return ["quantity","unit_price","subtotal","original_subtotal","total","original_total","discount_total","discount_subtotal","discount_tax_total","tax_total","original_tax_total"] }
+
+/** Native getShippingMethodTotals outputs assigned by decorateCartTotals. */
+export function shippingMethodTotalsFields(): readonly string[] { return [
+  "amount", "subtotal", "original_subtotal", "total", "original_total", "discount_total", "discount_subtotal", "discount_tax_total", "tax_total", "original_tax_total",
+] satisfies readonly (keyof ReturnType<typeof getShippingMethodsTotals>[string])[] }
 
 /** Direct BigNumber outputs of native decorateCartTotals. Selection triggers
  * remain includeCartTotals' separate native contract above. */

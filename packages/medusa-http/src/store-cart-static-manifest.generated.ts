@@ -6,7 +6,10 @@ import * as storeCartsByIdLineItemsRoute from "./api/store/carts/[id]/line-items
 import * as storeCartsByIdLineItemsByLine_idRoute from "./api/store/carts/[id]/line-items/[line_id]/route"
 import * as storeCartsByIdPromotionsRoute from "./api/store/carts/[id]/promotions/route"
 import * as storeCartsByIdTaxesRoute from "./api/store/carts/[id]/taxes/route"
+import * as storeCartsByIdShippingMethodsRoute from "./api/store/carts/[id]/shipping-methods/route"
+import * as storeShippingOptionsRoute from "./api/store/shipping-options/route"
 import { storeCartRoutesMiddlewares } from "./api/store/carts/middlewares"
+import { storeShippingOptionRoutesMiddlewares } from "./api/store/shipping-options/middlewares"
 
 export const storeCartHttpManifest = {
   routes: [
@@ -40,6 +43,16 @@ export const storeCartHttpManifest = {
       module: storeCartsByIdTaxesRoute,
       relativePath: "packages/medusa-http/src/api/store/carts/[id]/taxes/route.ts",
     },
+    {
+      route: "/store/carts/:id/shipping-methods",
+      module: storeCartsByIdShippingMethodsRoute,
+      relativePath: "packages/medusa-http/src/api/store/carts/[id]/shipping-methods/route.ts",
+    },
+    {
+      route: "/store/shipping-options",
+      module: storeShippingOptionsRoute,
+      relativePath: "packages/medusa-http/src/api/store/shipping-options/route.ts",
+    },
   ],
   middlewares: [
     {
@@ -49,6 +62,14 @@ export const storeCartHttpManifest = {
         },
       },
       source: "packages/medusa-http/src/api/store/carts/middlewares.ts",
+    },
+    {
+      module: {
+        default: {
+          routes: storeShippingOptionRoutesMiddlewares,
+        },
+      },
+      source: "packages/medusa-http/src/api/store/shipping-options/middlewares.ts",
     },
   ],
 } satisfies StaticHttpResourceManifest

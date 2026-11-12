@@ -188,9 +188,11 @@ Core storage and request outcomes are unchanged. Neutral and genuine native
 preparation witnesses cover this owner correction before connected acceptance.
 
 The bounded profile retains four-item/four-promotion-code cohorts, local
-SystemTax and existing Payment bounds. Empty shipping branches must skip through
-the genuine native graph; populated shipping and remote providers remain outside
-this slice unless their real dependency branch is admitted. Checkout HTTP,
+SystemTax and existing Payment bounds. The connected
+[Shipping HTTP profile](./store-cart-shipping-http.md) admits populated Shipping
+refresh for the HTTP mutation roots through the two additional native Link
+families; standalone eighteen-source construction retains its own selection.
+Remote providers and checkout completion HTTP,
 transport-loss retry, capacity and mixed deployment retain separate gates.
 
 Acceptance requires both PGlite and ordinary-role PostgreSQL, actual Workerd

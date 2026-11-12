@@ -280,7 +280,11 @@ export const populateGraphRemotePaths = Effect.fn("LocalGraph.populateRemotePath
               else delete parent[member.selected.name];
             } else {
               const target = found[0];
-              if (target === undefined) { delete parent[member.selected.name]; continue; }
+              if (target === undefined) {
+                if (member.edge.outputMany === true) parent[member.selected.name] = [];
+                else delete parent[member.selected.name];
+                continue;
+              }
               const value = target[member.edge.targetSuffix];
               if (value === undefined) return yield* context.refuse(commerceError("storedCorruption"));
               parent[member.selected.name] = value;

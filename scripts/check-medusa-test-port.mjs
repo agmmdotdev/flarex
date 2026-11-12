@@ -662,8 +662,9 @@ export function verifyPricingCreateTests(source, target) {
  * native soft deletion and its event-free restore. Shipping updates keep their four native methods and full
  * mutation/causal receipt inputs. Variant item pricing admits only its count
  * query and native calculation callback, with no public creation methods.
- * @param {string} source @param {string} target @param {string} repositorySource */
-export function verifyPricingWorkflowSelection(source, target, repositorySource) {
+ * @param {string} source @param {string} target @param {string} repositorySource
+ * @param {string} calculationSource @param {string} shippingContextSource */
+export function verifyPricingWorkflowSelection(source, target, repositorySource, calculationSource, shippingContextSource) {
   const contract = ts.createSourceFile("native.ts", source, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS);
   const declaration = contract.statements.find(node => ts.isInterfaceDeclaration(node) && node.name.text === "IPricingModuleService");
   if (declaration === undefined || !ts.isInterfaceDeclaration(declaration)) throw new Error("Missing native Pricing interface");
@@ -705,9 +706,9 @@ export function verifyPricingWorkflowSelection(source, target, repositorySource)
   /** @type {ts.CallExpression[]} */
   const shippingCaptures = [];
   /** @type {Map<string, ts.VariableDeclaration[]>} */
-  const listOwners = new Map(["listPriceUpdates", "listPrices", "listPriceUpdateContracts", "listPriceUpdateRead", "listPriceSnapshot", "listPriceUpdate", "listPriceRestore", "listPriceListsForPriceUpdate", "updateListPriceArguments", "restoreListPriceArguments", "snapshotPriceListPricesForUpdate", "updatePriceListPrices", "restorePriceListPrices", "listPriceCreations", "listPriceContracts", "listPriceRead", "addListPrices", "removeListPrices", "listPriceReadArguments", "listPriceListsForPriceCreation", "priceCreationEvents", "addPriceListPrices", "removePrices", "listDeletions", "listDeletionContracts", "listSoftDelete", "listRestore", "softDeletePriceLists", "restorePriceLists", "listUpdates", "listUpdateContracts", "listUpdateRead", "listUpdate", "listUpdateReadArguments", "decodeListUpdateArguments", "listPriceListsForUpdate", "updatePriceLists", "listCreations", "listContracts", "existingPolicy", "policy", "bind", "createList", "deleteList", "createPriceLists", "deletePriceLists", "decodeCreateListArguments"].map(name => [name, []]));
+  const listOwners = new Map(["listPriceUpdates", "listPrices", "listPriceUpdateContracts", "listPriceUpdateRead", "listPriceSnapshot", "listPriceUpdate", "listPriceRestore", "listPriceListsForPriceUpdate", "updateListPriceArguments", "restoreListPriceArguments", "snapshotPriceListPricesForUpdate", "updatePriceListPrices", "restorePriceListPrices", "listPriceCreations", "listPriceContracts", "listPriceRead", "addListPrices", "removeListPrices", "listPriceReadArguments", "listPriceListsForPriceCreation", "priceCreationEvents", "addPriceListPrices", "removePrices", "listDeletions", "listDeletionContracts", "listSoftDelete", "listRestore", "softDeletePriceLists", "restorePriceLists", "listUpdates", "listUpdateContracts", "listUpdateRead", "listUpdate", "listUpdateReadArguments", "decodeListUpdateArguments", "listPriceListsForUpdate", "updatePriceLists", "listCreations", "listContracts", "existingPolicy", "basePolicy", "policy", "bind", "createList", "deleteList", "createPriceLists", "deletePriceLists", "decodeCreateListArguments"].map(name => [name, []]));
   for (const name of ["listPriceRemovals", "listPriceRemovalContracts", "priceRemovalRead", "priceRemovalSoftDelete", "priceRemovalRestore",
-    "listPricesForRemoval", "softDeletePricesForRemoval", "restorePricesForRemoval", "cartCreationPricing", "cartMutationPricing", "calculatedRead", "variantItemPricing", "storeProductRead", "count", "calculate", "calculatePrices"]) listOwners.set(name, []);
+    "listPricesForRemoval", "softDeletePricesForRemoval", "restorePricesForRemoval", "cartCreationPricing", "cartShippingPricing", "cartMutationPricing", "calculatedRead", "variantItemPricing", "storeProductRead", "count", "calculate", "calculatePrices"]) listOwners.set(name, []);
   /** @param {ts.Node} node */
   const visit = node => {
     if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name)) listOwners.get(node.name.text)?.push(node);
@@ -838,7 +839,7 @@ export function verifyPricingWorkflowSelection(source, target, repositorySource)
     profiles.length !== 1 || profile === undefined || !ts.isObjectLiteralExpression(profile) ||
     profile.properties.some(property => (!ts.isPropertyAssignment(property) && !ts.isShorthandPropertyAssignment(property)) || !ts.isIdentifier(property.name)) ||
     profileNames.length !== 1 || profileNames[0]?.initializer.getText(adapter).replace(/\s/g, "") !==
-      'storeProductRead?"pricing-store-product-read":cartMutationPricing?"pricing-cart-mutations":cartCreationPricing?"pricing-cart-creation":variantItemPricing?"pricing-variant-item-pricing":listPriceRemovals?"pricing-price-list-price-removals":listPriceUpdates?"pricing-price-list-price-updates":listPriceCreations?"pricing-price-list-price-creations":listDeletions?"pricing-price-list-deletions":listUpdates?"pricing-price-list-updates":listCreations?"pricing-price-list-creations":shippingUpdates?"pricing-shipping-option-updates":shipping?"pricing-shipping-options":preferenceDeletions?"pricing-price-preference-deletions":preferenceUpdates?"pricing-price-preference-updates":preferences?"pricing-price-preferences":lifecycle?"pricing-product-updates":mutable?"pricing-variant-updates":"pricing-base-prices"' ||
+      'storeProductRead?"pricing-store-product-read":cartShippingPricing?"pricing-cart-shipping":cartMutationPricing?"pricing-cart-mutations":cartCreationPricing?"pricing-cart-creation":variantItemPricing?"pricing-variant-item-pricing":listPriceRemovals?"pricing-price-list-price-removals":listPriceUpdates?"pricing-price-list-price-updates":listPriceCreations?"pricing-price-list-price-creations":listDeletions?"pricing-price-list-deletions":listUpdates?"pricing-price-list-updates":listCreations?"pricing-price-list-creations":shippingUpdates?"pricing-shipping-option-updates":shipping?"pricing-shipping-options":preferenceDeletions?"pricing-price-preference-deletions":preferenceUpdates?"pricing-price-preference-updates":preferences?"pricing-price-preferences":lifecycle?"pricing-product-updates":mutable?"pricing-variant-updates":"pricing-base-prices"' ||
     admitted.length !== 1 || admitted[0]?.initializer?.getText(adapter).replace(/\s/g, "") !==
       'variantItemPricing?[count,calculate]:listPriceRemovals?[priceRemovalRead,priceRemovalSoftDelete,priceRemovalRestore]:listPriceUpdates?[listPriceUpdateRead,listPriceSnapshot,listPriceUpdate,listPriceRestore]:listPriceCreations?[listPriceRead,addListPrices,removeListPrices]:listDeletions?[listSoftDelete,listRestore]:listUpdates?[listUpdateRead,listUpdate]:listCreations?[createList,deleteList]:preferenceDeletions?[preferenceSoftDelete,preferenceRestore]:preferenceUpdates?[preferenceUpdateList,preferenceUpdate,preferenceUpdateUpsert]:shippingUpdates?[shippingUpdate,shippingListPrices,shippingListRules,shippingCreateRules,list,count,retrieve]:shipping?[create,list,count,retrieve,softDeletePriceSetsCommand,restorePriceSetsCommand,deletePriceSetsCommand]:preferences?[createPreference,preferenceList,preferenceUpsert,preferenceDelete]:[create,createList,createPreference,list,count,retrieve,calculate,...(mutable?[upsert,update]:[]),...(lifecycle?[softDeletePriceSetsCommand]:[])]' ||
     graphs.length !== 1 || graph === undefined || !ts.isConditionalExpression(graph) ||
@@ -861,19 +862,20 @@ export function verifyPricingWorkflowSelection(source, target, repositorySource)
     throw new Error("Unadmitted native Pricing workflow selection");
   const expectedListOwners = new Map([
     ["cartCreationPricing", 'admission === "cart-creation"'],
-    ["cartMutationPricing", 'admission === "cart-mutations"'],
+    ["cartMutationPricing", 'admission === "cart-mutations" || cartShippingPricing'],
+    ["cartShippingPricing", 'admission === "cart-shipping"'],
     ["calculatedRead", 'storeProductRead || cartMutationPricing'],
     ["variantItemPricing", 'admission === "variant-item-pricing" || cartCreationPricing || cartMutationPricing || storeProductRead'],
     ["storeProductRead", 'admission === "store-product-read"'],
     ["count", `calculatedRead
-      ? commands.read(cartMutationPricing ? "pricingCartMutationCount" : "pricingStoreProductCount", prepare(cartMutationPricing ? decodeCartMutationPriceSetRead : decodeStorePriceSetRead), async ({ service, context }, args) => {
+      ? commands.read(cartShippingPricing ? "pricingCartShippingCount" : cartMutationPricing ? "pricingCartMutationCount" : "pricingStoreProductCount", prepare(cartMutationPricing ? decodeCartMutationPriceSetRead : decodeStorePriceSetRead), async ({ service, context }, args) => {
         const result = await service.listAndCountPriceSets(structuredClone(args.filters) as FilterablePriceSetProps | undefined,
           structuredClone(args.config) as FindConfig<PriceSetDTO> | undefined, context);
         return Result.getOrThrow(decodeStorePriceSetCount(result, args.config?.relations?.includes("calculated_price") === true));
       })
       : commands.read("pricingCount", prepare(decodePriceSetRead), ({ service, context }, args) => service.listAndCountPriceSets(args.filters as FilterablePriceSetProps | undefined, args.config as FindConfig<PriceSetDTO> | undefined, context))`],
     ["calculate", `variantItemPricing
-      ? commands.read(storeProductRead ? "pricingCalculateStoreProducts" : cartMutationPricing ? "pricingCalculateCartMutations" : cartCreationPricing ? "pricingCalculateCartCreation" : "pricingCalculateVariantItems", prepare(storeProductRead ? decodeStorePricingCalculation : decodeVariantItemPricingCalculation), ({ service, context }, args): Promise<unknown> =>
+      ? commands.read(storeProductRead ? "pricingCalculateStoreProducts" : cartShippingPricing ? "pricingCalculateCartShipping" : cartMutationPricing ? "pricingCalculateCartMutations" : cartCreationPricing ? "pricingCalculateCartCreation" : "pricingCalculateVariantItems", prepare(storeProductRead ? decodeStorePricingCalculation : decodeVariantItemPricingCalculation), ({ service, context }, args): Promise<unknown> =>
         Reflect.apply(service.calculatePrices, service, [{ id: [...args.filters.id] }, args.pricingContext, context]))
       : commands.read("pricingCalculate", prepare(decodePricingCalculation), ({ service, context }, args) =>
         service.calculatePrices({ id: [...args.filters.id] }, args.pricingContext, context))`],
@@ -987,7 +989,19 @@ export function verifyPricingWorkflowSelection(source, target, repositorySource)
     ["listContracts", 'yield* compilePriceListCreationContracts(metadata.frame)'],
     ["decodeCreateListArguments", 'commerceDecoder(Schema.Tuple([PriceListsInput]), "invalidInput")'],
     ["existingPolicy", 'shipping ? pricingShippingOptionPolicy(preferencePolicy, shippingOutput, shippingUpdates ? shippingMutation : undefined, shippingUpdates ? prepared : undefined) : preferences ? preferencePolicy : lifecycle ? pricingLogicalProductUpdateEventPolicy(preferencePolicy) : mutable ? pricingLogicalMutationEventPolicy(preferencePolicy) : pricingLogicalCreateEventPolicy(preferencePolicy)'],
-    ["policy", 'listPriceRemovals ? pricingPriceListPriceRemovalPolicy(listPriceRemovalContracts) : listPriceUpdates ? pricingListPriceUpdatePolicy(listPriceUpdateContracts) : listPriceCreations ? pricingListPriceCreationPolicy(listPriceContracts) : listDeletions ? pricingListDeletionPolicy(listDeletionContracts) : listUpdates ? pricingListUpdatePolicy(listUpdateContracts) : listCreations ? pricingListCreationPolicy(listContracts) : !preferences && !shipping ? pricingListCreationPolicy(listContracts, existingPolicy) : existingPolicy'],
+    ["basePolicy", 'listPriceRemovals ? pricingPriceListPriceRemovalPolicy(listPriceRemovalContracts) : listPriceUpdates ? pricingListPriceUpdatePolicy(listPriceUpdateContracts) : listPriceCreations ? pricingListPriceCreationPolicy(listPriceContracts) : listDeletions ? pricingListDeletionPolicy(listDeletionContracts) : listUpdates ? pricingListUpdatePolicy(listUpdateContracts) : listCreations ? pricingListCreationPolicy(listContracts) : !preferences && !shipping ? pricingListCreationPolicy(listContracts, existingPolicy) : existingPolicy'],
+    ["policy", `cartShippingPricing ? { ...basePolicy,
+      validateLogicalCall: Effect.fn("Pricing.validateCartShippingCall")(function* (call: Parameters<typeof basePolicy.validateLogicalCall>[0], activity: Parameters<typeof basePolicy.validateLogicalCall>[1]) {
+        yield* basePolicy.validateLogicalCall(call, activity);
+        const checked = call.commandName === "pricingCalculateCartShipping"
+          ? decodeVariantItemPricingCalculation(call.input).pipe(Result.map(input => input.pricingContext.context))
+          : call.commandName === "pricingCartShippingCount"
+            ? decodeCartMutationPriceSetRead(call.input).pipe(Result.map(input => input.filters?.context))
+            : Result.fail(commerceError("receiptMismatch"));
+        const context = yield* Effect.fromResult(checked.pipe(Result.mapError(cause => commerceError("receiptMismatch", cause))));
+        yield* Effect.fromResult(prepareVariantItemPricingContext(context ?? {}, "cart-shipping")
+          .pipe(Result.mapError(cause => commerceError("receiptMismatch", cause))));
+      }) } : basePolicy`],
     ["createList", `commands.write("pricingCreateList", prepare(decodePriceListCreate),
       ({ service, context }, data): Promise<unknown> => Reflect.apply(service.createPriceLists, service, [structuredClone(data), context]))`],
     ["deleteList", `commands.write("pricingDeleteList", prepare(decodePriceListDeletionIds), async ({ service, context }, ids) => {
@@ -1021,7 +1035,7 @@ export function verifyPricingWorkflowSelection(source, target, repositorySource)
   /** @type {[ts.SourceFile, string, string][]} */
   const updateImports = [
     [adapter, "./store-read", 'import { decodeStorePriceSetCount, storeCalculatedPriceObject } from "./store-read";'],
-    [adapter, "./calculation", 'import { decodePricingCalculation, decodeVariantItemPricingCalculation, decodeStorePricingCalculation, VariantItemPricingCalculationInput, VariantItemPricingCalculationOutput } from "./calculation";'],
+    [adapter, "./calculation", 'import { decodePricingCalculation, decodeVariantItemPricingCalculation, decodeStorePricingCalculation, prepareVariantItemPricingContext, VariantItemPricingCalculationInput, VariantItemPricingCalculationOutput } from "./calculation";'],
     [adapter, "./price-list-price-update-input", 'import { UpdatePriceListPricesInput, decodeUpdatePriceListPrices, compilePriceListPriceUpdateContracts } from "./price-list-price-update-input";'],
     [adapter, "./price-list-price-update-receipt", 'import { pricingListPriceUpdatePolicy } from "./price-list-price-update-receipt";'],
     [repository, "./price-list-price-update-input", 'import { compilePriceListPriceUpdateContracts } from "./price-list-price-update-input";'],
@@ -1057,10 +1071,10 @@ export function verifyPricingWorkflowSelection(source, target, repositorySource)
   visitRepositoryOwners(repository);
   const expectedRepositoryOwners = new Map([
     ["cartCreationPricing", 'admission === "cart-creation"'],
-    ["cartMutationPricing", 'admission === "cart-mutations"'],
+    ["cartMutationPricing", 'admission === "cart-mutations" || admission === "cart-shipping"'],
     ["variantItemPricing", 'admission === "variant-item-pricing" || cartCreationPricing || cartMutationPricing || admission === "store-product-read"'],
     ["calculatePrices", `(filters, pricingContext, shared) => bridge.execute(shared, ctx => bridge.checked(ctx,
-      calculateLogicalPrices(ctx, { filters, pricingContext }, admission === "store-product-read" ? "store-product-read" : cartMutationPricing ? "cart-mutations" : cartCreationPricing ? "cart-creation" : variantItemPricing ? "variant-item-pricing" : "scalar")))`],
+      calculateLogicalPrices(ctx, { filters, pricingContext }, admission === "store-product-read" ? "store-product-read" : admission === "cart-shipping" ? "cart-shipping" : cartMutationPricing ? "cart-mutations" : cartCreationPricing ? "cart-creation" : variantItemPricing ? "variant-item-pricing" : "scalar")))`],
     ["preferenceRepository", `{ ...denied, serialize: repository.serialize,
       create: variantItemPricing ? refuse : preferenceCreate,
       find: (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {
@@ -1175,12 +1189,12 @@ export function verifyPricingWorkflowSelection(source, target, repositorySource)
     'metadata,preferenceDeletions?"deletions":preferenceUpdates?"updates":"store"' ||
     preferenceRepositories[1]?.arguments.map(argument => argument.getText(repository)).join(",") !== "metadata" ||
     repositoryAdmission.length !== 1 || admissionDeclaration.type.getText(repository).replace(/\s/g, "") !==
-    '"create"|"variant-updates"|"product-updates"|"price-preferences"|"price-preference-updates"|"price-preference-deletions"|"price-list-creations"|"price-list-updates"|"price-list-deletions"|"price-list-price-creations"|"price-list-price-updates"|"price-list-price-removals"|"shipping-options"|"shipping-option-updates"|"variant-item-pricing"|"cart-creation"|"cart-mutations"|"store-product-read"' ||
+    '"create"|"variant-updates"|"product-updates"|"price-preferences"|"price-preference-updates"|"price-preference-deletions"|"price-list-creations"|"price-list-updates"|"price-list-deletions"|"price-list-price-creations"|"price-list-price-updates"|"price-list-price-removals"|"shipping-options"|"shipping-option-updates"|"variant-item-pricing"|"cart-creation"|"cart-mutations"|"cart-shipping"|"store-product-read"' ||
     repositoryFactory.length !== 1 || factoryDeclaration.parameters.length !== 2 ||
     factoryDeclaration.parameters[1]?.getText(repository) !== 'admission: PricingRepositoryAdmission = "create"' ||
     adapter.statements.some(node => (ts.isTypeAliasDeclaration(node) || ts.isInterfaceDeclaration(node)) && node.name.text === "PricingRepositoryAdmission") ||
     admissionGuard === undefined || nativeWorkflowProgram(admissionGuard.getText(adapter), "Invalid Pricing selection") !== nativeWorkflowProgram(
-      'if (admission !== "create" && admission !== "variant-updates" && admission !== "product-updates" && admission !== "price-preferences" && admission !== "price-preference-updates" && admission !== "price-preference-deletions" && admission !== "price-list-creations" && admission !== "price-list-updates" && admission !== "price-list-deletions" && admission !== "price-list-price-creations" && admission !== "price-list-price-updates" && admission !== "price-list-price-removals" && admission !== "shipping-options" && admission !== "shipping-option-updates" && admission !== "variant-item-pricing" && admission !== "cart-creation" && admission !== "cart-mutations" && admission !== "store-product-read") return yield* Effect.fail(commerceError("unsupportedProfile"));', "Invalid Pricing selection") ||
+      'if (admission !== "create" && admission !== "variant-updates" && admission !== "product-updates" && admission !== "price-preferences" && admission !== "price-preference-updates" && admission !== "price-preference-deletions" && admission !== "price-list-creations" && admission !== "price-list-updates" && admission !== "price-list-deletions" && admission !== "price-list-price-creations" && admission !== "price-list-price-updates" && admission !== "price-list-price-removals" && admission !== "shipping-options" && admission !== "shipping-option-updates" && admission !== "variant-item-pricing" && admission !== "cart-creation" && admission !== "cart-mutations" && admission !== "cart-shipping" && admission !== "store-product-read") return yield* Effect.fail(commerceError("unsupportedProfile"));', "Invalid Pricing selection") ||
     profile.properties.length !== 3 || profile.properties[1]?.getText(adapter) !== "capabilities: []" || profile.properties[2]?.getText(adapter) !== "bind" ||
     nativeWorkflowProgram("const graph = " + graph.getText(adapter), "Invalid Pricing selection") !== nativeWorkflowProgram(`const graph = preferences || listCreations || listUpdates || listDeletions || listPrices ? { aliases: [], reads: [] } : {
       aliases: yield* moduleAliases({ ...joiner, alias: (Array.isArray(joiner.alias) ? joiner.alias : joiner.alias === undefined ? [] : [joiner.alias]).filter(alias => alias.entity === "PriceSet") }),
@@ -1189,6 +1203,53 @@ export function verifyPricingWorkflowSelection(source, target, repositorySource)
         orderable: ["id"], uniqueOrder: ["id"], multipleOrder: false, decode: calculatedRead ? decodeStorePriceSetCount : decodeGraphCount }] };`, "Invalid Pricing selection") ||
     admissionImports.length !== 1 || admissionImports[0].getText(adapter).replace(/\s/g, "") !==
       'import{preparePricingRepository,typePricingRepositoryAdmission}from"./repository";')
+    throw new Error("Unadmitted native Pricing workflow selection");
+  // Authenticate the named bounded extension itself, including the existing
+  // 10/17/64 branches and native flattening. Selection alone cannot grant a
+  // caller-defined cap, a different DML family or a receipt-only exception.
+  if (typeof calculationSource !== "string" || typeof shippingContextSource !== "string")
+    throw new Error("Unadmitted native Pricing workflow selection");
+  const calculation = ts.createSourceFile("calculation.ts", calculationSource, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS);
+  const contextFunctions = calculation.statements.filter(ts.isFunctionDeclaration).filter(node => node.name?.text === "prepareVariantItemPricingContext");
+  const contextProfiles = calculation.statements.filter(ts.isTypeAliasDeclaration).filter(node => node.name.text === "VariantItemPricingProfile");
+  for (const [path, expected] of [
+    ["./cart-shipping-context", 'import { admitCartShippingPricingContext } from "./cart-shipping-context";'],
+    ["@medusajs/utils/common/flatten-object-to-key-value-pairs", 'import { flattenObjectToKeyValuePairs } from "@medusajs/utils/common/flatten-object-to-key-value-pairs";'],
+  ]) {
+    const imports = calculation.statements.filter(ts.isImportDeclaration).filter(node => ts.isStringLiteral(node.moduleSpecifier) && node.moduleSpecifier.text === path);
+    if (imports.length !== 1 || nativeWorkflowProgram(imports[0]?.getText(calculation) ?? "", "Invalid Pricing selection", true) !==
+      nativeWorkflowProgram(expected, "Invalid Pricing selection", true)) throw new Error("Unadmitted native Pricing workflow selection");
+  }
+  const calculations = calculation.statements.filter(ts.isVariableStatement).flatMap(statement => statement.declarationList.declarations)
+    .filter(node => ts.isIdentifier(node.name) && node.name.text === "calculateLogicalPrices");
+  const callback = calculations[0]?.initializer;
+  const implementation = callback !== undefined && ts.isCallExpression(callback) ? callback.arguments[0] : undefined;
+  const contextAdmission = `
+    if (profile !== "scalar" && profile !== "variant-item-pricing" && profile !== "cart-creation" && profile !== "cart-mutations" && profile !== "cart-shipping" && profile !== "store-product-read") return yield* ctx.refuse(commerceError("unsupportedProfile"));
+    const captured = yield* Effect.fromResult(captureCommerceInput(input, ctx.resources));
+    const { filters, values } = yield* profile !== "scalar" ? Effect.gen(function* () {
+      const parsed = yield* Effect.fromResult((profile === "store-product-read" ? decodeStorePricingCalculation : decodeVariantItemPricingCalculation)(captured));
+      yield* Effect.try({ try: () => validatePricingCurrencyCode(parsed.pricingContext.context?.currency_code), catch: cause => cause,
+      }).pipe(Effect.catch(cause => cause instanceof MedusaError ? Effect.fail(commerceError("adapterFailure", cause)) : Effect.die(cause)));
+      const values = yield* Effect.fromResult(prepareVariantItemPricingContext(parsed.pricingContext.context ?? {}, profile));
+      return { filters: parsed.filters, values };
+    }) : Effect.fromResult(decodePricingCalculation(captured).pipe(Result.map(parsed => ({ filters: parsed.filters, values: parsed.pricingContext.context ?? {} }))));
+    if (profile === "scalar" && Object.keys(values).length > 10) return yield* ctx.refuse(commerceError("limitExceeded"));`;
+  if (calculations.length !== 1 || callback === undefined || !ts.isCallExpression(callback) ||
+    nativeWorkflowProgram("const callback = " + callback.expression.getText(calculation), "Invalid Pricing selection", true) !==
+      nativeWorkflowProgram('const callback = Effect.fn("Pricing.calculateLogical")', "Invalid Pricing selection", true) ||
+    callback.arguments.length !== 1 || implementation === undefined || !ts.isFunctionExpression(implementation) || implementation.asteriskToken === undefined ||
+    nativeWorkflowProgram(implementation.body.statements.slice(0, 4).map(node => node.getText(calculation)).join("\n"), "Invalid Pricing selection", true) !==
+      nativeWorkflowProgram(contextAdmission, "Invalid Pricing selection", true))
+    throw new Error("Unadmitted native Pricing workflow selection");
+  const expectedContextFunction = "export function prepareVariantItemPricingContext(context: typeof Schema.JsonObject.Type, profile: VariantItemPricingProfile = \"variant-item-pricing\") {\n  return Result.gen(function* () {\n    if (profile !== \"variant-item-pricing\" && profile !== \"cart-creation\" && profile !== \"cart-mutations\" && profile !== \"cart-shipping\" && profile !== \"store-product-read\") return yield* Result.fail(commerceError(\"unsupportedProfile\"));\n    if (profile === \"store-product-read\") yield* decodeStorePricingContext(context);\n    const flattened = yield* decodeFlatVariantItemPricingContext(flattenObjectToKeyValuePairs(context));\n    // Closed complete-Cart context: the native Region/Country DTO and\n    // customer_id require17 non-control attributes. Ordinary callers keep10.\n    // Mutation refresh supplies the complete selected Customer and Region,\n    // including their bounded native metadata. Creation keeps its original17.\n    const maximum = profile === \"cart-mutations\" ? 64 : profile === \"cart-creation\" ? 17 : 10;\n    const keys = Object.keys(flattened).filter(key => key !== \"currency_code\" && key !== \"quantity\");\n    if (profile === \"cart-shipping\") yield* admitCartShippingPricingContext(keys);\n    else if (keys.length > maximum)\n      return yield* Result.fail(commerceError(\"limitExceeded\"));\n    return flattened;\n  });\n}";
+  const expectedShippingContext = "import { Result } from \"effect\";\nimport { compileDmlSchema } from \"@medusajs/drizzle/schema\";\nimport { cartCreationModels } from \"@medusajs/cart/creation-models\";\nimport { lineItemTotalsFields } from \"@medusajs/cart/utils/totals-selection\";\nimport { cartFieldsForCalculateShippingOptionsPrices } from \"@medusajs/core-flows/cart/variant-pricing-fields\";\nimport { commerceError } from \"@flarex/persistence-postgres/internal/commerce-values\";\n\n/** The existing mutation allowance still bounds opaque Region, Customer and\n * metadata leaves. Only the native Shipping calculation's declared field family\n * receives separate capacity; arrays flatten to paths rather than row counts. */\nexport const cartShippingPricingContext = Result.try({ try: () => {\n  const tables = compileDmlSchema(Object.values(cartCreationModels)).tables;\n  const fields = new Set<string>();\n  const selected = [...cartFieldsForCalculateShippingOptionsPrices, \"sales_channel_id\", \"currency_code\", \"region_id\", \"item_total\", \"total\"];\n  for (const field of selected) {\n    if (!field.endsWith(\".*\")) { fields.add(field); continue; }\n    const prefix = field.slice(0, -2), tableName = prefix === \"items\" ? \"cart_line_item\" : prefix === \"shipping_address\" ? \"cart_address\" : undefined;\n    const table = tables.find(table => table.name === tableName);\n    if (table === undefined) throw commerceError(\"unsupportedProfile\");\n    for (const column of table.columns) {\n      // JSON metadata has no finite path family and keeps the original budget.\n      if (column.type === \"json\") continue;\n      fields.add(`${prefix}.${column.name}`);\n      if (column.type === \"bigNumber\") {\n        fields.add(`${prefix}.raw_${column.name}.value`); fields.add(`${prefix}.raw_${column.name}.precision`);\n      }\n    }\n    if (prefix === \"items\") for (const name of lineItemTotalsFields()) {\n      if (table.columns.some(column => column.name === name)) continue;\n      fields.add(`${prefix}.${name}`); fields.add(`${prefix}.raw_${name}.value`); fields.add(`${prefix}.raw_${name}.precision`);\n    }\n  }\n  fields.delete(\"currency_code\"); fields.delete(\"quantity\");\n  const opaqueMaximum = 64;\n  return Object.freeze({ fields: Object.freeze([...fields].sort()), opaqueMaximum, maximum: opaqueMaximum + fields.size });\n}, catch: cause => commerceError(\"unsupportedProfile\", cause) });\n\nexport function admitCartShippingPricingContext(keys: readonly string[]) {\n  return Result.gen(function* () {\n    const policy = yield* cartShippingPricingContext;\n    if (keys.length > policy.maximum || keys.filter(key => !policy.fields.includes(key)).length > policy.opaqueMaximum)\n      return yield* Result.fail(commerceError(\"limitExceeded\"));\n  });\n}\n";
+  if (contextFunctions.length !== 1 || contextProfiles.length !== 1 ||
+    contextProfiles[0]?.type.getText(calculation).replace(/\s/g, "") !== '"variant-item-pricing"|"cart-creation"|"cart-mutations"|"cart-shipping"|"store-product-read"' ||
+    nativeWorkflowProgram(contextFunctions[0]?.getText(calculation) ?? "", "Invalid Pricing selection", true) !==
+      nativeWorkflowProgram(expectedContextFunction, "Invalid Pricing selection", true) ||
+    nativeWorkflowProgram(shippingContextSource, "Invalid Pricing selection", true) !==
+      nativeWorkflowProgram(expectedShippingContext, "Invalid Pricing selection", true))
     throw new Error("Unadmitted native Pricing workflow selection");
   /** @type {ts.VariableDeclaration[]} */
   const lookups = [];

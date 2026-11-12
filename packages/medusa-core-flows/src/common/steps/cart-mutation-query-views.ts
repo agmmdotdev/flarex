@@ -63,7 +63,11 @@ const Location = Schema.StructWithRest(Schema.Struct({ id: Schema.String, name: 
 }), [Json]);
 const Channel = Schema.StructWithRest(Schema.Struct({ stock_locations: Schema.Array(Location).pipe(Schema.mutable) }), [Json]);
 const Option = Schema.StructWithRest(Schema.Struct({ id: Schema.String, price_type: Schema.String }), [Json]);
-const malformed = () => new WorkflowDefinitionError({ reason: "invalidDefinition", detail: "Malformed native Cart mutation graph projection" });
+const malformed = (cause?: unknown) => {
+  const error = new WorkflowDefinitionError({ reason: "invalidDefinition", detail: "Malformed native Cart mutation graph projection" });
+  error.cause = cause;
+  return error;
+};
 const decodeEntity = Schema.decodeUnknownResult(Schema.Struct({ entity: Schema.String }));
 const decodeUpdate = Schema.decodeUnknownResult(CartMutationUpdateView), decodeRegion = Schema.decodeUnknownResult(CartMutationRegionView);
 const decodeIds = Schema.decodeUnknownResult(Schema.Array(Row).pipe(Schema.mutable));
@@ -71,9 +75,26 @@ const decodePricing = Schema.decodeUnknownResult(CartMutationPricingView), decod
 const decodeVariants = Schema.decodeUnknownResult(Schema.Array(Variant).pipe(Schema.mutable));
 const decodeRefresh = Schema.decodeUnknownResult(Schema.UndefinedOr(CartMutationRefreshView));
 const decodeShipping = Schema.decodeUnknownResult(Schema.UndefinedOr(ShippingCart));
-const decodeShippingCarts = Schema.decodeUnknownResult(Schema.Array(CartMutationPricingView).pipe(Schema.mutable));
+// The genuine Shipping pricing query omits email. Its consumed Cart view must
+// follow that selection rather than require the add/update item's projection.
+const { email: _shippingEmail, ...shippingPricingFields } = pricingFields;
+const ShippingPricingCart = Schema.StructWithRest(Schema.Struct(shippingPricingFields), [Json]);
+const decodeShippingCarts = Schema.decodeUnknownResult(Schema.Array(ShippingPricingCart).pipe(Schema.mutable));
 const decodeChannels = Schema.decodeUnknownResult(Schema.Array(Channel).pipe(Schema.mutable));
 const decodeOptions = Schema.decodeUnknownResult(Schema.Array(Option).pipe(Schema.mutable));
+const ListedInventory = Schema.StructWithRest(Schema.Struct({ requires_shipping: Schema.Boolean,
+  location_levels: Schema.Array(Schema.StructWithRest(Schema.Struct({ location_id: Schema.String, available_quantity: Schema.Finite }), [Json])).pipe(Schema.mutable),
+}), [Json]);
+const ListedItem = Schema.StructWithRest(Schema.Struct({ quantity: Schema.Finite,
+  variant: Schema.NullOr(Schema.StructWithRest(Schema.Struct({ manage_inventory: Schema.Boolean,
+    inventory_items: Schema.Array(Schema.StructWithRest(Schema.Struct({ inventory: ListedInventory }), [Json])).pipe(Schema.mutable),
+  }), [Json])),
+}), [Json]);
+const ListedCart = Schema.StructWithRest(Schema.Struct({ sales_channel_id: Text, currency_code: Schema.String, region_id: Text,
+  locale: Text, items: Schema.Array(ListedItem).pipe(Schema.mutable), customer_id: Schema.optionalKey(Text),
+  customer: Schema.optionalKey(Schema.NullOr(Customer)), shipping_address: Schema.optionalKey(Schema.NullOr(Address)),
+}), [Json]);
+const decodeListedCarts = Schema.decodeUnknownResult(Schema.Array(ListedCart).pipe(Schema.mutable));
 
 /** Query's existing owner admits the full native selection and validates DML.
  * These callback views check only consumed projected data; they grant no query,
@@ -118,6 +139,12 @@ const options = createStep("use-query-graph-step", async (input: unknown, { cont
     : entity === "shipping_options" ? decode(decodeOptions, result.data) : Result.getOrThrow(Result.fail(malformed()));
   return new StepResponse({ ...result, data });
 });
+const listOptions = createStep("use-query-graph-step", async (input: unknown, { container }) => {
+  const { entity, result } = await read(input, container);
+  const data = entity === "cart" ? decode(decodeListedCarts, result.data) : entity === "sales_channels" ? decode(decodeChannels, result.data)
+    : Result.getOrThrow(Result.fail(malformed()));
+  return new StepResponse({ ...result, data });
+});
 type Metadata = { readonly count: number; readonly skip: number; readonly take: number };
 type Selected<A> = StepOutput<{ readonly data: A; readonly metadata: Metadata }>;
 export function useCartUpdateQueryGraphStep(input: { readonly entity: "cart"; readonly [key: string]: unknown }): Selected<CartMutationUpdateView>;
@@ -132,7 +159,10 @@ export function useItemUpdateQueryGraphStep(input: { readonly entity: "variants"
 export function useItemUpdateQueryGraphStep(input: unknown): unknown { return item(input); }
 export function useCartRefreshQueryGraphStep(input: unknown) { return refresh(input); }
 export function useCartShippingQueryGraphStep(input: unknown) { return shipping(input); }
-export function useCartShippingOptionsQueryGraphStep(input: { readonly entity: "cart"; readonly [key: string]: unknown }): Selected<CartMutationPricingView[]>;
+export function useCartShippingOptionsQueryGraphStep(input: { readonly entity: "cart"; readonly [key: string]: unknown }): Selected<(typeof ShippingPricingCart.Type)[]>;
 export function useCartShippingOptionsQueryGraphStep(input: { readonly entity: "sales_channels"; readonly [key: string]: unknown }): Selected<(typeof Channel.Type)[]>;
 export function useCartShippingOptionsQueryGraphStep(input: { readonly entity: "shipping_options"; readonly [key: string]: unknown }): Selected<(typeof Option.Type)[]>;
 export function useCartShippingOptionsQueryGraphStep(input: unknown): unknown { return options(input); }
+export function useCartShippingListQueryGraphStep(input: { readonly entity: "cart"; readonly [key: string]: unknown }): Selected<(typeof ListedCart.Type)[]>;
+export function useCartShippingListQueryGraphStep(input: { readonly entity: "sales_channels"; readonly [key: string]: unknown }): Selected<(typeof Channel.Type)[]>;
+export function useCartShippingListQueryGraphStep(input: unknown): unknown { return listOptions(input); }

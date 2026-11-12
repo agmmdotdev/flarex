@@ -115,6 +115,20 @@ export function nativeLineItemTotalsFieldNames(source) {
   if (fields.length === 0 || new Set(fields).size !== fields.length) throw new Error("Changed native Line Item total fields");
   return fields;
 }
+/** Derive Shipping output metadata from its pinned native calculator contract.
+ * @param {string} source */
+export function nativeShippingMethodTotalsFieldNames(source) {
+  const ast = parse(source), declarations = ast.statements.filter(node => ts.isInterfaceDeclaration(node) && node.name.text === "GetShippingMethodTotalOutput");
+  const declaration = declarations[0];
+  if (declarations.length !== 1 || declaration === undefined || !ts.isInterfaceDeclaration(declaration)) throw new Error("Missing native Shipping totals contract");
+  const fields = declaration.members.map(node => {
+    if (!ts.isPropertySignature(node) || node.questionToken !== undefined || !ts.isIdentifier(node.name) || node.type?.getText(ast) !== "BigNumber")
+      throw new Error("Changed native Shipping total field");
+    return node.name.text;
+  });
+  if (fields.length !== 10 || new Set(fields).size !== fields.length) throw new Error("Changed native Shipping total fields");
+  return fields;
+}
 /** Names emitted directly by the native Cart calculator; selector triggers stay
  * independently preserved. Dynamic optional detail fields remain outside this set.
  * @param {string} source */
@@ -122,7 +136,9 @@ export function nativeCartTotalsOutputFieldNames(source) {
   const ast = parse(source);
   const decorate = ast.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === "decorateCartTotals");
   if (decorate === undefined) throw new Error("Missing native Cart total calculator");
+  /** @type {string[]} */
   const fields = [];
+  /** @param {import("@typescript/typescript6").Node} node */
   const visit = node => {
     if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken
       && ts.isPropertyAccessExpression(node.left) && ts.isIdentifier(node.left.expression) && node.left.expression.text === "cart"
@@ -134,8 +150,8 @@ export function nativeCartTotalsOutputFieldNames(source) {
   if (fields.length !== 26 || new Set(fields).size !== fields.length) throw new Error("Changed native Cart total output fields");
   return fields;
 }
-/** @param {string} source @param {string} target @param {string} helper @param {string} itemTotalsSource @param {string} cartTotalsSource */
-export function verifyCartPaymentTotalsSource(source, target, helper, itemTotalsSource, cartTotalsSource) {
+/** @param {string} source @param {string} target @param {string} helper @param {string} itemTotalsSource @param {string} cartTotalsSource @param {string} shippingTotalsSource */
+export function verifyCartPaymentTotalsSource(source, target, helper, itemTotalsSource, cartTotalsSource, shippingTotalsSource) {
   const normalized = source.replaceAll("\r\n", "\n").replaceAll('"@medusajs/framework/utils"', '"@medusajs/framework/utils/portable"');
   const ast = parse(normalized), declaration = ast.statements.find(ts.isClassDeclaration);
   if (declaration === undefined) throw new Error("Missing native Cart class");
@@ -148,7 +164,7 @@ export function verifyCartPaymentTotalsSource(source, target, helper, itemTotals
   const totals = totalsStatement !== undefined && ts.isVariableStatement(totalsStatement) ? totalsStatement.declarationList.declarations[0] : undefined;
   if (totals?.name.getText(ast) !== "totalFields" || totals.initializer === undefined || !ts.isArrayLiteralExpression(totals.initializer))
     throw new Error("Missing native Cart totals field array");
-  const helperExpected = 'import type { FindConfig } from "@medusajs/framework/types"\nimport { deduplicate } from "@medusajs/framework/utils/portable"\n' +
+  const helperExpected = 'import type { FindConfig } from "@medusajs/framework/types"\nimport type { getShippingMethodsTotals } from "@medusajs/framework/utils/portable"\nimport { deduplicate } from "@medusajs/framework/utils/portable"\n' +
     'export function cartTotalsFields(): string[] { return ' + totals.initializer.getText(ast) + ' }\n' +
     'export function includeCartTotals(config: FindConfig<Record<string, unknown>>): boolean ' + include.body.getText(ast)
       .replace(totals.getText(ast), "totalFields = cartTotalsFields()")
@@ -157,7 +173,9 @@ export function verifyCartPaymentTotalsSource(source, target, helper, itemTotals
   const helperFile = parse(helper), outputFields = helperFile.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === "cartTotalOutputFields");
   if (outputFields === undefined) throw new Error("Missing native Cart output metadata");
   equal(helperExpected + "\nexport function lineItemTotalsFields(): readonly string[] { return " +
-    JSON.stringify(nativeLineItemTotalsFieldNames(itemTotalsSource)) + " }\n", helper.slice(0, outputFields.getStart(helperFile)) + helper.slice(outputFields.end));
+    JSON.stringify(nativeLineItemTotalsFieldNames(itemTotalsSource)) + " }\n" +
+    "export function shippingMethodTotalsFields(): readonly string[] { return [\n" + nativeShippingMethodTotalsFieldNames(shippingTotalsSource).map(name => JSON.stringify(name)).join(", ") +
+    ",\n] satisfies readonly (keyof ReturnType<typeof getShippingMethodsTotals>[string])[] }\n", helper.slice(0, outputFields.getStart(helperFile)) + helper.slice(outputFields.end));
   equal("export function cartTotalOutputFields(): readonly string[] { return [\n" +
     nativeCartTotalsOutputFieldNames(cartTotalsSource).map(name => JSON.stringify(name)).join(",\n") + ",\n] }\n", outputFields.getText(helperFile));
   let expected = normalized.slice(0, add.getStart(ast)) + normalized.slice(add.end);

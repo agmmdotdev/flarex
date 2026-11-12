@@ -120,6 +120,21 @@ workflow's selected fields omit `completed_at`, so completed Carts also refresh
 and return 200. Ordinary construction and existing root
 budgets remain authoritative.
 
+The connected [Shipping HTTP profile](./preflight/store-cart-shipping-http.md)
+adds `GET /store/shipping-options` and
+`POST /store/carts/:id/shipping-methods`. Native geographic, option-rule and Sales
+Channel eligibility, flat Pricing context and local Manual method-data validation
+use a twenty-source catalog with the existing Location–FulfillmentSet and
+ShippingOption–PriceSet Links. Root selections remain within the nineteen-source
+admission bound. The named HTTP Cart read profile requires an assigned Sales
+Channel; ordinary standalone reads retain their nullable-channel eligibility.
+Selection replaces methods and runs native Cart,
+Shipping Tax, Promotion and Payment refresh with one `cart.updated` event.
+Shipping Method soft deletion retains child Tax and Adjustment history; its
+restrictive physical inverse remains distinct from atomic root rollback.
+The HTTP update and line-item roots consume the connected Shipping graph for
+subsequent refresh; standalone creation retains its eighteen-source profile.
+
 The native default response preserves Cart/item totals, selected Product and
 taxonomy relations, Customer Groups, Region Countries, Addresses, Promotions,
 and Payment Collection/Sessions. Publishable-key validation, verified optional
@@ -137,13 +152,14 @@ history independently of those input bounds, including tombstoned descendants.
 Its existing shared query, write and event capacities, aggregate identity and
 request budgets still bound deletion and retained restore; overflow must refuse
 with atomic business rollback.
-Mutation Pricing has a separate sixty-four-attribute context
-profile; ordinary and standalone creation Pricing retain their ten/seventeen
-bounds. The issued mutation graph admits 243 nodes and one shared root allowance
+Ordinary mutation Pricing has a separate sixty-four-attribute context profile.
+The HTTP Shipping profile additionally admits 92 declared native paths while
+retaining 64 other context leaves, for a derived ceiling of 156. Ordinary and
+standalone creation Pricing retain their ten/seventeen bounds. The issued mutation graph admits 243 nodes and one shared root allowance
 of 1,065 operations; default authoring, creation and participant bounds remain distinct.
 Cart updates admit nullable Address members and metadata. Explicit nulls outside
 the separate creation input profile and unsupported response fields refuse before
-mutation. Dedicated Shipping Method mutations and checkout HTTP,
+mutation. Checkout completion HTTP,
 translation, remote providers, mixed deployment and capacity acceptance retain
 their separate gates.
 

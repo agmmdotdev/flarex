@@ -4,7 +4,7 @@ import { commerceDecoder } from "../../value/decoder";
 import { ExactNumericRaw } from "../../value/exact-numeric";
 import { ScalarId } from "../../repository/scalar-id-read";
 import { RootAddress, RootLine } from "./creation-input";
-import { CartItemTaxLine } from "./refresh-input";
+import { CartItemTaxLine, CartShippingTaxLine } from "./refresh-input";
 
 const Text = Schema.optionalKey(Schema.NullOr(Schema.String));
 const Amount = Schema.Union([Schema.String, Schema.Finite, Schema.Struct(ExactNumericRaw.fields)]);
@@ -52,3 +52,6 @@ export const decodeCartMutationIds = commerceDecoder(CartMutationIds, "invalidIn
 export const CartMutationTaxLines = Schema.Array(Schema.Struct({ ...CartItemTaxLine.fields, id: Schema.optionalKey(ScalarId) }))
   .pipe(Schema.mutable).check(Schema.isMaxLength(4));
 export const decodeCartMutationTaxLines = commerceDecoder(CartMutationTaxLines, "invalidInput");
+export const CartMutationShippingTaxLines = Schema.Array(Schema.Struct({ ...CartShippingTaxLine.fields, id: Schema.optionalKey(ScalarId) }))
+  .pipe(Schema.mutable).check(Schema.isMaxLength(4));
+export const decodeCartMutationShippingTaxLines = commerceDecoder(CartMutationShippingTaxLines, "invalidInput");

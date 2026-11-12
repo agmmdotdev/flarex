@@ -8,6 +8,9 @@ import { productBatchAuthorizationHttpSourcePair, verifyProductBatchAuthorizatio
 import { verifyAdminGlobalVariantQueryConfigSource, verifyAdminVariantInventoryMiddlewareSource, adminVariantInventoryHttpTargets, verifyAdminVariantInventoryHttpSource, verifyAdminVariantInventoryHttpSelection, verifyAdminGlobalVariantHttpSource, verifyAdminVariantInventoryDeclarations, admitsCurrencyImport, verifyCurrencyPromotion, verifyStoreCurrencyHandlerSource, verifyAdminProductPostSource, verifyAdminProductDetailSource, verifyAdminProductVariantSource, verifyAdminProductOptionSource, adminProductCatalogHttpTargets, verifyAdminProductCatalogHttpSource, verifyAdminProductCatalogHttpSelection, verifyAdminProductLinkBodySource, verifyAdminVariantInventoryWrapperSource, verifyVariantAvailabilityUtilitySource, verifyModuleTypeFork, verifyNativeBigNumberTypeSource, nativeBigNumberSourcePair, verifyStoreTypeFork, verifyInventoryReservationRestoreFork, verifyStoreCreationTypeFork, verifyPriceListCreationTypeFork, verifyShippingProfileWorkflowTypeFork, verifyLinkCascadeReturnMapFork } from "./check-medusa-currency-promotion.mjs";
 import { analyzeMedusaSourceIslandBoundary } from "./check-medusa-source-island-boundary.mjs";
 import { verifyInventoryConfirmationPreparationTest } from "./check-medusa-inventory-confirmation-source.mjs";
+const pricingCalculationSource = readFileSync(new URL("../packages/medusa-adapter/src/modules/pricing/calculation.ts", import.meta.url), "utf8");
+const pricingShippingContextSource = readFileSync(new URL("../packages/medusa-adapter/src/modules/pricing/cart-shipping-context.ts", import.meta.url), "utf8");
+
 
 const root = process.cwd();
 const promotion = verifyCurrencyPromotion(root);
@@ -264,7 +267,7 @@ describe("PriceList deletion Pricing admission", () => {
   const selected = readFileSync("packages/medusa-adapter/src/modules/pricing/service.ts", "utf8").replaceAll("\r\n", "\n");
   const repository = readFileSync("packages/medusa-adapter/src/modules/pricing/repository.ts", "utf8").replaceAll("\r\n", "\n");
   it("admits only the two native lifecycle commands under their named profile", () => {
-    expect(() => verifyPricingWorkflowSelection(original, selected, repository)).not.toThrow();
+    expect(() => verifyPricingWorkflowSelection(original, selected, repository, pricingCalculationSource, pricingShippingContextSource)).not.toThrow();
   });
   it.each([
     ["predicate", 'listDeletions = admission === "price-list-deletions"', 'listDeletions = true'],
@@ -285,7 +288,7 @@ describe("PriceList deletion Pricing admission", () => {
     ["restore events", 'command: listRestore,\n      arguments: decodePriceListDeletionArguments, encode: ([ids]) => ids, output: listDeletionContracts.decodeOutput', 'command: listRestore,\n      arguments: decodePriceListDeletionArguments, encode: ([ids]) => ids, output: listDeletionContracts.decodeOutput, moduleEvents: ["pricing.price_list.restored"]'],
   ])("rejects changed %s", (_label, before, after) => {
     const changed = selected.replace(before, after); expect(changed).not.toBe(selected);
-    expect(() => verifyPricingWorkflowSelection(original, changed, repository)).toThrow();
+    expect(() => verifyPricingWorkflowSelection(original, changed, repository, pricingCalculationSource, pricingShippingContextSource)).toThrow();
   });
   it.each([
     ["predicate", 'listDeletions = admission === "price-list-deletions"', 'listDeletions = true'],
@@ -297,12 +300,12 @@ describe("PriceList deletion Pricing admission", () => {
     ["admission union", '"price-list-deletions" | "price-list-price-creations" | "price-list-price-updates" | "price-list-price-removals" | "shipping-options"', '"price-list-deletions" | "unbounded" | "price-list-price-creations" | "price-list-price-updates" | "shipping-options"'],
   ])("rejects repository %s", (_label, before, after) => {
     const changed = repository.replace(before, after); expect(changed).not.toBe(repository);
-    expect(() => verifyPricingWorkflowSelection(original, selected, changed)).toThrow();
+    expect(() => verifyPricingWorkflowSelection(original, selected, changed, pricingCalculationSource, pricingShippingContextSource)).toThrow();
   });
   it.each(["softDeletePriceLists", "restorePriceLists"])("requires original native %s", method => {
     const changed = original.replace(new RegExp("\\b" + method + "(?=\\s*[<(])", "g"), method + "Unadmitted");
     expect(changed).not.toBe(original);
-    expect(() => verifyPricingWorkflowSelection(changed, selected, repository)).toThrow("Missing native Pricing admitted methods");
+    expect(() => verifyPricingWorkflowSelection(changed, selected, repository, pricingCalculationSource, pricingShippingContextSource)).toThrow("Missing native Pricing admitted methods");
   });
 });
 
@@ -857,7 +860,7 @@ describe("named Pricing workflow admission selection", () => {
   const adapter = readFileSync("packages/medusa-adapter/src/modules/pricing/service.ts", "utf8");
   const repository = readFileSync("packages/medusa-adapter/src/modules/pricing/repository.ts", "utf8");
   it("retains Product profiles and isolates PricePreference creation, Store lookup and native updates from Shipping", () => {
-    expect(() => verifyPricingWorkflowSelection(native, adapter, repository)).not.toThrow();
+    expect(() => verifyPricingWorkflowSelection(native, adapter, repository, pricingCalculationSource, pricingShippingContextSource)).not.toThrow();
   });
   it.each([
     ["PriceList Price named profile", 'listPriceCreations ? "pricing-price-list-price-creations"', 'listPriceCreations ? "pricing-price-list-creations"'],
@@ -968,25 +971,25 @@ describe("named Pricing workflow admission selection", () => {
     ["PriceList inverse callback crosswire", 'await service.deletePriceLists([...ids], context)', 'await service.deletePriceSets([...ids], context)'],
   ])("rejects changed %s", (_name, before, after) => {
     const changed = adapter.replace(before, after); expect(changed).not.toBe(adapter);
-    expect(() => verifyPricingWorkflowSelection(native, changed, repository)).toThrow("Unadmitted native Pricing workflow selection");
+    expect(() => verifyPricingWorkflowSelection(native, changed, repository, pricingCalculationSource, pricingShippingContextSource)).toThrow("Unadmitted native Pricing workflow selection");
   });
   it("rejects a second workflow registration", () => {
-    expect(() => verifyPricingWorkflowSelection(native, adapter + "\ndefineWorkflowModule({});", repository))
+    expect(() => verifyPricingWorkflowSelection(native, adapter + "\ndefineWorkflowModule({});", repository, pricingCalculationSource, pricingShippingContextSource))
       .toThrow("Unadmitted native Pricing workflow selection");
   });
   it("rejects a missing native preference method", () => {
     const changed = native.replace("deletePricePreferences(ids:", "deleteOtherPreferences(ids:"); expect(changed).not.toBe(native);
-    expect(() => verifyPricingWorkflowSelection(changed, adapter, repository)).toThrow("Missing native Pricing admitted methods");
+    expect(() => verifyPricingWorkflowSelection(changed, adapter, repository, pricingCalculationSource, pricingShippingContextSource)).toThrow("Missing native Pricing admitted methods");
   });
   it.each(["updatePriceSets", "listPrices", "listPriceRules", "createPriceRules", "updatePricePreferences", "softDeletePricePreferences", "restorePricePreferences", "deletePriceLists", "softDeletePriceLists", "restorePriceLists", "listPriceLists", "updatePriceLists", "addPriceListPrices", "removePrices"])("requires native %s for the selected update profiles", method => {
     const changed = native.replace(new RegExp("\\b" + method + "(?=\\s*[<(])", "g"), method + "Unadmitted");
     expect(changed).not.toBe(native);
-    expect(() => verifyPricingWorkflowSelection(changed, adapter, repository)).toThrow("Missing native Pricing admitted methods");
+    expect(() => verifyPricingWorkflowSelection(changed, adapter, repository, pricingCalculationSource, pricingShippingContextSource)).toThrow("Missing native Pricing admitted methods");
   });
   it("rejects widening the original Product preference lookup beyond two pairs", () => {
     const before = "Schema.Array(Schema.Struct({ attribute: Schema.String, value: Schema.String })).check(Schema.isMaxLength(2))";
     const changed = repository.replace(before, before.replace("isMaxLength(2)", "isMaxLength(4)")); expect(changed).not.toBe(repository);
-    expect(() => verifyPricingWorkflowSelection(native, adapter, changed)).toThrow("Changed existing Pricing preference lookup admission");
+    expect(() => verifyPricingWorkflowSelection(native, adapter, changed, pricingCalculationSource, pricingShippingContextSource)).toThrow("Changed existing Pricing preference lookup admission");
   });
   it.each([
     ["PriceList Price candidate read", 'readPriceListPriceCandidates(ctx, listPrice.contracts, captured)', 'readPriceListPriceCandidates(ctx, listPrice.contracts, [])'],
@@ -1009,7 +1012,7 @@ describe("named Pricing workflow admission selection", () => {
     ["PriceList repository inverse crosswire", 'deletePricingPriceLists(ctx, metadata, input)', 'softDeletePricingPriceSets(ctx, metadata, input)'],
   ])("rejects changed repository %s", (_name, before, after) => {
     const changed = repository.replace(before, after); expect(changed).not.toBe(repository);
-    expect(() => verifyPricingWorkflowSelection(native, adapter, changed)).toThrow("Unadmitted native Pricing workflow selection");
+    expect(() => verifyPricingWorkflowSelection(native, adapter, changed, pricingCalculationSource, pricingShippingContextSource)).toThrow("Unadmitted native Pricing workflow selection");
   });
 });
 

@@ -14,7 +14,7 @@ import { projectRows } from "../../query/projection";
 import { bindCommerceRelationRows, type CommerceRelation, type CommerceRelationReadContext, type CommerceRelationRows } from "../../query/relations";
 import { resolveCommerceRelationFilter } from "../../query/relation-filter";
 import type { Predicate, WherePolicy } from "../../query/predicate";
-import { CartRefreshIds, CartEmptyShippingAdjustments } from "./refresh-input";
+import { CartRefreshIds } from "./refresh-input";
 import type { prepareCartCreationRepository } from "./creation-repository";
 
 type Creation = Result.Result.Success<ReturnType<typeof prepareCartCreationRepository>>;
@@ -35,30 +35,31 @@ export type CartCreationRefreshRepository = Omit<Creation, "bind"> & {
     readonly tax: RefreshEntity;
     readonly shippingTax: RefreshEntity;
     readonly adjustment: RefreshEntity;
+    readonly shippingAdjustment: RefreshEntity;
     readonly catalog: Creation["catalog"];
     readonly admitSelection: (table: string, rows: readonly JsonObject[]) => Result.Result<void, CommerceTransactionError>;
     readonly selectTaxRemoval: (readRows: CommerceRelationRows, input: unknown, shipping: boolean) => Effect.Effect<readonly JsonObject[], CommerceTransactionError>;
-    readonly selectAdjustmentLifecycle: (readRows: CommerceRelationRows, input: readonly string[], operation: "softDelete" | "restore") => Effect.Effect<readonly JsonObject[], CommerceTransactionError>;
+    readonly selectAdjustmentLifecycle: (readRows: CommerceRelationRows, input: readonly string[], operation: "softDelete" | "restore", shipping?: boolean) => Effect.Effect<readonly JsonObject[], CommerceTransactionError>;
   };
 };
 const ids = commerceDecoder(CartRefreshIds, "unsupportedProfile");
 const rows = commerceDecoder(Schema.Array(Schema.Unknown).check(Schema.isMaxLength(4)), "unsupportedProfile");
 const normalizedRows = commerceDecoder(Schema.Array(Schema.JsonObject).check(Schema.isMaxLength(4)), "unsupportedProfile");
-const emptyShippingAdjustments = commerceDecoder(CartEmptyShippingAdjustments, "unsupportedProfile");
 const id = commerceDecoder(ScalarId, "storedCorruption");
 const ParentFilter = Schema.Struct({ cart_id: ScalarId });
 const taxFilter = commerceDecoder(Schema.Struct({ item: ParentFilter,
   id: Schema.optionalKey(Schema.Struct({ $nin: CartRefreshIds })) }), "unsupportedProfile");
-const shippingTaxFilter = commerceDecoder(Schema.Struct({ shipping_method: ParentFilter }), "unsupportedProfile");
+const shippingTaxFilter = commerceDecoder(Schema.Struct({ shipping_method: ParentFilter,
+  id: Schema.optionalKey(Schema.Struct({ $nin: CartRefreshIds })) }), "unsupportedProfile");
 const active = (predicate: Predicate): Predicate => ({ kind: "and", children: [predicate, { kind: "isNull", column: "deleted_at" }] });
 const definitions = [["cart_line_item_tax_line", "LineItemTaxLine", "item_id"],
   ["cart_shipping_method_tax_line", "ShippingMethodTaxLine", "shipping_method_id"],
-  ["cart_line_item_adjustment", "LineItemAdjustment", "item_id"]] as const;
+  ["cart_line_item_adjustment", "LineItemAdjustment", "item_id"],
+  ["cart_shipping_method_adjustment", "ShippingMethodAdjustment", "shipping_method_id"]] as const;
 
 /** The complete creation profile borrows the original Cart constructor,
  * ownership store, issued-row serializer and twelve-model source. It admits
- * only the direct native creation children: new item Tax Lines, empty shipping
- * Tax replacement and item Adjustment creation/lifecycle. */
+ * the native item and Shipping Tax replacement and Adjustment lifecycles. */
 export function prepareCartCreationRefreshRepository(creation: Creation): Result.Result<CartCreationRefreshRepository, CommerceTransactionError> {
   return Result.gen(function* () {
     const entities = yield* Result.all(definitions.map(([name, model, foreignKey]) => Result.gen(function* () {
@@ -69,8 +70,9 @@ export function prepareCartCreationRefreshRepository(creation: Creation): Result
         fields: new Map([...scalarIdWhere.fields, [foreignKey, { column: foreignKey, decode: ids }]]) };
       return { ...contract, model, foreignKey, scalar: yield* prepareScalarRepository(contract.table, model, where) };
     })));
-    const tax = entities[0], shippingTax = entities[1], adjustment = entities[2];
-    if (tax === undefined || shippingTax === undefined || adjustment === undefined) return yield* Result.fail(commerceError("unsupportedProfile"));
+    const tax = entities[0], shippingTax = entities[1], adjustment = entities[2], shippingAdjustment = entities[3];
+    if (tax === undefined || shippingTax === undefined || adjustment === undefined || shippingAdjustment === undefined)
+      return yield* Result.fail(commerceError("unsupportedProfile"));
     const relations = new Map<string, Map<string, CommerceRelation>>();
     for (const [entity, name, target] of [[tax, "item", "cart_line_item"], [shippingTax, "shipping_method", "cart_shipping_method"]] as const) {
       const declared = entity.table.relationships.find(relation => relation.name === name),
@@ -80,8 +82,7 @@ export function prepareCartCreationRefreshRepository(creation: Creation): Result
       relations.set(entity.table.name, new Map([[name, { name, sourcePrimaryKeys: ["id"], targetTable: target,
         targetPrimaryKeys: ["id"], join: { type: "belongsTo", foreignKeys: [entity.foreignKey] } }]]));
     }
-    const catalog = yield* makeReadCatalog(creation.entities.map(entity => entity.table).concat(
-      [shippingTax.table, creation.byName.get("cart_shipping_method")?.table].filter(value => value !== undefined))
+    const catalog = yield* makeReadCatalog(creation.entities.map(entity => entity.table)
       .map(table => ({ name: table.name, columns: table.columns.map(column => column.name), primaryKeys: ["id"],
         foreignKeys: table.foreignKeys.flatMap(key => key.columns), companions: {} })), relations);
     const admitSelection = (table: string, selected: readonly JsonObject[]) => Result.gen(function* () {
@@ -99,11 +100,13 @@ export function prepareCartCreationRefreshRepository(creation: Creation): Result
       if ("id" in selected && selected.id !== undefined) children.push({ kind: "postgresText", column: "id", operator: "notIn", values: selected.id.$nin });
       return yield* readRows(shipping ? shippingTax.table.name : tax.table.name, active({ kind: "and", children }));
     });
-    const selectAdjustmentLifecycle = (readRows: CommerceRelationRows, input: readonly string[], operation: "softDelete" | "restore") =>
-      readRows(adjustment.table.name, operation === "softDelete" ? active({ kind: "in", column: "id", values: input }) : { kind: "in", column: "id", values: input });
+    const selectAdjustmentLifecycle = Effect.fn("CartCreation.selectAdjustmentLifecycle")((readRows: CommerceRelationRows, input: readonly string[], operation: "softDelete" | "restore", shipping = false) =>
+      readRows(shipping ? shippingAdjustment.table.name : adjustment.table.name,
+        operation === "softDelete" ? active({ kind: "in", column: "id", values: input }) : { kind: "in", column: "id", values: input }));
     const bind = (root: CommerceCommandContext, owner: CommercePromiseOwner) => {
       const bound = creation.bind(root, owner), { bridge, events } = bound;
-      const taxBound = tax.scalar.bind(root, owner, events, bridge), adjustmentBound = adjustment.scalar.bind(root, owner, events, bridge);
+      const taxBound = tax.scalar.bind(root, owner, events, bridge), adjustmentBound = adjustment.scalar.bind(root, owner, events, bridge),
+        shippingTaxBound = shippingTax.scalar.bind(root, owner, events, bridge), shippingAdjustmentBound = shippingAdjustment.scalar.bind(root, owner, events, bridge);
       const context = (ctx: CommerceCommandContext): CommerceRelationReadContext => ({ ...ctx, admitSelection });
       const readRows = (ctx: CommerceCommandContext) => bindCommerceRelationRows(context(ctx), { includeIdentities: true });
       const normalize = Effect.fn("CartCreation.captureRefreshRows")(function* (input: unknown, entity: typeof tax) {
@@ -150,22 +153,20 @@ export function prepareCartCreationRefreshRepository(creation: Creation): Result
         find: find(tax), upsert: createRows(tax, taxBound, true),
         softDelete: lifecycle(tax, "softDelete", (rows, input) => selectTaxRemoval(rows, input, false)) };
       const shippingMethodTaxLineRepository: DAL.RepositoryService = { ...bound.denied, serialize: bound.repository.serialize,
-        find: find(shippingTax), softDelete: lifecycle(shippingTax, "softDelete", (rows, input) => selectTaxRemoval(rows, input, true)) };
-      const adjustmentSelection = (operation: "softDelete" | "restore") => (rows: CommerceRelationRows, input: unknown) =>
-        Effect.fromResult(ids(input)).pipe(Effect.flatMap(input => input.length === 0 ? Effect.succeed([]) : selectAdjustmentLifecycle(rows, input, operation)));
+        find: find(shippingTax), upsert: createRows(shippingTax, shippingTaxBound, true),
+        softDelete: lifecycle(shippingTax, "softDelete", (rows, input) => selectTaxRemoval(rows, input, true)) };
+      const adjustmentSelection = (operation: "softDelete" | "restore", shipping = false) => (rows: CommerceRelationRows, input: unknown) =>
+        Effect.fromResult(ids(input)).pipe(Effect.flatMap(input => input.length === 0 ? Effect.succeed([]) : selectAdjustmentLifecycle(rows, input, operation, shipping)));
       const lineItemAdjustmentRepository: DAL.RepositoryService = { ...bound.denied, serialize: bound.repository.serialize,
         create: createRows(adjustment, adjustmentBound, false),
         softDelete: lifecycle(adjustment, "softDelete", adjustmentSelection("softDelete")),
         restore: lifecycle(adjustment, "restore", adjustmentSelection("restore")) };
-      // Native restore reaches the repository for [], where its genuine DAL
-      // has an exact empty fast path. Populated shipping writes stay denied.
-      const shippingMethodAdjustmentRepository: DAL.RepositoryService = { ...bound.denied, restore: (input, shared) =>
-        bridge.executeInput(shared, input, (ctx, captured) => bridge.checked(ctx, Effect.gen(function* () {
-          yield* Effect.fromResult(emptyShippingAdjustments(captured));
-          return [[], {}];
-        }))) };
+      const shippingMethodAdjustmentRepository: DAL.RepositoryService = { ...bound.denied, serialize: bound.repository.serialize,
+        create: createRows(shippingAdjustment, shippingAdjustmentBound, false),
+        softDelete: lifecycle(shippingAdjustment, "softDelete", adjustmentSelection("softDelete", true)),
+        restore: lifecycle(shippingAdjustment, "restore", adjustmentSelection("restore", true)) };
       return { ...bound, lineItemTaxLineRepository, shippingMethodTaxLineRepository, lineItemAdjustmentRepository, shippingMethodAdjustmentRepository };
     };
-    return { ...creation, bind, refresh: { entities, tax, shippingTax, adjustment, catalog, admitSelection, selectTaxRemoval, selectAdjustmentLifecycle } };
+    return { ...creation, bind, refresh: { entities, tax, shippingTax, adjustment, shippingAdjustment, catalog, admitSelection, selectTaxRemoval, selectAdjustmentLifecycle } };
   });
 }

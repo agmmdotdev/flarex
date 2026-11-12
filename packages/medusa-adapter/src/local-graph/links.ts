@@ -113,8 +113,11 @@ export function nativeLinkGraphPaths(joiner: ModuleJoinerConfig, selections: rea
           if (Array.isArray(value) && !value.some(alias => alias.entity === current)) return false;
           return selectFieldAlias(value, current, selection.path.split(".").slice(0, -1)).path === edgePath;
         }).map(([name]) => name);
-        const canonical = canonicalNames[0];
-        if (pieces.length > 2 && (canonicalNames.length !== 1 || canonical === undefined)) return yield* Result.fail(commerceError("unsupportedProfile"));
+        if (pieces.length > 2 && canonicalNames.length > 1) return yield* Result.fail(commerceError("unsupportedProfile"));
+        // Some native Links expose only suffix aliases. Their authenticated
+        // two-hop relationship path groups those reads internally; it grants
+        // no additional public projection or forwarding capability.
+        const canonical = canonicalNames[0] ?? (pieces.length > 2 ? edgePath : undefined);
         if (alias.forwardArgumentsOnPath?.some(path => path !== edgePath)) return yield* Result.fail(commerceError("unsupportedProfile"));
         const prefix = selection.path.split(".").slice(0, -1);
         resolved = { sourceModel: current, sourceKey: source.primaryKey, linkModel,

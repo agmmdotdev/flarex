@@ -12,11 +12,20 @@ export type StoreCartHttpOptions = {
   resolveCustomerPrincipal?(request: Request): AuthContext | undefined | Promise<AuthContext | undefined>
   /** The graph owner admits the complete response before a native mutation. */
   admitCartRefetchFields(fields: readonly string[]): void
+  /** Cart-only hosts omit this capability and Shipping option reads refuse. */
+  admitShippingOptionFields?(fields: readonly string[]): void
 }
 
 export function createStoreCartHttpHandler(options: StoreCartHttpOptions): FetchHttpStaticHandler {
   const admitProjection: MiddlewareFunction = (request, _response, next) => {
     options.admitCartRefetchFields(request.queryConfig.fields)
+    next()
+  }
+  const admitShippingOptions: MiddlewareFunction = (request, _response, next) => {
+    if (options.admitShippingOptionFields === undefined) {
+      throw new MedusaError(MedusaError.Types.NOT_ALLOWED, "Shipping option reads are outside the admitted Store Cart profile")
+    }
+    options.admitShippingOptionFields(request.queryConfig.fields)
     next()
   }
   const native = createFetchHttpStaticHandler({
@@ -45,6 +54,8 @@ export function createStoreCartHttpHandler(options: StoreCartHttpOptions): Fetch
           { method: ["POST", "DELETE"], matcher: "/store/carts/:id/line-items/:line_id", middlewares: [admitProjection] },
           { method: ["POST", "DELETE"], matcher: "/store/carts/:id/promotions", middlewares: [admitProjection] },
           { method: ["POST"], matcher: "/store/carts/:id/taxes", middlewares: [admitProjection] },
+          { method: ["POST"], matcher: "/store/carts/:id/shipping-methods", middlewares: [admitProjection] },
+          { method: ["GET"], matcher: "/store/shipping-options", middlewares: [admitShippingOptions] },
         ] } } },
       ],
     },

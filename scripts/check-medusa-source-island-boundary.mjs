@@ -67,6 +67,9 @@ const nativeStoreApplicationDOImports = new Map([
   ["apps/executor/test/storeCartApplicationDO.postgres.test.ts", new Set([
     "@flarex/medusa-adapter/internal/system-test/store-cart-request-catalog", "@flarex/medusa-adapter/internal/system-test/store-cart-request-fixture",
   ])],
+  ["apps/executor/test/storeCartShippingApplicationDO.postgres.test.ts", new Set([
+    "@flarex/medusa-adapter/internal/system-test/store-cart-request-catalog", "@flarex/medusa-adapter/internal/system-test/store-cart-request-fixture",
+  ])],
   ["apps/executor/test/adminProductApplicationDO.workerd.worker.ts", new Set([
     "@flarex/medusa-adapter/internal/system-test/store-product-request-catalog",
   ])],

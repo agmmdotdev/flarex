@@ -5,6 +5,9 @@ import { verifyTestPort, verifyShippingProfileCreateTests, verifyPricingCreateTe
 import { readFileSync } from "node:fs";
 import { verifyPriceListPriceUpdateSelection, verifyPriceListPriceUpdatePolicySelection, verifyPriceListDeleteSelection, verifyPriceListDeleteCallbacks, verifyPriceListCreateCallbacks, verifyPriceListUpdateCallbacks, verifyNativePriceListRuleBuilder } from "./check-medusa-test-port.mjs";
 import { verifyTaxRuleDeleteCallbacks, verifyTaxRuleCreateCallbacks, verifyTaxRateCreateCallbacks } from "./check-medusa-test-port.mjs";
+const pricingCalculationSource = readFileSync(new URL("../packages/medusa-adapter/src/modules/pricing/calculation.ts", import.meta.url), "utf8");
+const pricingShippingContextSource = readFileSync(new URL("../packages/medusa-adapter/src/modules/pricing/cart-shipping-context.ts", import.meta.url), "utf8");
+
 
 describe("complete native Tax Rate Rule deletion source", () => {
   const nativeWorkflow = readFileSync("third_party/medusa/upstream/packages/core/core-flows/src/tax/workflows/delete-tax-rate-rules.ts", "utf8");
@@ -230,10 +233,10 @@ describe("PriceList deletion named resource selection", () => {
     const repository = readFileSync("packages/medusa-adapter/src/modules/pricing/repository.ts", "utf8");
     const typesOnly = selected.replace('(ctx: CommerceCommandContext, owner: CommercePromiseOwner)', '(ctx: unknown, owner: unknown)');
     expect(typesOnly).not.toBe(selected);
-    expect(() => verifyPricingWorkflowSelection(native, typesOnly, repository)).not.toThrow();
+    expect(() => verifyPricingWorkflowSelection(native, typesOnly, repository, pricingCalculationSource, pricingShippingContextSource)).not.toThrow();
     const changed = typesOnly.replace('new PricingModuleService(container, { scope: "internal" })', 'new OtherPricingModuleService(container, { scope: "internal" })');
     expect(changed).not.toBe(typesOnly);
-    expect(() => verifyPricingWorkflowSelection(native, changed, repository)).toThrow("Unadmitted native Pricing workflow selection");
+    expect(() => verifyPricingWorkflowSelection(native, changed, repository, pricingCalculationSource, pricingShippingContextSource)).toThrow("Unadmitted native Pricing workflow selection");
   });
   it.each([
     ["caller call limit", '["execution", "pricing", "link", "revision", "subscribers"]', '["execution", "pricing", "link", "revision", "subscribers", "requestCallLimit"]'],
@@ -596,18 +599,83 @@ describe("maintained Medusa test ports", () => {
     const repository = readFileSync(new URL("../packages/medusa-adapter/src/modules/pricing/repository.ts", import.meta.url), "utf8");
     const methods = 'methods: { ...(variantItemPricing ? { calculatePrices } : {}), ...(listPriceRemovals ? { listPrices: listPricesForRemoval, softDeletePrices: softDeletePricesForRemoval, restorePrices: restorePricesForRemoval } : {}), ...(listPriceUpdates ? { listPriceLists: listPriceListsForPriceUpdate, snapshotPriceListPricesForUpdate, updatePriceListPrices, restorePriceListPrices } : {}), ...(listPriceCreations ? { listPriceLists: listPriceListsForPriceCreation, addPriceListPrices, removePrices } : {}), ...(listDeletions ? { softDeletePriceLists, restorePriceLists } : {}), ...(listUpdates ? { listPriceLists: listPriceListsForUpdate, updatePriceLists } : {}), ...(listCreations ? { createPriceLists, deletePriceLists } : {}), ...(shippingUpdates ? { updatePriceSets: updateShippingPriceSets, listPrices: listShippingPrices,\n        listPriceRules: listShippingPriceRules, createPriceRules: createShippingPriceRules } : {}),\n        ...(preferences && !preferenceUpdates && !preferenceDeletions ? { createPricePreferences, listPricePreferences, upsertPricePreferences, deletePricePreferences } : {}),\n        ...(preferenceUpdates ? { listPricePreferences: listUpdatePricePreferences, updatePricePreferences, upsertPricePreferences: upsertUpdatePricePreferences } : {}),\n        ...(preferenceDeletions ? { softDeletePricePreferences, restorePricePreferences } : {}),\n        ...(!variantItemPricing && !preferences && !shippingUpdates && !listCreations && !listUpdates && !listDeletions && !listPrices ? { createPriceSets, ...(!shipping ? { createPriceLists, createPricePreferences } : {}), ...(mutable ? { upsertPriceSets, updatePriceSets, listPriceSets } : {}), ...(lifecycle || shipping ? { softDeletePriceSets } : {}), ...(shipping ? { restorePriceSets, deletePriceSets } : {}) } : {}) }';
     it("preserves the complete native selection and exact public method anchor", () => {
-      expect(() => verifyPricingWorkflowSelection(original, selected, repository)).not.toThrow();
+      expect(() => verifyPricingWorkflowSelection(original, selected, repository, pricingCalculationSource, pricingShippingContextSource)).not.toThrow();
       expect(selected).toContain(methods);
+    });
+    it.each([
+      ["selector", 'cartShippingPricing = admission === "cart-shipping"', 'cartShippingPricing = true'],
+      ["profile identity", 'cartShippingPricing ? "pricing-cart-shipping"', 'cartShippingPricing ? "pricing-cart-mutations"'],
+      ["count identity", 'cartShippingPricing ? "pricingCartShippingCount"', 'cartShippingPricing ? "pricingCartMutationCount"'],
+      ["count write grant", 'commands.read(cartShippingPricing ?', 'commands.write(cartShippingPricing ?'],
+      ["calculation identity", 'cartShippingPricing ? "pricingCalculateCartShipping"', 'cartShippingPricing ? "pricingCalculateCartMutations"'],
+      ["receipt bypass", 'yield* basePolicy.validateLogicalCall(call, activity);', 'yield* Effect.void;'],
+      ["receipt calculation decoder", 'decodeVariantItemPricingCalculation(call.input)', 'decodePricingCalculation(call.input)'],
+      ["receipt count decoder", 'decodeCartMutationPriceSetRead(call.input)', 'decodeStorePriceSetRead(call.input)'],
+      ["receipt profile", 'prepareVariantItemPricingContext(context ?? {}, "cart-shipping")', 'prepareVariantItemPricingContext(context ?? {}, "cart-mutations")'],
+      ["receipt context pruning", 'prepareVariantItemPricingContext(context ?? {}, "cart-shipping")', 'prepareVariantItemPricingContext({}, "cart-shipping")'],
+      ["receipt unknown command grant", 'Result.fail(commerceError("receiptMismatch"))', 'Result.succeed({})'],
+      ["receipt omission", 'logical: { ...policy, commands: admitted }', 'logical: { ...basePolicy, commands: admitted }'],
+    ])("rejects Cart Shipping Pricing service %s mutation", (_name, before, after) => {
+      expect(selected).toContain(before);
+      const changed = selected.replace(before, after);
+      expect(() => verifyPricingWorkflowSelection(original, changed, repository, pricingCalculationSource, pricingShippingContextSource)).toThrow("Unadmitted native Pricing workflow selection");
+    });
+    it.each([
+      ["profile rename", '| "cart-shipping" |', '| "arbitrary-shipping" |'],
+      ["calculation scalar bypass", 'admission === "cart-shipping" ? "cart-shipping" :', 'admission === "cart-shipping" ? "scalar" :'],
+      ["old mutation fallback", 'admission === "cart-shipping" ? "cart-shipping" :', 'admission === "cart-shipping" ? "cart-mutations" :'],
+      ["calculated read omission", 'admission === "cart-mutations" || admission === "cart-shipping"', 'admission === "cart-mutations"'],
+    ])("rejects Cart Shipping Pricing repository %s mutation", (_name, before, after) => {
+      expect(repository).toContain(before);
+      const changed = repository.replace(before, after);
+      expect(() => verifyPricingWorkflowSelection(original, selected, changed, pricingCalculationSource, pricingShippingContextSource)).toThrow("Unadmitted native Pricing workflow selection");
+    });
+    it.each([
+      ["ordinary cap", 'profile === "cart-creation" ? 17 : 10', 'profile === "cart-creation" ? 17 : 11'],
+      ["creation cap", 'profile === "cart-creation" ? 17 : 10', 'profile === "cart-creation" ? 18 : 10'],
+      ["mutation cap", 'profile === "cart-mutations" ? 64', 'profile === "cart-mutations" ? 65'],
+      ["unknown profile", '| "cart-shipping" |', '| "arbitrary-shipping" |'],
+      ["native flatten owner", 'from "@medusajs/utils/common/flatten-object-to-key-value-pairs"', 'from "./other-flatten"'],
+      ["derived policy owner", 'from "./cart-shipping-context"', 'from "./other-shipping-context"'],
+      ["derived policy bypass", 'yield* admitCartShippingPricingContext(keys)', 'yield* Result.succeed(undefined)'],
+      ["context pruning", 'flattenObjectToKeyValuePairs(context)', 'flattenObjectToKeyValuePairs({})'],
+      ["native callback context bypass", 'prepareVariantItemPricingContext(parsed.pricingContext.context ?? {}, profile)', 'prepareVariantItemPricingContext({}, profile)'],
+      ["native callback scalar fallback", 'const { filters, values } = yield* profile !== "scalar" ?', 'const { filters, values } = yield* profile === "store-product-read" ?'],
+      ["native callback scalar cap", 'profile === "scalar" && Object.keys(values).length > 10', 'profile === "scalar" && Object.keys(values).length > 64'],
+    ])("rejects Cart Shipping Pricing calculation %s mutation", (_name, before, after) => {
+      expect(pricingCalculationSource).toContain(before);
+      const changed = pricingCalculationSource.replace(before, after);
+      expect(() => verifyPricingWorkflowSelection(original, selected, repository, changed, pricingShippingContextSource)).toThrow("Unadmitted native Pricing workflow selection");
+    });
+    it.each([
+      ["opaque cap", 'const opaqueMaximum = 64', 'const opaqueMaximum = 65'],
+      ["arbitrary total cap", 'maximum: opaqueMaximum + fields.size', 'maximum: 1024'],
+      ["native field family", '...cartFieldsForCalculateShippingOptionsPrices,', '...cartFieldsForCalculateShippingOptionsPrices, "extra_field",'],
+      ["native DML owner", 'from "@medusajs/cart/creation-models"', 'from "./other-models"'],
+      ["metadata exemption", 'if (column.type === "json") continue;', 'if (column.type === "boolean") continue;'],
+      ["total overflow omission", 'keys.length > policy.maximum', 'false'],
+      ["opaque overflow omission", 'keys.filter(key => !policy.fields.includes(key)).length > policy.opaqueMaximum', 'false'],
+      ["overflow conjunction", 'keys.length > policy.maximum ||', 'keys.length > policy.maximum &&'],
+      ["opaque filtering bypass", '!policy.fields.includes(key)', 'policy.fields.includes(key)'],
+      ["mutable policy", 'Object.freeze([...fields].sort())', '[...fields].sort()'],
+    ])("rejects Cart Shipping Pricing derived context %s mutation", (_name, before, after) => {
+      expect(pricingShippingContextSource).toContain(before);
+      const changed = pricingShippingContextSource.replace(before, after);
+      expect(() => verifyPricingWorkflowSelection(original, selected, repository, pricingCalculationSource, changed)).toThrow("Unadmitted native Pricing workflow selection");
+    });
+    it("requires the authenticated calculation and derived capacity sources", () => {
+      expect(() => verifyPricingWorkflowSelection(original, selected, repository, "", pricingShippingContextSource)).toThrow("Unadmitted native Pricing workflow selection");
+      expect(() => verifyPricingWorkflowSelection(original, selected, repository, pricingCalculationSource, "")).toThrow("Unadmitted native Pricing workflow selection");
     });
     it.each(["softDeletePricePreferences", "restorePricePreferences", "deletePriceLists", "softDeletePriceLists", "restorePriceLists", "listPriceLists", "updatePriceLists", "addPriceListPrices", "removePrices", "updatePriceListPrices", "listPrices", "softDeletePrices", "restorePrices", "calculatePrices"])("rejects missing native method %s", method => {
       const changed = original.replace(new RegExp("\\b" + method + "(?=\\s*[<(])", "g"), method + "Unadmitted");
       expect(changed).not.toBe(original);
-      expect(() => verifyPricingWorkflowSelection(changed, selected, repository)).toThrow("Missing native Pricing admitted methods");
+      expect(() => verifyPricingWorkflowSelection(changed, selected, repository, pricingCalculationSource, pricingShippingContextSource)).toThrow("Missing native Pricing admitted methods");
     });
     it.each(['methods: {}', 'methods: { createPriceSets, createPriceLists, createPricePreferences, calculatePrices }',
       'methods: { createPriceLists, createPricePreferences }', 'methods: { createPriceSets, createPricePreferences }',
       'methods: { createPriceSets, createPriceLists }'])("rejects public method replacement %s", replacement => {
-      expect(() => verifyPricingWorkflowSelection(original, selected.replace(methods, replacement), repository)).toThrow();
+      expect(() => verifyPricingWorkflowSelection(original, selected.replace(methods, replacement), repository, pricingCalculationSource, pricingShippingContextSource)).toThrow();
     });
     it.each([
       ["selector", 'variantItemPricing = admission === "variant-item-pricing" || cartCreationPricing', 'variantItemPricing = true'],
@@ -628,7 +696,7 @@ describe("maintained Medusa test ports", () => {
       ["preference creation refusal", 'createPricePreferences: variantItemPricing || shipping', 'createPricePreferences: shipping'],
       ["native calculation visibility", 'calculatePrices: preferences || shipping', 'calculatePrices: variantItemPricing || preferences || shipping'],
       ["native calculation owner", 'native.calculatePrices.bind(native)', 'native.listPriceSets.bind(native)'],
-      ["calculation dispatch", 'commands.read(storeProductRead ? "pricingCalculateStoreProducts" : cartMutationPricing ? "pricingCalculateCartMutations" : cartCreationPricing ? "pricingCalculateCartCreation" : "pricingCalculateVariantItems"', 'commands.write(storeProductRead ? "pricingCalculateStoreProducts" : cartMutationPricing ? "pricingCalculateCartMutations" : cartCreationPricing ? "pricingCalculateCartCreation" : "pricingCalculateVariantItems"'],
+      ["calculation dispatch", 'commands.read(storeProductRead ? "pricingCalculateStoreProducts" : cartShippingPricing ? "pricingCalculateCartShipping" : cartMutationPricing ? "pricingCalculateCartMutations" : cartCreationPricing ? "pricingCalculateCartCreation" : "pricingCalculateVariantItems"', 'commands.write(storeProductRead ? "pricingCalculateStoreProducts" : cartShippingPricing ? "pricingCalculateCartShipping" : cartMutationPricing ? "pricingCalculateCartMutations" : cartCreationPricing ? "pricingCalculateCartCreation" : "pricingCalculateVariantItems"'],
       ["calculation decoder", 'prepare(storeProductRead ? decodeStorePricingCalculation : decodeVariantItemPricingCalculation)', 'prepare(decodePricingCalculation)'],
       ["calculation context", '[{ id: [...args.filters.id] }, args.pricingContext, context]', '[{ id: [...args.filters.id] }, {}, context]'],
       ["calculation receiver", 'Reflect.apply(service.calculatePrices, service,', 'Reflect.apply(service.calculatePrices, {},'],
@@ -639,13 +707,13 @@ describe("maintained Medusa test ports", () => {
     ])("rejects variant item pricing service %s mutation", (_name, before, after) => {
       const changed = selected.replace(before, after);
       expect(changed).not.toBe(selected);
-      expect(() => verifyPricingWorkflowSelection(original, changed, repository)).toThrow("Unadmitted native Pricing workflow selection");
+      expect(() => verifyPricingWorkflowSelection(original, changed, repository, pricingCalculationSource, pricingShippingContextSource)).toThrow("Unadmitted native Pricing workflow selection");
     });
     it.each([
       ["Store profile selector", 'const storeProductRead = admission === "store-product-read"', 'const storeProductRead = true'],
       ["Store variant read-only selector", '|| cartCreationPricing || cartMutationPricing || storeProductRead', '|| cartCreationPricing || cartMutationPricing'],
       ["Store profile name", 'storeProductRead ? "pricing-store-product-read"', 'storeProductRead ? "pricing-base-prices"'],
-      ["Store count write grant", 'commands.read(cartMutationPricing ? "pricingCartMutationCount" : "pricingStoreProductCount"', 'commands.write(cartMutationPricing ? "pricingCartMutationCount" : "pricingStoreProductCount"'],
+      ["Store count write grant", 'commands.read(cartShippingPricing ? "pricingCartShippingCount" : cartMutationPricing ? "pricingCartMutationCount" : "pricingStoreProductCount"', 'commands.write(cartShippingPricing ? "pricingCartShippingCount" : cartMutationPricing ? "pricingCartMutationCount" : "pricingStoreProductCount"'],
       ["Store count native owner", 'await service.listAndCountPriceSets(structuredClone(args.filters)', 'await service.listPriceSets(structuredClone(args.filters)'],
       ["Store count decoder", 'prepare(cartMutationPricing ? decodeCartMutationPriceSetRead : decodeStorePriceSetRead)', 'prepare(decodePriceSetRead)'],
       ["Store read input import owner", 'import { decodeCartMutationPriceSetRead, decodeStorePriceSetRead } from "./input";', 'import { decodeCartMutationPriceSetRead, decodeStorePriceSetRead } from "./other-input";'],
@@ -663,7 +731,7 @@ describe("maintained Medusa test ports", () => {
       expect(selected).toContain(before);
       const changed = selected.replace(before, after);
       expect(changed).not.toBe(selected);
-      expect(() => verifyPricingWorkflowSelection(original, changed, repository)).toThrow("Unadmitted native Pricing workflow selection");
+      expect(() => verifyPricingWorkflowSelection(original, changed, repository, pricingCalculationSource, pricingShippingContextSource)).toThrow("Unadmitted native Pricing workflow selection");
     });
     it.each([
       ["issued profile selector", 'cartMutationPricing = admission === "cart-mutations"', 'cartMutationPricing = true'],
@@ -677,7 +745,7 @@ describe("maintained Medusa test ports", () => {
       expect(selected).toContain(before);
       const changed = selected.replace(before, after);
       expect(changed).not.toBe(selected);
-      expect(() => verifyPricingWorkflowSelection(original, changed, repository)).toThrow("Unadmitted native Pricing workflow selection");
+      expect(() => verifyPricingWorkflowSelection(original, changed, repository, pricingCalculationSource, pricingShippingContextSource)).toThrow("Unadmitted native Pricing workflow selection");
     });
     it.each([
       ["issued profile selector", 'cartMutationPricing = admission === "cart-mutations"', 'cartMutationPricing = true'],
@@ -688,18 +756,18 @@ describe("maintained Medusa test ports", () => {
       expect(repository).toContain(before);
       const changed = repository.replace(before, after);
       expect(changed).not.toBe(repository);
-      expect(() => verifyPricingWorkflowSelection(original, selected, changed)).toThrow("Unadmitted native Pricing workflow selection");
+      expect(() => verifyPricingWorkflowSelection(original, selected, changed, pricingCalculationSource, pricingShippingContextSource)).toThrow("Unadmitted native Pricing workflow selection");
     });
     it.each([
       ["Store admission selector", '|| cartCreationPricing || cartMutationPricing || admission === "store-product-read"', '|| cartCreationPricing || cartMutationPricing'],
       ["Store calculation profile", 'admission === "store-product-read" ? "store-product-read" :', 'admission === "store-product-read" ? "scalar" :'],
       ["Store alternate calculation profile", 'admission === "store-product-read" ? "store-product-read" :', 'admission === "store-product-read" ? "cart-creation" :'],
-      ["Store unknown admission", '| "cart-creation" | "cart-mutations" | "store-product-read";', '| "cart-creation" | "cart-mutations" | "all-pricing";'],
+      ["Store unknown admission", '| "cart-creation" | "cart-mutations" | "cart-shipping" | "store-product-read";', '| "cart-creation" | "cart-mutations" | "all-pricing";'],
     ])("rejects Store Product Pricing repository %s mutation", (_name, before, after) => {
       expect(repository).toContain(before);
       const changed = repository.replace(before, after);
       expect(changed).not.toBe(repository);
-      expect(() => verifyPricingWorkflowSelection(original, selected, changed)).toThrow("Unadmitted native Pricing workflow selection");
+      expect(() => verifyPricingWorkflowSelection(original, selected, changed, pricingCalculationSource, pricingShippingContextSource)).toThrow("Unadmitted native Pricing workflow selection");
     });
     it.each([
       ["selector", 'variantItemPricing = admission === "variant-item-pricing" || cartCreationPricing', 'variantItemPricing = false'],
@@ -713,16 +781,16 @@ describe("maintained Medusa test ports", () => {
       ["calculation profile fallback", 'variantItemPricing ? "variant-item-pricing" : "scalar"', '"variant-item-pricing"'],
       ["calculation arguments", 'calculateLogicalPrices(ctx, { filters, pricingContext },', 'calculateLogicalPrices(ctx, { filters, pricingContext: {} },'],
       ["calculation owner", 'calculateLogicalPrices(ctx, { filters, pricingContext },', 'otherCalculatePrices(ctx, { filters, pricingContext },'],
-      ["admission union", '| "variant-item-pricing" | "cart-creation" | "cart-mutations" | "store-product-read";', '| "all-pricing" | "cart-creation" | "cart-mutations" | "store-product-read";'],
+      ["admission union", '| "variant-item-pricing" | "cart-creation" | "cart-mutations" | "cart-shipping" | "store-product-read";', '| "all-pricing" | "cart-creation" | "cart-mutations" | "cart-shipping" | "store-product-read";'],
     ])("rejects variant item pricing repository %s mutation", (_name, before, after) => {
       const changed = repository.replace(before, after);
       expect(changed).not.toBe(repository);
-      expect(() => verifyPricingWorkflowSelection(original, selected, changed)).toThrow("Unadmitted native Pricing workflow selection");
+      expect(() => verifyPricingWorkflowSelection(original, selected, changed, pricingCalculationSource, pricingShippingContextSource)).toThrow("Unadmitted native Pricing workflow selection");
     });
     it.each(['...{ methods: { calculatePrices } }', '["methods"]: { calculatePrices }',
       'get methods() { return { calculatePrices }; }', 'methods'])("rejects public method override %s", override => {
       expect(() => verifyPricingWorkflowSelection(original, selected.replace(methods,
-        `${methods}, ${override}`), repository)).toThrow();
+        `${methods}, ${override}`), repository, pricingCalculationSource, pricingShippingContextSource)).toThrow();
     });
     it.each([
       selected.replace('const listPriceRemovals = admission === "price-list-price-removals"', 'const listPriceRemovals = listPriceUpdates'),
@@ -863,7 +931,7 @@ describe("maintained Medusa test ports", () => {
       selected.replace('PricingRepositoryAdmission = "create"', 'string = "create"'),
     ].map((changed, index) => ({ index, changed })))("rejects service mutation $index", ({ changed }) => {
       expect(changed).not.toBe(selected);
-      expect(() => verifyPricingWorkflowSelection(original, changed, repository)).toThrow();
+      expect(() => verifyPricingWorkflowSelection(original, changed, repository, pricingCalculationSource, pricingShippingContextSource)).toThrow();
     });
     it.each([
       ['const listPriceRemovals = admission === "price-list-price-removals"', 'const listPriceRemovals = true'],
@@ -906,7 +974,7 @@ describe("maintained Medusa test ports", () => {
     ].map(([before, after], index) => ({ index, before, after })))("rejects repository mutation $index", ({ before, after }) => {
       const changed = repository.replace(before, after);
       expect(changed).not.toBe(repository);
-      expect(() => verifyPricingWorkflowSelection(original, selected, changed)).toThrow();
+      expect(() => verifyPricingWorkflowSelection(original, selected, changed, pricingCalculationSource, pricingShippingContextSource)).toThrow();
     });
   });
   it("preserves all selected Pricing statements and the actual rule-bearing seed", () => {

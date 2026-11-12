@@ -55,7 +55,9 @@ export const prepareCartCreationModules = Effect.fn("CartCreation.prepareModules
   const installed = yield* Effect.fromResult(captureInstalledWorkflowModules(record, cartCreationModuleNames));
   for (const name of cartCreationModuleNames) if (installed[name].logicalResources !== undefined || installed[name].logicalPublication !== undefined)
     return yield* Effect.fail(commerceError("invalidAuthority"));
-  const expected = [["cart", "flarex-cart-creation-workflow", "cart.creation-workflow"],
+  const cartProfile = workflowModuleDefinition(installed.fulfillment.module)?.source.profile === "fulfillment.cart-shipping"
+    ? "cart.creation-workflow-shipping" : "cart.creation-workflow";
+  const expected = [["cart", "flarex-cart-creation-workflow", cartProfile],
     ["customer", "flarex-customer-cart-creation", "customer.cart-creation"], ["region", "flarex-region-cart-read", "region-cart-context-read"],
     ["store", "flarex-store-cart-context-read", "store.cart-context-read"], ["promotion", "flarex-promotion-compute", "promotion.compute-actions"],
     ["tax", "flarex-tax-item-lines", "tax.itemTaxLines"]] as const;
@@ -64,8 +66,8 @@ export const prepareCartCreationModules = Effect.fn("CartCreation.prepareModules
     if (source?.name !== owner || source.profile !== profile) return yield* Effect.fail(commerceError("invalidAuthority"));
   }
   const pricingSource = workflowModuleDefinition(installed.pricing.module)?.source.profile;
-  const pricingProfile = pricingSource === "pricing-cart-creation" ? "cart-creation" : pricingSource === "pricing-cart-mutations" ? "cart-mutations" : undefined;
-  if (pricingProfile === undefined) return yield* Effect.fail(commerceError("invalidAuthority"));
+  const pricingProfile = pricingSource === "pricing-cart-creation" ? "cart-creation" : pricingSource === "pricing-cart-mutations" ? "cart-mutations" : pricingSource === "pricing-cart-shipping" ? "cart-shipping" : undefined;
+  if (pricingProfile === undefined || (pricingProfile === "cart-shipping") !== (cartProfile === "cart.creation-workflow-shipping")) return yield* Effect.fail(commerceError("invalidAuthority"));
   const pricing = yield* prepareVariantItemPricingModules({ product: installed.product, pricing: installed.pricing, inventory: installed.inventory,
     stock_location: installed.stock_location, sales_channel: installed.sales_channel, fulfillment: installed.fulfillment,
     product_links: installed.product_links, variant_links: installed.variant_links, sales_channel_locations: installed.sales_channel_locations }, pricingProfile);
@@ -102,6 +104,7 @@ export const prepareCartCreationModules = Effect.fn("CartCreation.prepareModules
     return { ...installed[name], module };
   });
   const modules = { ...installed, ...pricing, sales_channel: sales, inventory: confirmation.binding,
+    ...(definitions.get("fulfillment")?.source.profile === "fulfillment.cart-shipping" ? { fulfillment: installed.fulfillment } : {}),
     cart: yield* Effect.fromResult(clone("cart", { ...cart.graph, directPaths: [...cart.graph.directPaths ?? [], ...directPaths] }, installed.cart.module.methods)),
     payment: yield* Effect.fromResult(clone("payment", { ...payment.graph, directPaths: [...payment.graph.directPaths ?? [], paymentSessions] }, installed.payment.module.methods)) };
   return { modules, inventory: confirmation.resource };

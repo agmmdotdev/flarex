@@ -21,12 +21,14 @@ describe("native Store Cart HTTP source preservation", () => {
     }
   });
   it("authenticates every selected handler, middleware, validator and native refusal", () => {
+    /** @type {import("./check-medusa-currency-promotion.mjs").Promotion} */
     const manifest = JSON.parse(readFileSync("roadmaps/flarexdb-framework-integration/preflight/medusa-currency-promotion.json", "utf8"));
     verifyStoreCartHttpSelection(manifest.files);
     for (const pair of storeCartHttpSourcePairs) verifyStoreCartHttpSource(readFileSync(pair.source, "utf8"), readFileSync(pair.target, "utf8"), pair.target);
     verifyStoreCartHttpSharedSources(process.cwd());
   });
   it("uses the existing package exports for genuine mutation projection fields", () => {
+    /** @type {import("./check-medusa-currency-promotion.mjs").Promotion} */
     const manifest = JSON.parse(readFileSync("roadmaps/flarexdb-framework-integration/preflight/medusa-currency-promotion.json", "utf8"));
     const file = "packages/medusa-adapter/test/store-cart-projection.test.ts";
     for (const specifier of ["@medusajs/core-flows/cart/variant-pricing-fields", "@medusajs/core-flows/cart/prepare-confirm-inventory-input"]) {
@@ -49,6 +51,12 @@ describe("native Store Cart HTTP source preservation", () => {
       ["store/carts/[id]/taxes/route.ts", '"update-tax-lines"', '"upsert-tax-lines"'],
       ["store/carts/[id]/taxes/route.ts", "force_tax_calculation: true", "force_tax_calculation: false"],
       ["store/carts/[id]/taxes/route.ts", "cart_id: req.params.id", "cart_id: req.validatedBody.cart_id"],
+      ["store/carts/[id]/shipping-methods/route.ts", '"add-shipping-method-to-cart"', '"refresh-cart-items"'],
+      ["store/carts/[id]/shipping-methods/route.ts", "cart_id: req.params.id", "cart_id: payload.option_id"],
+      ["store/shipping-options/route.ts", '"list-shipping-options-for-cart"', '"list-shipping-options-for-cart-with-pricing"'],
+      ["store/shipping-options/route.ts", "is_return: !!is_return", "is_return: false"],
+      ["store/shipping-options/query-config.ts", "defaultLimit: 20", "defaultLimit: 200"],
+      ["store/shipping-options/validators.ts", "cart_id: z.string()", "cart_id: z.string().optional()"],
       ["store/carts/query-config.ts", '"item_total"', '"unsupported_total"'],
       ["store/carts/validators.ts", ".gt(0)", ".gte(0)"],
       ["store/carts/validators.ts", ".gte(0)", ".gt(0)"],

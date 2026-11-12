@@ -9,7 +9,7 @@ import { defineCommerceModule, type CommerceModuleRepositories } from "../../mod
 import type { CommercePromiseOwner } from "../../module/promise-owner";
 import type { commerceModuleEventBus } from "../../module/events";
 
-const fulfillmentModels = [FulfillmentAddress, Fulfillment, FulfillmentItem, FulfillmentLabel, FulfillmentProvider, FulfillmentSet,
+export const fulfillmentModels = [FulfillmentAddress, Fulfillment, FulfillmentItem, FulfillmentLabel, FulfillmentProvider, FulfillmentSet,
   GeoZone, ServiceZone, ShippingOption, ShippingOptionRule, ShippingOptionType, ShippingProfile] as const;
 export type FulfillmentPersistenceModel = typeof fulfillmentModels[number];
 

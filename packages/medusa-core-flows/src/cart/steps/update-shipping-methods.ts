@@ -1,15 +1,26 @@
 import type { ICartModuleService } from "@medusajs/types"
-import type { UpdateShippingMethodDTO } from "@medusajs/types/cart/index"
+import type {
+  CartShippingMethodDTO,
+  UpdateShippingMethodDTO,
+} from "@medusajs/types/cart/index"
 import {
   Modules,
   getSelectsAndRelationsFromObjectArray,
 } from "@medusajs/framework/utils/portable"
 import { StepResponse, createStep } from "@medusajs/workflows-sdk"
 
+/** Preserve the nullable amount forwarded by the native pricing workflow. */
+type NativeShippingMethodInput = Omit<UpdateShippingMethodDTO, "amount"> & {
+  amount?: Exclude<UpdateShippingMethodDTO["amount"], undefined> | null
+}
+type NativeCartShippingMethods = Pick<ICartModuleService, "listShippingMethods"> & {
+  updateShippingMethods(data: NativeShippingMethodInput[]): Promise<CartShippingMethodDTO[]>
+}
+
 /**
  * The details of the shipping methods to update.
  */
-export type UpdateShippingMethodsStepInput = UpdateShippingMethodDTO[]
+export type UpdateShippingMethodsStepInput = NativeShippingMethodInput[]
 
 export const updateShippingMethodsStepId = "update-shipping-methods-step"
 /**
@@ -30,7 +41,7 @@ export const updateShippingMethodsStep = createStep(
       return new StepResponse([], [])
     }
 
-    const cartModule = container.resolve<ICartModuleService>(Modules.CART)
+    const cartModule = container.resolve<NativeCartShippingMethods>(Modules.CART)
     const { selects, relations } = getSelectsAndRelationsFromObjectArray(data)
 
     const dataBeforeUpdate = await cartModule.listShippingMethods(

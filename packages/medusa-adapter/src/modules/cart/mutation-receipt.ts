@@ -21,7 +21,8 @@ import { assembleCommerceRelations, commerceRelationReadQuery } from "../../quer
 import { cartPaymentReadPolicy } from "./payment-receipt";
 import { decodeCartMutationUpdates, decodeCartMutationAddressUpdates, decodeCartMutationLineCreates,
   decodeCartMutationLineUpdate, decodeCartMutationIds } from "./mutation-input";
-import { CartLineHistoryIds, decodeCartMutationTaxLines } from "./mutation-input";
+import { CartLineHistoryIds, decodeCartMutationTaxLines, decodeCartMutationShippingTaxLines } from "./mutation-input";
+import { decodeCartShippingMethodCreates, decodeCartShippingMethodUpdates } from "./shipping-input";
 import { hasChangedFields } from "@medusajs/drizzle/mutation-plan";
 import { fillEmptyToManyRelations } from "@medusajs/drizzle/relation-query";
 import type { prepareCartMutationRepository } from "./mutation-repository";
@@ -33,10 +34,10 @@ const decodeIds = commerceDecoder(Schema.Array(Id), "receiptMismatch");
 const eventMetadata = { source: Schema.Literal(Modules.CART), action: Schema.Literals(["created", "updated", "deleted", "restored"]) };
 const decode = moduleEventDecoder(Schema.Union([
   Schema.Struct({ name: Schema.String,
-    metadata: Schema.Struct({ ...eventMetadata, object: Schema.Literals(["cart", "address", "line_item"]) }),
+    metadata: Schema.Struct({ ...eventMetadata, object: Schema.Literals(["cart", "address", "line_item", "shipping_method"]) }),
     data: Schema.Struct({ id: Schema.Union([Id, Schema.Array(Id).check(Schema.isLengthBetween(1, 8))]) }) }),
   Schema.Struct({ name: Schema.String,
-    metadata: Schema.Struct({ ...eventMetadata, object: Schema.Literals(["line_item_tax_line", "line_item_adjustment"]) }),
+    metadata: Schema.Struct({ ...eventMetadata, object: Schema.Literals(["line_item_tax_line", "line_item_adjustment", "shipping_method_tax_line"]) }),
     data: Schema.Struct({ id: Schema.Union([Id, CartLineHistoryIds]) }) }),
 ]), defaultCommerceResources);
 export const captureCartMutationEvent = Effect.fn("CartMutation.captureEvent")(function* (input: unknown) {
@@ -56,11 +57,12 @@ export function cartMutationPolicy(prepared: Prepared) {
   const { mutation } = prepared;
   const readPolicy = cartPaymentReadPolicy(prepared, "completion", { query: mutation.query });
   const validateLogicalCall: LogicalCallReceiptValidation = Effect.fn("CartMutation.validateCall")(function* (call, activity) {
-    if (["cartLineItemsCountForCheckout", "cartListLinesForMutations", "cartAddressesForMutations"].includes(call.commandName))
+    if (["cartLineItemsCountForCheckout", "cartListLinesForMutations", "cartAddressesForMutations", "cartListShippingForMutations"].includes(call.commandName))
       return yield* readPolicy.validateLogicalCall(call, activity);
     if (call.mode !== "write" || activity.setNull.length || activity.referenceReplacements.length)
       return yield* mismatch("mode");
-    const lifecycleNames = ["cartDeleteLinesForMutations", "cartSoftDeleteLinesForMutations", "cartRestoreLinesForMutations"];
+    const lifecycleNames = ["cartDeleteLinesForMutations", "cartSoftDeleteLinesForMutations", "cartRestoreLinesForMutations",
+      "cartDeleteShippingForMutations", "cartSoftDeleteShippingForMutations", "cartRestoreShippingForMutations"];
     const lifecycle = lifecycleNames.includes(call.commandName);
     const byTable = new Map(prepared.entities.map(entity => [entity.table.name, entity]));
     const before = new Map<string, Map<string, JsonObject>>(), final = new Map<string, Map<string, JsonObject>>();
@@ -110,12 +112,10 @@ export function cartMutationPolicy(prepared: Prepared) {
     const expectedEvents: Array<{ object: string; action: string; id: string }> = [];
     const entities = prepared.entities.map(entity => ({ ...entity, maximum: mutation.lifecycleMaximum(entity.table.name),
       decodeRow: entity.complete, linkableKey: entity.model }));
-    if (call.commandName === "cartUpsertEmptyShippingTaxForMutations") {
-      if (!jsonEqual(call.input, []) || !jsonEqual(call.result, []) || activity.mutations.length || activity.relationalReads.length || activity.observedRows.length || activity.lifecycle.length || call.events.length)
-        return yield* mismatch("emptyShippingTax");
-      return;
-    } else if (call.commandName === "cartUpsertItemTaxForMutations") {
-      const input = yield* Effect.fromResult(decodeCartMutationTaxLines(call.input)), tax = prepared.refresh.tax;
+    if (call.commandName === "cartUpsertItemTaxForMutations" || call.commandName === "cartUpsertShippingTaxForMutations") {
+      const shipping = call.commandName === "cartUpsertShippingTaxForMutations";
+      const input = shipping ? yield* Effect.fromResult(decodeCartMutationShippingTaxLines(call.input)) : yield* Effect.fromResult(decodeCartMutationTaxLines(call.input)),
+        tax = shipping ? prepared.refresh.shippingTax : prepared.refresh.tax, object = shipping ? "shipping_method_tax_line" : "line_item_tax_line";
       if (activity.lifecycle.length || activity.mutations.some(change => change.table !== tax.table.name || change.after === null || change.operation !== "insert" && change.operation !== "patch"))
         return yield* mismatch("taxUpsertShape");
       const explicit = input.flatMap(row => row.id === undefined ? [] : [row.id]);
@@ -147,7 +147,7 @@ export function cartMutationPolicy(prepared: Prepared) {
         if (supplied === undefined || row.created_at !== row.updated_at || row.deleted_at !== null) return yield* mismatch("taxUpsertManaged");
         for (const column of tax.table.columns) if (!["created_at", "updated_at", "deleted_at"].includes(column.name) &&
           !same(row[column.name] ?? null, supplied[column.name] ?? column.defaultValue ?? null)) return yield* mismatch("taxUpsertInsertField");
-        expectedEvents.push({ object: "line_item_tax_line", action: "created", id: row.id });
+        expectedEvents.push({ object, action: "created", id: row.id });
       }
       const merged = new Map<string, JsonObject>();
       for (const row of updates) {
@@ -164,7 +164,7 @@ export function cartMutationPolicy(prepared: Prepared) {
         if (change?.before === null || change?.before === undefined || change.after === null || change.after.id !== id) return yield* mismatch("taxUpsertPatch");
         const { updated_at: _time, ...after } = projectNativeRow(change.after), { updated_at: _oldTime, ...before } = previous;
         if (!jsonEqual(after, { ...before, ...row })) return yield* mismatch("taxUpsertPatchField");
-        changedIds.add(id); expectedEvents.push({ object: "line_item_tax_line", action: "updated", id });
+        changedIds.add(id); expectedEvents.push({ object, action: "updated", id });
       }
       if (changes.length !== changedIds.size) return yield* mismatch("taxUpsertPatchCount");
       const latest = new Map([...existing, ...changes.flatMap(change => change.after === null ? [] : [projectNativeRow(change.after)])].map(row => [row.id, row]));
@@ -182,23 +182,25 @@ export function cartMutationPolicy(prepared: Prepared) {
       if (!jsonEqual(call.result, yield* prepared.present(returned, tax.table.name))) return yield* mismatch("taxUpsertResult");
     } else if (lifecycleNames.includes(call.commandName)) {
       const requested = yield* Effect.fromResult(decodeCartMutationIds(call.input));
-      if (call.commandName === "cartDeleteLinesForMutations") {
+      const shipping = call.commandName.includes("Shipping"), root = shipping ? mutation.shipping : mutation.line,
+        tables = shipping ? mutation.shippingLifecycleTables : mutation.lifecycleTables;
+      if (call.commandName === "cartDeleteLinesForMutations" || call.commandName === "cartDeleteShippingForMutations") {
         if (activity.lifecycle.length) return yield* mismatch("physicalLifecycle");
-        const ids = yield* Effect.fromResult(correlatePhysicalGraphReceipt({ tables: mutation.lifecycleTables,
-          entities: entities.filter(entity => mutation.lifecycleTables.includes(entity.table)),
-          root: mutation.line.table, requestedIds: requested, activity }));
+        const ids = yield* Effect.fromResult(correlatePhysicalGraphReceipt({ tables,
+          entities: entities.filter(entity => tables.includes(entity.table)),
+          root: root.table, requestedIds: requested, activity }));
         if (call.result !== null) return yield* mismatch("deleteResult");
-        expectedEvents.push(...ids.map(id => ({ object: "line_item", action: "deleted", id })));
+        expectedEvents.push(...ids.map(id => ({ object: shipping ? "shipping_method" : "line_item", action: "deleted", id })));
       } else {
-        const operation = call.commandName === "cartSoftDeleteLinesForMutations" ? "softDelete" : "restore";
+        const operation = call.commandName.startsWith("cartSoftDelete") ? "softDelete" : "restore";
         const evidence = before;
         const selected = new Map<string, Set<string>>();
-        const roots = [...before.get(mutation.line.table.name)?.values() ?? []].filter(row => typeof row.id === "string" && requested.includes(row.id) &&
+        const roots = [...before.get(root.table.name)?.values() ?? []].filter(row => typeof row.id === "string" && requested.includes(row.id) &&
           (operation === "restore" || row.deleted_at === null));
         const expectedReads: JsonObject[] = [];
-        if (requested.length) expectedReads.push({ table: mutation.line.table.name,
+        if (requested.length) expectedReads.push({ table: root.table.name,
           query: commerceRelationReadQuery(defaultCommerceResources, { kind: "in", column: "id", values: requested }),
-          total: before.get(mutation.line.table.name)?.size ?? 0, returned: before.get(mutation.line.table.name)?.size ?? 0 });
+          total: before.get(root.table.name)?.size ?? 0, returned: before.get(root.table.name)?.size ?? 0 });
         const visit = (entity: typeof mutation.line, row: JsonObject): Result.Result<void, ReturnType<typeof commerceError>> => Result.gen(function* () {
           if (typeof row.id !== "string") return yield* Result.fail(mismatch("lifecycleId"));
           const ids = selected.get(entity.table.name) ?? new Set<string>();
@@ -214,7 +216,7 @@ export function cartMutationPolicy(prepared: Prepared) {
             for (const member of rows) yield* visit(child, member);
           }
         });
-        for (const row of roots) yield* Effect.fromResult(visit(mutation.line, row));
+        for (const row of roots) yield* Effect.fromResult(visit(root, row));
         if (!jsonEqual(expectedReads, activity.relationalReads)) return yield* mismatch("lifecycleReads");
         const nativeMap: Record<string, string[]> = {};
         for (const transition of activity.lifecycle) {
@@ -222,7 +224,7 @@ export function cartMutationPolicy(prepared: Prepared) {
           if (entity === undefined || typeof id !== "string") return yield* mismatch("lifecycleIdentity");
           const ids = nativeMap[entity.model] ?? []; ids.push(id); nativeMap[entity.model] = ids;
         }
-        const proof = yield* Effect.fromResult(correlateLifecycleGraphReceipt({ entities, rootTable: mutation.line.table.name,
+        const proof = yield* Effect.fromResult(correlateLifecycleGraphReceipt({ entities, rootTable: root.table.name,
           selectedRootIds: new Set(roots.flatMap(row => typeof row.id === "string" ? [row.id] : [])), operation, activity, evidence, selected, result: nativeMap }));
         const joiner = cartStaticResources.joinerConfig;
         if (joiner === undefined) return yield* mismatch("joiner");
@@ -238,46 +240,47 @@ export function cartMutationPolicy(prepared: Prepared) {
           expectedEvents.push({ object: event.object.replace(/^cart_/, ""), action: original.deleted_at === null ? "deleted" : "updated", id: event.id });
         }
       }
-    } else if (call.commandName === "cartAddLinesForMutations") {
-      const input = yield* Effect.fromResult(decodeCartMutationLineCreates(call.input));
-      if (activity.lifecycle.length || activity.relationalReads.length || activity.mutations.some(change => change.operation !== "insert" || change.table !== mutation.line.table.name || change.after === null))
+    } else if (call.commandName === "cartAddLinesForMutations" || call.commandName === "cartAddShippingForMutations") {
+      const shipping = call.commandName === "cartAddShippingForMutations", root = shipping ? mutation.shipping : mutation.line;
+      const input = shipping ? yield* Effect.fromResult(decodeCartShippingMethodCreates(call.input)) : yield* Effect.fromResult(decodeCartMutationLineCreates(call.input));
+      if (activity.lifecycle.length || activity.relationalReads.length || activity.mutations.some(change => change.operation !== "insert" || change.table !== root.table.name || change.after === null))
         return yield* mismatch("createShape");
       const normalized: JsonObject[] = [];
-      for (const row of input) normalized.push(yield* captureExactNumericRow(row, mutation.line.numbers, false, "nativeRaw"));
+      for (const row of input) normalized.push(yield* captureExactNumericRow(row, root.numbers, false, "nativeRaw"));
       const written: Array<JsonObject & { readonly id: string }> = [];
       for (const change of activity.mutations) {
         if (change.after === null || typeof change.after.id !== "string") return yield* mismatch("createIdentity");
         written.push({ ...projectNativeRow(change.after), id: change.after.id });
       }
       const correlated = yield* Effect.fromResult(correlateScalarCreateWrites(normalized, written));
-      const graph = yield* captureGraph({ catalog: prepared.creationCatalog, root: prepared.lineNode,
+      const graph = yield* captureGraph({ catalog: prepared.creationCatalog, root: shipping ? mutation.shippingNode : prepared.lineNode,
         rowLimitDetail: (maximum, attempted, tables) => ({ maximum, attempted, tables }) }, correlated.inputs, defaultCommerceResources);
-      const expected = graph.rows.get(mutation.line.table.name) ?? [];
+      const expected = graph.rows.get(root.table.name) ?? [];
       if (expected.length !== written.length) return yield* mismatch("createCount");
       for (const [index, row] of written.entries()) {
         const supplied = expected[index];
         if (supplied === undefined || row.deleted_at !== null || row.created_at !== row.updated_at) return yield* mismatch("createManaged");
-        for (const column of mutation.line.table.columns) if (!["created_at", "updated_at", "deleted_at"].includes(column.name) &&
+        for (const column of root.table.columns) if (!["created_at", "updated_at", "deleted_at"].includes(column.name) &&
           !jsonEqual(row[column.name] ?? null, supplied[column.name] ?? column.defaultValue ?? null)) return yield* mismatch("createField");
         if (typeof row.id !== "string") return yield* mismatch("createId");
-        expectedEvents.push({ object: "line_item", action: "created", id: row.id });
+        expectedEvents.push({ object: shipping ? "shipping_method" : "line_item", action: "created", id: row.id });
       }
       const observed = new Set<string>();
       for (const observation of activity.observedRows) {
         const row = written.find(row => row.id === observation.row.id);
-        if (observation.table !== mutation.line.table.name || row === undefined || !jsonEqual(row, projectNativeRow(observation.row)))
+        if (observation.table !== root.table.name || row === undefined || !jsonEqual(row, projectNativeRow(observation.row)))
           return yield* mismatch("createObservation");
         observed.add(row.id);
       }
       if (written.some(row => !observed.has(row.id))) return yield* mismatch("missingCreateObservation");
       const rows = correlated.positions.map(position => correlated.results[position]!);
-      fillEmptyToManyRelations(rows, new Map(mutation.line.table.relationships.map(relationship => [relationship.name, { relationship }])));
-      const result = yield* prepared.present(rows, mutation.line.table.name);
+      fillEmptyToManyRelations(rows, new Map(root.table.relationships.map(relationship => [relationship.name, { relationship }])));
+      const result = yield* prepared.present(rows, root.table.name);
       if (!jsonEqual(call.result, yield* Effect.fromResult(captureNativeNumericDto(result)))) return yield* mismatch("createResult");
     } else {
       if (activity.lifecycle.length) return yield* mismatch("updateLifecycle");
       const table = call.commandName === "cartUpdateForMutations" ? mutation.cart : call.commandName === "cartUpdateAddressesForMutations" ? mutation.address :
-        call.commandName === "cartUpdateLinesForMutations" ? mutation.line : undefined;
+        call.commandName === "cartUpdateLinesForMutations" ? mutation.line : call.commandName === "cartUpdateShippingForMutations" ? mutation.shipping : undefined;
       if (table === undefined) return yield* mismatch("command");
       const patches: JsonObject[] = [];
       const nativeFilters: JsonObject[] = [];
@@ -285,6 +288,7 @@ export function cartMutationPolicy(prepared: Prepared) {
       let singleResult = false;
       if (table === mutation.cart) patches.push(...yield* Effect.fromResult(decodeCartMutationUpdates(call.input)));
       else if (table === mutation.address) patches.push(...yield* Effect.fromResult(decodeCartMutationAddressUpdates(call.input)));
+      else if (table === mutation.shipping) patches.push(...yield* Effect.fromResult(decodeCartShippingMethodUpdates(call.input)));
       else {
         const input = yield* Effect.fromResult(decodeCartMutationLineUpdate(call.input));
         singleResult = typeof input.target === "string";
@@ -310,7 +314,8 @@ export function cartMutationPolicy(prepared: Prepared) {
         if (retained === undefined || retained.deleted_at !== null) return yield* mismatch("updatePreimage");
         const update = structuredClone(input);
         prepareUpdateMetadata([{ entity: structuredClone(retained), update }]);
-        authorized.set(input.id, table === mutation.line ? yield* captureCartMutationLine(update, table.numbers) : update);
+        authorized.set(input.id, table === mutation.line ? yield* captureCartMutationLine(update, table.numbers) : table === mutation.shipping
+          ? yield* captureExactNumericRow(update, table.numbers, false, "nativeRaw") : update);
       }
       const createdAddresses = new Set<string>();
       const addressSlots = table === mutation.cart ? patches.flatMap(patch => [patch.shipping_address, patch.billing_address])

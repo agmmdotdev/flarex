@@ -1,9 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { Effect, Result } from "effect";
+import { Effect, Result, Schema } from "effect";
 import { createWorkflow, WorkflowResponse, type WorkflowContainer } from "@medusajs/workflows-sdk";
 import { executeWorkflow, type WorkflowExecutionPort } from "@medusajs/workflows-sdk/native";
 import { useRemoteQueryStep, type EntryStepInput } from "@medusajs/core-flows/common/use-remote-query";
 import { prepareWorkflowGraphQuery, type WorkflowGraphResource } from "@medusajs/core-flows/common/use-query-graph";
+import { useCartShippingListQueryGraphStep, useCartShippingOptionsQueryGraphStep } from "@medusajs/core-flows/common/cart-mutation-query-views";
+import { cartFieldsForPricingContext, cartFieldsForCalculateShippingOptionsPrices } from "@medusajs/core-flows/cart/variant-pricing-fields";
+import { getTranslatedShippingOptionsStep } from "@medusajs/core-flows/common/get-translated-shipping-options-step";
+import { decodeNativePricedShippingOptions, decodeNativeShippingOptions, decodeNativeShippingPrices } from "@medusajs/core-flows/common/cart-mutation-shipping-query-views";
+import { validateCartShippingOptionsPriceStep } from "@medusajs/core-flows/cart/validate-shipping-options-price-step";
+import { captureCommerceInput } from "../src/value/input";
 import { runEffect } from "../../persistence-postgres/test/support/effectTestRuntime";
 
 it("admits only the named native refund graph option at its shared owner", () => {
@@ -34,6 +40,100 @@ const execute = (query: WorkflowGraphResource, input: EntryStepInput) => {
   };
   return runEffect(executeWorkflow(Result.getOrThrow(flow.prepare()), undefined, port));
 };
+
+describe("consumed native Cart Shipping graph projections", () => {
+  const cart = { id: "cart-shipping", currency_code: "usd", sales_channel_id: "sc-shipping", region_id: "reg-shipping", locale: null,
+    item_total: 12.5, total: 12.5, shipping_address: { country_code: "us" } };
+  const listed = { ...cart, email: null, items: [{ quantity: 1, variant: { manage_inventory: true,
+    inventory_items: [{ inventory: { requires_shipping: true, location_levels: [{ location_id: "loc-shipping", available_quantity: 3 }] } }] } }] };
+  const executeProjection = (profile: "list" | "priced", value: object) => {
+    const input = { entity: "cart" as const, filters: { id: cart.id }, fields: profile === "list"
+      ? [...cartFieldsForPricingContext, "items.*", "items.variant.manage_inventory", "items.variant.inventory_items.inventory_item_id",
+        "items.variant.inventory_items.inventory.requires_shipping", "items.variant.inventory_items.inventory.location_levels.*"]
+      : [...cartFieldsForCalculateShippingOptionsPrices, "sales_channel_id", "currency_code", "region_id", "item_total", "total"],
+    options: { throwIfKeyNotFound: true as const } };
+    const flow = createWorkflow("cart-shipping-query-projection", () => new WorkflowResponse(profile === "list"
+      ? useCartShippingListQueryGraphStep(input) : useCartShippingOptionsQueryGraphStep(input)));
+    const calls: unknown[] = [], query: WorkflowGraphResource = { maxPageSize: 4, graph: async (...args) => {
+      calls.push(args); return { data: [Schema.decodeUnknownSync(Schema.JsonObject)(value)], metadata: { count: 1, skip: 0, take: 4 } };
+    } };
+    const container: WorkflowContainer = { resolve<T>(name: string): T {
+      expect(name).toBe("query");
+      // SAFETY: the fixture supplies this exact named Query resource.
+      return query as T;
+    } };
+    const port: WorkflowExecutionPort<Error> = { checkpoint: Effect.void, capture: value => Effect.sync(() => structuredClone(value)),
+      invoke: work => Effect.tryPromise({ try: () => Promise.resolve(work()), catch: error => error instanceof Error ? error : new Error("Foreign projection failure") }),
+      context: { container, eventGroupId: "cart-shipping-query-projection" } };
+    return { result: runEffect(executeWorkflow(Result.getOrThrow(flow.prepare()), undefined, port)), calls, input };
+  };
+  it("accepts the actual native pricing selection without requiring an unselected email", async () => {
+    const proof = executeProjection("priced", cart);
+    expect(await proof.result).toMatchObject({ data: [cart] });
+    expect(proof.calls).toEqual([[{ entity: "cart", filters: proof.input.filters, fields: proof.input.fields, pagination: { take: 4 } },
+      { throwIfKeyNotFound: true }]]);
+    expect(proof.input.fields).not.toContain("email");
+  });
+  it("retains the unpriced native Inventory graph without changing its field selection", async () => {
+    const proof = executeProjection("list", listed);
+    expect(await proof.result).toMatchObject({ data: [listed] });
+    expect(proof.calls).toEqual([[{ entity: "cart", filters: proof.input.filters, fields: proof.input.fields, pagination: { take: 4 } },
+      { throwIfKeyNotFound: true }]]);
+  });
+  it("refuses malformed consumed values and retains the original SchemaError", async () => {
+    for (const [profile, value] of [["priced", { ...cart, sales_channel_id: 42 }], ["list", { ...listed, items: [{ quantity: "1", variant: null }] }]] as const) {
+      const proof = executeProjection(profile, value);
+      await expect(proof.result).rejects.toMatchObject({ reason: "invalidDefinition", detail: "Malformed native Cart mutation graph projection",
+        cause: { _tag: "SchemaError" } });
+      expect(proof.calls).toHaveLength(1);
+    }
+  });
+  it("keeps a native calculated candidate with its own undefined amount until the JSON boundary", async () => {
+    const option = { id: "option-calculated", name: "Native calculated option", price_type: "calculated", provider_id: "manual_manual", data: null,
+      service_zone: { fulfillment_set_id: "fset-shipping", fulfillment_set: { type: "shipping", location: { id: "loc-shipping" } } },
+      amount: undefined, is_tax_inclusive: false, insufficient_inventory: false };
+    const flow = createWorkflow("native-unquoted-shipping-result", () => new WorkflowResponse(getTranslatedShippingOptionsStep({
+      shippingOptions: [option], locale: null,
+    })));
+    const container: WorkflowContainer = { resolve<T>(): T { throw new Error("Native untranslated output must not resolve services"); } };
+    const port: WorkflowExecutionPort<Error> = { checkpoint: Effect.void, capture: value => Effect.sync(() => structuredClone(value)),
+      invoke: work => Effect.tryPromise({ try: () => Promise.resolve(work()), catch: error => error instanceof Error ? error : new Error("Foreign projection failure") }),
+      context: { container, eventGroupId: "native-unquoted-shipping-result" } };
+    const output = decodeNativePricedShippingOptions(await runEffect(executeWorkflow(Result.getOrThrow(flow.prepare()), undefined, port)));
+    expect(output).toEqual([option]); expect(Object.hasOwn(output[0] ?? {}, "amount")).toBe(true);
+    expect(() => decodeNativePricedShippingOptions([{ ...option, amount: "3" }])).toThrow(expect.objectContaining({
+      reason: "invalidDefinition", cause: expect.objectContaining({ _tag: "SchemaError" }),
+    }));
+    expect(() => decodeNativePricedShippingOptions([{ ...option, other: undefined }])).toThrow(expect.objectContaining({
+      reason: "invalidDefinition", cause: expect.objectContaining({ _tag: "SchemaError" }),
+    }));
+    const json = Result.getOrThrow(captureCommerceInput(output));
+    expect(json).toEqual([{ id: "option-calculated", name: "Native calculated option", price_type: "calculated", provider_id: "manual_manual", data: null,
+      service_zone: option.service_zone, is_tax_inclusive: false, insufficient_inventory: false }]);
+  });
+  it("preserves nullable native pricing and the native POST null versus absence distinction", async () => {
+    const option = { id: "option-unpriced-flat", name: "Native flat option", price_type: "flat", provider_id: "manual_manual", data: null,
+      service_zone: { fulfillment_set_id: "fset-shipping", fulfillment_set: { type: "shipping", location: { id: "loc-shipping" } } },
+      calculated_price: { calculated_amount: null, is_calculated_price_tax_inclusive: false } };
+    const options = decodeNativeShippingOptions([option]);
+    expect(decodeNativePricedShippingOptions([{ ...options[0], amount: null }])).toEqual([{ ...option, amount: null }]);
+    const container: WorkflowContainer = { resolve<T>(): T { throw new Error("Native price validation must not resolve services"); } };
+    const port: WorkflowExecutionPort<Error> = { checkpoint: Effect.void, capture: value => Effect.sync(() => structuredClone(value)),
+      invoke: work => Effect.tryPromise({ try: () => Promise.resolve(work()), catch: error => error instanceof Error ? error : new Error("Foreign price failure") }),
+      context: { container, eventGroupId: "native-shipping-no-price" } };
+    const validate = (shippingOptions: typeof options) => {
+      const flow = createWorkflow("native-shipping-price-validation", () => new WorkflowResponse(validateCartShippingOptionsPriceStep({ shippingOptions })));
+      return runEffect(executeWorkflow(Result.getOrThrow(flow.prepare()), undefined, port));
+    };
+    // The pinned isDefined utility rejects only undefined. The actual Cart
+    // authoring owner remains responsible for its nonnullable amount contract.
+    expect(await validate(options)).toBeUndefined();
+    await expect(validate([{ ...option, calculated_price: null }])).rejects.toMatchObject({
+      type: "invalid_data", message: "Shipping options with IDs option-unpriced-flat do not have a price",
+    });
+    expect(() => decodeNativeShippingPrices([option.calculated_price])).toThrow();
+  });
+});
 
 describe("native Product remote query seam", () => {
   it("preserves native Order payment association lookup and optional absence", async () => {

@@ -2,10 +2,10 @@ import { validateAndTransformBody, validateAndTransformQuery, type MiddlewareFun
 import { ensurePublishableKeyAndSalesChannelMatch } from "../../utils/middlewares/common/ensure-pub-key-sales-channel-match"
 import { maybeAttachPublishableKeyScopes } from "../../utils/middlewares/common/maybe-attach-pub-key-scopes"
 import * as QueryConfig from "./query-config"
-import { StoreCreateCart, StoreGetCartsCart, StoreUpdateCart, StoreAddCartLineItem, StoreUpdateCartLineItem, StoreAddCartPromotions, StoreRemoveCartPromotions, StoreCalculateCartTaxes } from "./validators"
+import { StoreCreateCart, StoreGetCartsCart, StoreUpdateCart, StoreAddCartLineItem, StoreUpdateCartLineItem, StoreAddCartPromotions, StoreRemoveCartPromotions, StoreCalculateCartTaxes, StoreAddCartShippingMethods } from "./validators"
 
 export const storeCartRoutesMiddlewares: MiddlewareRoute[] = [
-  {
+{
     method: ["GET"],
     matcher: "/store/carts/:id",
     middlewares: [
@@ -15,7 +15,7 @@ export const storeCartRoutesMiddlewares: MiddlewareRoute[] = [
       ),
     ],
   },
-  {
+{
     method: ["POST"],
     matcher: "/store/carts",
     middlewares: [
@@ -29,7 +29,7 @@ export const storeCartRoutesMiddlewares: MiddlewareRoute[] = [
       ensurePublishableKeyAndSalesChannelMatch as MiddlewareFunction,
     ],
   },
-  {
+{
     method: ["POST"],
     matcher: "/store/carts/:id",
     middlewares: [
@@ -40,7 +40,7 @@ export const storeCartRoutesMiddlewares: MiddlewareRoute[] = [
       ),
     ],
   },
-  {
+{
     method: ["POST"],
     matcher: "/store/carts/:id/line-items",
     middlewares: [
@@ -51,7 +51,7 @@ export const storeCartRoutesMiddlewares: MiddlewareRoute[] = [
       ),
     ],
   },
-  {
+{
     method: ["POST"],
     matcher: "/store/carts/:id/line-items/:line_id",
     middlewares: [
@@ -62,7 +62,7 @@ export const storeCartRoutesMiddlewares: MiddlewareRoute[] = [
       ),
     ],
   },
-  {
+{
     method: ["DELETE"],
     matcher: "/store/carts/:id/line-items/:line_id",
     middlewares: [
@@ -72,7 +72,7 @@ export const storeCartRoutesMiddlewares: MiddlewareRoute[] = [
       ),
     ],
   },
-  {
+{
     method: ["POST"],
     matcher: "/store/carts/:id/promotions",
     middlewares: [
@@ -83,7 +83,7 @@ export const storeCartRoutesMiddlewares: MiddlewareRoute[] = [
       ),
     ],
   },
-  {
+{
     method: ["POST"],
     matcher: "/store/carts/:id/taxes",
     middlewares: [
@@ -94,7 +94,18 @@ export const storeCartRoutesMiddlewares: MiddlewareRoute[] = [
       ),
     ],
   },
-  {
+{
+    method: ["POST"],
+    matcher: "/store/carts/:id/shipping-methods",
+    middlewares: [
+      validateAndTransformBody(StoreAddCartShippingMethods),
+      validateAndTransformQuery(
+        StoreGetCartsCart,
+        QueryConfig.retrieveTransformQueryConfig
+      ),
+    ],
+  },
+{
     method: ["DELETE"],
     matcher: "/store/carts/:id/promotions",
     middlewares: [

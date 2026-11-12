@@ -2,8 +2,10 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { cartMutationSourcePairs, verifyCartMutationSource, verifyCartMutationSourceSelection, verifyCartMutationOperationSelection } from "./check-medusa-cart-mutation-source.mjs";
 
+/** @param {string} file */
 const read = file => readFileSync(file, "utf8");
 const selected = () => cartMutationSourcePairs.map(pair => ({ ...pair }));
+/** @param {(typeof cartMutationSourcePairs)[number]} pair */
 const refusal = pair => pair.target === "packages/medusa-utils/src/common/remove-undefined.ts"
   ? "Changed native undefined-omission type adaptation" : "Changed native Cart mutation algorithm or import";
 
@@ -24,12 +26,13 @@ describe("native Cart mutation source preservation", () => {
   });
   it("authenticates the entire selected native closure and its retained inverse bodies", () => {
     verifyCartMutationSourceSelection(selected());
-    expect(cartMutationSourcePairs).toHaveLength(23);
+    expect(cartMutationSourcePairs).toHaveLength(29);
     for (const pair of cartMutationSourcePairs) verifyCartMutationSource(read(pair.source), read(pair.target), pair.target);
   });
 
   it("rejects missing, duplicated, redirected and reclassified source pairs", () => {
     const pair = cartMutationSourcePairs[0];
+    if (pair === undefined) throw new Error("Missing Cart mutation witness");
     expect(pair).toBeDefined();
     for (const altered of [selected().slice(1), [...selected(), { ...pair }],
       selected().map((entry, index) => index !== 0 ? entry : { ...entry, source: entry.source + "-adjacent" }),
@@ -42,6 +45,10 @@ describe("native Cart mutation source preservation", () => {
   });
 
   it.each([
+    ["cart/workflows/add-shipping-method-to-cart.ts", "CartWorkflowEvents.UPDATED", "CartWorkflowEvents.CREATED"],
+    ["cart/workflows/list-shipping-options-for-cart.ts", "enabled_in_store: !isDefined(input.enabled_in_store)", "enabled_in_store: isDefined(input.enabled_in_store)"],
+    ["cart/steps/add-shipping-method-to-cart.ts", "cartService.deleteShippingMethods(methods.map((m) => m.id))", "cartService.restoreShippingMethods(methods.map((m) => m.id))"],
+    ["cart/steps/validate-shipping-options-price.ts", "!isDefined(calculated_price?.calculated_amount)", "isDefined(calculated_price?.calculated_amount)"],
     ["cart/workflows/update-cart.ts", "CartWorkflowEvents.UPDATED", "CartWorkflowEvents.CREATED"],
     ["cart/workflows/add-to-cart.ts", "timeout: 2", "timeout: 20"],
     ["cart/workflows/update-line-item-in-cart.ts", "MathBN.eq(input.update.quantity, 0)", "MathBN.eq(input.update.quantity, 1)"],
@@ -52,6 +59,7 @@ describe("native Cart mutation source preservation", () => {
     ["cart/workflows/add-to-cart.ts", "idempotent: false", "idempotent: true"],
   ])("refuses changed native business/control/inverse behavior in %s", (suffix, before, after) => {
     const pair = cartMutationSourcePairs.find(pair => pair.target.endsWith(suffix));
+    if (pair === undefined) throw new Error("Missing Cart mutation witness");
     expect(pair).toBeDefined();
     const target = read(pair.target);
     expect(target).toContain(before);
@@ -71,6 +79,7 @@ describe("native Cart mutation source preservation", () => {
 
   it("preserves the exact native undefined-omission body and its declared key optionality", () => {
     const pair = cartMutationSourcePairs.find(pair => pair.target === "packages/medusa-utils/src/common/remove-undefined.ts");
+    if (pair === undefined) throw new Error("Missing Cart mutation witness");
     expect(pair).toBeDefined();
     const target = read(pair.target);
     for (const [before, after] of [["JSON.stringify(obj)", "JSON.stringify({})"],

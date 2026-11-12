@@ -62,7 +62,8 @@ HTTP fixture does not establish HTTP transport-loss recovery.
 
 Acceptance requires PGlite, ordinary-role PostgreSQL and actual Workerd HTTP
 with durable observation and refetch after recreation. Existing authoring,
-query, identity, byte, event and request limits remain enforced. Nonempty Shipping
-Tax mutation, remote Tax providers, translation, Shipping Method lifecycle,
-Payment setup, checkout HTTP, mixed deployment, capacity and production
+query, identity, byte, event and request limits remain enforced. Populated Shipping
+Tax and Shipping Method lifecycle are selected by the connected
+[Shipping HTTP profile](./store-cart-shipping-http.md). Remote Tax providers,
+translation, Payment setup, checkout completion HTTP, mixed deployment, capacity and production
 activation retain separate gates.

@@ -89,3 +89,11 @@ export const StoreUpdateCartLineItem = z.object({
   quantity: z.number().gte(0), // can be 0 to remove the item from the cart
   metadata: z.record(z.unknown()).nullish(),
 })
+
+export const StoreAddCartShippingMethods = z
+  .object({
+    option_id: z.string(),
+    data: z.record(z.unknown()).optional(),
+  })
+  .strict()
+export type StoreAddCartShippingMethodsType = z.infer<typeof StoreAddCartShippingMethods>

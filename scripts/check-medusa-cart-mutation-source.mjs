@@ -4,6 +4,12 @@ import ts from "@typescript/typescript6";
 const prefix = "third_party/medusa/upstream/packages/core/core-flows/src/";
 const targetPrefix = "packages/medusa-core-flows/src/";
 const selected = [
+  "cart/workflows/list-shipping-options-for-cart.ts",
+  "cart/workflows/add-shipping-method-to-cart.ts",
+  "cart/steps/add-shipping-method-to-cart.ts",
+  "cart/steps/validate-cart-shipping-options.ts",
+  "cart/steps/validate-shipping-methods-data.ts",
+  "cart/steps/validate-shipping-options-price.ts",
   "cart/workflows/update-cart.ts",
   "cart/workflows/add-to-cart.ts",
   "cart/workflows/update-line-item-in-cart.ts",
@@ -30,7 +36,52 @@ const selected = [
 const removeUndefinedPair = Object.freeze({ source: "third_party/medusa/upstream/packages/core/utils/src/common/remove-undefined.ts",
   target: "packages/medusa-utils/src/common/remove-undefined.ts", classification: "cartMutationFork" });
 export const cartMutationSourcePairs = Object.freeze([...selected.map(file => Object.freeze({ source: prefix + file, target: targetPrefix + file, classification: "cartMutationFork" })), removeUndefinedPair]);
+/** @type {Readonly<Record<string, readonly string[]>>} */
 const imports = {
+  "cart/workflows/list-shipping-options-for-cart.ts": [
+    "import { createHook, createWorkflow, transform, WorkflowResponse, } from \"@medusajs/workflows-sdk\";",
+    "import { useCartShippingListQueryGraphStep as useQueryGraphStep } from \"../../common/steps/cart-mutation-query-views\";",
+    "import { useCartShippingRemoteQueryStep as useRemoteQueryStep } from \"../../common/steps/use-remote-query\";",
+    "import { validatePresenceOfStep } from \"../../common/steps/validate-presence-of\";",
+    "import { cartFieldsForPricingContext } from \"../utils/fields\";",
+    "import { deduplicate, filterObjectByKeys, isDefined, } from \"@medusajs/framework/utils/portable\";",
+    "import { pricingContextResult, shippingOptionsContextResult, } from \"../utils/schemas\";",
+    "import { getTranslatedShippingOptionsStep } from \"../../common/steps/get-translated-shipping-option\";"
+],
+  "cart/workflows/add-shipping-method-to-cart.ts": [
+    "import { CartWorkflowEvents, MedusaError } from \"@medusajs/framework/utils/portable\";",
+    "import { createHook, createWorkflow, nativeCartMutationProfile, parallelize, transform, WorkflowResponse, } from \"@medusajs/workflows-sdk\";",
+    "import { emitEventStep } from \"../../common/steps/emit-event\";",
+    "import { useCartMutationRemoteQueryStep as useRemoteQueryStep } from \"../../common/steps/use-remote-query\";",
+    "import { acquireLockStep } from \"../../locking/steps/acquire-lock\";",
+    "import { releaseLockStep } from \"../../locking/steps/release-lock\";",
+    "import { addShippingMethodToCartStep } from \"../steps/add-shipping-method-to-cart\";",
+    "import { removeShippingMethodFromCartStep } from \"../steps/remove-shipping-method-from-cart\";",
+    "import { validateCartShippingOptionsStep } from \"../steps/validate-cart-shipping-options\";",
+    "import { validateCartStep } from \"../steps/validate-cart\";",
+    "import { validateAndReturnShippingMethodsDataStep } from \"../steps/validate-shipping-methods-data\";",
+    "import { validateCartShippingOptionsPriceStep } from \"../steps/validate-shipping-options-price\";",
+    "import { cartFieldsForRefreshSteps } from \"../utils/fields\";",
+    "import { listShippingOptionsForCartWithPricingWorkflow } from \"./list-shipping-options-for-cart-with-pricing\";",
+    "import { refreshCartItemsWorkflow } from \"./refresh-cart-items\";"
+],
+  "cart/steps/add-shipping-method-to-cart.ts": [
+    "import { Modules } from \"@medusajs/framework/utils/portable\";",
+    "import { StepResponse, createStep } from \"@medusajs/workflows-sdk\";"
+],
+  "cart/steps/validate-cart-shipping-options.ts": [
+    "import { arrayDifference, MedusaError, Modules, } from \"@medusajs/framework/utils/portable\";",
+    "import { createStep, StepResponse } from \"@medusajs/workflows-sdk\";"
+],
+  "cart/steps/validate-shipping-methods-data.ts": [
+    "import { Modules, promiseAll } from \"@medusajs/framework/utils/portable\";",
+    "import { createStep, StepResponse } from \"@medusajs/workflows-sdk\";"
+],
+  "cart/steps/validate-shipping-options-price.ts": [
+    "import { isDefined, MedusaError } from \"@medusajs/framework/utils/portable\";",
+    "import { createStep, StepResponse } from \"@medusajs/workflows-sdk\";"
+],
+
   "cart/workflows/update-cart.ts": [
     "import { CartWorkflowEvents, isDefined, MedusaError, } from \"@medusajs/framework/utils/portable\";",
     "import { acquireLockStep } from \"../../locking/steps/acquire-lock\";",
@@ -228,7 +279,9 @@ const parse = text => ts.createSourceFile("cart-mutation.ts", text, ts.ScriptTar
 /** @param {string} text @param {string} file */
 function expected(text, file) {
   let value = text.replaceAll("\r\n", "\n");
-  const source = parse(value), edits = [];
+  const source = parse(value);
+  /** @type {{start: number, end: number, text: string}[]} */
+  const edits = [];
   /** @param {import("@typescript/typescript6").Node} node */
   const visit = node => {
     if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === "createStep" && node.arguments.length === 3) {
@@ -243,6 +296,8 @@ function expected(text, file) {
   for (const edit of edits.sort((left,right) => right.start-left.start)) value = value.slice(0,edit.start)+edit.text+value.slice(edit.end);
   if (["cart/workflows/update-cart.ts", "cart/workflows/add-to-cart.ts", "cart/workflows/update-line-item-in-cart.ts", "cart/workflows/refresh-cart-items.ts", "line-item/workflows/delete-line-items.ts"].includes(file))
     value = value.replace("    idempotent: false,", "    idempotent: false,\n    constructionProfile: nativeCartMutationProfile,");
+  if (file === "cart/workflows/add-shipping-method-to-cart.ts") value = value.replace(
+    "  addShippingMethodToCartWorkflowId,", "  { name: addShippingMethodToCartWorkflowId, constructionProfile: nativeCartMutationProfile },");
   if (file === "cart/steps/get-line-item-actions.ts") value = value.replace("const quantity = MathBN.sum(\n          existingItem.quantity as number,\n          item.quantity ?? 1\n        )",
     "const quantity = snapshotNativeNumber(MathBN.sum(\n          existingItem.quantity as number,\n          item.quantity ?? 1\n        ))!.json");
   if (file === "fulfillment/steps/calculate-shipping-options-prices.ts") value = value.replace(

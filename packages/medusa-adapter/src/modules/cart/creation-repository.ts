@@ -36,7 +36,8 @@ export function prepareCartCreationRepository(metadata: Metadata, read: Prepared
       if (contract === undefined) return yield* Result.fail(commerceError("unsupportedProfile"));
       const primary = contract.table.columns.filter(column => column.primaryKey);
       if (primary.length !== 1 || primary[0]?.name !== "id") return yield* Result.fail(commerceError("unsupportedProfile"));
-      return { ...contract, model, graph: { table: contract.table, model, keyColumn: "id", prefix: primary[0].options?.prefix },
+      const modelName: string = model;
+      return { ...contract, model: modelName, graph: { table: contract.table, model: modelName, keyColumn: "id", prefix: primary[0].options?.prefix },
         create: commerceRowDecoder([...contract.table.columns.filter(column => !["created_at", "updated_at", "deleted_at"].includes(column.name)).map(column => column.name),
           ...(name === "cart" ? ["shipping_address", "billing_address"] :
             name === "cart_line_item" ? ["tax_lines", "adjustments"] : [])], "unsupportedProfile") };
