@@ -1,7 +1,8 @@
+import * as Hex from "effect/encoding/Hex";
 import { administrativelyRepairFrameworkMetadata } from "./frameworkMetadataRepairTestSupport";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { asc, eq } from "drizzle-orm";
-import { Effect, Encoding, Option } from "effect";
+import { Effect, Option } from "effect";
 import { describe, expect, it } from "vitest";
 
 import type { FlarexMetadataTransaction } from
@@ -788,18 +789,18 @@ async function storedAvailabilityHistoryRows(
     availabilityHistoryStorageId: row.availabilityHistoryStorageId,
     installationStorageId: row.installationStorageId,
     readinessStorageId: row.readinessStorageId,
-    readinessSha256: Encoding.encodeHex(row.readinessSha256),
+    readinessSha256: Hex.encode(row.readinessSha256),
     availabilitySequence: row.availabilitySequence,
     status: row.status,
     reasonSha256: row.reasonSha256 === null
       ? null
-      : Encoding.encodeHex(row.reasonSha256),
-    historySha256: Encoding.encodeHex(row.historySha256),
+      : Hex.encode(row.reasonSha256),
+    historySha256: Hex.encode(row.historySha256),
     previousHistoryStorageId: row.previousHistoryStorageId,
     previousAvailabilitySequence: row.previousAvailabilitySequence,
     previousHistorySha256: row.previousHistorySha256 === null
       ? null
-      : Encoding.encodeHex(row.previousHistorySha256),
+      : Hex.encode(row.previousHistorySha256),
     previousStatus: row.previousStatus,
     frameFormat: row.frameFormat,
     frameVersion: row.frameVersion,

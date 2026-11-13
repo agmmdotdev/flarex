@@ -39,7 +39,7 @@ export async function booleanCatalogScenario(persistence: Pick<FlarexPersistence
   const table = manifest.tableDefinitions.tables[0], index = manifest.indexBindings.indexes[0];
   if (table === undefined || index === undefined) throw new Error("Missing real Boolean catalog parents");
   const predicate = { kind: "fieldIsNullAndBooleanEquals", nullField: "deleted_at", booleanField: "selected", value: true };
-  const orderedSpec = Schema.decodeUnknownSync(AppOrderedIndexPhysicalSpecV1Schema)({
+  const orderedSpec = Schema.decodeUnknownSync(AppOrderedIndexPhysicalSpecV1Schema, { onExcessProperty: "error" })({
     kind: "appOrdered", specVersion: 1, accessPath: "developer", keyCodecVersion: 1,
     collation: "binaryUtf8", maxEncodedKeyBytes: 2048,
     orderedFields: [{ kind: "documentPath", path: "parent" }, { kind: "systemCreationTime" }],

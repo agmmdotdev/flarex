@@ -1,4 +1,5 @@
-import { Cause, Deferred, Effect, Encoding, Exit, Fiber, Random, Result, Schema } from "effect";
+import * as Base64Url from "effect/encoding/Base64Url";
+import { Cause, Deferred, Effect, Exit, Fiber, Random, Result, Schema } from "effect";
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { TestClock } from "effect/testing";
 import {
@@ -281,7 +282,7 @@ const SNAPSHOT = SnapshotTokenSchema.make({
   scopeId: SCOPE_ID,
   epoch: ScopeEpochSchema.make("epoch_c04a_executor"),
   commitSeq: CommitSeqSchema.make(19n),
-});
+}, { parseOptions: { onExcessProperty: "error" } });
 const SELECTOR = Object.freeze({
   deploymentId: DEPLOYMENT_ID,
   scopeId: SCOPE_ID,
@@ -327,7 +328,7 @@ const testExecutionScopeFor = (
   TEST_EXECUTION_SCOPES.set(authentication, created);
   return created;
 };
-const encodeEnvelope = Schema.encodeSync(CommitEnvelopeV1Schema);
+const encodeEnvelope = Schema.encodeSync(CommitEnvelopeV1Schema, { onExcessProperty: "error" });
 
 describe("C04A stored-attempt authentication", () => {
   it("rejects malformed and inline carriage before authority inspection or I/O", async () => {
@@ -346,7 +347,7 @@ describe("C04A stored-attempt authentication", () => {
         kind: "inlineUntrusted",
         canonicalJournalBase64Url:
           CanonicalSessionJournalBase64UrlV1Schema.make(
-            Encoding.encodeBase64Url(fixture.journal.canonicalBytes),
+            Base64Url.encode(fixture.journal.canonicalBytes),
           ),
       },
     };
@@ -4446,7 +4447,7 @@ describe("C04A stored-attempt authentication", () => {
                 epoch: ScopeEpochSchema.make(
                   result.anchor.snapshotToken.epoch + 1n,
                 ),
-              }),
+              }, { parseOptions: { onExcessProperty: "error" } }),
             }),
           }),
       },
@@ -4491,7 +4492,7 @@ describe("C04A stored-attempt authentication", () => {
                 commitSeq: CommitSeqSchema.make(
                   result.anchor.snapshotToken.commitSeq - 1n,
                 ),
-              }),
+              }, { parseOptions: { onExcessProperty: "error" } }),
             }),
           }),
       },
@@ -4509,7 +4510,7 @@ describe("C04A stored-attempt authentication", () => {
                 commitSeq: CommitSeqSchema.make(
                   result.anchor.snapshotToken.commitSeq - 1n,
                 ),
-              }),
+              }, { parseOptions: { onExcessProperty: "error" } }),
             }),
           }),
       },
@@ -6297,7 +6298,7 @@ async function pointMutationOccAuthorizationFixture(
   const freshSnapshot = SnapshotTokenSchema.make({
     ...previousSnapshot,
     commitSeq: currentCommitSeq,
-  });
+  }, { parseOptions: { onExcessProperty: "error" } });
   const dependency = current.fixture.journal.journal.readDependencies[0];
   if (dependency?.kind !== "appRowPoint") {
     throw new Error("O08-B1 fixture requires one point dependency.");

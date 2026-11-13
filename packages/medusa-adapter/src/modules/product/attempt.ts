@@ -14,7 +14,7 @@ import { makeLocalProductCommands } from "./service";
 type ProductRuntime = Effect.Success<ReturnType<typeof makeLocalProductCommands>>;
 type ProductAttemptCommand = Readonly<{ command: CommerceCommand; args: Json }>;
 
-const ProductId = Schema.String.check(Schema.isLengthBetween(1, 256));
+const ProductId = Schema.String.check(Schema.isBetweenLength(1, 256));
 const decodeUpdate = commerceDecoder(Schema.Struct({
   id: ProductId,
   data: Schema.Struct({ title: Schema.String, handle: Schema.String, status: Schema.Literal("published") }),

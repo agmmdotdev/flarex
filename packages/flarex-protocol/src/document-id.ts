@@ -1,3 +1,4 @@
+import * as Base64Url from "effect/encoding/Base64Url";
 /**
  * Translation of Convex crates/value/src/{id_v6,base32}.rs at
  * db914cf06e2b06ee985646611b9e12ed7a770318. Copyright 2026 Convex, Inc.
@@ -7,14 +8,14 @@
  */
 import { isUint8ArrayWithByteLength } from "@flarex/utils/bytes";
 import { sha256 } from "@noble/hashes/sha2.js";
-import { Brand, Data, Encoding, Option, Result, Schema } from "effect";
+import { Brand, Data, Option, Result, Schema } from "effect";
 
 import { decodeCanonicalDocumentIdParts, encodeCanonicalDocumentId, INTERNAL_DOCUMENT_ID_BYTES } from "./document-id-core";
 export const DocumentTableNumberSchema = Schema.Int.check(
   Schema.isBetween({ minimum: 1, maximum: 0xffff_ffff }),
 );
 export const InternalDocumentIdSchema = Schema.Uint8Array.check(
-  Schema.isLengthBetween(INTERNAL_DOCUMENT_ID_BYTES, INTERNAL_DOCUMENT_ID_BYTES),
+  Schema.isBetweenLength(INTERNAL_DOCUMENT_ID_BYTES, INTERNAL_DOCUMENT_ID_BYTES),
 );
 const decodeTableNumber = Schema.decodeUnknownResult(DocumentTableNumberSchema);
 // The fixed-width writer needs intrinsic byte slots. The public schema also
@@ -22,7 +23,7 @@ const decodeTableNumber = Schema.decodeUnknownResult(DocumentTableNumberSchema);
 const decodeInternalId = Schema.decodeUnknownResult(Schema.declare((value): value is Uint8Array =>
   isUint8ArrayWithByteLength(value, INTERNAL_DOCUMENT_ID_BYTES),
 ));
-const EncodedIdSchema = Schema.String.check(Schema.isLengthBetween(31, 37));
+const EncodedIdSchema = Schema.String.check(Schema.isBetweenLength(31, 37));
 const decodeEncodedId = Schema.decodeUnknownResult(EncodedIdSchema);
 
 export class DocumentIdError extends Data.TaggedError("DocumentIdError")<{
@@ -99,9 +100,9 @@ function normalizeOldId(tableNumber: number, value: string): Option.Option<Devel
 
 function decodeOldBase64Id(value: string): Option.Option<Uint8Array> {
   // URL_SAFE_NO_PAD decodes exactly sixteen bytes with canonical trailing bits.
-  return Encoding.decodeBase64Url(value).pipe(Result.match({
+  return Base64Url.decode(value).pipe(Result.match({
     onFailure: () => Option.none(),
-    onSuccess: bytes => bytes.length === INTERNAL_DOCUMENT_ID_BYTES && Encoding.encodeBase64Url(bytes) === value
+    onSuccess: bytes => bytes.length === INTERNAL_DOCUMENT_ID_BYTES && Base64Url.encode(bytes) === value
       ? Option.some(bytes) : Option.none(),
   }));
 }

@@ -84,6 +84,6 @@ export class ProbeRuntimeRerunEntrypoint
         elapsedPerformanceDurationSince(startedAt),
       ),
       terminalAck: true,
-    });
+    }, { parseOptions: { onExcessProperty: "error" } });
   }
 }

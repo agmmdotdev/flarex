@@ -46,8 +46,8 @@ const decodeLegacyV1StorageGeneration = Schema.decodeUnknownSync(
 const decodeFlarexDbV1StorageGeneration = Schema.decodeUnknownSync(
   FlarexDbV1StorageGenerationSchema,
 );
-const decodeSnapshotToken = Schema.decodeUnknownSync(SnapshotTokenSchema);
-const encodeSnapshotToken = Schema.encodeSync(SnapshotTokenSchema);
+const decodeSnapshotToken = Schema.decodeUnknownSync(SnapshotTokenSchema, { onExcessProperty: "error" });
+const encodeSnapshotToken = Schema.encodeSync(SnapshotTokenSchema, { onExcessProperty: "error" });
 
 describe("FlarexDB storage authority contracts", () => {
   it("keeps identity, counter, generation, and snapshot types nominal", () => {
@@ -205,7 +205,7 @@ describe("FlarexDB storage authority contracts", () => {
       scopeId: ScopeIdSchema.make("scope-a"),
       epoch: ScopeEpochSchema.make("epoch-a"),
       commitSeq: uncheckedNegativeCommitSeq,
-    })).toThrow();
+    }, { parseOptions: { onExcessProperty: "error" } })).toThrow();
   });
 
   it("round-trips only positive canonical storage-generation fences", () => {

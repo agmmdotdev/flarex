@@ -1,10 +1,11 @@
+import * as Hex from "effect/encoding/Hex";
 import {
   bytesEqualFullScan,
   isUint8Array,
   isUint8ArrayWithByteLength,
 } from "@flarex/utils/bytes";
 import { isNonArrayRecord } from "@flarex/utils/records";
-import { Data, Encoding, Result } from "effect";
+import { Data, Result } from "effect";
 import {
   DECLARATIVE_V2_VERIFIER_BUDGET_DIMENSIONS_V2,
   type DeclarativeV2VerifierBudgetDimensionV2,
@@ -946,7 +947,7 @@ function decimal(value: bigint): string {
 }
 
 function hex(value: Uint8Array): string {
-  return Encoding.encodeHex(value);
+  return Hex.encode(value);
 }
 
 function entriesForRecord(
@@ -1283,7 +1284,7 @@ function parseDigest(value: unknown): Uint8Array | undefined {
   if (typeof value !== "string" || !/^[0-9a-f]{64}$/u.test(value)) {
     return undefined;
   }
-  const decoded = Encoding.decodeHex(value);
+  const decoded = Hex.decode(value);
   return Result.isSuccess(decoded) && isDigest(decoded.success)
     ? new Uint8Array(decoded.success)
     : undefined;

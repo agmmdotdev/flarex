@@ -1,7 +1,8 @@
+import * as Hex from "effect/encoding/Hex";
 import { frameworkMigrationGraphPolicy, withFrameworkCollisionGraphLimits } from "./graphLimits";
 import { frameworkGraphDriverRowReferences, makeFrameworkGraphReferenceRead, withFrameworkGraphReadPass } from "./graphReadPass";
 import { and, desc, eq, lte, or, sql } from "drizzle-orm";
-import { Effect, Encoding, Option } from "effect";
+import { Effect, Option } from "effect";
 
 import { detachDriverRows } from "../../database/detachDriverRows";
 import { runDrizzleStatementEffect } from "../../database/drizzleStatementEffect";
@@ -1535,7 +1536,7 @@ function runRepositoryStatement<Value>(
 }
 
 function decodeAuthenticatedSha256(value: string): Effect.Effect<Uint8Array> {
-  return Effect.fromResult(Encoding.decodeHex(value)).pipe(Effect.orDie);
+  return Effect.fromResult(Hex.decode(value)).pipe(Effect.orDie);
 }
 
 function mapInputValueError(

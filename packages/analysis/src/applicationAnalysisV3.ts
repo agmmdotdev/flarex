@@ -45,7 +45,7 @@ export const ApplicationManifestV3Schema = Schema.Unknown.pipe(Schema.decodeTo(
   Schema.declare<ApplicationManifestV3>((value): value is ApplicationManifestV3 =>
     Result.isSuccess(captureApplicationManifestV3(value))),
   {
-    decode: SchemaGetter.transformOrFail<ApplicationManifestV3, unknown>((value, options) =>
+    decode: SchemaGetter.transformEffect<ApplicationManifestV3, unknown>((value, options) =>
       Result.match(decodeApplicationManifestV3(value), {
         onSuccess: Effect.succeed,
         onFailure: failure => Effect.fail(new SchemaIssue.InvalidValue(

@@ -7,10 +7,7 @@ import {
   encodeCanonicalJson,
   type JsonObject,
 } from "./json";
-import {
-  StrictParseOptions,
-  StrictStructOptions,
-} from "./strict-schema-options";
+import { StrictParseOptions } from "./strict-schema-options";
 import {
   exactOwnDataIssue,
   hasExactOwnDataKeys,
@@ -43,7 +40,7 @@ export type RelationIdentityV1 = typeof RelationIdentityV1Schema.Type;
 export const RelationSourcePathFieldV1Schema = Schema.Struct({
   kind: Schema.Literal("field"),
   name: RelationIdentityV1Schema,
-}).annotate(StrictStructOptions);
+});
 export type RelationSourcePathFieldV1 =
   typeof RelationSourcePathFieldV1Schema.Type;
 
@@ -55,7 +52,7 @@ export type RelationSourcePathV1 = typeof RelationSourcePathV1Schema.Type;
 export const RelationOneValueV1Schema = Schema.Struct({
   cardinality: Schema.Literal("one"),
   required: Schema.Boolean,
-}).annotate(StrictStructOptions);
+});
 export type RelationOneValueV1 = typeof RelationOneValueV1Schema.Type;
 
 export const RelationManyValueV1Schema = Schema.Struct({
@@ -70,7 +67,7 @@ export const RelationManyValueV1Schema = Schema.Struct({
   ),
   ordered: Schema.Boolean,
   duplicates: Schema.Literal("forbid"),
-}).annotate(StrictStructOptions).check(
+}).check(
   Schema.makeFilter((value) =>
     value.minItems <= value.maxItems
       ? undefined
@@ -89,7 +86,7 @@ const RelationSourceV1Schema = Schema.Struct({
   table: RelationIdentityV1Schema,
   path: RelationSourcePathV1Schema,
   forwardName: RelationIdentityV1Schema,
-}).annotate(StrictStructOptions).check(
+}).check(
   Schema.makeFilter((source) =>
     source.path[0].name === source.forwardName
       ? undefined
@@ -99,12 +96,12 @@ const RelationSourceV1Schema = Schema.Struct({
 
 const RelationTargetV1Schema = Schema.Struct({
   table: RelationIdentityV1Schema,
-}).annotate(StrictStructOptions);
+});
 
 const RelationInverseV1Schema = Schema.Struct({
   cardinality: Schema.Literal("many"),
   name: Schema.Union([RelationIdentityV1Schema, Schema.Null]),
-}).annotate(StrictStructOptions);
+});
 
 export const RelationDeclarationV1Schema = Schema.Struct({
   format: Schema.Literal(RELATION_DECLARATION_FORMAT_V1),
@@ -115,7 +112,7 @@ export const RelationDeclarationV1Schema = Schema.Struct({
   inverse: RelationInverseV1Schema,
   localized: Schema.Literal(false),
   onTargetDelete: Schema.Literal("restrict"),
-}).annotate(StrictStructOptions);
+});
 export type RelationDeclarationV1 = typeof RelationDeclarationV1Schema.Type;
 
 export const RelationDeclarationsV1Schema = Schema.Array(

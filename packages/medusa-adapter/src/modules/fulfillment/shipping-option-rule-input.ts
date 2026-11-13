@@ -6,7 +6,7 @@ import { NativePreimageConfig } from "../../workflow/preimage";
 import { compileFulfillmentGraphContracts } from "./fulfillment-graph-contracts";
 import type { captureServiceZoneCreationMetadata } from "./shipping-profile-schema";
 
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 const fields = { attribute: Schema.optionalKey(Schema.String), operator: Schema.optionalKey(Schema.String),
   value: Schema.optionalKey(Schema.Json), shipping_option_id: Schema.optionalKey(Id) };
 /** Structural admission deliberately leaves the genuine Fulfillment validator

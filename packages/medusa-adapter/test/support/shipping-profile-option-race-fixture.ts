@@ -44,7 +44,7 @@ async function prepareOptionRace(options: OptionRaceOptions,
   const metadata = await Effect.runPromise(captureShippingProfileDeletionMetadata());
   const contracts = Result.getOrThrow(compileShippingProfileDeletionContracts(metadata.frame));
   const rowDecoders = new Map(metadata.frame.tables.map(table => [table.name, Result.getOrThrow(compileCompleteRow(table))]));
-  const decodeOutput = commerceDecoder(Schema.Array(Schema.JsonObject).check(Schema.isLengthBetween(1, 1)), "receiptMismatch");
+  const decodeOutput = commerceDecoder(Schema.Array(Schema.JsonObject).check(Schema.isBetweenLength(1, 1)), "receiptMismatch");
   const operation = options.operation ?? "insert";
   const commandName = operation === "insert" ? "shippingOptionRaceFixtureInsert" : "shippingOptionRaceFixtureRestore";
   const insert = defineCommerceCommand(commandName, "write", Effect.fn(function* (ctx, input) {

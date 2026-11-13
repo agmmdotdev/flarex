@@ -17,7 +17,7 @@ type Prepared = Result.Result.Success<ReturnType<typeof prepareFulfillmentCreati
 const decodeEvent = moduleEventDecoder(Schema.Struct({ name: Schema.String,
   metadata: Schema.Struct({ source: Schema.Literal(Modules.FULFILLMENT),
     object: Schema.Literals(["fulfillment_address", "fulfillment", "fulfillment_label", "fulfillment_item"]), action: Schema.Literals(["created", "updated"]) }),
-  data: Schema.Struct({ id: Schema.Union([FulfillmentCreationId, Schema.Array(FulfillmentCreationId).check(Schema.isLengthBetween(1, 4))]) }),
+  data: Schema.Struct({ id: Schema.Union([FulfillmentCreationId, Schema.Array(FulfillmentCreationId).check(Schema.isBetweenLength(1, 4))]) }),
 }), defaultCommerceResources);
 
 /** Creation returns its first detached graph, while Manual may subsequently

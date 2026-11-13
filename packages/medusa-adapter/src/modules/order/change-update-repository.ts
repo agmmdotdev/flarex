@@ -20,7 +20,7 @@ import type { captureOrderMetadata } from "./schema";
 const lookup = Schema.Union([Schema.Struct({ id: OrderChangeUpdateIds }),
   Schema.Struct({ $or: Schema.Array(Schema.Struct({ id: OrderChangeUpdateId })).check(Schema.isMaxLength(4)) })]);
 const decodeQuery = commerceDecoder(Schema.Struct({ where: lookup, options: Schema.Struct({
-  fields: Schema.optionalKey(Schema.Array(Schema.Literals(OrderChangeUpdateFields)).check(Schema.isLengthBetween(1, OrderChangeUpdateFields.length))),
+  fields: Schema.optionalKey(Schema.Array(Schema.Literals(OrderChangeUpdateFields)).check(Schema.isBetweenLength(1, OrderChangeUpdateFields.length))),
   populate: Schema.Array(Schema.Never), orderBy: Schema.optionalKey(Schema.Struct({ id: Schema.Literal("ASC") })) }) }), "unsupportedProfile");
 const decodePairs = commerceDecoder(Schema.Array(Schema.Struct({ entity: Schema.JsonObject,
   update: OrderChangeUpdateData })).check(Schema.isMaxLength(4)), "unsupportedProfile");

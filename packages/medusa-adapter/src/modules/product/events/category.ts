@@ -346,7 +346,7 @@ const InternalCategoryCreateRows = Schema.Array(Schema.StructWithRest(Schema.Str
   handle: Schema.optionalKey(Schema.String),
   parent_category_id: Schema.optionalKey(Schema.NullOr(EventId)),
   rank: Schema.optionalKey(Schema.Int),
-}), [Schema.Record(Schema.String, Schema.Json)])).check(Schema.isLengthBetween(1, 256));
+}), [Schema.Record(Schema.String, Schema.Json)])).check(Schema.isBetweenLength(1, 256));
 
 const decodeInternalCategoryCreateRows = Schema.decodeUnknownEffect(InternalCategoryCreateRows,
   { onExcessProperty: "error" });
@@ -356,11 +356,11 @@ const decodeInternalCategoryCreateRows = Schema.decodeUnknownEffect(InternalCate
 export function internalCategoryPolicy(catalog: ProductRuntimeMetadata,
   operation: "create" | "update" | "delete") {
   const mismatch = () => commerceError("receiptMismatch");
-  const ids = Schema.decodeUnknownEffect(Schema.Array(EventId).check(Schema.isLengthBetween(1, 256)),
+  const ids = Schema.decodeUnknownEffect(Schema.Array(EventId).check(Schema.isBetweenLength(1, 256)),
     { onExcessProperty: "error" });
   const selectedRows = Schema.decodeUnknownEffect(Schema.Array(Schema.StructWithRest(
     Schema.Struct({ id: EventId }), [Schema.Record(Schema.String, Schema.Json)]))
-    .check(Schema.isLengthBetween(1, 256)), { onExcessProperty: "error" });
+    .check(Schema.isBetweenLength(1, 256)), { onExcessProperty: "error" });
   const validateLogicalCall: LogicalCallReceiptValidation = Effect.fn("ProductEvents.validateInternalCategory")(
     function* (call, activity) {
       const { mutations, lifecycle, setNull, referenceReplacements } = activity;

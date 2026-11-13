@@ -12,7 +12,7 @@ import type { compileShippingOptionCreationContracts } from "./shipping-option-c
 const FilterId = Schema.String.check(Schema.isMaxLength(256));
 export const ShippingOptionReadFilters = Schema.Struct({ id: Schema.optionalKey(Schema.Union([FilterId, Schema.Array(FilterId).check(Schema.isMaxLength(4))])) });
 export const ShippingProviderReadFilters = Schema.Struct({ id: Schema.optionalKey(Schema.Union([FilterId, Schema.Array(FilterId).check(Schema.isMaxLength(8))])) });
-export const ShippingOptionReadConfig = Schema.Struct({ select: Schema.optionalKey(Schema.Array(Schema.String).check(Schema.isLengthBetween(1, 64))),
+export const ShippingOptionReadConfig = Schema.Struct({ select: Schema.optionalKey(Schema.Array(Schema.String).check(Schema.isBetweenLength(1, 64))),
   relations: Schema.optionalKey(Schema.Array(Schema.Literal("fulfillment_set")).check(Schema.isMaxLength(1))),
   take: Schema.optionalKey(QueryLimit), skip: Schema.optionalKey(QueryOffset),
   order: Schema.optionalKey(Schema.Struct({ id: Schema.optionalKey(Schema.Literals(["ASC", "DESC"])) })),
@@ -23,7 +23,7 @@ export const ShippingProviderReadInput = Schema.Struct({ filters: Schema.optiona
 export const decodeShippingProviderReadInput = commerceDecoder(ShippingProviderReadInput, "invalidInput");
 const decodeEnvelope = commerceDecoder(QueryEnvelope, "unsupportedProfile"), decodeFilters = commerceDecoder(ShippingOptionReadFilters, "unsupportedProfile");
 const decodeProviderFilters = commerceDecoder(ShippingProviderReadFilters, "unsupportedProfile");
-const decodeOptions = commerceDecoder(Schema.Struct({ fields: Schema.optionalKey(Schema.Array(Schema.String).check(Schema.isLengthBetween(1, 64))),
+const decodeOptions = commerceDecoder(Schema.Struct({ fields: Schema.optionalKey(Schema.Array(Schema.String).check(Schema.isBetweenLength(1, 64))),
   populate: Schema.optionalKey(Schema.Array(Schema.String).check(Schema.isMaxLength(1))), limit: Schema.optionalKey(QueryLimit), offset: Schema.optionalKey(QueryOffset),
   orderBy: Schema.optionalKey(Schema.Struct({ id: Schema.optionalKey(Schema.Literals(["ASC", "DESC"])) })),
   filters: Schema.optionalKey(Schema.Struct({ softDeletable: Schema.Struct({ withDeleted: Schema.Literal(false) }) })),

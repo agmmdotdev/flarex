@@ -1,5 +1,6 @@
+import * as Hex from "effect/encoding/Hex";
 import { and, eq, sql } from "drizzle-orm";
-import { Effect, Encoding, Option } from "effect";
+import { Effect, Option } from "effect";
 import { makeFrameworkGraphReferenceRead } from "./graphReadPass";
 
 import { detachDriverRows } from "../../database/detachDriverRows";
@@ -56,7 +57,7 @@ export const ensureFrameworkSchemaTargetNamespaceInTransactionEffect =
       "ensureTargetNamespace",
     );
     const targetNamespaceSha256 = yield* Effect.fromResult(
-      Encoding.decodeHex(expected.targetNamespaceSha256),
+      Hex.decode(expected.targetNamespaceSha256),
     ).pipe(Effect.orDie);
     const canonicalBytes = UTF8.encode(expected.canonicalJson);
     const statement = transaction.insert(

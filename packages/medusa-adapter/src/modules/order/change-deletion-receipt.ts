@@ -11,7 +11,7 @@ import type { compileOrderChangeDeletionContracts } from "./change-deletion-inpu
 import { decodeOrderChangeDeletionIds } from "./change-deletion-input";
 
 type Contracts = Result.Result.Success<ReturnType<typeof compileOrderChangeDeletionContracts>>;
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 const decodeEvent = moduleEventDecoder(Schema.Struct({ name: Schema.String,
   metadata: Schema.Struct({ source: Schema.Literal(Modules.ORDER),
     object: Schema.Literals(["order_change", "order_change_action"]),

@@ -16,7 +16,7 @@ import { orderCompletionRows } from "./order-completion-rows";
 
 const Input = Schema.Struct({ order_change_id: Schema.String, action: Schema.Literal("CREDIT_LINE_ADD"),
   amount: Schema.String, details: Schema.Struct({ reference: Schema.Literal("refund"), reference_id: Schema.String }) });
-const decodeCreates = commerceDecoder(Schema.Array(Schema.Unknown).check(Schema.isLengthBetween(1, 4)), "invalidInput");
+const decodeCreates = commerceDecoder(Schema.Array(Schema.Unknown).check(Schema.isBetweenLength(1, 4)), "invalidInput");
 
 /** A serial consumer witness, not a financial API or a replacement native DAL.
  * All Order business code and storage allocation execute their real owners.

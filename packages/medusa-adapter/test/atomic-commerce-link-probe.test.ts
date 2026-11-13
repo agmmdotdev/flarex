@@ -30,7 +30,7 @@ const schema = Result.getOrThrow(normalizeRelationalSchema({ owner: "medusa", li
 const evidence = { kind: "synthetic", sourceId: "atomic-commerce-link-probe" };
 const resources = { ...defaultCommerceResources, catalogRows: 128, queryRows: 128, writeBatchRows: 128, facts: 128, eventIds: 128 };
 const Row = Schema.Struct({ id: Schema.String, a: Schema.String, b: Schema.String, deleted_at: Schema.Null });
-const decodeRows = Schema.decodeUnknownResult(Schema.Array(Row).check(Schema.isLengthBetween(1, 8)), { onExcessProperty: "error" });
+const decodeRows = Schema.decodeUnknownResult(Schema.Array(Row).check(Schema.isBetweenLength(1, 8)), { onExcessProperty: "error" });
 const participant = defineAtomicCommerceParticipant("link_probe");
 let fixture: Awaited<ReturnType<typeof logicalCurrencyFixture>>;
 let storage: Awaited<ReturnType<typeof makeStorage>>;

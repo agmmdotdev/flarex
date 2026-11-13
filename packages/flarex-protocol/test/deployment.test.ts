@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { Effect, Result, SchemaAST, type Schema } from "effect";
+import { Effect, Result, type Schema } from "effect";
 import {
   decodeAbandonPushRequestEffect,
   decodeActiveDeploymentStatusEffect,
@@ -154,11 +154,11 @@ describe("deployment protocol schemas", () => {
   });
 
   it("locks deployment HttpApi error response status annotations", () => {
-    expect(SchemaAST.resolve(DeploymentBadRequestError.ast)?.httpApiStatus).toBe(400);
-    expect(SchemaAST.resolve(DeploymentNotFoundError.ast)?.httpApiStatus).toBe(404);
-    expect(SchemaAST.resolve(DeploymentConflictError.ast)?.httpApiStatus).toBe(409);
-    expect(SchemaAST.resolve(DeploymentStorageError.ast)?.httpApiStatus).toBe(500);
-    expect(SchemaAST.resolve(RejectedFinishPushSuccess.ast)?.httpApiStatus).toBe(409);
+    expect(DeploymentBadRequestError.ast.context?.annotations?.httpApiStatus).toBe(400);
+    expect(DeploymentNotFoundError.ast.context?.annotations?.httpApiStatus).toBe(404);
+    expect(DeploymentConflictError.ast.context?.annotations?.httpApiStatus).toBe(409);
+    expect(DeploymentStorageError.ast.context?.annotations?.httpApiStatus).toBe(500);
+    expect(RejectedFinishPushSuccess.ast.context?.annotations?.httpApiStatus).toBe(409);
   });
 
   it("decodes deployment error responses used by the HttpApi contract", async () => {
@@ -514,7 +514,7 @@ describe("deployment protocol schemas", () => {
 });
 
 function schemaStatusCodes(schemas: ReadonlySet<Schema.Top>): ReadonlyArray<number> {
-  return Array.from(schemas, schema => SchemaAST.resolve(schema.ast)?.httpApiStatus)
+  return Array.from(schemas, schema => schema.ast.context?.annotations?.httpApiStatus)
     .filter((status): status is number => typeof status === "number")
     .sort((left, right) => left - right);
 }

@@ -28,11 +28,11 @@ const decodeQuery = commerceDecoder(Schema.Struct({ where: Schema.JsonObject, op
   fields: Schema.optionalKey(Schema.Array(Schema.String)), populate: Schema.Array(Schema.String),
   limit: Schema.optionalKey(Schema.Literals([4, 15, 256])), offset: Schema.optionalKey(Schema.Literal(0)),
   orderBy: Schema.optionalKey(Schema.Struct({ id: Schema.Literal("ASC") })) }) }), "unsupportedProfile");
-const decodeNativeRows = Schema.decodeUnknownEffect(Schema.Array(Schema.Unknown).check(Schema.isLengthBetween(1, 1)));
-const decodeDelete = commerceDecoder(Schema.Struct({ $or: Schema.Array(Schema.Struct({ id: PaymentId })).check(Schema.isLengthBetween(1, 1)) }), "unsupportedProfile");
+const decodeNativeRows = Schema.decodeUnknownEffect(Schema.Array(Schema.Unknown).check(Schema.isBetweenLength(1, 1)));
+const decodeDelete = commerceDecoder(Schema.Struct({ $or: Schema.Array(Schema.Struct({ id: PaymentId })).check(Schema.isBetweenLength(1, 1)) }), "unsupportedProfile");
 const decodeCollectionCreates = commerceDecoder(CollectionCreates, "unsupportedProfile");
-const decodeHolderCreates = commerceDecoder(Schema.Array(AccountHolderStoredCreate).check(Schema.isLengthBetween(1, 1)), "unsupportedProfile");
-const decodeSessionCreates = commerceDecoder(Schema.Array(PaymentSessionCreate).check(Schema.isLengthBetween(1, 1)), "unsupportedProfile");
+const decodeHolderCreates = commerceDecoder(Schema.Array(AccountHolderStoredCreate).check(Schema.isBetweenLength(1, 1)), "unsupportedProfile");
+const decodeSessionCreates = commerceDecoder(Schema.Array(PaymentSessionCreate).check(Schema.isBetweenLength(1, 1)), "unsupportedProfile");
 const decodeCollectionPatch = commerceDecoder(Schema.Union([
   CollectionStoredPatch,
   NativeCollectionAccountingPatch,

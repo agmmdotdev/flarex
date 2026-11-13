@@ -1,3 +1,4 @@
+import { strictSchemaGuard } from "flarex-protocol/internal/strict-schema";
 import { acceptCmsPreferences, type PreparedCmsPreferences } from "../payloadPreferences/admission";
 import { observeExecution } from "../../execution/diagnostics/operation";
 import {
@@ -111,7 +112,7 @@ const disposeCmsPreparation = (token: PreparedCmsApplication, validator: Applica
   prepared.delete(token);
   revokeApplicationRevisionSyscallValidatorStateV1(validator);
 };
-const isPayloadConfiguration = Schema.is(PayloadConfigurationSchema);
+const isPayloadConfiguration = strictSchemaGuard(PayloadConfigurationSchema);
 
 function cmsClockMatches(authority: TrustedScopeAuthority, clock: ScopeClockRecord): boolean {
   return clock.scopeId === authority.scopeId && clock.storageGeneration === authority.storageGeneration &&

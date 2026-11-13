@@ -18,8 +18,8 @@ import { prepareOrderPaymentCollectionLinkRead } from "./order-payment-collectio
 import { prepareCustomerAccountHolderLinkRead } from "./customer-account-holder-service";
 import { prepareOrderPromotionLinkRead } from "./order-promotion-service";
 
-const decodePairs = commerceDecoder(Schema.Array(Schema.Tuple([ScalarId, ScalarId])).check(Schema.isLengthBetween(1, 1)), "receiptMismatch");
-const decodePromotionPairs = commerceDecoder(Schema.Array(Schema.Tuple([ScalarId, ScalarId])).check(Schema.isLengthBetween(1, 4)), "receiptMismatch");
+const decodePairs = commerceDecoder(Schema.Array(Schema.Tuple([ScalarId, ScalarId])).check(Schema.isBetweenLength(1, 1)), "receiptMismatch");
+const decodePromotionPairs = commerceDecoder(Schema.Array(Schema.Tuple([ScalarId, ScalarId])).check(Schema.isBetweenLength(1, 4)), "receiptMismatch");
 const decodeList = commerceDecoder(Schema.Struct({ filters: Schema.JsonObject, config: Schema.JsonObject }), "receiptMismatch");
 
 /** The native multi-family Link router receives the genuine generated bulk

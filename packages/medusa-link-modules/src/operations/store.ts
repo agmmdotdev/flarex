@@ -54,8 +54,8 @@ export class LinkOperationStore {
     this.#borrowedOwner = input.borrowedOwner
     this.#preimages = input.preimages
     const decode = Schema.decodeUnknownResult(Schema.Struct({
-      [input.primaryKey]: Schema.String.check(Schema.isLengthBetween(1, 256)),
-      [input.foreignKey]: Schema.String.check(Schema.isLengthBetween(1, 256)),
+      [input.primaryKey]: Schema.String.check(Schema.isBetweenLength(1, 256)),
+      [input.foreignKey]: Schema.String.check(Schema.isBetweenLength(1, 256)),
     }))
     this.#decodePair = value => Result.match(decode(value), {
       onSuccess: row => {

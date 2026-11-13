@@ -21,22 +21,20 @@ import type { LogicalParticipantSelection } from "../storage/documents/logicalDo
 import type { ApplicationBindingInput } from "../application/activation/contracts";
 import { runDrizzleStatementEffect } from "../database/drizzleStatementEffect";
 import { fxSystemMetadataContractObservations, fxSystemScopeClocks } from "../database/schema";
-
-const strict = { parseOptions: { onExcessProperty: "error" } } as const;
 const digest = Schema.String.check(Schema.isPattern(/^[0-9a-f]{64}$/));
 export const FiniteMetadataContractSchema = Schema.Struct({ ...LogicalMetadataKeySchema.fields,
-  semanticSha256Hex: digest }).annotate(strict);
+  semanticSha256Hex: digest });
 export type FiniteMetadataContract = typeof FiniteMetadataContractSchema.Type;
 export const FiniteMetadataOwnerSchema = Schema.Struct({ namespace: LogicalMetadataKeySchema.fields.namespace,
-  ownerKey: LogicalMetadataKeySchema.fields.ownerKey }).annotate(strict);
+  ownerKey: LogicalMetadataKeySchema.fields.ownerKey });
 export type FiniteMetadataOwner = typeof FiniteMetadataOwnerSchema.Type;
-const decodeContractEffect = Schema.decodeUnknownEffect(FiniteMetadataContractSchema);
-const decodeOwnersEffect = Schema.decodeUnknownEffect(Schema.Array(FiniteMetadataOwnerSchema));
+const decodeContractEffect = Schema.decodeUnknownEffect(FiniteMetadataContractSchema, { onExcessProperty: "error" });
+const decodeOwnersEffect = Schema.decodeUnknownEffect(Schema.Array(FiniteMetadataOwnerSchema), { onExcessProperty: "error" });
 const decodeSequenceTypeEffect = Schema.decodeUnknownEffect(Schema.toType(MetadataSequenceSchema));
 const decodeSequenceTypeResult = Schema.decodeUnknownResult(Schema.toType(MetadataSequenceSchema));
-const decodeKeyResult = Schema.decodeUnknownResult(LogicalMetadataKeySchema);
-const decodeDependencyTypeResult = Schema.decodeUnknownResult(Schema.toType(LogicalMetadataReadDependencySchema));
-const decodeDependencyArrayTypeResult = Schema.decodeUnknownResult(Schema.toType(Schema.Array(LogicalMetadataReadDependencySchema)));
+const decodeKeyResult = Schema.decodeUnknownResult(LogicalMetadataKeySchema, { onExcessProperty: "error" });
+const decodeDependencyTypeResult = Schema.decodeUnknownResult(Schema.toType(LogicalMetadataReadDependencySchema), { onExcessProperty: "error" });
+const decodeDependencyArrayTypeResult = Schema.decodeUnknownResult(Schema.toType(Schema.Array(LogicalMetadataReadDependencySchema)), { onExcessProperty: "error" });
 export const APPLICATION_EXECUTION_METADATA_OWNER = Object.freeze({ namespace: "execution", ownerKey: "application" } as const satisfies FiniteMetadataOwner);
 
 export class FiniteMetadataError extends Data.TaggedError("FiniteMetadataError")<{
@@ -58,17 +56,17 @@ export const finiteMetadataContractKey = (kind: string, ...identity: readonly (s
 const FiniteMetadataComparisonExpectedSchema = Schema.Struct({ ...LogicalMetadataKeySchema.fields,
   present: Schema.Boolean, semanticSha256Hex: Schema.NullOr(digest),
   semanticBytesHex: Schema.optional(Schema.String.check(Schema.isPattern(/^(?:[0-9a-f]{2})+$/))),
-}).annotate(strict);
+});
 export type FiniteMetadataComparisonExpected = typeof FiniteMetadataComparisonExpectedSchema.Type;
 const FiniteMetadataComparisonVerdictSchema = Schema.Union([
-  Schema.Struct({ reason: Schema.Literal("accepted") }).annotate(strict),
+  Schema.Struct({ reason: Schema.Literal("accepted") }),
   Schema.Struct({ reason: Schema.Literals(["writeConflict", "projectionMissing"]),
     ordinal: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
     currentObservation: Schema.NullOr(Schema.Struct({ present: Schema.Boolean,
-      semanticSha256Hex: Schema.NullOr(digest), lastChangedMetadataSequence: MetadataSequenceSchema }).annotate(strict)),
-  }).annotate(strict),
+      semanticSha256Hex: Schema.NullOr(digest), lastChangedMetadataSequence: MetadataSequenceSchema })),
+  }),
 ]);
-const decodeComparisonVerdict = Schema.decodeUnknownResult(FiniteMetadataComparisonVerdictSchema);
+const decodeComparisonVerdict = Schema.decodeUnknownResult(FiniteMetadataComparisonVerdictSchema, { onExcessProperty: "error" });
 const entryComparisonFailure = (cause: FiniteMetadataError): FiniteMetadataError => cause.reason === "writeConflict"
   ? new FiniteMetadataError({ ...cause, reason: "projectionMissing", cause }) : cause;
 

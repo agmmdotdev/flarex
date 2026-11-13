@@ -1,3 +1,4 @@
+import * as Hex from "effect/encoding/Hex";
 import {
   makeLiveStandardApplicationTaskSha256V1,
   MAX_TASK_RUNTIME_PUBLICATION_CANONICAL_BYTES_V1,
@@ -21,7 +22,7 @@ import {
   isUint8ArrayWithByteLength,
 } from "@flarex/utils/bytes";
 import { isNonArrayRecord } from "@flarex/utils/records";
-import { Data, Effect, Encoding, Result } from "effect";
+import { Data, Effect, Result } from "effect";
 
 import {
   ImmutableR2CorruptionError,
@@ -247,7 +248,7 @@ function decodeReferenceResult(
     const sha256 = yield* isUint8ArrayWithByteLength(captured.sha256, 32)
       ? Result.succeed(copyBytes(captured.sha256) as TaskDefinitionSha256V1)
       : Result.fail(undefined);
-    const digestHex = Encoding.encodeHex(sha256);
+    const digestHex = Hex.encode(sha256);
     const objectKey = taskRuntimeObjectKeyV1(role, digestHex);
     if (captured.objectKey !== objectKey) return yield* Result.fail(undefined);
     return Object.freeze({ storeIdentity, role, objectKey, byteLength, sha256 });

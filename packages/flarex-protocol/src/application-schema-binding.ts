@@ -39,10 +39,7 @@ import {
   SchemaManifestAppIndexDescriptorSchema,
   SchemaManifestAppTableNameSchema,
 } from "./schema-manifest";
-import {
-  StrictParseOptions,
-  StrictStructOptions,
-} from "./strict-schema-options";
+import { StrictParseOptions } from "./strict-schema-options";
 
 const TEXT_ENCODER = new TextEncoder();
 
@@ -111,7 +108,7 @@ export const ApplicationSchemaTableBindingSchema = Schema.Struct({
   applicationTableId: PositiveSafeIntegerSchema,
   logicalName: SchemaManifestAppTableNameSchema,
   tableId: CatalogTableIdSchema,
-}).annotate(StrictStructOptions);
+});
 export type ApplicationSchemaTableBinding =
   typeof ApplicationSchemaTableBindingSchema.Type;
 
@@ -121,7 +118,7 @@ export const ApplicationSchemaIndexBindingSchema = Schema.Struct({
   descriptor: SchemaManifestAppIndexDescriptorSchema,
   logicalIndexId: CatalogIndexIdSchema,
   tableId: CatalogTableIdSchema,
-}).annotate(StrictStructOptions);
+});
 export type ApplicationSchemaIndexBinding =
   typeof ApplicationSchemaIndexBindingSchema.Type;
 
@@ -142,7 +139,7 @@ const ApplicationSchemaBindingV1StructuralSchema = Schema.Struct({
   schemaManifestSha256: LowercaseSha256HexSchema,
   tables: ApplicationSchemaTableBindingsSchema,
   indexes: ApplicationSchemaIndexBindingsSchema,
-}).annotate(StrictStructOptions);
+});
 
 export const ApplicationSchemaBindingV1Schema =
   ApplicationSchemaBindingV1StructuralSchema.check(
@@ -164,7 +161,7 @@ export const SemanticRelationDefinitionV1Schema = Schema.Struct({
   sourceTableId: CatalogTableIdSchema,
   targetTableId: CatalogTableIdSchema,
   declaration: RelationDeclarationV1Schema,
-}).annotate(StrictStructOptions);
+});
 export type SemanticRelationDefinitionV1 =
   typeof SemanticRelationDefinitionV1Schema.Type;
 export type SemanticRelationDefinition = SemanticRelationDefinitionV1;
@@ -222,32 +219,32 @@ export const PhysicalEdgeDefinitionV1Schema = Schema.Struct({
   duplicates: Schema.Literal("forbid"),
   localization: Schema.Struct({
     kind: Schema.Literal("none"),
-  }).annotate(StrictStructOptions),
+  }),
   positionRetention: Schema.Struct({
     storage: Schema.Literal("nullable"),
     scalar: Schema.Literal("null"),
     array: Schema.Literal("zeroBasedIndex"),
-  }).annotate(StrictStructOptions),
+  }),
   occurrenceCodec: Schema.Struct({
     format: Schema.Literal(RELATION_OCCURRENCE_FORMAT_V1),
     version: Schema.Literal(RELATION_OCCURRENCE_VERSION_V1),
     duplicateOrdinal: Schema.Literal(
       RELATION_OCCURRENCE_DUPLICATE_ORDINAL_V1,
     ),
-  }).annotate(StrictStructOptions),
+  }),
   currentOccurrenceIdentity: CurrentOccurrenceIdentityV1Schema,
   outgoingCurrentAccess: Schema.Struct({
     equalityPrefix: OutgoingEqualityPrefixV1Schema,
     order: OutgoingOrderV1Schema,
-  }).annotate(StrictStructOptions),
+  }),
   incomingCurrentAccess: Schema.Struct({
     equalityPrefix: IncomingEqualityPrefixV1Schema,
     order: IncomingOrderV1Schema,
-  }).annotate(StrictStructOptions),
+  }),
   currentProjection: Schema.Struct({
     position: Schema.Literal("includedNullable"),
     commitProvenance: Schema.Literal("included"),
-  }).annotate(StrictStructOptions),
+  }),
   incomingPage: Schema.Struct({
     maximumLogicalIdentities: Schema.Literal(
       RELATION_INCOMING_PAGE_MAXIMUM_IDENTITIES_V1,
@@ -263,7 +260,7 @@ export const PhysicalEdgeDefinitionV1Schema = Schema.Struct({
     maximumTransactionBaseOccurrences: Schema.Literal(
       RELATION_TRANSACTION_MAXIMUM_BASE_OCCURRENCES_V1,
     ),
-  }).annotate(StrictStructOptions),
+  }),
   snapshot: Schema.Struct({
     kind: Schema.Literal("endpointAdjacencyVersion"),
     version: Schema.Literal(1),
@@ -280,8 +277,8 @@ export const PhysicalEdgeDefinitionV1Schema = Schema.Struct({
     finalValidation: Schema.Literal("dependencyUnchanged"),
     conflict: Schema.Literal("replaceAttemptAndDeterministicallyRerun"),
     historyFallback: Schema.Literal("forbidden"),
-  }).annotate(StrictStructOptions),
-}).annotate(StrictStructOptions);
+  }),
+});
 export type PhysicalEdgeDefinitionV1 =
   typeof PhysicalEdgeDefinitionV1Schema.Type;
 export type PhysicalEdgeDefinition = PhysicalEdgeDefinitionV1;
@@ -330,7 +327,7 @@ const RelationSemanticChangesV1Schema = Schema.Array(
 export const RelationCompatibilityClassificationV1Schema = Schema.Struct({
   declarationCodec: Schema.Literal("sameV1"),
   changes: RelationSemanticChangesV1Schema,
-}).annotate(StrictStructOptions);
+});
 export type RelationCompatibilityClassificationV1 =
   typeof RelationCompatibilityClassificationV1Schema.Type;
 
@@ -346,7 +343,7 @@ export const ApplicationSchemaRelationBindingV2Schema = Schema.Struct({
   evolution: Schema.Union([
     Schema.Struct({
       kind: Schema.Literal("new"),
-    }).annotate(StrictStructOptions),
+    }),
     Schema.Struct({
       kind: Schema.Literal("preserve"),
       fromSchemaVersionId: CatalogSchemaVersionIdSchema,
@@ -356,9 +353,9 @@ export const ApplicationSchemaRelationBindingV2Schema = Schema.Struct({
         Schema.Literal("replace"),
       ]),
       compatibility: RelationCompatibilityClassificationV1Schema,
-    }).annotate(StrictStructOptions),
+    }),
   ]),
-}).annotate(StrictStructOptions);
+});
 export type ApplicationSchemaRelationBindingV2 =
   typeof ApplicationSchemaRelationBindingV2Schema.Type;
 
@@ -366,7 +363,7 @@ export const ApplicationSchemaSemanticDefinitionV2Schema = Schema.Struct({
   relationId: CatalogRelationIdSchema,
   semanticDefinitionSha256: SemanticRelationDefinitionSha256HexSchema,
   definition: SemanticRelationDefinitionV1Schema,
-}).annotate(StrictStructOptions);
+});
 export type ApplicationSchemaSemanticDefinitionV2 =
   typeof ApplicationSchemaSemanticDefinitionV2Schema.Type;
 
@@ -374,7 +371,7 @@ export const ApplicationSchemaEdgeDefinitionV2Schema = Schema.Struct({
   edgeDefinitionId: CatalogEdgeDefinitionIdSchema,
   edgeDefinitionSha256: EdgeDefinitionSha256HexSchema,
   definition: PhysicalEdgeDefinitionV1Schema,
-}).annotate(StrictStructOptions);
+});
 export type ApplicationSchemaEdgeDefinitionV2 =
   typeof ApplicationSchemaEdgeDefinitionV2Schema.Type;
 
@@ -406,7 +403,7 @@ const ApplicationSchemaBindingV2StructuralSchema = Schema.Struct({
     Schema.isMinLength(1),
     Schema.isMaxLength(MAX_APPLICATION_SCHEMA_BINDING_RELATIONS),
   ),
-}).annotate(StrictStructOptions);
+});
 
 export const ApplicationSchemaBindingV2Schema =
   ApplicationSchemaBindingV2StructuralSchema.check(
@@ -420,16 +417,16 @@ const WritePolicyBindingFields = {
   writePolicySha256: LowercaseSha256HexSchema,
 };
 export const ApplicationSchemaWritePolicyBindingSchema = Schema.Union([
-  Schema.Struct({ ...WritePolicyBindingFields, owner: Schema.Literal("application") }).annotate(StrictStructOptions),
+  Schema.Struct({ ...WritePolicyBindingFields, owner: Schema.Literal("application") }),
   Schema.Struct({ ...WritePolicyBindingFields, owner: Schema.Literal("application-command"),
-    policyId: Schema.Literal("application.reference-permissions") }).annotate(StrictStructOptions),
+    policyId: Schema.Literal("application.reference-permissions") }),
   Schema.Struct({
     ...WritePolicyBindingFields,
     owner: Schema.Literal("payload"),
     policyId: Schema.Literal("payload.scalar"),
     configSha256: LowercaseSha256HexSchema,
     provenanceSha256: LowercaseSha256HexSchema,
-  }).annotate(StrictStructOptions),
+  }),
 ]);
 export type ApplicationSchemaWritePolicyBinding = typeof ApplicationSchemaWritePolicyBindingSchema.Type;
 
@@ -442,7 +439,7 @@ const ApplicationSchemaBindingV3StructuralSchema = Schema.Struct({
   edgeDefinitions: Schema.Array(ApplicationSchemaEdgeDefinitionV2Schema).check(Schema.isMaxLength(MAX_APPLICATION_SCHEMA_BINDING_RELATIONS)),
   writePolicySetSha256: LowercaseSha256HexSchema,
   writePolicies: Schema.Array(ApplicationSchemaWritePolicyBindingSchema).check(Schema.isMinLength(1), Schema.isMaxLength(64)),
-}).annotate(StrictStructOptions);
+});
 
 export const ApplicationSchemaBindingV3Schema = ApplicationSchemaBindingV3StructuralSchema.check(
   Schema.makeFilter(binding => {
@@ -491,7 +488,7 @@ export const ApplicationManifestSchemaBindingV1Schema = Schema.Struct({
   schemaVersionId: CatalogSchemaVersionIdSchema,
   schemaVersion: CatalogSchemaVersionSchema,
   boundPublicationSha256: ApplicationSchemaBindingSha256HexSchema,
-}).annotate(StrictStructOptions);
+});
 export type ApplicationManifestSchemaBindingV1 =
   typeof ApplicationManifestSchemaBindingV1Schema.Type;
 export type ApplicationManifestSchemaBinding =

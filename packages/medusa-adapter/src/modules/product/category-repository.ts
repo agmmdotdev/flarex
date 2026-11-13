@@ -14,7 +14,7 @@ import { compareBytesLexicographically } from "@flarex/utils/bytes";
 import type { CommerceTransactionError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { decodeProductCategoryIds } from "./category-input";
 
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 const decodeEnvelope = commerceDecoder(QueryEnvelope, "unsupportedProfile");
 const decodeWhere = commerceDecoder(Schema.Struct({
   id: Schema.optionalKey(Schema.Union([Id, Schema.Array(Id).check(Schema.isMaxLength(256))])),

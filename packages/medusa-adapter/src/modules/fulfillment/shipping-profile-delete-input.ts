@@ -6,7 +6,7 @@ import { commerceDecoder } from "../../value/decoder";
 import { compileCompleteRow } from "../../value/complete-row";
 import type { captureShippingProfileDeletionMetadata } from "./shipping-profile-schema";
 
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 export const ShippingProfileDeletionIds = Schema.Array(Id).pipe(Schema.mutable).check(Schema.isMaxLength(4));
 export const decodeShippingProfileDeletionIds = commerceDecoder(ShippingProfileDeletionIds, "invalidInput");
 export const decodeShippingProfileDeletionArguments = commerceDecoder(Schema.Tuple([ShippingProfileDeletionIds]), "invalidInput");

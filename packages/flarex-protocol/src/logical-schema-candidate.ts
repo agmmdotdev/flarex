@@ -20,8 +20,6 @@ import {
   relationalSchemaSourceFromDefinition,
   type RelationalSchema,
 } from "./relational-schema/index";
-
-const strict = { parseOptions: { onExcessProperty: "error" } } as const;
 export const MAX_LOGICAL_SCHEMA_CANDIDATE_TABLES = 256;
 export const MAX_LOGICAL_SCHEMA_CANDIDATE_BYTES = 4_194_304;
 const Name = Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(512),
@@ -30,7 +28,7 @@ const Sha256 = Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/));
 export const QualifiedLogicalTableSchema = Schema.Struct({
   namespace: CatalogTableNamespaceSchema,
   logicalName: Name,
-}).annotate(strict);
+});
 export type QualifiedLogicalTable = typeof QualifiedLogicalTableSchema.Type;
 
 // This boundary receives owned JSON from the manifest capture owner. Reconstruct
@@ -47,15 +45,15 @@ const DocumentDefinition = Schema.Struct({
   indexes: Schema.Array(SchemaManifestAppIndexDeclarationV1Schema).check(Schema.isMaxLength(10_000)),
   uniqueConstraints: Schema.Array(LogicalDocumentUniqueConstraintDeclarationSchema).check(Schema.isMaxLength(10_000)),
   relations: RelationDeclarationsV1Schema,
-}).annotate(strict);
+});
 const SourceDefinition = Schema.Union([
   DocumentDefinition,
-  Schema.Struct({ kind: Schema.Literal("relational"), schema: RelationalDefinition }).annotate(strict),
+  Schema.Struct({ kind: Schema.Literal("relational"), schema: RelationalDefinition }),
 ]);
 const SourceBinding = Schema.Union([
-  Schema.Struct({ kind: Schema.Literal("definition"), localName: Name, table: QualifiedLogicalTableSchema }).annotate(strict),
+  Schema.Struct({ kind: Schema.Literal("definition"), localName: Name, table: QualifiedLogicalTableSchema }),
   Schema.Struct({ kind: Schema.Literal("view"), localName: Name, table: QualifiedLogicalTableSchema,
-    mode: Schema.Literal("readOnly") }).annotate(strict),
+    mode: Schema.Literal("readOnly") }),
 ]);
 export const LogicalSchemaSourceSchema = Schema.Struct({
   key: Name,
@@ -67,11 +65,11 @@ export const LogicalSchemaSourceSchema = Schema.Struct({
   writeProfile: Name,
   definition: SourceDefinition,
   bindings: Schema.Array(SourceBinding).check(Schema.isMaxLength(10_000)),
-}).annotate(strict);
-const Endpoint = Schema.Struct({ table: QualifiedLogicalTableSchema, field: Name }).annotate(strict);
+});
+const Endpoint = Schema.Struct({ table: QualifiedLogicalTableSchema, field: Name });
 export const LogicalSchemaEndpointLivenessSchema = Schema.Union([
-  Schema.Struct({ kind: Schema.Literal("current") }).annotate(strict),
-  Schema.Struct({ kind: Schema.Literal("softDeleteNull"), field: Name }).annotate(strict),
+  Schema.Struct({ kind: Schema.Literal("current") }),
+  Schema.Struct({ kind: Schema.Literal("softDeleteNull"), field: Name }),
 ]);
 export type LogicalSchemaEndpointLiveness = typeof LogicalSchemaEndpointLivenessSchema.Type;
 export const LogicalSchemaExtensionSchema = Schema.Struct({
@@ -81,10 +79,10 @@ export const LogicalSchemaExtensionSchema = Schema.Struct({
   target: Endpoint,
   policy: Schema.Literal("strongReference"),
   liveness: Schema.Struct({ source: LogicalSchemaEndpointLivenessSchema,
-    target: LogicalSchemaEndpointLivenessSchema }).annotate(strict),
+    target: LogicalSchemaEndpointLivenessSchema }),
   onTargetSoftDelete: Schema.optionalKey(Schema.Literal("retain")),
   onTargetDelete: Schema.Literal("restrict"),
-}).annotate(strict);
+});
 
 export const LogicalSchemaCandidateSchema = Schema.Struct({
   kind: Schema.Literal("logicalSchemaCandidate"),
@@ -93,18 +91,18 @@ export const LogicalSchemaCandidateSchema = Schema.Struct({
   deploymentId: Name,
   scopeId: Name,
   applicationAnalysis: Schema.Struct({ candidateId: Name, analysisId: Name,
-    manifestSha256: Sha256, sourceArtifactRootSha256: Sha256 }).annotate(strict),
+    manifestSha256: Sha256, sourceArtifactRootSha256: Sha256 }),
   sources: Schema.Array(LogicalSchemaSourceSchema).check(Schema.isMinLength(1), Schema.isMaxLength(64)),
   extensions: Schema.Array(LogicalSchemaExtensionSchema).check(Schema.isMaxLength(1024)),
-}).annotate(strict);
+});
 export type LogicalSchemaCandidate = typeof LogicalSchemaCandidateSchema.Type;
 export type LogicalSchemaSource = typeof LogicalSchemaSourceSchema.Type;
 export type LogicalSchemaExtension = typeof LogicalSchemaExtensionSchema.Type;
 export type LogicalSchemaBinding = typeof SourceBinding.Type;
-export const encodeLogicalSchemaSource = Schema.encodeSync(LogicalSchemaSourceSchema);
-export const encodeLogicalSchemaCandidate = Schema.encodeSync(LogicalSchemaCandidateSchema);
-export const encodeLogicalSchemaSourceDefinition = Schema.encodeSync(SourceDefinition);
-export const captureLogicalSchemaSourceResult = Schema.decodeUnknownResult(Schema.toType(LogicalSchemaSourceSchema));
+export const encodeLogicalSchemaSource = Schema.encodeSync(LogicalSchemaSourceSchema, { onExcessProperty: "error" });
+export const encodeLogicalSchemaCandidate = Schema.encodeSync(LogicalSchemaCandidateSchema, { onExcessProperty: "error" });
+export const encodeLogicalSchemaSourceDefinition = Schema.encodeSync(SourceDefinition, { onExcessProperty: "error" });
+export const captureLogicalSchemaSourceResult = Schema.decodeUnknownResult(Schema.toType(LogicalSchemaSourceSchema), { onExcessProperty: "error" });
 
 export function logicalTableKey(table: QualifiedLogicalTable): string {
   return JSON.stringify([table.namespace, table.logicalName]);
@@ -112,8 +110,8 @@ export function logicalTableKey(table: QualifiedLogicalTable): string {
 
 const decodeCandidate = Schema.decodeUnknownResult(LogicalSchemaCandidateSchema.check(
   Schema.makeFilter(validateCandidate),
-));
-const captureCandidate = Schema.decodeUnknownResult(Schema.toType(LogicalSchemaCandidateSchema).check(Schema.makeFilter(validateCandidate)));
+), { onExcessProperty: "error" });
+const captureCandidate = Schema.decodeUnknownResult(Schema.toType(LogicalSchemaCandidateSchema).check(Schema.makeFilter(validateCandidate)), { onExcessProperty: "error" });
 
 export function captureLogicalSchemaCandidate(input: unknown) {
   return Result.gen(function* () {

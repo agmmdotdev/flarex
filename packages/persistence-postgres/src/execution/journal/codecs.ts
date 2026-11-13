@@ -51,10 +51,6 @@ import {
   decodeTransactionExecutionClaimOwnerV1,
 } from "../claims/transactionExecutionClaimModel";
 
-const StrictStructOptions = {
-  parseOptions: { onExcessProperty: "error" },
-} as const;
-
 export const TEXT_ENCODER = new TextEncoder();
 
 const SessionJournalGetRequestV1Schema = Schema.Struct({
@@ -64,7 +60,7 @@ const SessionJournalGetRequestV1Schema = Schema.Struct({
   syscallSequence: CommitSyscallSequenceV1Schema,
   tableId: CatalogTableIdSchema,
   documentId: AppDocumentIdV1Schema,
-}).annotate(StrictStructOptions);
+});
 
 const SessionJournalInsertRequestV1Schema = Schema.Struct({
   format: Schema.Literal("flarex.session-journal-syscall"),
@@ -73,7 +69,7 @@ const SessionJournalInsertRequestV1Schema = Schema.Struct({
   syscallSequence: CommitSyscallSequenceV1Schema,
   tableId: CatalogTableIdSchema,
   fieldsValueJson: AppDocumentFieldsJsonV1Schema,
-}).annotate(StrictStructOptions);
+});
 
 const SessionJournalPatchRequestV1Schema = Schema.Struct({
   format: Schema.Literal("flarex.session-journal-syscall"),
@@ -83,7 +79,7 @@ const SessionJournalPatchRequestV1Schema = Schema.Struct({
   tableId: CatalogTableIdSchema,
   documentId: AppDocumentIdV1Schema,
   changes: Schema.Array(LogicalPatchFieldV1Schema),
-}).annotate(StrictStructOptions);
+});
 
 const SessionJournalReplaceRequestV1Schema = Schema.Struct({
   format: Schema.Literal("flarex.session-journal-syscall"),
@@ -93,7 +89,7 @@ const SessionJournalReplaceRequestV1Schema = Schema.Struct({
   tableId: CatalogTableIdSchema,
   documentId: AppDocumentIdV1Schema,
   fieldsValueJson: AppDocumentFieldsJsonV1Schema,
-}).annotate(StrictStructOptions);
+});
 
 const SessionJournalDeleteRequestV1Schema = Schema.Struct({
   format: Schema.Literal("flarex.session-journal-syscall"),
@@ -102,7 +98,7 @@ const SessionJournalDeleteRequestV1Schema = Schema.Struct({
   syscallSequence: CommitSyscallSequenceV1Schema,
   tableId: CatalogTableIdSchema,
   documentId: AppDocumentIdV1Schema,
-}).annotate(StrictStructOptions);
+});
 
 const SessionJournalIndexRangeRequestV1Schema = Schema.Struct({
   format: Schema.Literal("flarex.session-journal-syscall"),
@@ -115,7 +111,7 @@ const SessionJournalIndexRangeRequestV1Schema = Schema.Struct({
   startInclusive: Schema.NullOr(OrderedIndexBoundHexV1Schema),
   endExclusive: Schema.NullOr(OrderedIndexBoundHexV1Schema),
   limit: Schema.Int,
-}).annotate(StrictStructOptions);
+});
 
 const SessionJournalRelationIncomingRequestV1Schema = Schema.Struct({
   format: Schema.Literal("flarex.session-journal-syscall"),
@@ -128,7 +124,7 @@ const SessionJournalRelationIncomingRequestV1Schema = Schema.Struct({
   targetTableId: CatalogTableIdSchema,
   targetRowId: AppRowIdHexV1Schema,
   limit: Schema.Int,
-}).annotate(StrictStructOptions);
+});
 
 const SessionJournalAdmittedLogicalRequestSchema = Schema.Struct({
   format: Schema.Literal("flarex.session-journal-syscall"),
@@ -144,7 +140,7 @@ const SessionJournalAdmittedLogicalRequestSchema = Schema.Struct({
   admissionBundleSha256Hex: Schema.String,
   requestSha256Hex: Schema.String,
   frame: JsonValue,
-}).annotate(StrictStructOptions);
+});
 
 const SessionJournalStoredRequestSchema = Schema.Union([
   SessionJournalGetRequestV1Schema,
@@ -170,18 +166,18 @@ export type SessionJournalStoredPointRequest = Exclude<
 
 const SessionJournalMissingOutcomeV1Schema = Schema.Struct({
   kind: Schema.Literal("missing"),
-}).annotate(StrictStructOptions);
+});
 
 const SessionJournalPresentOutcomeV1Schema = Schema.Struct({
   kind: Schema.Literal("present"),
   documentValueJson: JsonValue,
-}).annotate(StrictStructOptions);
+});
 
 const SessionJournalInsertedOutcomeV1Schema = Schema.Struct({
   kind: Schema.Literal("inserted"),
   documentId: AppDocumentIdV1Schema,
   documentValueJson: JsonValue,
-}).annotate(StrictStructOptions);
+});
 
 const SessionJournalUnitOutcomeV1Schema = Schema.Struct({
   kind: Schema.Literal("unit"),
@@ -190,13 +186,13 @@ const SessionJournalUnitOutcomeV1Schema = Schema.Struct({
     Schema.Literal("replace"),
     Schema.Literal("delete"),
   ]),
-}).annotate(StrictStructOptions);
+});
 
 const SessionJournalIndexRangePageOutcomeV1Schema = Schema.Struct({
   kind: Schema.Literal("indexRangePage"),
   documentsValueJson: Schema.Array(JsonValue),
   isDone: Schema.Boolean,
-}).annotate(StrictStructOptions);
+});
 
 const SessionJournalRelationIncomingPageOutcomeV1Schema = Schema.Struct({
   kind: Schema.Literal("relationIncomingPage"),
@@ -212,10 +208,10 @@ const SessionJournalRelationIncomingPageOutcomeV1Schema = Schema.Struct({
           }),
         ),
       ),
-    }).annotate(StrictStructOptions),
+    }),
   ),
   exhausted: Schema.Boolean,
-}).annotate(StrictStructOptions);
+});
 
 const SessionJournalRelationConflictOutcomeV1Schema = Schema.Struct({
   kind: Schema.Literal("relationConflict"),
@@ -224,7 +220,7 @@ const SessionJournalRelationConflictOutcomeV1Schema = Schema.Struct({
   expectedAdjacencyVersion: CommitSeqSchema,
   actualAdjacencyVersion: CommitSeqSchema,
   snapshotCommitSeq: CommitSeqSchema,
-}).annotate(StrictStructOptions);
+});
 
 const SessionJournalAdmittedLogicalResultSchema = Schema.Struct({
   kind: Schema.Literal("admittedLogicalResult"),
@@ -233,28 +229,28 @@ const SessionJournalAdmittedLogicalResultSchema = Schema.Struct({
     Schema.Struct({
       sourceKey: Schema.NullOr(Schema.NonEmptyString),
       intent: JsonValue,
-    }).annotate(StrictStructOptions),
+    }),
   ),
   sourceDependencies: Schema.Array(
     Schema.Struct({
       sourceKey: Schema.NonEmptyString,
       evidence: Schema.Record(Schema.String, JsonValue),
-    }).annotate(StrictStructOptions),
+    }),
   ),
   workBytes: Schema.Int,
   workCalls: Schema.Int,
-}).annotate(StrictStructOptions);
+});
 
 const SessionJournalAdmittedLogicalErrorSchema = Schema.Struct({
   kind: Schema.Literal("admittedLogicalError"),
   reason: Schema.NonEmptyString,
   workBytes: Schema.Int,
   workCalls: Schema.Int,
-}).annotate(StrictStructOptions);
+});
 
 const SessionJournalAdmittedLogicalInvokingSchema = Schema.Struct({
   kind: Schema.Literal("admittedLogicalInvoking"),
-}).annotate(StrictStructOptions);
+});
 
 const SessionJournalNotFoundOutcomeV1Schema = Schema.Struct({
   kind: Schema.Literal("error"),
@@ -265,13 +261,13 @@ const SessionJournalNotFoundOutcomeV1Schema = Schema.Struct({
     Schema.Literal("delete"),
   ]),
   documentId: AppDocumentIdV1Schema,
-}).annotate(StrictStructOptions);
+});
 
 const SessionJournalCollisionOutcomeV1Schema = Schema.Struct({
   kind: Schema.Literal("error"),
   reason: Schema.Literal("documentIdCollision"),
   documentId: AppDocumentIdV1Schema,
-}).annotate(StrictStructOptions);
+});
 
 const SessionJournalInvalidDocumentOutcomeV1Schema = Schema.Struct({
   kind: Schema.Literal("error"),
@@ -281,7 +277,7 @@ const SessionJournalInvalidDocumentOutcomeV1Schema = Schema.Struct({
     Schema.Literal("patch"),
     Schema.Literal("replace"),
   ]),
-}).annotate(StrictStructOptions);
+});
 
 const SessionJournalLimitOutcomeV1Schema = Schema.Struct({
   kind: Schema.Literal("error"),
@@ -304,7 +300,7 @@ const SessionJournalLimitOutcomeV1Schema = Schema.Struct({
   ]),
   observed: Schema.Int,
   maximum: Schema.Int,
-}).annotate(StrictStructOptions);
+});
 
 const SessionJournalStoredOutcomeSchema = Schema.Union([
   SessionJournalMissingOutcomeV1Schema,
@@ -327,7 +323,7 @@ export type SessionJournalStoredOutcome =
   typeof SessionJournalStoredOutcomeSchema.Type;
 
 export const encodeStoredRequest = Schema.encodeSync(
-  SessionJournalStoredRequestSchema,
+  SessionJournalStoredRequestSchema, { onExcessProperty: "error" },
 );
 
 export const decodeStoredRequestResult = Schema.decodeUnknownResult(
@@ -336,7 +332,7 @@ export const decodeStoredRequestResult = Schema.decodeUnknownResult(
 );
 
 const encodeStoredOutcome = Schema.encodeSync(
-  SessionJournalStoredOutcomeSchema,
+  SessionJournalStoredOutcomeSchema, { onExcessProperty: "error" },
 );
 
 export const decodeStoredOutcomeResult = Schema.decodeUnknownResult(
@@ -349,7 +345,7 @@ export const strictEventEnvelope = Schema.decodeUnknownResult(EventEnvelope, {
 });
 
 export const encodeIndexRangeDependency = Schema.encodeSync(
-  LogicalIndexRangeReadDependencyV1Schema,
+  LogicalIndexRangeReadDependencyV1Schema, { onExcessProperty: "error" },
 );
 
 export const decodeIndexRangeDependencyResult = Schema.decodeUnknownResult(
@@ -363,7 +359,7 @@ export const decodeRelationIncomingDependencyResult =
     { onExcessProperty: "error" },
   );
 
-export const encodeLogicalAppWrite = Schema.encodeSync(LogicalAppWriteV1Schema);
+export const encodeLogicalAppWrite = Schema.encodeSync(LogicalAppWriteV1Schema, { onExcessProperty: "error" });
 
 export const decodeLogicalAppWriteResult = Schema.decodeUnknownResult(
   LogicalAppWriteV1Schema,
@@ -389,10 +385,10 @@ export function nextCommitSyscallSequence(
   );
 }
 
-export const encodeSessionJournal = Schema.encodeSync(SessionJournalSchema);
+export const encodeSessionJournal = Schema.encodeSync(SessionJournalSchema, { onExcessProperty: "error" });
 
 export const encodeSessionJournalResult =
-  Schema.encodeResult(SessionJournalSchema);
+  Schema.encodeResult(SessionJournalSchema, { onExcessProperty: "error" });
 
 export const decodeSchemaManifestAppTableNameEffect =
   Schema.decodeUnknownEffect(SchemaManifestAppTableNameSchema);
@@ -406,7 +402,7 @@ export const decodeTransactionAttemptFenceResult = Schema.decodeUnknownResult(
 );
 
 export const decodeSnapshotTokenResult = Schema.decodeUnknownResult(
-  Schema.toType(SnapshotTokenSchema),
+  Schema.toType(SnapshotTokenSchema), { onExcessProperty: "error" },
 );
 
 export const decodeCatalogSchemaVersionIdResult = Schema.decodeUnknownResult(

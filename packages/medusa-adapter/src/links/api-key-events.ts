@@ -12,7 +12,7 @@ import { linkLogicalEventPolicy } from "./events";
 
 type Activity = Parameters<LogicalCallReceiptValidation>[1];
 type Mutation = Activity["mutations"][number];
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 const decodeRequest = commerceDecoder(LinkOperationRequestSchema, "receiptMismatch");
 const decodeHandle = commerceDecoder(LinkOperationHandleSchema, "receiptMismatch");
 const decodeResult = commerceDecoder(LinkOperationResultSchema, "receiptMismatch");
@@ -42,7 +42,7 @@ export function apiKeyLinkEventPolicy(input: { readonly tableName: string; reado
     [input.createName], [], [input.softDeleteName]);
   const decode = moduleEventDecoder(Schema.Struct({ name: Schema.String,
     metadata: Schema.Struct({ source: Schema.Literal(serviceName), object: Schema.Literal(entityName), action: Schema.Literals(["attached", "detached"]) }),
-    data: Schema.Struct({ id: Schema.Union([Id, Schema.Array(Id).check(Schema.isLengthBetween(1, 8))]) }),
+    data: Schema.Struct({ id: Schema.Union([Id, Schema.Array(Id).check(Schema.isBetweenLength(1, 8))]) }),
     options: Schema.optionalKey(Schema.Struct({ event_id: Id })),
   }), defaultCommerceResources);
   const capture = Effect.fn("ApiKeyLinkEvents.capture")(function* (value: unknown) {

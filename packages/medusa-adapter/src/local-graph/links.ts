@@ -42,7 +42,7 @@ const decodeJoinerSchema = Schema.StructWithRest(Schema.Struct({ isLink: Schema.
   relationships: Schema.Array(Endpoint), extends: Schema.Array(Extension),
 }), Rest);
 const decodeJoiner = commerceDecoder(decodeJoinerSchema, "unsupportedProfile");
-const decodeConfiguredLinks = commerceDecoder(Schema.Array(decodeJoinerSchema).check(Schema.isLengthBetween(1, 16)), "unsupportedProfile");
+const decodeConfiguredLinks = commerceDecoder(Schema.Array(decodeJoinerSchema).check(Schema.isBetweenLength(1, 16)), "unsupportedProfile");
 const decodeName = commerceDecoder(Name, "unsupportedProfile");
 const decodeSelections = commerceDecoder(Schema.Array(GraphRemotePathSelectionSchema).check(Schema.isMaxLength(16)), "unsupportedProfile");
 const decodeEndpointSelections = commerceDecoder(Schema.Array(Schema.Struct({

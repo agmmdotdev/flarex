@@ -31,8 +31,6 @@ import type { LogicalSearchDefinition } from "./logicalDocuments/searchEntries";
 import type { LogicalRelationalReadAccess, LogicalRelationalReadDemand } from "./logicalDocuments/relationalQuery";
 import { logicalIndexReadAccessQuery, logicalUniqueReadAccessQuery, logicalNativeReadAccessQuery, logicalPageReadAccessQuery, logicalSearchReadAccessQuery,
   logicalReadPredicateKey } from "./logicalReadAccessQueries";
-
-const strict = { parseOptions: { onExcessProperty: "error" } } as const;
 const signature = (fields: readonly string[]) => JSON.stringify([...new Set(fields)].toSorted());
 const structuralWhere = (where: LogicalWhere, textFields: readonly string[]) => Object.keys(where).toSorted().map(field => {
   const value = where[field];
@@ -42,7 +40,7 @@ const structuralWhere = (where: LogicalWhere, textFields: readonly string[]) => 
 const issuedReadMetadata = new WeakSet<object>();
 const Sha256 = Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/));
 export const LogicalSourceReadPinSchema = Schema.Struct({ sourceKey: Schema.NonEmptyString,
-  sourceSha256: Sha256, writeProfile: Schema.NonEmptyString }).annotate(strict);
+  sourceSha256: Sha256, writeProfile: Schema.NonEmptyString });
 /** An immutable source selector. It grants no serving or transaction authority. */
 export type LogicalSourceReadPin = typeof LogicalSourceReadPinSchema.Type;
 export class LogicalReadMetadataError extends Data.TaggedError("LogicalReadMetadataError")<{
@@ -52,15 +50,15 @@ export class LogicalReadMetadataError extends Data.TaggedError("LogicalReadMetad
 const failure = (reason: LogicalReadMetadataError["reason"], cause?: unknown) => new LogicalReadMetadataError({ reason, cause });
 const errors = { invalidInput: () => failure("storedCorruption"), hashFailure: (cause: unknown) => failure("resourceFailure", cause) };
 const Analysis = Schema.Struct({ candidateId: Schema.NonEmptyString, analysisId: Schema.NonEmptyString,
-  manifestSha256: Sha256, sourceArtifactRootSha256: Sha256 }).annotate(strict);
+  manifestSha256: Sha256, sourceArtifactRootSha256: Sha256 });
 const Root = Schema.Struct({ format: Schema.Literal("flarex.logical-read-source"), version: Schema.Literal(1),
   deploymentId: Schema.NonEmptyString, scopeId: ScopeIdSchema, schemaVersionId: CatalogSchemaVersionIdSchema,
   manifestSha256: Sha256, sourceKey: Schema.NonEmptyString, sourceSha256: Sha256,
   owner: Schema.Literals(["application", "payload", "medusa", "system"]), kind: Schema.Literals(["documents", "relational"]),
   writeProfile: Schema.NonEmptyString, defaultTableName: Schema.NonEmptyString, applicationAnalysis: Analysis,
   hasDocumentRelations: Schema.Boolean,
-  contentIdentity: Schema.NullOr(Schema.Struct({ configSha256: Sha256, provenanceSha256: Sha256 }).annotate(strict)),
-}).annotate(strict);
+  contentIdentity: Schema.NullOr(Schema.Struct({ configSha256: Sha256, provenanceSha256: Sha256 })),
+});
 export type LogicalReadSourceRoot = typeof Root.Type;
 const ReadSchema = Schema.declare<RelationalSchema>((value): value is RelationalSchema => {
   if (!isJson(value)) return false;
@@ -72,16 +70,16 @@ const Table = Schema.Union([
   Schema.Struct({ format: Schema.Literal("flarex.logical-read-table"), version: Schema.Literal(1),
     sourceSha256: Sha256, localName: Schema.NonEmptyString, tableId: CatalogTableIdSchema,
     selectorTextFields: Schema.Array(Schema.NonEmptyString), selectorBooleanFields: Schema.optionalKey(Schema.Array(Schema.NonEmptyString)),
-    kind: Schema.Literal("relational"), readSchema: ReadSchema }).annotate(strict),
+    kind: Schema.Literal("relational"), readSchema: ReadSchema }),
   Schema.Struct({ format: Schema.Literal("flarex.logical-read-table"), version: Schema.Literal(1),
     sourceSha256: Sha256, localName: Schema.NonEmptyString, tableId: CatalogTableIdSchema,
     selectorTextFields: Schema.Array(Schema.NonEmptyString), selectorBooleanFields: Schema.optionalKey(Schema.Array(Schema.NonEmptyString)),
-    kind: Schema.Literal("documents"), definition: SchemaManifestAppTableDeclarationV1Schema }).annotate(strict),
+    kind: Schema.Literal("documents"), definition: SchemaManifestAppTableDeclarationV1Schema }),
 ]);
 export type LogicalReadTableMetadata = typeof Table.Type;
-const decodeRoot = Schema.decodeUnknownEffect(Root);
-const decodeTable = Schema.decodeUnknownEffect(Table);
-const encodeTable = Schema.encodeSync(Table);
+const decodeRoot = Schema.decodeUnknownEffect(Root, { onExcessProperty: "error" });
+const decodeTable = Schema.decodeUnknownEffect(Table, { onExcessProperty: "error" });
+const encodeTable = Schema.encodeSync(Table, { onExcessProperty: "error" });
 const sha = (frame: JsonObject) => capturePrivateCanonicalValue(frame, 4_194_304, errors);
 const acquireMetadata = <Value, Failure>(db: FlarexMetadataDatabase,
   work: (tx: FlarexMetadataTransaction) => Effect.Effect<Value, Failure>, installation: PreparedInstallation) => runEffectTransaction(
@@ -90,29 +88,29 @@ const acquireMetadata = <Value, Failure>(db: FlarexMetadataDatabase,
 const Predicate = Schema.NullOr(Schema.Union([
   AppIndexAllNullPredicateV1Schema,
   AppIndexNullAndNotNullPredicateV1Schema,
-  Schema.Struct({ kind: Schema.Literal("fieldIsNull"), field: Schema.NonEmptyString }).annotate(strict),
-  Schema.Struct({ kind: Schema.Literal("fieldIsNotNull"), field: Schema.NonEmptyString }).annotate(strict),
+  Schema.Struct({ kind: Schema.Literal("fieldIsNull"), field: Schema.NonEmptyString }),
+  Schema.Struct({ kind: Schema.Literal("fieldIsNotNull"), field: Schema.NonEmptyString }),
   Schema.Struct({ kind: Schema.Literal("fieldIsNullAndTextEquals"), nullField: Schema.NonEmptyString,
-    textField: Schema.NonEmptyString, value: Schema.String }).annotate(strict),
+    textField: Schema.NonEmptyString, value: Schema.String }),
   Schema.Struct({ kind: Schema.Literal("fieldIsNullAndBooleanEquals"), nullField: Schema.NonEmptyString,
-    booleanField: Schema.NonEmptyString, value: Schema.Boolean }).annotate(strict),
+    booleanField: Schema.NonEmptyString, value: Schema.Boolean }),
 ]));
 const IndexAccess = Schema.Struct({ format: Schema.Literal("flarex.logical-read-access"), version: Schema.Literal(1),
   fields: Schema.Array(Schema.NonEmptyString), predicate: Predicate,
   indexDefinitionId: CatalogIndexDefinitionIdSchema,
   formats: Schema.optionalKey(Schema.Array(Schema.Literals(["plain", "sha256TextV1"]))),
-}).annotate(strict);
+});
 const UniqueAccess = Schema.Struct({ format: Schema.Literal("flarex.logical-read-access"), version: Schema.Literal(1),
   fields: Schema.Array(Schema.NonEmptyString), predicate: Schema.Null,
   uniqueConstraintDefinitionId: CatalogUniqueConstraintDefinitionIdSchema, nullsDistinct: Schema.Boolean,
-}).annotate(strict);
-const decodeIndexAccess = Schema.decodeUnknownEffect(IndexAccess);
-const decodeUniqueAccess = Schema.decodeUnknownEffect(UniqueAccess);
+});
+const decodeIndexAccess = Schema.decodeUnknownEffect(IndexAccess, { onExcessProperty: "error" });
+const decodeUniqueAccess = Schema.decodeUnknownEffect(UniqueAccess, { onExcessProperty: "error" });
 const SearchAccess = Schema.Struct({ format: Schema.Literal("flarex.logical-read-access"), version: Schema.Literal(1),
   fields: Schema.Array(Schema.NonEmptyString), predicate: Predicate, logicalIndexId: CatalogIndexIdSchema,
   kind: Schema.Literals(["text", "jsonContainment"]), sourceSha256: Sha256, nullPredicateField: Schema.NullOr(Schema.NonEmptyString),
-}).annotate(strict);
-const decodeSearchAccess = Schema.decodeUnknownEffect(SearchAccess);
+});
+const decodeSearchAccess = Schema.decodeUnknownEffect(SearchAccess, { onExcessProperty: "error" });
 
 /** Publication alone traverses the full admitted source. Required-table misses
  * never read the source artifact or reconstruct this projection. */
@@ -313,7 +311,7 @@ export const prepareLogicalReadMetadata = Effect.fn("LogicalReadMetadata.prepare
   db: FlarexMetadataDatabase, input: Readonly<{ deploymentId: string; scopeId: ScopeId; schemaVersionId: CatalogSchemaVersionId }>,
   pinInput: unknown, controlInstallation: PreparedInstallation,
 ) {
-  const pin = yield* Schema.decodeUnknownEffect(LogicalSourceReadPinSchema)(pinInput).pipe(Effect.mapError(cause => failure("invalidInput", cause)));
+  const pin = yield* Schema.decodeUnknownEffect(LogicalSourceReadPinSchema, { onExcessProperty: "error" })(pinInput).pipe(Effect.mapError(cause => failure("invalidInput", cause)));
   const lifetime = yield* captureHostPreparationLifetime();
   if (lifetime === undefined) return yield* Effect.fail(failure("invalidComposition"));
   const checkOpen = Effect.suspend(() => Effect.fromResult(lifetime.checkOpen()).pipe(Effect.mapError(cause =>

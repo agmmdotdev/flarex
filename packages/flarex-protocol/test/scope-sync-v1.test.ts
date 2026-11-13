@@ -110,7 +110,7 @@ describe("scope sync v1 protocol", () => {
     const decoded = inputs.map(input =>
       Result.getOrThrow(decodeScopeSyncDependencyKeyV1Result(input))
     );
-    const encode = Schema.encodeSync(ScopeSyncDependencyKeyV1Schema);
+    const encode = Schema.encodeSync(ScopeSyncDependencyKeyV1Schema, { onExcessProperty: "error" });
 
     expect(decoded).toEqual(inputs);
     expect(decoded.every(Object.isFrozen)).toBe(true);
@@ -139,8 +139,8 @@ describe("scope sync v1 protocol", () => {
       observedCommitSeq: sequence,
     });
 
-    const encodedCursor = Schema.encodeSync(ScopeSyncCursorV1Schema)(cursor);
-    const encodedWake = Schema.encodeSync(ScopeSyncWakeV1Schema)(wake);
+    const encodedCursor = Schema.encodeSync(ScopeSyncCursorV1Schema, { onExcessProperty: "error" })(cursor);
+    const encodedWake = Schema.encodeSync(ScopeSyncWakeV1Schema, { onExcessProperty: "error" })(wake);
 
     expect(encodedCursor.appliedThroughCommitSeq).toBe(sequenceText);
     expect(encodedWake.observedCommitSeq).toBe(sequenceText);

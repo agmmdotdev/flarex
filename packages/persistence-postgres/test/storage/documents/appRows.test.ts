@@ -967,7 +967,7 @@ async function pointReadAt(
         scopeId: selectedScopeId,
         epoch,
         commitSeq: CommitSeqSchema.make(commitSeq),
-      }),
+      }, { parseOptions: { onExcessProperty: "error" } }),
       tableId: selectedTableId,
       rowId: selectedRowId,
     })),

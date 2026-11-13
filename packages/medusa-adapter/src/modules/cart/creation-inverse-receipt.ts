@@ -25,7 +25,7 @@ const nativeProofValue = <Value>(result: Result.Result<Value, CommerceTransactio
 const selection = commerceDecoder(Schema.Struct({ where: Schema.Record(Schema.String, Schema.Union([Schema.String, Schema.Array(Schema.String)])),
   options: Schema.JsonObject }), "receiptMismatch");
 const update = commerceDecoder(Schema.Array(Schema.Struct({ entity: Schema.JsonObject, update: Schema.Struct({ state: Schema.Literal("compensated") }) }))
-  .check(Schema.isLengthBetween(1, 1)), "receiptMismatch");
+  .check(Schema.isBetweenLength(1, 1)), "receiptMismatch");
 
 /** Re-execute only the native ownership decision owner over already captured
  * immutable evidence. Proof ports hold no manager, storage or event authority.

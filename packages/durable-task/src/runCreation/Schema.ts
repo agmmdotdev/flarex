@@ -45,10 +45,6 @@ import {
 } from "./Model.js";
 import { ApplicationTaskRuntimeTargetSha256V1Schema } from
   "./ApplicationTaskRuntimeTarget.js";
-
-const STRICT_STRUCT_OPTIONS = {
-  parseOptions: { onExcessProperty: "error" },
-} as const;
 const STRICT_PARSE_OPTIONS = { onExcessProperty: "error" } as const;
 const UTF8 = new TextEncoder();
 const decodeTrustedWorkflowBindingSha256 = Schema.decodeUnknownResult(TrustedWorkflowBindingSha256Schema);
@@ -118,8 +114,8 @@ const TaskInputReferenceShapeV1Schema = Schema.Struct({
   sha256: TaskInputSha256V1Schema,
   retention: Schema.Struct({
     kind: Schema.Literal(TASK_INPUT_RETENTION_V1),
-  }).annotate(STRICT_STRUCT_OPTIONS),
-}).annotate(STRICT_STRUCT_OPTIONS).check(
+  }),
+}).check(
   Schema.makeFilter((reference) =>
     reference.objectKey === taskInputObjectKeyV1(reference.sha256)
       ? undefined
@@ -144,8 +140,8 @@ const TaskExecutionPrincipalReferenceShapeV1Schema = Schema.Struct({
   sha256: TaskExecutionPrincipalSha256V1Schema,
   retention: Schema.Struct({
     kind: Schema.Literal(TASK_EXECUTION_PRINCIPAL_RETENTION_V1),
-  }).annotate(STRICT_STRUCT_OPTIONS),
-}).annotate(STRICT_STRUCT_OPTIONS).check(
+  }),
+}).check(
   Schema.makeFilter((reference) =>
     reference.objectKey === taskExecutionPrincipalObjectKeyV1(reference.sha256)
       ? undefined
@@ -158,7 +154,7 @@ const TaskRunCreationRequestShapeV1Schema = Schema.Struct({
   requestKey: TaskRunCreationRequestKeyV1Schema,
   taskDefinitionRevisionId: TaskDefinitionRevisionIdV1Schema,
   input: TaskInputReferenceV1Schema,
-}).annotate(STRICT_STRUCT_OPTIONS);
+});
 
 const TaskRunCreationRequestV1Schema =
   TaskRunCreationRequestShapeV1Schema;
@@ -172,7 +168,7 @@ const TaskRunCreationReceiptShapeV1Schema = Schema.Struct({
   requestKeySha256: TaskRunCreationRequestKeySha256V1Schema,
   requestSha256: TaskRunCreationRequestSha256V1Schema,
   creationAuthoritySha256: TaskRunCreationAuthoritySha256V1Schema,
-}).annotate(STRICT_STRUCT_OPTIONS);
+});
 
 const TaskRunCreationReceiptV1Schema =
   TaskRunCreationReceiptShapeV1Schema;
@@ -184,7 +180,7 @@ const ApplicationTaskRunCreationRequestShapeV1Schema = Schema.Struct({
     ApplicationTaskRuntimeTargetSha256V1Schema,
   input: TaskInputReferenceV1Schema,
   principal: TaskExecutionPrincipalReferenceShapeV1Schema,
-}).annotate(STRICT_STRUCT_OPTIONS);
+});
 const ApplicationTaskRunCreationReceiptShapeV1Schema = Schema.Struct({
   status: Schema.Literal("created"),
   version: Schema.Literal(1),
@@ -195,7 +191,7 @@ const ApplicationTaskRunCreationReceiptShapeV1Schema = Schema.Struct({
   requestKeySha256: TaskRunCreationRequestKeySha256V1Schema,
   requestSha256: TaskRunCreationRequestSha256V1Schema,
   creationAuthoritySha256: TaskRunCreationAuthoritySha256V1Schema,
-}).annotate(STRICT_STRUCT_OPTIONS);
+});
 const decodeApplicationRequest = Schema.decodeUnknownResult(
   ApplicationTaskRunCreationRequestShapeV1Schema,
   STRICT_PARSE_OPTIONS,

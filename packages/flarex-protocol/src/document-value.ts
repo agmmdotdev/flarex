@@ -1,3 +1,4 @@
+import * as Base64 from "effect/encoding/Base64";
 /**
  * Convex internal JSON mapping translated from npm-packages/convex/src/values/
  * value.ts at db914cf06e2b06ee985646611b9e12ed7a770318 (Apache-2.0,
@@ -6,7 +7,7 @@
  * its size/nesting/array/field limits match crates/value/src/{size,array,object}.rs.
  * The old value envelope and NUL-string JSON tag are deliberately not used.
  */
-import { Data, Encoding, Result, Schema } from "effect";
+import { Data, Result, Schema } from "effect";
 import { JsonValue, isJsonArray, isJsonObject, type Json } from "./json";
 import {
   FlarexValueRuntimeCoreV1Error,
@@ -130,15 +131,15 @@ function toJson(value: DocumentValue): Json {
   if (typeof value === "bigint") {
     const buffer = new ArrayBuffer(8);
     new DataView(buffer).setBigInt64(0, value, true);
-    return { $integer: Encoding.encodeBase64(new Uint8Array(buffer)) };
+    return { $integer: Base64.encode(new Uint8Array(buffer)) };
   }
   if (typeof value === "number") {
     if (!isSpecialFloat(value)) return value;
     const buffer = new ArrayBuffer(8);
     new DataView(buffer).setFloat64(0, value, true);
-    return { $float: Encoding.encodeBase64(new Uint8Array(buffer)) };
+    return { $float: Base64.encode(new Uint8Array(buffer)) };
   }
-  if (value instanceof ArrayBuffer) return { $bytes: Encoding.encodeBase64(new Uint8Array(value)) };
+  if (value instanceof ArrayBuffer) return { $bytes: Base64.encode(new Uint8Array(value)) };
   if (isDocumentArray(value)) return value.map(toJson);
   const object: Record<string, Json> = {};
   for (const key of Object.keys(value).toSorted()) {
@@ -165,7 +166,7 @@ function fromJson(value: Json, parentNesting = 0): Result.Result<DocumentValue, 
       const [tag, encoded] = entry;
       if ((tag !== "$bytes" && tag !== "$integer" && tag !== "$float") || typeof encoded !== "string")
         return yield* invalidTag();
-      const decoded = yield* Encoding.decodeBase64(encoded).pipe(Result.mapError(() => new DocumentValueError({ reason: "invalidTag" })));
+      const decoded = yield* Base64.decode(encoded).pipe(Result.mapError(() => new DocumentValueError({ reason: "invalidTag" })));
       if (tag === "$bytes") return decoded.slice().buffer;
       if (decoded.byteLength !== 8) return yield* invalidTag();
       const view = new DataView(decoded.buffer, decoded.byteOffset, decoded.byteLength);

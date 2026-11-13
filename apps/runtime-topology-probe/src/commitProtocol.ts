@@ -24,10 +24,7 @@ import {
   ProbeProtocolVersionV1Schema,
   ProbeSessionModeSchema,
 } from "./protocol";
-import {
-  StrictParseOptions,
-  StrictStructOptions,
-} from "./strictSchemaOptions";
+import { StrictParseOptions } from "./strictSchemaOptions";
 
 export const ProbeInvokeCommitScenarioSchema = Schema.Literals([
   "full_invoke",
@@ -85,7 +82,7 @@ const CommitIdentityShape = {
 
 const ProbeSyncWakeRequestV1Shape = Schema.Struct(
   CommitIdentityShape,
-).annotate(StrictStructOptions);
+);
 
 export const ProbeSyncWakeRequestV1Schema =
   ProbeSyncWakeRequestV1Shape.check(
@@ -108,7 +105,7 @@ const ProbeSyncWakeReceiptV1Shape = Schema.Struct({
   previousCursor: ProbeSyntheticCursorSchema,
   cursor: ProbeSyntheticCursorSchema,
   cursorDurationMs: ProbeDurationMsSchema,
-}).annotate(StrictStructOptions);
+});
 
 export const ProbeSyncWakeReceiptV1Schema =
   ProbeSyncWakeReceiptV1Shape.check(
@@ -132,7 +129,7 @@ const ProbeSyncControlRequestV1Shape = Schema.Struct({
   runId: ProbeRunIdSchema,
   scopeId: ProbeScopeIdSchema,
   operation: ProbeSyncControlOperationSchema,
-}).annotate(StrictStructOptions);
+});
 
 export const ProbeSyncControlRequestV1Schema =
   ProbeSyncControlRequestV1Shape.check(
@@ -151,7 +148,7 @@ const ProbeSyncControlResponseV1Shape = Schema.Struct({
   scopeId: ProbeScopeIdSchema,
   operation: ProbeSyncControlOperationSchema,
   cursor: ProbeSyntheticCursorSchema,
-}).annotate(StrictStructOptions);
+});
 
 export const ProbeSyncControlResponseV1Schema =
   ProbeSyncControlResponseV1Shape.check(
@@ -184,7 +181,7 @@ const ProbeMockReadRequestV1Shape = Schema.Struct({
   ...CommitIdentityShape,
   ...RuntimeIdentityShape,
   payloadBytes: PayloadBytesSchema,
-}).annotate(StrictStructOptions);
+});
 
 export const ProbeMockReadRequestV1Schema =
   ProbeMockReadRequestV1Shape.check(
@@ -205,7 +202,7 @@ const ProbeMockReadResponseV1Shape = Schema.Struct({
   ...RuntimeIdentityShape,
   payloadBytes: PayloadBytesSchema,
   syntheticRevision: ProbeSyntheticCursorSchema,
-}).annotate(StrictStructOptions);
+});
 
 export const ProbeMockReadResponseV1Schema =
   ProbeMockReadResponseV1Shape.check(
@@ -239,7 +236,7 @@ const SealDigestSchema = Schema.String.check(
 const ProbeMockCommitWakeRequestV1Shape = Schema.Struct({
   ...CommitIdentityShape,
   scenario: Schema.Literal("commit_wake"),
-}).annotate(StrictStructOptions).check(
+}).check(
   Schema.makeFilter(request => probeCommitIdentityIssueV1(request)),
 );
 
@@ -252,7 +249,7 @@ const ProbeMockFullInvokeFinishRequestV1Shape = Schema.Struct({
   snapshotRevision: ProbeSyntheticCursorSchema,
   resultDigest: SealDigestSchema,
   commitIntentDigest: SealDigestSchema,
-}).annotate(StrictStructOptions).check(
+}).check(
   Schema.makeFilter(request => {
     const identityIssue = probeCommitIdentityIssueV1(request);
     if (identityIssue !== undefined) return identityIssue;
@@ -279,7 +276,7 @@ const ProbeMockFinishResponseV1Shape = Schema.Struct({
   outcomeResolutionDurationMs: ProbeDurationMsSchema,
   syncWakeDurationMs: ProbeDurationMsSchema,
   sync: ProbeSyncWakeReceiptV1Schema,
-}).annotate(StrictStructOptions);
+});
 
 export const ProbeMockFinishResponseV1Schema =
   ProbeMockFinishResponseV1Shape.check(

@@ -1,3 +1,4 @@
+import { strictSchemaGuard } from "flarex-protocol/internal/strict-schema";
 import { Effect, Result, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import { compilePayloadCollections } from "../../../payload-adapter/src/collections";
@@ -23,7 +24,7 @@ describe("authenticated optional-one native declarations", () => {
           localized: false, onTargetDelete: "restrict" },
         reference: { sourceKey: "payload", source: { table: { namespace: "app", logicalName: "articles" }, field: "author" },
           target: { table: { namespace: "app", logicalName: "authors" }, field: "_id" } } });
-      expect(Schema.is(CoreNativeReferenceSchema)(reference)).toBe(true);
+      expect(strictSchemaGuard(CoreNativeReferenceSchema)(reference)).toBe(true);
       expect(Object.isFrozen(reference?.declaration.source.path)).toBe(true);
       expect(definition.schema.tables.find(table => table.tableName === "articles")?.indexes)
         .toContainEqual({ indexDescriptor: "by_reference_author", fields: ["author"] });

@@ -148,8 +148,8 @@ export class LogicalSourceAdmissionError extends Data.TaggedError("LogicalSource
 const SourceContract = Schema.Struct({
   sourceKey: Schema.NonEmptyString, writeProfile: Schema.NonEmptyString,
   definition: Schema.toType(LogicalSchemaSourceSchema.fields.definition), evidence: Schema.Json,
-}).annotate({ parseOptions: { onExcessProperty: "error" } });
-const decodeContract = Schema.decodeUnknownEffect(SourceContract);
+});
+const decodeContract = Schema.decodeUnknownEffect(SourceContract, { onExcessProperty: "error" });
 const decodeDeploymentId = Schema.decodeUnknownEffect(TransactionGrantDeploymentIdV1Schema);
 const decodeScopeId = Schema.decodeUnknownEffect(ReplacementScopeIdV1Schema);
 const decodeSchemaVersionId = Schema.decodeUnknownEffect(CatalogSchemaVersionIdSchema);
@@ -257,7 +257,7 @@ function applicationTables(snapshot: PublishedPhysicalRequirementSnapshotV1): re
   const nativeNames = new Set<string>();
   for (const source of requirements.evidence.candidate.sources) {
     if (source.owner !== "application" || !isJsonObject(source.evidence) || source.evidence.manifest === undefined) continue;
-    const decoded = Result.getOrNull(Schema.decodeUnknownResult(ApplicationLogicalV3Evidence)(source.evidence));
+    const decoded = Result.getOrNull(Schema.decodeUnknownResult(ApplicationLogicalV3Evidence, { onExcessProperty: "error" })(source.evidence));
     if (decoded === null) return null;
     for (const table of decoded.manifest.schema.tables) nativeNames.add(table.name);
   }
@@ -283,7 +283,7 @@ const applicationCatalogMatches = Effect.fn("LogicalSourceAdmission.matchApplica
   if (manifest.version === 3) {
     const app = bound.logicalRequirements?.evidence.candidate.sources.filter(source => source.owner === "application");
     if (app?.length !== 1 || app[0] === undefined) return false;
-    const evidence = Schema.decodeUnknownResult(ApplicationLogicalV3Evidence)(app[0].evidence);
+    const evidence = Schema.decodeUnknownResult(ApplicationLogicalV3Evidence, { onExcessProperty: "error" })(app[0].evidence);
     const expected: unknown = applicationSchemaWireV1(manifest.schema);
     const actual: unknown = Result.isSuccess(evidence) ? applicationSchemaWireV1(evidence.success.manifest.schema) : undefined;
     if (!isJson(expected) || !isJson(actual) || canonical(expected) !== canonical(actual)) return false;

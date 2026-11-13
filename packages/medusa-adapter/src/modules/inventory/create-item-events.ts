@@ -16,11 +16,11 @@ import { decodeInventoryItemPhysicalDeletionIds } from "./create-item-input";
 type ItemContracts = Result.Result.Success<ReturnType<typeof compileInventoryItemContracts>>;
 type LevelContracts = Result.Result.Success<ReturnType<typeof compileInventoryLevelContracts>>;
 type LifecycleContracts = Result.Result.Success<ReturnType<typeof compileInventoryDeletionContracts>>;
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 const decodeEvent = moduleEventDecoder(Schema.Struct({ name: Schema.String,
   metadata: Schema.Struct({ source: Schema.Literal(Modules.INVENTORY), object: Schema.Literals(["inventory_item", "inventory_level"]),
     action: Schema.Literals(["created", "deleted"]) }),
-  data: Schema.Struct({ id: Schema.Union([Id, Schema.Array(Id).check(Schema.isLengthBetween(1, 8))]) }),
+  data: Schema.Struct({ id: Schema.Union([Id, Schema.Array(Id).check(Schema.isBetweenLength(1, 8))]) }),
 }), defaultCommerceResources);
 
 /** This profile adds only Item creation/default authentication and its retained

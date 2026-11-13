@@ -208,7 +208,7 @@ describe.skipIf(
         }),
         journalEntries: 2,
         payload: "x".repeat(64),
-      });
+      }, { parseOptions: { onExcessProperty: "error" } });
       const raw = await bindings.PROBE_SESSIONS.getByName(request.sessionId)
         .fetch("https://probe-session.internal/v1/full-invoke", {
           method: "POST",

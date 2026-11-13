@@ -16,7 +16,7 @@ import type { preparePaymentSessionRepository } from "./repository";
 type Prepared = Result.Result.Success<ReturnType<typeof preparePaymentSessionRepository>>;
 const event = moduleEventDecoder(Schema.Struct({ name: Schema.String, metadata: Schema.Struct({ source: Schema.Literal(Modules.PAYMENT),
   object: Schema.Literals(["payment_session", "payment_collection"]), action: Schema.Literals(["created", "updated", "deleted"]) }),
-  data: Schema.Struct({ id: Schema.Union([PaymentId, Schema.Array(PaymentId).check(Schema.isLengthBetween(1, 1))]) }) }), defaultCommerceResources);
+  data: Schema.Struct({ id: Schema.Union([PaymentId, Schema.Array(PaymentId).check(Schema.isBetweenLength(1, 1))]) }) }), defaultCommerceResources);
 
 /** Receipts bind native command results and events to complete observed rows,
  * exact query cohorts and the two selected mutation lifecycles. */

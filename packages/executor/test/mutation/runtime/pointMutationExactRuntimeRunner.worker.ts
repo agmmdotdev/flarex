@@ -479,7 +479,7 @@ async function makeInput(
         scopeId: SCOPE_ID,
         epoch: SCOPE_EPOCH,
         commitSeq: CommitSeqSchema.make(0n),
-      }),
+      }, { parseOptions: { onExcessProperty: "error" } }),
     }),
     journal,
   });

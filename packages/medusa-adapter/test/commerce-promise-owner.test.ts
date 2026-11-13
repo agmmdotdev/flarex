@@ -73,9 +73,9 @@ describe("commerce Promise operation context", () => {
         expect(Context.get(fiber.context, Clock.Clock)).not.toBe(clock);
         expect(Context.getOrUndefined(fiber.context, Scope.Scope)).toBeUndefined();
         expect(Context.getOption(fiber.context, ExecutionDiagnostics)).toEqual(Option.some(diagnosticPolicy));
-        if (fiber.currentSpan?._tag !== "Span") throw new Error("Missing DAL factory span");
-        expect(Option.getOrUndefined(fiber.currentSpan.parent)).toBe(parent);
-        expect(fiber.currentSpan?.traceId).toBe(parent.traceId);
+        if (fiber.cache.span?._tag !== "Span") throw new Error("Missing DAL factory span");
+        expect(Option.getOrUndefined(fiber.cache.span.parent)).toBe(parent);
+        expect(fiber.cache.span?.traceId).toBe(parent.traceId);
       })))));
     })).pipe(Effect.withSpan("request"), Effect.provideService(Tracer.Tracer, trace.tracer),
       Effect.provideService(ExecutionDiagnostics, diagnosticPolicy),

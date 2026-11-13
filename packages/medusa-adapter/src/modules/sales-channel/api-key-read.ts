@@ -14,7 +14,7 @@ import { prepareSalesChannelRepository } from "./repository";
 import { salesChannelLogicalEventPolicy } from "./events";
 import { makeLocalSalesChannelCommands } from "./service";
 
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 const Filters = Schema.Struct({ id: Schema.Array(Id).check(Schema.isMaxLength(4)) });
 const Config = Schema.Struct({ select: Schema.Tuple([Schema.Literal("id")]) });
 const Input = Schema.Struct({ filters: Filters, config: Config });

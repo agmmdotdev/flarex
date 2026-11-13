@@ -21,7 +21,7 @@ import { captureShippingProfileMetadata } from "./shipping-profile-schema";
 import { QueryLimit, QueryOffset } from "../../query/decoder";
 import { defineFulfillmentPersistenceModule, type FulfillmentPersistenceModel } from "./fulfillment-module";
 
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 export const SimpleShippingProfileInput = Schema.Struct({ id: Schema.optionalKey(Id), name: Schema.String, type: Schema.String });
 const decodeCreateArguments = commerceDecoder(Schema.Tuple([
   Schema.Array(SimpleShippingProfileInput).check(Schema.isMaxLength(256)),

@@ -28,10 +28,7 @@ import {
 } from "./storage-authority";
 import { CatalogSchemaVersionIdSchema } from "./schema-manifest";
 import { CanonicalPositivePostgresBigIntFromString } from "./postgres-bigint";
-import {
-  StrictParseOptions,
-  StrictStructOptions,
-} from "./strict-schema-options";
+import { StrictParseOptions } from "./strict-schema-options";
 
 export const SCOPE_SYNC_CURSOR_FORMAT_V1 = "flarex.scope-sync-cursor";
 export const SCOPE_SYNC_ACTIVE_HEAD_OBSERVATION_FORMAT_V1 =
@@ -126,7 +123,7 @@ export const ScopeSyncCanonicalQueryIdentityV1Schema = Schema.Struct({
   argumentsSha256Hex: ScopeSyncQueryArgumentsSha256HexV1Schema,
   identityAccessPolicySha256Hex:
     ScopeSyncQueryIdentityAccessPolicySha256HexV1Schema,
-}).annotate(StrictStructOptions);
+});
 export type ScopeSyncCanonicalQueryIdentityV1 =
   typeof ScopeSyncCanonicalQueryIdentityV1Schema.Type;
 
@@ -140,7 +137,7 @@ export const ScopeSyncActiveHeadObservationV1Schema = Schema.Struct({
   observedAtCommitSeq: CommitSeqSchema,
   activationSequence: ApplicationActivationSequenceV1Schema,
   activeHeadSha256Hex: ApplicationActiveHeadSha256HexV1Schema,
-}).annotate(StrictStructOptions);
+});
 export type ScopeSyncActiveHeadObservationV1 =
   typeof ScopeSyncActiveHeadObservationV1Schema.Type;
 
@@ -150,7 +147,7 @@ export const ScopeSyncCursorV1Schema = Schema.Struct({
   scopeUuid: ScopeUuidV1Schema,
   epochUuid: ScopeEpochUuidV1Schema,
   appliedThroughCommitSeq: CommitSeqSchema,
-}).annotate(StrictStructOptions);
+});
 export type ScopeSyncCursorV1 = typeof ScopeSyncCursorV1Schema.Type;
 
 export const ScopeSyncWakeV1Schema = Schema.Struct({
@@ -159,7 +156,7 @@ export const ScopeSyncWakeV1Schema = Schema.Struct({
   scopeUuid: ScopeUuidV1Schema,
   epochUuid: ScopeEpochUuidV1Schema,
   observedCommitSeq: CommitSeqSchema,
-}).annotate(StrictStructOptions);
+});
 export type ScopeSyncWakeV1 = typeof ScopeSyncWakeV1Schema.Type;
 
 const ScopeSyncAppRowPointDependencyKeyV1Schema = Schema.Struct({
@@ -167,14 +164,14 @@ const ScopeSyncAppRowPointDependencyKeyV1Schema = Schema.Struct({
   version: Schema.Literal(SCOPE_SYNC_PROTOCOL_VERSION_V1),
   kind: Schema.Literal("appRowPoint"),
   documentId: AppDocumentIdV1Schema,
-}).annotate(StrictStructOptions);
+});
 
 const ScopeSyncAppTableDependencyKeyV1Schema = Schema.Struct({
   format: Schema.Literal(SCOPE_SYNC_DEPENDENCY_KEY_FORMAT_V1),
   version: Schema.Literal(SCOPE_SYNC_PROTOCOL_VERSION_V1),
   kind: Schema.Literal("appTable"),
   tableId: CatalogTableIdSchema,
-}).annotate(StrictStructOptions);
+});
 
 const ScopeSyncApplicationRelationIncomingDependencyKeyV1Schema =
   Schema.Struct({
@@ -183,7 +180,7 @@ const ScopeSyncApplicationRelationIncomingDependencyKeyV1Schema =
     kind: Schema.Literal("appRelationIncoming"),
     edgeDefinitionId: CatalogEdgeDefinitionIdSchema,
     targetRowId: AppRowIdHexV1Schema,
-  }).annotate(StrictStructOptions);
+  });
 
 export const ScopeSyncDependencyKeyV1Schema = Schema.Union([
   ScopeSyncAppRowPointDependencyKeyV1Schema,
@@ -213,7 +210,7 @@ const ScopeSyncProvisionalQueryGenerationV1Schema = Schema.Struct({
   identity: ScopeSyncCanonicalQueryIdentityV1Schema,
   generation: ScopeSyncQueryGenerationSequenceV1Schema,
   registeredAtCursor: ScopeSyncCursorV1Schema,
-}).annotate(StrictStructOptions).check(
+}).check(
   Schema.makeFilter((state) =>
     state.identity.scopeUuid === state.registeredAtCursor.scopeUuid &&
       state.identity.epochUuid === state.registeredAtCursor.epochUuid
@@ -232,7 +229,7 @@ const ScopeSyncActiveQueryGenerationV1Schema = Schema.Struct({
   refreshedThroughCursor: ScopeSyncCursorV1Schema,
   dependencies: ScopeSyncDependencyKeySetV1Schema,
   resultSha256Hex: ScopeSyncQueryResultSha256HexV1Schema,
-}).annotate(StrictStructOptions).check(
+}).check(
   Schema.makeFilter((state) =>
     state.identity.scopeUuid === state.refreshedThroughCursor.scopeUuid &&
       state.identity.epochUuid === state.refreshedThroughCursor.epochUuid &&

@@ -183,7 +183,7 @@ const ANONYMOUS_TRANSACTION_GRANT_AUTH_V1 = Object.freeze({
 }) satisfies TransactionGrantInertAuthV1;
 
 const decodeTransactionGrantInertAuthV1 = Schema.decodeUnknownSync(
-  TransactionGrantInertAuthV1Schema,
+  TransactionGrantInertAuthV1Schema, { onExcessProperty: "error" },
 );
 
 export const resolveBearerAuthenticationEffect = Effect.fn(

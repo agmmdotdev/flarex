@@ -4,7 +4,7 @@ import type { SchemaTable } from "../../schema/model";
 import { commerceDecoder } from "../../value/decoder";
 import { compileCompleteRow } from "../../value/complete-row";
 
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 /** Requested order and repeats belong to the native workflow. DAL selection
  * has membership semantics and the native module returns selected identities. */
 export const SalesChannelDeletionIds = Schema.Array(Id).check(Schema.isMaxLength(4));

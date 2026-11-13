@@ -34,10 +34,7 @@ import {
   ProbeSessionModeSchema,
 } from "./protocol";
 import { sha256Hex } from "./sha256";
-import {
-  StrictParseOptions,
-  StrictStructOptions,
-} from "./strictSchemaOptions";
+import { StrictParseOptions } from "./strictSchemaOptions";
 
 const SyntheticPayloadSchema = Schema.String.check(Schema.isPattern(/^x*$/));
 const PayloadBytesSchema = Schema.Int.check(
@@ -78,7 +75,7 @@ const InvokeIdentityShape = {
 const ProbeInvokeFacetRequestV1Shape = Schema.Struct({
   ...InvokeIdentityShape,
   payload: SyntheticPayloadSchema,
-}).annotate(StrictStructOptions);
+});
 
 export const ProbeInvokeFacetRequestV1Schema =
   ProbeInvokeFacetRequestV1Shape.check(
@@ -100,7 +97,7 @@ const ProbeInvokeFacetExecutionRequestV1Shape = Schema.Struct({
     ProbeMockReadResponseV1Schema,
     Schema.Null,
   ]),
-}).annotate(StrictStructOptions);
+});
 
 export const ProbeInvokeFacetExecutionRequestV1Schema =
   ProbeInvokeFacetExecutionRequestV1Shape.check(
@@ -208,9 +205,9 @@ const ProbeInvokeFacetWorkerResponseV1Shape = Schema.Struct({
     journalSealDigest: SealDigestSchema,
     resultDigest: SealDigestSchema,
     digest: SealDigestSchema,
-  }).annotate(StrictStructOptions),
+  }),
   finish: Schema.Union([ProbeMockFinishResponseV1Schema, Schema.Null]),
-}).annotate(StrictStructOptions);
+});
 
 export const ProbeInvokeFacetWorkerResponseV1Schema =
   ProbeInvokeFacetWorkerResponseV1Shape.check(
@@ -274,7 +271,7 @@ export const ProbeFacetFinalizerOutcomeUncertainV1Schema = Schema.Struct({
   sessionId: ProbeSessionIdSchema,
   attemptId: ProbeAttemptIdSchema,
   error: Schema.Literal("facet_finalizer_outcome_uncertain"),
-}).annotate(StrictStructOptions);
+});
 export type ProbeFacetFinalizerOutcomeUncertainV1 =
   typeof ProbeFacetFinalizerOutcomeUncertainV1Schema.Type;
 
@@ -308,7 +305,7 @@ const FullInvokeSessionObservationShape = {
 
 const ProbeFullInvokeSessionResponseV1Shape = Schema.Struct(
   FullInvokeSessionObservationShape,
-).annotate(StrictStructOptions);
+);
 
 export const ProbeFullInvokeSessionResponseV1Schema =
   ProbeFullInvokeSessionResponseV1Shape.check(
@@ -330,7 +327,7 @@ export type ProbeFullInvokeSessionResponseV1 =
 const ProbeFullInvokeSessionFailureV1Shape = Schema.Struct({
   ...FullInvokeSessionObservationShape,
   error: ProbeNormalizedErrorV1Schema,
-}).annotate(StrictStructOptions);
+});
 
 export const ProbeFullInvokeSessionFailureV1Schema =
   ProbeFullInvokeSessionFailureV1Shape.check(

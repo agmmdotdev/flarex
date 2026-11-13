@@ -5,7 +5,7 @@ import { encodeExactNumeric } from "../../value/exact-numeric";
 import { captureNativeNumericDto } from "../../value/native-numeric";
 import { captureNativeRecord } from "../../value/native-record";
 
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 const Numeric = Schema.Union([Schema.String, Schema.Number.check(Schema.isFinite()),
   Schema.Struct({ value: Schema.Union([Schema.String, Schema.Number.check(Schema.isFinite())]), precision: Schema.optionalKey(Schema.Number.check(Schema.isInt(), Schema.isBetween({ minimum: 1, maximum: 100 }))) })]);
 const rest = [Schema.Record(Schema.String, Schema.Json)];
@@ -36,7 +36,7 @@ export const decodePromotionComputeArguments = commerceDecoder(Schema.Union([
 export const PromotionGraphRead = Schema.Struct({ filters: Schema.Struct({
   id: Schema.optionalKey(Schema.Union([Id, Schema.Array(Id).pipe(Schema.mutable).check(Schema.isMaxLength(256))])),
   code: Schema.optionalKey(Schema.Union([Schema.String, Schema.Array(Schema.String).pipe(Schema.mutable).check(Schema.isMaxLength(256))])),
-}), config: Schema.Struct({ select: Schema.Array(Schema.String.check(Schema.isLengthBetween(1, 128),
+}), config: Schema.Struct({ select: Schema.Array(Schema.String.check(Schema.isBetweenLength(1, 128),
   Schema.isPattern(/^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)?$/))).pipe(Schema.mutable).check(Schema.isMaxLength(256)),
   relations: Schema.Array(Schema.Literal("application_method")).pipe(Schema.mutable).check(Schema.isMaxLength(1)), order: Schema.optionalKey(Schema.Struct({ id: Schema.Literal("ASC") })),
   skip: Schema.optionalKey(Schema.Literal(0)), take: Schema.Number.check(Schema.isInt(), Schema.isBetween({ minimum: 0, maximum: 256 })) }) });

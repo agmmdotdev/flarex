@@ -16,7 +16,7 @@ export const CoreNativeEventPolicySchema = Schema.Struct({ producerRevision: Eve
   contracts: Schema.Array(Contract).check(Schema.isMaxLength(commitEventLimits.messages)),
   subscribers: Schema.Array(EventSubscriber).check(Schema.isMinLength(1), Schema.isMaxLength(commitEventLimits.subscribers)),
   derivedIdValidation: Schema.optionalKey(Schema.Literal("capturedOnly")),
-}).annotate({ parseOptions: { onExcessProperty: "error" } });
+});
 const decodePolicy = Schema.decodeUnknownResult(CoreNativeEventPolicySchema, { onExcessProperty: "error" });
 type Policy = typeof CoreNativeEventPolicySchema.Type;
 export function captureCoreNativeEventPolicy(input: unknown): Result.Result<Policy, ReturnType<typeof eventError>> {
@@ -25,8 +25,7 @@ export function captureCoreNativeEventPolicy(input: unknown): Result.Result<Poli
       || new Set(policy.subscribers.map(subscriber => subscriber.id)).size !== policy.subscribers.length
       ? Result.fail(eventError("invalidAuthority")) : Result.succeed(policy)));
 }
-const RootBoundPolicy = Schema.Struct({ mode: Schema.Literal("rootBound"), version: Schema.Literal(1) })
-  .annotate({ parseOptions: { onExcessProperty: "error" } });
+const RootBoundPolicy = Schema.Struct({ mode: Schema.Literal("rootBound"), version: Schema.Literal(1) });
 const decodeRootBoundPolicy = Schema.decodeUnknownResult(RootBoundPolicy, { onExcessProperty: "error" });
 
 /** Stable private storage keeps exact per-request policy in the committed root

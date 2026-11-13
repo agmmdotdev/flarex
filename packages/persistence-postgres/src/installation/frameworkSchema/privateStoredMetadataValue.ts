@@ -1,9 +1,10 @@
+import * as Hex from "effect/encoding/Hex";
 import {
   copyBytes,
   isUint8ArrayWithByteLength,
 } from "@flarex/utils/bytes";
 import { finiteDateMilliseconds } from "@flarex/utils/dates";
-import { Encoding, Result } from "effect";
+import { Result } from "effect";
 
 const MAX_POSTGRES_INT64 = 9_223_372_036_854_775_807n;
 const SHA256_BYTE_LENGTH = 32;
@@ -90,7 +91,7 @@ export function decodeStoredSha256HexResult<Error>(
   storedCorruption: () => Error,
 ): Result.Result<string, Error> {
   return isUint8ArrayWithByteLength(input, SHA256_BYTE_LENGTH)
-    ? Result.succeed(Encoding.encodeHex(copyBytes(input)))
+    ? Result.succeed(Hex.encode(copyBytes(input)))
     : Result.fail(storedCorruption());
 }
 

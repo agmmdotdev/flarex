@@ -602,7 +602,7 @@ const relationOpenScopedOperation = defineScopedReadOperation(
       scopeId: scoped.clock.scopeId,
       epoch: scoped.clock.epoch,
       commitSeq: scoped.clock.lastCommitSeq,
-    }));
+    }, { parseOptions: { onExcessProperty: "error" } }));
   }),
 );
 
@@ -1335,7 +1335,7 @@ const openInTransaction = Effect.fn(
       scopeId: clock.scopeId,
       epoch: clock.epoch,
       commitSeq: clock.lastCommitSeq,
-    })),
+    }, { parseOptions: { onExcessProperty: "error" } })),
   });
 });
 

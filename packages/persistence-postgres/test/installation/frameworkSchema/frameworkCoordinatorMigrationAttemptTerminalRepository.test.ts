@@ -1,3 +1,4 @@
+import * as Hex from "effect/encoding/Hex";
 import {
   rejectingSelectTransaction,
   useFileScopedFrameworkCoordinatorGraphPersistence,
@@ -6,7 +7,7 @@ import { compareUtf16Strings } from "@flarex/utils/strings";
 import { administrativelyRepairFrameworkMetadata } from "./frameworkMetadataRepairTestSupport";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { and, asc, eq } from "drizzle-orm";
-import { Effect, Encoding, Option, Result } from "effect";
+import { Effect, Option, Result } from "effect";
 import { describe, expect, it } from "vitest";
 
 
@@ -683,7 +684,7 @@ describe("framework coordinator migration-attempt terminal repository", { concur
     expect(nullableSha256((await projectionPersistence.drizzle.select({
       value: fxSystemFrameworkMigrationAttemptTerminals.requiredStepSetSha256,
     }).from(fxSystemFrameworkMigrationAttemptTerminals))[0]?.value ?? null))
-      .toBe(Encoding.encodeHex(wrongRequiredStepSet));
+      .toBe(Hex.encode(wrongRequiredStepSet));
     });
 
     await withPersistence(async tailPersistence => {
@@ -1174,7 +1175,7 @@ async function storedTerminalRows(
     planStorageId: row.planStorageId,
     attemptStorageId: row.attemptStorageId,
     admissionStorageId: row.admissionStorageId,
-    admissionSha256: Encoding.encodeHex(row.admissionSha256),
+    admissionSha256: Hex.encode(row.admissionSha256),
     attemptId: row.attemptId,
     attemptFence: row.attemptFence,
     outcomeKind: row.outcomeKind,
@@ -1183,7 +1184,7 @@ async function storedTerminalRows(
     evidenceSha256: nullableSha256(row.evidenceSha256),
     lastReceiptStorageId: row.lastReceiptStorageId,
     lastStepReceiptSha256: nullableSha256(row.lastStepReceiptSha256),
-    attemptTerminalSha256: Encoding.encodeHex(row.attemptTerminalSha256),
+    attemptTerminalSha256: Hex.encode(row.attemptTerminalSha256),
     frameFormat: row.frameFormat,
     frameVersion: row.frameVersion,
     canonicalByteLength: row.canonicalByteLength,
@@ -1324,7 +1325,7 @@ function canonicalBytes(value: Readonly<{ canonicalJson: string }>): Uint8Array 
 }
 
 function decodeSha256(value: string): Uint8Array {
-  return Result.match(Encoding.decodeHex(value), {
+  return Result.match(Hex.decode(value), {
     onFailure: () => {
       throw new Error("Fixture SHA-256 must be hexadecimal");
     },
@@ -1333,7 +1334,7 @@ function decodeSha256(value: string): Uint8Array {
 }
 
 function nullableSha256(value: Uint8Array | null): string | null {
-  return value === null ? null : Encoding.encodeHex(value);
+  return value === null ? null : Hex.encode(value);
 }
 
 function isTerminalRootSelection(input: unknown): boolean {

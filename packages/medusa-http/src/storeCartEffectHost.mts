@@ -1,5 +1,5 @@
 import { Effect, type Scope } from "effect"
-import { HttpEffect, HttpRouter } from "effect/unstable/http"
+import { HttpEffect, HttpRouter } from "effect/http"
 import { createStoreCartHttpHandler, type StoreCartHttpOptions } from "./store-cart.js"
 
 export interface StoreCartEffectHttpHandler {

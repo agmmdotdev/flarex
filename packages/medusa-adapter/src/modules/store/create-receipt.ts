@@ -9,11 +9,11 @@ import { moduleEventDecoder } from "../../module/events";
 import { decodeStoreCreates, decodeStorePhysicalDeletionIds, type compileStoreCreationContracts } from "./create-input";
 
 type Contracts = Result.Result.Success<ReturnType<typeof compileStoreCreationContracts>>;
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 const decodeEvent = moduleEventDecoder(Schema.Struct({ name: Schema.String,
   metadata: Schema.Struct({ source: Schema.Literal(Modules.STORE), object: Schema.Literals(["store", "store_currency", "store_locale"]),
     action: Schema.Literals(["created", "deleted"]) }),
-  data: Schema.Struct({ id: Schema.Union([Id, Schema.Array(Id).check(Schema.isLengthBetween(1, 8))]) }),
+  data: Schema.Struct({ id: Schema.Union([Id, Schema.Array(Id).check(Schema.isBetweenLength(1, 8))]) }),
 }), defaultCommerceResources);
 
 /** Native invocation owns validation. Receipts reuse its exact pure normalization

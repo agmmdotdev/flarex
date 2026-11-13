@@ -183,7 +183,7 @@ export async function prepareCoreShippingOptionRuleBatch(driver: "pglite" | "pos
             activity.lifecycle.length || activity.setNull.length || activity.referenceReplacements.length || activity.relationalReads.length)
             return yield* Effect.fail(commerceError("receiptMismatch"));
           const mutation = activity.mutations[0];
-          const output = yield* Schema.decodeUnknownEffect(Schema.Array(Schema.JsonObject).check(Schema.isLengthBetween(1, 1)))(call.result)
+          const output = yield* Schema.decodeUnknownEffect(Schema.Array(Schema.JsonObject).check(Schema.isBetweenLength(1, 1)))(call.result)
             .pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
           if (mutation === undefined || mutation.ordinal !== 0 || mutation.operation !== "delete" || mutation.table !== graph.option.name ||
             mutation.before === null || mutation.after !== null || output[0] === undefined)

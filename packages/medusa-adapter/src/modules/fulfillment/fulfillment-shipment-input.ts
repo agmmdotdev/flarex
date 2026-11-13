@@ -34,8 +34,8 @@ export const FulfillmentGraphUpdate = Schema.Struct({ ...UpdateFields, labels: N
   provider_id: Schema.optionalKey(Schema.NullOr(FulfillmentCreationId)), shipping_option_id: Schema.optionalKey(Schema.NullOr(FulfillmentCreationId)),
   delivery_address_id: Schema.optionalKey(Schema.NullOr(FulfillmentCreationId)) }).check(Schema.makeFilter(value =>
     !Object.keys(value).some(name => ReferenceNames.includes(name)) || Object.keys(value).every(name => ReferenceNames.includes(name)) || "Expected reference-only retained inverse"));
-export const FulfillmentDeliveryList = Schema.Struct({ filters: Schema.Struct({ id: Schema.Array(FulfillmentCreationId).check(Schema.isLengthBetween(1, 1)) }),
-  config: Schema.Struct({ select: Schema.Array(Schema.Literals(["id", "delivered_at", "canceled_at"])).check(Schema.isLengthBetween(1, 3)),
+export const FulfillmentDeliveryList = Schema.Struct({ filters: Schema.Struct({ id: Schema.Array(FulfillmentCreationId).check(Schema.isBetweenLength(1, 1)) }),
+  config: Schema.Struct({ select: Schema.Array(Schema.Literals(["id", "delivered_at", "canceled_at"])).check(Schema.isBetweenLength(1, 3)),
     relations: Schema.Array(Schema.Never).check(Schema.isMaxLength(0)), order: Schema.Struct({ id: Schema.Literal("ASC") }) }) });
 export const decodeFulfillmentDeliveryList = commerceDecoder(FulfillmentDeliveryList, "unsupportedProfile");
 const decodeUpdate = commerceDecoder(FulfillmentGraphUpdate, "invalidInput");

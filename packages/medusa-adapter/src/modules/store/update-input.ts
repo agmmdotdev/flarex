@@ -7,7 +7,7 @@ import { NativePreimageConfig } from "../../workflow/preimage";
 import { compileStoreCreationContracts, StoreCurrencyCreate, StoreLocaleCreate } from "./create-input";
 import type { captureStoreMetadata } from "./schema";
 
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 export const StoreUpdateIds = Schema.Array(Id).pipe(Schema.mutable).check(Schema.isMaxLength(4));
 export const StoreUpdateSelector = Schema.Struct({ id: Schema.Union([Id, StoreUpdateIds]) });
 const NullableText = Schema.optionalKey(Schema.NullOr(Schema.String));

@@ -10,7 +10,7 @@ import { compileWhere, type WherePolicy } from "../../query/predicate";
 import { ServiceZoneUpdateIds, ServiceZoneUpdateSelector, type compileServiceZoneUpdateContracts } from "./service-zone-update-input";
 
 type Contracts = Result.Result.Success<ReturnType<typeof compileServiceZoneUpdateContracts>>;
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 const where: WherePolicy = {
   decode: commerceDecoder(Schema.Union([ServiceZoneUpdateSelector,
     Schema.Struct({ $or: Schema.Array(Schema.Struct({ id: Id })).check(Schema.isMaxLength(4)) })]), "unsupportedProfile"),

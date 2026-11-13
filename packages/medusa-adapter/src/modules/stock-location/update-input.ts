@@ -7,7 +7,7 @@ import { decodeOptionalServiceResult } from "../../module/result";
 import { QueryLimit, QueryOffset } from "../../query/decoder";
 import { NativePreimageConfig } from "../../workflow/preimage";
 
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 const Ids = Schema.Array(Id).check(Schema.isMaxLength(4));
 const Text = Schema.optionalKey(Schema.NullOr(Schema.String));
 const Metadata = Schema.optionalKey(Schema.NullOr(Schema.JsonObject));

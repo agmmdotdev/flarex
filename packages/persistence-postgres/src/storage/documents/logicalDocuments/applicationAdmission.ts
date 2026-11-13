@@ -40,8 +40,8 @@ export class LogicalApplicationSourceAdmissionError extends Data.TaggedError("Lo
 }> {}
 const SourceContract = Schema.Struct({ sourceKey: Schema.Literal("application"),
   writeProfile: Schema.Literal("application.occ"), definition: Schema.Json, evidence: Schema.Json,
-}).annotate({ parseOptions: { onExcessProperty: "error" } });
-const decodeContract = Schema.decodeUnknownEffect(SourceContract);
+});
+const decodeContract = Schema.decodeUnknownEffect(SourceContract, { onExcessProperty: "error" });
 const projectSourceFailure = (cause: LogicalSourceAdmissionError) =>
   new LogicalApplicationSourceAdmissionError({ reason: cause.reason, cause });
 

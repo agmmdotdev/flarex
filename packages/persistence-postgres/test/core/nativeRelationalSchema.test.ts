@@ -1,3 +1,4 @@
+import { strictSchemaGuard } from "flarex-protocol/internal/strict-schema";
 import { Effect, Result, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import { captureLogicalSchemaSource } from "@flarex/analysis/internal/logical-schema-candidate";
@@ -182,7 +183,7 @@ describe("complete native relational schema lowering", () => {
       expect(definition.tables.find(table => table.localName === "product_variant_product_image")?.rowKey?.fields).toEqual(["id"]);
       for (const table of definition.tables) {
         const policy = coreNativePolicyForTable(definition, table, "active", schemaId);
-        expect(Schema.is(CoreNativeTablePolicySchema)(policy)).toBe(true);
+        expect(strictSchemaGuard(CoreNativeTablePolicySchema)(policy)).toBe(true);
         expect(sameCoreNativeTablePolicy(policy, { ...policy,
           ...(policy.foreignKeys === undefined ? {} : { foreignKeys: policy.foreignKeys.map(key => ({ ...key })) }) })).toBe(true);
         if (table.foreignKeys !== undefined) expect(sameCoreNativeTablePolicy(policy, { ...policy,

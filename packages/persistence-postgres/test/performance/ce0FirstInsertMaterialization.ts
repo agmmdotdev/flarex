@@ -183,7 +183,7 @@ export const prepareCe0FirstInsertMaterialization = Effect.fn(
         scopeId: authority.scopeId,
         epoch: clock.epoch,
         commitSeq: clock.lastCommitSeq,
-      }),
+      }, { parseOptions: { onExcessProperty: "error" } }),
     },
     rowIntents: [],
     dependencies: [],

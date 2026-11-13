@@ -23,10 +23,10 @@ import type { ComposedWorkflowServices } from "../../workflow/composed-resource"
 import { prepareAtomicWorkflowHost, type AtomicWorkflowExecution, type InstalledWorkflowModule, type WorkflowCallResults, captureInstalledWorkflowModules } from "../../workflow/host";
 import { productCreationResources } from "../../workflow/policy";
 
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 export const ProductCreationOutput = Schema.Array(Schema.StructWithRest(Schema.Struct({ id: Id, title: Schema.String,
   variants: Schema.Array(ProductVariantInventoryOutput.value).check(Schema.isMaxLength(4)),
-}), [Schema.Record(Schema.String, Schema.Json)])).check(Schema.isLengthBetween(1, 4));
+}), [Schema.Record(Schema.String, Schema.Json)])).check(Schema.isBetweenLength(1, 4));
 const decodeHook = commerceDecoder(Schema.Struct({ products: ProductCreationOutput, additional_data: Schema.optionalKey(Schema.JsonObject) }), "invalidInput");
 const decodeReturnedIds = commerceDecoder(Schema.Array(Schema.StructWithRest(Schema.Struct({ id: Id }), [Schema.Record(Schema.String, Schema.Json)])), "receiptMismatch");
 

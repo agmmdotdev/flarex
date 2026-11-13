@@ -12,7 +12,7 @@ import { defineComposedWorkflowResource } from "../workflow/composed-resource";
 import { captureShippingOptionPriceSetLinkService } from "./shipping-option-price-set-service";
 import { decodeLinkCascade } from "./cascade-result";
 
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 // A genuine void callback resolves to the SDK's issued WorkflowData marker.
 // Common Link removal groups its string into these exact character-key arrays.
 // This is a private representation contract, never a public root input shape.
@@ -24,11 +24,11 @@ const decodeEndpoint = commerceDecoder(Schema.Tuple([Schema.Union([
   Schema.Struct({ fulfillment: ShippingOptionDeletionOutput }), VoidMarker,
 ])]), "invalidInput");
 const decodeLinkMap = commerceDecoder(Schema.Struct({
-  shipping_option_id: Schema.Array(Id).check(Schema.isLengthBetween(1, 8)),
-  price_set_id: Schema.Array(Id).check(Schema.isLengthBetween(1, 8)),
+  shipping_option_id: Schema.Array(Id).check(Schema.isBetweenLength(1, 8)),
+  price_set_id: Schema.Array(Id).check(Schema.isBetweenLength(1, 8)),
 }).check(Schema.makeFilter(map => map.shipping_option_id.length === map.price_set_id.length)), "storedCorruption");
 const decodePricingMap = commerceDecoder(Schema.Struct({
-  price_set_id: Schema.Array(Id).check(Schema.isLengthBetween(1, 8)),
+  price_set_id: Schema.Array(Id).check(Schema.isBetweenLength(1, 8)),
 }), "storedCorruption");
 
 /** The genuine Link router receives complete native routing metadata, with

@@ -15,7 +15,7 @@ import { prepareAtomicWorkflowHost, captureInstalledWorkflowModules, type Atomic
   type InstalledWorkflowModule } from "../../workflow/host";
 
 type Links = Effect.Success<ReturnType<typeof prepareLocalVariantLinks>>;
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 export const ProductVariantInventoryLinksInput = Schema.Struct({ product_id: Id, links: VariantInventoryLinkBatch });
 export const ProductVariantInventoryLinkBatchInput = Schema.Struct({ product_id: Id,
   create: VariantInventoryLinkBatch, update: VariantInventoryLinkBatch, delete: VariantInventoryLinkBatch,

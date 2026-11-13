@@ -1,3 +1,4 @@
+import { strictSchemaGuard } from "flarex-protocol/internal/strict-schema";
 import { Result, Schema } from "effect";
 import { commerceLimits, type CommerceTransactionError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { currencyColumns, type CurrencyQuery } from "./query-model";
@@ -18,10 +19,10 @@ const decodeOptions = commerceDecoder(Schema.Struct({
 const decodePopulate = commerceDecoder(Schema.Tuple([]), "unsupportedProfile");
 // Native MikroORM ignores simple selection names absent from the model,
 // including Query's implicit `id`; only checked Currency columns reach storage.
-const ScalarField = Schema.String.check(Schema.isLengthBetween(1, 256), Schema.isPattern(/^[A-Za-z_][A-Za-z0-9_]*$/),
+const ScalarField = Schema.String.check(Schema.isBetweenLength(1, 256), Schema.isPattern(/^[A-Za-z_][A-Za-z0-9_]*$/),
   Schema.makeFilter(value => value !== "__proto__" && value !== "constructor" && value !== "prototype"));
 const decodeFieldArray = commerceDecoder(Schema.Array(Schema.Unknown).check(
-  Schema.isLengthBetween(1, currencyColumns.length + 1),
+  Schema.isBetweenLength(1, currencyColumns.length + 1),
 ), "invalidInput");
 const decodeFields = commerceDecoder(Schema.Array(ScalarField).check(Schema.isUnique()), "unsupportedProfile");
 const isCurrencyColumn = Schema.is(Schema.Literals(currencyColumns));
@@ -39,10 +40,8 @@ const decodeWhere = commerceDecoder(Schema.Struct({
   $and: Schema.optionalKey(Schema.Unknown),
   $or: Schema.optionalKey(Schema.Unknown),
 }), "unsupportedProfile");
-const isInFilter = Schema.is(Schema.Struct({ $in: Schema.optionalKey(Schema.Unknown) }).annotate({
-  parseOptions: { onExcessProperty: "error" },
-}));
-const Code = Schema.String.check(Schema.isLengthBetween(1, 256), Schema.isPattern(/^[^\0]*$/));
+const isInFilter = strictSchemaGuard(Schema.Struct({ $in: Schema.optionalKey(Schema.Unknown) }));
+const Code = Schema.String.check(Schema.isBetweenLength(1, 256), Schema.isPattern(/^[^\0]*$/));
 const decodeCodes = commerceDecoder(Schema.Array(Code), "invalidInput");
 const decodeBranches = commerceDecoder(Schema.Array(Schema.Unknown).check(Schema.isMaxLength(commerceLimits.filterNodes)), "invalidInput");
 

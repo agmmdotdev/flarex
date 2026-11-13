@@ -80,7 +80,7 @@ describe("translated operation index snapshot", () => {
     const snapshot = createCoreIndexSnapshot({ registry, snapshot: { ...physical.snapshot, scan: input => {
       calls += 1;
       return Effect.withFiber(fiber => {
-        const span = fiber.currentSpan;
+        const span = fiber.cache.span;
         expect(span).toMatchObject({ _tag: "Span", name: "CoreIndexSnapshot.scan",
           parent: { _tag: "Some", value: { name: "request-parent" } } });
         return physical.snapshot.scan(input);

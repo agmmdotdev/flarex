@@ -19,10 +19,7 @@ import {
   PROBE_ORDINAL_ZERO,
   type ProbeOrdinal,
 } from "./identity";
-import {
-  StrictParseOptions,
-  StrictStructOptions,
-} from "./strictSchemaOptions";
+import { StrictParseOptions } from "./strictSchemaOptions";
 
 export const PROBE_LIMITS_V1 = {
   maxConcurrency: 25,
@@ -173,7 +170,7 @@ export const ProbeDimensionsV1Schema = Schema.Struct({
   journalEntries: JournalEntriesSchema,
   payloadBytes: PayloadBytesSchema,
   sessionMode: ProbeSessionModeSchema,
-}).annotate(StrictStructOptions);
+});
 export type ProbeDimensionsV1 = typeof ProbeDimensionsV1Schema.Type;
 
 export function sameProbeDimensionsV1(
@@ -195,7 +192,7 @@ const ProbeRunRequestV1Shape = Schema.Struct({
   repetitions: RepetitionsSchema,
   warmupRepetitions: WarmupRepetitionsSchema,
   dimensions: ProbeDimensionsV1Schema,
-}).annotate(StrictStructOptions);
+});
 
 export const ProbeRunRequestV1Schema = ProbeRunRequestV1Shape.check(
   Schema.makeFilter(request => {
@@ -235,7 +232,7 @@ export const ProbeNormalizedErrorV1Schema = Schema.Struct({
   code: ProbeErrorCodeSchema,
   retryable: Schema.Boolean,
   stage: ProbeErrorStageSchema,
-}).annotate(StrictStructOptions);
+});
 export type ProbeNormalizedErrorV1 =
   typeof ProbeNormalizedErrorV1Schema.Type;
 
@@ -249,11 +246,11 @@ export function sameProbeNormalizedErrorV1(
 }
 
 export const ProbeSpanOutcomeV1Schema = Schema.Union([
-  Schema.Struct({ kind: Schema.Literal("ok") }).annotate(StrictStructOptions),
+  Schema.Struct({ kind: Schema.Literal("ok") }),
   Schema.Struct({
     kind: Schema.Literal("error"),
     error: ProbeNormalizedErrorV1Schema,
-  }).annotate(StrictStructOptions),
+  }),
 ]);
 export type ProbeSpanOutcomeV1 = typeof ProbeSpanOutcomeV1Schema.Type;
 
@@ -278,7 +275,7 @@ export const ProbeStartupObservationsV1Schema = Schema.Struct({
   workerLoader: ProbeCallbackObservationSchema,
   facet: ProbeCallbackObservationSchema,
   sessionActivation: Schema.optional(ProbeSessionActivationObservationSchema),
-}).annotate(StrictStructOptions);
+});
 export type ProbeStartupObservationsV1 =
   typeof ProbeStartupObservationsV1Schema.Type;
 
@@ -288,15 +285,15 @@ export const ProbeTraceSpanV1Schema = Schema.Struct({
   name: ProbeSpanNameSchema,
   durationMs: ProbeDurationMsSchema,
   outcome: ProbeSpanOutcomeV1Schema,
-}).annotate(StrictStructOptions);
+});
 export type ProbeTraceSpanV1 = typeof ProbeTraceSpanV1Schema.Type;
 
 export const ProbeSampleOutcomeV1Schema = Schema.Union([
-  Schema.Struct({ kind: Schema.Literal("ok") }).annotate(StrictStructOptions),
+  Schema.Struct({ kind: Schema.Literal("ok") }),
   Schema.Struct({
     kind: Schema.Literal("error"),
     error: ProbeNormalizedErrorV1Schema,
-  }).annotate(StrictStructOptions),
+  }),
 ]);
 export type ProbeSampleOutcomeV1 = typeof ProbeSampleOutcomeV1Schema.Type;
 
@@ -316,21 +313,21 @@ export const ProbeSampleIdentityV1Schema = Schema.Union([
     sessionId: Schema.Null,
     attemptId: Schema.Null,
     codeId: Schema.Null,
-  }).annotate(StrictStructOptions),
+  }),
   Schema.Struct({
     ...ProbeSampleIdentityBase,
     kind: Schema.Literal("session-only"),
     sessionId: ProbeSessionIdSchema,
     attemptId: Schema.Null,
     codeId: Schema.Null,
-  }).annotate(StrictStructOptions),
+  }),
   Schema.Struct({
     ...ProbeSampleIdentityBase,
     kind: Schema.Literal("dynamic-direct"),
     sessionId: Schema.Null,
     attemptId: Schema.Null,
     codeId: ProbeCodeIdSchema,
-  }).annotate(StrictStructOptions),
+  }),
   Schema.Struct({
     ...ProbeSampleIdentityBase,
     kind: Schema.Literal("facet-session"),
@@ -338,7 +335,7 @@ export const ProbeSampleIdentityV1Schema = Schema.Union([
     attemptId: ProbeAttemptIdSchema,
     codeId: ProbeCodeIdSchema,
     facetId: Schema.optional(ProbeAttemptIdSchema),
-  }).annotate(StrictStructOptions),
+  }),
 ]);
 export type ProbeSampleIdentityV1 =
   typeof ProbeSampleIdentityV1Schema.Type;
@@ -387,7 +384,7 @@ const ProbeSampleResultV1Shape = Schema.Struct({
   edgeColo: Schema.Union([ProbeEdgeColoSchema, Schema.Null]),
   outcome: ProbeSampleOutcomeV1Schema,
   spans: Schema.Array(ProbeTraceSpanV1Schema),
-}).annotate(StrictStructOptions);
+});
 
 export const ProbeSampleResultV1Schema = ProbeSampleResultV1Shape.check(
   Schema.makeFilter(sample => sampleRelationshipIssue(sample)),

@@ -654,7 +654,7 @@ describe("P02 gateway and ProbeSessionDO in Miniflare", { concurrent: false }, (
       sessionId: secondSession,
       sessionMode: "new-session",
       payload: "",
-    });
+    }, { parseOptions: { onExcessProperty: "error" } });
     const crossRunBody = {
       ...body,
       runId,
@@ -1586,7 +1586,7 @@ describe("P02 gateway and ProbeSessionDO in Miniflare", { concurrent: false }, (
       scopeId: probeScopeId(runId),
       scenario: "commit_wake",
       commitSeq: probeSyntheticCommitSeq(sampleOrdinal),
-    });
+    }, { parseOptions: { onExcessProperty: "error" } });
     const rawReceipt = await mockFinish.finish(request);
     const receipt = await runEffectTest(
       decodeProbeMockFinishResponseV1Effect(
@@ -1753,7 +1753,7 @@ function candidateInvokeRequest(runIdValue: string) {
     codeId: probeCodeId({ mode: "stable", profile: "invoke" }),
     journalEntries: 2,
     payload: "x".repeat(64),
-  });
+  }, { parseOptions: { onExcessProperty: "error" } });
 }
 
 function facetExecutorInvokeRequest(runIdValue: string) {
@@ -1775,7 +1775,7 @@ function facetExecutorInvokeRequest(runIdValue: string) {
     codeId: probeCodeId({ mode: "stable", profile: "invoke" }),
     journalEntries: 2,
     payload: "x".repeat(64),
-  });
+  }, { parseOptions: { onExcessProperty: "error" } });
 }
 
 function facetFinalizerInvokeRequest(runIdValue: string) {
@@ -1797,7 +1797,7 @@ function facetFinalizerInvokeRequest(runIdValue: string) {
     codeId: probeCodeId({ mode: "stable", profile: "invoke-finalizer" }),
     journalEntries: 2,
     payload: "x".repeat(64),
-  });
+  }, { parseOptions: { onExcessProperty: "error" } });
 }
 
 function warmFacetFinalizerInvokeRequest(
@@ -1825,7 +1825,7 @@ function warmFacetFinalizerInvokeRequest(
     codeId: probeCodeId({ mode: "stable", profile: "invoke-finalizer-warm" }),
     journalEntries: 2,
     payload: "x".repeat(64 + sampleOrdinalValue),
-  });
+  }, { parseOptions: { onExcessProperty: "error" } });
 }
 
 function externalExecutorInvokeRequest(runIdValue: string) {
@@ -1847,7 +1847,7 @@ function externalExecutorInvokeRequest(runIdValue: string) {
     codeId: probeCodeId({ mode: "stable", profile: "invoke" }),
     journalEntries: 2,
     payload: "x".repeat(64),
-  });
+  }, { parseOptions: { onExcessProperty: "error" } });
 }
 
 async function directFullInvoke(
@@ -1886,7 +1886,7 @@ async function purgeFacetFinalizerAttempt(
       codeId: request.codeId,
       scenario: request.scenario,
     }],
-  });
+  }, { parseOptions: { onExcessProperty: "error" } });
   for (let step = 0; step < 32; step += 1) {
     const receipt = await session.purge(purgeRequest);
     if (receipt.kind === "probe-data-cleared") {
@@ -2148,7 +2148,7 @@ function syncWakeRequest(
     scopeId: probeScopeId(runId),
     scenario: "commit_wake",
     commitSeq: probeSyntheticCommitSeq(sampleOrdinal),
-  });
+  }, { parseOptions: { onExcessProperty: "error" } });
 }
 
 async function syncCursor(
@@ -2164,7 +2164,7 @@ async function syncCursor(
     runId,
     scopeId,
     operation,
-  });
+  }, { parseOptions: { onExcessProperty: "error" } });
   const rawResponse = await bindings.PROBE_SYNC.getByName(scopeId).control(
     request,
   );
@@ -2235,7 +2235,7 @@ async function dispatchFacetLifecycle(
         }),
     journalEntries: 0,
     operation,
-  });
+  }, { parseOptions: { onExcessProperty: "error" } });
   return await bindings.PROBE_SESSIONS.getByName(sessionId).fetch(
     "https://probe-session.internal/v1/facet-lifecycle",
     {

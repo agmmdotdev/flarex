@@ -16,7 +16,7 @@ export type CommitEventEligibilityReference = typeof EventEligibilityReference.T
 export const EventEnvelope = Schema.Struct({
   contract: EventName, contractRevision: EventRevision, producerRevision: EventRevision,
   internal: Schema.Boolean,
-  group: Schema.String.check(Schema.isLengthBetween(1, 256)),
+  group: Schema.String.check(Schema.isBetweenLength(1, 256)),
   message: Schema.Json,
   eligibility: Schema.optionalKey(Schema.Array(EventEligibilityReference).check(Schema.isMinLength(1), Schema.isMaxLength(2))),
   subscribers: Schema.Array(EventSubscriber).check(Schema.isMinLength(1), Schema.isMaxLength(commitEventLimits.subscribers)),

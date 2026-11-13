@@ -1,6 +1,7 @@
+import * as Hex from "effect/encoding/Hex";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { eq } from "drizzle-orm";
-import { Effect, Encoding, Option } from "effect";
+import { Effect, Option } from "effect";
 import { describe, expect, it } from "vitest";
 
 import type { FlarexMetadataTransaction } from
@@ -574,8 +575,8 @@ async function storedAvailabilityHeadRow(
     availabilityHistoryStorageId: row.availabilityHistoryStorageId,
     availabilitySequence: row.availabilitySequence,
     status: row.status,
-    historySha256: Encoding.encodeHex(row.historySha256),
-    availabilityHeadSha256: Encoding.encodeHex(row.availabilityHeadSha256),
+    historySha256: Hex.encode(row.historySha256),
+    availabilityHeadSha256: Hex.encode(row.availabilityHeadSha256),
     frameFormat: row.frameFormat,
     frameVersion: row.frameVersion,
     canonicalByteLength: row.canonicalByteLength,

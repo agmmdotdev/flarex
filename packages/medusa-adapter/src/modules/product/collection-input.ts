@@ -2,7 +2,7 @@ import { Schema } from "effect";
 import { commerceDecoder } from "../../value/decoder";
 import { NativePreimageConfig } from "../../workflow/preimage";
 
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 export const ProductCollectionIds = Schema.Array(Id).pipe(Schema.mutable).check(Schema.isMaxLength(4));
 export const ProductCollectionSelector = Schema.Struct({
   id: Schema.optionalKey(Schema.Union([Id, ProductCollectionIds])),

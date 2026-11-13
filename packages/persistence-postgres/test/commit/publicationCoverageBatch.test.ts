@@ -151,7 +151,7 @@ async function proveFencedIndexCoverageBatch(persistence: TestPersistence) {
       const clock = await Effect.runPromise(lockScopeClockForOrdinaryWriteInTransactionEffect(tx, scopeId));
       const command = {
           authorityPins: { deploymentId, scopeId, schemaVersionId,
-            snapshotToken: SnapshotTokenSchema.make({ scopeId, epoch: clock.epoch, commitSeq: clock.lastCommitSeq }) }, rowIntents: [], dependencies: [],
+            snapshotToken: SnapshotTokenSchema.make({ scopeId, epoch: clock.epoch, commitSeq: clock.lastCommitSeq }, { parseOptions: { onExcessProperty: "error" } }) }, rowIntents: [], dependencies: [],
         };
       const intrinsic=members.map(member=>member.definition);
       const settlement=await runEffect(prepareApplicationDocumentSettlementEffect(command,[],[],[],null,intrinsic));

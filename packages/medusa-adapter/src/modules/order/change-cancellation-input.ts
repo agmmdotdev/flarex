@@ -15,7 +15,7 @@ const Selection = Schema.Struct({ ...OrderChangeCancellationPreimage.fields,
   status: Schema.NullOr(Schema.Literals(Object.values(OrderChangeStatus))) });
 export const OrderChangeCancellationFields = Object.freeze(Object.keys(OrderChangeCancellationPreimage.fields));
 export const OrderChangeCancellationRead = Schema.Struct({ id: OrderChangeId, config: Schema.Struct({
-  select: Schema.Array(Schema.Literals(OrderChangeCancellationFields)).pipe(Schema.mutable).check(Schema.isLengthBetween(4, 5),
+  select: Schema.Array(Schema.Literals(OrderChangeCancellationFields)).pipe(Schema.mutable).check(Schema.isBetweenLength(4, 5),
     Schema.makeFilter(fields => ["id", "status", "canceled_at", "canceled_by"].every(field => fields.includes(field)) &&
       new Set(fields).size === fields.length || "Expected cancellation preimage fields")),
   relations: Schema.Array(Schema.Never).pipe(Schema.mutable),

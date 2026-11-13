@@ -3,13 +3,13 @@ import { commerceError, isJsonObject, type Json } from "@flarex/persistence-post
 import type { LogicalCommerceCallValidation } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceDecoder } from "../../value/decoder";
 
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 export const ProductVariantParentReadConfig = Schema.Struct({
   select: Schema.Tuple([Schema.Literal("id"), Schema.Literal("product_id")]), relations: Schema.Array(Schema.Never),
 });
 export const ProductVariantParentRows = Schema.Array(Schema.Struct({ id: Id, product_id: Id })).check(Schema.isMaxLength(8));
 const decodeInput = commerceDecoder(Schema.Struct({ filters: Schema.Struct({
-  id: Schema.Array(Id).check(Schema.isLengthBetween(1, 8)), product_id: Schema.optionalKey(Id),
+  id: Schema.Array(Id).check(Schema.isBetweenLength(1, 8)), product_id: Schema.optionalKey(Id),
 }), config: ProductVariantParentReadConfig }), "receiptMismatch");
 const decodeOutput = commerceDecoder(ProductVariantParentRows, "receiptMismatch");
 const isParentConfig = Schema.is(ProductVariantParentReadConfig);

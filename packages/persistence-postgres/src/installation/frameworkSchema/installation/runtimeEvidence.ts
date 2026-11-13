@@ -1,7 +1,8 @@
+import * as Hex from "effect/encoding/Hex";
 import { MAX_FRAMEWORK_BINDING_GRAPH_ROOTS } from "../../migrationCoordination/graphLimits";
 import { and, eq, getTableColumns, inArray, sql, type SQL, type SQLWrapper } from "drizzle-orm";
 import type { PgTable } from "drizzle-orm/pg-core";
-import { Effect, Encoding, Schema } from "effect";
+import { Effect, Schema } from "effect";
 import type { FlarexMetadataTransaction } from "../../../database/metadataTransaction";
 import { detachDriverRows } from "../../../database/detachDriverRows";
 import { runDrizzleStatementEffect } from "../../../database/drizzleStatementEffect";
@@ -106,7 +107,7 @@ export const collectInstallationEvidence = Effect.fn("InstallationRuntime.collec
         const row = (yield* read(tx.select().from(plans).where(eq(plans.planStorageId, node.id)).limit(1)))[0];
         if (row === undefined) return yield* Effect.fail(corruption());
         const frame = yield* verifyStoredFrameworkMigrationValue({ kind: "plan", canonicalBytes: row.canonicalBytes,
-          sha256Hex: Encoding.encodeHex(row.migrationPlanSha256) });
+          sha256Hex: Hex.encode(row.migrationPlanSha256) });
         if (!isStoredFreshRelationalMigrationPlanFrame(frame)) return yield* Effect.fail(corruption());
         // This runtime serves the existing fresh Commerce installation contract.
         // Additive plans also inspect collision-wide admission/attempt budgets;

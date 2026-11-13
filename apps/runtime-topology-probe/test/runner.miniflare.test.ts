@@ -210,7 +210,7 @@ describe("P07B bounded matrix runner", { concurrent: false }, () => {
       const tamperedRaw = ProbeRawEvidenceArtifactV1Schema.make({
         ...result.raw,
         evidence: [...result.raw.evidence].reverse(),
-      });
+      }, { parseOptions: { onExcessProperty: "error" } });
       const tamperedSummary = await buildProbeSummaryArtifactV1(tamperedRaw);
       await writeFile(paths.raw, JSON.stringify(tamperedRaw), "utf8");
       await writeFile(paths.summary, JSON.stringify(tamperedSummary), "utf8");
@@ -229,7 +229,7 @@ describe("P07B bounded matrix runner", { concurrent: false }, () => {
           ...result.raw.campaign,
           manifestSha256: "0".repeat(64),
         },
-      });
+      }, { parseOptions: { onExcessProperty: "error" } });
       const manifestDigestTamperedSummary = await buildProbeSummaryArtifactV1(
         manifestDigestTamperedRaw,
       );

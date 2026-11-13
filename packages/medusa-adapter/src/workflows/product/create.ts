@@ -11,7 +11,7 @@ import { internalModuleWorkflowEvents } from "../../workflow/events";
 import { prepareAtomicWorkflowHost, type AtomicWorkflowExecution, type InstalledWorkflowModule, captureInstalledWorkflowModules } from "../../workflow/host";
 
 export const ProductCreateInput = Schema.Struct({
-  products: Schema.Array(ProductCreateGraphInput).check(Schema.isLengthBetween(1, 4)),
+  products: Schema.Array(ProductCreateGraphInput).check(Schema.isBetweenLength(1, 4)),
 });
 export const ProductCreateOutput = Schema.Struct({
   products: Schema.Array(Schema.Struct({ id: Schema.String, title: Schema.String,
@@ -20,7 +20,7 @@ export const ProductCreateOutput = Schema.Struct({
       [Schema.Record(Schema.String, Schema.Json)])),
     categories: Schema.Array(Schema.StructWithRest(Schema.Struct({ id: Schema.String, name: Schema.String }),
       [Schema.Record(Schema.String, Schema.Json)])),
-  })).check(Schema.isLengthBetween(1, 4)),
+  })).check(Schema.isBetweenLength(1, 4)),
 });
 
 /** Native creation and pending graph read for owned rows and memberships. */

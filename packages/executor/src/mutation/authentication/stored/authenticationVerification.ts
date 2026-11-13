@@ -1,10 +1,11 @@
+import * as Base64Url from "effect/encoding/Base64Url";
 import {
   bytesEqualFullScan as bytesEqual,
   copyBytes,
   encodeBytesToLowercaseHex,
   isUint8ArrayWithByteLength,
 } from "@flarex/utils/bytes";
-import { Effect, Encoding, Result, Schema } from "effect";
+import { Effect, Result, Schema } from "effect";
 
 import type {
   PointMutationSessionAttemptSelectorV1,
@@ -141,7 +142,7 @@ export const captureRecoveredAuthorityEffect = Effect.fn(
       ),
       snapshotToken: SnapshotTokenSchema.make({
         ...evidence.lease.snapshotToken,
-      }),
+      }, { parseOptions: { onExcessProperty: "error" } }),
       schemaVersionId: CatalogSchemaVersionIdSchema.make(
         evidence.session.schemaVersionId,
       ),
@@ -1065,7 +1066,7 @@ function base64UrlFromBytes(bytes: Uint8Array): string {
   if (!(bytes instanceof Uint8Array)) {
     throw corruption("resultBytesInvalid");
   }
-  return Encoding.encodeBase64Url(bytes);
+  return Base64Url.encode(bytes);
 }
 
 function canonicalPointEvidenceJson(value: Json): string {

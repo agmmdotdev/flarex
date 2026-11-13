@@ -11,11 +11,11 @@ import { decodeShippingOptionTypeCreates, decodeShippingOptionTypePhysicalDeleti
   type compileShippingOptionTypeCreationContracts } from "./shipping-option-type-input";
 
 type Contracts = Result.Result.Success<ReturnType<typeof compileShippingOptionTypeCreationContracts>>;
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 const decodeEvent = moduleEventDecoder(Schema.Struct({ name: Schema.String,
   metadata: Schema.Struct({ source: Schema.Literal(Modules.FULFILLMENT), object: Schema.Literal("shipping_option_type"),
     action: Schema.Literals(["created", "deleted"]) }),
-  data: Schema.Struct({ id: Schema.Union([Id, Schema.Array(Id).check(Schema.isLengthBetween(1, 4))]) }),
+  data: Schema.Struct({ id: Schema.Union([Id, Schema.Array(Id).check(Schema.isBetweenLength(1, 4))]) }),
 }), defaultCommerceResources);
 
 /** The full created result, native defaults, ordered row attempts and module

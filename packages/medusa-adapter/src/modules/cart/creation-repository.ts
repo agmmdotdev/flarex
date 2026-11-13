@@ -19,7 +19,7 @@ type Metadata = Effect.Success<ReturnType<typeof captureCartCreationMetadata>>["
 type PreparedRead = Result.Result.Success<ReturnType<typeof prepareCartPaymentRead>>;
 const batch = commerceDecoder(Schema.Array(Schema.Unknown).check(Schema.isMaxLength(4)), "unsupportedProfile");
 const normalized = commerceDecoder(Schema.JsonObject, "unsupportedProfile");
-const id = commerceDecoder(Schema.String.check(Schema.isLengthBetween(1, 256)), "unsupportedProfile");
+const id = commerceDecoder(Schema.String.check(Schema.isBetweenLength(1, 256)), "unsupportedProfile");
 const removal = commerceDecoder(Schema.Struct({ $or: Schema.Array(Schema.Struct({ id: Schema.String })).check(Schema.isMaxLength(8)) }), "unsupportedProfile");
 const definitions = [["cart_address", "Address"], ["cart", "Cart"], ["cart_line_item", "LineItem"],
   ["cart_line_item_tax_line", "LineItemTaxLine"], ["cart_line_item_adjustment", "LineItemAdjustment"]] as const;

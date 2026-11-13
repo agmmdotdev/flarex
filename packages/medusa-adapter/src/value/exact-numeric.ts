@@ -12,7 +12,7 @@ const Numeric = Schema.Union([Schema.String, Schema.Number]);
 const Raw = Schema.Struct({
   value: Schema.String,
   precision: Schema.Number.check(Schema.isInt(), Schema.isBetween({ minimum: 1, maximum: 100 })),
-}).annotate({ parseOptions: { onExcessProperty: "ignore" } });
+});
 const decodeInput = commerceDecoder(Numeric, "invalidInput");
 const decodeStored = commerceDecoder(Numeric, "storedCorruption");
 const decodeRaw = commerceDecoder(Raw, "storedCorruption");

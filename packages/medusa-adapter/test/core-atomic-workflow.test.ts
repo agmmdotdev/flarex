@@ -212,7 +212,7 @@ describe(`${driver} ordinary atomic workflow owner`, () => {
       const actual = await tested.inventory(), currencyTable = localDefinition.tables[0]?.name;
       expect(actual.rows.filter(row => row.table === currencyTable && row.value.code === "xlo")).toHaveLength(1);
       const published = await tested.snapshot(), packed = published.families[0]?.value.root_request;
-      const evidence = await Effect.runPromise(Schema.decodeUnknownEffect(Schema.fromJsonString(CoreNativeRootRequestEvidenceSchema))(packed));
+      const evidence = await Effect.runPromise(Schema.decodeUnknownEffect(Schema.fromJsonString(CoreNativeRootRequestEvidenceSchema), { onExcessProperty: "error" })(packed));
       expect(published.events.map(event => event.envelope.message)).toEqual([...emittedFor("xlo"), ...emittedFor("xln")]);
       expect(evidence.frame.participants.find(member => member.source.sourceKey === "medusa.currency")?.source)
         .toEqual(localDefinition.identity);

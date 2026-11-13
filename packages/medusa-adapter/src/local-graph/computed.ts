@@ -4,7 +4,7 @@ import { commerceDecoder } from "../value/decoder";
 import { captureCommerceInput } from "../value/input";
 
 const Path = Schema.String.check(Schema.isPattern(/^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*){0,3}$/));
-export const GraphComputedObject = Schema.Struct({ fields: Schema.Array(Path).check(Schema.isLengthBetween(1, 64),
+export const GraphComputedObject = Schema.Struct({ fields: Schema.Array(Path).check(Schema.isBetweenLength(1, 64),
   Schema.makeFilter(fields => new Set(fields).size === fields.length)) });
 export const GraphComputedObjects = Schema.Record(Schema.String.check(Schema.isPattern(/^[a-z][a-z0-9_]*$/)), GraphComputedObject)
   .check(Schema.makeFilter(value => Object.keys(value).length <= 4));

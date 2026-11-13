@@ -14,7 +14,7 @@ import {
   type ApplicationWritePolicies,
 } from "./model.ts";
 
-const decodePolicies = Schema.decodeUnknownResult(ApplicationWritePoliciesSchema);
+const decodePolicies = Schema.decodeUnknownResult(ApplicationWritePoliciesSchema, { onExcessProperty: "error" });
 const StrictParseOptions = { onExcessProperty: "error" } as const;
 const MAXIMUM_DEPTH = 8;
 const MAXIMUM_NODES = 20_000;

@@ -20,15 +20,15 @@ import { prepareAtomicWorkflowHost, type AtomicWorkflowExecution, type Installed
 export const ProductVariantPricingInput = Schema.Struct({ product_id: PricingId,
   variants: Schema.Array(Schema.Struct({ id: Schema.optionalKey(PricingId), title: Schema.String,
     options: Schema.Record(Schema.String, Schema.String), priceSet: Schema.optionalKey(PriceSetInput),
-  })).check(Schema.isLengthBetween(1, 4)),
+  })).check(Schema.isBetweenLength(1, 4)),
 });
 const Rule = Schema.Struct({ id: Schema.String, attribute: Schema.String, value: Schema.String });
 const Price = Schema.Struct({ id: Schema.String, currency_code: Schema.String, amount: Schema.Number, raw_amount: ExactNumericRaw,
   price_rules: Schema.Array(Rule).check(Schema.isMaxLength(1)) });
 export const ProductVariantPricingOutput = Schema.Struct({
-  variants: Schema.Array(Schema.Struct({ id: Schema.String, title: Schema.String, product_id: Schema.String })).check(Schema.isLengthBetween(1, 4)),
-  priceSets: Schema.Array(Schema.Struct({ id: Schema.String, prices: Schema.Array(Price).check(Schema.isMaxLength(2)) })).check(Schema.isLengthBetween(1, 4)),
-  links: Schema.Array(Schema.Struct({ id: Schema.String, variant_id: Schema.String, price_set_id: Schema.String })).check(Schema.isLengthBetween(1, 4)),
+  variants: Schema.Array(Schema.Struct({ id: Schema.String, title: Schema.String, product_id: Schema.String })).check(Schema.isBetweenLength(1, 4)),
+  priceSets: Schema.Array(Schema.Struct({ id: Schema.String, prices: Schema.Array(Price).check(Schema.isMaxLength(2)) })).check(Schema.isBetweenLength(1, 4)),
+  links: Schema.Array(Schema.Struct({ id: Schema.String, variant_id: Schema.String, price_set_id: Schema.String })).check(Schema.isBetweenLength(1, 4)),
 });
 
 /** Selected Pricing branch for an existing Product with options. These are the

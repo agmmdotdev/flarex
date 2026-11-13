@@ -24,7 +24,7 @@ const mismatch = (phase: string, cause?: unknown) => commerceError("receiptMisma
 const event = moduleEventDecoder(Schema.Struct({ name: Schema.String,
   metadata: Schema.Struct({ source: Schema.Literal(Modules.PAYMENT), object: Schema.Literals(["payment_session", "payment_collection", "payment", "capture", "refund", "account_holder"]),
     action: Schema.Literals(["created", "updated", "deleted"]) }),
-  data: Schema.Struct({ id: Schema.Union([PaymentId, Schema.Array(PaymentId).check(Schema.isLengthBetween(1, 4))]) }),
+  data: Schema.Struct({ id: Schema.Union([PaymentId, Schema.Array(PaymentId).check(Schema.isBetweenLength(1, 4))]) }),
 }), defaultCommerceResources);
 const instant = commerceDecoder(Schema.DateFromString, "receiptMismatch");
 const decodeCaptureDecision = commerceDecoder(Schema.Struct({ isFullyCaptured: Schema.Boolean }), "receiptMismatch");

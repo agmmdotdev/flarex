@@ -10,11 +10,11 @@ import { decodeCartCreationReceipt } from "./creation-input";
 import type { prepareCartCreationRepository } from "./creation-repository";
 
 
-const id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const id = Schema.String.check(Schema.isBetweenLength(1, 256));
 const decode = moduleEventDecoder(Schema.Struct({ name: Schema.String,
   metadata: Schema.Struct({ source: Schema.Literal(Modules.CART), object: Schema.Literals(["cart", "address", "line_item", "line_item_tax_line", "line_item_adjustment",
     "cart_creation_operation", "cart_creation_cart", "cart_creation_address"]), action: Schema.Literals(["created", "updated", "deleted"]) }),
-  data: Schema.Struct({ id: Schema.Union([id, Schema.Array(id).check(Schema.isLengthBetween(1, 8))]) }) }), defaultCommerceResources);
+  data: Schema.Struct({ id: Schema.Union([id, Schema.Array(id).check(Schema.isBetweenLength(1, 8))]) }) }), defaultCommerceResources);
 
 export const captureCartCreationEvent = Effect.fn("CartCreation.captureEvent")(function* (input: unknown) {
   const message = yield* decode(input), { object, action } = message.metadata;

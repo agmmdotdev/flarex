@@ -5,7 +5,7 @@ import { commerceDecoder } from "../../value/decoder";
 import { captureCommerceInput } from "../../value/input";
 import { captureNativeDateRecord, captureNativeRecord } from "../../value/native-record";
 
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 const Membership = Schema.Union([Id, Schema.Array(Id).check(Schema.isMaxLength(256)),
   Schema.Struct({ $in: Schema.Array(Id).check(Schema.isMaxLength(256)) })]);
 const decodeMembership = commerceDecoder(Membership, "unsupportedProfile");

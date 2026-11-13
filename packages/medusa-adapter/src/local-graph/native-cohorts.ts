@@ -6,7 +6,7 @@ import type { ResolvedGraphDirectPath } from "./direct-paths";
 import type { GraphReadSelection } from "./model";
 import type { ResolvedGraphLinkEndpoint, ResolvedGraphRemotePath } from "./remote-paths";
 
-const decodeKey = commerceDecoder(Schema.String.check(Schema.isLengthBetween(1, 256)), "storedCorruption");
+const decodeKey = commerceDecoder(Schema.String.check(Schema.isBetweenLength(1, 256)), "storedCorruption");
 const sameRead = (left: GraphReadSelection, right: GraphReadSelection) => left.participant === right.participant
   && left.read.command === right.read.command && left.read.model === right.read.model;
 const parentPath = (path: string) => path.slice(0, Math.max(0, path.lastIndexOf(".")));

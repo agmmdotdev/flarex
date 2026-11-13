@@ -39,7 +39,7 @@ import type { CoreNativeFixtureInventory } from "../../../persistence-postgres/t
 import { CORE_SCHEMA_WORKER_TEST_OPTIONS } from "../../../persistence-postgres/test/core/schemaFixture";
 import { postgresUrl } from "../../../persistence-postgres/test/support/postgresHelpers";
 
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 const Pair = Schema.Tuple([Id, Id, Schema.JsonObject]).pipe(Schema.mutable);
 const decodeCreate = commerceDecoder(Schema.Struct({ pairs: Schema.Array(Pair).pipe(Schema.mutable).check(Schema.isMaxLength(256)),
   direct: Schema.optionalKey(Schema.Boolean) }), "invalidInput");

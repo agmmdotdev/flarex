@@ -1,3 +1,4 @@
+import { strictSchemaGuard } from "flarex-protocol/internal/strict-schema";
 import { Data, Effect, Result, Schema, SchemaGetter, SchemaIssue } from "effect";
 import { compareUtf16Strings } from "@flarex/utils/strings";
 import { isNonArrayRecord } from "@flarex/utils/records";
@@ -63,9 +64,6 @@ export const APPLICATION_ANALYSIS_MAXIMUM_RECEIPT_BYTES_V1 = 65_536;
 export const APPLICATION_ANALYSIS_MAXIMUM_REJECTION_DETAIL_BYTES_V1 = 8_192;
 
 const UTF8 = new TextEncoder();
-const StrictStructOptions = {
-  parseOptions: { onExcessProperty: "error" },
-} as const;
 const StrictParseOptions = { onExcessProperty: "error" } as const;
 
 const NonemptyStringSchema = Schema.String.check(
@@ -112,7 +110,7 @@ const ApplicationManifestModuleV1Schema = Schema.Struct({
   roles: ModuleRolesSchema,
   sourceSha256: LowercaseSha256Schema,
   sourceByteLength: SourceByteLengthSchema,
-}).annotate(StrictStructOptions);
+});
 const ApplicationManifestModulesV1Schema = Schema.Unknown.check(
   Schema.makeFilter(value =>
     Array.isArray(value) &&
@@ -128,15 +126,15 @@ const ApplicationTablePlacementV1Schema = Schema.Union([
   Schema.Struct({
     kind: Schema.Literal("partitionBy"),
     field: Schema.String,
-  }).annotate(StrictStructOptions),
+  }),
   Schema.Struct({
     kind: Schema.Literal("colocateWith"),
     table: Schema.String,
     field: Schema.String,
-  }).annotate(StrictStructOptions),
+  }),
   Schema.Struct({
     kind: Schema.Literal("global"),
-  }).annotate(StrictStructOptions),
+  }),
 ]);
 
 const AdmittedValidatorJsonV1Schema = Schema.Unknown.check(
@@ -159,7 +157,7 @@ const ApplicationManifestTableV1Schema = Schema.Struct({
     ? "Infinite or NaN values are not supported in literal validators."
     : undefined)),
   placement: ApplicationTablePlacementV1Schema,
-}).annotate(StrictStructOptions);
+});
 
 /** Explicit validator projection for authenticated JSON; the admitted model stays semantic. */
 export function applicationSchemaWireV1<
@@ -198,7 +196,7 @@ export function applicationManifestWireV1<
   };
 }
 
-const isLogicalOrderedIndexSpec = Schema.is(SchemaManifestAppDeveloperOrderedIndexSpecV1Schema);
+const isLogicalOrderedIndexSpec = strictSchemaGuard(SchemaManifestAppDeveloperOrderedIndexSpecV1Schema);
 const ApplicationManifestIndexV1Schema = Schema.Struct({
   indexId: PositiveSafeIntegerSchema,
   tableId: PositiveSafeIntegerSchema,
@@ -208,7 +206,7 @@ const ApplicationManifestIndexV1Schema = Schema.Struct({
 }).check(Schema.makeFilter(index => isLogicalOrderedIndexSpec({
   kind: "developerOrdered", specVersion: 1, fields: index.fields,
   ...(index.decimalFields === undefined ? {} : { decimalFields: index.decimalFields }),
-}) ? undefined : "Invalid logical index fields or projections")).annotate(StrictStructOptions);
+}) ? undefined : "Invalid logical index fields or projections"));
 
 const ApplicationManifestTablesV1Schema = Schema.Unknown.check(
   Schema.makeFilter(value =>
@@ -232,7 +230,7 @@ const ApplicationSchemaManifestV1Schema = Schema.Struct({
   version: Schema.Literal(1),
   tables: ApplicationManifestTablesV1Schema,
   indexes: ApplicationManifestIndexesV1Schema,
-}).annotate(StrictStructOptions);
+});
 
 const ApplicationManifestFunctionV1Schema = Schema.Struct({
   path: NonemptyStringSchema,
@@ -257,15 +255,15 @@ const ApplicationManifestFunctionV1Schema = Schema.Struct({
       selector: Schema.String,
       partitionField: Schema.String,
       argField: Schema.String,
-    }).annotate(StrictStructOptions),
+    }),
     Schema.Struct({
       type: Schema.Literal("partitionCreateRoot"),
       table: Schema.String,
       partitionField: Schema.Literal("_id"),
-    }).annotate(StrictStructOptions),
+    }),
     Schema.Null,
   ]),
-}).annotate(StrictStructOptions);
+});
 
 const ApplicationManifestFunctionsV1Schema = Schema.Unknown.check(
   Schema.makeFilter(value =>
@@ -285,10 +283,10 @@ const ApplicationManifestV1StructuralSchema = Schema.Struct({
     executionModulePath: NonemptyStringSchema,
     schemaModulePath: Schema.Union([NonemptyStringSchema, Schema.Null]),
     modules: ApplicationManifestModulesV1Schema,
-  }).annotate(StrictStructOptions),
+  }),
   schema: ApplicationSchemaManifestV1Schema,
   functions: ApplicationManifestFunctionsV1Schema,
-}).annotate(StrictStructOptions);
+});
 
 export type ApplicationManifestV1 =
   typeof ApplicationManifestV1StructuralSchema.Type;
@@ -305,7 +303,7 @@ export const ApplicationManifestV1Schema =
   Schema.Unknown.pipe(Schema.decodeTo(
     OwnedApplicationManifestV1Schema,
     {
-      decode: SchemaGetter.transformOrFail<ApplicationManifestV1, unknown>((value, options) =>
+      decode: SchemaGetter.transformEffect<ApplicationManifestV1, unknown>((value, options) =>
         Result.match(decodeApplicationManifestV1(value), {
           onFailure: cause => Effect.fail(new SchemaIssue.InvalidValue({ message: cause.reason }, value, options)),
           onSuccess: Effect.succeed,
@@ -332,7 +330,7 @@ const AnalyzedApplicationAnalysisReceiptV1Schema = Schema.Struct({
   ...ApplicationAnalysisReceiptBaseV1Schema,
   status: Schema.Literal("analyzed"),
   manifestSha256: LowercaseSha256Schema,
-}).annotate(StrictStructOptions);
+});
 
 const RejectedApplicationAnalysisReceiptV1Schema = Schema.Struct({
   ...ApplicationAnalysisReceiptBaseV1Schema,
@@ -357,7 +355,7 @@ const RejectedApplicationAnalysisReceiptV1Schema = Schema.Struct({
         : `Expected at most ${APPLICATION_ANALYSIS_MAXIMUM_REJECTION_DETAIL_BYTES_V1} UTF-8 bytes`
     ),
   ),
-}).annotate(StrictStructOptions);
+});
 
 const ApplicationAnalysisReceiptV1StructuralSchema = Schema.Union([
   AnalyzedApplicationAnalysisReceiptV1Schema,

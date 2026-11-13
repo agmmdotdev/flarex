@@ -12,7 +12,7 @@ import type { compileFulfillmentLifecycleGraph } from "./fulfillment-graph-contr
 type LifecycleGraph = Result.Result.Success<ReturnType<typeof compileFulfillmentLifecycleGraph>>;
 type DecodeIds = (input: unknown) => Result.Result<readonly string[], CommerceTransactionError>;
 type DecodeOutput = (input: unknown) => Result.Result<Readonly<Record<string, readonly string[] | undefined>>, CommerceTransactionError>;
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 
 /** Raw-ID lifecycle follows complete history through the checked Fulfillment
  * graph. Native maps/events describe actual affected rows, never raw requests. */
@@ -23,7 +23,7 @@ export function fulfillmentLifecyclePolicy(contracts: LifecycleGraph & { readonl
   const decodeEvent = moduleEventDecoder(Schema.Struct({ name: Schema.String,
     metadata: Schema.Struct({ source: Schema.Literal(Modules.FULFILLMENT),
       object: Schema.Literals(contracts.entities.map(entity => entity.table.name)), action: Schema.Literals(["deleted", "restored"]) }),
-    data: Schema.Struct({ id: Schema.Union([Id, Schema.Array(Id).check(Schema.isLengthBetween(1, 16))]) }),
+    data: Schema.Struct({ id: Schema.Union([Id, Schema.Array(Id).check(Schema.isBetweenLength(1, 16))]) }),
   }), defaultCommerceResources);
   const capture = Effect.fn("FulfillmentLifecycle.captureEvent")(function* (input: unknown) {
     const message = yield* decodeEvent(input);

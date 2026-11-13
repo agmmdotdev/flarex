@@ -71,7 +71,7 @@ describe("runtime hop failure classification", () => {
         scenarioWindowDurationMs: ProbeDurationMsSchema.make(1),
         syncWake: { kind: "not-applicable" },
         externalRequestIncludesControlPlane: true,
-      })
+      }, { parseOptions: { onExcessProperty: "error" } })
     ).toThrow();
   });
 
@@ -84,22 +84,22 @@ describe("runtime hop failure classification", () => {
       kind: "registered",
       created: true,
       status,
-    });
+    }, { parseOptions: { onExcessProperty: "error" } });
     const found = ProbeRunStatusReceiptV1Schema.make({
       protocolVersion: PROBE_PROTOCOL_VERSION_V1,
       kind: "found",
       status,
-    });
+    }, { parseOptions: { onExcessProperty: "error" } });
     const sampleOrdinal = ordinal(0);
     const command = ProbePublicSampleRequestV1Schema.make({
       protocolVersion: PROBE_PROTOCOL_VERSION_V1,
       runId: run.runId,
       sampleOrdinal,
-    });
+    }, { parseOptions: { onExcessProperty: "error" } });
     const otherCommand = ProbePublicSampleRequestV1Schema.make({
       ...command,
       runId: otherRun.runId,
-    });
+    }, { parseOptions: { onExcessProperty: "error" } });
     const claim = ProbeSampleClaimReceiptV1Schema.make({
       protocolVersion: PROBE_PROTOCOL_VERSION_V1,
       kind: "claimed",
@@ -108,7 +108,7 @@ describe("runtime hop failure classification", () => {
       sampleOrdinal,
       phase: "measurement",
       observedOutstandingClaims: 1,
-    });
+    }, { parseOptions: { onExcessProperty: "error" } });
     if (claim.kind !== "claimed") throw new Error("claim fixture rejected");
     const fragment = gatewaySampleFromRun(run, sampleOrdinal, {
       edgeColo: null,
@@ -130,9 +130,9 @@ describe("runtime hop failure classification", () => {
           scenarioWindowDurationMs: ProbeDurationMsSchema.make(1),
           syncWake: { kind: "not-applicable" },
           externalRequestIncludesControlPlane: true,
-        }),
+        }, { parseOptions: { onExcessProperty: "error" } }),
       ),
-    });
+    }, { parseOptions: { onExcessProperty: "error" } });
     const finalizeRequest = ProbeSampleFinalizeRequestV1Schema.make({
       protocolVersion: PROBE_PROTOCOL_VERSION_V1,
       runId: run.runId,
@@ -141,7 +141,7 @@ describe("runtime hop failure classification", () => {
       fragment,
       scenarioWindowDurationMs: ProbeDurationMsSchema.make(1),
       syncWake: { kind: "not-applicable" },
-    });
+    }, { parseOptions: { onExcessProperty: "error" } });
     if (registration.kind !== "registered") {
       throw new Error("registration fixture rejected");
     }
@@ -162,7 +162,7 @@ describe("runtime hop failure classification", () => {
         ProbeRunStatusRequestV1Schema.make({
           protocolVersion: command.protocolVersion,
           runId: command.runId,
-        }),
+        }, { parseOptions: { onExcessProperty: "error" } }),
       ),
     ).toBe(true);
     expect(
@@ -171,7 +171,7 @@ describe("runtime hop failure classification", () => {
         ProbeRunStatusRequestV1Schema.make({
           protocolVersion: otherCommand.protocolVersion,
           runId: otherCommand.runId,
-        }),
+        }, { parseOptions: { onExcessProperty: "error" } }),
       ),
     ).toBe(false);
     expect(probeSampleClaimReceiptMatchesRequest(claim, command)).toBe(true);
@@ -181,11 +181,11 @@ describe("runtime hop failure classification", () => {
     const aboveCapClaim = ProbeSampleClaimReceiptV1Schema.make({
       ...claim,
       observedOutstandingClaims: 4,
-    });
+    }, { parseOptions: { onExcessProperty: "error" } });
     const wrongPhaseClaim = ProbeSampleClaimReceiptV1Schema.make({
       ...claim,
       phase: "warmup",
-    });
+    }, { parseOptions: { onExcessProperty: "error" } });
     if (aboveCapClaim.kind !== "claimed" || wrongPhaseClaim.kind !== "claimed") {
       throw new Error("invalid claim correlation fixture");
     }
@@ -208,7 +208,7 @@ describe("runtime hop failure classification", () => {
         ProbeSampleFinalizeRequestV1Schema.make({
           ...finalizeRequest,
           runId: otherRun.runId,
-        }),
+        }, { parseOptions: { onExcessProperty: "error" } }),
         claim,
       ),
     ).toBe(false);
@@ -227,7 +227,7 @@ describe("runtime hop failure classification", () => {
             outcome: { kind: "error", error: requestError },
             spans: [],
           }),
-        }),
+        }, { parseOptions: { onExcessProperty: "error" } }),
         claim,
       ),
     ).toBe(false);
@@ -237,7 +237,7 @@ describe("runtime hop failure classification", () => {
         ProbeSampleFinalizeRequestV1Schema.make({
           ...finalizeRequest,
           scenarioWindowDurationMs: ProbeDurationMsSchema.make(2),
-        }),
+        }, { parseOptions: { onExcessProperty: "error" } }),
         claim,
       ),
     ).toBe(false);
@@ -247,7 +247,7 @@ describe("runtime hop failure classification", () => {
         ProbeSampleFinalizeRequestV1Schema.make({
           ...finalizeRequest,
           syncWake: { kind: "observed", disposition: "applied" },
-        }),
+        }, { parseOptions: { onExcessProperty: "error" } }),
         claim,
       ),
     ).toBe(false);
@@ -266,7 +266,7 @@ describe("runtime hop failure classification", () => {
       sampleOrdinal,
       phase: "measurement",
       observedOutstandingClaims: 1,
-    });
+    }, { parseOptions: { onExcessProperty: "error" } });
     if (claim.kind !== "claimed") throw new Error("claim fixture rejected");
     const fragment = gatewaySampleFromRun(run, sampleOrdinal, {
       edgeColo: null,
@@ -281,7 +281,7 @@ describe("runtime hop failure classification", () => {
       fragment,
       scenarioWindowDurationMs: ProbeDurationMsSchema.make(1),
       syncWake: { kind: "not-applicable" },
-    });
+    }, { parseOptions: { onExcessProperty: "error" } });
     const receipt = ProbeSampleFinalizeReceiptV1Schema.make({
       protocolVersion: PROBE_PROTOCOL_VERSION_V1,
       kind: "finalized",
@@ -297,9 +297,9 @@ describe("runtime hop failure classification", () => {
           scenarioWindowDurationMs: ProbeDurationMsSchema.make(1),
           syncWake: { kind: "not-applicable" },
           externalRequestIncludesControlPlane: true,
-        }),
+        }, { parseOptions: { onExcessProperty: "error" } }),
       ),
-    });
+    }, { parseOptions: { onExcessProperty: "error" } });
     if (receipt.kind !== "finalized") {
       throw new Error("finalization fixture rejected");
     }
@@ -317,7 +317,7 @@ describe("runtime hop failure classification", () => {
             outcome: { kind: "ok" },
             spans: [sessionSpan(2)],
           }),
-        }),
+        }, { parseOptions: { onExcessProperty: "error" } }),
         claim,
       ),
     ).toBe(false);
@@ -380,7 +380,7 @@ function registeredStatus(run: ProbeRunRequestV1) {
       excludedDuplicateWake: 0,
     },
     samples: [],
-  });
+  }, { parseOptions: { onExcessProperty: "error" } });
 }
 
 function ordinal(value: number) {
@@ -394,5 +394,5 @@ function sessionSpan(durationMs: number) {
     name: "gateway_session_rtt",
     durationMs: ProbeDurationMsSchema.make(durationMs),
     outcome: { kind: "ok" },
-  });
+  }, { parseOptions: { onExcessProperty: "error" } });
 }

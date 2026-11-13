@@ -20,7 +20,7 @@ const cleanup: Array<() => Promise<void>> = [];
 let fixture: Awaited<ReturnType<typeof logicalCurrencyFixture>>;
 let link: Awaited<ReturnType<typeof prepareLogicalVariantPricingLinkHost>>;
 const Input = Schema.Struct({ links: Schema.Array(Schema.Struct({ variant_id: Schema.String, price_set_id: Schema.String }))
-  .check(Schema.isLengthBetween(1, 4)) });
+  .check(Schema.isBetweenLength(1, 4)) });
 const Output = Schema.Array(Schema.Struct({ id: Schema.String, variant_id: Schema.String, price_set_id: Schema.String }));
 async function prepareAttachHost(selected: Awaited<ReturnType<typeof prepareLogicalVariantPricingLinkHost>>) {
   const resources = Result.getOrThrow(prepareWorkflowResources({ link: {

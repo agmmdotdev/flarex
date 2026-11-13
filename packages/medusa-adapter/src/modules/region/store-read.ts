@@ -37,7 +37,7 @@ export const StoreRegionOrder = Schema.Struct({ id: Schema.optionalKey(Direction
 }));
 const decodeEnvelope = commerceDecoder(QueryEnvelope, "unsupportedProfile");
 const decodeOptions = commerceDecoder(Schema.Struct({
-  fields: Schema.optionalKey(Schema.Array(Schema.String).check(Schema.isLengthBetween(1, 64))),
+  fields: Schema.optionalKey(Schema.Array(Schema.String).check(Schema.isBetweenLength(1, 64))),
   populate: Schema.optionalKey(Schema.Array(Schema.Literal("countries")).check(Schema.isMaxLength(1))),
   limit: Schema.optionalKey(QueryLimit), offset: Schema.optionalKey(QueryOffset), orderBy: Schema.optionalKey(StoreRegionOrder),
   filters: Schema.optionalKey(Schema.Struct({

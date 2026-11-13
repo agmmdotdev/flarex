@@ -10,7 +10,7 @@ import { captureLocationFulfillmentSetDeletionService } from "./location-fulfill
 import { decodeLinkCascade } from "./cascade-result";
 import { captureShippingDeletionServices } from "./shipping-deletion-services";
 
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 const decodeEndpoint = commerceDecoder(Schema.Tuple([
   Schema.Struct({ fulfillment: Schema.Struct({ fulfillment_set_id: FulfillmentSetDeletionIds }) }),
 ]), "invalidInput");
@@ -19,14 +19,14 @@ const decodeLinkMap = commerceDecoder(Schema.Struct({
   fulfillment_set_id: Schema.optionalKey(Schema.Array(Id).check(Schema.isMaxLength(8))),
 }), "storedCorruption");
 const decodeFulfillmentMap = commerceDecoder(Schema.Struct({
-  fulfillment_set_id: Schema.Array(Id).check(Schema.isLengthBetween(1, 4)),
+  fulfillment_set_id: Schema.Array(Id).check(Schema.isBetweenLength(1, 4)),
 }), "storedCorruption");
 const decodeProviderMap = commerceDecoder(Schema.Struct({ stock_location_id: Schema.optionalKey(Schema.Array(Id).check(Schema.isMaxLength(8))),
   fulfillment_provider_id: Schema.optionalKey(Schema.Array(Id).check(Schema.isMaxLength(8))) }), "storedCorruption");
 // Native recursive returnIdsList retains only the first matching linkable key;
 // the complete pair/map remains with the issued participant call receipt.
-const decodePriceSetLinkMap = commerceDecoder(Schema.Struct({ shipping_option_id: Schema.Array(Id).check(Schema.isLengthBetween(1, 8)) }), "storedCorruption");
-const decodePricingMap = commerceDecoder(Schema.Struct({ price_set_id: Schema.Array(Id).check(Schema.isLengthBetween(1, 8)) }), "storedCorruption");
+const decodePriceSetLinkMap = commerceDecoder(Schema.Struct({ shipping_option_id: Schema.Array(Id).check(Schema.isBetweenLength(1, 8)) }), "storedCorruption");
+const decodePricingMap = commerceDecoder(Schema.Struct({ price_set_id: Schema.Array(Id).check(Schema.isBetweenLength(1, 8)) }), "storedCorruption");
 
 /** The installed locfs family retains Set history and recursively reaches the
  * genuine full-metadata Fulfillment lifecycle during restoration. */

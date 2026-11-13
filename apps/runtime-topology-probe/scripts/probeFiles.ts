@@ -58,7 +58,7 @@ export function createFileProbeCheckpointStore(
         version: 1,
         campaignId,
         externalCompletions: [],
-      });
+      }, { parseOptions: { onExcessProperty: "error" } });
     }
     const checkpoint = decodeCheckpoint(value);
     if (checkpoint === null || checkpoint.campaignId !== campaignId) {

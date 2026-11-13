@@ -5,7 +5,7 @@ import { commerceDecoder } from "../../value/decoder";
 import { compileFulfillmentGraphContracts, type FulfillmentPhysicalProfile } from "./fulfillment-graph-contracts";
 import type { captureServiceZoneCreationMetadata } from "./shipping-profile-schema";
 
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 /** Shape admission leaves native GeoZone validation and its first-error order intact. */
 export const ServiceZoneGeoZoneCreate = Schema.Struct({ type: Schema.optionalKey(Schema.String),
   country_code: Schema.optionalKey(Schema.String), province_code: Schema.optionalKey(Schema.NullOr(Schema.String)),

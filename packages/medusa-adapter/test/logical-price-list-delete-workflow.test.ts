@@ -63,7 +63,7 @@ function diagnoseMaximum<Value, Failure, Requirements>(label: string, work: Effe
   const failures: Array<{ name: string; parents: string[]; reasons: string[] }> = [];
   const policy: ExecutionDiagnosticPolicy = { observe: (name, observed) => Effect.withFiber(fiber => {
     const parents: string[] = [];
-    let parent = fiber.currentSpan ?? Context.getOrUndefined(fiber.context, Tracer.ParentSpan);
+    let parent = fiber.cache.span ?? Context.getOrUndefined(fiber.context, Tracer.ParentSpan);
     while (parent?._tag === "Span" && parents.length < 16) {
       parents.push(parent.name.slice(0, 96)); parent = Option.getOrUndefined(parent.parent);
     }

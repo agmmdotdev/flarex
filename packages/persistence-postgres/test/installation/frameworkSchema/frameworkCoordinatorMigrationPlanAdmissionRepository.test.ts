@@ -1,3 +1,4 @@
+import * as Hex from "effect/encoding/Hex";
 import { useFileScopedFrameworkCoordinatorGraphPersistence, rejectingSelectTransaction } from "./frameworkCoordinatorRepositoryTestSupport";
 import { sql } from "drizzle-orm";
 import { administrativelyRepairFrameworkMetadata } from "./frameworkMetadataRepairTestSupport";
@@ -6,7 +7,7 @@ import {
   type UnknownRecord,
 } from "@flarex/utils/records";
 import { eq } from "drizzle-orm";
-import { Encoding, Option } from "effect";
+import { Option } from "effect";
 import { describe, expect, it } from "vitest";
 
 
@@ -197,7 +198,7 @@ describe("framework coordinator migration-plan admission repository", { concurre
     }
     expect(rows).toHaveLength(1);
     expect(row.previousPlanStorageId).toBe(stored.previousPlan.storageId);
-    expect(Encoding.encodeHex(row.previousPlanSha256)).toBe(
+    expect(Hex.encode(row.previousPlanSha256)).toBe(
       stored.previousPlan.plan.migrationPlanSha256,
     );
     expect(stored.admission.frame.planSha256).toBe(
@@ -726,7 +727,7 @@ async function storedAdmissionAssignmentOrdering(
   return rows.map(row => ({
     assignmentOrdinal: row.assignmentOrdinal,
     spelling: row.spelling,
-    assignmentSha256: Encoding.encodeHex(row.assignmentSha256),
+    assignmentSha256: Hex.encode(row.assignmentSha256),
   }));
 }
 

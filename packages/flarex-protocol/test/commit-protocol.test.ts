@@ -1,4 +1,5 @@
-import { Cause, Effect, Encoding, Exit, Result, Schema } from "effect";
+import * as Base64Url from "effect/encoding/Base64Url";
+import { Cause, Effect, Exit, Result, Schema } from "effect";
 import { describe, expect, it, vi } from "vitest";
 
 import * as protocolRoot from "../src/index";
@@ -87,7 +88,7 @@ const SESSION_ID = decodeTransactionSessionIdV1(
 const ATTEMPT_FENCE = TransactionAttemptFenceSchema.make(7n);
 const DOCUMENT_A = documentId(1);
 const DOCUMENT_B = documentId(2);
-const encodeCommitEnvelope = Schema.encodeSync(CommitEnvelopeV1Schema);
+const encodeCommitEnvelope = Schema.encodeSync(CommitEnvelopeV1Schema, { onExcessProperty: "error" });
 
 describe("commit protocol C02", () => {
   it("preserves retained participant bytes without inferring insertion origin", async () => {
@@ -139,7 +140,7 @@ describe("commit protocol C02", () => {
       expect(authenticatedGeneratedInsertionsResult([insertionOperation({ generatedInsertions })]))
         .toMatchObject({ _tag: "Failure", failure: { issue: { reason: "invalidSchema", component: "journal" } } });
     }
-    expect(Schema.decodeUnknownResult(GeneratedInsertionIntentsSchema)(
+    expect(Schema.decodeUnknownResult(GeneratedInsertionIntentsSchema, { onExcessProperty: "error" })(
       Array.from({ length: MAX_COMMIT_POINT_READ_DEPENDENCIES_V1 + 1 }, () => intent),
     )).toMatchObject({ _tag: "Failure" });
   });
@@ -165,10 +166,10 @@ describe("commit protocol C02", () => {
   it("requires a strict, advancing metadata conflict witness independently of data sequences", () => {
     const witness = { kind: "metadata", namespace: "application", ownerKey: "application", contractKey: '["function","users:create"]',
       capturedMetadataWatermark: "5", lastChangedMetadataSequence: "6" };
-    expect(Schema.decodeUnknownResult(FiniteMetadataConflictSchema)(witness)).toMatchObject({ _tag: "Success" });
-    expect(Schema.decodeUnknownResult(FiniteMetadataConflictSchema)({ ...witness, lastChangedMetadataSequence: "5" }))
+    expect(Schema.decodeUnknownResult(FiniteMetadataConflictSchema, { onExcessProperty: "error" })(witness)).toMatchObject({ _tag: "Success" });
+    expect(Schema.decodeUnknownResult(FiniteMetadataConflictSchema, { onExcessProperty: "error" })({ ...witness, lastChangedMetadataSequence: "5" }))
       .toMatchObject({ _tag: "Failure" });
-    expect(Schema.decodeUnknownResult(FiniteMetadataConflictSchema)({ ...witness, unexpected: true }))
+    expect(Schema.decodeUnknownResult(FiniteMetadataConflictSchema, { onExcessProperty: "error" })({ ...witness, unexpected: true }))
       .toMatchObject({ _tag: "Failure" });
   });
   it("pins canonical journal bytes and digest with result evidence outside the journal", async () => {
@@ -1047,7 +1048,7 @@ describe("commit protocol C02", () => {
 });
 
 function insertionOperation(dependencyEvidence: JsonObject) {
-  return Schema.decodeUnknownSync(AdmittedParticipantOperationSchema)({
+  return Schema.decodeUnknownSync(AdmittedParticipantOperationSchema, { onExcessProperty: "error" })({
     syscallSequence: "1", participant: "fixture.participant", method: "insert",
     profileRevision: "b".repeat(64), admissionBundleSha256Hex: "c".repeat(64),
     requestSha256Hex: "d".repeat(64), resultSha256Hex: "e".repeat(64), eventIntents: [],
@@ -1263,7 +1264,7 @@ function inlineEnvelope(
     journal: {
       kind: "inlineUntrusted",
       canonicalJournalBase64Url: CanonicalSessionJournalBase64UrlV1Schema.make(
-        Encoding.encodeBase64Url(journal.canonicalBytes),
+        Base64Url.encode(journal.canonicalBytes),
       ),
     },
   };

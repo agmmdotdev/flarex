@@ -970,7 +970,7 @@ export function bindPointMutationAttemptReplacement(ports: PointMutationSessionA
         const claimExpiresAt = new Date(Math.min(databaseNow.getTime() + executionClaimDurationMilliseconds, leaseExpiresAt.getTime()));
         const fresh = yield* replaceFiniteAttemptAnchorInTransaction(tx, input.proof,
           {
-            snapshotToken: SnapshotTokenSchema.make({ scopeId: command.authorityPins.scopeId, epoch: clock.record.epoch, commitSeq: clock.record.lastCommitSeq }),
+            snapshotToken: SnapshotTokenSchema.make({ scopeId: command.authorityPins.scopeId, epoch: clock.record.epoch, commitSeq: clock.record.lastCommitSeq }, { parseOptions: { onExcessProperty: "error" } }),
             claimOwner: owner, claimedAt: databaseNow, claimExpiresAt, leaseExpiresAt
           }).pipe(Effect.mapError(mapFiniteAnchorFailure));
         entry.capture = yield* runPreparedFiniteReplacementSessionJournalEntryEffect(entry.preparation, entry.application, tx,

@@ -217,7 +217,7 @@ export async function finiteBarrierFixture(persistence: PostgresFlarexPersistenc
     const databaseNow = new Date(Number(nowValue.now));
     const sessionId = TransactionSessionIdV1Schema.make(ids());
     const attemptFence = TransactionAttemptFenceSchema.make(1n);
-    const snapshotToken = SnapshotTokenSchema.make({ scopeId: context.scopeId, epoch: locked.epoch, commitSeq: locked.lastCommitSeq });
+    const snapshotToken = SnapshotTokenSchema.make({ scopeId: context.scopeId, epoch: locked.epoch, commitSeq: locked.lastCommitSeq }, { parseOptions: { onExcessProperty: "error" } });
     const reservation = yield* captureFiniteMetadataReservation({ deploymentId: context.deploymentId, scopeId: context.scopeId,
       sessionId, attemptFence, storageGeneration: "flarexdb_v1", storageGenerationFence: locked.storageGenerationFence,
       snapshotToken, schemaVersionId: prepared.evidence.schemaVersionId, metadataWatermark: MetadataSequenceSchema.make(0n),

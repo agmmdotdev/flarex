@@ -11,7 +11,7 @@ import { captureProductLinkCascade, nativePricingCascadeModule } from "./product
 import { decodeVariantPricingListArguments, listNativeVariantPricing } from "./variant-pricing-read";
 import { decodeProductNativeLinkArguments } from "./product-resource";
 
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 const ProductBatch = ProductLinkBatch.check(Schema.isMaxLength(8));
 const decodeDismiss = commerceDecoder(Schema.Tuple([Schema.Union([ProductBatch, VariantInventoryLinkBatch])]), "invalidInput");
 const decodeList = commerceDecoder(Schema.Tuple([ProductBatch, Schema.Struct({ asLinkDefinition: Schema.Literal(true) })]), "invalidInput");

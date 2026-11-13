@@ -13,7 +13,7 @@ import type { captureRegionMetadata } from "./schema";
 export const RegionCartId = Schema.String.check(Schema.isMaxLength(256));
 export const RegionCartFilters = Schema.Struct({ id: Schema.optionalKey(Schema.Union([Schema.Null, RegionCartId,
   Schema.Array(RegionCartId).check(Schema.isMaxLength(regionReadLimit))])) });
-export const RegionCartReadConfig = Schema.Struct({ select: Schema.optionalKey(Schema.Array(Schema.String).check(Schema.isLengthBetween(1, 64))),
+export const RegionCartReadConfig = Schema.Struct({ select: Schema.optionalKey(Schema.Array(Schema.String).check(Schema.isBetweenLength(1, 64))),
   relations: Schema.optionalKey(Schema.Array(Schema.Literal("countries")).check(Schema.isMaxLength(1))),
   take: Schema.optionalKey(QueryLimit), skip: Schema.optionalKey(QueryOffset),
   order: Schema.optionalKey(Schema.Struct({ id: Schema.optionalKey(Schema.Literals(["ASC", "DESC"])) })),

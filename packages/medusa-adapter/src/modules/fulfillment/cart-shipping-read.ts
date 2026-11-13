@@ -34,7 +34,7 @@ export const CartShippingReadInput = Schema.Struct({ filters: Schema.optionalKey
     order: Schema.optionalKey(Schema.Struct({ id: Schema.Literal("ASC") })) })) });
 export const decodeCartShippingReadInput = commerceDecoder(CartShippingReadInput, "invalidInput");
 const Geo = Schema.Struct({ type: Text, ...Address.fields });
-const GeoWhere = Schema.Struct({ $or: Schema.Array(Geo).check(Schema.isLengthBetween(1, 4)) });
+const GeoWhere = Schema.Struct({ $or: Schema.Array(Geo).check(Schema.isBetweenLength(1, 4)) });
 const SetWhere = Schema.Struct({ id: Schema.optionalKey(Ids), type: Schema.optionalKey(Text) });
 const Where = Schema.Struct({ id: Schema.optionalKey(Ids), service_zone: Schema.optionalKey(Schema.Struct({
   fulfillment_set: Schema.optionalKey(SetWhere), geo_zones: Schema.optionalKey(GeoWhere) })) });

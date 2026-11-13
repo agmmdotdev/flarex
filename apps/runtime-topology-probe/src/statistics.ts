@@ -22,7 +22,6 @@ import {
   validateProbeTraceV1,
 } from "./trace";
 import { ProbeCodeModeSchema } from "./identity";
-import { StrictStructOptions } from "./strictSchemaOptions";
 
 const SummaryCountSchema = Schema.Int.check(
   Schema.makeFilter((value: number) =>
@@ -55,7 +54,7 @@ const ProbeLatencySummaryV1Shape = Schema.Struct({
   p95Ms: NullableDurationSchema,
   p99Ms: NullableDurationSchema,
   maxMs: NullableDurationSchema,
-}).annotate(StrictStructOptions);
+});
 
 export const ProbeLatencySummaryV1Schema = ProbeLatencySummaryV1Shape.check(
   Schema.makeFilter(summary => latencySummaryIssueV1(summary)),
@@ -107,7 +106,7 @@ const ProbeCohortKeyV1Shape = Schema.Struct({
   workerLoaderCallback: ProbeCallbackObservationSchema,
   facetStartupCallback: ProbeCallbackObservationSchema,
   sessionActivation: Schema.optional(ProbeSessionActivationObservationSchema),
-}).annotate(StrictStructOptions);
+});
 export const ProbeCohortKeyV1Schema = ProbeCohortKeyV1Shape.check(
   Schema.makeFilter(cohort => {
     if (
@@ -129,7 +128,7 @@ export type ProbeCohortKeyV1 = typeof ProbeCohortKeyV1Schema.Type;
 export const ProbeHopLatencySummaryV1Schema = Schema.Struct({
   cohort: ProbeCohortKeyV1Schema,
   latency: ProbeLatencySummaryV1Schema,
-}).annotate(StrictStructOptions);
+});
 export type ProbeHopLatencySummaryV1 =
   typeof ProbeHopLatencySummaryV1Schema.Type;
 

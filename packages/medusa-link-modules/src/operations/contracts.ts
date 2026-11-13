@@ -1,7 +1,7 @@
 import { Result, Schema } from "effect"
 import { MedusaError } from "@medusajs/utils/common/errors"
 
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256))
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256))
 export const LinkOperationPair = Schema.Struct({ primary: Id, foreign: Id })
 export const LinkOperationRequest = Schema.Struct({ operationId: Id,
   add: Schema.Array(LinkOperationPair), remove: Schema.Array(LinkOperationPair) })
@@ -41,7 +41,7 @@ export const LinkPairRevisionRecord = Schema.Struct({ ...LinkOperationManagedFie
   primary_value: Id, foreign_value: Id, revision: Id })
 
 export function decoder<S extends Schema.ConstraintDecoder<unknown>>(schema: S, kind: "input" | "stored", excess: "error" | "ignore" = "error") {
-  const decode = Schema.decodeUnknownResult(schema, { onExcessProperty: excess, propertyOrder: "original" })
+  const decode = Schema.decodeUnknownResult(schema, { onExcessProperty: excess })
   return (value: unknown): S["Type"] => Result.match(decode(value), {
     onSuccess: result => result,
     onFailure: cause => {

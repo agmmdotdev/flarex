@@ -4,10 +4,7 @@ import {
   encodeCanonicalJson,
   JsonValue,
 } from "./json";
-import {
-  StrictParseOptions,
-  StrictStructOptions,
-} from "./strict-schema-options";
+import { StrictParseOptions } from "./strict-schema-options";
 
 export const ADMITTED_FRAMEWORK_OPERATION_FORMAT_V1 =
   "flarex.admitted-framework-operation";
@@ -33,7 +30,7 @@ const OperationSchema = Schema.Struct({
   participant: BoundedSelection,
   operation: BoundedSelection,
   args: JsonValue,
-}).annotate(StrictStructOptions);
+});
 
 export type AdmittedFrameworkOperationV1 = typeof OperationSchema.Type;
 const decodeOperationResult = Schema.decodeUnknownResult(

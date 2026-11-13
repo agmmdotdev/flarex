@@ -12,7 +12,7 @@ import type { LogicalDocumentFailure } from "./model";
 const Scalar = Schema.Union([Schema.String, Schema.Number, Schema.Boolean, Schema.Null]);
 const Range = Schema.Struct({ gt: Schema.optionalKey(Scalar), gte: Schema.optionalKey(Scalar),
   lt: Schema.optionalKey(Scalar), lte: Schema.optionalKey(Scalar),
-}).annotate({ parseOptions: { onExcessProperty: "error" } }).check(Schema.makeFilter(range =>
+}).check(Schema.makeFilter(range =>
   Object.keys(range).length > 0 && !(Object.hasOwn(range, "gt") && Object.hasOwn(range, "gte")) &&
     !(Object.hasOwn(range, "lt") && Object.hasOwn(range, "lte")) ? undefined : "Expected one lower and/or upper bound"));
 export const LogicalFindQuery = Schema.Struct({

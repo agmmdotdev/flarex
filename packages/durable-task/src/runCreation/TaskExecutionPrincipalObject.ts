@@ -10,8 +10,8 @@ const PrincipalObjectSchema = Schema.Struct({
   executionIdentity: Schema.Struct({
     kind: Schema.Literal("user"),
     user: UserIdentitySchema,
-  }).annotate({ parseOptions: STRICT_PARSE_OPTIONS }),
-}).annotate({ parseOptions: STRICT_PARSE_OPTIONS });
+  }),
+});
 
 export type TaskExecutionPrincipalObjectV1 = typeof PrincipalObjectSchema.Type;
 export type TaskExecutionPrincipalIdentity = TaskExecutionPrincipalObjectV1["executionIdentity"];

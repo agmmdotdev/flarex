@@ -710,7 +710,7 @@ export async function closeMixedMutationFixture(input: Readonly<{
 /** Payload facade scope finalization owns every complete Exit. Preserve failure,
  * defect and interruption while attempting all scopes in registration order. */
 export const closeMixedMutationPayloadScopes = Effect.fn("MixedFixture.closePayloadScopes")(function* (
-  scopes: Set<Scope.Scope>,
+  scopes: Set<Scope.Closeable>,
 ) {
   let failure: Cause.Cause<never> | undefined;
   for (const scope of scopes) {
@@ -1126,7 +1126,7 @@ async function createMixedMutationAttemptFixtureForGeneration(input: MixedMutati
     const retryReturnedValues: unknown[] = [];
     const payloadRuntimeHistory: MixedPayloadConformanceRuntime[] = [];
     const payloadRuntimes = new WeakMap<SessionJournalAttempt, PayloadAttemptRuntime>();
-    const payloadScopes = new Set<Scope.Scope>();
+    const payloadScopes = new Set<Scope.Closeable>();
     const read = input.privateReferenceRead;
     const referencePrincipal = read === undefined ? undefined : {
       scopeId: read.scopeId ?? application.authority.scopeId,

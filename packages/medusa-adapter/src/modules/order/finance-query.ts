@@ -9,7 +9,7 @@ import type { SchemaTable } from "../../schema/model";
 import type { PopulationFilter } from "../../query/population";
 import { captureCommerceInput } from "../../value/input";
 
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 const strings = commerceDecoder(Schema.Union([Schema.NullOr(Id), Schema.Array(Id).check(Schema.isMaxLength(4))]), "unsupportedProfile");
 const versions = commerceDecoder(Schema.Number.check(Schema.isInt()), "unsupportedProfile");
 const parentVersion = commerceDecoder(Schema.Struct({ id: Id, version: Schema.Finite.check(Schema.isInt()) }), "storedCorruption");

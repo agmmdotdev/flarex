@@ -28,10 +28,7 @@ import {
   ReplacementScopeIdV1Schema,
   StorageGenerationFenceSchema,
 } from "./storage-authority";
-import {
-  StrictParseOptions,
-  StrictStructOptions,
-} from "./strict-schema-options";
+import { StrictParseOptions } from "./strict-schema-options";
 
 export const APP_SCHEMA_CANDIDATE_VALIDATION_CODEC_IDENTITY_V1 =
   "flarex.app-schema/candidate-validation/v1" as const;
@@ -167,7 +164,7 @@ const CandidateIdentityFields = {
 export const AppSchemaCandidateValidationCursorV1Schema = Schema.Struct({
   afterTableId: CatalogTableIdSchema,
   afterRowId: AppRowIdHexV1Schema,
-}).annotate(StrictStructOptions);
+});
 export type AppSchemaCandidateValidationCursorV1 =
   typeof AppSchemaCandidateValidationCursorV1Schema.Type;
 
@@ -186,7 +183,7 @@ export const AppSchemaCandidateValidationProgressFrameV1Schema = Schema.Struct({
   validatedRowCount: CanonicalNonNegativePostgresBigIntFromString,
   validatedPageCount: CanonicalNonNegativePostgresBigIntFromString,
   validatedSemanticBytes: CanonicalNonNegativePostgresBigIntFromString,
-}).annotate(StrictStructOptions).check(
+}).check(
   Schema.makeFilter((frame) =>
     (frame.progressSequence === 0n)
       === (frame.previousProgressSha256Hex === null)
@@ -215,7 +212,7 @@ export const AppSchemaCandidateValidationFailureEntryV1Schema = Schema.Struct({
   source: AppSchemaCandidateValidationFailureSourceV1Schema,
   reason: AppSchemaCandidateValidationFailureReasonV1Schema,
   validatorPath: Schema.Union([ValidatorPathSchema, Schema.Null]),
-}).annotate(StrictStructOptions).check(
+}).check(
   Schema.makeFilter((entry) =>
     (entry.reason === "candidateValidatorRejected")
       === (entry.validatorPath !== null)
@@ -255,7 +252,7 @@ export const AppSchemaCandidateValidationFailureEvidenceFrameV1Schema =
     observedFailureCount: CanonicalPositivePostgresBigIntFromString,
     truncated: Schema.Boolean,
     entries: FailureEntriesSchema,
-  }).annotate(StrictStructOptions).check(
+  }).check(
     Schema.makeFilter((frame) => {
       const entryCount = BigInt(frame.entries.length);
       if (frame.observedFailureCount < entryCount) {
@@ -290,7 +287,7 @@ export const AppSchemaCandidateValidationReceiptFrameV1Schema = Schema.Struct({
   settlementCommitSeq: CommitSeqSchema,
   scanCompleted: Schema.Literal(true),
   settledAt: CanonicalSettledAtSchema,
-}).annotate(StrictStructOptions).check(
+}).check(
   Schema.makeFilter((frame) =>
     frame.settlementCommitSeq >= frame.frontierCommitSeq
       ? undefined
@@ -371,12 +368,12 @@ export interface DecodeCanonicalAppSchemaCandidateValidationFrameV1Input {
 const DecodeCanonicalFrameInputSchema = Schema.Struct({
   canonicalBytes: Schema.Uint8Array.check(Schema.isMinLength(1)),
   expectedSha256Hex: AppSchemaCandidateValidationFrameSha256HexV1Schema,
-}).annotate(StrictStructOptions);
+});
 
 const CanonicalEnvelopeSchema = Schema.Struct({
   format: Schema.Literal(APP_SCHEMA_CANDIDATE_VALIDATION_CODEC_IDENTITY_V1),
   frame: AppSchemaCandidateValidationFrameV1Schema,
-}).annotate(StrictStructOptions);
+});
 
 const decodeFrameEffect = Schema.decodeUnknownEffect(
   Schema.toType(AppSchemaCandidateValidationFrameV1Schema),

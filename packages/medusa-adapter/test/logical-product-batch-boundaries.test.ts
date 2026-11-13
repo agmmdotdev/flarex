@@ -187,9 +187,9 @@ describe("native Product batch authority, lifetime and settlement boundaries", (
     const attachReached = Deferred.makeUnsafe<void>();
     const trace: string[] = [];
     const matchesAttach = Schema.is(Schema.Array(Schema.Struct({ product: Schema.Struct({ variant_id: Schema.Literal(newVariant) }),
-      inventory: Schema.Struct({ inventory_item_id: Schema.Literal(sharedItem) }) })).check(Schema.isLengthBetween(1, 1)));
-    const matchesDelete = Schema.is(Schema.Struct({ product: Schema.Struct({ variant_id: Schema.Array(Schema.Literal(oldVariant)).check(Schema.isLengthBetween(1, 1)) }) }));
-    const matchesCreate = Schema.is(Schema.Array(Schema.Struct({ id: Schema.Literal(newVariant) })).check(Schema.isLengthBetween(1, 1)));
+      inventory: Schema.Struct({ inventory_item_id: Schema.Literal(sharedItem) }) })).check(Schema.isBetweenLength(1, 1)));
+    const matchesDelete = Schema.is(Schema.Struct({ product: Schema.Struct({ variant_id: Schema.Array(Schema.Literal(oldVariant)).check(Schema.isBetweenLength(1, 1)) }) }));
+    const matchesCreate = Schema.is(Schema.Array(Schema.Struct({ id: Schema.Literal(newVariant) })).check(Schema.isBetweenLength(1, 1)));
     const originalCreateVariant = ProductModuleService.prototype.createProductVariants;
     const nativeCreate = vi.spyOn(ProductModuleService.prototype, "createProductVariants").mockImplementation(async function (this: ProductModuleService, ...args) {
       const result = await Reflect.apply(originalCreateVariant, this, args);

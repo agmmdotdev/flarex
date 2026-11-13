@@ -1,3 +1,5 @@
+import * as Base64Url from "effect/encoding/Base64Url";
+import * as Hex from "effect/encoding/Hex";
 import {
   bytesEqualFullScan,
   copyBytes,
@@ -6,7 +8,7 @@ import {
   isUint8ArrayWithByteLength,
   uint8ArrayByteLength,
 } from "@flarex/utils/bytes";
-import { Encoding, Result } from "effect";
+import { Result } from "effect";
 import {
   encodeCanonicalJson,
   isJsonObjectFromUnknown,
@@ -392,7 +394,7 @@ function projectionModuleJson(frame: TaskRuntimeProjectionModuleFrameV1): Json {
     moduleFormat: "es_module",
     moduleOrdinal: frame.moduleOrdinal.toString(10),
     rawByteLength: frame.rawByteLength.toString(10),
-    sourceBytes: Encoding.encodeBase64Url(frame.sourceBytes),
+    sourceBytes: Base64Url.encode(frame.sourceBytes),
     sourceEnvironment: "isolate",
     sourceRoles: frame.sourceRoles.toString(10),
     sourceSha256: hex(frame.sourceSha256),
@@ -616,12 +618,12 @@ function decodeCanonicalSourceBytes<Operation extends TaskRuntimePublicationOper
   ) {
     return Result.fail(invalid(operation, "invalid_source_bytes"));
   }
-  return Encoding.decodeBase64Url(input).pipe(
+  return Base64Url.decode(input).pipe(
     Result.mapError(() => invalid(operation, "invalid_source_bytes")),
     Result.flatMap((bytes) => {
       return isUint8Array(bytes) &&
           bytes.byteLength <= MAX_TASK_RUNTIME_MODULE_SOURCE_BYTES_V1 &&
-          Encoding.encodeBase64Url(bytes) === input
+          Base64Url.encode(bytes) === input
         ? Result.succeed(bytes)
         : Result.fail(invalid(operation, "invalid_source_bytes"));
     }),
@@ -700,7 +702,7 @@ function decodeCanonicalDigest(
   if (typeof value !== "string" || !/^[0-9a-f]{64}$/u.test(value)) {
     return undefined;
   }
-  const decoded = Encoding.decodeHex(value);
+  const decoded = Hex.decode(value);
   return Result.match(decoded, {
     onFailure: () => undefined,
     onSuccess: (bytes) => isUint8ArrayWithByteLength(bytes, 32)

@@ -387,7 +387,7 @@ async function registerProbeRun(
     campaignId: ProbeCampaignIdSchema.make(run.runId),
     collectorConcurrency: 1,
     runs: [run],
-  });
+  }, { parseOptions: { onExcessProperty: "error" } });
   return await registerCampaignManifest(env, manifest, admission);
 }
 
@@ -472,7 +472,7 @@ async function readProbeRunStatus(
   const statusRequest = ProbeRunStatusRequestV1Schema.make({
     protocolVersion: PROBE_PROTOCOL_VERSION_V1,
     runId,
-  });
+  }, { parseOptions: { onExcessProperty: "error" } });
   let rawReceipt: unknown;
   try {
     rawReceipt = await env.PROBE_RUNS.getByName(probeRunActorId(runId))
@@ -538,7 +538,7 @@ async function executeClaimedSample(
     sampleOrdinal: claim.sampleOrdinal,
     phase: claim.phase,
     payload: "x".repeat(claim.run.dimensions.payloadBytes),
-  });
+  }, { parseOptions: { onExcessProperty: "error" } });
   const edgeColo = requestColo(request);
   const scenarioStartedAt = performance.now();
   let execution: ProbeScenarioExecution;
@@ -565,7 +565,7 @@ async function executeClaimedSample(
       scenarioWindowDurationMs,
     ),
     syncWake: execution.syncWake,
-  });
+  }, { parseOptions: { onExcessProperty: "error" } });
   let rawFinalization: unknown;
   try {
     rawFinalization = await runStub.finalize(finalizeRequest);
@@ -861,7 +861,7 @@ async function executeFacetScenario(
     codeId: identity.codeId,
     journalEntries: sampleRequest.run.dimensions.journalEntries,
     payload: sampleRequest.payload,
-  });
+  }, { parseOptions: { onExcessProperty: "error" } });
   const session = env.PROBE_SESSIONS.getByName(identity.sessionId);
   const startedAt = performance.now();
   let response: Response;
@@ -1117,7 +1117,7 @@ async function executeCommitWake(
     scopeId: identity.scopeId,
     scenario: "commit_wake",
     commitSeq: probeSyntheticCommitSeq(sampleRequest.sampleOrdinal),
-  });
+  }, { parseOptions: { onExcessProperty: "error" } });
   let finish: ProbeMockFinishResponseV1 | null;
   try {
     const rawFinish = await mockFinish.finish(finishRequest);
@@ -1235,7 +1235,7 @@ async function executeFullInvokeScenario(
     codeId: identity.codeId,
     journalEntries: sampleRequest.run.dimensions.journalEntries,
     payload: sampleRequest.payload,
-  });
+  }, { parseOptions: { onExcessProperty: "error" } });
   const session = env.PROBE_SESSIONS.getByName(identity.sessionId);
   const startedAt = performance.now();
   let response: Response;
@@ -1432,11 +1432,11 @@ async function executeSyncRerunScenario(
     codeId: identity.codeId,
     reentryDepth: 0,
     payload: sampleRequest.payload,
-  });
+  }, { parseOptions: { onExcessProperty: "error" } });
   const runtimeRequest = ProbeRuntimeRerunRequestV1Schema.make({
     ...rerunRequest,
     reentryDepth: 1,
-  });
+  }, { parseOptions: { onExcessProperty: "error" } });
   let receipt: ProbeSyncRerunReceiptV1 | null;
   try {
     const capability = createRuntimeRerunCapability(runtimeRequest);
@@ -1514,7 +1514,7 @@ async function executeSessionEcho(
     sessionId: identity.sessionId,
     sessionMode: sampleRequest.run.dimensions.sessionMode,
     payload: sampleRequest.payload,
-  });
+  }, { parseOptions: { onExcessProperty: "error" } });
 
   const startedAt = performance.now();
   let response: Response;
@@ -1623,7 +1623,7 @@ async function executeDynamicDirectEcho(
     codeMode: sampleRequest.run.dimensions.codeMode,
     codeId: identity.codeId,
     payload: sampleRequest.payload,
-  });
+  }, { parseOptions: { onExcessProperty: "error" } });
 
   let loaderCallbackRan = false;
   const startedAt = performance.now();
@@ -1725,7 +1725,7 @@ function dynamicSpan(
     name: "gateway_dynamic_rtt",
     durationMs: ProbeDurationMsSchema.make(durationMs),
     outcome,
-  });
+  }, { parseOptions: { onExcessProperty: "error" } });
 }
 
 function facetSpan(
@@ -1738,7 +1738,7 @@ function facetSpan(
     name: "session_facet_rtt",
     durationMs: ProbeDurationMsSchema.make(durationMs),
     outcome: { kind: "ok" },
-  });
+  }, { parseOptions: { onExcessProperty: "error" } });
 }
 
 function journalSpan(
@@ -1752,7 +1752,7 @@ function journalSpan(
     name: "facet_journal_io",
     durationMs: ProbeDurationMsSchema.make(durationMs),
     outcome: { kind: "ok" },
-  });
+  }, { parseOptions: { onExcessProperty: "error" } });
 }
 
 function mockReadSpan(durationMs: number): ProbeTraceSpanV1 {
@@ -1762,7 +1762,7 @@ function mockReadSpan(durationMs: number): ProbeTraceSpanV1 {
     name: "facet_mock_read_rtt",
     durationMs: ProbeDurationMsSchema.make(durationMs),
     outcome: { kind: "ok" },
-  });
+  }, { parseOptions: { onExcessProperty: "error" } });
 }
 
 function sessionReadSpan(durationMs: number): ProbeTraceSpanV1 {
@@ -1772,7 +1772,7 @@ function sessionReadSpan(durationMs: number): ProbeTraceSpanV1 {
     name: "facet_session_read_rtt",
     durationMs: ProbeDurationMsSchema.make(durationMs),
     outcome: { kind: "ok" },
-  });
+  }, { parseOptions: { onExcessProperty: "error" } });
 }
 
 function sessionMockFinishSpan(
@@ -1785,7 +1785,7 @@ function sessionMockFinishSpan(
     name: "session_mock_finish_rtt",
     durationMs: ProbeDurationMsSchema.make(durationMs),
     outcome: { kind: "ok" },
-  });
+  }, { parseOptions: { onExcessProperty: "error" } });
 }
 
 function sessionSnapshotReadSpan(durationMs: number): ProbeTraceSpanV1 {
@@ -1795,7 +1795,7 @@ function sessionSnapshotReadSpan(durationMs: number): ProbeTraceSpanV1 {
     name: "session_snapshot_read_rtt",
     durationMs: ProbeDurationMsSchema.make(durationMs),
     outcome: { kind: "ok" },
-  });
+  }, { parseOptions: { onExcessProperty: "error" } });
 }
 
 function facetSnapshotReadSpan(durationMs: number): ProbeTraceSpanV1 {
@@ -1805,7 +1805,7 @@ function facetSnapshotReadSpan(durationMs: number): ProbeTraceSpanV1 {
     name: "facet_snapshot_read",
     durationMs: ProbeDurationMsSchema.make(durationMs),
     outcome: { kind: "ok" },
-  });
+  }, { parseOptions: { onExcessProperty: "error" } });
 }
 
 function facetAtomicCommitSpan(durationMs: number): ProbeTraceSpanV1 {
@@ -1815,7 +1815,7 @@ function facetAtomicCommitSpan(durationMs: number): ProbeTraceSpanV1 {
     name: "facet_atomic_commit_rtt",
     durationMs: ProbeDurationMsSchema.make(durationMs),
     outcome: { kind: "ok" },
-  });
+  }, { parseOptions: { onExcessProperty: "error" } });
 }
 
 function commitTransactionSpan(durationMs: number): ProbeTraceSpanV1 {
@@ -1825,7 +1825,7 @@ function commitTransactionSpan(durationMs: number): ProbeTraceSpanV1 {
     name: "commit_transaction_io",
     durationMs: ProbeDurationMsSchema.make(durationMs),
     outcome: { kind: "ok" },
-  });
+  }, { parseOptions: { onExcessProperty: "error" } });
 }
 
 function outcomeResolutionSpan(durationMs: number): ProbeTraceSpanV1 {
@@ -1835,7 +1835,7 @@ function outcomeResolutionSpan(durationMs: number): ProbeTraceSpanV1 {
     name: "outcome_resolution_io",
     durationMs: ProbeDurationMsSchema.make(durationMs),
     outcome: { kind: "ok" },
-  });
+  }, { parseOptions: { onExcessProperty: "error" } });
 }
 
 function sessionExecutorFinishSpan(durationMs: number): ProbeTraceSpanV1 {
@@ -1845,7 +1845,7 @@ function sessionExecutorFinishSpan(durationMs: number): ProbeTraceSpanV1 {
     name: "session_executor_finish",
     durationMs: ProbeDurationMsSchema.make(durationMs),
     outcome: { kind: "ok" },
-  });
+  }, { parseOptions: { onExcessProperty: "error" } });
 }
 
 function sessionPostgresCommitSpan(durationMs: number): ProbeTraceSpanV1 {
@@ -1855,7 +1855,7 @@ function sessionPostgresCommitSpan(durationMs: number): ProbeTraceSpanV1 {
     name: "session_postgres_commit_rtt",
     durationMs: ProbeDurationMsSchema.make(durationMs),
     outcome: { kind: "ok" },
-  });
+  }, { parseOptions: { onExcessProperty: "error" } });
 }
 
 function mockSyncWakeSpan(
@@ -1869,7 +1869,7 @@ function mockSyncWakeSpan(
     name: "mock_sync_wake_rtt",
     durationMs: ProbeDurationMsSchema.make(durationMs),
     outcome: { kind: "ok" },
-  });
+  }, { parseOptions: { onExcessProperty: "error" } });
 }
 
 function sessionSyncWakeSpan(
@@ -1883,7 +1883,7 @@ function sessionSyncWakeSpan(
     name: "session_sync_wake_rtt",
     durationMs: ProbeDurationMsSchema.make(durationMs),
     outcome: { kind: "ok" },
-  });
+  }, { parseOptions: { onExcessProperty: "error" } });
 }
 
 function syncCursorSpan(
@@ -1898,7 +1898,7 @@ function syncCursorSpan(
     name: "sync_cursor_io",
     durationMs: ProbeDurationMsSchema.make(durationMs),
     outcome,
-  });
+  }, { parseOptions: { onExcessProperty: "error" } });
 }
 
 function fullInvokeSpans(
@@ -2026,7 +2026,7 @@ function syncRuntimeRerunSpan(durationMs: number): ProbeTraceSpanV1 {
     name: "sync_runtime_rerun_rtt",
     durationMs: ProbeDurationMsSchema.make(durationMs),
     outcome: { kind: "ok" },
-  });
+  }, { parseOptions: { onExcessProperty: "error" } });
 }
 
 function rerunSessionSpan(durationMs: number): ProbeTraceSpanV1 {
@@ -2036,7 +2036,7 @@ function rerunSessionSpan(durationMs: number): ProbeTraceSpanV1 {
     name: "gateway_session_rtt",
     durationMs: ProbeDurationMsSchema.make(durationMs),
     outcome: { kind: "ok" },
-  });
+  }, { parseOptions: { onExcessProperty: "error" } });
 }
 
 function rerunFacetSpan(durationMs: number): ProbeTraceSpanV1 {
@@ -2046,7 +2046,7 @@ function rerunFacetSpan(durationMs: number): ProbeTraceSpanV1 {
     name: "session_facet_rtt",
     durationMs: ProbeDurationMsSchema.make(durationMs),
     outcome: { kind: "ok" },
-  });
+  }, { parseOptions: { onExcessProperty: "error" } });
 }
 
 function dynamicStartup(loaderCallbackRan: boolean) {
@@ -2066,7 +2066,7 @@ function sessionSpan(
     name: "gateway_session_rtt",
     durationMs: ProbeDurationMsSchema.make(durationMs),
     outcome,
-  });
+  }, { parseOptions: { onExcessProperty: "error" } });
 }
 
 async function decodeSessionResponse(

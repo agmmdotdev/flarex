@@ -8,7 +8,7 @@ import { compileFulfillmentGraphContracts, type FulfillmentPhysicalProfile } fro
 import { ShippingOptionRuleCreate } from "./shipping-option-rule-input";
 import type { captureServiceZoneCreationMetadata } from "./shipping-profile-schema";
 
-export const ShippingOptionId = Schema.String.check(Schema.isLengthBetween(1, 256));
+export const ShippingOptionId = Schema.String.check(Schema.isBetweenLength(1, 256));
 export const ShippingOptionInlineType = Schema.Struct({ label: Schema.String, code: Schema.String,
   description: Schema.optionalKey(Schema.NullOr(Schema.String)) });
 // No supplied Option, Type or Rule identities are admitted by this creation

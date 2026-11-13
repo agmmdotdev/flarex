@@ -1233,8 +1233,8 @@ export function makePostgresPhysicalSessionDriver<ResourceIssue, DeadlineIssue>(
       // This physical callback intentionally carries the complete current
       // Context. Preserve its actual diagnostic parent across the independent
       // runtime without applying narrower adapter service/Clock exclusions.
-      const context = fiber.currentSpan === undefined ? fiber.context :
-        Context.add(fiber.context, Tracer.ParentSpan, fiber.currentSpan);
+      const context = fiber.cache.span === undefined ? fiber.context :
+        Context.add(fiber.context, Tracer.ParentSpan, fiber.cache.span);
       return runBoundedPromiseEffect(
         deadline,
         phase,

@@ -18,8 +18,8 @@ import type { SessionJournalAttempt } from "../../execution/journal/contracts";
 
 const ApplicationWriteOwnershipCommitStatusSchema = Schema.Struct({
   contract: Schema.NullOr(Schema.Int), retained: Schema.Boolean,
-}).annotate({ parseOptions: { onExcessProperty: "error" } });
-const decodeApplicationWriteOwnershipCommitStatus = Schema.decodeUnknownEffect(ApplicationWriteOwnershipCommitStatusSchema);
+});
+const decodeApplicationWriteOwnershipCommitStatus = Schema.decodeUnknownEffect(ApplicationWriteOwnershipCommitStatusSchema, { onExcessProperty: "error" });
 
 /** Decisive guard on the existing point-commit transaction, under its scope-clock lock. */
 export const validateApplicationWriteOwnershipForCommit = Effect.fn("ApplicationWriteOwnership.validateCommit")(

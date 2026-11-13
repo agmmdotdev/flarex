@@ -16,7 +16,7 @@ type Prepared = Result.Result.Success<ReturnType<typeof prepareCustomerSelection
 const decodeEvent = moduleEventDecoder(Schema.Struct({ name: Schema.String,
   metadata: Schema.Struct({ source: Schema.Literal(Modules.CUSTOMER), object: Schema.Literal("customer"),
     action: Schema.Literals(["created", "deleted"]) }),
-  data: Schema.Struct({ id: Schema.Union([CustomerSelectionId, Schema.Array(CustomerSelectionId).check(Schema.isLengthBetween(1, 1))]) }),
+  data: Schema.Struct({ id: Schema.Union([CustomerSelectionId, Schema.Array(CustomerSelectionId).check(Schema.isBetweenLength(1, 1))]) }),
 }), defaultCommerceResources);
 
 /** Authenticate call-local observations against the native scalar planner,

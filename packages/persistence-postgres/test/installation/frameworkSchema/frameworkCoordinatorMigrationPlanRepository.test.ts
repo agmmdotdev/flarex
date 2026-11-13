@@ -1,8 +1,9 @@
+import * as Hex from "effect/encoding/Hex";
 import { useFileScopedFrameworkCoordinatorGraphPersistence, rejectingSelectTransaction } from "./frameworkCoordinatorRepositoryTestSupport";
 import { sql } from "drizzle-orm";
 import { administrativelyRepairFrameworkMetadata } from "./frameworkMetadataRepairTestSupport";
 import { eq } from "drizzle-orm";
-import { Effect, Encoding, Option } from "effect";
+import { Effect, Option } from "effect";
 import { describe, expect, it, onTestFinished } from "vitest";
 
 
@@ -459,7 +460,7 @@ describe("framework coordinator migration-plan repository", { concurrent: false 
       dependencyOrdinal: 0,
       dependencyStepId: targetStep.stepId,
       dependencyStepSha256: await runEffect(
-        Effect.fromResult(Encoding.decodeHex(targetStep.stepSha256)),
+        Effect.fromResult(Hex.decode(targetStep.stepSha256)),
       ),
     }));
 

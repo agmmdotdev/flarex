@@ -21,10 +21,7 @@ import {
   ProbeSessionModeSchema,
 } from "./protocol";
 import { sha256Hex } from "./sha256";
-import {
-  StrictParseOptions,
-  StrictStructOptions,
-} from "./strictSchemaOptions";
+import { StrictParseOptions } from "./strictSchemaOptions";
 
 const FacetScenarioSchema = Schema.Literals(["facet_echo", "facet_journal"]);
 const SyntheticPayloadSchema = Schema.String.check(Schema.isPattern(/^x*$/));
@@ -61,7 +58,7 @@ const FacetIdentityShape = {
 const ProbeFacetInvokeRequestV1Shape = Schema.Struct({
   ...FacetIdentityShape,
   payload: SyntheticPayloadSchema,
-}).annotate(StrictStructOptions);
+});
 
 export const ProbeFacetInvokeRequestV1Schema =
   ProbeFacetInvokeRequestV1Shape.check(
@@ -84,7 +81,7 @@ const ProbeFacetWorkerResponseV1Shape = Schema.Struct({
   payloadBytes: PayloadBytesSchema,
   journalDurationMs: Schema.Union([ProbeDurationMsSchema, Schema.Null]),
   sealDigest: Schema.Union([SealDigestSchema, Schema.Null]),
-}).annotate(StrictStructOptions);
+});
 
 export const ProbeFacetWorkerResponseV1Schema =
   ProbeFacetWorkerResponseV1Shape.check(
@@ -105,7 +102,7 @@ const ProbeFacetSessionResponseV1Shape = Schema.Struct({
   sealDigest: Schema.Union([SealDigestSchema, Schema.Null]),
   workerLoaderCallbackRan: Schema.Boolean,
   facetStartupCallbackRan: Schema.Boolean,
-}).annotate(StrictStructOptions);
+});
 
 export const ProbeFacetSessionResponseV1Schema =
   ProbeFacetSessionResponseV1Shape.check(
@@ -162,7 +159,7 @@ export type ProbeFacetLifecycleOperation =
 const ProbeFacetLifecycleRequestV1Shape = Schema.Struct({
   ...FacetIdentityShape,
   operation: ProbeFacetLifecycleOperationSchema,
-}).annotate(StrictStructOptions);
+});
 
 export const ProbeFacetLifecycleRequestV1Schema =
   ProbeFacetLifecycleRequestV1Shape.check(
@@ -186,7 +183,7 @@ export const ProbeFacetLifecycleWorkerResponseV1Schema = Schema.Struct({
       value >= 0 ? undefined : "lifecycle value must be non-negative"
     ),
   ),
-}).annotate(StrictStructOptions);
+});
 export type ProbeFacetLifecycleWorkerResponseV1 =
   typeof ProbeFacetLifecycleWorkerResponseV1Schema.Type;
 
@@ -203,7 +200,7 @@ const ProbeFacetLifecycleSessionResponseV1Shape = Schema.Struct({
   ]),
   workerLoaderCallbackRan: Schema.Boolean,
   facetStartupCallbackRan: Schema.Boolean,
-}).annotate(StrictStructOptions);
+});
 
 export const ProbeFacetLifecycleSessionResponseV1Schema =
   ProbeFacetLifecycleSessionResponseV1Shape.check(

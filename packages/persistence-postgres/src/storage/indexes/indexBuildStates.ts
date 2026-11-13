@@ -1,10 +1,11 @@
+import * as Hex from "effect/encoding/Hex";
 import { observeExecution } from "../../execution/diagnostics/operation";
 import { MAX_PHYSICAL_INDEX_DEFINITIONS } from "./catalogCapacity";
 // Quiet calls retain lazy operation bodies; actual caller/SDK policy owns diagnostic spans.
 import { copyFiniteDate } from "@flarex/utils/dates";
 import { bytesEqualFullScan, encodeBytesToLowercaseHex, copyBytes } from "@flarex/utils/bytes";
 import { and, asc, eq, getTableColumns, gt, lte, sql, type SQLWrapper } from "drizzle-orm";
-import { Effect, Encoding, Option, Result, Schema } from "effect";
+import { Effect, Option, Result, Schema } from "effect";
 import {
   CatalogIndexDefinitionIdSchema,
   CatalogUniqueConstraintDefinitionIdSchema,
@@ -100,7 +101,7 @@ const decodeIndexBuildAttemptFenceResult = Schema.decodeUnknownResult(
   Schema.toType(IndexBuildAttemptFenceSchema),
 );
 const decodeIndexBuildBackfillCursorResult = Schema.decodeUnknownResult(
-  Schema.toType(IndexBuildBackfillCursorV1Schema),
+  Schema.toType(IndexBuildBackfillCursorV1Schema), { onExcessProperty: "error" },
 );
 const decodeIndexBuildCursorCodecVersionResult = Schema.decodeUnknownResult(
   Schema.toType(IndexBuildCursorCodecVersionV1Schema),
@@ -967,7 +968,7 @@ export interface BindingIndexCoveragePins {
   readonly headSha256: Uint8Array;
   readonly candidateSha256: Uint8Array;
 }
-const digestFromHex = Encoding.decodeHex;
+const digestFromHex = Hex.decode;
 const readBindingCoveragePins = Effect.fn("IndexBuildState.readBindingCoveragePins")(function* (tx: AppRowTransaction, clock: ScopeClockRecord) {
   const selected = yield* readBindingCoverageSelectedEvidence(tx, { scopeId: clock.scopeId, storageGeneration: clock.storageGeneration })
     .pipe(Effect.mapError(cause => new IndexMaintenanceError({ reason: cause.reason === "resourceFailure" ? "resourceFailure" : "storedState", cause })));

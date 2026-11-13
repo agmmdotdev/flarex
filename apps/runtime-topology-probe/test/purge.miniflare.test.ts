@@ -136,7 +136,7 @@ describe("P07B resumable facet purge", { concurrent: false }, () => {
       const control = ProbeCampaignControlRequestV1Schema.make({
         protocolVersion: PROBE_PROTOCOL_VERSION_V1,
         campaignId: manifest.campaignId,
-      });
+      }, { parseOptions: { onExcessProperty: "error" } });
       expect(await campaign.register(manifest)).toMatchObject({
         kind: "registered",
       });
@@ -152,7 +152,7 @@ describe("P07B resumable facet purge", { concurrent: false }, () => {
             protocolVersion: PROBE_PROTOCOL_VERSION_V1,
             runId: run.runId,
             sampleOrdinal: ProbeOrdinalSchema.make(0),
-          })),
+          }, { parseOptions: { onExcessProperty: "error" } })),
         },
       );
       expect(sample.status).toBe(200);
@@ -169,7 +169,7 @@ describe("P07B resumable facet purge", { concurrent: false }, () => {
       const purge = ProbeCampaignPurgeRequestV1Schema.make({
         ...control,
         maxTasks: 16,
-      });
+      }, { parseOptions: { onExcessProperty: "error" } });
       let purged = false;
       for (let step = 0; step < 64; step += 1) {
         const receipt = await campaign.purge(purge);
@@ -219,7 +219,7 @@ describe("P07B resumable facet purge", { concurrent: false }, () => {
       const control = ProbeCampaignControlRequestV1Schema.make({
         protocolVersion: PROBE_PROTOCOL_VERSION_V1,
         campaignId: manifest.campaignId,
-      });
+      }, { parseOptions: { onExcessProperty: "error" } });
       expect(await campaign.register(manifest)).toMatchObject({
         kind: "registered",
       });
@@ -235,7 +235,7 @@ describe("P07B resumable facet purge", { concurrent: false }, () => {
             protocolVersion: PROBE_PROTOCOL_VERSION_V1,
             runId: run.runId,
             sampleOrdinal: ProbeOrdinalSchema.make(0),
-          })),
+          }, { parseOptions: { onExcessProperty: "error" } })),
         },
       );
       expect(sample.status).toBe(200);
@@ -252,7 +252,7 @@ describe("P07B resumable facet purge", { concurrent: false }, () => {
             protocolVersion: PROBE_PROTOCOL_VERSION_V1,
             runId: controlRun.runId,
             sampleOrdinal: ProbeOrdinalSchema.make(0),
-          })),
+          }, { parseOptions: { onExcessProperty: "error" } })),
         },
       );
       expect(controlSample.status).toBe(200);
@@ -268,7 +268,7 @@ describe("P07B resumable facet purge", { concurrent: false }, () => {
       const purge = ProbeCampaignPurgeRequestV1Schema.make({
         ...control,
         maxTasks: 16,
-      });
+      }, { parseOptions: { onExcessProperty: "error" } });
       let purged = false;
       for (let step = 0; step < 64; step += 1) {
         const receipt = await campaign.purge(purge);
@@ -341,7 +341,7 @@ describe("P07B resumable facet purge", { concurrent: false }, () => {
       const control = ProbeCampaignControlRequestV1Schema.make({
         protocolVersion: PROBE_PROTOCOL_VERSION_V1,
         campaignId: manifest.campaignId,
-      });
+      }, { parseOptions: { onExcessProperty: "error" } });
       expect(await campaign.register(manifest)).toMatchObject({
         kind: "registered",
       });
@@ -357,7 +357,7 @@ describe("P07B resumable facet purge", { concurrent: false }, () => {
             protocolVersion: PROBE_PROTOCOL_VERSION_V1,
             runId: run.runId,
             sampleOrdinal: ProbeOrdinalSchema.make(0),
-          })),
+          }, { parseOptions: { onExcessProperty: "error" } })),
         },
       );
       expect(sample.status).toBe(200);
@@ -374,7 +374,7 @@ describe("P07B resumable facet purge", { concurrent: false }, () => {
       const purge = ProbeCampaignPurgeRequestV1Schema.make({
         ...control,
         maxTasks: 16,
-      });
+      }, { parseOptions: { onExcessProperty: "error" } });
       let purged = false;
       for (let step = 0; step < 64; step += 1) {
         const receipt = await campaign.purge(purge);
@@ -503,11 +503,11 @@ describe("P07B resumable facet purge", { concurrent: false }, () => {
     const control = ProbeCampaignControlRequestV1Schema.make({
       protocolVersion: PROBE_PROTOCOL_VERSION_V1,
       campaignId: manifest.campaignId,
-    });
+    }, { parseOptions: { onExcessProperty: "error" } });
     const purgeRequest = ProbeCampaignPurgeRequestV1Schema.make({
       ...control,
       maxTasks: 1,
-    });
+    }, { parseOptions: { onExcessProperty: "error" } });
     let firstDisposed = false;
     try {
       const bindings = await first.bindings();
@@ -529,7 +529,7 @@ describe("P07B resumable facet purge", { concurrent: false }, () => {
             protocolVersion: PROBE_PROTOCOL_VERSION_V1,
             runId: run.runId,
             sampleOrdinal: ProbeOrdinalSchema.make(0),
-          })),
+          }, { parseOptions: { onExcessProperty: "error" } })),
         },
       );
       expect(sampleResponse.status).toBe(200);
@@ -590,11 +590,11 @@ describe("P07B resumable facet purge", { concurrent: false }, () => {
           runId: run.runId,
           scopeId,
           operation: "read",
-        });
+        }, { parseOptions: { onExcessProperty: "error" } });
         const runStatus = ProbeRunStatusRequestV1Schema.make({
           protocolVersion: PROBE_PROTOCOL_VERSION_V1,
           runId: run.runId,
-        });
+        }, { parseOptions: { onExcessProperty: "error" } });
         const runStub = replayBindings.PROBE_RUNS.getByName(
           probeRunActorId(run.runId),
         );
@@ -617,7 +617,7 @@ describe("P07B resumable facet purge", { concurrent: false }, () => {
         expect(await sync.purge(ProbeSyncPurgeRequestV1Schema.make({
           protocolVersion: PROBE_PROTOCOL_VERSION_V1,
           scopeId,
-        }))).toMatchObject({
+        }, { parseOptions: { onExcessProperty: "error" } }))).toMatchObject({
           kind: "probe-data-cleared",
           scopeId,
         });
@@ -649,7 +649,7 @@ describe("P07B resumable facet purge", { concurrent: false }, () => {
         const runStatus = ProbeRunStatusRequestV1Schema.make({
           protocolVersion: PROBE_PROTOCOL_VERSION_V1,
           runId: run.runId,
-        });
+        }, { parseOptions: { onExcessProperty: "error" } });
         expect(await replayCampaign.purge(purgeRequest)).toMatchObject({
           kind: "accepted",
           status: {
@@ -661,7 +661,7 @@ describe("P07B resumable facet purge", { concurrent: false }, () => {
         expect(await runStub.purge(ProbeRunPurgeRequestV1Schema.make({
           protocolVersion: PROBE_PROTOCOL_VERSION_V1,
           runId: run.runId,
-        }))).toMatchObject({
+        }, { parseOptions: { onExcessProperty: "error" } }))).toMatchObject({
           kind: "storage-cleared",
           runId: run.runId,
         });
@@ -691,7 +691,7 @@ describe("P07B resumable facet purge", { concurrent: false }, () => {
         const runStatus = ProbeRunStatusRequestV1Schema.make({
           protocolVersion: PROBE_PROTOCOL_VERSION_V1,
           runId: run.runId,
-        });
+        }, { parseOptions: { onExcessProperty: "error" } });
         const runDone = await replayCampaign.purge(purgeRequest);
         expect(runDone).toMatchObject({
           kind: "accepted",
@@ -781,7 +781,7 @@ describe("P07B resumable facet purge", { concurrent: false }, () => {
       const conflicting = ProbeSessionPurgeRequestV1Schema.make({
         ...replay.request,
         facets: replay.request.facets.slice(0, -1),
-      });
+      }, { parseOptions: { onExcessProperty: "error" } });
       await expect(firstBindings.PROBE_SESSIONS.getByName(
         replay.sessionId,
       ).purge(conflicting)).rejects.toBeDefined();
@@ -867,7 +867,7 @@ describe("P07B resumable facet purge", { concurrent: false }, () => {
         scopeId,
         scenario: "commit_wake",
         commitSeq: probeSyntheticCommitSeq(sampleOrdinal),
-      });
+      }, { parseOptions: { onExcessProperty: "error" } });
       const bindings = await first.bindings();
       const mockFinish = bindings.MOCK_FINISH;
       const mockPurge = bindings.MOCK_PURGE;
@@ -878,7 +878,7 @@ describe("P07B resumable facet purge", { concurrent: false }, () => {
       const purgeRequest = ProbeSyncPurgeRequestV1Schema.make({
         protocolVersion: PROBE_PROTOCOL_VERSION_V1,
         scopeId,
-      });
+      }, { parseOptions: { onExcessProperty: "error" } });
       expect(await mockPurge.purge(purgeRequest)).toMatchObject({
         kind: "probe-data-cleared",
         scopeId,
@@ -932,7 +932,7 @@ function focusedFacetManifest(campaignId: string) {
     campaignId: ProbeCampaignIdSchema.make(campaignId),
     collectorConcurrency: 1,
     runs: [run],
-  });
+  }, { parseOptions: { onExcessProperty: "error" } });
 }
 
 function focusedFullInvokeManifest(campaignId: string) {
@@ -945,7 +945,7 @@ function focusedFullInvokeManifest(campaignId: string) {
     campaignId: ProbeCampaignIdSchema.make(campaignId),
     collectorConcurrency: 1,
     runs: [run],
-  });
+  }, { parseOptions: { onExcessProperty: "error" } });
 }
 
 function focusedSessionExecutorManifest(campaignId: string) {
@@ -961,7 +961,7 @@ function focusedSessionExecutorManifest(campaignId: string) {
     campaignId: ProbeCampaignIdSchema.make(campaignId),
     collectorConcurrency: 1,
     runs: [run],
-  });
+  }, { parseOptions: { onExcessProperty: "error" } });
 }
 
 function focusedFacetExecutorManifest(campaignId: string) {
@@ -980,7 +980,7 @@ function focusedFacetExecutorManifest(campaignId: string) {
     campaignId: ProbeCampaignIdSchema.make(campaignId),
     collectorConcurrency: 1,
     runs,
-  });
+  }, { parseOptions: { onExcessProperty: "error" } });
 }
 
 async function persistEvidenceInMemory(
@@ -1039,7 +1039,7 @@ function sessionPurgeReplayForManifest(
       protocolVersion: PROBE_PROTOCOL_VERSION_V1,
       sessionId,
       facets,
-    }),
+    }, { parseOptions: { onExcessProperty: "error" } }),
   };
 }
 
@@ -1054,7 +1054,7 @@ function sessionPurgeReplayForRun(
       campaignId,
       collectorConcurrency: 1,
       runs: [run],
-    }),
+    }, { parseOptions: { onExcessProperty: "error" } }),
     sampleOrdinalValue,
   );
 }

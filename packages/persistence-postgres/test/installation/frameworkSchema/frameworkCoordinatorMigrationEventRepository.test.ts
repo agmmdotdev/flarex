@@ -1,8 +1,9 @@
+import * as Hex from "effect/encoding/Hex";
 import { administrativelyRepairFrameworkMetadata, withAdministrativeFrameworkMetadataRepair } from "./frameworkMetadataRepairTestSupport";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import type { CanonicalIsoInstant } from "@flarex/time/iso-instant";
 import { asc, eq, sql } from "drizzle-orm";
-import { Brand, Effect, Encoding, Option } from "effect";
+import { Brand, Effect, Option } from "effect";
 import { describe, expect, it, vi } from "vitest";
 import * as storedValues from "../../../src/installation/migrationCoordination/storedRestoration";
 import { makeFrameworkGraphReferenceRead, withFrameworkGraphReadPass } from "../../../src/installation/migrationCoordination/graphReadPass";
@@ -858,16 +859,16 @@ async function storedEventRows(
     eventStorageId: row.eventStorageId,
     collisionStorageId: row.collisionStorageId,
     eventSequence: row.eventSequence,
-    eventSha256: Encoding.encodeHex(row.eventSha256),
+    eventSha256: Hex.encode(row.eventSha256),
     previousEventStorageId: row.previousEventStorageId,
     previousEventSequence: row.previousEventSequence,
     previousEventSha256: row.previousEventSha256 === null
       ? null
-      : Encoding.encodeHex(row.previousEventSha256),
+      : Hex.encode(row.previousEventSha256),
     eventKind: row.eventKind,
     subjectSha256: row.subjectSha256 === null
       ? null
-      : Encoding.encodeHex(row.subjectSha256),
+      : Hex.encode(row.subjectSha256),
     leaseAttemptId: row.leaseAttemptId,
     leaseAttemptFence: row.leaseAttemptFence,
     leaseOwnerId: row.leaseOwnerId,

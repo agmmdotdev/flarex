@@ -16,11 +16,11 @@ import { readCommerceRelationRows } from "../../query/relations";
 import { compileKeyedUpdates } from "../../write/keyed";
 import { OrderChangeId, type compileOrderChangeContracts } from "./change-contracts";
 
-const ids = Schema.Array(OrderChangeId).check(Schema.isLengthBetween(1, 1));
+const ids = Schema.Array(OrderChangeId).check(Schema.isBetweenLength(1, 1));
 const lookup = Schema.Union([Schema.Struct({ id: Schema.Union([OrderChangeId, ids]) }),
-  Schema.Struct({ $or: Schema.Array(Schema.Struct({ id: OrderChangeId })).check(Schema.isLengthBetween(1, 1)) })]);
+  Schema.Struct({ $or: Schema.Array(Schema.Struct({ id: OrderChangeId })).check(Schema.isBetweenLength(1, 1)) })]);
 const decodeMode = commerceDecoder(Schema.Struct({ metadata: Schema.Literal("replace") }), "unsupportedProfile");
-const decodeForeignPairs = commerceDecoder(Schema.Array(Schema.Unknown).check(Schema.isLengthBetween(1, 1)), "unsupportedProfile");
+const decodeForeignPairs = commerceDecoder(Schema.Array(Schema.Unknown).check(Schema.isBetweenLength(1, 1)), "unsupportedProfile");
 const decodeObject = commerceDecoder(Schema.JsonObject, "unsupportedProfile");
 type ChangeContracts = Pick<Result.Result.Success<ReturnType<typeof compileOrderChangeContracts>>,
   "table" | "order" | "decodeRow" | "orderPredicate" | "filterActiveOrderChanges"> & {
@@ -45,7 +45,7 @@ export function prepareOrderChangeLifecycleRepository<
 }) {
   const fields = profile.fields;
   const decodeQuery = commerceDecoder(Schema.Struct({ where: lookup, options: Schema.Struct({
-    fields: Schema.optionalKey(Schema.Array(Schema.Literals(fields)).check(Schema.isLengthBetween(1, fields.length))),
+    fields: Schema.optionalKey(Schema.Array(Schema.Literals(fields)).check(Schema.isBetweenLength(1, fields.length))),
     populate: Schema.Array(Schema.Never), orderBy: Schema.optionalKey(Schema.Struct({ id: Schema.optionalKey(Schema.Literal("ASC")) })) }) }), "unsupportedProfile");
   return Result.gen(function* () {
     const { table } = contracts;

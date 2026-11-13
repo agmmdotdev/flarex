@@ -11,7 +11,7 @@ import { prepareWorkflowResources } from "../../workflow/resources";
 import { internalModuleWorkflowEvents } from "../../workflow/events";
 import { prepareAtomicWorkflowHost, type AtomicWorkflowExecution, type InstalledWorkflowModule, captureInstalledWorkflowModules } from "../../workflow/host";
 
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 export const ProductCategoryMembershipOutput = Schema.Array(Schema.Struct({
   id: Id, categories: Schema.Array(Schema.Struct({ id: Id })).check(Schema.isMaxLength(256)),
 })).check(Schema.isMaxLength(256));

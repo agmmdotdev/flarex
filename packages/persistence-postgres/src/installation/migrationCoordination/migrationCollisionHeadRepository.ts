@@ -1,8 +1,9 @@
+import * as Hex from "effect/encoding/Hex";
 import { isRestoredFrameworkSchemaInstallation, isRestoredFrameworkSchemaReadiness } from "../frameworkSchema/installation/storedMetadataRestoration";
 import { withFrameworkGraphReadPass } from "./graphReadPass";
 import { readFrameworkMigrationStepReceiptPrefixInTransactionEffect, type FrameworkMigrationCommittedCompletion } from "./migrationStepReceiptRepository";
 import { and, eq, isNull, sql } from "drizzle-orm";
-import { Brand, Effect, Encoding, Option, Schema } from "effect";
+import { Brand, Effect, Option, Schema } from "effect";
 
 import { detachDriverRows } from "../../database/detachDriverRows";
 import { runDrizzleStatementEffect } from "../../database/drizzleStatementEffect";
@@ -1345,7 +1346,7 @@ function runRepositoryStatement<Value>(
 }
 
 function decodeAuthenticatedSha256(value: string): Effect.Effect<Uint8Array> {
-  return Effect.fromResult(Encoding.decodeHex(value)).pipe(Effect.orDie);
+  return Effect.fromResult(Hex.decode(value)).pipe(Effect.orDie);
 }
 
 function decodeStoredSha256(

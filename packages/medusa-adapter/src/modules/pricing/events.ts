@@ -15,7 +15,7 @@ export function pricingLogicalCreateEventPolicy(preferences: ReturnType<typeof p
     ["pricingCreate", new Set(["price_set", "price", "price_rule"])],
   ]);
   const tables = new Set([...profiles.values()].flatMap(profile => [...profile]));
-  const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+  const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
   const decode = moduleEventDecoder(Schema.Struct({ name: Schema.String,
     metadata: Schema.Struct({ source: Schema.Literal(Modules.PRICING), object: Schema.String,
       action: Schema.Literal(CommonEvents.CREATED) }),

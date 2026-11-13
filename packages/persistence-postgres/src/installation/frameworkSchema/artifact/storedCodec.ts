@@ -1,10 +1,11 @@
+import * as Hex from "effect/encoding/Hex";
 import {
   bytesEqual,
   copyBytes,
   isUint8ArrayWithByteLength,
 } from "@flarex/utils/bytes";
 import { finiteDateMilliseconds } from "@flarex/utils/dates";
-import { Effect, Encoding, Result } from "effect";
+import { Effect, Result } from "effect";
 
 import { hasExactOwnDataKeys } from "../../../values/exactOwnDataKeys";
 import {
@@ -141,7 +142,7 @@ export function decodeStoredFrameworkSchemaArtifactRowResult(
       SHA256_BYTE_LENGTH,
       "artifactRow",
     );
-    const artifactSha256Hex = Encoding.encodeHex(artifactSha256Bytes);
+    const artifactSha256Hex = Hex.encode(artifactSha256Bytes);
     if (
       row.deploymentId !== expectedIdentity.deploymentId ||
       row.owner !== expectedIdentity.owner ||
@@ -253,7 +254,7 @@ export function decodeStoredFrameworkSchemaArtifactDependencyRowsResult(
         deploymentId: artifact.deploymentId,
         owner: artifact.owner,
         lineageId: row.dependencyLineageId,
-        artifactSha256Hex: Encoding.encodeHex(
+        artifactSha256Hex: Hex.encode(
           copyBytes(dependencyArtifactSha256Bytes),
         ),
       }));

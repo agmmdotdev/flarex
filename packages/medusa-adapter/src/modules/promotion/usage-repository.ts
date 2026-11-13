@@ -21,7 +21,7 @@ import type { PromotionUsageTable } from "./usage-query";
 const nativeRows = Schema.decodeUnknownEffect(Schema.Array(Schema.Unknown).check(Schema.isMaxLength(4)));
 const id = commerceDecoder(ScalarId, "unsupportedProfile");
 const rawNumber = commerceDecoder(ExactNumericRaw, "storedCorruption");
-const deletion = commerceDecoder(Schema.Struct({ $or: Schema.Array(Schema.Struct({ id: ScalarId })).check(Schema.isLengthBetween(1, 4)) }), "unsupportedProfile");
+const deletion = commerceDecoder(Schema.Struct({ $or: Schema.Array(Schema.Struct({ id: ScalarId })).check(Schema.isBetweenLength(1, 4)) }), "unsupportedProfile");
 const creation = commerceDecoder(Schema.Struct({ budget_id: ScalarId, attribute_value: Schema.String,
   used: Schema.Union([Schema.String, Schema.Number]), raw_used: Schema.JsonObject }), "unsupportedProfile");
 

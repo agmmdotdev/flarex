@@ -145,10 +145,10 @@ export const decodePointCommitSchemaVersionIdResult =
   Schema.decodeUnknownResult(Schema.toType(CatalogSchemaVersionIdSchema),);
 
 export const decodePointCommitMetadataDependenciesEffect =
-  Schema.decodeUnknownEffect(Schema.Array(LogicalMetadataReadDependencySchema));
+  Schema.decodeUnknownEffect(Schema.Array(LogicalMetadataReadDependencySchema), { onExcessProperty: "error" });
 
 export const decodePointCommitMetadataConflictResult =
-  Schema.decodeUnknownResult(Schema.toType(FiniteMetadataConflictSchema));
+  Schema.decodeUnknownResult(Schema.toType(FiniteMetadataConflictSchema), { onExcessProperty: "error" });
 
 export const decodePointCommitEdgeDefinitionIdResult =
   Schema.decodeUnknownResult(CatalogEdgeDefinitionIdSchema);
@@ -157,11 +157,11 @@ export const decodePointCommitEncodedRowIdResult =
   Schema.decodeUnknownResult(AppRowIdHexV1Schema);
 
 export const decodePointCommitIndexRangeDependencyResult =
-  Schema.decodeUnknownResult(LogicalIndexRangeReadDependencyV1Schema);
+  Schema.decodeUnknownResult(LogicalIndexRangeReadDependencyV1Schema, { onExcessProperty: "error" });
 
 export const decodePointCommitRelationDependencyResult =
   Schema.decodeUnknownResult(
-    Schema.toType(LogicalApplicationRelationIncomingReadDependencyV1Schema)
+    Schema.toType(LogicalApplicationRelationIncomingReadDependencyV1Schema), { onExcessProperty: "error" }
   );
 
 export const decodePointCommitSyscallSequenceResult =
@@ -338,8 +338,6 @@ export const RunningRelationConflictRequestV1Schema = Schema.Struct({
   targetTableId: CatalogTableIdSchema,
   targetRowId: AppRowIdHexV1Schema,
   limit: Schema.Int,
-}).annotate({
-  parseOptions: { onExcessProperty: "error" },
 });
 
 export const RunningRelationConflictRequestEvidenceV1Schema = Schema.Struct({
@@ -353,8 +351,6 @@ export const RunningRelationConflictRequestEvidenceV1Schema = Schema.Struct({
   targetTableId: CatalogTableIdSchema,
   targetRowId: AppRowIdHexV1Schema,
   limit: Schema.Int,
-}).annotate({
-  parseOptions: { onExcessProperty: "error" },
 });
 
 export const RunningRelationConflictOutcomeEvidenceV1Schema = Schema.Struct({
@@ -364,8 +360,6 @@ export const RunningRelationConflictOutcomeEvidenceV1Schema = Schema.Struct({
   expectedAdjacencyVersion: CommitSeqSchema,
   actualAdjacencyVersion: CommitSeqSchema,
   snapshotCommitSeq: CommitSeqSchema,
-}).annotate({
-  parseOptions: { onExcessProperty: "error" },
 });
 
 export const decodeRunningRelationConflictRequestV1Result =

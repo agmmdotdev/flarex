@@ -15,10 +15,7 @@ import {
   type SchemaManifestAppIndexFieldPath,
 } from "./schema-manifest";
 import { CatalogDefinitionNameSchema } from "./catalog";
-import {
-  StrictParseOptions,
-  StrictStructOptions,
-} from "./strict-schema-options";
+import { StrictParseOptions } from "./strict-schema-options";
 
 export const APP_UNIQUE_KEY_CODEC_IDENTITY_V1 =
   "flarex.unique-key/ordered-index-components/v1" as const;
@@ -50,7 +47,7 @@ const UniqueConstraintFieldsV1Schema = Schema.Array(
 );
 const NullPredicateSchema = Schema.Struct({
   kind: Schema.Literal("fieldIsNull"), field: SchemaManifestAppIndexFieldPathSchema,
-}).annotate(StrictStructOptions);
+});
 
 /** Semantic producer intent; stable identities and physical generations are
  * assigned by the shared catalog, never by a framework's configuration. */
@@ -61,7 +58,7 @@ export const LogicalDocumentUniqueConstraintDeclarationSchema = Schema.Struct({
   sparse: Schema.Boolean,
   nullsDistinct: Schema.Boolean,
   predicate: Schema.optionalKey(NullPredicateSchema),
-}).annotate(StrictStructOptions);
+});
 export type LogicalDocumentUniqueConstraintDeclaration = typeof LogicalDocumentUniqueConstraintDeclarationSchema.Type;
 
 /**
@@ -78,12 +75,10 @@ export const AppUniqueConstraintPhysicalSpecV1Schema = Schema.Struct({
   sparse: Schema.Boolean,
   nullsDistinct: Schema.optionalKey(Schema.Literal(true)),
   predicate: Schema.optionalKey(Schema.Union([NullPredicateSchema, AppIndexNullAndBooleanEqualsPredicateV1Schema, AppIndexAllNullPredicateV1Schema])),
-  localePolicy: Schema.Struct({ kind: Schema.Literal("none") }).annotate(
-    StrictStructOptions,
-  ),
+  localePolicy: Schema.Struct({ kind: Schema.Literal("none") }),
   keyCodecIdentity: Schema.Literal(APP_UNIQUE_KEY_CODEC_IDENTITY_V1),
   keyCodecVersion: OrderedIndexKeyCodecVersionSchema,
-}).annotate(StrictStructOptions);
+});
 export type AppUniqueConstraintPhysicalSpecV1 =
   typeof AppUniqueConstraintPhysicalSpecV1Schema.Type;
 

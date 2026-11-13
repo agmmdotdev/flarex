@@ -1,3 +1,4 @@
+import * as Hex from "effect/encoding/Hex";
 import { setTimeout as delay } from "node:timers/promises";
 
 import {
@@ -21,7 +22,7 @@ import {
 } from "@flarex/durable-task/internal/run-attempt-v1";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { sql } from "drizzle-orm";
-import { Effect, Encoding, Layer, Result } from "effect";
+import { Effect, Layer, Result } from "effect";
 import { Client, type PoolClient } from "pg";
 import { describe, expect, it } from "vitest";
 
@@ -663,7 +664,7 @@ async function makeFixture(persistence: PostgresFlarexPersistence) {
     where scope_id = $1
   `, [seeded.scopeId]);
   const candidateSha256 = success(
-    Encoding.decodeHex(parent.candidateSha256Hex),
+    Hex.decode(parent.candidateSha256Hex),
   );
   const identity = Object.freeze({
     applicationRevisionId: parent.applicationRevisionId,

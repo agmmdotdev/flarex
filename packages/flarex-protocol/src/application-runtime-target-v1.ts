@@ -2,7 +2,7 @@ import { Data, Result, Schema } from "effect";
 import { isNonArrayRecord } from "@flarex/utils/records";
 
 import { encodeCanonicalJson, measureCanonicalJsonUtf8Bytes, type Json, type JsonObject } from "./json";
-import { StrictParseOptions, StrictStructOptions } from "./strict-schema-options";
+import { StrictParseOptions } from "./strict-schema-options";
 import {
   ValidatorJsonWireCodecV1,
   encodeValidatorJsonV1,
@@ -47,12 +47,12 @@ const ApplicationRuntimeFunctionPartitionV1Schema = Schema.Union([
     selector: NonemptyBoundedText,
     partitionField: NonemptyBoundedText,
     argField: NonemptyBoundedText,
-  }).annotate(StrictStructOptions),
+  }),
   Schema.Struct({
     type: Schema.Literal("partitionCreateRoot"),
     table: NonemptyBoundedText,
     partitionField: Schema.Literal("_id"),
-  }).annotate(StrictStructOptions),
+  }),
   Schema.Null,
 ]);
 const ApplicationRuntimeFunctionV1Schema = Schema.Struct({
@@ -73,7 +73,7 @@ const ApplicationRuntimeFunctionV1Schema = Schema.Struct({
   returns: Schema.Union([ValidatorJsonWireCodecV1, Schema.Null]),
   partition: ApplicationRuntimeFunctionPartitionV1Schema,
   entrySha256: LowercaseSha256,
-}).annotate(StrictStructOptions);
+});
 
 const ApplicationRuntimeTargetV1StructuralSchema = Schema.Struct({
   format: Schema.Literal(APPLICATION_RUNTIME_TARGET_FORMAT_V1),
@@ -90,7 +90,7 @@ const ApplicationRuntimeTargetV1StructuralSchema = Schema.Struct({
   publicationSha256: LowercaseSha256,
   executionModulePath: NonemptyBoundedText,
   function: ApplicationRuntimeFunctionV1Schema,
-}).annotate(StrictStructOptions);
+});
 
 export type ApplicationRuntimeTargetV1 =
   typeof ApplicationRuntimeTargetV1StructuralSchema.Type;

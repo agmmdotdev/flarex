@@ -8,7 +8,7 @@ import type { prepareOrderFinanceRepository } from "./finance-repository";
 const decode = moduleEventDecoder(Schema.Struct({ name: Schema.String,
   metadata: Schema.Struct({ source: Schema.Literal(Modules.ORDER), object: Schema.String,
     action: Schema.Literals(["created", "updated", "deleted"]) }),
-  data: Schema.Struct({ id: Schema.Union([ScalarId, Schema.Array(ScalarId).check(Schema.isLengthBetween(1, 4))]) }),
+  data: Schema.Struct({ id: Schema.Union([ScalarId, Schema.Array(ScalarId).check(Schema.isBetweenLength(1, 4))]) }),
 }), defaultCommerceResources);
 
 /** Native mutation events are confined to the checked financial model closure.

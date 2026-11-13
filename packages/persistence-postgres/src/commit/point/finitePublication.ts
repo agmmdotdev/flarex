@@ -1,3 +1,4 @@
+import * as Hex from "effect/encoding/Hex";
 import { copyBytes } from "@flarex/utils/bytes";
 import { reproveScopePublicationPrefix } from "../publication/pointCommitProjection";
 import { writePayloadPreferenceDeletionFacts, type PayloadPreferenceDeletionFact } from "../../frameworks/payloadPreferences/facts";
@@ -5,14 +6,7 @@ import type { PayloadPreferenceDeletionIntent } from "../../frameworks/payloadPr
 import type { SourcePayloadPreferenceCleanup } from "../../frameworks/payloadPreferences/sourceCleanup";
 import { finiteDateMilliseconds } from "@flarex/utils/dates";
 import { sql } from "drizzle-orm";
-import {
-  Cause,
-  Effect,
-  Encoding,
-  Exit,
-  Result,
-  Schema,
-} from "effect";
+import { Cause, Effect, Exit, Result, Schema,  } from "effect";
 import { CanonicalSuccessfulResultBytesV1Schema } from "flarex-protocol/commit-protocol";
 import {
   FLAREX_VALUE_CODEC_VERSION_V1,
@@ -243,7 +237,7 @@ export function createFinitePublisherOperations(ports: StoredCommitAuthorityEvid
     if (decision.kind === "existing") return yield* publicationResultFromOutcomeEffect(
       yield* target[RESOLVE_LOCATED_COMMITTED_POINT_OUTCOME_V1](lookup), "replayed");
     const result = command.frozen.successfulResult;
-    const digest = yield* Effect.fromResult(Encoding.decodeHex(result.evidence.sha256Hex).pipe(Result.mapError(() => corruption("successfulResultInvalid"))));
+    const digest = yield* Effect.fromResult(Hex.decode(result.evidence.sha256Hex).pipe(Result.mapError(() => corruption("successfulResultInvalid"))));
     return Object.freeze({
       kind: "published" as const, token: decision.token, successfulResult: Object.freeze({
         valueCodecVersion: FLAREX_VALUE_CODEC_VERSION_V1, valueJson: structuredClone(result.valueJson), semanticSizeBytes: result.semanticSizeBytes,

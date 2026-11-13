@@ -1,5 +1,6 @@
+import * as Base64Url from "effect/encoding/Base64Url";
 import { copyBytesToArrayBuffer } from "@flarex/utils/bytes";
-import { Effect, Encoding } from "effect";
+import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import type { AuthConfig, CustomJwtAuthProvider } from "flarex-protocol/auth";
 
@@ -771,14 +772,14 @@ async function signJwt(input: {
     input.privateKey,
     copyBytesToArrayBuffer(signingInput),
   );
-  const encodedSignature = Encoding.encodeBase64Url(
+  const encodedSignature = Base64Url.encode(
     new Uint8Array(signature),
   );
   return `${encodedHeader}.${encodedPayload}.${encodedSignature}`;
 }
 
 function base64UrlJson(value: unknown): string {
-  return Encoding.encodeBase64Url(
+  return Base64Url.encode(
     new TextEncoder().encode(JSON.stringify(value)),
   );
 }

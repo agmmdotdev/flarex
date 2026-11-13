@@ -7,7 +7,7 @@ import { projectNativeRow } from "../../repository/result";
 import { compileOrderStatusContracts } from "./input";
 import type { captureOrderMetadata } from "./schema";
 
-export const OrderChangeId = Schema.String.check(Schema.isLengthBetween(1, 256));
+export const OrderChangeId = Schema.String.check(Schema.isBetweenLength(1, 256));
 type Metadata = Effect.Success<ReturnType<typeof captureOrderMetadata>>["frame"];
 
 /** Native Change DML owns complete rows and the required Order reference.

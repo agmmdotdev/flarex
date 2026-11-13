@@ -69,7 +69,7 @@ describe("Application numeric literal publication", () => {
       const wire: unknown = JSON.parse(canonical.canonicalText);
       const reopened = Result.getOrThrow(canonicalizeApplicationManifestWireV1(wire));
       expect(reopened.canonicalBytes).toEqual(canonical.canonicalBytes);
-      expect(Schema.encodeSync(ApplicationManifestV1Schema)(canonical.manifest)).toEqual(wire);
+      expect(Schema.encodeSync(ApplicationManifestV1Schema, { onExcessProperty: "error" })(canonical.manifest)).toEqual(wire);
       const fn = reopened.manifest.functions[0];
       if (fn === undefined || fn.returns?.type !== "literal") throw new Error("Expected literal return");
       expect(Object.is(fn.returns.value, value)).toBe(true);

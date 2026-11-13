@@ -24,7 +24,7 @@ const read = new CoreReadSetBuilder();
 Result.getOrThrow(addTableSemanticDependency(read, registry, source));
 const sourceReads = read.snapshot();
 const schemaId = (value: number) => Result.getOrThrow(encodeDocumentId(532, id(value)));
-const policy = Schema.decodeUnknownSync(CoreNativeTablePolicySchema)({ state: "active", schemaId: schemaId(7), applicationRead: false,
+const policy = Schema.decodeUnknownSync(CoreNativeTablePolicySchema, { onExcessProperty: "error" })({ state: "active", schemaId: schemaId(7), applicationRead: false,
   identity: { scopeUuid: "1726a4fd-1e3f-4166-a276-72742040bd95", epochUuid: "21172004-bd8d-40f5-b735-825ec68c06bd",
     sourceKey: "payload", sourceSha256: "a".repeat(64), configSha256: "b".repeat(64), provenanceSha256: "c".repeat(64), definitionHash: "d".repeat(64) },
   uniqueConstraints: [] });

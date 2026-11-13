@@ -224,7 +224,7 @@ describe("Application write-policy evidence", () => {
     mutableBytes.fill(0);
     expect(new TextDecoder().decode(manifest.canonicalBytes)).toBe(manifest.canonicalText);
     expect(Result.getOrThrow(canonicalizeApplicationManifest(manifest.manifest)).canonicalBytes).toEqual(manifest.canonicalBytes);
-    expect(Result.getOrThrow(Schema.decodeUnknownResult(ApplicationManifestSchema)(manifest.manifest))).toEqual(manifest.manifest);
+    expect(Result.getOrThrow(Schema.decodeUnknownResult(ApplicationManifestSchema, { onExcessProperty: "error" })(manifest.manifest))).toEqual(manifest.manifest);
     expect((await Effect.runPromise(verifyApplicationManifestV3(manifest.manifest))).canonicalBytes).toEqual(manifest.canonicalBytes);
     const input = structuredClone(manifest.manifest);
     const encoder = vi.spyOn(TextEncoder.prototype, "encode");

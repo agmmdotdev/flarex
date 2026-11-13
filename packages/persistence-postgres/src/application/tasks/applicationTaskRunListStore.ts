@@ -1,3 +1,5 @@
+import * as Base64Url from "effect/encoding/Base64Url";
+import * as Hex from "effect/encoding/Hex";
 import {
   TaskRunListStoreFailure,
   decodeTaskRunListStoreItem,
@@ -13,7 +15,7 @@ import {
 } from "@flarex/durable-task/internal/run-attempt-v1";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { and, desc, eq, lt, or, sql, type SQL } from "drizzle-orm";
-import { Cause, Effect, Encoding, Exit, Result } from "effect";
+import { Cause, Effect, Exit, Result } from "effect";
 
 import type { AppRowTransaction } from "../../storage/documents/appRows";
 import { fxSystemDurableTaskRunsV1, fxSystemScopeClocks } from "../../database/schema";
@@ -240,10 +242,10 @@ function normalizeSucceededResult(
   if (typeof spelling !== "string" || spelling.length !== 43) {
     return Result.fail("invalid_result_sha256");
   }
-  return Encoding.decodeBase64Url(spelling).pipe(
+  return Base64Url.decode(spelling).pipe(
     Result.mapError(() => "invalid_result_sha256" as const),
     Result.flatMap(bytes =>
-      bytes.byteLength === 32 && Encoding.encodeBase64Url(bytes) === spelling
+      bytes.byteLength === 32 && Base64Url.encode(bytes) === spelling
         ? Result.succeed(bytes)
         : Result.fail("invalid_result_sha256" as const)
     ),
@@ -253,7 +255,7 @@ function normalizeSucceededResult(
         ...state,
         result: {
           ...resultWithoutSha256,
-          sha256Hex: Encoding.encodeHex(bytes),
+          sha256Hex: Hex.encode(bytes),
         },
       };
     }),

@@ -78,7 +78,7 @@ export function correlatePhysicalGraphReceipt(input: {
     };
     if (requestedIds.length) {
       if (input.rootOrder === "storageInsertion") {
-        const identities = yield* commerceDecoder(Schema.Array(Schema.Struct({ id: Schema.String.check(Schema.isLengthBetween(1, 256)) }))
+        const identities = yield* commerceDecoder(Schema.Array(Schema.Struct({ id: Schema.String.check(Schema.isBetweenLength(1, 256)) }))
           .check(Schema.isMaxLength(entities.find(entity => entity.table.name === root.name)?.maximum ?? 0)), "receiptMismatch")
           (activity.relationalReads[0]?.orderedIdentities);
         const byId = new Map(roots.map(row => [row.id, row])), ordered: typeof roots = [];

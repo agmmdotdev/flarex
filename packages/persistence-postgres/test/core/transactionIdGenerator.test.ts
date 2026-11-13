@@ -1,5 +1,6 @@
+import * as Hex from "effect/encoding/Hex";
 import { readFileSync } from "node:fs";
-import { Encoding, Result, Schema } from "effect";
+import { Result, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { decodeDocumentId, encodeDocumentId } from "flarex-protocol/document-id";
@@ -16,7 +17,7 @@ const Oracle = Schema.Struct({ sourcePin: Schema.String,
 const oracle = Schema.decodeUnknownSync(Schema.fromJsonString(Oracle))(readFileSync(
   new URL("./fixtures/transactionIdOracle/vectors.json", import.meta.url), "utf8"));
 const nanosecondsPerDay = 86_400_000_000_000n;
-const unhex = (value: string) => Result.getOrThrow(Encoding.decodeHex(value));
+const unhex = (value: string) => Result.getOrThrow(Hex.decode(value));
 const hex = encodeBytesToLowercaseHex;
 
 describe("pinned Source transaction ID generator", () => {

@@ -1,9 +1,10 @@
+import * as Hex from "effect/encoding/Hex";
 import { setTimeout as delay } from "node:timers/promises";
 import {
   decodeTaskRunCreationReceiptV1,
   type TaskRunCreationReceiptV1,
 } from "@flarex/durable-task/internal/run-creation-v1";
-import { Effect, Encoding, Result } from "effect";
+import { Effect, Result } from "effect";
 import type { PoolClient } from "pg";
 import { describe, expect, it } from "vitest";
 
@@ -250,7 +251,7 @@ async function makeCreationFixture(persistence: PostgresFlarexPersistence) {
     where scope_id = $1
   `, [seeded.scopeId]);
   const candidateSha256 = Result.getOrThrow(
-    Encoding.decodeHex(parent.candidateSha256Hex),
+    Hex.decode(parent.candidateSha256Hex),
   );
   const identity = Object.freeze({
     applicationRevisionId: parent.applicationRevisionId,
@@ -504,13 +505,13 @@ async function creationReplaySnapshot(
     taskDefinitionRevisionId: row.task_definition_revision_id,
     createdAtMs: Number(row.created_at_ms),
     requestKeySha256: Result.getOrThrow(
-      Encoding.decodeHex(row.request_key_sha256_hex),
+      Hex.decode(row.request_key_sha256_hex),
     ),
     requestSha256: Result.getOrThrow(
-      Encoding.decodeHex(row.request_sha256_hex),
+      Hex.decode(row.request_sha256_hex),
     ),
     creationAuthoritySha256: Result.getOrThrow(
-      Encoding.decodeHex(row.creation_authority_sha256_hex),
+      Hex.decode(row.creation_authority_sha256_hex),
     ),
   }));
   return Object.freeze({ receipt, fingerprint: row.fingerprint });

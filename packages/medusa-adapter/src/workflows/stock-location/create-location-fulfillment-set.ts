@@ -15,7 +15,7 @@ import { prepareWorkflowResources } from "../../workflow/resources";
 
 type Fulfillment = Effect.Success<ReturnType<typeof makeFulfillmentSetCreationCommands>>["workflow"];
 type Links = Effect.Success<ReturnType<typeof prepareLocationFulfillmentSetLink>>;
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 // The native composer ignores extra Set fields. Retaining JSON extras here
 // never grants the scalar command IDs, metadata or nested graph creation.
 export const LocationFulfillmentSetCreationInput = Schema.Struct({ location_id: Id,

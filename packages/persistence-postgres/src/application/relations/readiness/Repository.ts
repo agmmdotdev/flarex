@@ -1,3 +1,4 @@
+import * as Hex from "effect/encoding/Hex";
 import { chargeHostPreparation, registerHostPreparationDisposal, PreparedHostRuntimeError } from "../../../execution/preparation/preparedHostRuntime";
 import {
   bytesEqualFullScan as bytesEqual,
@@ -10,7 +11,7 @@ import {
 import { copyFiniteDate } from "@flarex/utils/dates";
 import { isNonBlankString } from "@flarex/utils/strings";
 import { and, asc, eq, sql } from "drizzle-orm";
-import { Cause, Effect, Encoding, Exit, Result, Schema } from "effect";
+import { Cause, Effect, Exit, Result, Schema } from "effect";
 
 import {
   appRowIdHexV1FromBytesResult,
@@ -3520,7 +3521,7 @@ function decodeSha256HexResult(
   if (!/^[0-9a-f]{64}$/.test(value)) {
     return readinessCorruptionResult(reason);
   }
-  return Encoding.decodeHex(value).pipe(
+  return Hex.decode(value).pipe(
     Result.mapError(cause => new ApplicationRelationReadinessCorruptionError({
       reason,
       cause,

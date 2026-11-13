@@ -5,7 +5,7 @@ import type { prepareCartCreationRepository } from "./creation-repository";
 
 type Creation = Result.Result.Success<ReturnType<typeof prepareCartCreationRepository>>;
 const row = commerceDecoder(Schema.JsonObject, "unsupportedProfile");
-const id = commerceDecoder(Schema.String.check(Schema.isLengthBetween(1, 256)), "unsupportedProfile");
+const id = commerceDecoder(Schema.String.check(Schema.isBetweenLength(1, 256)), "unsupportedProfile");
 
 /** Extend the workflow's checked Cart catalog with genuine scalar Shipping
  * models. Standalone Cart creation retains its existing authoring contract. */

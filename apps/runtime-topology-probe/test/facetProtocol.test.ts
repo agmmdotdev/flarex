@@ -80,18 +80,18 @@ describe("Durable Object facet protocol", () => {
   });
 
   it("computes a host-verifiable seal that changes with content, count, and attempt", async () => {
-    const request = ProbeFacetInvokeRequestV1Schema.make(facetRequest());
+    const request = ProbeFacetInvokeRequestV1Schema.make(facetRequest(), { parseOptions: { onExcessProperty: "error" } });
     const baseline = await probeFacetJournalSealDigest(request);
     const payloadChange = await probeFacetJournalSealDigest(
-      ProbeFacetInvokeRequestV1Schema.make(facetRequest({ payload: "xxxxx" })),
+      ProbeFacetInvokeRequestV1Schema.make(facetRequest({ payload: "xxxxx" }), { parseOptions: { onExcessProperty: "error" } }),
     );
     const countChange = await probeFacetJournalSealDigest(
       ProbeFacetInvokeRequestV1Schema.make(
-        facetRequest({ journalEntries: 3 }),
+        facetRequest({ journalEntries: 3 }), { parseOptions: { onExcessProperty: "error" } },
       ),
     );
     const attemptChange = await probeFacetJournalSealDigest(
-      ProbeFacetInvokeRequestV1Schema.make(facetRequest({ ordinal: 2 })),
+      ProbeFacetInvokeRequestV1Schema.make(facetRequest({ ordinal: 2 }), { parseOptions: { onExcessProperty: "error" } }),
     );
 
     expect(baseline).toBe(
@@ -102,7 +102,7 @@ describe("Durable Object facet protocol", () => {
   });
 
   it("correlates worker and session receipts with their exact request", async () => {
-    const request = ProbeFacetInvokeRequestV1Schema.make(facetRequest());
+    const request = ProbeFacetInvokeRequestV1Schema.make(facetRequest(), { parseOptions: { onExcessProperty: "error" } });
     const { payload: _payload, ...identity } = request;
     const receipt = {
       ...identity,
@@ -110,13 +110,13 @@ describe("Durable Object facet protocol", () => {
       journalDurationMs: ProbeDurationMsSchema.make(1),
       sealDigest: await probeFacetJournalSealDigest(request),
     };
-    const workerReceipt = ProbeFacetWorkerResponseV1Schema.make(receipt);
+    const workerReceipt = ProbeFacetWorkerResponseV1Schema.make(receipt, { parseOptions: { onExcessProperty: "error" } });
     const sessionReceipt = ProbeFacetSessionResponseV1Schema.make({
       ...receipt,
       facetDurationMs: ProbeDurationMsSchema.make(2),
       workerLoaderCallbackRan: true,
       facetStartupCallbackRan: true,
-    });
+    }, { parseOptions: { onExcessProperty: "error" } });
 
     await expect(
       probeFacetReceiptMatchesRequest(workerReceipt, request),
@@ -129,7 +129,7 @@ describe("Durable Object facet protocol", () => {
         ProbeFacetWorkerResponseV1Schema.make({
           ...receipt,
           payloadBytes: request.payload.length + 1,
-        }),
+        }, { parseOptions: { onExcessProperty: "error" } }),
         request,
       ),
     ).resolves.toBe(false);
@@ -138,7 +138,7 @@ describe("Durable Object facet protocol", () => {
         ProbeFacetWorkerResponseV1Schema.make({
           ...receipt,
           sealDigest: "0".repeat(64),
-        }),
+        }, { parseOptions: { onExcessProperty: "error" } }),
         request,
       ),
     ).resolves.toBe(false);

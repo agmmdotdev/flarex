@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Context, Effect, Layer, ManagedRuntime } from "effect";
-import type { HttpApiGroup } from "effect/unstable/httpapi";
+import type { HttpApiGroup } from "effect/http-api";
 import {
   decodeDeploymentRecordEffect,
   decodeListDeploymentsResponseEffect,

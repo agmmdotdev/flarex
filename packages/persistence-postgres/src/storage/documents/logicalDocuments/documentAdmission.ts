@@ -99,8 +99,8 @@ export class LogicalDocumentSourceAdmissionError extends Data.TaggedError("Logic
 const SourceContract = Schema.Struct({
   sourceKey: Schema.Literal("payload"), writeProfile: Schema.NonEmptyString,
   definition: Schema.Json, evidence: Schema.Json, configuration: PayloadConfigurationSchema,
-}).annotate({ parseOptions: { onExcessProperty: "error" } });
-const decodeContract = Schema.decodeUnknownEffect(SourceContract);
+});
+const decodeContract = Schema.decodeUnknownEffect(SourceContract, { onExcessProperty: "error" });
 const decodeDocumentId = Schema.decodeUnknownResult(AppDocumentIdV1Schema);
 const decodeCreationTime = Schema.decodeUnknownResult(AppCreationTimeV1Schema);
 const projectSourceFailure = (cause: LogicalSourceAdmissionError) =>

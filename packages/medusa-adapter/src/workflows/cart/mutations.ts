@@ -33,11 +33,11 @@ export const UpdateCartInput = Schema.Struct({ id: ScalarId, region_id: Schema.o
   promo_codes: Schema.optionalKey(Schema.Array(Schema.String).pipe(Schema.mutable).check(Schema.isMaxLength(4))), additional_data: AdditionalData });
 const LineInput = Schema.Struct({ variant_id: ScalarId, quantity: Schema.Finite.check(Schema.isGreaterThan(0)), metadata: NullableMetadata });
 export const AddCartLineItemInput = Schema.Struct({ cart_id: ScalarId,
-  items: Schema.Array(LineInput).pipe(Schema.mutable).check(Schema.isLengthBetween(1, 4)), additional_data: AdditionalData });
+  items: Schema.Array(LineInput).pipe(Schema.mutable).check(Schema.isBetweenLength(1, 4)), additional_data: AdditionalData });
 export const UpdateCartLineItemInput = Schema.Struct({ cart_id: ScalarId, item_id: ScalarId,
   update: Schema.Struct({ quantity: Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0)), metadata: NullableMetadata }), additional_data: AdditionalData });
 export const DeleteCartLineItemsInput = Schema.Struct({ cart_id: ScalarId,
-  ids: Schema.Array(ScalarId).pipe(Schema.mutable).check(Schema.isLengthBetween(1, 4)), additional_data: AdditionalData });
+  ids: Schema.Array(ScalarId).pipe(Schema.mutable).check(Schema.isBetweenLength(1, 4)), additional_data: AdditionalData });
 
 const decodeId = commerceDecoder(ScalarId, "receiptMismatch");
 const decodeHook = commerceDecoder(Schema.JsonObject, "invalidInput");

@@ -9,7 +9,7 @@ import type { captureStoreMetadata } from "./schema";
 // default selection and graph pagination are the only admitted selectors.
 export const StoreCartReadFilters = Schema.Record(Schema.String, Schema.Never);
 export const StoreCartReadConfig = Schema.Struct({
-  select: Schema.optionalKey(Schema.Array(Schema.String).check(Schema.isLengthBetween(1, 256))),
+  select: Schema.optionalKey(Schema.Array(Schema.String).check(Schema.isBetweenLength(1, 256))),
   relations: Schema.optionalKey(Schema.Array(Schema.String).check(Schema.isMaxLength(0))),
   take: Schema.optionalKey(QueryLimit), skip: Schema.optionalKey(QueryOffset),
   order: Schema.optionalKey(Schema.Struct({ id: Schema.optionalKey(Schema.Literals(["ASC", "DESC"])) })),

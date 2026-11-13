@@ -1,10 +1,11 @@
+import * as Hex from "effect/encoding/Hex";
 import {
   bytesEqualFullScan,
   copyBytes,
   encodeBytesToLowercaseHex,
   isUint8Array,
 } from "@flarex/utils/bytes";
-import { Encoding, Result } from "effect";
+import { Result } from "effect";
 import {
   encodeCanonicalJson,
   isJsonObjectFromUnknown,
@@ -253,7 +254,7 @@ function digestFromJson(
   value: Json | undefined,
 ): TaskDefinitionSha256V1 | undefined {
   if (typeof value !== "string" || value.length !== 64) return undefined;
-  const decoded = Encoding.decodeHex(value);
+  const decoded = Hex.decode(value);
   return Result.isSuccess(decoded) && decoded.success.byteLength === 32
     ? decoded.success as TaskDefinitionSha256V1
     : undefined;

@@ -9,7 +9,7 @@ import type { CommerceRelation, CommerceRelations } from "../../query/relations"
 import type { captureFulfillmentCreationMetadata } from "./shipping-profile-schema";
 import { FulfillmentAssignmentJson } from "./fulfillment-create-value-profile";
 
-export const FulfillmentCreationId = Schema.String.check(Schema.isLengthBetween(1, 256));
+export const FulfillmentCreationId = Schema.String.check(Schema.isBetweenLength(1, 256));
 const Text = Schema.optionalKey(Schema.NullOr(Schema.String));
 const JsonData = Schema.optionalKey(Schema.NullOr(Schema.JsonObject));
 const decodeDate = Schema.decodeUnknownResult(Schema.DateFromString);

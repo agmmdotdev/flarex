@@ -9,11 +9,11 @@ import { moduleEventDecoder } from "../../module/events";
 import { decodeServiceZoneCreates, decodeServiceZonePhysicalDeletionIds, type compileServiceZoneCreationContracts } from "./service-zone-create-input";
 
 type Contracts = Result.Result.Success<ReturnType<typeof compileServiceZoneCreationContracts>>;
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 const decodeEvent = moduleEventDecoder(Schema.Struct({ name: Schema.String,
   metadata: Schema.Struct({ source: Schema.Literal(Modules.FULFILLMENT), object: Schema.Literals(["service_zone", "geo_zone"]),
     action: Schema.Literals(["created", "deleted"]) }),
-  data: Schema.Struct({ id: Schema.Union([Id, Schema.Array(Id).check(Schema.isLengthBetween(1, 16))]) }),
+  data: Schema.Struct({ id: Schema.Union([Id, Schema.Array(Id).check(Schema.isBetweenLength(1, 16))]) }),
 }), defaultCommerceResources);
 
 /** Full inserted graph evidence and complete historical inverse reads remain

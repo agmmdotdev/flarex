@@ -1,10 +1,11 @@
+import * as Hex from "effect/encoding/Hex";
 import {
   copyBytes,
   copyBytesToArrayBuffer,
   isUint8Array,
   uint8ArrayByteLength,
 } from "@flarex/utils/bytes";
-import { Effect, Encoding, Result } from "effect";
+import { Effect, Result } from "effect";
 import {
   encodeCanonicalJson,
   measureCanonicalJsonUtf8Bytes,
@@ -113,7 +114,7 @@ export const capturePrivateCanonicalValue = Effect.fn(
     frame,
     canonicalJson,
     canonicalByteLength: canonicalBytes.byteLength,
-    sha256Hex: Encoding.encodeHex(ownedSha256Bytes),
+    sha256Hex: Hex.encode(ownedSha256Bytes),
     copyCanonicalBytes: () => copyBytes(ownedCanonicalBytes),
     copySha256Bytes: () => copyBytes(ownedSha256Bytes),
   });

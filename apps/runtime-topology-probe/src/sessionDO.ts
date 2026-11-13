@@ -252,7 +252,7 @@ export class ProbeSessionDOBase extends DurableObject<ProbeSessionEnv> {
         syntheticRevision: ProbeSyntheticCursorSchema.make(
           request.commitSeq - 1,
         ),
-      });
+      }, { parseOptions: { onExcessProperty: "error" } });
     } finally {
       this.activeOperations -= 1;
     }
@@ -347,7 +347,7 @@ export class ProbeSessionDOBase extends DurableObject<ProbeSessionEnv> {
         deletedFacets: completion.deleted_facets,
         probeDataCleared: true,
         completionTombstoneRetained: true,
-      });
+      }, { parseOptions: { onExcessProperty: "error" } });
     }
     const existingPlan = this.sql.exec<{ request_json: string }>(
       `SELECT request_json FROM probe_session_purge_plan
@@ -452,7 +452,7 @@ export class ProbeSessionDOBase extends DurableObject<ProbeSessionEnv> {
           sessionId: request.sessionId,
           pendingFacets: countPendingPurgeFacets(this.sql),
           probeDataCleared: false,
-        });
+        }, { parseOptions: { onExcessProperty: "error" } });
       }
       this.ctx.facets.abort(next.facet_name, "probe campaign purge");
       this.sql.exec(
@@ -467,7 +467,7 @@ export class ProbeSessionDOBase extends DurableObject<ProbeSessionEnv> {
         sessionId: request.sessionId,
         pendingFacets: countPendingPurgeFacets(this.sql),
         probeDataCleared: false,
-      });
+      }, { parseOptions: { onExcessProperty: "error" } });
     }
     if (next?.phase === "prepared") {
       try {
@@ -485,7 +485,7 @@ export class ProbeSessionDOBase extends DurableObject<ProbeSessionEnv> {
           sessionId: request.sessionId,
           pendingFacets: countPendingPurgeFacets(this.sql),
           probeDataCleared: false,
-        });
+        }, { parseOptions: { onExcessProperty: "error" } });
       }
       this.sql.exec(
         `UPDATE probe_session_purge_facets SET phase = 'deleted'
@@ -505,7 +505,7 @@ export class ProbeSessionDOBase extends DurableObject<ProbeSessionEnv> {
           sessionId: request.sessionId,
           pendingFacets,
           probeDataCleared: false,
-        });
+        }, { parseOptions: { onExcessProperty: "error" } });
       }
     }
     const deletedFacets = this.sql.exec<{ count: number }>(
@@ -542,7 +542,7 @@ export class ProbeSessionDOBase extends DurableObject<ProbeSessionEnv> {
       deletedFacets,
       probeDataCleared: true,
       completionTombstoneRetained: true,
-    });
+    }, { parseOptions: { onExcessProperty: "error" } });
   }
 
   private ensureStorage(): void {
@@ -724,7 +724,7 @@ export class ProbeSessionDOBase extends DurableObject<ProbeSessionEnv> {
         sessionId,
         sessionMode: decoded.sessionMode,
         payloadBytes: decoded.payload.length,
-      }),
+      }, { parseOptions: { onExcessProperty: "error" } }),
     );
   }
 
@@ -823,7 +823,7 @@ export class ProbeSessionDOBase extends DurableObject<ProbeSessionEnv> {
         sealDigest: decoded.sealDigest,
         workerLoaderCallbackRan: observations.workerLoaderCallbackRan,
         facetStartupCallbackRan: observations.facetStartupCallbackRan,
-      }),
+      }, { parseOptions: { onExcessProperty: "error" } }),
     );
   }
 
@@ -954,7 +954,7 @@ export class ProbeSessionDOBase extends DurableObject<ProbeSessionEnv> {
           syntheticRevision: ProbeSyntheticCursorSchema.make(
             readRequest.commitSeq - 1,
           ),
-        });
+        }, { parseOptions: { onExcessProperty: "error" } });
       } else {
         try {
           let rawSnapshot: ProbeMockReadResponseV1;
@@ -1125,7 +1125,7 @@ export class ProbeSessionDOBase extends DurableObject<ProbeSessionEnv> {
                 sessionId: decoded.sessionId,
                 attemptId: decoded.attemptId,
                 error: "facet_finalizer_outcome_uncertain",
-              }),
+              }, { parseOptions: { onExcessProperty: "error" } }),
               502,
             )
           : internalError("facet_finalizer_uncertain_state_failure", 500);
@@ -1182,7 +1182,7 @@ export class ProbeSessionDOBase extends DurableObject<ProbeSessionEnv> {
             executorHost.kind === "session-postgres"
           ? executorHost.snapshot
           : null,
-      });
+      }, { parseOptions: { onExcessProperty: "error" } });
     const observations: FacetCallbackObservations = {
       facetStartupCallbackRan: false,
       workerLoaderCallbackRan: false,
@@ -1265,7 +1265,7 @@ export class ProbeSessionDOBase extends DurableObject<ProbeSessionEnv> {
       snapshotRevision: facetReceipt.syntheticRevision,
       resultDigest: facetReceipt.resultDigest,
       commitIntentDigest: facetReceipt.commitIntent.digest,
-    });
+    }, { parseOptions: { onExcessProperty: "error" } });
     const finishStartedAt = performance.now();
     let finish: ProbeMockFinishResponseV1 | null;
     if (executorHost.kind === "facet-finalizer") {
@@ -1337,7 +1337,7 @@ export class ProbeSessionDOBase extends DurableObject<ProbeSessionEnv> {
         scopeId: finishRequest.scopeId,
         scenario: finishRequest.scenario,
         commitSeq: finishRequest.commitSeq,
-      });
+      }, { parseOptions: { onExcessProperty: "error" } });
       const wakeStartedAt = performance.now();
       try {
         const rawReceipt = await executorHost.sync
@@ -1358,7 +1358,7 @@ export class ProbeSessionDOBase extends DurableObject<ProbeSessionEnv> {
                 elapsedPerformanceDurationSince(wakeStartedAt),
               ),
               sync: receipt,
-            });
+            }, { parseOptions: { onExcessProperty: "error" } });
       } catch {
         return internalError("session_sync_wake_failure", 502);
       }
@@ -1401,7 +1401,7 @@ export class ProbeSessionDOBase extends DurableObject<ProbeSessionEnv> {
             retryable: false,
             stage: "sync_cursor_io",
           },
-        }),
+        }, { parseOptions: { onExcessProperty: "error" } }),
         409,
       );
     }
@@ -1409,7 +1409,7 @@ export class ProbeSessionDOBase extends DurableObject<ProbeSessionEnv> {
     return noStoreJson(
       ProbeFullInvokeSessionResponseV1Schema.make({
         ...observation,
-      }),
+      }, { parseOptions: { onExcessProperty: "error" } }),
     );
   }
 
@@ -1508,7 +1508,7 @@ export class ProbeSessionDOBase extends DurableObject<ProbeSessionEnv> {
         ),
         workerLoaderCallbackRan: observations.workerLoaderCallbackRan,
         facetStartupCallbackRan: observations.facetStartupCallbackRan,
-      }),
+      }, { parseOptions: { onExcessProperty: "error" } }),
     );
   }
 
@@ -1643,7 +1643,7 @@ export class ProbeSessionDOBase extends DurableObject<ProbeSessionEnv> {
         value,
         workerLoaderCallbackRan,
         facetStartupCallbackRan,
-      }),
+      }, { parseOptions: { onExcessProperty: "error" } }),
     );
   }
 
@@ -1775,7 +1775,7 @@ export class ProbeSessionDOBase extends DurableObject<ProbeSessionEnv> {
         protocolVersion: PROBE_PROTOCOL_VERSION_V1,
         sessionId,
         value,
-      }),
+      }, { parseOptions: { onExcessProperty: "error" } }),
     );
     if (operation === "read") return response;
     return this.ctx.storage.sync().then(() => response);

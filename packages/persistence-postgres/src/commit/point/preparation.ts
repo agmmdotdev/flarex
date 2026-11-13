@@ -1,9 +1,5 @@
-import {
-  Effect,
-  Result,
-  Exit,
-  Encoding,
-} from "effect";
+import * as Hex from "effect/encoding/Hex";
+import { Effect, Result, Exit,  } from "effect";
 import type {
   PreparedFiniteCommitCommand,
   PreparedFiniteAttemptResolutionCommand,
@@ -279,7 +275,7 @@ export const prepareFiniteCommitSettlement = Effect.fnUntraced(function* (
     ? yield* Effect.exit(Effect.gen(function* () {
       const eventSha = command.events.length === 0 ? null : yield* commitEventsDigest(command.events).pipe(Effect.mapError(error =>
         error.reason === "resourceFailure" ? finiteCommitSqlFailure("writeCommitChange", error.cause ?? error) : corruption("commandInvalid")));
-      const resultDigest = yield* Effect.fromResult(Encoding.decodeHex(command.successfulResult.sha256Hex)
+      const resultDigest = yield* Effect.fromResult(Hex.decode(command.successfulResult.sha256Hex)
         .pipe(Result.mapError(() => corruption("successfulResultInvalid"))));
       return { authorityPins: command.authorityPins, rowIntents: command.rowIntents,
         identityAccessPolicySha256: command.session.identityAccessPolicySha256, requestSha256: command.session.requestSha256,

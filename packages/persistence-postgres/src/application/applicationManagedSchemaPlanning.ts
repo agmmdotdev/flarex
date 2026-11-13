@@ -1,10 +1,11 @@
+import * as Hex from "effect/encoding/Hex";
 import type {
   AppSchemaEvolutionPlanAuthorityPinsV1,
   PlanAppSchemaEvolutionV1Input,
 } from "@flarex/managed-schema/planning";
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { and, eq } from "drizzle-orm";
-import { Data, Effect, Encoding, Result, Schema } from "effect";
+import { Data, Effect, Result, Schema } from "effect";
 import {
   SchemaManifestSha256Schema,
   type SchemaManifestSha256,
@@ -361,7 +362,7 @@ function decodeManifestDigestResult(
   value: string,
   reason: "activeSchemaChanged" | "candidateSchemaChanged",
 ): Result.Result<SchemaManifestSha256, ApplicationManagedSchemaPlanningError> {
-  return Encoding.decodeHex(value).pipe(
+  return Hex.decode(value).pipe(
     Result.flatMap(decodeSchemaManifestSha256Result),
     Result.mapError(cause => planningFailureValue(
       reason,

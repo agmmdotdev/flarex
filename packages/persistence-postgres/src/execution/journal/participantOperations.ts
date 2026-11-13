@@ -1205,7 +1205,7 @@ const appendAdmittedOperationInTransactionEffect = Effect.fn(
         new LogicalParticipantAdmissionError({ reason: "invalidAuthority" }),
       );
     }
-    const encoded = Schema.encodeSync(AdmittedParticipantWriteEventSchema)({
+    const encoded = Schema.encodeSync(AdmittedParticipantWriteEventSchema, { onExcessProperty: "error" })({
       kind: "logicalDocument",
       syscallSequence: request.syscallSequence,
       sourceBindingSha256Hex: source.sourceBindingSha256Hex,

@@ -1,7 +1,8 @@
+import * as Hex from "effect/encoding/Hex";
 import { administrativelyRepairFrameworkMetadata } from "./frameworkMetadataRepairTestSupport";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { asc, eq } from "drizzle-orm";
-import { Effect, Encoding, Option } from "effect";
+import { Effect, Option } from "effect";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -335,13 +336,13 @@ async function storedReadinessRows(
   return rows.map(row => ({
     readinessStorageId: row.readinessStorageId,
     installationStorageId: row.installationStorageId,
-    installationSha256: Encoding.encodeHex(row.installationSha256),
+    installationSha256: Hex.encode(row.installationSha256),
     installationReceiptSha256:
-      Encoding.encodeHex(row.installationReceiptSha256),
-    readinessSha256: Encoding.encodeHex(row.readinessSha256),
-    validationSha256: Encoding.encodeHex(row.validationSha256),
+      Hex.encode(row.installationReceiptSha256),
+    readinessSha256: Hex.encode(row.readinessSha256),
+    validationSha256: Hex.encode(row.validationSha256),
     validatedStructureSha256:
-      Encoding.encodeHex(row.validatedStructureSha256),
+      Hex.encode(row.validatedStructureSha256),
     frameFormat: row.frameFormat,
     frameVersion: row.frameVersion,
     canonicalByteLength: row.canonicalByteLength,

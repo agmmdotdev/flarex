@@ -26,7 +26,7 @@ function fixture() {
     { name: "by_native_id", fields: ["id"], ref: { id: bytes(72) } }] };
   const schemas = { ...table("_schemas", 532, 3), indexes: [...table("_schemas", 532, 3).indexes,
     { name: "by_state", fields: ["state"], ref: { id: bytes(73) } }] };
-  const reference = Schema.decodeUnknownSync(CoreNativeProtectedReferenceSchema)({
+  const reference = Schema.decodeUnknownSync(CoreNativeProtectedReferenceSchema, { onExcessProperty: "error" })({
     reference: { name: "article_product", sourceKey: "application", source: { table: { namespace: "app", logicalName: "articles" }, field: "product" },
       target: { table: { namespace: "app", logicalName: "products" }, field: "id" }, policy: "strongReference",
       liveness: { source: { kind: "current" }, target: { kind: "softDeleteNull", field: "deleted_at" } },
@@ -36,7 +36,7 @@ function fixture() {
     sourceIdentity: { sourceKey: "application", sourceSha256: "a".repeat(64) },
     targetIdentity: { sourceKey: "medusa", sourceSha256: "b".repeat(64) },
   });
-  const target: CoreTableDefinition = { ...targetBase, nativePolicy: Schema.decodeUnknownSync(CoreNativeTablePolicySchema)({
+  const target: CoreTableDefinition = { ...targetBase, nativePolicy: Schema.decodeUnknownSync(CoreNativeTablePolicySchema, { onExcessProperty: "error" })({
     state: "active", schemaId: Result.getOrThrow(publicDocumentId(schemas, bytes(81))), applicationRead: false, uniqueConstraints: [],
     identity: { sourceKey: "medusa", sourceSha256: "b".repeat(64), configSha256: "c".repeat(64), provenanceSha256: "d".repeat(64),
       definitionHash: "e".repeat(64), scopeUuid: "1726a4fd-1e3f-4166-a276-72742040bd95", epochUuid: "21172004-bd8d-40f5-b735-825ec68c06bd" },

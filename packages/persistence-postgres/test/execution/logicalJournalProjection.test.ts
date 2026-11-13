@@ -51,7 +51,7 @@ it("retains unique-key refusal before a later key getter and retains the origina
 it("retains metadata encoding before index projection and preserves Schema error classification", async () => {
   const watermark = MetadataSequenceSchema.make(1n), later = new Error("later index projection");
   const dependency = LogicalMetadataReadDependencySchema.make({ kind: "metadata", namespace: "binding", ownerKey: "source",
-    contractKey: "contract", capturedWatermark: watermark, observed: { kind: "present", semanticSha256Hex: "a".repeat(64) } });
+    contractKey: "contract", capturedWatermark: watermark, observed: { kind: "present", semanticSha256Hex: "a".repeat(64) } }, { parseOptions: { onExcessProperty: "error" } });
   const graph: LogicalDocumentChanges = { ...empty(), metadataWatermark: watermark,
     metadataDependencies: [{ ...dependency, observed: { kind: "present", semanticSha256Hex: "bad" } }],
     get indexReads(): never { throw later; } };

@@ -23,7 +23,7 @@ const decodeParents = commerceDecoder(Schema.Array(Schema.NullOr(TaxId)).check(S
 const decodeEvent = moduleEventDecoder(Schema.Struct({ name: Schema.String,
   metadata: Schema.Struct({ source: Schema.Literal(Modules.TAX), object: Schema.Literals(["tax_region", "tax_rate", "tax_rate_rule"]),
     action: Schema.Literals(["created", "deleted"]) }),
-  data: Schema.Struct({ id: Schema.Union([TaxId, Schema.Array(TaxId).check(Schema.isLengthBetween(1, 8))]) }),
+  data: Schema.Struct({ id: Schema.Union([TaxId, Schema.Array(TaxId).check(Schema.isBetweenLength(1, 8))]) }),
 }), defaultCommerceResources);
 
 /** Bind native Region preparation and positional nested creates to complete

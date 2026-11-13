@@ -22,9 +22,9 @@ export const preparePaymentCollectionLinkLifecycle = Effect.fn("PaymentCollectio
   if (definition === undefined) return yield* Effect.fail(commerceError("invalidAuthority"));
   const endpoint = kind + "_id";
   const Link = Schema.Struct({ [kind]: Schema.Struct({ [endpoint]: ScalarId }), payment: Schema.Struct({ payment_collection_id: ScalarId }) });
-  const Links = Schema.Array(Link).pipe(Schema.mutable).check(Schema.isLengthBetween(1, 1));
+  const Links = Schema.Array(Link).pipe(Schema.mutable).check(Schema.isBetweenLength(1, 1));
   const decode = commerceDecoder(Links, "invalidInput"), argumentsDecoder = commerceDecoder(Schema.Tuple([Links]), "invalidInput");
-  const output = commerceDecoder(Schema.Array(Schema.JsonObject).check(Schema.isLengthBetween(1, 1)), "storedCorruption");
+  const output = commerceDecoder(Schema.Array(Schema.JsonObject).check(Schema.isBetweenLength(1, 1)), "storedCorruption");
   const dismissOutput = commerceDecoder(Schema.Array(Schema.JsonObject).check(Schema.isMaxLength(1)), "storedCorruption");
   const commands = commerceServiceCommands(read.prepared.use), prepare = commerceCommandPreparation("PaymentCollectionLink.prepareInput")(decode);
   const create = commands.write("paymentCollectionLinkCreate", prepare, ({ link, context }, input) => link.create(input, context));

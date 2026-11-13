@@ -3,11 +3,11 @@ import { Modules, buildModuleResourceEventName } from "@medusajs/framework/utils
 import { commerceError, defaultCommerceResources } from "@flarex/persistence-postgres/internal/commerce-values";
 import { moduleEventDecoder } from "../../module/events";
 
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 const decodeEvent = moduleEventDecoder(Schema.Struct({ name: Schema.String,
   metadata: Schema.Struct({ source: Schema.Literal(Modules.INVENTORY), object: Schema.Literal("inventory_level"),
     action: Schema.Literals(["created", "updated", "deleted", "restored"]) }),
-  data: Schema.Struct({ id: Schema.Union([Id, Schema.Array(Id).check(Schema.isLengthBetween(1, 8))]) }),
+  data: Schema.Struct({ id: Schema.Union([Id, Schema.Array(Id).check(Schema.isBetweenLength(1, 8))]) }),
 }), defaultCommerceResources);
 
 /** Native Level event grammar is shared by publication admission and receipt

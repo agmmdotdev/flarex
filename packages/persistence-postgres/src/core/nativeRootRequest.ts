@@ -40,18 +40,18 @@ const Frame = Schema.Struct({ format: Schema.Literal("flarex.core-native-root"),
   participants: Schema.Array(Schema.Struct({ source: CoreNativeIdentitySchema,
     commands: Schema.Array(Schema.Struct({ name: Schema.NonEmptyString, mode: Schema.Literals(["read", "write"]) })),
     limits: Schema.Struct({ maxIdentities: Schema.Int, maxDocumentBytes: Schema.Int }),
-  })).check(Schema.isLengthBetween(1, 64)),
+  })).check(Schema.isBetweenLength(1, 64)),
   applicationInsert: Schema.NullOr(JsonObjectSchema), maxFinalUserDocuments: Schema.Int,
   applicationRead: Schema.optionalKey(JsonObjectSchema), applicationProgram: Schema.optionalKey(JsonObjectSchema),
   retryProvenNoncommit: Schema.optionalKey(Schema.Literal(true)), protectedMetadata: Schema.optionalKey(Schema.Literal(true)),
   executionIsolation: Schema.optionalKey(Schema.Literal("scopeExclusive")),
-}).annotate({ parseOptions: { onExcessProperty: "error" } });
+});
 const decodeFrame = Schema.decodeUnknownResult(Frame, { onExcessProperty: "error" });
 export const CoreNativeRootRequestEvidenceSchema = Schema.Struct({
-  key: Schema.String.check(Schema.isLengthBetween(1, 256)),
+  key: Schema.String.check(Schema.isBetweenLength(1, 256)),
   requestHash: Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/)), root: CoreNativeRootIdentitySchema,
   source: CoreNativeIdentitySchema, frame: Frame,
-}).annotate({ parseOptions: { onExcessProperty: "error" } });
+});
 export type CoreNativeRootRequestEvidence = typeof CoreNativeRootRequestEvidenceSchema.Type;
 const decodeEvidence = Schema.decodeUnknownResult(CoreNativeRootRequestEvidenceSchema, { onExcessProperty: "error" });
 

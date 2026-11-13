@@ -35,7 +35,7 @@ export async function finiteAcceptingReadinessScenario(
   await persistence.query("update fx_system_scope_clock set last_commit_seq=3 where scope_id=$1", [scopeId]);
   const anchor = await Effect.runPromise(captureFiniteAttemptAnchor({ snapshotToken: SnapshotTokenSchema.make({
     scopeId, epoch, commitSeq: CommitSeqSchema.make(3n),
-  }) }));
+  }, { parseOptions: { onExcessProperty: "error" } }) }));
   const owner = TransactionExecutionClaimOwnerV1Schema.make("61000000-0000-4000-8000-000000000142");
   const [stored] = await database.update(fxSystemTransactionSessions).set({
     ...Result.getOrThrow(projectCapturedFiniteAttemptAnchor(anchor)), lifecycle: "running",

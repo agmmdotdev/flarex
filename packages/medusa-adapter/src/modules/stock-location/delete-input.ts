@@ -4,7 +4,7 @@ import type { SchemaTable } from "../../schema/model";
 import { commerceDecoder } from "../../value/decoder";
 import { compileCompleteRow } from "../../value/complete-row";
 
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 /** Raw order and repeats belong to the workflow; native DAL root selection is
  * membership-based and its returned identities drive Link cleanup. */
 export const StockLocationDeletionIds = Schema.Array(Id).check(Schema.isMaxLength(4));

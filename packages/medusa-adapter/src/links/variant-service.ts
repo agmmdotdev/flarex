@@ -22,7 +22,7 @@ import { QueryLimit, QueryOffset } from "../query/decoder";
 import { defineWorkflowMethod, defineWorkflowModule } from "../workflow/module";
 import { prepareLinkWorkflowService } from "./workflow-service";
 
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 const Ids = Schema.Union([Id, Schema.Array(Id).pipe(Schema.mutable).check(Schema.isMaxLength(8))]);
 const IdFilter = Schema.Union([Ids, Schema.Struct({ $ne: Id })]);
 const Data = Schema.optionalKey(Schema.Struct({ id: Schema.optionalKey(Id) }));

@@ -4,7 +4,7 @@ import type { ProductSubmissionReceipt } from "./verifyConcurrentProductGraphs";
 export type ProductBenchmarkSubmission = Pick<ProductSubmissionReceipt,
   "phase" | "seq" | "handle" | "sku" | "amount" | "concurrency" | "round">;
 
-const only = <S extends Schema.Top>(schema: S) => Schema.Array(schema).check(Schema.isLengthBetween(1, 1));
+const only = <S extends Schema.Top>(schema: S) => Schema.Array(schema).check(Schema.isBetweenLength(1, 1));
 const decodeResponse = Schema.decodeUnknownResult(Schema.fromJsonString(Schema.Struct({ product: Schema.Struct({
   id: Schema.NonEmptyString, handle: Schema.String,
   options: only(Schema.Struct({ id: Schema.String, title: Schema.Literal("Size"),

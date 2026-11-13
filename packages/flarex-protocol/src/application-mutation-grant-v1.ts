@@ -1,10 +1,11 @@
+import * as Base64Url from "effect/encoding/Base64Url";
 import {
   bytesEqual,
   copyBytes,
   copyBytesToArrayBuffer,
   encodeBytesToLowercaseHex,
 } from "@flarex/utils/bytes";
-import { Data, Effect, Encoding, Result, Schema } from "effect";
+import { Data, Effect, Result, Schema } from "effect";
 
 import {
   recanonicalizeApplicationMutationExecutionAuthorityV1,
@@ -20,10 +21,7 @@ import type { GrantRetentionPolicyV1 } from "./grant-retention-policy";
 import { freezeOwnedProtocolProjection } from "./owned-protocol-projection";
 import { CatalogSchemaVersionIdSchema } from "./schema-manifest";
 import { ReplacementScopeIdV1Schema } from "./storage-authority";
-import {
-  StrictParseOptions,
-  StrictStructOptions,
-} from "./strict-schema-options";
+import { StrictParseOptions } from "./strict-schema-options";
 import {
   TransactionGrantDeploymentIdV1Schema,
   TransactionGrantCapabilitiesV1Schema,
@@ -87,7 +85,7 @@ export const ApplicationMutationGrantProtectedHeaderV1Schema = Schema.Struct({
   alg: Schema.Literal(APPLICATION_MUTATION_GRANT_JWS_ALGORITHM_V1),
   kid: TransactionGrantKeyIdV1Schema,
   typ: Schema.Literal(APPLICATION_MUTATION_GRANT_JWS_TYPE_V1),
-}).annotate(StrictStructOptions);
+});
 export type ApplicationMutationGrantProtectedHeaderV1 =
   typeof ApplicationMutationGrantProtectedHeaderV1Schema.Type;
 
@@ -117,7 +115,7 @@ export const ApplicationMutationGrantPayloadV1Schema = Schema.Struct({
   expiresAt: TransactionGrantTimestampV1Schema,
   authorizationRevocationEpoch:
     TransactionAuthorizationRevocationEpochSchema,
-}).annotate(StrictStructOptions).check(
+}).check(
   Schema.makeFilter(payload =>
     Date.parse(payload.expiresAt) > Date.parse(payload.issuedAt)
       ? undefined
@@ -142,7 +140,7 @@ export const ApplicationMutationGrantJwsWireV1Schema = Schema.Struct({
   protected: ProtectedSegment,
   payload: PayloadSegment,
   signature: SignatureSegment,
-}).annotate(StrictStructOptions);
+});
 export type ApplicationMutationGrantJwsWireV1 =
   typeof ApplicationMutationGrantJwsWireV1Schema.Type;
 
@@ -561,10 +559,10 @@ export const prepareApplicationMutationGrantV1 = Effect.fn(
     "payload",
     MAX_PAYLOAD_BYTES,
   );
-  const protectedBase64Url = Encoding.encodeBase64Url(
+  const protectedBase64Url = Base64Url.encode(
     canonicalHeader,
   );
-  const payloadBase64Url = Encoding.encodeBase64Url(
+  const payloadBase64Url = Base64Url.encode(
     canonicalPayload.canonicalBytes,
   );
   const signingInput = UTF8.encode(
@@ -598,8 +596,8 @@ export function assembleApplicationMutationGrantJwsV1(
     ApplicationMutationGrantJwsWireV1Schema.make({
       protected: segments.protectedBase64Url,
       payload: segments.payloadBase64Url,
-      signature: Encoding.encodeBase64Url(signatureBytes),
-    }),
+      signature: Base64Url.encode(signatureBytes),
+    }, { parseOptions: { onExcessProperty: "error" } }),
   );
 }
 

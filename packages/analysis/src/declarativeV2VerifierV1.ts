@@ -1,10 +1,11 @@
+import * as Base64 from "effect/encoding/Base64";
 import {
   bytesEqualFullScan,
   isUint8Array,
 } from "@flarex/utils/bytes";
 import { isNonNegativeSafeInteger } from "@flarex/utils/numbers";
 import { isNonArrayRecord } from "@flarex/utils/records";
-import { Data, Encoding, Result } from "effect";
+import { Data, Result } from "effect";
 import {
   DECLARATIVE_V2_VERIFIER_BUDGET_DIMENSIONS_V2,
   type DeclarativeV2VerifierBudgetDimensionV2,
@@ -45,7 +46,7 @@ const TYPED_ARRAY_BYTE_LENGTH_GETTER = Object.getOwnPropertyDescriptor(
   TYPED_ARRAY_PROTOTYPE,
   "byteLength",
 )?.get;
-const GENERATED_ASSET_RESULT = Encoding.decodeBase64(
+const GENERATED_ASSET_RESULT = Base64.decode(
   GENERATED_DECLARATIVE_V2_VERIFIER_ASSET_BASE64_V1,
 );
 const MAX_U32 = 0xffff_ffffn;

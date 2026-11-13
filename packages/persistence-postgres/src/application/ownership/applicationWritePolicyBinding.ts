@@ -21,7 +21,7 @@ export class ApplicationWritePolicyBindingError extends Data.TaggedError("Applic
 }> {}
 
 type PolicyBindingFields = Pick<ApplicationSchemaBindingV3, "writePolicies" | "writePolicySetSha256">;
-const decodeTables = Schema.decodeUnknownEffect(Schema.Array(ApplicationSchemaTableBindingSchema));
+const decodeTables = Schema.decodeUnknownEffect(Schema.Array(ApplicationSchemaTableBindingSchema), { onExcessProperty: "error" });
 
 /** Bound policy metadata is derived from authenticated logical declarations. */
 export const prepareApplicationWritePolicyBinding = Effect.fn("ApplicationWritePolicyBinding.prepare")(

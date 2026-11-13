@@ -23,10 +23,7 @@ import {
   SchemaManifestAppTableNameSchema,
   type SchemaManifestAppTableName,
 } from "./schema-manifest";
-import {
-  StrictParseOptions,
-  StrictStructOptions,
-} from "./strict-schema-options";
+import { StrictParseOptions } from "./strict-schema-options";
 import { snapshotDecodedProtocolPlainData } from "./decoded-protocol-snapshot";
 import {
   TransactionArtifactIdV1Schema,
@@ -83,11 +80,11 @@ const BoundedContextTextV1Schema = Schema.String.check(
 const ExactRuntimeAuthV1Schema = Schema.Union([
   Schema.Struct({
     kind: Schema.Literal("anonymous"),
-  }).annotate(StrictStructOptions),
+  }),
   Schema.Struct({
     kind: Schema.Literal("user"),
     user: UserIdentitySchema,
-  }).annotate(StrictStructOptions),
+  }),
 ]);
 
 const ExactRuntimeArtifactRefV1Schema = Schema.Struct({
@@ -95,7 +92,7 @@ const ExactRuntimeArtifactRefV1Schema = Schema.Struct({
   artifactId: TransactionArtifactIdV1Schema,
   sourcePackageHash: TransactionSourcePackageSha256HexV1Schema,
   executionModule: TransactionExecutionModuleV1Schema,
-}).annotate(StrictStructOptions).check(
+}).check(
   Schema.makeFilter((ref) =>
     ref.artifactId === `artifact_${ref.sourcePackageHash.slice(0, 32)}`
       ? undefined
@@ -110,12 +107,10 @@ const ExactRuntimeFunctionV1Schema = Schema.Struct({
   visibility: Schema.Literal("public"),
   argsValidator: Schema.Union([
     ObjectValidatorJsonV1,
-    Schema.Struct({ type: Schema.Literal("any") }).annotate(
-      StrictStructOptions,
-    ),
+    Schema.Struct({ type: Schema.Literal("any") }),
   ]),
   returnsValidator: Schema.Union([ValidatorJsonV1, Schema.Null]),
-}).annotate(StrictStructOptions);
+});
 
 const ExactRuntimeContextV1Schema = Schema.Struct({
   executionId: BoundedContextTextV1Schema,
@@ -126,12 +121,12 @@ const ExactRuntimeContextV1Schema = Schema.Struct({
   ),
   executionTime: AppCreationTimeV1Schema,
   initialCreationTimeCursor: AppCreationTimeV1Schema,
-}).annotate(StrictStructOptions);
+});
 
 const ExactRuntimeTableV1Schema = Schema.Struct({
   tableId: CatalogTableIdSchema,
   logicalName: SchemaManifestAppTableNameSchema,
-}).annotate(StrictStructOptions);
+});
 
 const ExactRuntimeTablesV1Schema = Schema.Array(
   ExactRuntimeTableV1Schema,
@@ -167,7 +162,7 @@ const ExactRuntimeRequestShapeV1Schema = Schema.Struct({
   ),
   tables: ExactRuntimeTablesV1Schema,
   context: ExactRuntimeContextV1Schema,
-}).annotate(StrictStructOptions).check(
+}).check(
   Schema.makeFilter((request) =>
     request.artifact.executionModule === request.function.executionModule
       ? undefined
@@ -179,7 +174,7 @@ const ExactRuntimeResultShapeV1Schema = Schema.Struct({
   format: Schema.Literal(POINT_MUTATION_EXACT_RUNTIME_RESULT_FORMAT_V1),
   version: Schema.Literal(POINT_MUTATION_EXACT_RUNTIME_RESULT_VERSION_V1),
   value: Schema.Unknown,
-}).annotate(StrictStructOptions);
+});
 
 const decodeExactRuntimeRequestShapeV1Result = Schema.decodeUnknownResult(
   ExactRuntimeRequestShapeV1Schema,

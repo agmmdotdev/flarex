@@ -527,7 +527,7 @@ export function registerStoredAttemptEvidenceLoaderIntegrityTests<
           snapshotToken: SnapshotTokenSchema.make({
             ...current.authority.snapshotToken,
             epoch: ScopeEpochSchema.make("epoch_stale_c04a"),
-          }),
+          }, { parseOptions: { onExcessProperty: "error" } }),
         },
         reason: "epochChanged",
       },
@@ -539,7 +539,7 @@ export function registerStoredAttemptEvidenceLoaderIntegrityTests<
             commitSeq: CommitSeqSchema.make(
               current.authority.snapshotToken.commitSeq + 1n,
             ),
-          }),
+          }, { parseOptions: { onExcessProperty: "error" } }),
         },
         reason: "snapshotChanged",
       },

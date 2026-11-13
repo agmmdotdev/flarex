@@ -30,7 +30,7 @@ const OrderCreate = Schema.Struct({
   shipping_methods: Schema.optionalKey(Schema.Array(Schema.Never)), credit_lines: Schema.optionalKey(Schema.Array(Schema.Never)),
   promo_codes: Schema.optionalKey(Schema.Array(Schema.Never)),
 });
-export const OrderCreates = Schema.Array(OrderCreate).check(Schema.isLengthBetween(1, 4), Schema.makeFilter(orders =>
+export const OrderCreates = Schema.Array(OrderCreate).check(Schema.isBetweenLength(1, 4), Schema.makeFilter(orders =>
   orders.reduce((sum, order) => sum + (order.items?.length ?? 0), 0) <= 4 || "Expected at most four total Order line items"));
 export const decodeOrderCreates = commerceDecoder(OrderCreates, "invalidInput");
 // Checkout copies selected Cart Address scalars through the genuine native
@@ -62,11 +62,11 @@ export const CheckoutOrderCreates = Schema.Array(Schema.Struct({ ...OrderCreate.
   shipping_methods: Schema.optionalKey(Schema.Array(CheckoutShippingMethod).check(Schema.isMaxLength(4))),
   credit_lines: Schema.optionalKey(Schema.Array(CheckoutCreditLine).check(Schema.isMaxLength(4))),
   promo_codes: Schema.optionalKey(Schema.Array(Schema.String).check(Schema.isMaxLength(8))),
-})).check(Schema.isLengthBetween(1, 1), Schema.makeFilter(orders => orders.every(order =>
+})).check(Schema.isBetweenLength(1, 1), Schema.makeFilter(orders => orders.every(order =>
   [order.items ?? [], order.shipping_methods ?? []].every(members =>
     members.reduce((sum, member) => sum + (member.tax_lines?.length ?? 0), 0) <= 4 &&
     members.reduce((sum, member) => sum + (member.adjustments?.length ?? 0), 0) <= 4)) ||
   "Expected at most four rows per Order child family"));
-export const CheckoutOrderDeletes = Schema.Array(ScalarId).check(Schema.isLengthBetween(1, 1));
+export const CheckoutOrderDeletes = Schema.Array(ScalarId).check(Schema.isBetweenLength(1, 1));
 export const decodeCheckoutOrderCreates = commerceDecoder(CheckoutOrderCreates, "invalidInput");
 export const decodeCheckoutOrderDeletes = commerceDecoder(CheckoutOrderDeletes, "invalidInput");

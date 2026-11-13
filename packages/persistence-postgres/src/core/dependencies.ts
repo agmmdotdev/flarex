@@ -59,7 +59,7 @@ export function addTableSemanticDependency(reads: CoreReadSetBuilder, registry: 
   });
 }
 
-const decodeNativePolicy = Schema.decodeUnknownResult(CoreNativeTablePolicySchema);
+const decodeNativePolicy = Schema.decodeUnknownResult(CoreNativeTablePolicySchema, { onExcessProperty: "error" });
 function semanticTableDocument(document: DocumentObject | null): Result.Result<Uint8Array | null, CoreTransactionError> {
   if (document === null) return Result.succeed(null);
   return Result.gen(function* () {

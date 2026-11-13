@@ -1,4 +1,5 @@
-import { Encoding, Result } from "effect";
+import * as Base64Url from "effect/encoding/Base64Url";
+import { Result } from "effect";
 
 import {
   captureAdmittedInvalidationBatch,
@@ -93,18 +94,18 @@ export function canonicalBytes(
   for (let index = 0; index < seedBytes; index += 1) {
     bytes[index] = (seed >>> (index * 8)) & 0xff;
   }
-  return Encoding.encodeBase64Url(bytes);
+  return Base64Url.encode(bytes);
 }
 
 export function canonicalText(value: string): string {
-  return Encoding.encodeBase64Url(value);
+  return Base64Url.encode(value);
 }
 
 export function canonicalKey(seed: number): string {
   const bytes = new Uint8Array(32);
   const view = new DataView(bytes.buffer);
   view.setUint32(0, seed);
-  return Encoding.encodeBase64Url(bytes);
+  return Base64Url.encode(bytes);
 }
 
 export function cursor(input: {

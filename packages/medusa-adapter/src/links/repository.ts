@@ -14,7 +14,7 @@ import { compileWhere, type Predicate, type WherePolicy } from "../query/predica
 import { executeRead, type ReadPlan } from "../query/read";
 import type { captureLinkMetadata } from "./schema";
 
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 const decodeRows = commerceDecoder(Schema.Array(Schema.JsonObject), "storedCorruption");
 const decodeEnvelope = commerceDecoder(QueryEnvelope, "unsupportedProfile");
 const decodeWhere = commerceDecoder(Schema.JsonObject, "unsupportedProfile");

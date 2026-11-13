@@ -24,7 +24,7 @@ const decodeProviderRows = commerceDecoder(Schema.Array(Schema.JsonObject).check
 const decodeBooleans = commerceDecoder(Schema.Array(Schema.Boolean).check(Schema.isMaxLength(4)), "receiptMismatch");
 const decodeEvent = moduleEventDecoder(Schema.Struct({ name: Schema.String, metadata: Schema.Struct({ source: Schema.Literal(Modules.FULFILLMENT),
   object: Schema.Literals(["shipping_option", "shipping_option_type", "shipping_option_rule"]), action: Schema.Literals(["created", "deleted"]) }),
-  data: Schema.Struct({ id: Schema.Union([ShippingOptionId, Schema.Array(ShippingOptionId).check(Schema.isLengthBetween(1, 16))]) }),
+  data: Schema.Struct({ id: Schema.Union([ShippingOptionId, Schema.Array(ShippingOptionId).check(Schema.isBetweenLength(1, 16))]) }),
 }), defaultCommerceResources);
 
 /** Correlate finite native module calls with complete actual row/read/event

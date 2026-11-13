@@ -38,10 +38,7 @@ import {
   type ProbeStartupObservationsV1,
   type ProbeTraceSpanV1,
 } from "./protocol";
-import {
-  StrictParseOptions,
-  StrictStructOptions,
-} from "./strictSchemaOptions";
+import { StrictParseOptions } from "./strictSchemaOptions";
 
 const SyntheticPayloadSchema = Schema.String.check(
   Schema.isPattern(/^x*$/),
@@ -52,7 +49,7 @@ const ProbeGatewaySampleRequestV1Shape = Schema.Struct({
   sampleOrdinal: ProbeOrdinalSchema,
   phase: ProbeSamplePhaseSchema,
   payload: SyntheticPayloadSchema,
-}).annotate(StrictStructOptions);
+});
 
 export const ProbeGatewaySampleRequestV1Schema =
   ProbeGatewaySampleRequestV1Shape.check(
@@ -89,7 +86,7 @@ const ProbeGatewaySampleV1Shape = Schema.Struct({
   edgeColo: Schema.Union([ProbeEdgeColoSchema, Schema.Null]),
   outcome: ProbeSampleOutcomeV1Schema,
   spans: Schema.Array(ProbeTraceSpanV1Schema),
-}).annotate(StrictStructOptions);
+});
 
 export const ProbeGatewaySampleV1Schema = ProbeGatewaySampleV1Shape.check(
   Schema.makeFilter(sample => gatewaySampleRelationshipIssue(sample)),
@@ -105,16 +102,12 @@ export type ProbeMeasurementDisposition =
   typeof ProbeMeasurementDispositionSchema.Type;
 
 export const ProbeSyncWakeObservationV1Schema = Schema.Union([
-  Schema.Struct({ kind: Schema.Literal("not-applicable") }).annotate(
-    StrictStructOptions,
-  ),
-  Schema.Struct({ kind: Schema.Literal("unobserved") }).annotate(
-    StrictStructOptions,
-  ),
+  Schema.Struct({ kind: Schema.Literal("not-applicable") }),
+  Schema.Struct({ kind: Schema.Literal("unobserved") }),
   Schema.Struct({
     kind: Schema.Literal("observed"),
     disposition: ProbeSyncDispositionSchema,
-  }).annotate(StrictStructOptions),
+  }),
 ]);
 export type ProbeSyncWakeObservationV1 =
   typeof ProbeSyncWakeObservationV1Schema.Type;
@@ -145,7 +138,7 @@ const ProbeSampleControlV1Shape = Schema.Struct({
   scenarioWindowDurationMs: ProbeDurationMsSchema,
   syncWake: ProbeSyncWakeObservationV1Schema,
   externalRequestIncludesControlPlane: Schema.Literal(true),
-}).annotate(StrictStructOptions);
+});
 
 export const ProbeSampleControlV1Schema = ProbeSampleControlV1Shape.check(
   Schema.makeFilter(control => sampleControlRelationshipIssue(control)),
@@ -155,7 +148,7 @@ export type ProbeSampleControlV1 = typeof ProbeSampleControlV1Schema.Type;
 const ProbeControlledGatewaySampleV1Shape = Schema.Struct({
   fragment: ProbeGatewaySampleV1Schema,
   control: ProbeSampleControlV1Schema,
-}).annotate(StrictStructOptions);
+});
 
 export const ProbeControlledGatewaySampleV1Schema =
   ProbeControlledGatewaySampleV1Shape.check(
@@ -171,7 +164,7 @@ export const decodeProbeControlledGatewaySampleV1OrNull =
 const ProbeControlledSampleResultV1Shape = Schema.Struct({
   sample: ProbeSampleResultV1Schema,
   control: ProbeSampleControlV1Schema,
-}).annotate(StrictStructOptions);
+});
 
 export const ProbeControlledSampleResultV1Schema =
   ProbeControlledSampleResultV1Shape.check(
@@ -276,7 +269,7 @@ export function completeProbeGatewaySampleV1(
     outcome: gatewaySample.outcome.kind === "ok"
       ? { kind: "ok" }
       : { kind: "error", error: gatewaySample.outcome.error },
-  });
+  }, { parseOptions: { onExcessProperty: "error" } });
   return ProbeSampleResultV1Schema.make({
     protocolVersion: gatewaySample.protocolVersion,
     runId: gatewaySample.runId,
@@ -288,7 +281,7 @@ export function completeProbeGatewaySampleV1(
     edgeColo: gatewaySample.edgeColo,
     outcome: gatewaySample.outcome,
     spans: [externalSpan, ...gatewaySample.spans],
-  });
+  }, { parseOptions: { onExcessProperty: "error" } });
 }
 
 export function completeControlledProbeGatewaySampleV1(
@@ -301,14 +294,14 @@ export function completeControlledProbeGatewaySampleV1(
       externalDurationMs,
     ),
     control: gatewaySample.control,
-  });
+  }, { parseOptions: { onExcessProperty: "error" } });
 }
 
 export function controlledProbeGatewaySampleV1(
   fragment: ProbeGatewaySampleV1,
   control: ProbeSampleControlV1,
 ): ProbeControlledGatewaySampleV1 {
-  return ProbeControlledGatewaySampleV1Schema.make({ fragment, control });
+  return ProbeControlledGatewaySampleV1Schema.make({ fragment, control }, { parseOptions: { onExcessProperty: "error" } });
 }
 
 export function probeSyncWakeRelationshipIssueV1(
@@ -781,5 +774,5 @@ export function gatewaySampleFromRun(
     edgeColo: input.edgeColo,
     outcome: input.outcome,
     spans: input.spans,
-  });
+  }, { parseOptions: { onExcessProperty: "error" } });
 }

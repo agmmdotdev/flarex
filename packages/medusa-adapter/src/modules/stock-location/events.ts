@@ -25,7 +25,7 @@ export function stockLocationCreateEventPolicy(table: SchemaTable, addressTable:
     const decode = moduleEventDecoder(Schema.Struct({ name: Schema.String,
       metadata: Schema.Struct({ source: Schema.Literal(Modules.STOCK_LOCATION),
         object: Schema.Literals(["stock_location", "stock_location_address"]), action: Schema.Literal(CommonEvents.CREATED) }),
-      data: Schema.Struct({ id: Schema.Union([ScalarId, Schema.Array(ScalarId).check(Schema.isLengthBetween(1, 4))]) }),
+      data: Schema.Struct({ id: Schema.Union([ScalarId, Schema.Array(ScalarId).check(Schema.isBetweenLength(1, 4))]) }),
     }), defaultCommerceResources);
     const capture = Effect.fn("StockLocationEvents.capture")(function* (input: unknown) {
       const message = yield* decode(input);

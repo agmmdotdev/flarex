@@ -13,7 +13,7 @@ describe("current private source document declarations", () => {
       '{"type":"object","value":{"$bad":{"fieldType":{"type":"string"},"optional":false}}}',
       '{"type":"object","value":{"deep":{"fieldType":' + nested + ',"optional":false}}}',
       '{"type":"object","value":{"scores":{"fieldType":{"type":"record","keys":{"type":"string"},"values":{"fieldType":{"type":"number"},"optional":true}},"optional":false}}}',
-    ]) expect(Result.isFailure(Schema.decodeUnknownResult(SchemaManifestAppDocumentDefinitionV2Schema)({
+    ]) expect(Result.isFailure(Schema.decodeUnknownResult(SchemaManifestAppDocumentDefinitionV2Schema, { onExcessProperty: "error" })({
       kind: "appDocument", definitionVersion: 2, documentType,
     }))).toBe(true);
   });
@@ -42,7 +42,7 @@ describe("current private source document declarations", () => {
       { type: "object", value: { _filtered: { fieldType: { type: "number" }, optional: false },
         value: { fieldType: { type: "string" }, optional: false } } },
     ] }) };
-    expect(Schema.decodeUnknownSync(SchemaManifestAppDocumentDefinitionV2Schema)(encoded).documentType).toEqual({ type: "object",
+    expect(Schema.decodeUnknownSync(SchemaManifestAppDocumentDefinitionV2Schema, { onExcessProperty: "error" })(encoded).documentType).toEqual({ type: "object",
       value: { value: { fieldType: { type: "string" }, optional: false } } });
     expect(Result.isFailure(decodeSchemaManifestAppTableDeclarationsV1Result([{ logicalName: "items",
       definition: { ...encoded, definitionVersion: 3 } }]))).toBe(true);

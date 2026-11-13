@@ -7,8 +7,8 @@ import { commerceDecoder } from "../value/decoder";
 import { QueryLimit, QueryOffset } from "../query/decoder";
 import { admitNativeQueryPaths, type NativeQueryMetadata } from "./native-bridge";
 
-const Name = Schema.String.check(Schema.isLengthBetween(1, 256), Schema.isPattern(/^[A-Za-z][A-Za-z0-9_]*$/));
-const Fields = Schema.Array(Schema.String.check(Schema.isLengthBetween(1, 256))).check(Schema.isMaxLength(256));
+const Name = Schema.String.check(Schema.isBetweenLength(1, 256), Schema.isPattern(/^[A-Za-z][A-Za-z0-9_]*$/));
+const Fields = Schema.Array(Schema.String.check(Schema.isBetweenLength(1, 256))).check(Schema.isMaxLength(256));
 const LocalFields = Schema.Array(Schema.Union([Name, Schema.Literal("*")])).check(Schema.isMaxLength(256));
 const Page = Schema.Struct({ take: Schema.optionalKey(Schema.UndefinedOr(QueryLimit)), skip: Schema.optionalKey(Schema.UndefinedOr(QueryOffset)),
   order: Schema.optionalKey(Schema.UndefinedOr(Schema.Record(Name, Schema.Literals(["ASC", "DESC", "asc", "desc"])))) });
@@ -41,7 +41,7 @@ export const decodeNativeGraphOptions = commerceDecoder(Schema.Struct({
   throwIfRelationNotFound: Schema.optionalKey(Schema.UndefinedOr(Schema.Literal(false))),
   locale: Schema.optionalKey(Schema.Undefined),
   cache: Schema.optionalKey(Schema.UndefinedOr(Schema.Struct({ enable: Schema.optionalKey(Schema.UndefinedOr(Schema.Boolean)),
-    tags: Schema.optionalKey(Schema.UndefinedOr(Schema.Array(Schema.String.check(Schema.isLengthBetween(1, 256))).check(Schema.isMaxLength(8)))) }))),
+    tags: Schema.optionalKey(Schema.UndefinedOr(Schema.Array(Schema.String.check(Schema.isBetweenLength(1, 256))).check(Schema.isMaxLength(8)))) }))),
 }), "unsupportedProfile");
 
 /** Inspect the genuine native normalized plan only for profile admission. No

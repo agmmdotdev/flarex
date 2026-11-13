@@ -109,8 +109,7 @@ interface CoreRequestCorrelation {
 export interface CoreNativeCommandIdentity { readonly source: CoreNativeIdentity; readonly name: string; readonly mode: "read" | "write" }
 export interface CoreNativeCommandDefinition { readonly name: string; readonly mode: "read" | "write"; readonly identity: CoreNativeCommandIdentity }
 /** Digest of the complete stable selected root contract, issued with a confined binding. */
-export const CoreNativeRootIdentitySchema = Schema.Struct({ definitionHash: Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/)) })
-  .annotate({ parseOptions: { onExcessProperty: "error" } });
+export const CoreNativeRootIdentitySchema = Schema.Struct({ definitionHash: Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/)) });
 export type CoreNativeRootIdentity = typeof CoreNativeRootIdentitySchema.Type;
 export type CoreRequestIdentity = CoreRequestCorrelation & (
   | Readonly<{ kind?: "application"; program: CoreProgramIdentity }>
@@ -365,7 +364,7 @@ export interface CoreNativeReferenceSelection {
 export const CoreNativeSetNullIntentSchema = Schema.Struct({ sourceTable: Schema.NonEmptyString,
   sourceColumn: Schema.NonEmptyString, targetTable: Schema.NonEmptyString, targetColumn: Schema.NonEmptyString,
   targetKey: Schema.String, managedUpdate: Schema.Literals(["advance", "preserve"]),
-}).annotate({ parseOptions: { onExcessProperty: "error" } });
+});
 export type CoreNativeSetNullIntent = typeof CoreNativeSetNullIntentSchema.Type;
 export interface CoreNativeReferenceReplacement extends CoreNativeReferenceSelection {
   readonly desiredKeys: readonly string[];

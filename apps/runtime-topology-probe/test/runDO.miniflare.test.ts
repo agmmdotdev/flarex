@@ -299,7 +299,7 @@ describe("P07A ProbeRunDO state machine", { concurrent: false }, () => {
             name: "mock_sync_wake_rtt",
             durationMs: ProbeDurationMsSchema.make(1),
             outcome: { kind: "error", error: transportError },
-          }),
+          }, { parseOptions: { onExcessProperty: "error" } }),
         ],
       });
 
@@ -731,7 +731,7 @@ async function finalizeEvidence(
     fragment,
     scenarioWindowDurationMs: ProbeDurationMsSchema.make(durationMs),
     syncWake,
-  });
+  }, { parseOptions: { onExcessProperty: "error" } });
   const raw = await bindings.PROBE_RUNS.getByName(probeRunActorId(run.runId))
     .finalize(request);
   const receipt = decodeProbeSampleFinalizeReceiptV1OrNull(
@@ -752,7 +752,7 @@ function successfulSpan(
     name,
     durationMs: ProbeDurationMsSchema.make(1),
     outcome: { kind: "ok" },
-  });
+  }, { parseOptions: { onExcessProperty: "error" } });
 }
 
 async function readStatus(
@@ -765,7 +765,7 @@ async function readStatus(
       ProbeRunStatusRequestV1Schema.make({
         protocolVersion: run.protocolVersion,
         runId: run.runId,
-      }),
+      }, { parseOptions: { onExcessProperty: "error" } }),
     );
   const receipt = decodeProbeRunStatusReceiptV1OrNull(
     copyCloudflareRpcRecord(raw),
@@ -788,7 +788,7 @@ async function controlRun(
         protocolVersion: run.protocolVersion,
         runId: run.runId,
         operation,
-      }),
+      }, { parseOptions: { onExcessProperty: "error" } }),
     );
   const receipt = decodeProbeRunControlReceiptV1OrNull(
     copyCloudflareRpcRecord(raw),
@@ -811,7 +811,7 @@ async function completeExternal(
         runId: run.runId,
         sampleOrdinal: ordinal(ordinalValue),
         externalDurationMs: ProbeDurationMsSchema.make(durationMs),
-      }),
+      }, { parseOptions: { onExcessProperty: "error" } }),
     );
   const receipt = decodeProbeExternalCompletionReceiptV1OrNull(
     copyCloudflareRpcRecord(raw),
@@ -834,7 +834,7 @@ async function evidencePage(
         runId: run.runId,
         cursor: ordinal(cursor),
         limit,
-      }),
+      }, { parseOptions: { onExcessProperty: "error" } }),
     );
   const receipt = decodeProbeRunEvidencePageReceiptV1OrNull(
     copyCloudflareRpcRecord(raw),

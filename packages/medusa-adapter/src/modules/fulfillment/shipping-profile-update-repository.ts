@@ -15,7 +15,7 @@ import { QueryEnvelope } from "../../query/decoder";
 import type { captureShippingProfileMetadata } from "./shipping-profile-schema";
 import { compileShippingProfileUpdateContracts, ShippingProfileUpdateData, ShippingProfileUpdateSelector } from "./shipping-profile-update-input";
 
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 const decodeId = commerceDecoder(Id, "invalidInput");
 const decodePairs = commerceDecoder(Schema.Array(Schema.Struct({ entity: Schema.JsonObject, update: Schema.JsonObject }))
   .check(Schema.isMaxLength(4)), "unsupportedProfile");

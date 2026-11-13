@@ -53,15 +53,13 @@ const decodeSourceEnvelope = Schema.decodeUnknownResult(SourceEnvelope, { onExce
 const decodeSourceCount = Schema.decodeUnknownResult(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 64 })));
 const captureNativeBindings = Schema.decodeUnknownResult(SchemaManifestJsonSchema);
 const NativeBindings = Schema.Array(Schema.Struct({ sourceKey: Schema.NonEmptyString,
-  selected: Schema.Boolean }).annotate({ parseOptions: { onExcessProperty: "error" } })).check(Schema.isMaxLength(64),
+  selected: Schema.Boolean })).check(Schema.isMaxLength(64),
   Schema.makeFilter(values => new Set(values.map(value => value.sourceKey)).size === values.length
     ? undefined : "Native binding source selections must be distinct"));
 const decodeNativeBindings = Schema.decodeUnknownResult(NativeBindings, { onExcessProperty: "error" });
 const StoredBundleSource = Schema.Union([
-  Schema.Struct({ kind: Schema.Literal("application"), source: LogicalSchemaSourceSchema })
-    .annotate({ parseOptions: { onExcessProperty: "error" } }),
-  Schema.Struct({ kind: Schema.Literal("native"), source: LogicalSchemaSourceSchema, native: Schema.String })
-    .annotate({ parseOptions: { onExcessProperty: "error" } }),
+  Schema.Struct({ kind: Schema.Literal("application"), source: LogicalSchemaSourceSchema }),
+  Schema.Struct({ kind: Schema.Literal("native"), source: LogicalSchemaSourceSchema, native: Schema.String }),
 ]);
 const StoredBundle = Schema.Struct({ format: Schema.Literal("flarex.core-schema-bundle"), version: Schema.Literal(1),
   loweringVersion: Schema.Literal(1), namespace: CoreTableNamespaceSchema,
@@ -69,14 +67,13 @@ const StoredBundle = Schema.Struct({ format: Schema.Literal("flarex.core-schema-
     Schema.makeFilter(sources => new Set(sources.map(source => source.source.key)).size === sources.length
       ? undefined : "Stored schema source keys must be distinct")),
   bindings: Schema.Array(Schema.Struct({ sourceKey: Schema.NonEmptyString, localName: Schema.NonEmptyString,
-    table: QualifiedLogicalTableSchema, coreTableName: Schema.NonEmptyString })
-    .annotate({ parseOptions: { onExcessProperty: "error" } })).check(Schema.isMaxLength(256),
+    table: QualifiedLogicalTableSchema, coreTableName: Schema.NonEmptyString })).check(Schema.isMaxLength(256),
     Schema.makeFilter(bindings => new Set(bindings.map(binding => binding.coreTableName)).size === bindings.length
       && new Set(bindings.map(binding => `${binding.sourceKey}\0${binding.localName}`)).size === bindings.length
       ? undefined : "Stored schema table bindings must be distinct")),
   protectedReferences: Schema.optionalKey(Schema.Array(CoreNativeProtectedReferenceSchema)),
   nativeBindings: Schema.optionalKey(NativeBindings), schema: Schema.String,
-}).annotate({ parseOptions: { onExcessProperty: "error" } });
+});
 const decodeStoredBundle = Schema.decodeUnknownResult(StoredBundle, { onExcessProperty: "error" });
 const corruptHistoricalBundle = (cause?: unknown) => new CorePersistenceError({ reason: "corruptData",
   ...(cause === undefined ? {} : { cause }) });

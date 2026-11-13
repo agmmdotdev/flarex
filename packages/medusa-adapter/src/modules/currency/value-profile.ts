@@ -22,7 +22,7 @@ export const compileCurrencyValueProfile = (model: CurrencyDmlSource) => readCur
       [Schema.Record(Schema.String, Schema.Json)],
     );
     const WriteRow = Schema.StructWithRest(Schema.Struct({
-      [metadata.schema.code.fieldName]: Schema.String.check(Schema.isLengthBetween(1, 256)),
+      [metadata.schema.code.fieldName]: Schema.String.check(Schema.isBetweenLength(1, 256)),
       [metadata.schema.rounding.fieldName]: Schema.optionalKey(NumericInput),
     }), [Schema.Record(Schema.Literals(writableFields), Schema.optionalKey(Schema.Json))]);
     return {

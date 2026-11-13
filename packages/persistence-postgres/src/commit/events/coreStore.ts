@@ -20,30 +20,28 @@ import { EventEnvelope, EventName, EventRevision, EventSubscriber, CommitEventSu
   commitEventLimits, eventError, type CommitEventError, type CommittedEvent, type CommitEventMessage, type CommitEventSubscriber } from "./model";
 import { CORE_NATIVE_EVENT_READ, CORE_NATIVE_EVENT_WRITE, coreNativeEventLimits, coreNativeEventStorage,
   captureCoreNativeEventPolicy, matchesCoreNativeEventPolicy } from "./coreDefinition";
-
-const strict = { parseOptions: { onExcessProperty: "error" } } as const;
 const FamilyId = Schema.String.check(Schema.isPattern(/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/));
 const Ordinal = Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: commitEventLimits.messages - 1 }));
 const Count = Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: commitEventLimits.messages }));
 const Instant = Schema.String.check(Schema.makeFilter(value => Number.isFinite(Date.parse(value)) && new Date(value).toISOString() === value
   ? undefined : "Expected a canonical finite instant"));
 const Code = Schema.String.check(Schema.isPattern(/^[a-zA-Z0-9._-]{1,128}$/));
-const Family = Schema.Struct({ id: FamilyId, event_count: Count, event_sha256: Schema.NullOr(EventRevision) }).annotate(strict);
-const RootBoundFamily = Schema.Struct({ ...Family.fields, root_request: Schema.String }).annotate(strict);
-const EnvelopeRow = Schema.Struct({ id: Schema.NonEmptyString, family_id: FamilyId, ordinal: Ordinal, envelope: EventEnvelope }).annotate(strict);
+const Family = Schema.Struct({ id: FamilyId, event_count: Count, event_sha256: Schema.NullOr(EventRevision) });
+const RootBoundFamily = Schema.Struct({ ...Family.fields, root_request: Schema.String });
+const EnvelopeRow = Schema.Struct({ id: Schema.NonEmptyString, family_id: FamilyId, ordinal: Ordinal, envelope: EventEnvelope });
 const StageInput = Schema.Struct({
   values: Schema.Array(EventEnvelope).check(Schema.isMaxLength(commitEventLimits.messages)), sha256: Schema.NullOr(EventRevision),
   ordinals: Schema.optionalKey(Schema.Array(Ordinal).check(Schema.isMaxLength(commitEventLimits.messages))), capturedCount: Schema.optionalKey(Count),
-}).annotate(strict);
-const SettlementFailure = Schema.NullOr(Schema.Struct({ retryable: Schema.Boolean, code: Code }).annotate(strict));
+});
+const SettlementFailure = Schema.NullOr(Schema.Struct({ retryable: Schema.Boolean, code: Code }));
 const Fence = Schema.String.check(Schema.isPattern(/^(0|[1-9][0-9]{0,18})$/), Schema.makeFilter(value =>
   BigInt(value) <= MAX_PERSISTED_SIGNED_INT64_V1 ? undefined : "Fence exceeds signed int64"));
 const Delivery = Schema.Struct({ id: Schema.NonEmptyString, family_id: FamilyId, ordinal: Ordinal,
   subscriber_id: EventName, handler_revision: EventRevision, state: Schema.Literals(["pending", "claimed", "delivered", "failed"]),
   attempts: Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: commitEventLimits.attempts })), fence: Fence,
-  owner: Schema.NullOr(Schema.String.check(Schema.isLengthBetween(1, 128))), lease_expires_at: Schema.NullOr(Instant),
+  owner: Schema.NullOr(Schema.String.check(Schema.isBetweenLength(1, 128))), lease_expires_at: Schema.NullOr(Instant),
   next_attempt_at: Instant, settled_at: Schema.NullOr(Instant), failure_code: Schema.NullOr(Code),
-}).annotate(strict).check(Schema.makeFilter(row => {
+}).check(Schema.makeFilter(row => {
   const terminal = row.state === "delivered" || row.state === "failed";
   return (terminal ? row.settled_at !== null : row.settled_at === null)
     && (row.state === "claimed" ? row.attempts > 0 && row.owner !== null && row.lease_expires_at !== null
@@ -52,12 +50,12 @@ const Delivery = Schema.Struct({ id: Schema.NonEmptyString, family_id: FamilyId,
 type Delivery = typeof Delivery.Type;
 const decodeFamily = Schema.decodeUnknownResult(Family, { onExcessProperty: "error" });
 const decodeRootBoundFamily = Schema.decodeUnknownResult(RootBoundFamily, { onExcessProperty: "error" });
-const decodePackedRootRequest = Schema.decodeUnknownEffect(Schema.fromJsonString(CoreNativeRootRequestEvidenceSchema));
+const decodePackedRootRequest = Schema.decodeUnknownEffect(Schema.fromJsonString(CoreNativeRootRequestEvidenceSchema), { onExcessProperty: "error" });
 const decodeEnvelopeRow = Schema.decodeUnknownResult(EnvelopeRow, { onExcessProperty: "error" });
 const decodeDelivery = Schema.decodeUnknownResult(Delivery, { onExcessProperty: "error" });
 const decodeEnvelope = Schema.decodeUnknownResult(EventEnvelope, { onExcessProperty: "error" });
 const decodeStageInput = Schema.decodeUnknownResult(StageInput, { onExcessProperty: "error" });
-const decodeSettlementFailure = Schema.decodeUnknownResult(SettlementFailure);
+const decodeSettlementFailure = Schema.decodeUnknownResult(SettlementFailure, { onExcessProperty: "error" });
 const decodeId = Schema.decodeUnknownResult(FamilyId);
 const decodeSubscribers = Schema.decodeUnknownResult(Schema.Array(EventSubscriber).check(Schema.isMaxLength(commitEventLimits.subscribers)), { onExcessProperty: "error" });
 const ordinalId = (familyId: string, ordinal: number) => `${familyId}/${String(ordinal).padStart(4, "0")}`;

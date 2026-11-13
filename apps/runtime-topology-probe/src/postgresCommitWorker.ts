@@ -113,7 +113,7 @@ export const readPostgresSnapshotEffect = Effect.fn(
       codeId: request.codeId,
     payloadBytes: request.payloadBytes,
     syntheticRevision: ProbeSyntheticCursorSchema.make(cursor),
-  });
+  }, { parseOptions: { onExcessProperty: "error" } });
 });
 
 export async function readPostgresSnapshot(
@@ -248,7 +248,7 @@ async function wakeCommittedOutcome(
       scopeId: request.scopeId,
       scenario: request.scenario,
       commitSeq: request.commitSeq,
-    });
+    }, { parseOptions: { onExcessProperty: "error" } });
     const syncStartedAt = performance.now();
     const rawSync = await env.PROBE_SYNC.getByName(request.scopeId)
       .wake(syncRequest);
@@ -271,7 +271,7 @@ async function wakeCommittedOutcome(
         elapsedPerformanceDurationSince(syncStartedAt),
       ),
       sync,
-    });
+    }, { parseOptions: { onExcessProperty: "error" } });
 }
 
 function withClient<A>(

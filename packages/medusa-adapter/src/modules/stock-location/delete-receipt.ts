@@ -8,7 +8,7 @@ import type { compileStockLocationDeletionContracts } from "./delete-input";
 import { decodeStockLocationDeletionIds } from "./delete-input";
 
 type Contracts = Result.Result.Success<ReturnType<typeof compileStockLocationDeletionContracts>>;
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 const decodeEvent = moduleEventDecoder(Schema.Struct({ name: Schema.String,
   metadata: Schema.Struct({ source: Schema.Literals([Modules.STOCK_LOCATION, "stock"]), object: Schema.Literal("stock_location"),
     action: Schema.Literals([CommonEvents.DELETED, CommonEvents.RESTORED]) }),

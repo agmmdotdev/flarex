@@ -1,5 +1,6 @@
+import * as Base64 from "effect/encoding/Base64";
 import { applicationHostPolicy } from "./applicationDOHostPolicy";
-import { Encoding } from "effect";
+
 
 /** Shared configuration witness; production composition requires operator-supplied values. */
 export function executorApplicationProfileFixture() {
@@ -53,8 +54,8 @@ export async function createExecutorApplicationSecretFixture(keyId: string) {
   const pair = await crypto.subtle.generateKey("Ed25519", true, ["sign", "verify"]);
   if (!("privateKey" in pair)) throw new Error("Expected an Ed25519 key pair.");
   return JSON.stringify({ version: 1, keys: [{ keyId,
-    privateKeyPkcs8: Encoding.encodeBase64(new Uint8Array(await crypto.subtle.exportKey("pkcs8", pair.privateKey))),
-    publicKeySpki: Encoding.encodeBase64(new Uint8Array(await crypto.subtle.exportKey("spki", pair.publicKey))),
-    queryCursorSecret: Encoding.encodeBase64(crypto.getRandomValues(new Uint8Array(32))), issuedAtInclusiveEpochMilliseconds: 0,
+    privateKeyPkcs8: Base64.encode(new Uint8Array(await crypto.subtle.exportKey("pkcs8", pair.privateKey))),
+    publicKeySpki: Base64.encode(new Uint8Array(await crypto.subtle.exportKey("spki", pair.publicKey))),
+    queryCursorSecret: Base64.encode(crypto.getRandomValues(new Uint8Array(32))), issuedAtInclusiveEpochMilliseconds: 0,
   }] });
 }

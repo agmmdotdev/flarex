@@ -1,4 +1,5 @@
-import { Effect, Encoding } from "effect";
+import * as Hex from "effect/encoding/Hex";
+import { Effect } from "effect";
 import { makeLivePrivateSha256V1 } from "@flarex/analysis/internal/private-sha256-v1";
 import { encodeCanonicalJson } from "flarex-protocol/json";
 import { eventError, commitEventLimits, type CommittedEvent } from "./model";
@@ -23,7 +24,7 @@ export const commitEventsDigest = Effect.fn("CommitEvents.digest")(function* (ev
     bytes += encoder.encode(encoded).byteLength + (index === 0 ? 0 : 1);
     if (bytes > maximumBytes) return yield* Effect.fail(eventError("invalidInput"));
   }
-  return Encoding.encodeHex(yield* hash(
+  return Hex.encode(yield* hash(
     encoder.encode(encodeCanonicalJson(events, () => { throw new Error("Owned committed event lost JSON membership"); })),
     { maximumInputBytes: maximumBytes },
   ));

@@ -5,10 +5,10 @@ import { compileCompleteRow, compileRowProjection } from "../../value/complete-r
 import { QueryLimit, QueryOffset } from "../../query/decoder";
 import type { captureRegionMetadata } from "./schema";
 
-export const RegionId = Schema.String.check(Schema.isLengthBetween(1, 256));
+export const RegionId = Schema.String.check(Schema.isBetweenLength(1, 256));
 export const regionReadLimit = 8;
 export const RegionFilters = Schema.Struct({ id: Schema.Union([RegionId, Schema.Array(RegionId).check(Schema.isMaxLength(regionReadLimit))]) });
-export const RegionReadConfig = Schema.Struct({ select: Schema.optionalKey(Schema.Array(Schema.String).check(Schema.isLengthBetween(1, 16),
+export const RegionReadConfig = Schema.Struct({ select: Schema.optionalKey(Schema.Array(Schema.String).check(Schema.isBetweenLength(1, 16),
   Schema.makeFilter(fields => fields.includes("id") || "Expected the Region identity in a selected read"))),
   relations: Schema.optionalKey(Schema.Array(Schema.Never)), take: Schema.optionalKey(QueryLimit), skip: Schema.optionalKey(QueryOffset),
   order: Schema.optionalKey(Schema.Struct({ id: Schema.optionalKey(Schema.Literals(["ASC", "DESC"])) })),

@@ -5,7 +5,7 @@ import { commerceDecoder } from "../../value/decoder";
 import { compileCompleteRow } from "../../value/complete-row";
 import type { captureShippingProfileDeletionMetadata } from "./shipping-profile-schema";
 
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 /** Only scalar Type creation is admitted. Omission reaches native DML defaults;
  * business strings retain the native empty and case-sensitive values. */
 export const ShippingOptionTypeCreate = Schema.Struct({ id: Schema.optionalKey(Id), label: Schema.String,

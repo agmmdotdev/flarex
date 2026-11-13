@@ -9,7 +9,7 @@ type Metadata = Effect.Success<ReturnType<typeof captureCustomerMetadata>>["fram
 const decodeEmpty = commerceDecoder(Schema.Array(Schema.Never), "storedCorruption");
 const decodeObject = commerceDecoder(Schema.JsonObject, "storedCorruption");
 const decodeListShape = commerceDecoder(Schema.Array(Schema.JsonObject).check(Schema.isMaxLength(2)), "storedCorruption");
-const decodeCreatedShape = commerceDecoder(Schema.Array(Schema.JsonObject).check(Schema.isLengthBetween(1, 1)), "storedCorruption");
+const decodeCreatedShape = commerceDecoder(Schema.Array(Schema.JsonObject).check(Schema.isBetweenLength(1, 1)), "storedCorruption");
 
 /** Complete scalar DTOs and the native creation-only empty relation shape have
  * separate decoders. Reads never acquire or initialize relation collections. */

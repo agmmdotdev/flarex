@@ -57,7 +57,7 @@ export async function prepareActivatedCoverageProof(fixture: ApplicationNativeMu
       if (entry === undefined) await runEffect(lockInstallationForCurrentTransaction(tx));
       try {
         const clock = await runEffect(lockScopeClockForOrdinaryWriteInTransactionEffect(tx, scopeId));
-        const snapshotToken = SnapshotTokenSchema.make({ scopeId, epoch: clock.epoch, commitSeq: clock.lastCommitSeq });
+        const snapshotToken = SnapshotTokenSchema.make({ scopeId, epoch: clock.epoch, commitSeq: clock.lastCommitSeq }, { parseOptions: { onExcessProperty: "error" } });
         const read = await runEffect(getAppRowAtSnapshotInTransactionEffect(tx, { tableId: table.tableId, rowId, snapshotToken }));
         const documentId = appDocumentIdV1FromRowIdentity({ tableId: table.tableId, rowId });
         const dependency: ApplicationDocumentMaterializationCommand["dependencies"][number]["dependency"] = {

@@ -12,7 +12,7 @@ import { prepareLinkWorkflowService, linkWorkflowServiceDefinition } from "./wor
 import { linkLogicalEventPolicy } from "./events";
 import { decodeLinkCascade } from "./cascade-result";
 
-const Ids = Schema.Array(Schema.String.check(Schema.isLengthBetween(1, 256))).pipe(Schema.mutable).check(Schema.isMaxLength(4));
+const Ids = Schema.Array(Schema.String.check(Schema.isBetweenLength(1, 256))).pipe(Schema.mutable).check(Schema.isMaxLength(4));
 const decodeEndpoint = commerceDecoder(Schema.Tuple([Schema.Struct({
   sales_channel: Schema.Struct({ sales_channel_id: Ids }),
 })]), "invalidInput");

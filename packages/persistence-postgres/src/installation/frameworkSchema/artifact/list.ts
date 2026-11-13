@@ -1,6 +1,7 @@
+import * as Hex from "effect/encoding/Hex";
 import { copyBytes, isUint8ArrayWithByteLength } from "@flarex/utils/bytes";
 import { and, asc, eq, gt } from "drizzle-orm";
-import { Effect, Encoding, Result } from "effect";
+import { Effect, Result } from "effect";
 
 import type { FlarexMetadataDatabase } from "../../../application/deployments";
 import { detachDriverRows } from "../../../database/detachDriverRows";
@@ -208,7 +209,7 @@ function decodeStoredFrameworkSchemaArtifactIdentityResult(
       FrameworkSchemaArtifactError.listStoredStateCorrupt(coordinate),
     );
   }
-  const artifactSha256 = Encoding.encodeHex(copyBytes(row.artifactSha256));
+  const artifactSha256 = Hex.encode(copyBytes(row.artifactSha256));
   return Result.gen(function* () {
     const decoded = yield* decodeFrameworkSchemaArtifactIdentityResult({
       deploymentId: row.deploymentId,

@@ -52,9 +52,9 @@ it("projects exact expected pins only from a successfully validated persisted en
     const snapshotToken = SnapshotTokenSchema.make({
       scopeId: ScopeIdSchema.make(`scope_${SESSION_TEST_SCOPE_UUID}`),
       epoch: ScopeEpochSchema.make(`epoch_${SESSION_TEST_EPOCH_UUID}`), commitSeq: CommitSeqSchema.make(0n),
-    });
+    }, { parseOptions: { onExcessProperty: "error" } });
     const reservation = await Effect.runPromise(captureFiniteMetadataReservation(
-      Schema.decodeUnknownSync(FiniteMetadataReservationSchema)({
+      Schema.decodeUnknownSync(FiniteMetadataReservationSchema, { onExcessProperty: "error" })({
         format: "flarex.finite-metadata-reservation", version: 1,
         deploymentId: "expected-projection", scopeId: snapshotToken.scopeId, sessionId,
         attemptFence: session.attemptFence.toString(), storageGeneration: "flarexdb_v1",

@@ -1,7 +1,7 @@
 import { Result, Schema } from "effect";
 import { WorkflowDefinitionError } from "@medusajs/workflows-sdk";
 
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 const PreviousProducts = Schema.Array(Schema.Struct({ variants: Schema.Array(Schema.Struct({ id: Id })).check(Schema.isMaxLength(4)) }))
   .check(Schema.isMaxLength(4), Schema.makeFilter(rows => rows.reduce((total, row) => total + row.variants.length, 0) <= 4));
 const SalesLinks = Schema.Array(Schema.Struct({ product_id: Id, sales_channel_id: Id })).check(Schema.isMaxLength(8), Schema.makeFilter(rows => {

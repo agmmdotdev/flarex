@@ -8,7 +8,7 @@ investigation/reporting. Apply standards while implementing, not only at review.
 
 ## Version And Evidence
 
-The workspace catalog pins Effect `4.0.0-rc.112`; verify the lockfile and exports
+The workspace catalog pins Effect `4.1.4`; verify the lockfile and exports
 on upgrades. Accepted design/contracts and installed APIs take precedence over
 historical examples. Current Effect source is library authority; optional
 `opensrc/repos/github.com/effect-TS/effect-smol` predates the RC.
@@ -16,15 +16,21 @@ T3 Code at `opensrc/repos/github.com/pingdotgg/t3code` is application evidence,
 not uniform authority; its wrapper-debt checklist records unfinished work.
 Missing optional caches are not code findings.
 
-RC.112 specifics:
+The pinned Effect patch preserves typed cleanup failures when interruption skips
+outer recovery handlers. Keep full-Cause cancellation regressions passing before
+removing it; see `patches/effect@4.1.4.md`.
+Type-changing full-Cause projections must mask the projection while restoring
+interruptibility for work, as `cmsTransaction/nativeFailure.ts` does. Retaining
+reasons does not execute a skipped mapper or recover cancellation.
+
+Effect 4.1.4 specifics:
 
 - Use Result/Effect.result, not v3 Either/Effect.either. Option.gen, Result.gen
   and Effect.gen exist; Exit has map/match but no gen/all/flatMap.
-- RC.112 Effect.mapError recovers a typed failure through catch and can discard
-  other reasons in a mixed Cause. At resource/journal projections that promise
-  full Cause preservation, use Cause.map inside catchCause/failCause and test a
-  typed failure together with a defect and interruption. Single typed-failure
-  mapping and pure Result.mapError remain appropriate at their own boundaries.
+- Effect.mapError maps typed failures while preserving other reasons in a mixed
+  Cause. At resource/journal projections that promise full Cause preservation,
+  test a typed failure together with a defect and interruption. Existing explicit
+  Cause.map projections retain that contract.
 - Broad recovery uses Effect.catch/catchCause/catchDefect, not v3 catchAll names;
   catchTag/catchTags remain. Effect.option discards every typed error reason;
   use catchNoSuchElement when only missing-value failure means absence.
@@ -34,16 +40,28 @@ RC.112 specifics:
 - Layer.effect/effectContext construct in Layer Scope; Layer.scoped is absent.
   Layer.effectDiscard is startup without a service, not ordinary business work.
 - Encoding hex/base64 decoders return Result; enter Effect with fromResult.
+  Import Hex, Base64 and Base64Url from effect/encoding/*; the old Encoding
+  barrel is absent. Length bounds use Schema.isBetweenLength.
   Schema provides FiniteFromString, BigIntFromString and Uint8ArrayFrom*.
   NumberFromString uses JS coercion, not strict lexical/integer/safe-range proof.
   Option.fromNullishOr preserves all non-nullish values.
 - Schema error constructors are TaggedError/Error; ErrorInstance describes JS
   Error. SchemaIssue.InvalidValue takes annotations/input/parse options: pass
   getter options through, retaining input only when reportInput is enabled.
-- HTTP APIs are unstable exports under effect/unstable/http; FetchHttpClient.layer
+- HTTP APIs are exports under effect/http and effect/http-api; FetchHttpClient.layer
   supplies ordinary fetch. Recheck these on every upgrade. Prefer request
   schemaBodyJson and response schemaBodyJson/schemaJson with filterStatusOk or
   matchStatus; impose byte limits separately from Schema decoding.
+- Schema AOT/JIT compiler APIs remain unstable. Install generated operations
+  before creating parsers, regenerate with schema or Effect changes, and retain
+  the authoritative schemas. Failed fast paths can replay checks and getters;
+  compile only where deterministic parsing and input capture preserve semantics.
+- Schema-level parseOptions annotations no longer affect parsing. Put excess-key,
+  error and input-retention policy on the decoder/encoder/constructor operation.
+  Model retained extra fields with StructWithRest and Record. propertyOrder and
+  onExcessProperty: "preserve" are absent; protocol ordering stays with its codec.
+- Read the current tracing parent from fiber.cache.span. Scope.close requires
+  Scope.Closeable; a borrowed Scope.Scope does not confer close authority.
 - Custom Clock implementations need monotonicTimeNanosUnsafe/monotonicTimeNanos
   alongside wall-clock methods. Tracing's monotonic reads must not consume
   scripted wall-clock test ticks.

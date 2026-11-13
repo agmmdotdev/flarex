@@ -160,7 +160,7 @@ export const enterLogicalDocumentMaterialization = Effect.fnUntraced(
         scopeId: authority.scopeId,
         epoch: scopeClock.epoch,
         commitSeq: scopeClock.lastCommitSeq,
-      }),
+      }, { parseOptions: { onExcessProperty: "error" } }),
     };
     const empty: ApplicationDocumentMaterializationCommand = {
       authorityPins,

@@ -23,10 +23,7 @@ import {
   type SchemaManifestAppDeveloperOrderedIndexSpecV1,
   type SchemaManifestAppIndexFieldPath,
 } from "./schema-manifest";
-import {
-  StrictParseOptions,
-  StrictStructOptions,
-} from "./strict-schema-options";
+import { StrictParseOptions } from "./strict-schema-options";
 import {
   normalizeFlarexValueV1,
   type CanonicalFlarexRuntimeValueV1,
@@ -66,13 +63,13 @@ export const AppOrderedIndexDocumentPathV1Schema = Schema.Struct({
   kind: Schema.Literal("documentPath"),
   path: SchemaManifestAppIndexFieldPathSchema,
   valueFormat: Schema.optionalKey(Schema.Literals(["exactDecimal", "sha256TextV1"])),
-}).annotate(StrictStructOptions);
+});
 export type AppOrderedIndexDocumentPathV1 =
   typeof AppOrderedIndexDocumentPathV1Schema.Type;
 
 export const AppOrderedIndexSystemCreationTimeV1Schema = Schema.Struct({
   kind: Schema.Literal("systemCreationTime"),
-}).annotate(StrictStructOptions);
+});
 export type AppOrderedIndexSystemCreationTimeV1 =
   typeof AppOrderedIndexSystemCreationTimeV1Schema.Type;
 
@@ -95,7 +92,7 @@ export const AppIndexAllNullPredicateV1Schema = Schema.Struct({
   kind: Schema.Literal("fieldsAreNull"),
   fields: Schema.Tuple([SchemaManifestAppIndexFieldPathSchema, SchemaManifestAppIndexFieldPathSchema]),
 }).check(Schema.makeFilter(predicate => compareUtf16Strings(predicate.fields[0], predicate.fields[1]) < 0
-  ? undefined : "Expected two distinct predicate fields in canonical order")).annotate(StrictStructOptions);
+  ? undefined : "Expected two distinct predicate fields in canonical order"));
 
 export const AppIndexNullAndBooleanEqualsPredicateV1Schema = Schema.Struct({
   kind: Schema.Literal("fieldIsNullAndBooleanEquals"),
@@ -103,14 +100,14 @@ export const AppIndexNullAndBooleanEqualsPredicateV1Schema = Schema.Struct({
   booleanField: SchemaManifestAppIndexFieldPathSchema,
   value: Schema.Boolean,
 }).check(Schema.makeFilter(predicate => predicate.nullField !== predicate.booleanField
-  ? undefined : "Expected distinct predicate fields")).annotate(StrictStructOptions);
+  ? undefined : "Expected distinct predicate fields"));
 
 export const AppIndexNullAndNotNullPredicateV1Schema = Schema.Struct({
   kind: Schema.Literal("fieldIsNullAndNotNull"),
   nullField: SchemaManifestAppIndexFieldPathSchema,
   notNullField: SchemaManifestAppIndexFieldPathSchema,
 }).check(Schema.makeFilter(predicate => predicate.nullField !== predicate.notNullField
-  ? undefined : "Expected distinct predicate fields")).annotate(StrictStructOptions);
+  ? undefined : "Expected distinct predicate fields"));
 
 export const AppOrderedIndexPhysicalSpecV1Schema = Schema.Struct({
   kind: Schema.Literal("appOrdered"),
@@ -130,18 +127,18 @@ export const AppOrderedIndexPhysicalSpecV1Schema = Schema.Struct({
     Schema.Struct({ kind: Schema.Literal("fieldIsNullAndTextEquals"),
       nullField: SchemaManifestAppIndexFieldPathSchema,
       textField: SchemaManifestAppIndexFieldPathSchema,
-      value: Schema.String.check(Schema.isLengthBetween(1, 256)) }),
-  ]).annotate(StrictStructOptions)),
+      value: Schema.String.check(Schema.isBetweenLength(1, 256)) }),
+  ])),
   tieBreaker: Schema.Struct({
     kind: Schema.Literal("separateRowIdentity"),
     byteLength: Schema.Literal(ORDERED_INDEX_ROW_ID_BYTES_V1),
-  }).annotate(StrictStructOptions),
+  }),
   keyCodecVersion: OrderedIndexKeyCodecVersionSchema,
   collation: Schema.Literal("binaryUtf8"),
   maxEncodedKeyBytes: Schema.Literal(MAX_ORDERED_INDEX_KEY_BYTES_V1),
 }).check(
   Schema.makeFilter((spec) => validateAppOrderedIndexPhysicalSpecV1(spec)),
-).annotate(StrictStructOptions);
+);
 export type AppOrderedIndexPhysicalSpecV1 =
   typeof AppOrderedIndexPhysicalSpecV1Schema.Type;
 

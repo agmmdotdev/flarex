@@ -14,11 +14,11 @@ import { decodeInventoryLevelDeletionIds, decodeInventoryLevelDeletionReadInput,
   matchesInventoryLevelDeletionFilter, matchesInventoryLevelDeletionCandidate } from "./delete-level-input";
 
 type Contracts = Result.Result.Success<ReturnType<typeof compileInventoryLevelContracts>>;
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 const decodeEvent = moduleEventDecoder(Schema.Struct({ name: Schema.String,
   metadata: Schema.Struct({ source: Schema.Literal(Modules.INVENTORY), object: Schema.Literal("inventory_level"),
     action: Schema.Literals([CommonEvents.DELETED, CommonEvents.RESTORED]) }),
-  data: Schema.Struct({ id: Schema.Union([Id, Schema.Array(Id).check(Schema.isLengthBetween(1, 4))]) }),
+  data: Schema.Struct({ id: Schema.Union([Id, Schema.Array(Id).check(Schema.isBetweenLength(1, 4))]) }),
 }), defaultCommerceResources);
 const decodeCount = commerceDecoder(Schema.Tuple([Schema.Array(Schema.JsonObject).check(Schema.isMaxLength(4)),
   Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 4 }))]), "receiptMismatch");

@@ -4,7 +4,7 @@ import type { SchemaTable } from "../../schema/model";
 import { commerceDecoder } from "../../value/decoder";
 import { compileCompleteRow } from "../../value/complete-row";
 
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 /** The native create DTO admitted by the Sales Channel workflow method.
  * Optional fields remain omitted so the native DML/DAL owns defaults. The
  * Product association consumer retains its separate id/name-only contract. */

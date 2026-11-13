@@ -16,7 +16,7 @@ import type { prepareOrderChangeUpdateRepository } from "./change-update-reposit
 type Prepared = Result.Result.Success<ReturnType<typeof prepareOrderChangeUpdateRepository>>;
 const decodeEvent = moduleEventDecoder(Schema.Struct({ name: Schema.Literal("order.order-change.updated"),
   metadata: Schema.Struct({ source: Schema.Literal(Modules.ORDER), object: Schema.Literal("order_change"), action: Schema.Literal("updated") }),
-  data: Schema.Struct({ id: Schema.Union([OrderChangeUpdateId, Schema.Array(OrderChangeUpdateId).check(Schema.isLengthBetween(1, 4))]) }) }), defaultCommerceResources);
+  data: Schema.Struct({ id: Schema.Union([OrderChangeUpdateId, Schema.Array(OrderChangeUpdateId).check(Schema.isBetweenLength(1, 4))]) }) }), defaultCommerceResources);
 
 /** Correlate complete observed rows, the native internal service's final-key
  * assignments, exact patches and native events. No compensating data is invented. */

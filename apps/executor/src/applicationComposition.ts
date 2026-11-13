@@ -1,3 +1,4 @@
+import * as Base64 from "effect/encoding/Base64";
 import { canonicalizeApplicationManifest, canonicalizeApplicationManifestWire } from "@flarex/analysis/application-analysis";
 import { CoreApplicationTransportError, makeCoreApplicationHttpHandler, readCoreApplicationJsonBody } from "@flarex/executor-http/internal/core-application";
 import { makeCoreQueryCheckpointHttpHandler } from "@flarex/executor-http/internal/core-query-checkpoint";
@@ -11,7 +12,7 @@ import { makeCoreApplicationMutationInvocationPort, prepareApplicationMutationId
 import { makeCoreApplicationQueryEvaluationRunner } from
   "@flarex/standard-application-invocation/internal/application-query-system";
 import { bytesEqual, copyBytesToArrayBuffer } from "@flarex/utils/bytes";
-import { Cause, Clock, Data, Effect, Encoding, Option, Result, Schema } from "effect";
+import { Cause, Clock, Data, Effect, Option, Result, Schema } from "effect";
 import { makeApplicationMutationGrantIssuer, ApplicationMutationGrantIssuerSourceError } from
   "flarex-backend/internal/application-mutation-grant-issuer";
 import { captureDocumentObject, captureDocumentValueWithSize } from "flarex-protocol/document-value";
@@ -49,7 +50,7 @@ export const makeExecutorApplicationCredentials = Effect.fn("ExecutorApplication
   env: Pick<ExecutorApplicationEnv, "FLAREX_APPLICATION_KEYS">, profile: ExecutorApplicationProfile,
 ) {
   const configured = yield* Effect.fromResult(readExecutorApplicationKey(env, profile.keyId));
-  const decode = (text: string) => Effect.fromResult(Encoding.decodeBase64(text)).pipe(Effect.mapError(() => refusal("keyUnavailable")));
+  const decode = (text: string) => Effect.fromResult(Base64.decode(text)).pipe(Effect.mapError(() => refusal("keyUnavailable")));
   const privateBytes = yield* decode(configured.privateKeyPkcs8);
   const publicBytes = yield* decode(configured.publicKeySpki);
   const cursorSecret = yield* decode(configured.queryCursorSecret);

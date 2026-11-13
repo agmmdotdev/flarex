@@ -19,7 +19,7 @@ export const OrderChangeUpdateInput = Schema.Array(OrderChangeUpdateData).pipe(S
 export const OrderChangeUpdateFields = Object.freeze(Object.keys(OrderChangeUpdateData.fields));
 export const OrderChangeUpdateRead = Schema.Struct({ filters: Schema.Struct({ id: OrderChangeUpdateIds }),
   config: Schema.Struct({ select: Schema.Array(Schema.Literals(OrderChangeUpdateFields)).pipe(Schema.mutable)
-    .check(Schema.isLengthBetween(1, OrderChangeUpdateFields.length)), relations: Schema.Array(Schema.Never).pipe(Schema.mutable) }) });
+    .check(Schema.isBetweenLength(1, OrderChangeUpdateFields.length)), relations: Schema.Array(Schema.Never).pipe(Schema.mutable) }) });
 const Objects = Schema.Array(Schema.JsonObject).check(Schema.isMaxLength(4));
 const decodeObjects = commerceDecoder(Objects, "storedCorruption");
 const decodePreimageShape = commerceDecoder(OrderChangeUpdateData, "storedCorruption");

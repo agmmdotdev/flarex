@@ -13,12 +13,12 @@ import { ShippingProfilePhysicalDeletionIds, decodeShippingProfileCreates, decod
   type compileShippingProfileCreationContracts } from "./shipping-profile-create-input";
 
 type Contracts = Result.Result.Success<ReturnType<typeof compileShippingProfileCreationContracts>>;
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 const decodeValidationWhere = commerceDecoder(Schema.Struct({ id: ShippingProfilePhysicalDeletionIds }), "receiptMismatch");
 const decodeEvent = moduleEventDecoder(Schema.Struct({ name: Schema.String,
   metadata: Schema.Struct({ source: Schema.Literal(Modules.FULFILLMENT), object: Schema.Literal("shipping_profile"),
     action: Schema.Literals(["created", "deleted"]) }),
-  data: Schema.Struct({ id: Schema.Union([Id, Schema.Array(Id).check(Schema.isLengthBetween(1, 4))]) }),
+  data: Schema.Struct({ id: Schema.Union([Id, Schema.Array(Id).check(Schema.isBetweenLength(1, 4))]) }),
 }), defaultCommerceResources);
 
 /** The full created result, native defaults, ordered row attempts and module

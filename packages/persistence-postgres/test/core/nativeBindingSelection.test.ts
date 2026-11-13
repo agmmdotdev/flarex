@@ -1,3 +1,4 @@
+import { strictSchemaGuard } from "flarex-protocol/internal/strict-schema";
 import { Effect, Result, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import { encodeDocumentId } from "flarex-protocol/document-id";
@@ -58,7 +59,7 @@ describe("authenticated native source binding selection", () => {
       const selected = coreNativePolicyForTable(definition, declaration, "active", schemaId);
       const disabled = coreNativePolicyForTable(definition, declaration, "active", schemaId, [], false);
       expect(selected).not.toHaveProperty("bindingSelected");
-      expect(Schema.is(CoreNativeTablePolicySchema)(disabled)).toBe(true);
+      expect(strictSchemaGuard(CoreNativeTablePolicySchema)(disabled)).toBe(true);
       expect(sameCoreNativeTablePolicy(selected, disabled)).toBe(false);
       const table: CoreTableDefinition = { name: declaration.name, namespace: null, number: 10001, tabletId: new Uint8Array(16),
         indexes: [], state: "active", nativePolicy: disabled };

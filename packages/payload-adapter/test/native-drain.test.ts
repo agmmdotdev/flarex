@@ -1,18 +1,29 @@
 import { APIError } from "payload";
-import { Cause, Effect, Exit, Fiber } from "effect";
-import { expect, it } from "vitest";
+import { readFile } from "node:fs/promises";
+import { Cause, Effect, Exit, Fiber, Schema } from "effect";
+import { describe, expect, it } from "vitest";
 import { makePayloadNative } from "../src/runtime/native";
 import { bindPayloadDirect } from "../src/direct/binding";
-import { createCorePayloadFixture } from "./support/core-payload-fixture";
+import { createCorePayloadFixture, type CorePayloadFixtureTarget } from "./support/core-payload-fixture";
 import { barrier } from "../../persistence-postgres/test/integration/payload/payloadRelationScenario";
 
+const endpointPath = process.env.FLAREX_CORE_POSTGRES_ENDPOINTS_FILE;
+const endpoints = endpointPath === undefined ? undefined : Schema.decodeUnknownSync(Schema.Struct({
+  connectionString: Schema.NonEmptyString, provisioningConnectionString: Schema.NonEmptyString,
+}))(JSON.parse(await readFile(endpointPath, "utf8")));
+const targets: readonly Extract<CorePayloadFixtureTarget, { kind: "fresh" }>[] = [
+  { kind: "fresh", driver: "pglite" },
+  ...(endpoints === undefined ? [] : [{ kind: "fresh", driver: "postgres", postgresEndpoints: endpoints } as const]),
+];
+
+describe.each(targets)("$driver Local API cancellation", target => {
 it.each(["known", "defect"] as const)("drains the actual Local API Promise before closing and preserves its %s rejection with interruption", async kind => {
   const entered = barrier<void>();
   const release = barrier<void>();
   let armed = false;
   let nativeFinished = false;
   const rejection = kind === "known" ? new APIError("late native rejection", 403) : new Error("late native defect");
-  const fixture = await createCorePayloadFixture({ kind: "fresh", driver: "pglite" }, { makeRuntime: compiled => Effect.gen(function* () {
+  const fixture = await createCorePayloadFixture(target, { makeRuntime: compiled => Effect.gen(function* () {
     const native = yield* makePayloadNative(compiled, { hooks: {
       afterRead: [async ({ doc }) => {
         if (!armed) return doc;
@@ -51,3 +62,4 @@ it.each(["known", "defect"] as const)("drains the actual Local API Promise befor
     }));
   } finally { release.resolve(); await fixture.close(); }
 }, 180_000);
+});

@@ -20,14 +20,14 @@ import { orderedProductWorkflowEvents } from "./events";
 export const ProductVariantInventoryInput = Schema.Struct({
   product_variants: Schema.Array(Schema.Struct({ ...SimpleVariantInput.fields,
     prices: Schema.optionalKey(Schema.Array(BasePriceInput).check(Schema.isMaxLength(2))),
-  })).check(Schema.isLengthBetween(1, 4), Schema.makeFilter(rows => new Set(rows.map(row => row.product_id)).size === 1)),
+  })).check(Schema.isBetweenLength(1, 4), Schema.makeFilter(rows => new Set(rows.map(row => row.product_id)).size === 1)),
   additional_data: Schema.optionalKey(Schema.JsonObject),
 });
 export const ProductVariantInventoryOutput = Schema.Array(Schema.StructWithRest(
   Schema.Struct({ id: Schema.String, title: Schema.String, product_id: Schema.String, manage_inventory: Schema.Boolean,
     prices: Schema.Array(Schema.JsonObject).check(Schema.isMaxLength(2)),
   }), [Schema.Record(Schema.String, Schema.Json)],
-)).check(Schema.isLengthBetween(1, 4));
+)).check(Schema.isBetweenLength(1, 4));
 const decodeHook = commerceDecoder(Schema.Struct({ product_variants: ProductVariantInventoryOutput,
   additional_data: Schema.optionalKey(Schema.JsonObject),
 }), "invalidInput");

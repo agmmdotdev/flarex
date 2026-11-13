@@ -18,7 +18,7 @@ import type { prepareOrderChangeCancellationRepository } from "./change-cancella
 type Prepared = Result.Result.Success<ReturnType<typeof prepareOrderChangeCancellationRepository>>;
 const decodeEvent = moduleEventDecoder(Schema.Struct({ name: Schema.Literal("order.order-change.updated"),
   metadata: Schema.Struct({ source: Schema.Literal(Modules.ORDER), object: Schema.Literal("order_change"), action: Schema.Literal("updated") }),
-  data: Schema.Struct({ id: Schema.Union([OrderChangeId, Schema.Array(OrderChangeId).check(Schema.isLengthBetween(1, 1))]) }) }), defaultCommerceResources);
+  data: Schema.Struct({ id: Schema.Union([OrderChangeId, Schema.Array(OrderChangeId).check(Schema.isBetweenLength(1, 1))]) }) }), defaultCommerceResources);
 const guardFields = ["id", "order_id", "return_id", "claim_id", "exchange_id", "version", "status"];
 const decodeInstant = commerceDecoder(Schema.DateFromString, "receiptMismatch");
 

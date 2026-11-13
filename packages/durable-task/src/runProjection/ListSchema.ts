@@ -14,13 +14,10 @@ import {
 } from "../runAttempt/Schema.js";
 
 const STRICT_PARSE_OPTIONS = { onExcessProperty: "error" } as const;
-const STRICT_STRUCT_OPTIONS = {
-  parseOptions: STRICT_PARSE_OPTIONS,
-} as const;
 
 const NotCancelledSchema = Schema.Struct({
   kind: Schema.Literal("not_requested"),
-}).annotate(STRICT_STRUCT_OPTIONS);
+});
 
 const RequestedCancellationSchema = Schema.Struct({
   kind: Schema.Literal("requested"),
@@ -30,7 +27,7 @@ const RequestedCancellationSchema = Schema.Struct({
     "policy_cancelled",
   ]),
   requestedAtMs: TaskDatabaseTimeMsV1Schema,
-}).annotate(STRICT_STRUCT_OPTIONS);
+});
 
 function resolvedCancellationSchema<
   Resolution extends
@@ -49,7 +46,7 @@ function resolvedCancellationSchema<
     requestedAtMs: TaskDatabaseTimeMsV1Schema,
     resolvedAtMs: TaskDatabaseTimeMsV1Schema,
     resolution: Schema.Literal(resolution),
-  }).annotate(STRICT_STRUCT_OPTIONS);
+  });
 }
 
 const AttemptSchema = Schema.Struct({
@@ -57,7 +54,7 @@ const AttemptSchema = Schema.Struct({
   computeProfile: TaskComputeProfileRefV1Schema,
   grantedAtMs: TaskDatabaseTimeMsV1Schema,
   leaseExpiresAtMs: TaskDatabaseTimeMsV1Schema,
-}).annotate(STRICT_STRUCT_OPTIONS);
+});
 
 const FailureSchema = Schema.Union([
   Schema.Struct({
@@ -69,7 +66,7 @@ const FailureSchema = Schema.Union([
       "middleware_failed",
       "handler_failed",
     ]),
-  }).annotate(STRICT_STRUCT_OPTIONS),
+  }),
   Schema.Struct({
     kind: Schema.Literal("system_failure"),
     code: Schema.Literals([
@@ -83,7 +80,7 @@ const FailureSchema = Schema.Union([
       "configuration_invalid",
       "internal_invariant",
     ]),
-  }).annotate(STRICT_STRUCT_OPTIONS),
+  }),
   Schema.Struct({
     kind: Schema.Literal("resource_exhaustion"),
     code: Schema.Literals([
@@ -92,11 +89,11 @@ const FailureSchema = Schema.Union([
       "process_crashed",
       "disk_exhausted",
     ]),
-  }).annotate(STRICT_STRUCT_OPTIONS),
+  }),
   Schema.Struct({
     kind: Schema.Literal("timed_out"),
     code: Schema.Literal("maximum_duration_exceeded"),
-  }).annotate(STRICT_STRUCT_OPTIONS),
+  }),
 ]);
 
 const RetrySchema = Schema.Struct({
@@ -111,8 +108,8 @@ const RetrySchema = Schema.Struct({
       "lease_expired_after_heartbeat",
     ]),
     failure: FailureSchema,
-  }).annotate(STRICT_STRUCT_OPTIONS),
-}).annotate(STRICT_STRUCT_OPTIONS);
+  }),
+});
 
 const ResultMetadataSchema = Schema.Struct({
   codec: Schema.Literal(TASK_RESULT_CODEC_V1),
@@ -127,7 +124,7 @@ const ResultMetadataSchema = Schema.Struct({
   sha256Hex: Schema.String.check(
     Schema.isPattern(/^[0-9a-f]{64}$/),
   ),
-}).annotate(STRICT_STRUCT_OPTIONS);
+});
 
 const CompletionCancellationSchema = Schema.Union([
   NotCancelledSchema,
@@ -140,7 +137,7 @@ const TaskRunListStateSchema = Schema.Union([
     eligibleAtMs: TaskDatabaseTimeMsV1Schema,
     retry: Schema.NullOr(RetrySchema),
     cancellation: NotCancelledSchema,
-  }).annotate(STRICT_STRUCT_OPTIONS),
+  }),
   Schema.Struct({
     kind: Schema.Literal("attempt_granted"),
     attempt: AttemptSchema,
@@ -148,7 +145,7 @@ const TaskRunListStateSchema = Schema.Union([
       NotCancelledSchema,
       RequestedCancellationSchema,
     ]),
-  }).annotate(STRICT_STRUCT_OPTIONS),
+  }),
   Schema.Struct({
     kind: Schema.Literal("executing"),
     attempt: AttemptSchema,
@@ -156,12 +153,12 @@ const TaskRunListStateSchema = Schema.Union([
       NotCancelledSchema,
       RequestedCancellationSchema,
     ]),
-  }).annotate(STRICT_STRUCT_OPTIONS),
+  }),
   Schema.Struct({
     kind: Schema.Literal("retry_waiting"),
     retry: RetrySchema,
     cancellation: NotCancelledSchema,
-  }).annotate(STRICT_STRUCT_OPTIONS),
+  }),
   Schema.Struct({
     kind: Schema.Literal("succeeded"),
     completedAtMs: TaskDatabaseTimeMsV1Schema,
@@ -169,7 +166,7 @@ const TaskRunListStateSchema = Schema.Union([
     executionDurationMs: Schema.NullOr(TaskExecutionDurationMsV1Schema),
     result: Schema.NullOr(ResultMetadataSchema),
     cancellation: CompletionCancellationSchema,
-  }).annotate(STRICT_STRUCT_OPTIONS),
+  }),
   Schema.Struct({
     kind: Schema.Literal("failed"),
     completedAtMs: TaskDatabaseTimeMsV1Schema,
@@ -177,28 +174,28 @@ const TaskRunListStateSchema = Schema.Union([
     executionDurationMs: Schema.NullOr(TaskExecutionDurationMsV1Schema),
     failure: FailureSchema,
     cancellation: CompletionCancellationSchema,
-  }).annotate(STRICT_STRUCT_OPTIONS),
+  }),
   Schema.Struct({
     kind: Schema.Literal("cancelled"),
     completedAtMs: TaskDatabaseTimeMsV1Schema,
     attemptNumber: Schema.Null,
     executionDurationMs: Schema.Null,
     cancellation: resolvedCancellationSchema("without_active_attempt"),
-  }).annotate(STRICT_STRUCT_OPTIONS),
+  }),
   Schema.Struct({
     kind: Schema.Literal("cancelled"),
     completedAtMs: TaskDatabaseTimeMsV1Schema,
     attemptNumber: TaskAttemptNumberV1Schema,
     executionDurationMs: Schema.NullOr(TaskExecutionDurationMsV1Schema),
     cancellation: resolvedCancellationSchema("acknowledged"),
-  }).annotate(STRICT_STRUCT_OPTIONS),
+  }),
   Schema.Struct({
     kind: Schema.Literal("cancelled"),
     completedAtMs: TaskDatabaseTimeMsV1Schema,
     attemptNumber: TaskAttemptNumberV1Schema,
     executionDurationMs: Schema.Null,
     cancellation: resolvedCancellationSchema("lease_expired"),
-  }).annotate(STRICT_STRUCT_OPTIONS),
+  }),
 ]);
 
 export const TaskRunListStoreItemSchema = Schema.Struct({
@@ -206,7 +203,7 @@ export const TaskRunListStoreItemSchema = Schema.Struct({
   createdAtMs: TaskDatabaseTimeMsV1Schema,
   runVersion: Schema.toType(TaskRunVersionV1Schema),
   state: TaskRunListStateSchema,
-}).annotate(STRICT_STRUCT_OPTIONS);
+});
 
 /**
  * Bounded projection input for one list row. Unlike the lifecycle aggregate,

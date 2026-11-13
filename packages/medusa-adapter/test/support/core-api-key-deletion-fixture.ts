@@ -15,7 +15,7 @@ import { internalModuleWorkflowEvents } from "../../src/workflow/events";
 import { apiKeyDeletionResources } from "../../src/workflow/policy";
 import { prepareCoreApiKeys } from "./core-api-key-fixture";
 
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 const Seed = Schema.Struct({ key: Id, channel: Id });
 const decodeRows = Schema.decodeUnknownEffect(Schema.Array(Schema.JsonObject));
 

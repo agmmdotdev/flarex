@@ -8,8 +8,8 @@ import type { DeploymentCheckpointStorage } from "./CheckpointStore";
 
 const requestSchema = Schema.Struct({ authorizationToken: Schema.String,
   route: CoreApplicationRouteIdentitySchema, budget: CheckpointBudgetSchema,
-  authorizeFreshInitialization: Schema.Boolean }).annotate({ parseOptions: { onExcessProperty: "error" as const } });
-const decodeRequest = Schema.decodeUnknownEffect(requestSchema);
+  authorizeFreshInitialization: Schema.Boolean });
+const decodeRequest = Schema.decodeUnknownEffect(requestSchema, { onExcessProperty: "error" });
 
 export class DeploymentSyncCatchUpProbeRequestError extends Data.TaggedError("DeploymentSyncCatchUpProbeRequestError")<{
   readonly reason: "invalidRequest";

@@ -11,7 +11,7 @@ import { compileTaxCreationRows } from "./rate-create-input";
 export const TaxRuleDeletionIds = Schema.Array(Schema.String.check(Schema.isMaxLength(256)))
   .pipe(Schema.mutable).check(Schema.isMaxLength(8));
 export const TaxRuleDeletionOutput = Schema.Struct({
-  tax_rate_rule_id: Schema.optionalKey(Schema.Array(TaxId).pipe(Schema.mutable).check(Schema.isLengthBetween(1, 8),
+  tax_rate_rule_id: Schema.optionalKey(Schema.Array(TaxId).pipe(Schema.mutable).check(Schema.isBetweenLength(1, 8),
     Schema.makeFilter(ids => new Set(ids).size === ids.length || "Expected distinct affected Rule IDs"))),
 });
 export const decodeTaxRuleDeletionIds = commerceDecoder(TaxRuleDeletionIds, "invalidInput");

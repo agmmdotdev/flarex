@@ -7,7 +7,7 @@ import { PricingId, BasePriceInput, BasePriceUpdateInput } from "./input";
 import { PricingLifecycleConfig, pricingLifecycleIds } from "./lifecycle";
 import type { capturePricingMetadata } from "./schema";
 
-const Text = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Text = Schema.String.check(Schema.isBetweenLength(1, 256));
 const Operator = Schema.Literals(["gte", "lte", "gt", "lt", "eq"]);
 // Native normalizePrices owns operator validity and its MedusaError ordering.
 // This boundary captures the finite raw grammar before that business check.
@@ -28,7 +28,7 @@ export const ShippingMutationManaged = {
   deleted_at: Schema.optionalKey(Schema.Null),
 };
 const ReadIds = Schema.Array(PricingId).check(Schema.isMaxLength(8));
-export const ShippingPricingIdConfig = Schema.Struct({ select: Schema.Array(Schema.Literal("id")).check(Schema.isLengthBetween(1, 1)) });
+export const ShippingPricingIdConfig = Schema.Struct({ select: Schema.Array(Schema.Literal("id")).check(Schema.isBetweenLength(1, 1)) });
 export const ShippingPriceReadInput = Schema.Struct({ filters: Schema.Struct({ id: ReadIds }), config: ShippingPricingIdConfig });
 export const ShippingRuleReadInput = Schema.Union([
   Schema.Struct({ filters: Schema.Struct({ id: Schema.Array(PricingId).check(Schema.isMaxLength(24)) }), config: ShippingPricingIdConfig }),

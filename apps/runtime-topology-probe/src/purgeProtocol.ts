@@ -13,7 +13,6 @@ import {
   ProbeProtocolVersionV1Schema,
   ProbeScenarioSchema,
 } from "./protocol";
-import { StrictStructOptions } from "./strictSchemaOptions";
 
 const DeletedFacetCountSchema = Schema.Int.check(
   Schema.makeFilter((value: number) =>
@@ -31,9 +30,9 @@ const ProbeSessionPurgeRequestV1Shape = Schema.Struct({
       attemptId: ProbeAttemptIdSchema,
       codeId: ProbeCodeIdSchema,
       scenario: ProbeScenarioSchema,
-    }).annotate(StrictStructOptions),
+    }),
   ),
-}).annotate(StrictStructOptions);
+});
 
 export const ProbeSessionPurgeRequestV1Schema =
   ProbeSessionPurgeRequestV1Shape.check(
@@ -69,7 +68,7 @@ export const ProbeSessionPurgeReceiptV1Schema = Schema.Union([
     sessionId: ProbeSessionIdSchema,
     pendingFacets: DeletedFacetCountSchema,
     probeDataCleared: Schema.Literal(false),
-  }).annotate(StrictStructOptions),
+  }),
   Schema.Struct({
     protocolVersion: ProbeProtocolVersionV1Schema,
     kind: Schema.Literal("probe-data-cleared"),
@@ -77,7 +76,7 @@ export const ProbeSessionPurgeReceiptV1Schema = Schema.Union([
     deletedFacets: DeletedFacetCountSchema,
     probeDataCleared: Schema.Literal(true),
     completionTombstoneRetained: Schema.Literal(true),
-  }).annotate(StrictStructOptions),
+  }),
 ]);
 export type ProbeSessionPurgeReceiptV1 =
   typeof ProbeSessionPurgeReceiptV1Schema.Type;
@@ -85,7 +84,7 @@ export type ProbeSessionPurgeReceiptV1 =
 export const ProbeSyncPurgeRequestV1Schema = Schema.Struct({
   protocolVersion: ProbeProtocolVersionV1Schema,
   scopeId: ProbeScopeIdSchema,
-}).annotate(StrictStructOptions);
+});
 export type ProbeSyncPurgeRequestV1 = typeof ProbeSyncPurgeRequestV1Schema.Type;
 
 export const ProbeSyncPurgeReceiptV1Schema = Schema.Struct({
@@ -94,13 +93,13 @@ export const ProbeSyncPurgeReceiptV1Schema = Schema.Struct({
   scopeId: ProbeScopeIdSchema,
   probeDataCleared: Schema.Literal(true),
   completionTombstoneRetained: Schema.Literal(true),
-}).annotate(StrictStructOptions);
+});
 export type ProbeSyncPurgeReceiptV1 = typeof ProbeSyncPurgeReceiptV1Schema.Type;
 
 export const ProbeRunPurgeRequestV1Schema = Schema.Struct({
   protocolVersion: ProbeProtocolVersionV1Schema,
   runId: ProbeRunIdSchema,
-}).annotate(StrictStructOptions);
+});
 export type ProbeRunPurgeRequestV1 = typeof ProbeRunPurgeRequestV1Schema.Type;
 
 export const ProbeRunPurgeReceiptV1Schema = Schema.Struct({
@@ -108,7 +107,7 @@ export const ProbeRunPurgeReceiptV1Schema = Schema.Struct({
   kind: Schema.Literal("storage-cleared"),
   runId: ProbeRunIdSchema,
   storageCleared: Schema.Literal(true),
-}).annotate(StrictStructOptions);
+});
 export type ProbeRunPurgeReceiptV1 = typeof ProbeRunPurgeReceiptV1Schema.Type;
 
 export const decodeProbeSessionPurgeRequestV1OrNull =

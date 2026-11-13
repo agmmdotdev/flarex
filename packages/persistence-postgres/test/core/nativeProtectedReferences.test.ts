@@ -15,7 +15,7 @@ const source: CoreTableDefinition = { name: "articles", number: 10001, tabletId:
 const target: CoreTableDefinition = { name: "products", number: 10002, tabletId: id(2), namespace: null,
   state: "active", indexes: [index(12, "id")] };
 const publicId = (table: CoreTableDefinition, value = 3) => Result.getOrThrow(encodeDocumentId(table.number, id(value)));
-const descriptor = Result.getOrThrow(Schema.decodeUnknownResult(CoreNativeProtectedReferenceSchema)({
+const descriptor = Result.getOrThrow(Schema.decodeUnknownResult(CoreNativeProtectedReferenceSchema, { onExcessProperty: "error" })({
   reference: { name: "article_product", sourceKey: "payload", source: { table: { namespace: "app", logicalName: "articles" }, field: "product" },
     target: { table: { namespace: "app", logicalName: "products" }, field: "id" }, policy: "strongReference",
     liveness: { source: { kind: "current" }, target: { kind: "softDeleteNull", field: "deleted_at" } },

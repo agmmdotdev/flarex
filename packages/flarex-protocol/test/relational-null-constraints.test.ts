@@ -1,3 +1,4 @@
+import { strictSchemaGuard } from "../src/strict-schema-options";
 import { Result, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import { normalizeRelationalSchema, relationalSchemaSourceFromDefinition, validateRelationalRowValues } from "../src/relational-schema";
@@ -100,12 +101,12 @@ describe("neutral null implication and conjunction", () => {
       expect(canonical.canonicalText).toContain('"predicate":{"fields":["province","retired"],"kind":"fieldsAreNull"}');
     expect(await canonicalizeAppIndexPhysicalSpecV1(orderedCanonical.physicalSpec)).toEqual(orderedCanonical);
     expect(await canonicalizeAppUniqueConstraintPhysicalSpecV1(uniqueCanonical.physicalSpec)).toEqual(uniqueCanonical);
-    expect(Schema.is(LogicalDocumentUniqueConstraintDeclarationSchema)({ tableLogicalName: "entry", descriptor: "root-key",
+    expect(strictSchemaGuard(LogicalDocumentUniqueConstraintDeclarationSchema)({ tableLogicalName: "entry", descriptor: "root-key",
       fields: ["key"], sparse: false, nullsDistinct: true, predicate })).toBe(false);
   });
 
   it.each([["b", "a"], ["a", "a"], ["a"], ["a", "b", "c"], ["a", null]].map(fields => ({ fields })))
     ("refuses noncanonical physical pair $fields", ({ fields }) => {
-      expect(Schema.is(AppIndexAllNullPredicateV1Schema)({ kind: "fieldsAreNull", fields })).toBe(false);
+      expect(strictSchemaGuard(AppIndexAllNullPredicateV1Schema)({ kind: "fieldsAreNull", fields })).toBe(false);
     });
 });

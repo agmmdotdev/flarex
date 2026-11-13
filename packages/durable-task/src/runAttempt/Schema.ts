@@ -1,3 +1,4 @@
+import * as Hex from "effect/encoding/Hex";
 // Adapted from Trigger.dev commit f10bc23785e569e5d917318cf2033aabdbe96a0b,
 // upstream/packages/core/src/v3/schemas/schemas.ts. See trigger-source-map.json and THIRD_PARTY_NOTICES.md.
 import type { CurrentTaskRunAttemptAggregate, CurrentTaskRunAttemptEvidence, CurrentTaskRunAttemptMutationAcceptance, CurrentTaskAttemptCompletionReplay } from "./Model.js";
@@ -5,7 +6,7 @@ import { TrustedWorkflowCheckpointDescriptorSchema, TrustedWorkflowCheckpointDes
 import type { TrustedWorkflowContinuation, TrustedWorkflowContinuationEvidence } from "./WorkflowContinuation.js";
 import { TrustedWorkflowBindingSha256Schema } from "../runCreation/TrustedWorkflowBindingDigest.js";
 import { isNonArrayRecord } from "@flarex/utils/records";
-import { Encoding, Result, Schema, SchemaTransformation } from "effect";
+import { Result, Schema, SchemaTransformation } from "effect";
 import { ApplicationTaskRuntimeTargetSha256V1Schema } from
   "../runCreation/ApplicationTaskRuntimeTarget.js";
 import {
@@ -89,10 +90,6 @@ type PersistedTaskAttemptCompletionReplay =
   | TaskAttemptCompletionReplayV1
   | ApplicationTaskAttemptCompletionReplayV1
   | CurrentTaskAttemptCompletionReplay;
-
-const STRICT_STRUCT_OPTIONS = {
-  parseOptions: { onExcessProperty: "error" },
-} as const;
 const STRICT_PARSE_OPTIONS = { onExcessProperty: "error" } as const;
 const POSTGRES_SIGNED_BIGINT_MAX = 9_223_372_036_854_775_807n;
 
@@ -195,18 +192,18 @@ const CanonicalNonNegativePostgresBigIntFromString = CanonicalUnsignedDecimalStr
   Schema.decodeTo(NonNegativePostgresBigIntSchema, SchemaTransformation.bigintFromString),
 );
 
-function positiveBigIntBrand<Name extends string>(name: Name) {
-  return CanonicalPositivePostgresBigIntFromString.pipe(Schema.brand(name));
+function positiveBigIntBrand<Name extends string>(name: Parameters<typeof Schema.brand<Name>>[0]) {
+  return CanonicalPositivePostgresBigIntFromString.pipe(Schema.brand<Name>(name));
 }
-function nonNegativeBigIntBrand<Name extends string>(name: Name) {
-  return CanonicalNonNegativePostgresBigIntFromString.pipe(Schema.brand(name));
+function nonNegativeBigIntBrand<Name extends string>(name: Parameters<typeof Schema.brand<Name>>[0]) {
+  return CanonicalNonNegativePostgresBigIntFromString.pipe(Schema.brand<Name>(name));
 }
-function safeIntegerBrand<Name extends string>(name: Name, minimum: number) {
+function safeIntegerBrand<Name extends string>(name: Parameters<typeof Schema.brand<Name>>[0], minimum: number) {
   return Schema.Number.check(
     Schema.makeFilter((value) => Number.isSafeInteger(value) && value >= minimum
       ? undefined
       : `Expected a safe integer no less than ${minimum}`),
-  ).pipe(Schema.brand(name));
+  ).pipe(Schema.brand<Name>(name));
 }
 
 export const TaskDefinitionRevisionIdV1Schema = Schema.String.check(
@@ -299,7 +296,7 @@ export const TaskCancellationMessageV1Schema = SafeMessageSchema.pipe(
 export const TaskCancellationReasonV1Schema = Schema.Struct({
   code: Schema.Literals(["requested", "execution_cancelled", "policy_cancelled"]),
   message: Schema.NullOr(TaskCancellationMessageV1Schema),
-}).annotate(STRICT_STRUCT_OPTIONS);
+});
 
 const Sha256Schema = Schema.Uint8Array.check(
   Schema.makeFilter((value) => value.byteLength === 32
@@ -316,7 +313,7 @@ const TaskResultCommitmentShapeV1Schema = Schema.Struct({
         : `Expected a byte length from 1 through ${MAX_TASK_RESULT_CANONICAL_BYTES_V1}`),
   ),
   sha256: Sha256Schema,
-}).annotate(STRICT_STRUCT_OPTIONS);
+});
 export const TaskResultCommitmentV1Schema = TaskResultCommitmentShapeV1Schema.pipe(
   Schema.decodeTo(
     TaskResultCommitmentShapeV1Schema,
@@ -333,16 +330,16 @@ export const TaskResultCommitmentV1Schema = TaskResultCommitmentShapeV1Schema.pi
 export function taskResultObjectKeyV1(
   sha256: TaskResultCommitmentV1["sha256"],
 ): string {
-  return `${TASK_RESULT_OBJECT_KEY_PREFIX_V1}${Encoding.encodeHex(sha256)}`;
+  return `${TASK_RESULT_OBJECT_KEY_PREFIX_V1}${Hex.encode(sha256)}`;
 }
 
 export const TaskRetryDirectiveV1Schema = Schema.Union([
-  Schema.Struct({ kind: Schema.Literal("use_bound_policy") }).annotate(STRICT_STRUCT_OPTIONS),
-  Schema.Struct({ kind: Schema.Literal("do_not_retry") }).annotate(STRICT_STRUCT_OPTIONS),
+  Schema.Struct({ kind: Schema.Literal("use_bound_policy") }),
+  Schema.Struct({ kind: Schema.Literal("do_not_retry") }),
   Schema.Struct({
     kind: Schema.Literal("override_delay"),
     delayMs: TaskDurationMsV1Schema,
-  }).annotate(STRICT_STRUCT_OPTIONS),
+  }),
 ]);
 
 const TaskFailureCodeSchema = Schema.Union([
@@ -350,22 +347,22 @@ const TaskFailureCodeSchema = Schema.Union([
     kind: Schema.Literal("task_failure"),
     code: Schema.Literals(["uncaught_exception", "input_validation_failed", "output_validation_failed", "middleware_failed", "handler_failed"]),
     message: Schema.NullOr(TaskFailureMessageV1Schema),
-  }).annotate(STRICT_STRUCT_OPTIONS),
+  }),
   Schema.Struct({
     kind: Schema.Literal("system_failure"),
     code: Schema.Literals(["attempt_dispatch_failed", "runtime_start_failed", "execution_lost", "execution_aborted", "provider_evicted", "provider_failure", "task_binding_unavailable", "configuration_invalid", "internal_invariant"]),
     message: Schema.NullOr(TaskFailureMessageV1Schema),
-  }).annotate(STRICT_STRUCT_OPTIONS),
+  }),
   Schema.Struct({
     kind: Schema.Literal("resource_exhaustion"),
     code: Schema.Literals(["out_of_memory", "possible_out_of_memory", "process_crashed", "disk_exhausted"]),
     message: Schema.NullOr(TaskFailureMessageV1Schema),
-  }).annotate(STRICT_STRUCT_OPTIONS),
+  }),
   Schema.Struct({
     kind: Schema.Literal("timed_out"),
     code: Schema.Literal("maximum_duration_exceeded"),
     message: Schema.NullOr(TaskFailureMessageV1Schema),
-  }).annotate(STRICT_STRUCT_OPTIONS),
+  }),
 ]);
 export const TaskExecutionFailureV1Schema = TaskFailureCodeSchema;
 
@@ -373,18 +370,18 @@ const TaskSucceededCompletionV1Schema = Schema.Struct({
     kind: Schema.Literal("succeeded"),
     result: Schema.NullOr(TaskResultCommitmentV1Schema),
     executionDurationMs: Schema.NullOr(TaskExecutionDurationMsV1Schema),
-  }).annotate(STRICT_STRUCT_OPTIONS);
+  });
 const TaskFailedCompletionV1Schema = Schema.Struct({
     kind: Schema.Literal("failed"),
     failure: TaskExecutionFailureV1Schema,
     retry: TaskRetryDirectiveV1Schema,
     executionDurationMs: Schema.NullOr(TaskExecutionDurationMsV1Schema),
-  }).annotate(STRICT_STRUCT_OPTIONS);
+  });
 const TaskCancellationAcknowledgedCompletionV1Schema = Schema.Struct({
     kind: Schema.Literal("cancellation_acknowledged"),
     cancellationGeneration: TaskCancellationGenerationV1Schema,
     executionDurationMs: Schema.NullOr(TaskExecutionDurationMsV1Schema),
-  }).annotate(STRICT_STRUCT_OPTIONS);
+  });
 export const TaskAttemptCompletionV1Schema = Schema.Union([
   TaskSucceededCompletionV1Schema,
   TaskFailedCompletionV1Schema,
@@ -399,15 +396,15 @@ export const RunAttemptPolicyV1Schema = Schema.Struct({
     minTimeoutInMs: TaskDurationMsV1Schema,
     maxTimeoutInMs: TaskDurationMsV1Schema,
     randomize: Schema.Boolean,
-  }).annotate(STRICT_STRUCT_OPTIONS),
+  }),
   outOfMemory: Schema.Union([
-    Schema.Struct({ kind: Schema.Literal("disabled") }).annotate(STRICT_STRUCT_OPTIONS),
+    Schema.Struct({ kind: Schema.Literal("disabled") }),
     Schema.Struct({
       kind: Schema.Literal("escalate_once"),
       computeProfile: TaskComputeProfileRefV1Schema,
-    }).annotate(STRICT_STRUCT_OPTIONS),
+    }),
   ]),
-}).annotate(STRICT_STRUCT_OPTIONS).check(
+}).check(
   Schema.makeFilter((policy) => policy.retry.minTimeoutInMs <= policy.retry.maxTimeoutInMs
     ? undefined
     : "Expected retry minimum timeout no greater than maximum timeout"),
@@ -419,38 +416,38 @@ export const TaskRunAttemptBoundPolicyV1Schema = Schema.Struct({
   initialComputeProfile: TaskComputeProfileRefV1Schema,
   leaseDurationMs: TaskDurationMsV1Schema,
   immediateRetryThresholdMs: TaskDurationMsV1Schema,
-}).annotate(STRICT_STRUCT_OPTIONS).check(
+}).check(
   Schema.makeFilter((policy) => policy.maximumDurationMs > 0 && policy.leaseDurationMs > 0
     ? undefined
     : "Expected positive maximum and lease durations"),
 );
 
 export const TaskAttemptHistoryCursorV1Schema = Schema.Union([
-  Schema.Struct({ kind: Schema.Literal("none") }).annotate(STRICT_STRUCT_OPTIONS),
+  Schema.Struct({ kind: Schema.Literal("none") }),
   Schema.Struct({
     kind: Schema.Literal("issued"),
     lastAttemptNumber: TaskAttemptNumberV1Schema,
-  }).annotate(STRICT_STRUCT_OPTIONS),
+  }),
 ]);
 export const TaskLeaseHistoryCursorV1Schema = Schema.Union([
-  Schema.Struct({ kind: Schema.Literal("none") }).annotate(STRICT_STRUCT_OPTIONS),
+  Schema.Struct({ kind: Schema.Literal("none") }),
   Schema.Struct({
     kind: Schema.Literal("issued"),
     lastLeaseVersion: TaskLeaseVersionV1Schema,
-  }).annotate(STRICT_STRUCT_OPTIONS),
+  }),
 ]);
 export const TaskRequestedEffectCursorV1Schema = Schema.Union([
-  Schema.Struct({ kind: Schema.Literal("none") }).annotate(STRICT_STRUCT_OPTIONS),
+  Schema.Struct({ kind: Schema.Literal("none") }),
   Schema.Struct({
     kind: Schema.Literal("issued"),
     lastSequence: TaskRequestedEffectSequenceV1Schema,
-  }).annotate(STRICT_STRUCT_OPTIONS),
+  }),
 ]);
 
 const TaskCancellationNotRequestedV1Schema = Schema.Struct({
   kind: Schema.Literal("not_requested"),
   generation: TaskCancellationGenerationV1Schema,
-}).annotate(STRICT_STRUCT_OPTIONS).check(
+}).check(
   Schema.makeFilter((cancellation) => cancellation.generation === 0n
     ? undefined
     : "Expected not-requested cancellation generation zero"),
@@ -460,7 +457,7 @@ const TaskCancellationRequestedV1Schema = Schema.Struct({
   generation: TaskCancellationGenerationV1Schema,
   reason: TaskCancellationReasonV1Schema,
   requestedAtMs: TaskDatabaseTimeMsV1Schema,
-}).annotate(STRICT_STRUCT_OPTIONS).check(
+}).check(
   Schema.makeFilter((cancellation) => cancellation.generation > 0n
     ? undefined
     : "Expected requested cancellation generation positive"),
@@ -477,7 +474,7 @@ const TaskCancellationResolvedV1Schema = Schema.Struct({
   resolution: Schema.Literals([
     "without_active_attempt", "acknowledged", "lease_expired", "superseded_by_completion",
   ]),
-}).annotate(STRICT_STRUCT_OPTIONS).check(
+}).check(
   Schema.makeFilter((cancellation) => cancellation.generation > 0n &&
     cancellation.resolvedAtMs >= cancellation.requestedAtMs
     ? undefined
@@ -486,7 +483,7 @@ const TaskCancellationResolvedV1Schema = Schema.Struct({
 const TaskCancellationResolvedWithoutAttemptV1Schema = Schema.Struct({
   ...TaskCancellationResolvedBaseFieldsV1,
   resolution: Schema.Literal("without_active_attempt"),
-}).annotate(STRICT_STRUCT_OPTIONS).check(
+}).check(
   Schema.makeFilter((cancellation) => cancellation.generation > 0n &&
     cancellation.resolvedAtMs >= cancellation.requestedAtMs
     ? undefined
@@ -495,7 +492,7 @@ const TaskCancellationResolvedWithoutAttemptV1Schema = Schema.Struct({
 const TaskCancellationResolvedAcknowledgedV1Schema = Schema.Struct({
   ...TaskCancellationResolvedBaseFieldsV1,
   resolution: Schema.Literal("acknowledged"),
-}).annotate(STRICT_STRUCT_OPTIONS).check(
+}).check(
   Schema.makeFilter((cancellation) => cancellation.generation > 0n &&
     cancellation.resolvedAtMs >= cancellation.requestedAtMs
     ? undefined
@@ -504,7 +501,7 @@ const TaskCancellationResolvedAcknowledgedV1Schema = Schema.Struct({
 const TaskCancellationResolvedLeaseExpiredV1Schema = Schema.Struct({
   ...TaskCancellationResolvedBaseFieldsV1,
   resolution: Schema.Literal("lease_expired"),
-}).annotate(STRICT_STRUCT_OPTIONS).check(
+}).check(
   Schema.makeFilter((cancellation) => cancellation.generation > 0n &&
     cancellation.resolvedAtMs >= cancellation.requestedAtMs
     ? undefined
@@ -513,7 +510,7 @@ const TaskCancellationResolvedLeaseExpiredV1Schema = Schema.Struct({
 const TaskCancellationResolvedSupersededV1Schema = Schema.Struct({
   ...TaskCancellationResolvedBaseFieldsV1,
   resolution: Schema.Literal("superseded_by_completion"),
-}).annotate(STRICT_STRUCT_OPTIONS).check(
+}).check(
   Schema.makeFilter((cancellation) => cancellation.generation > 0n &&
     cancellation.resolvedAtMs >= cancellation.requestedAtMs
     ? undefined
@@ -529,12 +526,12 @@ export const TaskTerminalAttemptRefV1Schema = Schema.Struct({
   attemptId: TaskAttemptIdV1Schema,
   attemptNumber: TaskAttemptNumberV1Schema,
   executionFence: TaskExecutionFenceV1Schema,
-}).annotate(STRICT_STRUCT_OPTIONS);
+});
 export const TaskAttemptLeaseV1Schema = Schema.Struct({
   version: TaskLeaseVersionV1Schema,
   renewedAtMs: TaskDatabaseTimeMsV1Schema,
   expiresAtMs: TaskDatabaseTimeMsV1Schema,
-}).annotate(STRICT_STRUCT_OPTIONS).check(
+}).check(
   Schema.makeFilter((lease) => lease.expiresAtMs > lease.renewedAtMs
     ? undefined
     : "Expected lease expiry later than renewal"),
@@ -548,28 +545,28 @@ export const TaskCurrentAttemptV1Schema = Schema.Struct({
   retryJitter: TaskRetryJitterV1Schema,
   grantedAtMs: TaskDatabaseTimeMsV1Schema,
   lease: TaskAttemptLeaseV1Schema,
-}).annotate(STRICT_STRUCT_OPTIONS);
+});
 export const TaskAttemptHeartbeatStateV1Schema = Schema.Union([
-  Schema.Struct({ kind: Schema.Literal("none_accepted") }).annotate(STRICT_STRUCT_OPTIONS),
+  Schema.Struct({ kind: Schema.Literal("none_accepted") }),
   Schema.Struct({
     kind: Schema.Literal("accepted"),
     highestSequence: TaskHeartbeatSequenceV1Schema,
-  }).annotate(STRICT_STRUCT_OPTIONS),
+  }),
 ]);
 
 export const TaskRetryCauseV1Schema = Schema.Union([
   Schema.Struct({
     kind: Schema.Literal("failed_completion"),
     failure: TaskExecutionFailureV1Schema,
-  }).annotate(STRICT_STRUCT_OPTIONS),
+  }),
   Schema.Struct({
     kind: Schema.Literal("lease_expired_before_heartbeat"),
     failure: TaskExecutionFailureV1Schema,
-  }).annotate(STRICT_STRUCT_OPTIONS),
+  }),
   Schema.Struct({
     kind: Schema.Literal("lease_expired_after_heartbeat"),
     failure: TaskExecutionFailureV1Schema,
-  }).annotate(STRICT_STRUCT_OPTIONS),
+  }),
 ]);
 export const TaskAcceptedRetryV1Schema = Schema.Struct({
   previousAttempt: TaskTerminalAttemptRefV1Schema,
@@ -577,7 +574,7 @@ export const TaskAcceptedRetryV1Schema = Schema.Struct({
   notBeforeMs: TaskDatabaseTimeMsV1Schema,
   nextComputeProfile: TaskComputeProfileRefV1Schema,
   cause: TaskRetryCauseV1Schema,
-}).annotate(STRICT_STRUCT_OPTIONS).check(
+}).check(
   Schema.makeFilter((retry) => retry.notBeforeMs >= retry.acceptedAtMs
     ? undefined
     : "Expected retry eligibility no earlier than acceptance"),
@@ -586,12 +583,12 @@ export const TaskRunReadyStateV1Schema = Schema.Union([
   Schema.Struct({
     kind: Schema.Literal("initial"),
     eligibleAtMs: TaskDatabaseTimeMsV1Schema,
-  }).annotate(STRICT_STRUCT_OPTIONS),
+  }),
   Schema.Struct({
     kind: Schema.Literal("immediate_retry"),
     eligibleAtMs: TaskDatabaseTimeMsV1Schema,
     acceptedRetry: TaskAcceptedRetryV1Schema,
-  }).annotate(STRICT_STRUCT_OPTIONS).check(
+  }).check(
     Schema.makeFilter((ready) => ready.eligibleAtMs === ready.acceptedRetry.notBeforeMs
       ? undefined
       : "Expected immediate retry eligibility to match accepted retry"),
@@ -604,7 +601,7 @@ const TaskRunSucceededTerminalV1Schema = Schema.Struct({
   attempt: TaskTerminalAttemptRefV1Schema,
   result: Schema.NullOr(TaskResultCommitmentV1Schema),
   executionDurationMs: Schema.NullOr(TaskExecutionDurationMsV1Schema),
-}).annotate(STRICT_STRUCT_OPTIONS);
+});
 const TaskRunCancelledTerminalBaseFieldsV1 = {
   kind: Schema.Literal("cancelled"),
   completedAtMs: TaskDatabaseTimeMsV1Schema,
@@ -616,19 +613,19 @@ const TaskRunCancelledWithoutAttemptTerminalV1Schema = Schema.Struct({
   attempt: Schema.Null,
   resolution: Schema.Literal("without_active_attempt"),
   executionDurationMs: Schema.Null,
-}).annotate(STRICT_STRUCT_OPTIONS);
+});
 const TaskRunAcknowledgedCancellationTerminalV1Schema = Schema.Struct({
   ...TaskRunCancelledTerminalBaseFieldsV1,
   attempt: TaskTerminalAttemptRefV1Schema,
   resolution: Schema.Literal("acknowledged"),
   executionDurationMs: Schema.NullOr(TaskExecutionDurationMsV1Schema),
-}).annotate(STRICT_STRUCT_OPTIONS);
+});
 const TaskRunLeaseExpiredCancellationTerminalV1Schema = Schema.Struct({
   ...TaskRunCancelledTerminalBaseFieldsV1,
   attempt: TaskTerminalAttemptRefV1Schema,
   resolution: Schema.Literal("lease_expired"),
   executionDurationMs: Schema.Null,
-}).annotate(STRICT_STRUCT_OPTIONS);
+});
 const TaskRunCancelledTerminalV1Schema = Schema.Union([
   TaskRunCancelledWithoutAttemptTerminalV1Schema,
   TaskRunAcknowledgedCancellationTerminalV1Schema,
@@ -644,7 +641,7 @@ const TaskRunFailedTerminalBaseFieldsV1 = {
 const TaskRunFailedTerminalV1Schema = Schema.Struct({
   ...TaskRunFailedTerminalBaseFieldsV1,
   attempt: Schema.NullOr(TaskTerminalAttemptRefV1Schema),
-}).annotate(STRICT_STRUCT_OPTIONS).check(
+}).check(
   Schema.makeFilter((terminal) => terminal.classification === terminal.failure.kind
     ? undefined
     : "Expected terminal classification to match failure kind"),
@@ -652,7 +649,7 @@ const TaskRunFailedTerminalV1Schema = Schema.Struct({
 const TaskRunAttemptFailedTerminalV1Schema = Schema.Struct({
   ...TaskRunFailedTerminalBaseFieldsV1,
   attempt: TaskTerminalAttemptRefV1Schema,
-}).annotate(STRICT_STRUCT_OPTIONS).check(
+}).check(
   Schema.makeFilter((terminal) => terminal.classification === terminal.failure.kind
     ? undefined
     : "Expected terminal classification to match failure kind"),
@@ -690,14 +687,14 @@ const ApplicationDefinitionIdentityFieldsV1 = makeDefinitionIdentityFields(
 );
 export const TrustedWorkflowDefinitionReferenceSchema = Schema.Struct({
   generation: Schema.Literal("trusted_workflow"), trustedWorkflowBindingSha256: TrustedWorkflowBindingSha256Schema,
-}).annotate(STRICT_STRUCT_OPTIONS);
+});
 const TrustedWorkflowIdentityFields = { definitionReference: TrustedWorkflowDefinitionReferenceSchema };
 const TaskActiveAttemptProjectionV1Schema = Schema.Struct({
   attempt: TaskTerminalAttemptRefV1Schema,
   computeProfile: TaskComputeProfileRefV1Schema,
   grantedAtMs: TaskDatabaseTimeMsV1Schema,
   lease: TaskAttemptLeaseV1Schema,
-}).annotate(STRICT_STRUCT_OPTIONS);
+});
 function makeRunAttemptStateSchema<
   const IdentityFields extends Schema.Struct.Fields,
 >(identityFields: IdentityFields) {
@@ -713,14 +710,14 @@ function makeRunAttemptStateSchema<
     phase: Schema.Literal("ready"),
     ready: TaskRunReadyStateV1Schema,
     cancellation: TaskCancellationNotRequestedV1Schema,
-  }).annotate(STRICT_STRUCT_OPTIONS),
+  }),
   Schema.Struct({
     ...RunAttemptStateBaseFields,
     phase: Schema.Literal("attempt_granted"),
     currentAttempt: TaskActiveAttemptProjectionV1Schema,
-    heartbeat: Schema.Struct({ kind: Schema.Literal("none_accepted") }).annotate(STRICT_STRUCT_OPTIONS),
+    heartbeat: Schema.Struct({ kind: Schema.Literal("none_accepted") }),
     cancellation: Schema.Union([TaskCancellationNotRequestedV1Schema, TaskCancellationRequestedV1Schema]),
-  }).annotate(STRICT_STRUCT_OPTIONS),
+  }),
   Schema.Struct({
     ...RunAttemptStateBaseFields,
     phase: Schema.Literal("executing"),
@@ -728,15 +725,15 @@ function makeRunAttemptStateSchema<
     heartbeat: Schema.Struct({
       kind: Schema.Literal("accepted"),
       highestSequence: TaskHeartbeatSequenceV1Schema,
-    }).annotate(STRICT_STRUCT_OPTIONS),
+    }),
     cancellation: Schema.Union([TaskCancellationNotRequestedV1Schema, TaskCancellationRequestedV1Schema]),
-  }).annotate(STRICT_STRUCT_OPTIONS),
+  }),
   Schema.Struct({
     ...RunAttemptStateBaseFields,
     phase: Schema.Literal("retry_waiting"),
     retry: TaskAcceptedRetryV1Schema,
     cancellation: TaskCancellationNotRequestedV1Schema,
-  }).annotate(STRICT_STRUCT_OPTIONS),
+  }),
   Schema.Struct({
     ...RunAttemptStateBaseFields,
     phase: Schema.Literal("terminal"),
@@ -745,25 +742,25 @@ function makeRunAttemptStateSchema<
       TaskCancellationNotRequestedV1Schema,
       TaskCancellationResolvedSupersededV1Schema,
     ]),
-  }).annotate(STRICT_STRUCT_OPTIONS),
+  }),
   Schema.Struct({
     ...RunAttemptStateBaseFields,
     phase: Schema.Literal("terminal"),
     terminal: TaskRunCancelledWithoutAttemptTerminalV1Schema,
     cancellation: TaskCancellationResolvedWithoutAttemptV1Schema,
-  }).annotate(STRICT_STRUCT_OPTIONS),
+  }),
   Schema.Struct({
     ...RunAttemptStateBaseFields,
     phase: Schema.Literal("terminal"),
     terminal: TaskRunAcknowledgedCancellationTerminalV1Schema,
     cancellation: TaskCancellationResolvedAcknowledgedV1Schema,
-  }).annotate(STRICT_STRUCT_OPTIONS),
+  }),
   Schema.Struct({
     ...RunAttemptStateBaseFields,
     phase: Schema.Literal("terminal"),
     terminal: TaskRunLeaseExpiredCancellationTerminalV1Schema,
     cancellation: TaskCancellationResolvedLeaseExpiredV1Schema,
-  }).annotate(STRICT_STRUCT_OPTIONS),
+  }),
   ]);
   return states;
 }
@@ -806,7 +803,7 @@ export const RunAttemptInspectionV1Schema = Schema.Struct({
   version: Schema.Literal("flarex.run-attempt-inspection.v1"),
   observedAtMs: TaskDatabaseTimeMsV1Schema,
   state: RunAttemptStateV1Schema,
-}).annotate(STRICT_STRUCT_OPTIONS);
+});
 
 function makeTaskAttemptGrantSchema<
   const IdentityFields extends Schema.Struct.Fields,
@@ -819,7 +816,7 @@ function makeTaskAttemptGrantSchema<
     computeProfile: TaskComputeProfileRefV1Schema,
     grantedAtMs: TaskDatabaseTimeMsV1Schema,
     lease: TaskAttemptLeaseV1Schema,
-  }).annotate(STRICT_STRUCT_OPTIONS);
+  });
 }
 export const TaskAttemptGrantV1Schema = makeTaskAttemptGrantSchema(
   LegacyDefinitionIdentityFieldsV1,
@@ -834,7 +831,7 @@ function makeStartAttemptAcceptedOutcomeSchema<
   return Schema.Struct({
     kind: Schema.Literal("attempt_granted"),
     grant: makeTaskAttemptGrantSchema(identityFields),
-  }).annotate(STRICT_STRUCT_OPTIONS);
+  });
 }
 const StartAttemptAcceptedOutcomeV1Schema = makeStartAttemptAcceptedOutcomeSchema(
   LegacyDefinitionIdentityFieldsV1,
@@ -845,7 +842,7 @@ export const StartAttemptOutcomeV1Schema = Schema.Union([
     kind: Schema.Literal("current"),
     reason: Schema.Literals(["stale_run_version", "not_yet_eligible", "phase_not_startable"]),
     state: RunAttemptStateV1Schema,
-  }).annotate(STRICT_STRUCT_OPTIONS),
+  }),
 ]);
 const HeartbeatAttemptAcceptedOutcomeV1Schema = Schema.Struct({
   kind: Schema.Literal("lease_renewed"),
@@ -853,14 +850,14 @@ const HeartbeatAttemptAcceptedOutcomeV1Schema = Schema.Struct({
   heartbeatSequence: TaskHeartbeatSequenceV1Schema,
   enteredExecuting: Schema.Boolean,
   lease: TaskAttemptLeaseV1Schema,
-}).annotate(STRICT_STRUCT_OPTIONS);
+});
 export const HeartbeatAttemptOutcomeV1Schema = Schema.Union([
   HeartbeatAttemptAcceptedOutcomeV1Schema,
   Schema.Struct({
     kind: Schema.Literal("current"),
     reason: Schema.Literals(["phase_not_active", "stale_attempt", "stale_fence", "lease_expired", "heartbeat_not_advanced"]),
     state: RunAttemptStateV1Schema,
-  }).annotate(STRICT_STRUCT_OPTIONS),
+  }),
 ]);
 
 const CompletionTerminalCancellationStateV1Schema = Schema.Union([
@@ -871,21 +868,21 @@ const CompleteAttemptSucceededOutcomeV1Schema = Schema.Struct({
   kind: Schema.Literal("terminal_succeeded"),
   terminal: TaskRunSucceededTerminalV1Schema,
   cancellation: CompletionTerminalCancellationStateV1Schema,
-}).annotate(STRICT_STRUCT_OPTIONS);
+});
 const CompleteAttemptRetryOutcomeV1Schema = Schema.Struct({
   kind: Schema.Literal("retry_scheduled"),
   delivery: Schema.Literals(["immediate", "durable"]),
   retry: TaskAcceptedRetryV1Schema,
-}).annotate(STRICT_STRUCT_OPTIONS);
+});
 const CompleteAttemptFailedOutcomeV1Schema = Schema.Struct({
   kind: Schema.Literal("terminal_failed"),
   terminal: TaskRunAttemptFailedTerminalV1Schema,
   cancellation: CompletionTerminalCancellationStateV1Schema,
-}).annotate(STRICT_STRUCT_OPTIONS);
+});
 const CompleteAttemptCancelledOutcomeV1Schema = Schema.Struct({
   kind: Schema.Literal("terminal_cancelled"),
   terminal: TaskRunAcknowledgedCancellationTerminalV1Schema,
-}).annotate(STRICT_STRUCT_OPTIONS);
+});
 export const CompleteAttemptOutcomeV1Schema = Schema.Union([
   CompleteAttemptSucceededOutcomeV1Schema,
   CompleteAttemptRetryOutcomeV1Schema,
@@ -895,18 +892,18 @@ export const CompleteAttemptOutcomeV1Schema = Schema.Union([
     kind: Schema.Literal("current"),
     reason: Schema.Literals(["phase_not_active", "stale_attempt", "stale_fence", "lease_expired"]),
     state: RunAttemptStateV1Schema,
-  }).annotate(STRICT_STRUCT_OPTIONS),
+  }),
 ]);
 
 const RequestCancellationRequestedOutcomeV1Schema = Schema.Struct({
   kind: Schema.Literal("cancellation_requested"),
   attempt: TaskTerminalAttemptRefV1Schema,
   cancellation: TaskCancellationRequestedV1Schema,
-}).annotate(STRICT_STRUCT_OPTIONS);
+});
 const RequestCancellationTerminalOutcomeV1Schema = Schema.Struct({
   kind: Schema.Literal("terminal_cancelled"),
   terminal: TaskRunCancelledWithoutAttemptTerminalV1Schema,
-}).annotate(STRICT_STRUCT_OPTIONS);
+});
 export const RequestCancellationOutcomeV1Schema = Schema.Union([
   RequestCancellationRequestedOutcomeV1Schema,
   RequestCancellationTerminalOutcomeV1Schema,
@@ -914,22 +911,22 @@ export const RequestCancellationOutcomeV1Schema = Schema.Union([
     kind: Schema.Literal("current"),
     reason: Schema.Literals(["already_requested", "already_terminal"]),
     state: RunAttemptStateV1Schema,
-  }).annotate(STRICT_STRUCT_OPTIONS),
+  }),
 ]);
 
 const HandleLeaseExpiryRetryOutcomeV1Schema = Schema.Struct({
   kind: Schema.Literal("retry_scheduled"),
   delivery: Schema.Literal("durable"),
   retry: TaskAcceptedRetryV1Schema,
-}).annotate(STRICT_STRUCT_OPTIONS);
+});
 const HandleLeaseExpiryFailedOutcomeV1Schema = Schema.Struct({
   kind: Schema.Literal("terminal_failed"),
   terminal: TaskRunAttemptFailedTerminalV1Schema,
-}).annotate(STRICT_STRUCT_OPTIONS);
+});
 const HandleLeaseExpiryCancelledOutcomeV1Schema = Schema.Struct({
   kind: Schema.Literal("terminal_cancelled"),
   terminal: TaskRunLeaseExpiredCancellationTerminalV1Schema,
-}).annotate(STRICT_STRUCT_OPTIONS);
+});
 export const HandleLeaseExpiryOutcomeV1Schema = Schema.Union([
   HandleLeaseExpiryRetryOutcomeV1Schema,
   HandleLeaseExpiryFailedOutcomeV1Schema,
@@ -938,7 +935,7 @@ export const HandleLeaseExpiryOutcomeV1Schema = Schema.Union([
     kind: Schema.Literal("current"),
     reason: Schema.Literals(["phase_not_active", "stale_attempt", "stale_fence", "stale_lease_version", "lease_not_expired"]),
     state: RunAttemptStateV1Schema,
-  }).annotate(STRICT_STRUCT_OPTIONS),
+  }),
 ]);
 
 export const TaskFailurePolicyDecisionEvidenceV1Schema = Schema.Struct({
@@ -948,7 +945,7 @@ export const TaskFailurePolicyDecisionEvidenceV1Schema = Schema.Struct({
   directive: Schema.Struct({
     source: Schema.Literals(["completion", "synthesized_bound_policy"]),
     value: TaskRetryDirectiveV1Schema,
-  }).annotate(STRICT_STRUCT_OPTIONS),
+  }),
   storedRetryJitter: TaskRetryJitterV1Schema,
   jitterUsed: Schema.Boolean,
   decision: Schema.Union([
@@ -964,12 +961,12 @@ export const TaskFailurePolicyDecisionEvidenceV1Schema = Schema.Struct({
           "below_immediate_threshold", "failure_code_forced_durable",
           "at_or_above_immediate_threshold", "oom_forced_durable", "lease_loss_forced_durable",
         ]),
-      }).annotate(STRICT_STRUCT_OPTIONS),
+      }),
       computeEscalation: Schema.NullOr(Schema.Struct({
         previous: TaskComputeProfileRefV1Schema,
         next: TaskComputeProfileRefV1Schema,
-      }).annotate(STRICT_STRUCT_OPTIONS)),
-    }).annotate(STRICT_STRUCT_OPTIONS),
+      })),
+    }),
     Schema.Struct({
       kind: Schema.Literal("retry_rejected"),
       reason: Schema.Literals([
@@ -977,19 +974,19 @@ export const TaskFailurePolicyDecisionEvidenceV1Schema = Schema.Struct({
         "failure_not_retryable", "oom_escalation_disabled", "oom_escalation_already_applied",
       ]),
       terminalClassification: Schema.Literals(["task_failure", "system_failure", "resource_exhaustion", "timed_out"]),
-    }).annotate(STRICT_STRUCT_OPTIONS),
+    }),
   ]),
-}).annotate(STRICT_STRUCT_OPTIONS);
+});
 
 export const TaskLifecycleEventProjectionV1Schema = Schema.Union([
-  Schema.Struct({ kind: Schema.Literal("attempt_granted"), attemptNumber: TaskAttemptNumberV1Schema }).annotate(STRICT_STRUCT_OPTIONS),
-  Schema.Struct({ kind: Schema.Literal("execution_observed"), attemptNumber: TaskAttemptNumberV1Schema }).annotate(STRICT_STRUCT_OPTIONS),
+  Schema.Struct({ kind: Schema.Literal("attempt_granted"), attemptNumber: TaskAttemptNumberV1Schema }),
+  Schema.Struct({ kind: Schema.Literal("execution_observed"), attemptNumber: TaskAttemptNumberV1Schema }),
   Schema.Struct({
     kind: Schema.Literal("cancellation_requested"),
     attemptNumber: TaskAttemptNumberV1Schema,
     generation: TaskCancellationGenerationV1Schema,
     reasonCode: Schema.Literals(["requested", "execution_cancelled", "policy_cancelled"]),
-  }).annotate(STRICT_STRUCT_OPTIONS),
+  }),
   Schema.Struct({
     kind: Schema.Literal("retry_scheduled"),
     previousAttemptNumber: TaskAttemptNumberV1Schema,
@@ -997,38 +994,38 @@ export const TaskLifecycleEventProjectionV1Schema = Schema.Union([
       Schema.Struct({
         source: Schema.Literal("failed_completion"),
         delivery: Schema.Literals(["immediate", "durable"]),
-      }).annotate(STRICT_STRUCT_OPTIONS),
-      Schema.Struct({ source: Schema.Literal("lease_expiry"), delivery: Schema.Literal("durable") }).annotate(STRICT_STRUCT_OPTIONS),
+      }),
+      Schema.Struct({ source: Schema.Literal("lease_expiry"), delivery: Schema.Literal("durable") }),
     ]),
     notBeforeMs: TaskDatabaseTimeMsV1Schema,
-  }).annotate(STRICT_STRUCT_OPTIONS),
+  }),
   Schema.Struct({
     kind: Schema.Literal("run_succeeded"),
     attemptNumber: TaskAttemptNumberV1Schema,
     hasResult: Schema.Boolean,
-  }).annotate(STRICT_STRUCT_OPTIONS),
+  }),
   Schema.Struct({
     kind: Schema.Literal("run_cancelled"),
     generation: TaskCancellationGenerationV1Schema,
     reasonCode: Schema.Literals(["requested", "execution_cancelled", "policy_cancelled"]),
     cancellation: Schema.Union([
-      Schema.Struct({ attemptNumber: Schema.Null, resolution: Schema.Literal("without_active_attempt") }).annotate(STRICT_STRUCT_OPTIONS),
+      Schema.Struct({ attemptNumber: Schema.Null, resolution: Schema.Literal("without_active_attempt") }),
       Schema.Struct({
         attemptNumber: TaskAttemptNumberV1Schema,
         resolution: Schema.Literals(["acknowledged", "lease_expired"]),
-      }).annotate(STRICT_STRUCT_OPTIONS),
+      }),
     ]),
-  }).annotate(STRICT_STRUCT_OPTIONS),
+  }),
   Schema.Struct({
     kind: Schema.Literal("run_failed"),
     attemptNumber: Schema.NullOr(TaskAttemptNumberV1Schema),
     failure: Schema.Union([
-      Schema.Struct({ kind: Schema.Literal("task_failure"), code: Schema.Literals(["uncaught_exception", "input_validation_failed", "output_validation_failed", "middleware_failed", "handler_failed"]) }).annotate(STRICT_STRUCT_OPTIONS),
-      Schema.Struct({ kind: Schema.Literal("system_failure"), code: Schema.Literals(["attempt_dispatch_failed", "runtime_start_failed", "execution_lost", "execution_aborted", "provider_evicted", "provider_failure", "task_binding_unavailable", "configuration_invalid", "internal_invariant"]) }).annotate(STRICT_STRUCT_OPTIONS),
-      Schema.Struct({ kind: Schema.Literal("resource_exhaustion"), code: Schema.Literals(["out_of_memory", "possible_out_of_memory", "process_crashed", "disk_exhausted"]) }).annotate(STRICT_STRUCT_OPTIONS),
-      Schema.Struct({ kind: Schema.Literal("timed_out"), code: Schema.Literal("maximum_duration_exceeded") }).annotate(STRICT_STRUCT_OPTIONS),
+      Schema.Struct({ kind: Schema.Literal("task_failure"), code: Schema.Literals(["uncaught_exception", "input_validation_failed", "output_validation_failed", "middleware_failed", "handler_failed"]) }),
+      Schema.Struct({ kind: Schema.Literal("system_failure"), code: Schema.Literals(["attempt_dispatch_failed", "runtime_start_failed", "execution_lost", "execution_aborted", "provider_evicted", "provider_failure", "task_binding_unavailable", "configuration_invalid", "internal_invariant"]) }),
+      Schema.Struct({ kind: Schema.Literal("resource_exhaustion"), code: Schema.Literals(["out_of_memory", "possible_out_of_memory", "process_crashed", "disk_exhausted"]) }),
+      Schema.Struct({ kind: Schema.Literal("timed_out"), code: Schema.Literal("maximum_duration_exceeded") }),
     ]),
-  }).annotate(STRICT_STRUCT_OPTIONS),
+  }),
 ]);
 
 function makeTaskRequestedEffectSchema<
@@ -1047,13 +1044,13 @@ function makeTaskRequestedEffectSchema<
     attempt: TaskTerminalAttemptRefV1Schema,
     leaseVersion: TaskLeaseVersionV1Schema,
     computeProfile: TaskComputeProfileRefV1Schema,
-  }).annotate(STRICT_STRUCT_OPTIONS),
+  }),
   Schema.Struct({
     ...TaskRequestedEffectBaseFields,
     kind: Schema.Literals(["continue_retry", "wake_retry"]),
     expectedRunVersion: TaskRunVersionV1Schema,
     notBeforeMs: TaskDatabaseTimeMsV1Schema,
-  }).annotate(STRICT_STRUCT_OPTIONS),
+  }),
   Schema.Struct({
     ...TaskRequestedEffectBaseFields,
     kind: Schema.Literal("wake_lease_expiry"),
@@ -1061,14 +1058,14 @@ function makeTaskRequestedEffectSchema<
     executionFence: TaskExecutionFenceV1Schema,
     expectedLeaseVersion: TaskLeaseVersionV1Schema,
     notBeforeMs: TaskDatabaseTimeMsV1Schema,
-  }).annotate(STRICT_STRUCT_OPTIONS),
+  }),
   Schema.Struct({
     ...TaskRequestedEffectBaseFields,
     kind: Schema.Literal("request_execution_cancellation"),
     attemptId: TaskAttemptIdV1Schema,
     executionFence: TaskExecutionFenceV1Schema,
     cancellationGeneration: TaskCancellationGenerationV1Schema,
-  }).annotate(STRICT_STRUCT_OPTIONS),
+  }),
   Schema.Struct({
     ...TaskRequestedEffectBaseFields,
     kind: Schema.Literal("release_queue_ownership"),
@@ -1076,21 +1073,21 @@ function makeTaskRequestedEffectSchema<
       "succeeded_completion", "failed_completion", "cancellation_acknowledged",
       "lease_expired_before_heartbeat", "lease_expired_after_heartbeat", "cancellation_lease_expired",
     ]),
-  }).annotate(STRICT_STRUCT_OPTIONS),
+  }),
   Schema.Struct({
     ...TaskRequestedEffectBaseFields,
     kind: Schema.Literal("publish_lifecycle_event"),
     observedAtMs: TaskDatabaseTimeMsV1Schema,
     event: TaskLifecycleEventProjectionV1Schema,
-  }).annotate(STRICT_STRUCT_OPTIONS),
-  Schema.Struct({ ...TaskRequestedEffectBaseFields, kind: Schema.Literal("notify_current_state") }).annotate(STRICT_STRUCT_OPTIONS),
+  }),
+  Schema.Struct({ ...TaskRequestedEffectBaseFields, kind: Schema.Literal("notify_current_state") }),
   Schema.Struct({
     ...TaskRequestedEffectBaseFields,
     kind: Schema.Literal("cancel_obsolete_lease_wake"),
     attemptId: TaskAttemptIdV1Schema,
     executionFence: TaskExecutionFenceV1Schema,
     obsoleteLeaseVersion: TaskLeaseVersionV1Schema,
-  }).annotate(STRICT_STRUCT_OPTIONS),
+  }),
   ]);
 }
 export const TaskRequestedEffectV1Schema = makeTaskRequestedEffectSchema(
@@ -1102,7 +1099,7 @@ export const ApplicationTaskRequestedEffectV1Schema = makeTaskRequestedEffectSch
 export const PersistedTaskRequestedEffectV1Schema = Schema.Struct({
   sequence: TaskRequestedEffectSequenceV1Schema,
   effect: TaskRequestedEffectV1Schema,
-}).annotate(STRICT_STRUCT_OPTIONS);
+});
 
 function makePersistedTaskRequestedEffectSchema<
   const IdentityFields extends Schema.Struct.Fields,
@@ -1110,7 +1107,7 @@ function makePersistedTaskRequestedEffectSchema<
   return Schema.Struct({
     sequence: TaskRequestedEffectSequenceV1Schema,
     effect: makeTaskRequestedEffectSchema(identityFields),
-  }).annotate(STRICT_STRUCT_OPTIONS);
+  });
 }
 export const ApplicationPersistedTaskRequestedEffectV1Schema =
   makePersistedTaskRequestedEffectSchema(ApplicationDefinitionIdentityFieldsV1);
@@ -1135,7 +1132,7 @@ function makeEvidenceFromBase<const IdentityFields extends Schema.Struct.Fields,
     kind: Schema.Literal("attempt_granted"),
     fromPhase,
     grant: makeTaskAttemptGrantSchema(identityFields),
-  }).annotate(STRICT_STRUCT_OPTIONS),
+  }),
   Schema.Struct({
     ...base,
     kind: Schema.Literal("heartbeat_accepted"),
@@ -1144,14 +1141,14 @@ function makeEvidenceFromBase<const IdentityFields extends Schema.Struct.Fields,
     previousLeaseVersion: TaskLeaseVersionV1Schema,
     renewedLease: TaskAttemptLeaseV1Schema,
     enteredExecuting: Schema.Boolean,
-  }).annotate(STRICT_STRUCT_OPTIONS),
+  }),
   Schema.Struct({
     ...base,
     kind: Schema.Literal("completion_succeeded"),
     attempt: TaskTerminalAttemptRefV1Schema,
     completion: TaskSucceededCompletionV1Schema,
     outcome: CompleteAttemptSucceededOutcomeV1Schema,
-  }).annotate(STRICT_STRUCT_OPTIONS),
+  }),
   Schema.Struct({
     ...base,
     kind: Schema.Literal("completion_failed"),
@@ -1159,28 +1156,28 @@ function makeEvidenceFromBase<const IdentityFields extends Schema.Struct.Fields,
     completion: TaskFailedCompletionV1Schema,
     policy: TaskFailurePolicyDecisionEvidenceV1Schema,
     outcome: Schema.Union([CompleteAttemptRetryOutcomeV1Schema, CompleteAttemptFailedOutcomeV1Schema]),
-  }).annotate(STRICT_STRUCT_OPTIONS),
+  }),
   Schema.Struct({
     ...base,
     kind: Schema.Literal("completion_cancellation_acknowledged"),
     attempt: TaskTerminalAttemptRefV1Schema,
     completion: TaskCancellationAcknowledgedCompletionV1Schema,
     outcome: CompleteAttemptCancelledOutcomeV1Schema,
-  }).annotate(STRICT_STRUCT_OPTIONS),
+  }),
   Schema.Struct({
     ...base,
     kind: Schema.Literal("cancellation_requested"),
     attempt: TaskTerminalAttemptRefV1Schema,
     cancellation: TaskCancellationRequestedV1Schema,
     outcome: RequestCancellationRequestedOutcomeV1Schema,
-  }).annotate(STRICT_STRUCT_OPTIONS),
+  }),
   Schema.Struct({
     ...base,
     kind: Schema.Literal("cancellation_resolved_without_attempt"),
     attempt: Schema.Null,
     cancellation: TaskCancellationResolvedWithoutAttemptV1Schema,
     outcome: RequestCancellationTerminalOutcomeV1Schema,
-  }).annotate(STRICT_STRUCT_OPTIONS),
+  }),
   Schema.Struct({
     ...base,
     kind: Schema.Literal("lease_expiry_recovered"),
@@ -1189,7 +1186,7 @@ function makeEvidenceFromBase<const IdentityFields extends Schema.Struct.Fields,
     sourcePhase: Schema.Literals(["attempt_granted", "executing"]),
     policy: TaskFailurePolicyDecisionEvidenceV1Schema,
     outcome: Schema.Union([HandleLeaseExpiryRetryOutcomeV1Schema, HandleLeaseExpiryFailedOutcomeV1Schema]),
-  }).annotate(STRICT_STRUCT_OPTIONS),
+  }),
   Schema.Struct({
     ...base,
     kind: Schema.Literal("lease_expiry_cancelled"),
@@ -1197,7 +1194,7 @@ function makeEvidenceFromBase<const IdentityFields extends Schema.Struct.Fields,
     expiredLeaseVersion: TaskLeaseVersionV1Schema,
     sourcePhase: Schema.Literals(["attempt_granted", "executing"]),
     outcome: HandleLeaseExpiryCancelledOutcomeV1Schema,
-  }).annotate(STRICT_STRUCT_OPTIONS),
+  }),
   ]);
 }
 export const TaskRunAttemptEvidenceV1Schema = makeTaskRunAttemptEvidenceSchema(
@@ -1233,11 +1230,11 @@ function makeAcceptedReceiptSchemasFromBase<const IdentityFields extends Schema.
     start: Schema.Struct({
       ...base,
       outcome: makeStartAttemptAcceptedOutcomeSchema(identityFields),
-    }).annotate(STRICT_STRUCT_OPTIONS),
+    }),
     heartbeat: Schema.Struct({
       ...base,
       outcome: HeartbeatAttemptAcceptedOutcomeV1Schema,
-    }).annotate(STRICT_STRUCT_OPTIONS),
+    }),
     complete: Schema.Struct({
       ...base,
       outcome: Schema.Union([
@@ -1246,14 +1243,14 @@ function makeAcceptedReceiptSchemasFromBase<const IdentityFields extends Schema.
         CompleteAttemptFailedOutcomeV1Schema,
         CompleteAttemptCancelledOutcomeV1Schema,
       ]),
-    }).annotate(STRICT_STRUCT_OPTIONS),
+    }),
     cancellation: Schema.Struct({
       ...base,
       outcome: Schema.Union([
         RequestCancellationRequestedOutcomeV1Schema,
         RequestCancellationTerminalOutcomeV1Schema,
       ]),
-    }).annotate(STRICT_STRUCT_OPTIONS),
+    }),
     leaseExpiry: Schema.Struct({
       ...base,
       outcome: Schema.Union([
@@ -1261,7 +1258,7 @@ function makeAcceptedReceiptSchemasFromBase<const IdentityFields extends Schema.
         HandleLeaseExpiryFailedOutcomeV1Schema,
         HandleLeaseExpiryCancelledOutcomeV1Schema,
       ]),
-    }).annotate(STRICT_STRUCT_OPTIONS),
+    }),
   };
 }
 
@@ -1280,9 +1277,9 @@ function makeAcceptanceFromReceipts<Start extends Schema.Top, Heartbeat extends 
     command: Schema.Struct({
       kind: Schema.Literal("start_attempt"),
       expectedRunVersion: TaskRunVersionV1Schema,
-    }).annotate(STRICT_STRUCT_OPTIONS),
+    }),
     accepted: receipts.start,
-  }).annotate(STRICT_STRUCT_OPTIONS),
+  }),
   Schema.Struct({
     kind: Schema.Literal("heartbeat_attempt"),
     command: Schema.Struct({
@@ -1290,23 +1287,23 @@ function makeAcceptanceFromReceipts<Start extends Schema.Top, Heartbeat extends 
       attemptId: TaskAttemptIdV1Schema,
       executionFence: TaskExecutionFenceV1Schema,
       heartbeatSequence: TaskHeartbeatSequenceV1Schema,
-    }).annotate(STRICT_STRUCT_OPTIONS),
+    }),
     accepted: receipts.heartbeat,
-  }).annotate(STRICT_STRUCT_OPTIONS),
+  }),
   Schema.Struct({
     kind: Schema.Literal("complete_attempt"),
     attemptId: TaskAttemptIdV1Schema,
     executionFence: TaskExecutionFenceV1Schema,
     accepted: receipts.complete,
-  }).annotate(STRICT_STRUCT_OPTIONS),
+  }),
   Schema.Struct({
     kind: Schema.Literal("request_cancellation"),
     command: Schema.Struct({
       kind: Schema.Literal("request_cancellation"),
       reason: TaskCancellationReasonV1Schema,
-    }).annotate(STRICT_STRUCT_OPTIONS),
+    }),
     accepted: receipts.cancellation,
-  }).annotate(STRICT_STRUCT_OPTIONS),
+  }),
   Schema.Struct({
     kind: Schema.Literal("handle_lease_expiry"),
     command: Schema.Struct({
@@ -1314,9 +1311,9 @@ function makeAcceptanceFromReceipts<Start extends Schema.Top, Heartbeat extends 
       attemptId: TaskAttemptIdV1Schema,
       executionFence: TaskExecutionFenceV1Schema,
       expectedLeaseVersion: TaskLeaseVersionV1Schema,
-    }).annotate(STRICT_STRUCT_OPTIONS),
+    }),
     accepted: receipts.leaseExpiry,
-  }).annotate(STRICT_STRUCT_OPTIONS),
+  }),
   ]);
 }
 export const TaskRunAttemptMutationAcceptanceV1Schema =
@@ -1333,7 +1330,7 @@ function makeTaskAttemptCompletionReplaySchema<
     attempt: TaskTerminalAttemptRefV1Schema,
     completion: TaskAttemptCompletionV1Schema,
     accepted: makeAcceptedReceiptSchemas(identityFields).complete,
-  }).annotate(STRICT_STRUCT_OPTIONS);
+  });
 }
 export const TaskAttemptCompletionReplayV1Schema =
   makeTaskAttemptCompletionReplaySchema(LegacyDefinitionIdentityFieldsV1);
@@ -1845,14 +1842,14 @@ function makeTaskRunAttemptStates<const Fields extends Schema.Struct.Fields>(bas
     phase: Schema.Literal("ready"),
     ready: TaskRunReadyStateV1Schema,
     cancellation: TaskCancellationNotRequestedV1Schema,
-  }).annotate(STRICT_STRUCT_OPTIONS),
+  }),
   Schema.Struct({
     ...base,
     phase: Schema.Literal("attempt_granted"),
     currentAttempt: TaskCurrentAttemptV1Schema,
-    heartbeat: Schema.Struct({ kind: Schema.Literal("none_accepted") }).annotate(STRICT_STRUCT_OPTIONS),
+    heartbeat: Schema.Struct({ kind: Schema.Literal("none_accepted") }),
     cancellation: Schema.Union([TaskCancellationNotRequestedV1Schema, TaskCancellationRequestedV1Schema]),
-  }).annotate(STRICT_STRUCT_OPTIONS),
+  }),
   Schema.Struct({
     ...base,
     phase: Schema.Literal("executing"),
@@ -1860,39 +1857,39 @@ function makeTaskRunAttemptStates<const Fields extends Schema.Struct.Fields>(bas
     heartbeat: Schema.Struct({
       kind: Schema.Literal("accepted"),
       highestSequence: TaskHeartbeatSequenceV1Schema,
-    }).annotate(STRICT_STRUCT_OPTIONS),
+    }),
     cancellation: Schema.Union([TaskCancellationNotRequestedV1Schema, TaskCancellationRequestedV1Schema]),
-  }).annotate(STRICT_STRUCT_OPTIONS),
+  }),
   Schema.Struct({
     ...base,
     phase: Schema.Literal("retry_waiting"),
     retry: TaskAcceptedRetryV1Schema,
     cancellation: TaskCancellationNotRequestedV1Schema,
-  }).annotate(STRICT_STRUCT_OPTIONS),
+  }),
   Schema.Struct({
     ...base,
     phase: Schema.Literal("terminal"),
     terminal: Schema.Union([TaskRunSucceededTerminalV1Schema, TaskRunFailedTerminalV1Schema]),
     cancellation: CompletionTerminalCancellationStateV1Schema,
-  }).annotate(STRICT_STRUCT_OPTIONS),
+  }),
   Schema.Struct({
     ...base,
     phase: Schema.Literal("terminal"),
     terminal: TaskRunCancelledWithoutAttemptTerminalV1Schema,
     cancellation: TaskCancellationResolvedWithoutAttemptV1Schema,
-  }).annotate(STRICT_STRUCT_OPTIONS),
+  }),
   Schema.Struct({
     ...base,
     phase: Schema.Literal("terminal"),
     terminal: TaskRunAcknowledgedCancellationTerminalV1Schema,
     cancellation: TaskCancellationResolvedAcknowledgedV1Schema,
-  }).annotate(STRICT_STRUCT_OPTIONS),
+  }),
   Schema.Struct({
     ...base,
     phase: Schema.Literal("terminal"),
     terminal: TaskRunLeaseExpiredCancellationTerminalV1Schema,
     cancellation: TaskCancellationResolvedLeaseExpiredV1Schema,
-  }).annotate(STRICT_STRUCT_OPTIONS),
+  }),
 ])
 }
 const LegacyTaskRunAttemptAggregateV1Schema = makeTaskRunAttemptAggregateSchema(
@@ -2299,37 +2296,37 @@ export const StartAttemptCommandV1Schema = Schema.Struct({
   runId: TaskRunIdV1Schema,
   expectedRunVersion: TaskRunVersionV1Schema,
   retryJitter: TaskRetryJitterV1Schema,
-}).annotate(STRICT_STRUCT_OPTIONS);
+});
 export const HeartbeatAttemptCommandV1Schema = Schema.Struct({
   type: Schema.Literal("heartbeat_attempt"),
   runId: TaskRunIdV1Schema,
   attemptId: TaskAttemptIdV1Schema,
   executionFence: TaskExecutionFenceV1Schema,
   heartbeatSequence: TaskHeartbeatSequenceV1Schema,
-}).annotate(STRICT_STRUCT_OPTIONS);
+});
 export const CompleteAttemptCommandV1Schema = Schema.Struct({
   type: Schema.Literal("complete_attempt"),
   runId: TaskRunIdV1Schema,
   attemptId: TaskAttemptIdV1Schema,
   executionFence: TaskExecutionFenceV1Schema,
   completion: TaskAttemptCompletionV1Schema,
-}).annotate(STRICT_STRUCT_OPTIONS);
+});
 export const RequestCancellationCommandV1Schema = Schema.Struct({
   type: Schema.Literal("request_cancellation"),
   runId: TaskRunIdV1Schema,
   reason: TaskCancellationReasonV1Schema,
-}).annotate(STRICT_STRUCT_OPTIONS);
+});
 export const HandleLeaseExpiryCommandV1Schema = Schema.Struct({
   type: Schema.Literal("handle_lease_expiry"),
   runId: TaskRunIdV1Schema,
   attemptId: TaskAttemptIdV1Schema,
   executionFence: TaskExecutionFenceV1Schema,
   expectedLeaseVersion: TaskLeaseVersionV1Schema,
-}).annotate(STRICT_STRUCT_OPTIONS);
+});
 export const InspectCurrentAttemptCommandV1Schema = Schema.Struct({
   type: Schema.Literal("inspect_current_attempt"),
   runId: TaskRunIdV1Schema,
-}).annotate(STRICT_STRUCT_OPTIONS);
+});
 export const RunAttemptCommandV1Schema = Schema.Union([
   StartAttemptCommandV1Schema,
   HeartbeatAttemptCommandV1Schema,
@@ -2509,47 +2506,47 @@ export const RegisterTrustedWorkflowContinuationCommandSchema = Schema.Struct({
   attemptId: TaskAttemptIdV1Schema, executionFence: Schema.toType(TaskExecutionFenceV1Schema), expectedRunVersion: Schema.toType(TaskRunVersionV1Schema),
   waitId: ContinuationWaitIdSchema, checkpoint: TrustedWorkflowCheckpointDescriptorSchema,
   nativeStartedAtMs: TaskDatabaseTimeMsV1Schema, timeoutMs: TaskDurationMsV1Schema, deadlineAtMs: TaskDatabaseTimeMsV1Schema,
-}).annotate(STRICT_STRUCT_OPTIONS);
+});
 export const ResolveTrustedWorkflowContinuationCommandSchema = Schema.Struct({
   type: Schema.Literals(["confirm_continuation", "expire_continuation"]), runId: TaskRunIdV1Schema, waitId: ContinuationWaitIdSchema,
-}).annotate(STRICT_STRUCT_OPTIONS);
+});
 const ContinuationOutcomeSchema = Schema.Struct({ kind: Schema.Literals(["continuation_waiting", "continuation_ready"]),
-  waitId: Schema.String, resolution: Schema.NullOr(Schema.Literals(["confirmed", "timeout", "cancelled"])) }).annotate(STRICT_STRUCT_OPTIONS);
+  waitId: Schema.String, resolution: Schema.NullOr(Schema.Literals(["confirmed", "timeout", "cancelled"])) });
 const ContinuationEvidenceSchema = Schema.Struct({ ...TaskRunAttemptEvidenceBaseFieldsV1,
   kind: Schema.Literal("workflow_continuation"), resultingPhase: Schema.Literals(["continuation_waiting", "continuation_ready"]),
   operation: Schema.Literals(["register_continuation", "confirm_continuation", "expire_continuation", "request_cancellation"]),
   waitId: Schema.String, attempt: TaskTerminalAttemptRefV1Schema, outcome: ContinuationOutcomeSchema,
   checkpoint: Schema.optionalKey(TrustedWorkflowCheckpointDescriptorCodec), nativeStartedAtMs: Schema.optionalKey(TaskDatabaseTimeMsV1Schema),
   timeoutMs: Schema.optionalKey(TaskDurationMsV1Schema), deadlineAtMs: Schema.optionalKey(TaskDatabaseTimeMsV1Schema),
-}).annotate(STRICT_STRUCT_OPTIONS);
+});
 const TrustedEvidenceSchema = Schema.Union([
   makeEvidenceFromBase(TrustedWorkflowIdentityFields, { ...TaskRunAttemptEvidenceBaseFieldsV1, resultingPhase: CurrentPhaseSchema },
     Schema.Literals(["ready", "retry_waiting", "continuation_ready"])), ContinuationEvidenceSchema,
 ]);
 const trustedReceiptBase = { ...makeAcceptedReceiptBaseFields(TrustedWorkflowIdentityFields), resultingPhase: CurrentPhaseSchema,
-  evidence: Schema.Array(TrustedEvidenceSchema).check(Schema.isLengthBetween(1, 1)),
-  requestedEffects: Schema.Array(makePersistedTaskRequestedEffectSchema(TrustedWorkflowIdentityFields)).check(Schema.isLengthBetween(1, 5)) };
+  evidence: Schema.Array(TrustedEvidenceSchema).check(Schema.isBetweenLength(1, 1)),
+  requestedEffects: Schema.Array(makePersistedTaskRequestedEffectSchema(TrustedWorkflowIdentityFields)).check(Schema.isBetweenLength(1, 5)) };
 const trustedReceipts = makeAcceptedReceiptSchemasFromBase(TrustedWorkflowIdentityFields, trustedReceiptBase);
-const ContinuationReceiptSchema = Schema.Struct({ ...trustedReceiptBase, outcome: ContinuationOutcomeSchema }).annotate(STRICT_STRUCT_OPTIONS);
+const ContinuationReceiptSchema = Schema.Struct({ ...trustedReceiptBase, outcome: ContinuationOutcomeSchema });
 export const TrustedWorkflowContinuationSchema = Schema.Struct({
   waitId: ContinuationWaitIdSchema,
   checkpoint: TrustedWorkflowCheckpointDescriptorCodec, nativeStartedAtMs: TaskDatabaseTimeMsV1Schema,
   timeoutMs: TaskDurationMsV1Schema, deadlineAtMs: TaskDatabaseTimeMsV1Schema, registeredAtMs: TaskDatabaseTimeMsV1Schema,
   suspendedAttempt: TaskTerminalAttemptRefV1Schema, suspendedAttemptAcceptedRunVersion: TaskRunVersionV1Schema, suspendedComputeProfile: TaskComputeProfileRefV1Schema,
   resumeAfterAttempt: Schema.optionalKey(TaskTerminalAttemptRefV1Schema), resumeAfterAttemptAcceptedRunVersion: Schema.optionalKey(TaskRunVersionV1Schema), controlRetry: Schema.optionalKey(TaskAcceptedRetryV1Schema),
-  resolution: Schema.NullOr(Schema.Struct({ kind: Schema.Literals(["confirmed", "timeout", "cancelled"]), observedAtMs: TaskDatabaseTimeMsV1Schema }).annotate(STRICT_STRUCT_OPTIONS)),
+  resolution: Schema.NullOr(Schema.Struct({ kind: Schema.Literals(["confirmed", "timeout", "cancelled"]), observedAtMs: TaskDatabaseTimeMsV1Schema })),
   registrationReceipt: ContinuationReceiptSchema, resolutionReceipt: Schema.NullOr(ContinuationReceiptSchema),
   cancellationReceipt: Schema.optionalKey(ContinuationReceiptSchema),
-}).annotate(STRICT_STRUCT_OPTIONS).check(Schema.makeFilter(value =>
+}).check(Schema.makeFilter(value =>
   value.deadlineAtMs === value.nativeStartedAtMs + value.timeoutMs && value.registeredAtMs >= value.nativeStartedAtMs &&
   value.deadlineAtMs < Number.MAX_SAFE_INTEGER &&
   (value.resolution === null ? value.resolutionReceipt === null : value.resolutionReceipt !== null &&
     value.resolution.observedAtMs >= value.registeredAtMs && (value.resolution.kind !== "timeout" || value.resolution.observedAtMs > value.deadlineAtMs))));
 const trustedAggregateBase = { ...makeTaskRunAttemptAggregateBaseFields(TrustedWorkflowIdentityFields),
   lastLifecycleAcceptance: Schema.NullOr(Schema.Union([makeAcceptanceFromReceipts(trustedReceipts),
-    Schema.Struct({ kind: Schema.Literal("workflow_continuation"), accepted: ContinuationReceiptSchema }).annotate(STRICT_STRUCT_OPTIONS)])),
+    Schema.Struct({ kind: Schema.Literal("workflow_continuation"), accepted: ContinuationReceiptSchema })])),
   completionReplays: Schema.Array(Schema.Struct({ attempt: TaskTerminalAttemptRefV1Schema,
-    completion: TaskAttemptCompletionV1Schema, accepted: trustedReceipts.complete }).annotate(STRICT_STRUCT_OPTIONS)).check(Schema.isMaxLength(250)),
+    completion: TaskAttemptCompletionV1Schema, accepted: trustedReceipts.complete })).check(Schema.isMaxLength(250)),
   continuation: Schema.optionalKey(TrustedWorkflowContinuationSchema), executionMode: Schema.optionalKey(Schema.Literal("control")),
 };
 export const TrustedWorkflowTaskRunAttemptAggregateSchema: Schema.Codec<CurrentTaskRunAttemptAggregate, unknown> = Schema.Union([
@@ -2557,7 +2554,7 @@ export const TrustedWorkflowTaskRunAttemptAggregateSchema: Schema.Codec<CurrentT
   Schema.Struct({ ...trustedAggregateBase, phase: Schema.Literals(["continuation_waiting", "continuation_ready"]),
     continuation: TrustedWorkflowContinuationSchema,
     cancellation: Schema.Union([TaskCancellationNotRequestedV1Schema, TaskCancellationRequestedV1Schema]),
-  }).annotate(STRICT_STRUCT_OPTIONS),
+  }),
 ]).check(Schema.makeFilter(aggregate => taskRunAttemptAggregateFailureV1(aggregate)));
 const decodeTrustedWorkflowAggregateSchema = Schema.decodeUnknownResult(TrustedWorkflowTaskRunAttemptAggregateSchema, STRICT_PARSE_OPTIONS);
 export const decodeTrustedWorkflowTaskRunAttemptAggregate = (input: unknown): Result.Result<CurrentTaskRunAttemptAggregate, Schema.SchemaError> => decodeTrustedWorkflowAggregateSchema(input).pipe(
@@ -2567,4 +2564,4 @@ export const encodeTrustedWorkflowTaskRunAttemptAggregate: (input: unknown) => R
 export const TrustedWorkflowPersistedTaskRequestedEffectSchema = Schema.Struct({
   sequence: TaskRequestedEffectSequenceV1Schema,
   effect: makeTaskRequestedEffectSchema(TrustedWorkflowIdentityFields),
-}).annotate(STRICT_STRUCT_OPTIONS);
+});

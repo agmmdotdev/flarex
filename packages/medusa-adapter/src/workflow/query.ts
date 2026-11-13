@@ -9,8 +9,8 @@ import { checkedCommerceValue } from "../value/checked";
 import { captureWorkflowInput } from "./value";
 import { captureCommerceInput } from "../value/input";
 
-const Name = Schema.String.check(Schema.isLengthBetween(1, 256), Schema.isPattern(/^[A-Za-z][A-Za-z0-9_]*$/));
-const Fields = Schema.Array(Schema.String.check(Schema.isLengthBetween(1, 256))).check(Schema.isLengthBetween(1, 256));
+const Name = Schema.String.check(Schema.isBetweenLength(1, 256), Schema.isPattern(/^[A-Za-z][A-Za-z0-9_]*$/));
+const Fields = Schema.Array(Schema.String.check(Schema.isBetweenLength(1, 256))).check(Schema.isBetweenLength(1, 256));
 const VariantPriceSetIds = Schema.Array(Schema.String.check(Schema.isMaxLength(256))).check(
   Schema.isMaxLength(8), Schema.makeFilter(ids => new Set(ids).size <= 4));
 const decodeRemote = commerceDecoder(Schema.Union([

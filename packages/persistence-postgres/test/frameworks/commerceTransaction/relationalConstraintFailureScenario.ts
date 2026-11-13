@@ -55,7 +55,7 @@ const decodeColdRead = Schema.decodeUnknownEffect(Schema.Struct({
     deleted_at: Schema.NullOr(Schema.String), amount: Schema.NullOr(Schema.Number), label: Schema.String, code: Schema.String })),
   conditions: Schema.Array(Schema.Struct({ id: Schema.String, entry_id: Schema.String, reference: Schema.String,
     reference_id: Schema.String, deleted_at: Schema.NullOr(Schema.String) })),
-}).annotate({ parseOptions: { onExcessProperty: "error" } }));
+}), { onExcessProperty: "error" });
 
 function typedFailure<Value>(exit: Exit.Exit<Value, CommerceTransactionError>, reason: CommerceTransactionError["reason"]) {
   if (Exit.isSuccess(exit)) throw new Error("Expected constraint failure");

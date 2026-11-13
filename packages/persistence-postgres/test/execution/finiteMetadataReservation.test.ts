@@ -23,7 +23,7 @@ const encoded = {
 async function fixture(root?: Readonly<{ scopeId: string; sessionId: string }>) {
   const actualEncoded = root === undefined ? encoded : { ...encoded, ...root,
     snapshotToken: { ...encoded.snapshotToken, scopeId: root.scopeId } };
-  const value = Schema.decodeUnknownSync(FiniteMetadataReservationSchema)(actualEncoded);
+  const value = Schema.decodeUnknownSync(FiniteMetadataReservationSchema, { onExcessProperty: "error" })(actualEncoded);
   const capture = await Effect.runPromise(captureFiniteMetadataReservation(value));
   const canonicalBytes = new TextEncoder().encode(encodeCanonicalJson(actualEncoded, () => { throw new Error("Invalid fixture"); }));
   const sha256 = new Uint8Array(await crypto.subtle.digest("SHA-256", canonicalBytes));

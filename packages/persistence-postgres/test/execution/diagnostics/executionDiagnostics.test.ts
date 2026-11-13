@@ -6,7 +6,7 @@ const Unrelated = Context.Service<{ readonly secret: string }>("ExecutionDiagnos
 const snapshot = Effect.withFiber(fiber => Effect.succeed({
   enabled: Context.get(fiber.context, References.TracerEnabled),
   timing: Context.get(fiber.context, References.TracerTimingEnabled),
-  parent: fiber.currentSpan,
+  parent: fiber.cache.span,
 }));
 const named = Effect.fn("ExecutionDiagnosticsTest.root")(() => snapshot);
 function collector() {

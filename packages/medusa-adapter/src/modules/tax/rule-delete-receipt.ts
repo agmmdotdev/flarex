@@ -14,7 +14,7 @@ type Contracts = Result.Result.Success<ReturnType<typeof compileTaxRuleDeletionC
 const decodeSelectedIdentities = commerceDecoder(Schema.Array(Schema.Struct({ id: TaxId })).check(Schema.isMaxLength(8)), "receiptMismatch");
 const decodeEvent = moduleEventDecoder(Schema.Struct({ name: Schema.String,
   metadata: Schema.Struct({ source: Schema.Literal(Modules.TAX), object: Schema.Literal("tax_rate_rule"), action: Schema.Literal("deleted") }),
-  data: Schema.Struct({ id: Schema.Union([TaxId, Schema.Array(TaxId).check(Schema.isLengthBetween(1, 8))]) }),
+  data: Schema.Struct({ id: Schema.Union([TaxId, Schema.Array(TaxId).check(Schema.isBetweenLength(1, 8))]) }),
 }), defaultCommerceResources);
 
 /** Shared scalar correlation proves transitions and no-ops. This Tax profile

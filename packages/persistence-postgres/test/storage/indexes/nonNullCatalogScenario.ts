@@ -36,7 +36,7 @@ export async function nonNullCatalogScenario(persistence: Pick<FlarexPersistence
   if (table === undefined || index === undefined) throw new Error("Missing genuine non-null catalog parents");
   const predicates = [{ kind: "fieldIsNotNull", field: "parent" },
     { kind: "fieldIsNullAndNotNull", nullField: "retired", notNullField: "parent" }];
-  const orderedSpec = Schema.decodeUnknownSync(AppOrderedIndexPhysicalSpecV1Schema)({
+  const orderedSpec = Schema.decodeUnknownSync(AppOrderedIndexPhysicalSpecV1Schema, { onExcessProperty: "error" })({
     kind: "appOrdered", specVersion: 1, accessPath: "developer", keyCodecVersion: 1,
     collation: "binaryUtf8", maxEncodedKeyBytes: 2048,
     orderedFields: [{ kind: "documentPath", path: "parent" }, { kind: "systemCreationTime" }],

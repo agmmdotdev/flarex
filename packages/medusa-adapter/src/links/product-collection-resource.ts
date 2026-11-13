@@ -4,7 +4,7 @@ import { commerceDecoder } from "../value/decoder";
 import { defineComposedWorkflowResource } from "../workflow/composed-resource";
 import { decodeLinkCascade } from "./cascade-result";
 
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 const Ids = Schema.Array(Id).pipe(Schema.mutable).check(Schema.isMaxLength(4));
 const decodeDelete = commerceDecoder(Schema.Tuple([
   Schema.Struct({ product: Schema.Struct({ product_collection_id: Ids }) }),

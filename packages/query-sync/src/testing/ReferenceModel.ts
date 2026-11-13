@@ -1,4 +1,5 @@
-import { Encoding, Result } from "effect";
+import * as Base64Url from "effect/encoding/Base64Url";
+import { Result } from "effect";
 
 import { captureCanonicalDependencyKey } from "../kernel/CanonicalValue.js";
 import type {
@@ -240,7 +241,7 @@ function captureSyntheticDependencyKey(
   modelPrefix: "kv" | "graph",
   canonicalFragment: string,
 ): Result.Result<CanonicalDependencyKey, QuerySyncCanonicalValueError> {
-  return captureCanonicalDependencyKey(Encoding.encodeBase64Url(
+  return captureCanonicalDependencyKey(Base64Url.encode(
     `${modelPrefix}\0${canonicalFragment}`,
   ));
 }

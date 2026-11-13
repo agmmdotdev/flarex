@@ -103,7 +103,7 @@ import {
 } from "./pointCommitRuntimeModel";
 import { detachVerifiedGrant } from "./verifiedGrantEvidence";
 
-const encodeCommitEnvelopeV1 = Schema.encodeSync(CommitEnvelopeV1Schema);
+const encodeCommitEnvelopeV1 = Schema.encodeSync(CommitEnvelopeV1Schema, { onExcessProperty: "error" });
 
 export class PointMutationOccExecutionContextV1Error extends Data.TaggedError(
   "PointMutationOccExecutionContextV1Error",

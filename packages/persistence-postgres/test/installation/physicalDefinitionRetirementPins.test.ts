@@ -518,7 +518,7 @@ describe("M05-B3 physical-definition retirement pins - PGlite", {
       scopeId: ReplacementScopeIdV1Schema.make(fixture.authority.scopeId),
       sessionId: legacyLease.sessionId, attemptFence: legacyLease.attemptFence,
       storageGeneration: "flarexdb_v1", storageGenerationFence: fixture.authority.storageGenerationFence,
-      snapshotToken: Schema.decodeUnknownSync(SnapshotTokenSchema)({ scopeId: fixture.authority.scopeId,
+      snapshotToken: Schema.decodeUnknownSync(SnapshotTokenSchema, { onExcessProperty: "error" })({ scopeId: fixture.authority.scopeId,
         epoch: replacementScopeEpochV1FromUuid(legacyLease.snapshotEpochUuid),
         commitSeq: legacyLease.snapshotCommitSeq.toString() }),
       schemaVersionId, metadataWatermark: clock.lastMetadataSequence,

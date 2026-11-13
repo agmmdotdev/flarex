@@ -187,28 +187,27 @@ const NativePageCount = Schema.Int.check(Schema.makeFilter(value => Number.isSaf
   ? undefined : "Expected a nonnegative safe native page count"));
 const decodeNativePageOptions = Schema.decodeUnknownEffect(Schema.Struct({ indexName: Schema.NonEmptyString,
   offset: NativePageCount, limit: NativePageCount, order: Schema.optionalKey(Schema.Literal("asc")),
-}).annotate({ parseOptions: { onExcessProperty: "error" } }));
-const decodeNativeIncomingOptions = Schema.decodeUnknownEffect(Schema.Struct({ limit: NativePageCount })
-  .annotate({ parseOptions: { onExcessProperty: "error" } }));
+}), { onExcessProperty: "error" });
+const decodeNativeIncomingOptions = Schema.decodeUnknownEffect(Schema.Struct({ limit: NativePageCount }), { onExcessProperty: "error" });
 const decodeProtectedPageOptions = Schema.decodeUnknownEffect(Schema.Struct({ limit: NativePageCount.check(Schema.isBetween({ minimum: 1, maximum: 32 })),
   position: Schema.optionalKey(Schema.Uint8Array), generation: Schema.optionalKey(NativePageCount),
-}).annotate({ parseOptions: { onExcessProperty: "error" } }));
+}), { onExcessProperty: "error" });
 const decodeNativeBatchIds = Schema.decodeUnknownEffect(Schema.Array(Schema.String));
 const decodeNativeWriteInvocation = Schema.decodeUnknownEffect(Schema.UndefinedOr(Schema.Struct({
   insertValidation: Schema.optionalKey(Schema.Literal("entityBatch")),
   advancePreservingDeletionUpdatedAt: Schema.optionalKey(Schema.Literal(true)),
   statementReferenceChecks: Schema.optionalKey(Schema.Literal(true)),
-}).annotate({ parseOptions: { onExcessProperty: "error" } })));
+})), { onExcessProperty: "error" });
 const decodeNativeLifecycleInvocation = Schema.decodeUnknownEffect(Schema.UndefinedOr(Schema.Struct({
   allowActiveRestoreUpdate: Schema.optionalKey(Schema.Literal(true)),
-}).annotate({ parseOptions: { onExcessProperty: "error" } })));
+})), { onExcessProperty: "error" });
 const decodeNativeReconstitutionPolicy = Schema.decodeUnknownEffect(CoreNativeReconstitutionPolicySchema);
 const decodeNativeReferenceReplacement = Schema.decodeUnknownEffect(Schema.Struct({
   sourceTable: Schema.NonEmptyString, sourceColumn: Schema.NonEmptyString, targetTable: Schema.NonEmptyString,
   targetColumn: Schema.NonEmptyString, targetKey: Schema.NonEmptyString,
   desiredKeys: Schema.Array(Schema.NonEmptyString).check(Schema.isMaxLength(256)),
-}).annotate({ parseOptions: { onExcessProperty: "error" } }));
-const decodeNativeSetNull = Schema.decodeUnknownEffect(CoreNativeSetNullIntentSchema);
+}), { onExcessProperty: "error" });
+const decodeNativeSetNull = Schema.decodeUnknownEffect(CoreNativeSetNullIntentSchema, { onExcessProperty: "error" });
 const decodeCreationTimestamp = Schema.decodeUnknownEffect(CoreTimestampSchema);
 const decodeAppTableName = Schema.decodeUnknownEffect(SchemaManifestAppTableNameSchema);
 

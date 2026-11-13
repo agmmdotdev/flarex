@@ -82,14 +82,14 @@ export const compileStoreProductContextReadCatalog = Effect.fn("StoreProductCont
 });
 export type StoreProductContextReadCatalog = Effect.Success<ReturnType<typeof compileStoreProductContextReadCatalog>>;
 
-const Ids = Schema.Union([ScalarId, Schema.Array(ScalarId).check(Schema.isLengthBetween(1, 8))]);
+const Ids = Schema.Union([ScalarId, Schema.Array(ScalarId).check(Schema.isBetweenLength(1, 8))]);
 const Pagination = Schema.optionalKey(Schema.Struct({ take: Schema.Literal(4), skip: Schema.optionalKey(Schema.Literal(0)) }));
 const decodeContextQuery = commerceDecoder(Schema.Union([
-  Schema.Struct({ entity: Schema.Literal("cart"), fields: Schema.Array(Schema.Literals(["region_id", "shipping_address.*"])).check(Schema.isLengthBetween(1, 2), Schema.isUnique()),
+  Schema.Struct({ entity: Schema.Literal("cart"), fields: Schema.Array(Schema.Literals(["region_id", "shipping_address.*"])).check(Schema.isBetweenLength(1, 2), Schema.isUnique()),
     filters: Schema.Struct({ id: ScalarId }), pagination: Pagination }),
-  Schema.Struct({ entity: Schema.Literal("store"), fields: Schema.Array(Schema.Literals(["id", "default_region_id"])).check(Schema.isLengthBetween(1, 2), Schema.isUnique()),
+  Schema.Struct({ entity: Schema.Literal("store"), fields: Schema.Array(Schema.Literals(["id", "default_region_id"])).check(Schema.isBetweenLength(1, 2), Schema.isUnique()),
     filters: Schema.optionalKey(Schema.Record(Schema.String, Schema.Never)), pagination: Pagination }),
-  Schema.Struct({ entity: Schema.Literal("region"), fields: Schema.Array(Schema.Literals(["id", "currency_code", "automatic_taxes"])).check(Schema.isLengthBetween(1, 3), Schema.isUnique()),
+  Schema.Struct({ entity: Schema.Literal("region"), fields: Schema.Array(Schema.Literals(["id", "currency_code", "automatic_taxes"])).check(Schema.isBetweenLength(1, 3), Schema.isUnique()),
     filters: Schema.Struct({ id: Schema.NullOr(Schema.String.check(Schema.isMaxLength(256))) }), pagination: Pagination }),
   Schema.Struct({ entity: Schema.Literal("customer_group"), fields: Schema.Tuple([Schema.Literal("id")]),
     filters: Schema.Struct({ customers: Schema.Struct({ id: ScalarId }) }), pagination: Pagination }),
@@ -99,7 +99,7 @@ const decodeContextQuery = commerceDecoder(Schema.Union([
 export const decodeStoreProductContextQuery = (value: unknown) => captureCommerceInput(value).pipe(Result.flatMap(decodeContextQuery));
 const decodeOptions = commerceDecoder(Schema.Struct({
   cache: Schema.optionalKey(Schema.Struct({ enable: Schema.optionalKey(Schema.Boolean),
-    tags: Schema.optionalKey(Schema.Array(Schema.String.check(Schema.isLengthBetween(1, 512))).check(Schema.isMaxLength(8))) })),
+    tags: Schema.optionalKey(Schema.Array(Schema.String.check(Schema.isBetweenLength(1, 512))).check(Schema.isMaxLength(8))) })),
   throwIfKeyNotFound: Schema.optionalKey(Schema.Boolean),
 }), "unsupportedProfile");
 

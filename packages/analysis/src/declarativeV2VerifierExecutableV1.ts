@@ -1,3 +1,4 @@
+import * as Base64 from "effect/encoding/Base64";
 import {
   bytesEqualFullScan,
   isUint8Array,
@@ -5,7 +6,7 @@ import {
 } from "@flarex/utils/bytes";
 import { isNonNegativeSafeInteger } from "@flarex/utils/numbers";
 import { compareUtf16Strings } from "@flarex/utils/strings";
-import { Data, Encoding, Result } from "effect";
+import { Data, Result } from "effect";
 import {
   DECLARATIVE_V2_VERIFIER_BUDGET_DIMENSIONS_V2,
   type DeclarativeV2VerifierBudgetFrameV2,
@@ -143,10 +144,10 @@ const UINT8_ARRAY_SUBARRAY = Uint8Array.prototype.subarray;
 const CANONICAL_REJECTED_TOKEN_TERMINAL_V1 = 0;
 const MAX_SIGNED_INT64 = 9_223_372_036_854_775_807n;
 const MAX_U32 = 0xffff_ffff;
-const EXECUTABLE_ASSET_RESULT = Encoding.decodeBase64(
+const EXECUTABLE_ASSET_RESULT = Base64.decode(
   GENERATED_DECLARATIVE_V2_VERIFIER_EXECUTABLE_ASSET_BASE64_V1,
 );
-const SPECIFICATION_ASSET_RESULT = Encoding.decodeBase64(
+const SPECIFICATION_ASSET_RESULT = Base64.decode(
   GENERATED_DECLARATIVE_V2_VERIFIER_ASSET_BASE64_V1,
 );
 

@@ -7,8 +7,8 @@ import { commerceError } from "@flarex/persistence-postgres/internal/commerce-va
 import { defineWorkflowMethod, defineWorkflowModule, type WorkflowLogicalPolicy } from "../../workflow/module";
 import { ProductVariantParentReadConfig, ProductVariantParentRows, validateProductVariantParentRead } from "./variant-parent-read-receipt";
 
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
-const Selector = Schema.Struct({ id: Schema.Array(Id).check(Schema.isLengthBetween(1, 8)), product_id: Id });
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
+const Selector = Schema.Struct({ id: Schema.Array(Id).check(Schema.isBetweenLength(1, 8)), product_id: Id });
 const Config = ProductVariantParentReadConfig;
 const argumentsDecoder = commerceDecoder(Schema.Tuple([Selector, Config]), "invalidInput");
 const output = commerceDecoder(ProductVariantParentRows, "storedCorruption");

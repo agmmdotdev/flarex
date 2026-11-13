@@ -29,20 +29,20 @@ const decodeToken = commerceDecoder(Schema.Struct({ token: Token, type: Schema.L
 const decodeNativeKeyFilter = commerceDecoder(Schema.Struct({ token: Token,
   type: Schema.optionalKey(Schema.Literal("publishable")) }), "unsupportedProfile");
 const decodeNativeLinkFilter = commerceDecoder(Schema.Struct({ publishable_key_id: Schema.Unknown }), "unsupportedProfile");
-const decodeIds = commerceDecoder(Schema.Array(Schema.String.check(Schema.isLengthBetween(1, 256))).check(Schema.isMaxLength(256)), "unsupportedProfile");
+const decodeIds = commerceDecoder(Schema.Array(Schema.String.check(Schema.isBetweenLength(1, 256))).check(Schema.isMaxLength(256)), "unsupportedProfile");
 const tokenWhere: WherePolicy = { decode: decodeToken, fields: new Map([
   ["token", { column: "token", decode: commerceDecoder(Token, "unsupportedProfile") }],
   ["type", { column: "type", decode: commerceDecoder(Schema.Literal("publishable"), "unsupportedProfile") }],
 ]) };
 const apiKeyFields = ["id", "token", "revoked_at", "sales_channels_link.sales_channel_id"] as const;
 const decodeGraph = commerceDecoder(Schema.Struct({ entity: Schema.Literal("api_key"),
-  fields: Schema.Array(Schema.Literals(apiKeyFields)).check(Schema.isLengthBetween(4, 4), Schema.isUnique()),
+  fields: Schema.Array(Schema.Literals(apiKeyFields)).check(Schema.isBetweenLength(4, 4), Schema.isUnique()),
   filters: Schema.Struct({ token: Token, type: Schema.Literal("publishable") }),
 }), "unsupportedProfile");
 const decodeGraphOptions = commerceDecoder(Schema.Struct({ cache: Schema.Struct({ enable: Schema.Literal(true) }) }), "unsupportedProfile");
-const ScalarField = Schema.String.check(Schema.isLengthBetween(1, 256), Schema.isPattern(/^[a-zA-Z_][a-zA-Z0-9_]*$/));
+const ScalarField = Schema.String.check(Schema.isBetweenLength(1, 256), Schema.isPattern(/^[a-zA-Z_][a-zA-Z0-9_]*$/));
 const decodeRemote = commerceDecoder(Schema.Struct({ __value: Schema.Struct({ currency: Schema.Struct({
-  fields: Schema.Array(ScalarField).check(Schema.isLengthBetween(1, 256), Schema.isUnique()),
+  fields: Schema.Array(ScalarField).check(Schema.isBetweenLength(1, 256), Schema.isUnique()),
   isServiceAccess: Schema.Literal(false), __args: Schema.Struct({ filters: Schema.optionalKey(Schema.JsonObject),
     skip: Schema.optionalKey(QueryOffset), take: Schema.optionalKey(QueryLimit),
     order: Schema.optionalKey(Schema.Record(ScalarField, Schema.Literals(["ASC", "DESC", "asc", "desc"]))),

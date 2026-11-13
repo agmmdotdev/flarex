@@ -311,7 +311,7 @@ describe("trusted workflow durable continuation", () => {
 
   it("rejects malformed checkpoint/timing and keeps retained generation codecs closed", () => {
     const { waiting, executing, command } = fixture();
-    const decodeCheckpoint = Schema.decodeUnknownResult(TrustedWorkflowCheckpointDescriptorSchema);
+    const decodeCheckpoint = Schema.decodeUnknownResult(TrustedWorkflowCheckpointDescriptorSchema, { onExcessProperty: "error" });
     for (const checkpoint of [{ ...command.checkpoint, revision: 0n }, { ...command.checkpoint, revision: 9_223_372_036_854_775_808n },
       { ...command.checkpoint, byteLength: 1_048_577 }, { ...command.checkpoint, sha256: new Uint8Array(31) }]) {
       expect(Result.isFailure(decodeCheckpoint(checkpoint))).toBe(true);

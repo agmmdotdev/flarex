@@ -30,7 +30,7 @@ export function withNativeLinkGraphMetadata(
   return withNativeGraphMetadata(graph, [...links, ...endpoints], tables);
 }
 
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 const Ids = Schema.Union([Id, Schema.Array(Id).pipe(Schema.mutable).check(Schema.isMaxLength(256))]);
 const decodeCascade = commerceDecoder(Schema.Tuple([Schema.Null,
   Schema.Record(Schema.String, Schema.Record(Schema.String, Schema.Array(Id)))]), "adapterFailure");

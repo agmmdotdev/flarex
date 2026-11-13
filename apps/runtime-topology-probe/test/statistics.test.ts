@@ -56,7 +56,7 @@ describe("runtime topology probe statistics", () => {
       p95Ms: null,
       p99Ms: null,
       maxMs: null,
-    })).toThrow();
+    }, { parseOptions: { onExcessProperty: "error" } })).toThrow();
     expect(() => ProbeLatencySummaryV1Schema.make({
       count: 1,
       successCount: 1,
@@ -66,7 +66,7 @@ describe("runtime topology probe statistics", () => {
       p95Ms: duration(6),
       p99Ms: duration(6),
       maxMs: duration(6),
-    })).toThrow();
+    }, { parseOptions: { onExcessProperty: "error" } })).toThrow();
   });
 
   it("treats failed and structurally incomplete samples as failures", () => {
@@ -188,7 +188,7 @@ describe("runtime topology probe statistics", () => {
     )?.cohort;
     if (warmCohort === undefined) throw new Error("warm cohort is missing");
     const { sessionActivation: _activation, ...missingActivation } = warmCohort;
-    expect(() => ProbeCohortKeyV1Schema.make(missingActivation)).toThrow();
+    expect(() => ProbeCohortKeyV1Schema.make(missingActivation, { parseOptions: { onExcessProperty: "error" } })).toThrow();
 
     const ordinaryCohort = summarizeProbeSamples([
       controlledSample(validSample("edge_echo")),
@@ -197,7 +197,7 @@ describe("runtime topology probe statistics", () => {
     expect(() => ProbeCohortKeyV1Schema.make({
       ...ordinaryCohort,
       sessionActivation: "activation-observed",
-    })).toThrow();
+    }, { parseOptions: { onExcessProperty: "error" } })).toThrow();
 
     const sessionPostgres = summarizeProbeSamples([
       controlledSample(validSample("session_postgres_warm_invoke")),

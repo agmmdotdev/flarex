@@ -1,7 +1,7 @@
 import { Result, Schema } from "effect";
 import { WorkflowDefinitionError } from "@medusajs/workflows-sdk";
 
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 const Rows = Schema.Array(Schema.Struct({ id: Id, manage_inventory: Schema.Boolean,
   inventory: Schema.Array(Schema.NullOr(Schema.Struct({ id: Id,
     variants: Schema.Array(Schema.Struct({ id: Id })).check(Schema.isMaxLength(4)),

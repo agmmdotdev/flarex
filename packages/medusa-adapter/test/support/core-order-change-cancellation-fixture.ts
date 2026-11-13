@@ -82,7 +82,7 @@ export async function prepareCoreOrderChangeCancellation(driver: "pglite" | "pos
       workflow: { name: "probeOrderChangeCancellationLateParent", resources, prepared: Result.getOrThrow(flow.prepare()), input: OrderChangeCancellationInput,
         output: Schema.Null, events: internalModuleWorkflowEvents } })));
   };
-  const ConcurrentInput = Schema.Array(OrderChangeCancellationInput).pipe(Schema.mutable).check(Schema.isLengthBetween(2, 2));
+  const ConcurrentInput = Schema.Array(OrderChangeCancellationInput).pipe(Schema.mutable).check(Schema.isBetweenLength(2, 2));
   const prepareConcurrent = async () => {
     const step = createStep("probe-concurrent-change-cancellation-children", resources.callback(async (values: typeof ConcurrentInput.Type, context) => {
       await Promise.all(values.map(async value => {

@@ -31,9 +31,8 @@ export interface CurrencyAnnouncementHostInput {
   readonly expectedContentIdentity: CmsContentIdentity;
   readonly identityAndAccessPolicy: Json;
 }
-const RootResult = Schema.Struct({ currency: Schema.Json, cms: Schema.Json, applicationId: Schema.String })
-  .annotate({ parseOptions: { onExcessProperty: "error" } });
-const decodeResult = Schema.decodeUnknownEffect(RootResult);
+const RootResult = Schema.Struct({ currency: Schema.Json, cms: Schema.Json, applicationId: Schema.String });
+const decodeResult = Schema.decodeUnknownEffect(RootResult, { onExcessProperty: "error" });
 const coreResult = <A>(work: Effect.Effect<A, Parameters<typeof projectCoreCompositeFailure>[0]>) => work.pipe(
   Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectCoreCompositeFailure))));
 const projectRetentionFailure = (failure: CompositeFailure | PreparedHostRuntimeError): CompositeFailure => failure instanceof PreparedHostRuntimeError

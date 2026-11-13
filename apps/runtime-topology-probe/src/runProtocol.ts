@@ -22,10 +22,7 @@ import {
   ProbeMeasurementDispositionSchema,
   ProbeSyncWakeObservationV1Schema,
 } from "./runtimeProtocol";
-import {
-  StrictParseOptions,
-  StrictStructOptions,
-} from "./strictSchemaOptions";
+import { StrictParseOptions } from "./strictSchemaOptions";
 
 const MAX_RUN_SAMPLES =
   PROBE_LIMITS_V1.maxRepetitions + PROBE_LIMITS_V1.maxWarmupRepetitions;
@@ -73,7 +70,7 @@ export const ProbeRunBudgetValuesV1Schema = Schema.Struct({
   payloadBytes: PayloadBudgetSchema,
   journalEntries: JournalBudgetSchema,
   uniqueCodeIds: CodeBudgetSchema,
-}).annotate(StrictStructOptions);
+});
 export type ProbeRunBudgetValuesV1 =
   typeof ProbeRunBudgetValuesV1Schema.Type;
 
@@ -81,7 +78,7 @@ export const ProbeRunBudgetsV1Schema = Schema.Struct({
   limits: ProbeRunBudgetValuesV1Schema,
   planned: ProbeRunBudgetValuesV1Schema,
   consumed: ProbeRunBudgetValuesV1Schema,
-}).annotate(StrictStructOptions);
+});
 export type ProbeRunBudgetsV1 = typeof ProbeRunBudgetsV1Schema.Type;
 
 export const ProbeRunCountersV1Schema = Schema.Struct({
@@ -95,7 +92,7 @@ export const ProbeRunCountersV1Schema = Schema.Struct({
   eligible: SampleCountSchema,
   excludedWarmup: SampleCountSchema,
   excludedDuplicateWake: SampleCountSchema,
-}).annotate(StrictStructOptions);
+});
 export type ProbeRunCountersV1 = typeof ProbeRunCountersV1Schema.Type;
 
 export const ProbeRunSampleStatusV1Schema = Schema.Union([
@@ -106,7 +103,7 @@ export const ProbeRunSampleStatusV1Schema = Schema.Union([
     observedOutstandingClaims: ObservedOutstandingClaimsSchema,
     measurementDisposition: Schema.Null,
     syncWake: Schema.Null,
-  }).annotate(StrictStructOptions),
+  }),
   Schema.Struct({
     sampleOrdinal: ProbeOrdinalSchema,
     phase: ProbeSamplePhaseSchema,
@@ -114,7 +111,7 @@ export const ProbeRunSampleStatusV1Schema = Schema.Union([
     observedOutstandingClaims: ObservedOutstandingClaimsSchema,
     measurementDisposition: ProbeMeasurementDispositionSchema,
     syncWake: ProbeSyncWakeObservationV1Schema,
-  }).annotate(StrictStructOptions),
+  }),
   Schema.Struct({
     sampleOrdinal: ProbeOrdinalSchema,
     phase: ProbeSamplePhaseSchema,
@@ -123,7 +120,7 @@ export const ProbeRunSampleStatusV1Schema = Schema.Union([
     measurementDisposition: Schema.Null,
     syncWake: Schema.Null,
     abandonmentReason: Schema.Literal("campaign-reconciliation"),
-  }).annotate(StrictStructOptions),
+  }),
 ]);
 export type ProbeRunSampleStatusV1 =
   typeof ProbeRunSampleStatusV1Schema.Type;
@@ -143,7 +140,7 @@ const ProbeRunStatusV1Shape = Schema.Struct({
   budgets: ProbeRunBudgetsV1Schema,
   counters: ProbeRunCountersV1Schema,
   samples: Schema.Array(ProbeRunSampleStatusV1Schema),
-}).annotate(StrictStructOptions);
+});
 
 export const ProbeRunStatusV1Schema = ProbeRunStatusV1Shape.check(
   Schema.makeFilter(status => runStatusRelationshipIssue(status)),
@@ -183,14 +180,14 @@ export type ProbeRunStateErrorCode =
 export const ProbeRunStateErrorV1Schema = Schema.Struct({
   code: ProbeRunStateErrorCodeSchema,
   retryable: Schema.Boolean,
-}).annotate(StrictStructOptions);
+});
 export type ProbeRunStateErrorV1 = typeof ProbeRunStateErrorV1Schema.Type;
 
 const RejectedOperationSchema = Schema.Struct({
   protocolVersion: ProbeProtocolVersionV1Schema,
   kind: Schema.Literal("rejected"),
   error: ProbeRunStateErrorV1Schema,
-}).annotate(StrictStructOptions);
+});
 
 export const ProbeRunRegistrationReceiptV1Schema = Schema.Union([
   Schema.Struct({
@@ -198,7 +195,7 @@ export const ProbeRunRegistrationReceiptV1Schema = Schema.Union([
     kind: Schema.Literal("registered"),
     created: Schema.Boolean,
     status: ProbeRunStatusV1Schema,
-  }).annotate(StrictStructOptions),
+  }),
   RejectedOperationSchema,
 ]);
 export type ProbeRunRegistrationReceiptV1 =
@@ -208,7 +205,7 @@ export const ProbePublicSampleRequestV1Schema = Schema.Struct({
   protocolVersion: ProbeProtocolVersionV1Schema,
   runId: ProbeRunIdSchema,
   sampleOrdinal: ProbeOrdinalSchema,
-}).annotate(StrictStructOptions);
+});
 export type ProbePublicSampleRequestV1 =
   typeof ProbePublicSampleRequestV1Schema.Type;
 
@@ -221,7 +218,7 @@ export const ProbeSampleClaimReceiptV1Schema = Schema.Union([
     sampleOrdinal: ProbeOrdinalSchema,
     phase: ProbeSamplePhaseSchema,
     observedOutstandingClaims: ObservedOutstandingClaimsSchema,
-  }).annotate(StrictStructOptions),
+  }),
   RejectedOperationSchema,
 ]);
 export type ProbeSampleClaimReceiptV1 =
@@ -235,7 +232,7 @@ export const ProbeSampleFinalizeRequestV1Schema = Schema.Struct({
   fragment: ProbeGatewaySampleV1Schema,
   scenarioWindowDurationMs: ProbeDurationMsSchema,
   syncWake: ProbeSyncWakeObservationV1Schema,
-}).annotate(StrictStructOptions);
+});
 export type ProbeSampleFinalizeRequestV1 =
   typeof ProbeSampleFinalizeRequestV1Schema.Type;
 
@@ -245,7 +242,7 @@ export const ProbeSampleFinalizeReceiptV1Schema = Schema.Union([
     kind: Schema.Literal("finalized"),
     idempotent: Schema.Boolean,
     sample: ProbeControlledGatewaySampleV1Schema,
-  }).annotate(StrictStructOptions),
+  }),
   RejectedOperationSchema,
 ]);
 export type ProbeSampleFinalizeReceiptV1 =
@@ -256,7 +253,7 @@ export const ProbeExternalCompletionRequestV1Schema = Schema.Struct({
   runId: ProbeRunIdSchema,
   sampleOrdinal: ProbeOrdinalSchema,
   externalDurationMs: ProbeDurationMsSchema,
-}).annotate(StrictStructOptions);
+});
 export type ProbeExternalCompletionRequestV1 =
   typeof ProbeExternalCompletionRequestV1Schema.Type;
 
@@ -266,7 +263,7 @@ export const ProbeExternalCompletionReceiptV1Schema = Schema.Union([
     kind: Schema.Literal("completed"),
     idempotent: Schema.Boolean,
     result: ProbeControlledSampleResultV1Schema,
-  }).annotate(StrictStructOptions),
+  }),
   RejectedOperationSchema,
 ]);
 export type ProbeExternalCompletionReceiptV1 =
@@ -284,7 +281,7 @@ export const ProbeRunControlRequestV1Schema = Schema.Struct({
   protocolVersion: ProbeProtocolVersionV1Schema,
   runId: ProbeRunIdSchema,
   operation: ProbeRunControlOperationV1Schema,
-}).annotate(StrictStructOptions);
+});
 export type ProbeRunControlRequestV1 =
   typeof ProbeRunControlRequestV1Schema.Type;
 
@@ -294,7 +291,7 @@ export const ProbeRunControlReceiptV1Schema = Schema.Union([
     kind: Schema.Literal("accepted"),
     idempotent: Schema.Boolean,
     status: ProbeRunStatusV1Schema,
-  }).annotate(StrictStructOptions),
+  }),
   RejectedOperationSchema,
 ]);
 export type ProbeRunControlReceiptV1 =
@@ -311,7 +308,7 @@ export const ProbeRunEvidencePageRequestV1Schema = Schema.Struct({
   runId: ProbeRunIdSchema,
   cursor: ProbeOrdinalSchema,
   limit: EvidencePageLimitSchema,
-}).annotate(StrictStructOptions);
+});
 export type ProbeRunEvidencePageRequestV1 =
   typeof ProbeRunEvidencePageRequestV1Schema.Type;
 
@@ -326,21 +323,21 @@ export const ProbeRunEvidenceRecordV1Schema = Schema.Union([
     ...ProbeRunEvidenceRecordBase,
     kind: Schema.Literal("observed"),
     result: ProbeControlledSampleResultV1Schema,
-  }).annotate(StrictStructOptions),
+  }),
   Schema.Struct({
     ...ProbeRunEvidenceRecordBase,
     kind: Schema.Literal("external-duration-missing"),
     fragment: ProbeControlledGatewaySampleV1Schema,
-  }).annotate(StrictStructOptions),
+  }),
   Schema.Struct({
     ...ProbeRunEvidenceRecordBase,
     kind: Schema.Literal("abandoned"),
     reason: Schema.Literal("campaign-reconciliation"),
-  }).annotate(StrictStructOptions),
+  }),
   Schema.Struct({
     ...ProbeRunEvidenceRecordBase,
     kind: Schema.Literal("not-started"),
-  }).annotate(StrictStructOptions),
+  }),
 ]);
 export type ProbeRunEvidenceRecordV1 =
   typeof ProbeRunEvidenceRecordV1Schema.Type;
@@ -352,7 +349,7 @@ export const ProbeRunEvidencePageReceiptV1Schema = Schema.Union([
     runId: ProbeRunIdSchema,
     records: Schema.Array(ProbeRunEvidenceRecordV1Schema),
     nextCursor: Schema.Union([ProbeOrdinalSchema, Schema.Null]),
-  }).annotate(StrictStructOptions),
+  }),
   RejectedOperationSchema,
 ]);
 export type ProbeRunEvidencePageReceiptV1 =
@@ -361,7 +358,7 @@ export type ProbeRunEvidencePageReceiptV1 =
 export const ProbeRunStatusRequestV1Schema = Schema.Struct({
   protocolVersion: ProbeProtocolVersionV1Schema,
   runId: ProbeRunIdSchema,
-}).annotate(StrictStructOptions);
+});
 export type ProbeRunStatusRequestV1 =
   typeof ProbeRunStatusRequestV1Schema.Type;
 
@@ -370,13 +367,11 @@ export const ProbeRunStatusReceiptV1Schema = Schema.Union([
     protocolVersion: ProbeProtocolVersionV1Schema,
     kind: Schema.Literal("found"),
     status: ProbeRunStatusV1Schema,
-  }).annotate(StrictStructOptions),
+  }),
   Schema.Struct({
     protocolVersion: ProbeProtocolVersionV1Schema,
     kind: Schema.Literal("not-found"),
-  }).annotate(
-    StrictStructOptions,
-  ),
+  }),
 ]);
 export type ProbeRunStatusReceiptV1 =
   typeof ProbeRunStatusReceiptV1Schema.Type;
@@ -613,7 +608,7 @@ export function probeRunBudgetPlanV1(
     payloadBytes: sampleClaims * run.dimensions.payloadBytes,
     journalEntries: sampleClaims * run.dimensions.journalEntries,
     uniqueCodeIds,
-  });
+  }, { parseOptions: { onExcessProperty: "error" } });
 }
 
 export function canonicalProbeRunRequestV1(run: ProbeRunRequestV1): string {

@@ -7,7 +7,7 @@ import { decodeOptionalServiceResult } from "../../module/result";
 import { NativePreimageConfig } from "../../workflow/preimage";
 import { SalesChannelCreatedRow, SalesChannelCreateInput } from "./create-input";
 
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 const Ids = Schema.Array(Id).check(Schema.isMaxLength(4));
 const Names = Schema.Array(Schema.String).check(Schema.isMaxLength(4));
 export const SalesChannelUpdateSelector = Schema.Struct({

@@ -15,7 +15,7 @@ export const InventoryItemDeletionOutput = Schema.Struct({
   reservation_item_id: Schema.optionalKey(Schema.Array(ScalarId).check(Schema.isMaxLength(4))),
 });
 export const InventoryItemDeletionReadInput = Schema.Struct({ filters: Schema.Struct({ id: Schema.Union([ScalarId, InventoryItemDeletionInput]) }),
-  config: Schema.Struct({ select: Schema.Array(Schema.Literals(["id", "reserved_quantity"])).check(Schema.isLengthBetween(2, 2),
+  config: Schema.Struct({ select: Schema.Array(Schema.Literals(["id", "reserved_quantity"])).check(Schema.isBetweenLength(2, 2),
     Schema.makeFilter(fields => new Set(fields).size === 2 ? undefined : "Expected both Item guard fields")),
     relations: Schema.optionalKey(Schema.Array(Schema.Never)), take: Schema.optionalKey(QueryLimit), skip: Schema.optionalKey(Schema.Literal(0)),
     order: Schema.optionalKey(Schema.Struct({ id: Schema.optionalKey(Schema.Literal("ASC")) })) }) });

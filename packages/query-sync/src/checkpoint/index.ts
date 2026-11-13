@@ -1,14 +1,12 @@
 import { Cause, Clock, Data, Effect, Exit, Fiber, Option, Result, Schema } from "effect";
-
-const strict = { parseOptions: { onExcessProperty: "error" as const } };
 const position = Schema.BigInt.check(Schema.isGreaterThanOrEqualToBigInt(0n));
 const sourceId = Schema.NonEmptyString.check(Schema.isMaxLength(256));
 
-export const CheckpointSchema = Schema.Struct({ sourceId, position }).annotate(strict);
+export const CheckpointSchema = Schema.Struct({ sourceId, position });
 export type Checkpoint = typeof CheckpointSchema.Type;
 export const CheckpointStateSchema = Schema.Union([
-  Schema.Struct({ kind: Schema.Literal("initialized") }).annotate(strict),
-  Schema.Struct({ kind: Schema.Literal("ready"), checkpoint: CheckpointSchema }).annotate(strict),
+  Schema.Struct({ kind: Schema.Literal("initialized") }),
+  Schema.Struct({ kind: Schema.Literal("ready"), checkpoint: CheckpointSchema }),
 ]);
 export type CheckpointState = typeof CheckpointStateSchema.Type;
 export const CheckpointCertificateSchema = Schema.Struct({
@@ -17,13 +15,13 @@ export const CheckpointCertificateSchema = Schema.Struct({
   after: Schema.NullOr(position),
   retainedFrom: position,
   through: position,
-}).annotate(strict);
+});
 export type CheckpointCertificate = typeof CheckpointCertificateSchema.Type;
 export const CheckpointBudgetSchema = Schema.Struct({
   sourceReads: Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 16 })),
   stateTransitions: Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 16 })),
   maximumElapsedMilliseconds: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 10_000 })),
-}).annotate(strict);
+});
 export type CheckpointBudget = typeof CheckpointBudgetSchema.Type;
 
 export class CheckpointError extends Data.TaggedError("CheckpointError")<{
@@ -64,8 +62,8 @@ export type CheckpointOutcome =
   | Readonly<{ kind: "resetRequired"; reason: "historyUnavailable" | "sourceReplaced";
     progress: CheckpointProgress }>;
 
-const decodeBudget = Schema.decodeUnknownEffect(CheckpointBudgetSchema);
-const decodeCertificate = Schema.decodeUnknownResult(CheckpointCertificateSchema);
+const decodeBudget = Schema.decodeUnknownEffect(CheckpointBudgetSchema, { onExcessProperty: "error" });
+const decodeCertificate = Schema.decodeUnknownResult(CheckpointCertificateSchema, { onExcessProperty: "error" });
 
 function captureCheckpoint(value: Checkpoint): Checkpoint {
   return Object.freeze({ sourceId: value.sourceId, position: value.position });

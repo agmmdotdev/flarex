@@ -2,10 +2,10 @@ import { Result, Schema } from "effect";
 import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { commerceDecoder } from "../value/decoder";
 
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 const decodeCascadeTuple = commerceDecoder(Schema.Tuple([
   Schema.Union([Schema.Null, Schema.Array(Schema.Struct({ serviceName: Schema.String, method: Schema.String,
-    args: Schema.Json, error: Schema.JsonObject })).check(Schema.isLengthBetween(1, 8))]),
+    args: Schema.Json, error: Schema.JsonObject })).check(Schema.isBetweenLength(1, 8))]),
   Schema.Record(Schema.String, Schema.Record(Schema.String, Schema.Array(Id).check(Schema.isMaxLength(16)))),
 ]), "storedCorruption");
 

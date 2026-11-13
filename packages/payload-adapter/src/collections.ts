@@ -12,24 +12,22 @@ import { cmsError } from "@flarex/persistence-postgres/internal/cms-adapter";
 import { makePayloadDatabaseAdapter } from "./adapter";
 import { buildPayloadConfiguration } from "./configuration";
 import { payloadScalarProvenance } from "./contract";
-
-const strict = { parseOptions: { onExcessProperty: "error" } } as const;
 const FieldName = SchemaManifestAppTableNameSchema.check(Schema.makeFilter(name =>
   ["id", "createdAt", "updatedAt", "constructor", "prototype"].includes(name) ? "Reserved field name" : undefined));
 const common = { name: FieldName, required: Schema.optionalKey(Schema.Boolean), index: Schema.optionalKey(Schema.Literal(true)) };
 const NumberDefault = Schema.Finite.check(Schema.makeFilter(value => Object.is(value, -0) ? "Negative zero is not canonical" : undefined));
 const NativeField = Schema.Union([
-  Schema.Struct({ ...common, type: Schema.Literal("text"), unique: Schema.optionalKey(Schema.Literal(true)), defaultValue: Schema.optionalKey(Schema.String) }).annotate(strict),
-  Schema.Struct({ ...common, type: Schema.Literal("number"), defaultValue: Schema.optionalKey(NumberDefault) }).annotate(strict),
-  Schema.Struct({ ...common, type: Schema.Literal("checkbox"), defaultValue: Schema.optionalKey(Schema.Boolean) }).annotate(strict),
-  Schema.Struct({ ...common, type: Schema.Literal("date"), defaultValue: Schema.optionalKey(Schema.String) }).annotate(strict),
+  Schema.Struct({ ...common, type: Schema.Literal("text"), unique: Schema.optionalKey(Schema.Literal(true)), defaultValue: Schema.optionalKey(Schema.String) }),
+  Schema.Struct({ ...common, type: Schema.Literal("number"), defaultValue: Schema.optionalKey(NumberDefault) }),
+  Schema.Struct({ ...common, type: Schema.Literal("checkbox"), defaultValue: Schema.optionalKey(Schema.Boolean) }),
+  Schema.Struct({ ...common, type: Schema.Literal("date"), defaultValue: Schema.optionalKey(Schema.String) }),
   Schema.Struct({ name: FieldName, type: Schema.Literal("relationship"), relationTo: PayloadCollectionSlugSchema,
     required: Schema.optionalKey(Schema.Literal(false)), hasMany: Schema.optionalKey(Schema.Literal(false)),
     localized: Schema.optionalKey(Schema.Literal(false)),
-  }).annotate(strict),
+  }),
 ]);
 type NativeField = typeof NativeField.Type;
-const decodeField = Schema.decodeUnknownEffect(NativeField);
+const decodeField = Schema.decodeUnknownEffect(NativeField, { onExcessProperty: "error" });
 const decodeIndexName = Schema.decodeUnknownEffect(SchemaManifestAppIndexDescriptorSchema);
 const decodeIndexFields = Schema.decodeUnknownEffect(Schema.Array(SchemaManifestAppIndexFieldPathSchema));
 const NativeCollections = Schema.Array(Schema.Struct({
@@ -37,12 +35,12 @@ const NativeCollections = Schema.Array(Schema.Struct({
   fields: Schema.Array(NativeField).check(Schema.isMinLength(1), Schema.isMaxLength(62)),
   indexes: Schema.optionalKey(Schema.Array(Schema.Struct({ fields: Schema.Array(FieldName).check(Schema.isMinLength(2), Schema.isMaxLength(MAX_SCHEMA_MANIFEST_APP_INDEX_DECLARED_FIELDS)),
     unique: Schema.optionalKey(Schema.Boolean),
-  }).annotate(strict)).check(Schema.isMaxLength(16))),
+  })).check(Schema.isMaxLength(16))),
   timestamps: Schema.optionalKey(Schema.Literal(true)),
   lockDocuments: Schema.optionalKey(Schema.Literal(false)),
   enableQueryPresets: Schema.optionalKey(Schema.Literal(false)),
   defaultSort: Schema.optionalKey(Schema.Literal("id")),
-}).annotate(strict)).check(Schema.isMinLength(1), Schema.isMaxLength(64), Schema.makeFilter(collections => {
+})).check(Schema.isMinLength(1), Schema.isMaxLength(64), Schema.makeFilter(collections => {
   // Slugs remain native. Only the compiler chooses the separate logical name;
   // ambiguous underscore/hyphen mappings are refused, never silently merged.
   if (new Set(collections.map(collection => payloadCollectionLogicalName(collection.slug))).size !== collections.length) return "Duplicate logical collection identity";
@@ -54,7 +52,7 @@ const NativeCollections = Schema.Array(Schema.Struct({
     collection.indexes?.some(index => new Set(index.fields).size !== index.fields.length || index.fields.some(name =>
       !collection.fields.some(field => field.name === name && field.type !== "relationship")))) ? "Duplicate or unknown index fields" : undefined;
 }));
-const decodeCollections = Schema.decodeUnknownEffect(NativeCollections);
+const decodeCollections = Schema.decodeUnknownEffect(NativeCollections, { onExcessProperty: "error" });
 const access = { read: () => true, create: () => true, update: () => true, delete: () => true };
 const compiledCollections = new WeakSet<object>();
 

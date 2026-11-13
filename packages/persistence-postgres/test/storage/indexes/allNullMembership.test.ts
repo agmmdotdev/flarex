@@ -7,7 +7,7 @@ import { AppOrderedIndexPhysicalSpecV1Schema } from "flarex-protocol/ordered-ind
 import { lowerAppOrderedIndexPhysicalKeyV1 } from "../../../src/storage/indexes/appDeveloperIndexKeys";
 
 const time = decodeAppCreationTimeV1(1);
-const spec = Schema.decodeUnknownSync(AppOrderedIndexPhysicalSpecV1Schema)({
+const spec = Schema.decodeUnknownSync(AppOrderedIndexPhysicalSpecV1Schema, { onExcessProperty: "error" })({
   kind: "appOrdered", specVersion: 1, accessPath: "developer", keyCodecVersion: 1,
   collation: "binaryUtf8", maxEncodedKeyBytes: 2048,
   orderedFields: [{ kind: "documentPath", path: "key" }, { kind: "systemCreationTime" }],

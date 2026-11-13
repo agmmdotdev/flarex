@@ -47,7 +47,10 @@ const StoredTableSchema = Schema.Struct({ name: TableName, number: Schema.BigInt
 const StoredProgramSchema = Schema.Struct({ kind: Schema.Literal("revision"), identity: CoreProgramIdentitySchema, metadata: Schema.String });
 const StoredHeadSchema = Schema.Struct({ kind: Schema.Literal("head"), identity: CoreProgramIdentitySchema });
 const StoredAuthoritySchema = Schema.Struct({ kind: Schema.Literal("authority"), epoch: Schema.BigInt });
-const decodeStoredTable = Schema.decodeUnknownResult(StoredTableSchema);
+// Stored documents also contain system fields. Project the table metadata while
+// keeping the nested native policy closed under the operation-wide parse policy.
+const decodeStoredTable = Schema.decodeUnknownResult(Schema.StructWithRest(StoredTableSchema,
+  [Schema.Record(Schema.String, Schema.Unknown)]), { onExcessProperty: "error" });
 const decodeStoredProgram = Schema.decodeUnknownResult(StoredProgramSchema);
 const decodeStoredHead = Schema.decodeUnknownResult(StoredHeadSchema);
 const decodeStoredAuthority = Schema.decodeUnknownResult(StoredAuthoritySchema);

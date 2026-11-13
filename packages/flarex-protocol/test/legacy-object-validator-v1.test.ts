@@ -121,7 +121,7 @@ describe("frozen appDocument V1 object admission", () => {
 
   it("keeps Source V2/current wire and generic historical formats outside this policy", () => {
     const over = objectFields(1025);
-    expect(Result.isSuccess(Schema.decodeUnknownResult(SchemaManifestAppDocumentDefinitionV2Schema)({ kind: "appDocument", definitionVersion: 2, documentType: JSON.stringify(over) }))).toBe(true);
+    expect(Result.isSuccess(Schema.decodeUnknownResult(SchemaManifestAppDocumentDefinitionV2Schema, { onExcessProperty: "error" })({ kind: "appDocument", definitionVersion: 2, documentType: JSON.stringify(over) }))).toBe(true);
     expect(Result.isSuccess(Schema.decodeUnknownResult(ValidatorJsonWireCodecV1)(over))).toBe(true);
     expect(decodeLegacyValidatorJsonResultCoreV1(over).ok).toBe(true);
     expect(decodeLegacyValidatorJsonWireResultCoreV1(over).ok).toBe(true);

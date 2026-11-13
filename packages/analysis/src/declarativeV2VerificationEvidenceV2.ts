@@ -1,7 +1,8 @@
+import * as Hex from "effect/encoding/Hex";
 import { isUint8ArrayWithByteLength } from "@flarex/utils/bytes";
 import { isNonNegativeSafeInteger } from "@flarex/utils/numbers";
 import { isNonEmptyString } from "@flarex/utils/strings";
-import { Data, Encoding, Result } from "effect";
+import { Data, Result } from "effect";
 import type { Json } from "flarex-protocol/json";
 
 import {
@@ -884,7 +885,7 @@ export function makeDeclarativeV2DiagnosticEvidenceCursorV2(
 }
 
 function digestHex(bytes: Uint8Array): string {
-  return Encoding.encodeHex(bytes).toLowerCase();
+  return Hex.encode(bytes).toLowerCase();
 }
 
 type EvidenceWireScalar = EvidenceTextValueV2 | number | boolean | null;
@@ -1265,7 +1266,7 @@ function decodeDigest(value: unknown): Uint8Array | undefined {
   if (typeof value !== "string" || !/^[0-9a-f]{64}$/u.test(value)) {
     return undefined;
   }
-  const decoded = Encoding.decodeHex(value);
+  const decoded = Hex.decode(value);
   return Result.isSuccess(decoded) &&
       isUint8ArrayWithByteLength(decoded.success, 32)
     ? new Uint8Array(decoded.success)

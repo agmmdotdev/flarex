@@ -1,5 +1,6 @@
+import * as Base64Url from "effect/encoding/Base64Url";
 import { isNonNegativeSafeInteger } from "@flarex/utils/numbers";
-import { Brand, Encoding, Result } from "effect";
+import { Brand, Result } from "effect";
 
 import {
   QuerySyncCanonicalValueError,
@@ -203,7 +204,7 @@ export function captureCanonicalBase64UrlValue<A extends string>(
     return Result.fail(canonicalValueError(field, "invalidSyntax"));
   }
 
-  return Encoding.decodeBase64Url(input).pipe(
+  return Base64Url.decode(input).pipe(
     Result.mapError(() => canonicalValueError(field, "decodingFailed")),
     Result.flatMap((bytes): Result.Result<A, QuerySyncCanonicalValueError> => {
       if (bytes.byteLength > maximumBytes) {
@@ -222,7 +223,7 @@ export function captureCanonicalBase64UrlValue<A extends string>(
           bytes.byteLength,
         ));
       }
-      if (Encoding.encodeBase64Url(bytes) !== input) {
+      if (Base64Url.encode(bytes) !== input) {
         return Result.fail(canonicalValueError(field, "nonCanonical"));
       }
       return Result.succeed(brand(input));

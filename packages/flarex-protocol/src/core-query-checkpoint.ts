@@ -1,7 +1,5 @@
 import { Data, Result, Schema } from "effect";
 import { CoreApplicationRouteIdentitySchema, CoreApplicationTimestampSchema } from "./core-application";
-
-const strict = { parseOptions: { onExcessProperty: "error" as const } };
 const SourceId = Schema.String.check(Schema.isPattern(/^[0-9a-f]{64}$/));
 export const CoreQueryCheckpointSourceIdSchema = SourceId;
 export const CORE_QUERY_CHECKPOINT_MAXIMUM_REQUEST_BYTES = 4096;
@@ -17,7 +15,7 @@ export const CoreQueryCheckpointRequestSchema = Schema.Struct({
   maximumElapsedMilliseconds: Schema.Int.check(Schema.makeFilter(value =>
     value >= 1 && value <= CORE_QUERY_CHECKPOINT_MAXIMUM_ELAPSED_MILLISECONDS ? undefined : "Expected a deadline from 1 to 10000 milliseconds")),
 }).check(Schema.makeFilter(value =>
-  (value.after === null) === (value.sourceId === null) ? undefined : "Checkpoint position and source identity must both be present or absent")).annotate(strict);
+  (value.after === null) === (value.sourceId === null) ? undefined : "Checkpoint position and source identity must both be present or absent"));
 export type CoreQueryCheckpointRequest = typeof CoreQueryCheckpointRequestSchema.Type;
 
 export const CoreQueryCheckpointResponseSchema = Schema.Struct({
@@ -40,7 +38,7 @@ export const CoreQueryCheckpointResponseSchema = Schema.Struct({
   return value.kind === "certified"
     ? after >= minimum ? undefined : "Certified interval must be fully retained"
     : after < minimum ? undefined : "History-unavailable evidence must identify a missing interval";
-})).annotate(strict);
+}));
 export type CoreQueryCheckpointResponse = typeof CoreQueryCheckpointResponseSchema.Type;
 
 export class CoreQueryCheckpointProtocolError extends Data.TaggedError("CoreQueryCheckpointProtocolError")<{

@@ -17,7 +17,7 @@ import type { prepareOrderArchiveRepository } from "./repository";
 type Prepared = Result.Result.Success<ReturnType<typeof prepareOrderArchiveRepository>>;
 const decodeEvent = moduleEventDecoder(Schema.Struct({ name: Schema.Literal("order.order.updated"),
   metadata: Schema.Struct({ source: Schema.Literal(Modules.ORDER), object: Schema.Literal("order"), action: Schema.Literal("updated") }),
-  data: Schema.Struct({ id: Schema.Union([OrderArchiveId, Schema.Array(OrderArchiveId).check(Schema.isLengthBetween(1, 4))]) }),
+  data: Schema.Struct({ id: Schema.Union([OrderArchiveId, Schema.Array(OrderArchiveId).check(Schema.isBetweenLength(1, 4))]) }),
 }), defaultCommerceResources);
 const mutableFields = new Set(["status", "updated_at"]);
 const stable = (row: JsonObject) => Object.fromEntries(Object.entries(row).filter(([name]) => !mutableFields.has(name)));

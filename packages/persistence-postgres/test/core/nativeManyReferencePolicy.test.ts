@@ -17,7 +17,7 @@ const target: CoreTableDefinition = { name: "targets", number: 10002, tabletId: 
 const membership: CoreTableDefinition = { name: "nativeMembers", number: 10003, tabletId: internal(3), namespace: null, state: "active", indexes: [] };
 const index = { name: "by_target_source", ref: { id: internal(4) }, fields: ["targetId", "sourceId"] };
 const sourceIndex = { name: "by_source_target", ref: { id: internal(5) }, fields: ["sourceId", "targetId"] };
-const reference = Schema.decodeUnknownSync(CoreNativeReferenceSchema)({
+const reference = Schema.decodeUnknownSync(CoreNativeReferenceSchema, { onExcessProperty: "error" })({
   declaration: { format: "flarex.relation-declaration", version: 1,
     source: { table: "posts", path: [{ kind: "field", name: "relatedPosts" }], forwardName: "relatedPosts" },
     target: { table: "targets" }, value: { cardinality: "many", minItems: 0, maxItems: 32, ordered: true, duplicates: "forbid" },

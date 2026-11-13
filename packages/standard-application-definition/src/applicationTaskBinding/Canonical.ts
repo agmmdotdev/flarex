@@ -1,3 +1,4 @@
+import * as Hex from "effect/encoding/Hex";
 import { isCanonicalCalendarDate } from "@flarex/time/calendar-date";
 import {
   bytesEqualFullScan,
@@ -7,7 +8,7 @@ import {
   uint8ArrayByteLength,
 } from "@flarex/utils/bytes";
 import { isNonArrayRecord } from "@flarex/utils/records";
-import { Encoding, Result } from "effect";
+import { Result } from "effect";
 import { encodeCanonicalJson } from "flarex-protocol/json";
 
 import {
@@ -690,7 +691,7 @@ function decodeCanonicalDigest(input: unknown): Uint8Array | undefined {
   if (typeof input !== "string" || !/^[0-9a-f]{64}$/.test(input)) {
     return undefined;
   }
-  return Result.getOrUndefined(Encoding.decodeHex(input));
+  return Result.getOrUndefined(Hex.decode(input));
 }
 
 function isCompatibilityDate(input: unknown): input is string {

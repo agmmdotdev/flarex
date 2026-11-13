@@ -634,7 +634,7 @@ function anchor(
       scopeId: selector.scopeId,
       epoch: ScopeEpochSchema.make("epoch_attempt_loading"),
       commitSeq: CommitSeqSchema.make(19n),
-    }),
+    }, { parseOptions: { onExcessProperty: "error" } }),
     hardExpiresAt: "2099-01-01T00:00:00.000Z",
     leaseExpiresAt: "2098-12-31T23:59:00.000Z",
     createdAt: "2026-07-15T00:00:00.000Z",

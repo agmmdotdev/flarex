@@ -20,7 +20,7 @@ function matchesStoredScalars(actual: JsonObject, expected: JsonObject) {
 export function pricingLogicalMutationEventPolicy(preferences: ReturnType<typeof pricingPreferencePolicy>,
   options: Readonly<{ scalarPriceSetUpdate?: true }> = {}) {
   const creation = pricingLogicalCreateEventPolicy(preferences);
-  const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+  const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
   const decode = moduleEventDecoder(Schema.Struct({ name: Schema.String,
     metadata: Schema.Struct({ source: Schema.Literal(Modules.PRICING), object: Schema.String,
       action: Schema.Literals([CommonEvents.CREATED, CommonEvents.UPDATED, CommonEvents.DELETED]) }),

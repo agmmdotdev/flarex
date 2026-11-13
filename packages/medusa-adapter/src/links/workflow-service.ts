@@ -6,7 +6,7 @@ import { commerceServiceCommands, commerceCommandPreparation } from "../module/c
 import { defineWorkflowMethod, type WorkflowMethod } from "../workflow/module";
 import { linkServiceLifecycleDefinition, type prepareLinkService } from "./service";
 
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 const Rows = Schema.Array(Schema.JsonObject).check(Schema.isMaxLength(8));
 const decodeRows = commerceDecoder(Rows, "storedCorruption");
 const decodeRead = commerceDecoder(Schema.Struct({ filters: Schema.JsonObject, config: Schema.JsonObject }), "invalidInput");
@@ -67,7 +67,7 @@ export function prepareLinkWorkflowService(prepared: Effect.Success<ReturnType<t
     const reverseIds = Schema.Array(Id).check(Schema.isMaxLength(admission === "inventory-deletions" || admission === "fulfillment-set-deletions" || admission === "shipping-option-links" ? 8 : 4));
     const Endpoint = admission === "shipping-profile-deletions" ? Schema.Struct({ [foreign.foreignKey]: reverseIds })
       : Schema.Union([Schema.Struct({ [primary.foreignKey]: endpointIds }), Schema.Struct({ [foreign.foreignKey]: reverseIds })]);
-    const ReturnKeys = Schema.Struct({ returnLinkableKeys: Schema.Array(Schema.Literals(["id", primary.foreignKey, foreign.foreignKey])).check(Schema.isLengthBetween(3, 3)) });
+    const ReturnKeys = Schema.Struct({ returnLinkableKeys: Schema.Array(Schema.Literals(["id", primary.foreignKey, foreign.foreignKey])).check(Schema.isBetweenLength(3, 3)) });
     const decodeSoftDelete = commerceDecoder(Schema.Struct({ selector: Endpoint, config: ReturnKeys }), "invalidInput");
     const decodeSoftDeleteArguments = commerceDecoder(Schema.Tuple([Endpoint, ReturnKeys]), "invalidInput");
     const softDeleteName = prefix + "NativeSoftDelete";

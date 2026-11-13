@@ -215,7 +215,7 @@ describe("diagnostic Effect measurement collector", () => {
     const unselected = Effect.fn("LogicalDocuments.relationalChange")(() => Effect.withFiber(fiber => Effect.gen(function* () {
       const tracer = yield* Tracer.Tracer;
       expect(tracer.context).toBeUndefined();
-      expect(fiber.currentSpan).toBeInstanceOf(Tracer.NativeSpan);
+      expect(fiber.cache.span).toBeInstanceOf(Tracer.NativeSpan);
       return yield* Effect.succeed(1);
     })));
     const native = Effect.fn("MedusaWorkflow.runNative")(() => Effect.gen(function* () {

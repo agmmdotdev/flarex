@@ -65,7 +65,7 @@ export function createAppDataSnapshotResolver(
           scopeId: authority.scopeId,
           epoch: authority.epoch,
           commitSeq: authority.lastCommitSeq,
-        }),
+        }, { parseOptions: { onExcessProperty: "error" } }),
       );
 
       return Object.freeze({

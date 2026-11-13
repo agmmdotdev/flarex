@@ -17,7 +17,7 @@ type Prepared = Result.Result.Success<ReturnType<typeof prepareCartCompletionRep
 const eventName = buildModuleResourceEventName({ prefix: Modules.CART, objectName: "cart", action: "updated" });
 const capture = moduleEventDecoder(Schema.Struct({ name: Schema.Literal(eventName),
   metadata: Schema.Struct({ source: Schema.Literal(Modules.CART), object: Schema.Literal("cart"), action: Schema.Literal("updated") }),
-  data: Schema.Struct({ id: Schema.Union([ScalarId, Schema.Array(ScalarId).check(Schema.isLengthBetween(1, 1))]) }) }), defaultCommerceResources);
+  data: Schema.Struct({ id: Schema.Union([ScalarId, Schema.Array(ScalarId).check(Schema.isBetweenLength(1, 1))]) }) }), defaultCommerceResources);
 const mismatch = () => commerceError("receiptMismatch");
 
 /** Authenticate native completion, scalar preimages and genuine empty Address

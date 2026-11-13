@@ -1,8 +1,9 @@
+import * as Base64Url from "effect/encoding/Base64Url";
 import type { CurrentTaskRunAttemptAggregate, CurrentPersistedTaskRequestedEffect } from "./Model.js";
 import { encodeTrustedWorkflowTaskRunAttemptAggregate, decodeTrustedWorkflowTaskRunAttemptAggregate, TrustedWorkflowPersistedTaskRequestedEffectSchema } from "./Schema.js";
 import type { Json, JsonObject } from "flarex-protocol/json";
 import { measureCanonicalJsonUtf8Bytes } from "flarex-protocol/json";
-import { Data, Encoding, Result, Schema } from "effect";
+import { Data, Result, Schema } from "effect";
 import type {
   ApplicationPersistedTaskRequestedEffectV1,
   ApplicationTaskRunAttemptAggregateV1,
@@ -472,7 +473,7 @@ function encodeOwnedPersistenceJsonValueV1(
   if (input instanceof Uint8Array) {
     return bytePosition
       ? Result.succeed(freezeOwnedJsonObject([
-          [TASK_PERSISTED_UINT8ARRAY_TAG_V1, Encoding.encodeBase64Url(input)],
+          [TASK_PERSISTED_UINT8ARRAY_TAG_V1, Base64Url.encode(input)],
         ]))
       : Result.fail({ kind: "domain_encoding_not_json" });
   }
@@ -568,12 +569,12 @@ function decodeTaskResultSha256WrapperV1(
   ) {
     return Result.fail({ kind: "invalid_byte_encoding" });
   }
-  return Encoding.decodeBase64Url(spelling).pipe(
+  return Base64Url.decode(spelling).pipe(
     Result.mapError((): JsonConversionIssueV1 => ({
       kind: "invalid_byte_encoding",
     })),
     Result.flatMap((bytes): Result.Result<Uint8Array, JsonConversionIssueV1> =>
-      bytes.byteLength === 32 && Encoding.encodeBase64Url(bytes) === spelling
+      bytes.byteLength === 32 && Base64Url.encode(bytes) === spelling
         ? Result.succeed(bytes)
         : Result.fail({ kind: "invalid_byte_encoding" as const })),
   );

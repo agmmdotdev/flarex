@@ -1,8 +1,6 @@
 import { Data, Schema } from "effect";
 import { SchemaManifestAppIndexDescriptorSchema, SchemaManifestAppIndexFieldPathSchema, MAX_SCHEMA_MANIFEST_APP_INDEX_DECLARED_FIELDS } from "flarex-protocol/schema-manifest";
 
-const StrictStructOptions = { parseOptions: { onExcessProperty: "error" } } as const;
-
 export const APPLICATION_WRITE_POLICY_MAXIMUM_TABLES = 64;
 export const APPLICATION_WRITE_POLICY_MAXIMUM_BYTES = 1_048_576;
 export const APPLICATION_WRITE_POLICY_MAXIMUM_HISTORY_RECORDS = 64;
@@ -25,7 +23,7 @@ export const PayloadProvenanceSchema = Schema.Struct({
   npmIntegrity: Schema.Literal("sha512-O7zuS80bvEGLte+7xZjwN05+ox5BCsGcQT2M6+CTote07JQOOvHJoiuoyQFw6cUElcFTWGMC5dy03w7J7sTYGg=="),
   gitTagObject: Schema.Literal("c54dea8f4010d9cb194780f2ee1e4b3ec697f9be"),
   gitCommit: Schema.Literal("fea6f8a47a50ff1330d8a5071b43e7dcffb97b22"),
-}).annotate(StrictStructOptions);
+});
 export type PayloadProvenance = typeof PayloadProvenanceSchema.Type;
 
 /** Native collection identity and its deterministic storage projection. */
@@ -43,7 +41,7 @@ const ScalarField = Schema.Struct({
   nullable: Schema.optionalKey(Schema.Literal(true)),
   defaultValue: Schema.optionalKey(Schema.Union([Schema.String,
     Schema.Finite.check(Schema.makeFilter(value => Object.is(value, -0) ? "Negative zero is not canonical" : undefined)), Schema.Boolean])),
-}).annotate(StrictStructOptions).check(Schema.makeFilter(field => {
+}).check(Schema.makeFilter(field => {
   if (field.unique !== undefined && field.kind !== "text") return "Only text fields support field-level uniqueness";
   const defaultType = field.kind === "text" || field.kind === "date" ? "string" : field.kind;
   return field.defaultValue === undefined || typeof field.defaultValue === defaultType ? undefined : "Default must match the scalar kind";
@@ -54,14 +52,14 @@ const OptionalRelationField = Schema.Struct({
   target: Identity, cardinality: Schema.Literal("one"),
   required: Schema.Literal(false), localized: Schema.Literal(false),
   onTargetDelete: Schema.Literal("restrict"),
-}).annotate(StrictStructOptions);
+});
 
 const ManyPostRelationField = Schema.Struct({
   name: Schema.Literal("relatedPosts"), kind: Schema.Literal("relationship"),
   target: Schema.Literal("posts"), cardinality: Schema.Literal("many"),
   minItems: Schema.Literal(0), maxItems: Schema.Literal(32),
   localized: Schema.Literal(false), onTargetDelete: Schema.Literal("restrict"),
-}).annotate(StrictStructOptions);
+});
 
 /** A private declarative profile, never a serialized executable Payload config. */
 const ConfigurationFields = {
@@ -76,9 +74,9 @@ const ConfigurationFields = {
       name: SchemaManifestAppIndexDescriptorSchema,
       fields: Schema.Array(SchemaManifestAppIndexFieldPathSchema).check(Schema.isMinLength(1), Schema.isMaxLength(MAX_SCHEMA_MANIFEST_APP_INDEX_DECLARED_FIELDS)),
       unique: Schema.optionalKey(Schema.Literal(true)),
-    }).annotate(StrictStructOptions)).check(Schema.isMaxLength(16))),
+    })).check(Schema.isMaxLength(16))),
     fields: Schema.Array(Schema.Union([ScalarField, OptionalRelationField, ManyPostRelationField])).check(Schema.isMaxLength(64)),
-  }).annotate(StrictStructOptions)).check(
+  })).check(
     Schema.isMinLength(1),
     Schema.isMaxLength(APPLICATION_WRITE_POLICY_MAXIMUM_TABLES),
   ),
@@ -87,12 +85,12 @@ const Join = (name: "referencedBy" | "referencedByMany", on: "relatedPost" | "re
   name: Schema.Literal(name), collection: Schema.Literal("posts"), on: Schema.Literal(on),
   orderable: Schema.Literal(false), localized: Schema.Literal(false), maxDepth: Schema.Literal(1),
   defaultLimit: Schema.Literal(8), maximumLimit: Schema.Literal(16),
-}).annotate(StrictStructOptions);
+});
 export const PayloadConfigurationSchema = Schema.Union([
-  Schema.Struct({ ...ConfigurationFields, profile: Schema.Literals(["payload.scalar", "payload.content-relations", "payload.content-many"]) }).annotate(StrictStructOptions),
+  Schema.Struct({ ...ConfigurationFields, profile: Schema.Literals(["payload.scalar", "payload.content-relations", "payload.content-many"]) }),
   Schema.Struct({ ...ConfigurationFields, profile: Schema.Literal("payload.content-joins"),
     joins: Schema.Tuple([Join("referencedBy", "relatedPost"), Join("referencedByMany", "relatedPosts")]),
-  }).annotate(StrictStructOptions),
+  }),
 ]).check(Schema.makeFilter(config => {
   if (new Set(config.tables.map(table => table.collectionSlug)).size !== config.tables.length) return "Duplicate collection slug";
   for (const table of config.tables) {
@@ -130,19 +128,19 @@ export const ApplicationTableWritePolicySchema = Schema.Union([
   Schema.Struct({
     logicalTableName: Identity,
     owner: Schema.Literal("application"),
-  }).annotate(StrictStructOptions),
+  }),
   Schema.Struct({
     logicalTableName: Identity,
     owner: Schema.Literal("application-command"),
     policyId: Schema.Literal("application.reference-permissions"),
-  }).annotate(StrictStructOptions),
+  }),
   Schema.Struct({
     logicalTableName: Identity,
     owner: Schema.Literal("payload"),
     policyId: Schema.Literal("payload.scalar"),
     configSha256: Digest,
     provenanceSha256: Digest,
-  }).annotate(StrictStructOptions),
+  }),
 ]);
 export type ApplicationTableWritePolicy =
   typeof ApplicationTableWritePolicySchema.Type;
@@ -156,7 +154,7 @@ export const ApplicationWritePoliciesSchema = Schema.Struct({
     Schema.isMinLength(1),
     Schema.isMaxLength(APPLICATION_WRITE_POLICY_MAXIMUM_TABLES),
   ),
-}).annotate(StrictStructOptions);
+});
 export type ApplicationWritePolicies = typeof ApplicationWritePoliciesSchema.Type;
 
 export class ApplicationWritePolicyError extends Data.TaggedError(

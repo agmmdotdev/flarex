@@ -5,7 +5,7 @@ import { commerceDecoder } from "../../value/decoder";
 import { compileCompleteRow, compileRowProjection } from "../../value/complete-row";
 import { captureCommerceInput } from "../../value/input";
 
-export const ApiKeyId = Schema.String.check(Schema.isLengthBetween(1, 256));
+export const ApiKeyId = Schema.String.check(Schema.isBetweenLength(1, 256));
 export const ApiKeyCreate = Schema.Struct({ title: Schema.String.check(Schema.isMaxLength(256)), type: Schema.Literal("publishable"),
   created_by: Schema.String.check(Schema.isMaxLength(256)) });
 export const ApiKeyCreateRows = Schema.Array(ApiKeyCreate).pipe(Schema.mutable).check(Schema.isMaxLength(4));

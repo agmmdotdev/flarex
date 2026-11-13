@@ -14,7 +14,7 @@ type Contracts = Result.Result.Success<ReturnType<typeof compileTaxRuleCreationC
 const decodeEvent = moduleEventDecoder(Schema.Struct({ name: Schema.String,
   metadata: Schema.Struct({ source: Schema.Literal(Modules.TAX), object: Schema.Literal("tax_rate_rule"),
     action: Schema.Literals(["created", "deleted"]) }),
-  data: Schema.Struct({ id: Schema.Union([TaxId, Schema.Array(TaxId).check(Schema.isLengthBetween(1, 8))]) }),
+  data: Schema.Struct({ id: Schema.Union([TaxId, Schema.Array(TaxId).check(Schema.isBetweenLength(1, 8))]) }),
 }), defaultCommerceResources);
 
 /** Complete Rule writes and observed rows authenticate native serialization.

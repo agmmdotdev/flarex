@@ -13,7 +13,7 @@ import {
   AppUniqueConstraintSpecSha256HexV1Schema,
   type AppUniqueConstraintSpecSha256HexV1,
 } from "./app-unique-constraint-definition";
-import { StrictParseOptions, StrictStructOptions } from
+import { StrictParseOptions } from
   "./strict-schema-options";
 import {
   CanonicalPositivePostgresBigIntFromString,
@@ -63,7 +63,7 @@ export const AppUniqueConstraintSetMemberV1Schema = Schema.Struct({
   uniqueConstraintDefinitionId: CatalogUniqueConstraintDefinitionIdSchema,
   tableId: CatalogTableIdSchema,
   physicalSpecSha256Hex: AppUniqueConstraintSpecSha256HexV1Schema,
-}).annotate(StrictStructOptions);
+});
 export interface AppUniqueConstraintSetMemberV1 {
   readonly logicalUniqueConstraintId: CatalogUniqueConstraintId;
   readonly uniqueConstraintDefinitionId: CatalogUniqueConstraintDefinitionId;

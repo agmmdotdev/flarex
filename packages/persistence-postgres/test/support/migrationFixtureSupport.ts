@@ -7,9 +7,10 @@ import { copyDrizzleMigrations } from "../../src/testing/systemTestMigrationFile
 
 // Only the fields used by this helper are decoded. Drizzle and scenario-owned
 // metadata, including unknown entry fields, must survive the journal rewrite.
-const decodeJournal = Schema.decodeUnknownSync(Schema.Struct({
-  entries: Schema.Array(Schema.Struct({ idx: Schema.Int })),
-}), { onExcessProperty: "preserve" });
+const journalExtras = Schema.Record(Schema.String, Schema.Unknown);
+const decodeJournal = Schema.decodeUnknownSync(Schema.StructWithRest(Schema.Struct({
+  entries: Schema.Array(Schema.StructWithRest(Schema.Struct({ idx: Schema.Int }), [journalExtras])),
+}), [journalExtras]));
 
 export interface DrizzleCopyFixture {
   readonly root: string;

@@ -43,11 +43,11 @@ describe("source validator exporter translation", () => {
     const serialized: unknown = JSON.parse(canonical.canonicalText);
     const reopened = Result.getOrThrow(canonicalizeApplicationManifestWireV1(serialized));
     expect(reopened.canonicalBytes).toEqual(canonical.canonicalBytes);
-    expect(Result.getOrThrow(Schema.decodeUnknownResult(ApplicationManifestV1Schema)(serialized))).toEqual(canonical.manifest);
+    expect(Result.getOrThrow(Schema.decodeUnknownResult(ApplicationManifestV1Schema, { onExcessProperty: "error" })(serialized))).toEqual(canonical.manifest);
     expect(Result.getOrThrow(captureApplicationManifestV1(canonical.manifest))).toEqual(canonical.manifest);
     const legacyBareWire: unknown = JSON.parse(JSON.stringify(canonical.manifest));
     expect(Result.isFailure(decodeApplicationManifestV1(legacyBareWire))).toBe(true);
-    expect(Result.isFailure(Schema.decodeUnknownResult(ApplicationManifestV1Schema)(legacyBareWire))).toBe(true);
+    expect(Result.isFailure(Schema.decodeUnknownResult(ApplicationManifestV1Schema, { onExcessProperty: "error" })(legacyBareWire))).toBe(true);
   });
 
   it("exports source record wrappers and advisory function signatures", async () => {

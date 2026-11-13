@@ -6,7 +6,7 @@ import { compileCompleteRow } from "../../value/complete-row";
 import { compileShippingOptionTypeCreationContracts } from "./shipping-option-type-input";
 import type { captureShippingProfileDeletionMetadata } from "./shipping-profile-schema";
 
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 /** Raw IDs also belong to native hook, event and inverse inputs. */
 export const ShippingOptionTypeDeletionIds = Schema.Array(Id).pipe(Schema.mutable).check(Schema.isMaxLength(4));
 export const decodeShippingOptionTypeDeletionIds = commerceDecoder(ShippingOptionTypeDeletionIds, "invalidInput");

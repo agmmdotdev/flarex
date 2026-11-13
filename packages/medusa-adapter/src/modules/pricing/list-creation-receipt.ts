@@ -12,12 +12,12 @@ import { compilePriceListCreationContracts, decodePriceListDeletionIds } from ".
 import { decodePriceListCreate } from "./input";
 
 type Contracts = Result.Result.Success<ReturnType<typeof compilePriceListCreationContracts>>;
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 const decodeEvent = moduleEventDecoder(Schema.Struct({ name: Schema.String,
   metadata: Schema.Struct({ source: Schema.Literal(Modules.PRICING),
     object: Schema.Literals(["price_list", "price", "price_list_rule", "price_rule"]),
     action: Schema.Literals(["created", "deleted"]) }),
-  data: Schema.Struct({ id: Schema.Union([Id, Schema.Array(Id).check(Schema.isLengthBetween(1, defaultCommerceResources.eventIds))]) }),
+  data: Schema.Struct({ id: Schema.Union([Id, Schema.Array(Id).check(Schema.isBetweenLength(1, defaultCommerceResources.eventIds))]) }),
 }), defaultCommerceResources);
 
 /** Native normalization owns business values. This policy authenticates its

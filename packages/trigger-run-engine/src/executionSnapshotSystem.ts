@@ -23,7 +23,7 @@ export class ExecutionSnapshotSystem {
     // Deliberate synchronous trusted-startup boundary; operation data is decoded
     // by the future core issuer, never authenticated by this configuration.
     const heartbeatTimeouts = Object.freeze(
-      Schema.decodeUnknownSync(HeartbeatTimeoutsSchema)(options.heartbeatTimeouts),
+      Schema.decodeUnknownSync(HeartbeatTimeoutsSchema, { onExcessProperty: "error" })(options.heartbeatTimeouts),
     );
 
     this.createExecutionSnapshot = Effect.fn("ExecutionSnapshotSystem.createExecutionSnapshot")(

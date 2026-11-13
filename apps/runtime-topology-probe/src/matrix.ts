@@ -38,7 +38,7 @@ function rehearsalRun(input: RehearsalRunInput): ProbeRunRequestV1 {
       payloadBytes: input.payloadBytes ?? 0,
       sessionMode: input.sessionMode ?? "new-session",
     },
-  });
+  }, { parseOptions: { onExcessProperty: "error" } });
 }
 
 export const PROBE_LOCAL_REHEARSAL_MATRIX_V1: ProbeCampaignManifestV1 =
@@ -123,7 +123,7 @@ export const PROBE_LOCAL_REHEARSAL_MATRIX_V1: ProbeCampaignManifestV1 =
         warmupRepetitions: 0,
       }),
     ],
-  });
+  }, { parseOptions: { onExcessProperty: "error" } });
 
 type SessionExecutorComparisonScenario =
   | "executor_worker_invoke"
@@ -157,7 +157,7 @@ export const PROBE_SESSION_EXECUTOR_AB_MATRIX_V1: ProbeCampaignManifestV1 =
         sessionExecutorComparisonRun(pair, "session_executor_invoke"),
       ],
     ),
-  });
+  }, { parseOptions: { onExcessProperty: "error" } });
 
 type FacetExecutorComparisonScenario =
   | "executor_worker_invoke"
@@ -191,7 +191,7 @@ export const PROBE_FACET_EXECUTOR_AB_MATRIX_V1: ProbeCampaignManifestV1 =
         facetExecutorComparisonRun(pair, "facet_executor_invoke"),
       ],
     ),
-  });
+  }, { parseOptions: { onExcessProperty: "error" } });
 
 type FacetFinalizerComparisonScenario =
   | "facet_executor_invoke"
@@ -249,7 +249,7 @@ export const PROBE_FACET_FINALIZER_AB_MATRIX_V1: ProbeCampaignManifestV1 =
             ),
           ],
     ),
-  });
+  }, { parseOptions: { onExcessProperty: "error" } });
 
 function warmFacetFinalizerRun(replicate: number): ProbeRunRequestV1 {
   return rehearsalRun({
@@ -271,7 +271,7 @@ export const PROBE_WARM_FACET_FINALIZER_MATRIX_V1: ProbeCampaignManifestV1 =
     collectorConcurrency: 1,
     runs: Array.from({ length: 8 }, (_, index) =>
       warmFacetFinalizerRun(index + 1)),
-  });
+  }, { parseOptions: { onExcessProperty: "error" } });
 
 function postgresComparisonRun(replicate: number): ProbeRunRequestV1 {
   return rehearsalRun({
@@ -293,7 +293,7 @@ export const PROBE_POSTGRES_COMPARISON_MATRIX_V1: ProbeCampaignManifestV1 =
     collectorConcurrency: 1,
     runs: Array.from({ length: 8 }, (_, index) =>
       postgresComparisonRun(index + 1)),
-  });
+  }, { parseOptions: { onExcessProperty: "error" } });
 
 function postgresHyperdriveRun(replicate: number): ProbeRunRequestV1 {
   return rehearsalRun({
@@ -315,7 +315,7 @@ export const PROBE_POSTGRES_HYPERDRIVE_MATRIX_V1: ProbeCampaignManifestV1 =
     collectorConcurrency: 1,
     runs: Array.from({ length: 8 }, (_, index) =>
       postgresHyperdriveRun(index + 1)),
-  });
+  }, { parseOptions: { onExcessProperty: "error" } });
 
 type SessionPostgresComparisonScenario =
   | "facet_finalizer_postgres_warm_invoke"
@@ -373,7 +373,7 @@ export const PROBE_SESSION_POSTGRES_AB_MATRIX_V1: ProbeCampaignManifestV1 =
             ),
           ],
     ),
-  });
+  }, { parseOptions: { onExcessProperty: "error" } });
 
 export const PROBE_ACTIVE_CAMPAIGN_MATRIX_V1 =
   PROBE_POSTGRES_COMPARISON_MATRIX_V1;

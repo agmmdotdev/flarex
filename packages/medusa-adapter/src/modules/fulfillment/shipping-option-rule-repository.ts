@@ -21,7 +21,7 @@ import { insertGraphRows } from "../../write/create";
 import type { GraphCatalog } from "../../write/graph-model";
 import { generateEntityId } from "@medusajs/framework/utils/portable";
 
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 const Or = Schema.Struct({ $or: Schema.Array(Schema.Struct({ id: Id })).check(Schema.isMaxLength(4)) });
 const decodeSelection = commerceDecoder(Or, "unsupportedProfile");
 const decodePairs = commerceDecoder(Schema.Array(Schema.Struct({ entity: Schema.JsonObject, update: Schema.JsonObject }))

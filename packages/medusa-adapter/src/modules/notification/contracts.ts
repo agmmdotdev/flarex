@@ -6,7 +6,7 @@ import { jsonEqual } from "flarex-protocol/json";
 import { commerceDecoder, commerceRowDecoder } from "../../value/decoder";
 import { compileCompleteRow } from "../../value/complete-row";
 
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 /** This import-connected profile admits the native local feed only. It supplies
  * no key or caller-selected identity; durable occurrence identity is separate. */
 export const LocalFeedNotificationInput = Schema.Struct({

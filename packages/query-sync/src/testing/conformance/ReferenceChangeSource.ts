@@ -1,9 +1,10 @@
+import * as Base64Url from "effect/encoding/Base64Url";
 import {
   isNonNegativeSafeInteger,
   isPositiveSafeInteger,
 } from "@flarex/utils/numbers";
 import { isNonArrayRecord } from "@flarex/utils/records";
-import { Data, Effect, Encoding, Result, SynchronizedRef } from "effect";
+import { Data, Effect, Result, SynchronizedRef } from "effect";
 
 import {
   canonicalBase64UrlDecodedLength,
@@ -1010,14 +1011,14 @@ function exactAuthorityWitness(
   }
   const bytes = new Uint8Array(32);
   bytes.set(encoded);
-  return captureQueryAuthorityWitness(Encoding.encodeBase64Url(bytes));
+  return captureQueryAuthorityWitness(Base64Url.encode(bytes));
 }
 
 function captureDependencyKey(
   modelPrefix: "kv-change" | "graph-edge" | "graph-node",
   parts: readonly string[],
 ): Result.Result<CanonicalDependencyKey, ChangeProjectionError> {
-  return captureCanonicalDependencyKey(Encoding.encodeBase64Url(
+  return captureCanonicalDependencyKey(Base64Url.encode(
     [modelPrefix, ...parts].join("\0"),
   ));
 }

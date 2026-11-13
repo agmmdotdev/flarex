@@ -1,6 +1,6 @@
 import { Layer } from "effect";
-import { HttpRouter, HttpServer } from "effect/unstable/http";
-import { HttpApiBuilder } from "effect/unstable/httpapi";
+import { HttpRouter, HttpServer } from "effect/http";
+import { HttpApiBuilder } from "effect/http-api";
 import { DeploymentApi } from "flarex-protocol/deployment";
 import { DeploymentApiHandlers } from "./HttpApiHandlers";
 import type { DeploymentService } from "./Service";

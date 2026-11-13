@@ -161,7 +161,7 @@ export class ProbeCampaignDO extends DurableObject<ProbeCampaignEnv> {
         kind: "registered",
         created: false,
         status: this.readStatus(),
-      });
+      }, { parseOptions: { onExcessProperty: "error" } });
     }
     const registered = await this.drainRegistrations(manifest);
     if (!registered) {
@@ -173,7 +173,7 @@ export class ProbeCampaignDO extends DurableObject<ProbeCampaignEnv> {
       kind: "registered",
       created: creation === "created",
       status: this.readStatus(),
-    });
+    }, { parseOptions: { onExcessProperty: "error" } });
   }
 
   async status(value: unknown): Promise<ProbeCampaignStatusReceiptV1> {
@@ -188,13 +188,13 @@ export class ProbeCampaignDO extends DurableObject<ProbeCampaignEnv> {
       return ProbeCampaignStatusReceiptV1Schema.make({
         protocolVersion: PROBE_PROTOCOL_VERSION_V1,
         kind: "not-found",
-      });
+      }, { parseOptions: { onExcessProperty: "error" } });
     }
     return ProbeCampaignStatusReceiptV1Schema.make({
       protocolVersion: PROBE_PROTOCOL_VERSION_V1,
       kind: "found",
       status: this.readStatus(),
-    });
+    }, { parseOptions: { onExcessProperty: "error" } });
   }
 
   async reconcile(value: unknown): Promise<ProbeCampaignControlReceiptV1> {
@@ -397,7 +397,7 @@ export class ProbeCampaignDO extends DurableObject<ProbeCampaignEnv> {
         protocolVersion: PROBE_PROTOCOL_VERSION_V1,
         runId: run.runId,
         operation,
-      });
+      }, { parseOptions: { onExcessProperty: "error" } });
       try {
         const raw = await this.env.PROBE_RUNS.getByName(
           probeRunActorId(run.runId),
@@ -441,7 +441,7 @@ export class ProbeCampaignDO extends DurableObject<ProbeCampaignEnv> {
           runId: run.runId,
           cursor,
           limit: 100,
-        });
+        }, { parseOptions: { onExcessProperty: "error" } });
         let receipt;
         try {
           const raw = await this.env.PROBE_RUNS.getByName(
@@ -476,7 +476,7 @@ export class ProbeCampaignDO extends DurableObject<ProbeCampaignEnv> {
       switch (kind) {
         case "session": {
           const request = ProbeSessionPurgeRequestV1Schema.make(
-            JSON.parse(task.request_json),
+            JSON.parse(task.request_json), { parseOptions: { onExcessProperty: "error" } },
           );
           const raw = await this.env.PROBE_SESSIONS.getByName(request.sessionId)
             .purge(request);
@@ -492,7 +492,7 @@ export class ProbeCampaignDO extends DurableObject<ProbeCampaignEnv> {
           const mockPurge = this.env.MOCK_PURGE;
           if (mockPurge === undefined) return "failed";
           const request = ProbeSyncPurgeRequestV1Schema.make(
-            JSON.parse(task.request_json),
+            JSON.parse(task.request_json), { parseOptions: { onExcessProperty: "error" } },
           );
           const raw = await mockPurge.purge(request);
           const receipt = decodeProbeSyncPurgeReceiptV1OrNull(
@@ -507,7 +507,7 @@ export class ProbeCampaignDO extends DurableObject<ProbeCampaignEnv> {
         }
         case "run": {
           const request = ProbeRunPurgeRequestV1Schema.make(
-            JSON.parse(task.request_json),
+            JSON.parse(task.request_json), { parseOptions: { onExcessProperty: "error" } },
           );
           const raw = await this.env.PROBE_RUNS.getByName(
             probeRunActorId(request.runId),
@@ -552,7 +552,7 @@ export class ProbeCampaignDO extends DurableObject<ProbeCampaignEnv> {
       budgets: ProbeCampaignBudgetsV1Schema.make({
         limits: PROBE_CAMPAIGN_BUDGET_LIMIT_VALUES_V1,
         planned,
-      }),
+      }, { parseOptions: { onExcessProperty: "error" } }),
       progress: ProbeCampaignProgressV1Schema.make({
         totalRegistrationTasks: runs.length,
         completedRegistrationTasks: runs.filter(run => run.registered === 1)
@@ -563,7 +563,7 @@ export class ProbeCampaignDO extends DurableObject<ProbeCampaignEnv> {
         ).length,
         totalPurgeTasks: purge.total,
         completedPurgeTasks: purge.completed ?? 0,
-      }),
+      }, { parseOptions: { onExcessProperty: "error" } }),
       evidence: row.evidence_record_count === null ||
           row.evidence_sha256 === null
         ? null
@@ -571,7 +571,7 @@ export class ProbeCampaignDO extends DurableObject<ProbeCampaignEnv> {
             recordCount: row.evidence_record_count,
             sha256: row.evidence_sha256,
           },
-    });
+    }, { parseOptions: { onExcessProperty: "error" } });
   }
 }
 
@@ -677,7 +677,7 @@ function insertPurgeTasks(
       protocolVersion: PROBE_PROTOCOL_VERSION_V1,
       sessionId: ProbeSessionIdSchema.make(sessionId),
       facets,
-    });
+    }, { parseOptions: { onExcessProperty: "error" } });
     insertPurgeTask(sql, order, "session", sessionId, request);
     order += 1;
   }
@@ -685,7 +685,7 @@ function insertPurgeTasks(
     const request = ProbeSyncPurgeRequestV1Schema.make({
       protocolVersion: PROBE_PROTOCOL_VERSION_V1,
       scopeId: ProbeScopeIdSchema.make(scopeId),
-    });
+    }, { parseOptions: { onExcessProperty: "error" } });
     insertPurgeTask(sql, order, "sync", scopeId, request);
     order += 1;
   }
@@ -693,7 +693,7 @@ function insertPurgeTasks(
     const request = ProbeRunPurgeRequestV1Schema.make({
       protocolVersion: PROBE_PROTOCOL_VERSION_V1,
       runId: run.runId,
-    });
+    }, { parseOptions: { onExcessProperty: "error" } });
     insertPurgeTask(sql, order, "run", run.runId, request);
     order += 1;
   }
@@ -786,7 +786,7 @@ function rejectedRegistration(
     protocolVersion: PROBE_PROTOCOL_VERSION_V1,
     kind: "rejected",
     error: { code, retryable: retryableCampaignError(code) },
-  });
+  }, { parseOptions: { onExcessProperty: "error" } });
 }
 
 function rejectedControl(
@@ -796,7 +796,7 @@ function rejectedControl(
     protocolVersion: PROBE_PROTOCOL_VERSION_V1,
     kind: "rejected",
     error: { code, retryable: retryableCampaignError(code) },
-  });
+  }, { parseOptions: { onExcessProperty: "error" } });
 }
 
 function acceptedControl(
@@ -806,5 +806,5 @@ function acceptedControl(
     protocolVersion: PROBE_PROTOCOL_VERSION_V1,
     kind: "accepted",
     status,
-  });
+  }, { parseOptions: { onExcessProperty: "error" } });
 }

@@ -20,7 +20,7 @@ const decodeRevision = commerceDecoder(LinkPairRevisionRecordSchema, "receiptMis
 const decodeResult = commerceDecoder(LinkOperationResultSchema, "receiptMismatch");
 const decodeCompensation = commerceDecoder(LinkOperationCompensationSchema, "receiptMismatch");
 const decodeRow = commerceDecoder(LinkPreimageRowSchema, "receiptMismatch");
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 const decodePairs = commerceDecoder(Schema.Array(Schema.Union([Schema.Tuple([Id, Id]), Schema.Tuple([Id, Id, Schema.Struct({})])]))
   .check(Schema.isMaxLength(4)), "receiptMismatch");
 const key = (pair: { readonly primary: string; readonly foreign: string }) => JSON.stringify([pair.primary, pair.foreign]);

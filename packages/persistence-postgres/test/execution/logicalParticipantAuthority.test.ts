@@ -79,7 +79,7 @@ it("keeps participant method and table authority private after construction and 
     sourceBindingSha256Hex: sourceSha256, methods: ["create"], effects: [], dependencyEvidence: {} };
   expect(hasLogicalParticipantCommitAuthority(token, "payload.fixed", contribution)).toBe(true);
   expect(hasLogicalParticipantCommitAuthority(token, "payload.fixed", { ...contribution, methods: ["delete"] })).toBe(false);
-  const operation = Schema.decodeUnknownSync(AdmittedParticipantOperationSchema)({
+  const operation = Schema.decodeUnknownSync(AdmittedParticipantOperationSchema, { onExcessProperty: "error" })({
     syscallSequence: "1", participant: "payload.fixed", method: "create",
     profileRevision: sourceSha256, admissionBundleSha256Hex: sourceSha256,
     requestSha256Hex: sourceSha256, resultSha256Hex: sourceSha256,

@@ -1,3 +1,4 @@
+import * as Base64Url from "effect/encoding/Base64Url";
 import {
   bytesEqual,
   encodeBytesToLowercaseHex,
@@ -8,7 +9,7 @@ import {
 } from "@flarex/utils/numbers";
 import { isNonBlankString } from "@flarex/utils/strings";
 import { isCanonicalIsoInstant } from "@flarex/time/iso-instant";
-import { Data, Effect, Encoding, Result, Schema } from "effect";
+import { Data, Effect, Result, Schema } from "effect";
 
 import type { Json, JsonObject } from "./json";
 import { JsonValue } from "./json";
@@ -21,10 +22,7 @@ import {
 } from "./canonical-base64url";
 import { CatalogSchemaVersionIdSchema } from "./schema-manifest";
 import { ReplacementScopeIdV1Schema } from "./storage-authority";
-import {
-  StrictParseOptions,
-  StrictStructOptions,
-} from "./strict-schema-options";
+import { StrictParseOptions } from "./strict-schema-options";
 import {
   CanonicalTransactionAuthorizationGrantBytesV1Schema,
   TransactionArtifactIdV1Schema,
@@ -305,12 +303,12 @@ export type TransactionGrantClaimsV1 =
 
 const TransactionGrantAnonymousAuthV1Schema = Schema.Struct({
   kind: Schema.Literal("anonymous"),
-}).annotate(StrictStructOptions);
+});
 
 const TransactionGrantTrustedDevAuthV1Schema = Schema.Struct({
   kind: Schema.Literal("trustedDev"),
   principal: BoundedGrantText,
-}).annotate(StrictStructOptions);
+});
 
 const TransactionGrantVerifiedBearerAuthV1Schema = Schema.Struct({
   kind: Schema.Literal("verifiedBearer"),
@@ -318,7 +316,7 @@ const TransactionGrantVerifiedBearerAuthV1Schema = Schema.Struct({
   subject: BoundedGrantText,
   tokenIdentifier: Schema.optional(BoundedGrantText),
   claims: TransactionGrantClaimsV1Schema,
-}).annotate(StrictStructOptions);
+});
 
 export const TransactionGrantInertAuthV1Schema = Schema.Union([
   TransactionGrantAnonymousAuthV1Schema,
@@ -381,7 +379,7 @@ const TransactionGrantIdentityAccessPolicyV1Schema = Schema.Struct({
   policyVersion: BoundedTransactionPolicyVersionV1Schema,
   auth: TransactionGrantInertAuthV1Schema,
   capabilities: TransactionGrantCapabilitiesV1Schema,
-}).annotate(StrictStructOptions);
+});
 
 export type TransactionGrantIdentityAccessPolicyV1 =
   typeof TransactionGrantIdentityAccessPolicyV1Schema.Type;
@@ -506,7 +504,7 @@ const TransactionGrantPayloadStructureV1Schema = Schema.Struct({
   issuedAt: TransactionGrantTimestampV1Schema,
   expiresAt: TransactionGrantTimestampV1Schema,
   authorizationRevocationEpoch: TransactionAuthorizationRevocationEpochSchema,
-}).annotate(StrictStructOptions).check(
+}).check(
   Schema.makeFilter((payload) => {
     const expectedArtifactId = `artifact_${payload.sourcePackageHash.slice(0, 32)}`;
     if (payload.artifactId !== expectedArtifactId) {
@@ -523,7 +521,7 @@ export const TransactionGrantPayloadV1Schema =
     Schema.makeFilter((payload) => {
       try {
         const encoded = Schema.encodeSync(
-          TransactionGrantPayloadStructureV1Schema,
+          TransactionGrantPayloadStructureV1Schema, { onExcessProperty: "error" },
         )(payload);
         normalizeFlarexValueV1(encoded);
         return undefined;
@@ -541,7 +539,7 @@ export const TransactionGrantProtectedHeaderV1Schema = Schema.Struct({
   alg: Schema.Literal(TRANSACTION_GRANT_JWS_ALGORITHM_V1),
   kid: TransactionGrantKeyIdV1Schema,
   typ: Schema.Literal(TRANSACTION_GRANT_JWS_TYPE_V1),
-}).annotate(StrictStructOptions).pipe(
+}).pipe(
   Schema.brand("FlarexDB/TransactionGrantProtectedHeaderV1"),
 );
 export type TransactionGrantProtectedHeaderV1 =
@@ -637,7 +635,7 @@ export const TransactionGrantJwsWireV1Schema = Schema.Struct({
   protected: UnverifiedTransactionGrantProtectedHeaderBase64UrlV1Schema,
   payload: UnverifiedTransactionGrantPayloadBase64UrlV1Schema,
   signature: UnverifiedTransactionGrantEd25519SignatureBase64UrlV1Schema,
-}).annotate(StrictStructOptions).pipe(
+}).pipe(
   Schema.brand("FlarexDB/TransactionGrantJwsWireV1"),
 );
 export type TransactionGrantJwsWireV1 =
@@ -647,7 +645,7 @@ const TransactionGrantJwsV1Schema = Schema.Struct({
   protected: TransactionGrantProtectedHeaderBase64UrlV1Schema,
   payload: CanonicalTransactionGrantPayloadBase64UrlV1Schema,
   signature: TransactionGrantEd25519SignatureBase64UrlV1Schema,
-}).annotate(StrictStructOptions).pipe(
+}).pipe(
   Schema.brand("FlarexDB/TransactionGrantJwsV1"),
 );
 export type TransactionGrantJwsV1 = typeof TransactionGrantJwsV1Schema.Type;
@@ -754,7 +752,7 @@ export function canonicalizeTransactionGrantProtectedHeaderV1(
   const immutableHeader = freezeOwnedProtocolProjection(header);
   const stableCanonicalBytes = new Uint8Array(canonicalBytes);
   const base64url = TransactionGrantProtectedHeaderBase64UrlV1Schema.make(
-    Encoding.encodeBase64Url(stableCanonicalBytes),
+    Base64Url.encode(stableCanonicalBytes),
   );
   return Object.freeze({
     header: immutableHeader,
@@ -776,7 +774,7 @@ export async function canonicalizeTransactionGrantPayloadV1(
   );
   let encoded: TransactionGrantPayloadEncodedV1;
   try {
-    encoded = Schema.encodeSync(TransactionGrantPayloadV1Schema)(payload);
+    encoded = Schema.encodeSync(TransactionGrantPayloadV1Schema, { onExcessProperty: "error" })(payload);
   } catch {
     throw invalidSchema("payload");
   }
@@ -806,7 +804,7 @@ export async function canonicalizeTransactionGrantPayloadV1(
     canonical.valueJson,
   );
   const base64url = CanonicalTransactionGrantPayloadBase64UrlV1Schema.make(
-    Encoding.encodeBase64Url(stableCanonicalBytes),
+    Base64Url.encode(stableCanonicalBytes),
   );
   return Object.freeze({
     payload: immutablePayload,
@@ -837,7 +835,7 @@ export function encodeTransactionGrantEd25519SignatureV1(
     "signature",
   );
   return TransactionGrantEd25519SignatureBase64UrlV1Schema.make(
-    Encoding.encodeBase64Url(bytes),
+    Base64Url.encode(bytes),
   );
 }
 
@@ -866,7 +864,7 @@ export async function deriveInertTransactionGrantEvidenceV1(
       protected: canonicalHeader.base64url,
       payload: canonicalPayload.base64url,
       signature,
-    }),
+    }, { parseOptions: { onExcessProperty: "error" } }),
   );
   const stableSigningInput = createTransactionGrantSigningInputV1({
     protected: canonicalHeader.base64url,

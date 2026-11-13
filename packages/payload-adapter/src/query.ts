@@ -9,7 +9,7 @@ import type { PayloadConfiguration } from "@flarex/analysis/internal/application
 const Predicate = Schema.Struct({ equals: Schema.optionalKey(Schema.Union([Schema.String, Schema.Finite, Schema.Boolean, Schema.Null])),
   greater_than: Schema.optionalKey(Schema.Finite), greater_than_equal: Schema.optionalKey(Schema.Finite),
   less_than: Schema.optionalKey(Schema.Finite), less_than_equal: Schema.optionalKey(Schema.Finite),
-}).annotate({ parseOptions: { onExcessProperty: "error" } }).check(Schema.makeFilter(value =>
+}).check(Schema.makeFilter(value =>
   Object.keys(value).length > 0 && (value.equals === undefined || Object.keys(value).length === 1) &&
     !(value.greater_than !== undefined && value.greater_than_equal !== undefined) &&
     !(value.less_than !== undefined && value.less_than_equal !== undefined) ? undefined : "Expected equality or a numeric range"));

@@ -30,7 +30,7 @@ import { salesChannelDeletionPolicy } from "./delete-receipt";
 import { compileSalesChannelCartReadContracts, decodeSalesChannelCartReadArguments } from "./cart-read-input";
 import { salesChannelCartReadPolicy } from "./cart-read-receipt";
 
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 export const SimpleSalesChannelInput = Schema.Struct({ id: Schema.optionalKey(Id), name: Schema.String });
 const Create = Schema.StructWithRest(Schema.Struct({ name: Schema.String }), [Schema.Record(Schema.String, Schema.Json)]);
 const decodeCreate = commerceDecoder(Schema.Union([Create, Schema.Array(Create).check(Schema.isMaxLength(256))]), "invalidInput");

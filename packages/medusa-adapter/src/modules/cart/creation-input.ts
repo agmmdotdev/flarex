@@ -55,7 +55,7 @@ export const CartRootCreates = Schema.Array(Schema.Struct({ id: Text, currency_c
   items: Schema.optionalKey(Schema.Array(RootLine).pipe(Schema.mutable).check(Schema.isMaxLength(4))),
 })).pipe(Schema.mutable).check(Schema.isMaxLength(4), Schema.makeFilter(carts =>
   carts.reduce((count, cart) => count + (cart.items?.length ?? 0), 0) <= 4 || "Cart creation admits four total lines"));
-export const CartCreationReceipt = Schema.Struct({ operation_id: Schema.String.check(Schema.isLengthBetween(1, 256)) });
+export const CartCreationReceipt = Schema.Struct({ operation_id: Schema.String.check(Schema.isBetweenLength(1, 256)) });
 export const decodeCartCreates = commerceDecoder(CartCreates, "invalidInput");
 export const decodeCartRootCreates = commerceDecoder(CartRootCreates, "invalidInput");
 export const decodeCartCreationReceipt = commerceDecoder(CartCreationReceipt, "invalidInput");

@@ -26,7 +26,7 @@ export const prepareLocationFulfillmentSetLinkRead = Effect.fn("LocationFulfillm
   return yield* prepareShippingOptionLinkService(metadata, { endpointConfigs: [stockLocationStaticResources.joinerConfig, fulfillmentStaticResources.joinerConfig], name: "location_fulfillment_set_query_links", prefix: "shippingOptionLocationFulfillmentSetLink", remotePaths });
 });
 
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 const Pair = Schema.Struct({ stock_location: Schema.Struct({ stock_location_id: Id }),
   fulfillment: Schema.Struct({ fulfillment_set_id: Id }) });
 const Pairs = Schema.Array(Pair).pipe(Schema.mutable).check(Schema.isMaxLength(1));

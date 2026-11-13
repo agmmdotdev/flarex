@@ -1,7 +1,7 @@
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { isNonEmptyString } from "@flarex/utils/strings";
 import { Effect, Schema } from "effect";
-import { HttpApi, HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "effect/unstable/httpapi";
+import { HttpApi, HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "effect/http-api";
 import { AuthConfigSchema } from "./auth";
 import { encodeValidatorJsonV1, ValidatorJsonWireCodecV1, type ValidatorJsonV1 } from "./validator-json";
 

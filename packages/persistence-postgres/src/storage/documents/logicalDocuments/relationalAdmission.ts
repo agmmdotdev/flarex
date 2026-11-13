@@ -88,8 +88,8 @@ export class LogicalRelationalAdmissionError extends Data.TaggedError("LogicalRe
 const SourceContract = Schema.Struct({
   sourceKey: Schema.NonEmptyString, writeProfile: Schema.NonEmptyString,
   schema: Schema.Json, evidence: Schema.Json,
-}).annotate({ parseOptions: { onExcessProperty: "error" } });
-const decodeContract = Schema.decodeUnknownEffect(SourceContract);
+});
+const decodeContract = Schema.decodeUnknownEffect(SourceContract, { onExcessProperty: "error" });
 const projectSourceFailure = (cause: LogicalSourceAdmissionError) =>
   new LogicalRelationalAdmissionError({ reason: cause.reason, cause });
 const projectBindingFailure = (cause: unknown): LogicalRelationalAdmissionError => {

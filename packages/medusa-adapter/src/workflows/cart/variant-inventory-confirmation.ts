@@ -14,7 +14,7 @@ import { variantItemPricingParticipantLimit, variantInventoryConfirmationResourc
 import { prepareVariantItemPricingModules } from "./variant-item-pricing-graph";
 import { VariantItemPricingInput, VariantItemPricingOutput } from "./variant-item-pricing";
 
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 const Numeric = Schema.Union([Schema.String, Schema.Number.check(Schema.isFinite())]);
 /** Supplied Cart context and original Items retain the existing bounded native
  * pricing ABI. The Variant selection follows those Items, never caller rows. */

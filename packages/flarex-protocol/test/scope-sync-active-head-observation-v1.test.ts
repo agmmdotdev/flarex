@@ -21,7 +21,7 @@ describe("scope sync active-head observation v1 protocol", () => {
       activationSequence: 3n,
     });
     expect(Object.isFrozen(decoded)).toBe(true);
-    expect(Schema.encodeSync(ScopeSyncActiveHeadObservationV1Schema)(decoded))
+    expect(Schema.encodeSync(ScopeSyncActiveHeadObservationV1Schema, { onExcessProperty: "error" })(decoded))
       .toEqual(rawObservation());
   });
 

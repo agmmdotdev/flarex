@@ -3,7 +3,7 @@ import { Effect, Schema } from "effect";
 import { LogicalDocumentUniqueConstraintDeclarationSchema } from "flarex-protocol/app-unique-constraint-definition";
 import { digestApplicationWritePolicyFrame } from "./verification";
 
-const decodeDeclaration = Schema.decodeUnknownEffect(LogicalDocumentUniqueConstraintDeclarationSchema);
+const decodeDeclaration = Schema.decodeUnknownEffect(LogicalDocumentUniqueConstraintDeclarationSchema, { onExcessProperty: "error" });
 
 /** Constraint intent from checked metadata; persistence owns identity and enforcement. */
 export function payloadUniqueSelections(table: PayloadConfiguration["tables"][number]): readonly (readonly string[])[] {

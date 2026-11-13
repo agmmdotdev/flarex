@@ -1,5 +1,6 @@
+import * as Hex from "effect/encoding/Hex";
 import { copyBytes, copyBytesToArrayBuffer } from "@flarex/utils/bytes";
-import { Brand, Effect, Encoding, Result } from "effect";
+import { Brand, Effect, Result } from "effect";
 import {
   encodeCanonicalJson,
   measureCanonicalJsonUtf8Bytes,
@@ -143,7 +144,7 @@ const hashFrameworkSchemaArtifact = Effect.fn(
   const ownedOutput = new Uint8Array(SHA256_BYTE_LENGTH);
   Uint8Array.prototype.set.call(ownedOutput, new Uint8Array(validatedOutput));
   return Object.freeze({
-    artifactSha256: brandArtifactSha256(Encoding.encodeHex(ownedOutput)),
+    artifactSha256: brandArtifactSha256(Hex.encode(ownedOutput)),
     artifactSha256Bytes: ownedOutput,
   });
 });

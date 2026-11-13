@@ -202,7 +202,7 @@ async function verifyCurrentBindingClosure(driver: "pglite" | "postgres") {
     const currencyBinding = currencySource?.bindings.find(binding => binding.kind === "definition" && binding.localName === "currency");
     if (payloadSource === undefined || payloadBinding === undefined || currencyBinding === undefined)
       throw new Error("Missing genuine incoming reference endpoints");
-    const addedIndex = Schema.decodeUnknownSync(SchemaManifestAppIndexDeclarationV1Schema)({
+    const addedIndex = Schema.decodeUnknownSync(SchemaManifestAppIndexDeclarationV1Schema, { onExcessProperty: "error" })({
       tableLogicalName: "users", descriptor: "by_finite_name", fields: ["name"] });
     const nextSource = await runEffect(captureLogicalSchemaSource({ key: applicationSource.key,
       owner: applicationSource.owner, writeProfile: applicationSource.writeProfile, evidence: applicationSource.evidence,

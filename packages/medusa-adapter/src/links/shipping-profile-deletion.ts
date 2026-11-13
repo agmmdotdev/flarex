@@ -28,7 +28,7 @@ import { linkLogicalEventPolicy } from "./events";
 import { compileLinkLifecycleReceipt } from "./lifecycle-receipt";
 import { decodeLinkCascade } from "./cascade-result";
 
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 const Ids = Schema.Array(Id).pipe(Schema.mutable).check(Schema.isMaxLength(4));
 const Endpoint = Schema.Struct({ fulfillment: Schema.Struct({ shipping_profile_id: Ids }) });
 const decodeEndpoint = commerceDecoder(Schema.Tuple([Endpoint]), "invalidInput");

@@ -2,7 +2,7 @@ import { Result, Schema } from "effect"
 import { MedusaError } from "@medusajs/utils/common/errors"
 export type { CartCreationCompensation } from "@medusajs/types/cart/creation"
 
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256))
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256))
 export const CartCreationCartRow = Schema.Struct({
   id: Id, shipping_address_id: Schema.NullOr(Id), billing_address_id: Schema.NullOr(Id),
 })
@@ -26,7 +26,7 @@ const AddressClaim = Schema.Struct({ id: Id, operation_id: Id, address_id: Id })
   .check(Schema.makeFilter(claim => claim.id === claim.address_id))
 
 function decoder<S extends Schema.ConstraintDecoder<unknown>>(schema: S, kind: "input" | "stored", excess: "error" | "ignore" = "error") {
-  const decode = Schema.decodeUnknownResult(schema, { onExcessProperty: excess, propertyOrder: "original" })
+  const decode = Schema.decodeUnknownResult(schema, { onExcessProperty: excess })
   return (input: unknown): S["Type"] => Result.match(decode(input), {
     onSuccess: value => value,
     onFailure: cause => {

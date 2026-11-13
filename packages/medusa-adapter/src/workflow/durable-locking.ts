@@ -17,10 +17,10 @@ import { captureWorkflowRecord } from "./configuration";
 import { isDurableNativeBoundaryFailure, type DurableNativeEffectBoundary } from "./durable-native-storage";
 
 type TaskOptions = Omit<Parameters<typeof makeTrustedWorkflowCallbackJournal>[0], "definition">;
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
-const Nonce = Schema.String.check(Schema.isLengthBetween(1, 128));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
+const Nonce = Schema.String.check(Schema.isBetweenLength(1, 128));
 const acquireInput = commerceDecoder(Schema.Tuple([Id, Schema.Struct({ expire: Schema.Literal(10), ownerId: Id })]), "unsupportedProfile");
-const releaseInput = commerceDecoder(Schema.Tuple([Schema.Array(Id).check(Schema.isLengthBetween(1, 1)), Schema.Struct({ ownerId: Id })]), "unsupportedProfile");
+const releaseInput = commerceDecoder(Schema.Tuple([Schema.Array(Id).check(Schema.isBetweenLength(1, 1)), Schema.Struct({ ownerId: Id })]), "unsupportedProfile");
 const decodeId = commerceDecoder(Id, "unsupportedProfile");
 const decodeAcquired = commerceDecoder(Schema.Struct({ lifecycleNonce: Nonce, acquisitionNonce: Nonce }), "storedCorruption");
 const decodeReleased = commerceDecoder(Schema.Struct({ lifecycleNonce: Nonce, released: Schema.Boolean }), "storedCorruption");

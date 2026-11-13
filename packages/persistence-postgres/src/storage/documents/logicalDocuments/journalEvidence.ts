@@ -11,47 +11,45 @@ import { MAX_APP_UNIQUE_KEY_COMPONENTS_V1, canonicalizeAppUniqueKeyV1Result } fr
 import type { LogicalDocumentChanges } from "./workingSet";
 import { GeneratedInsertionIntentsSchema } from "flarex-protocol/commit-protocol";
 export { authenticatedGeneratedInsertionsResult } from "flarex-protocol/commit-protocol";
-
-const strict = { parseOptions: { onExcessProperty: "error" as const } };
 const entry = Schema.Struct({ rowId: AppRowIdHexV1Schema, encodedKey: OrderedIndexKeyBytesHexV1Schema,
-  commitSeq: Schema.toEncoded(CommitSeqSchema) }).annotate(strict);
+  commitSeq: Schema.toEncoded(CommitSeqSchema) });
 const bounds = Schema.Struct({ startInclusive: Schema.optionalKey(OrderedIndexBoundHexV1Schema),
-  endExclusive: Schema.optionalKey(OrderedIndexBoundHexV1Schema) }).annotate(strict);
+  endExclusive: Schema.optionalKey(OrderedIndexBoundHexV1Schema) });
 const range = Schema.Struct({ indexDefinitionId: CatalogIndexDefinitionIdSchema, bounds,
-  entries: Schema.Array(entry).check(Schema.isMaxLength(4096)) }).annotate(strict);
+  entries: Schema.Array(entry).check(Schema.isMaxLength(4096)) });
 const page = Schema.Struct({ indexDefinitionId: CatalogIndexDefinitionIdSchema, bounds,
   after: Schema.optionalKey(Schema.Struct({ rowId: AppRowIdHexV1Schema,
-    encodedKey: OrderedIndexKeyBytesHexV1Schema }).annotate(strict)),
-  isDone: Schema.Boolean, entries: Schema.Array(entry).check(Schema.isMaxLength(4096)) }).annotate(strict);
+    encodedKey: OrderedIndexKeyBytesHexV1Schema })),
+  isDone: Schema.Boolean, entries: Schema.Array(entry).check(Schema.isMaxLength(4096)) });
 const uniqueKey = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("claim"), localeKey: Schema.String,
     encodedKey: OrderedIndexKeyBytesHexV1Schema,
-    componentCount: Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: MAX_APP_UNIQUE_KEY_COMPONENTS_V1 })) }).annotate(strict),
+    componentCount: Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: MAX_APP_UNIQUE_KEY_COMPONENTS_V1 })) }),
   Schema.Struct({ kind: Schema.Literal("omitted"), localeKey: Schema.String,
-    reason: Schema.Literals(["sparseMissing", "predicateExcluded", "nullDistinct"]) }).annotate(strict),
+    reason: Schema.Literals(["sparseMissing", "predicateExcluded", "nullDistinct"]) }),
 ]);
 const unique = Schema.Struct({ constraintId: CatalogUniqueConstraintDefinitionIdSchema, key: uniqueKey,
   owner: Schema.NullOr(Schema.Struct({ tableId: CatalogTableIdSchema,
-    rowId: AppRowIdHexV1Schema }).annotate(strict)) }).annotate(strict);
+    rowId: AppRowIdHexV1Schema })) });
 const LegacyLogicalParticipantDependencyEvidenceSchema = Schema.Struct({
   format: Schema.Literal("flarex.logical-participant-evidence"), version: Schema.Literal(1),
   indexRanges: Schema.Array(range).check(Schema.isMaxLength(256)),
   indexPages: Schema.Array(page).check(Schema.isMaxLength(256)),
   uniqueReads: Schema.Array(unique).check(Schema.isMaxLength(256)),
   generatedInsertions: Schema.optionalKey(GeneratedInsertionIntentsSchema),
-}).annotate(strict);
+});
 export const FiniteLogicalParticipantDependencyEvidenceSchema = Schema.Struct({
   ...LegacyLogicalParticipantDependencyEvidenceSchema.fields, version: Schema.Literal(2),
   metadataWatermark: Schema.toEncoded(MetadataSequenceSchema),
   metadataDependencies: Schema.Array(Schema.toEncoded(LogicalMetadataReadDependencySchema)).check(
     Schema.isMaxLength(MAX_COMMIT_METADATA_READ_DEPENDENCIES)),
-}).annotate(strict);
+});
 export const LogicalParticipantDependencyEvidenceSchema = Schema.Union([
   LegacyLogicalParticipantDependencyEvidenceSchema, FiniteLogicalParticipantDependencyEvidenceSchema,
 ]);
 export type LogicalParticipantDependencyEvidence = typeof LogicalParticipantDependencyEvidenceSchema.Type;
 const decode = Schema.decodeUnknownResult(LogicalParticipantDependencyEvidenceSchema, { onExcessProperty: "error" });
-const encodeMetadataArrayEffect = Schema.encodeUnknownEffect(Schema.Array(LogicalMetadataReadDependencySchema));
+const encodeMetadataArrayEffect = Schema.encodeUnknownEffect(Schema.Array(LogicalMetadataReadDependencySchema), { onExcessProperty: "error" });
 const utf8 = new TextEncoder();
 export class LogicalParticipantEvidenceError extends Data.TaggedError("LogicalParticipantEvidenceError")<{
   readonly reason: "unsupportedProfile" | "invalidEvidence" | "limitExceeded" | "writeConflict" | "resourceFailure";

@@ -12,7 +12,7 @@ import type { compileShippingProfileDeletionContracts } from "./shipping-profile
 import { ShippingProfileDeletionIds, decodeShippingProfileDeletionIds } from "./shipping-profile-delete-input";
 
 type Contracts = Result.Result.Success<ReturnType<typeof compileShippingProfileDeletionContracts>>;
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 const decodeValidationWhere = commerceDecoder(Schema.Struct({ id: ShippingProfileDeletionIds }), "receiptMismatch");
 const decodeEvent = moduleEventDecoder(Schema.Struct({ name: Schema.String,
   metadata: Schema.Struct({ source: Schema.Literal(Modules.FULFILLMENT),

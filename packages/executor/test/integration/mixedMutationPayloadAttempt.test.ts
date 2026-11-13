@@ -60,7 +60,7 @@ describe.each(drivers)("scoped Payload attempt facade on %s", driver => {
   }, 180_000);
 
   it.each(["complete", "mixed-cause"] as const)("waits for an outstanding genuine CMS abort before destroying its parallel parent (%s)", async cleanupOutcome => {
-    let nativeScope: Scope.Scope | undefined;
+    let nativeScope: Scope.Closeable | undefined;
     let native: nativeRuntime.PayloadNative | undefined;
     let ownership: Effect.Success<ReturnType<nativeRuntime.PayloadNative["makeAttemptOwnership"]>> | undefined;
     let captured: Parameters<LogicalParticipantBorrow>[0] | undefined;

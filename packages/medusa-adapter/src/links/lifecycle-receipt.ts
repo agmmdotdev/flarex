@@ -29,7 +29,7 @@ export function compileLinkLifecycleReceipt(configuration: {
     const distinct = configuration.distinctEndpoint;
     if (distinct !== undefined && (![primary, foreign].includes(distinct.name) || !Number.isSafeInteger(distinct.maximum) ||
       distinct.maximum < 1 || distinct.maximum > configuration.maximumRows)) return yield* Result.fail(commerceError("unsupportedProfile"));
-    const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+    const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
     const Ids = Schema.Array(Id).check(Schema.isMaxLength(configuration.maximumEndpoints));
     const decodeInput = commerceDecoder(Schema.Struct({
       selector: Schema.Union([Schema.Struct({ [primary]: Ids }), Schema.Struct({ [foreign]: Ids })]),

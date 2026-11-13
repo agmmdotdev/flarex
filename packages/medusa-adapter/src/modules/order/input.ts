@@ -5,7 +5,7 @@ import { commerceDecoder } from "../../value/decoder";
 import { compileCompleteRow } from "../../value/complete-row";
 import type { captureOrderMetadata } from "./schema";
 
-export const OrderArchiveId = Schema.String.check(Schema.isLengthBetween(1, 256));
+export const OrderArchiveId = Schema.String.check(Schema.isBetweenLength(1, 256));
 export const OrderArchiveIds = Schema.Array(OrderArchiveId).pipe(Schema.mutable).check(Schema.isMaxLength(4));
 export const OrderArchiveInput = Schema.Struct({ orderIds: OrderArchiveIds });
 export const OrderCompletionInput = Schema.Struct({ orderIds: OrderArchiveIds,

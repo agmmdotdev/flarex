@@ -14,7 +14,7 @@ import { CartCompletionPatch } from "./completion-input";
 import type { prepareCartPaymentRead } from "./payment-read";
 
 type PreparedRead = Result.Result.Success<ReturnType<typeof prepareCartPaymentRead>>;
-const decodePairs = Schema.decodeUnknownEffect(Schema.Array(Schema.Unknown).check(Schema.isLengthBetween(1, 1)));
+const decodePairs = Schema.decodeUnknownEffect(Schema.Array(Schema.Unknown).check(Schema.isBetweenLength(1, 1)));
 const decodePatch = commerceDecoder(CartCompletionPatch, "unsupportedProfile");
 const emptyAddressEnvelope = commerceDecoder(Schema.Struct({ where: Schema.Struct({ id: Schema.Array(Schema.Never) }),
   options: Schema.JsonObject }), "unsupportedProfile");

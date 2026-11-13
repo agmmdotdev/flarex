@@ -14,7 +14,7 @@ export const CartMutationIds = Schema.Array(ScalarId).pipe(Schema.mutable).check
  * four-root authoring shape. Existing shared resource owners remain ceilings. */
 export const cartLineHistoryMaximum = Math.min(defaultCommerceResources.queryRows,
   defaultCommerceResources.writeBatchRows, defaultCommerceResources.eventIds);
-export const CartLineHistoryIds = Schema.Array(ScalarId).check(Schema.isLengthBetween(1, cartLineHistoryMaximum));
+export const CartLineHistoryIds = Schema.Array(ScalarId).check(Schema.isBetweenLength(1, cartLineHistoryMaximum));
 const Selection = Schema.Union([ScalarId, CartMutationIds]);
 export const CartMutationAddress = Schema.Struct({ ...RootAddress.fields, id: Schema.optionalKey(ScalarId) });
 export const CartMutationPatch = Schema.Struct({ id: ScalarId, region_id: Text, customer_id: Text, sales_channel_id: Text,

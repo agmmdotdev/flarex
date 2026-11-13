@@ -16,12 +16,12 @@ import { prepareAtomicWorkflowHost, type AtomicWorkflowExecution, type Installed
 
 export const ProductSalesChannelInput = Schema.Struct({
   salesChannel: SimpleSalesChannelInput,
-  products: Schema.Array(SimpleProductInput).check(Schema.isLengthBetween(1, 4)),
+  products: Schema.Array(SimpleProductInput).check(Schema.isBetweenLength(1, 4)),
 });
 export const ProductSalesChannelOutput = Schema.Struct({
-  products: Schema.Array(Schema.Struct({ id: Schema.String, title: Schema.String })).check(Schema.isLengthBetween(1, 4)),
-  salesChannels: Schema.Array(Schema.Struct({ id: Schema.String, name: Schema.String })).check(Schema.isLengthBetween(1, 1)),
-  links: Schema.Array(Schema.Struct({ id: Schema.String, product_id: Schema.String, sales_channel_id: Schema.String })).check(Schema.isLengthBetween(1, 4)),
+  products: Schema.Array(Schema.Struct({ id: Schema.String, title: Schema.String })).check(Schema.isBetweenLength(1, 4)),
+  salesChannels: Schema.Array(Schema.Struct({ id: Schema.String, name: Schema.String })).check(Schema.isBetweenLength(1, 1)),
+  links: Schema.Array(Schema.Struct({ id: Schema.String, product_id: Schema.String, sales_channel_id: Schema.String })).check(Schema.isBetweenLength(1, 4)),
 });
 
 /** Private simple creation milestone, not Medusa's full createProductsWorkflow.

@@ -14,10 +14,7 @@ import {
   type JsonObject,
 } from "./json";
 import { RelationSourcePathV1Schema } from "./relation-declaration-v1";
-import {
-  StrictParseOptions,
-  StrictStructOptions,
-} from "./strict-schema-options";
+import { StrictParseOptions } from "./strict-schema-options";
 import {
   exactOwnDataIssue,
   hasExactOwnDataKeys,
@@ -43,7 +40,7 @@ export const RelationOccurrenceV1Schema = Schema.Struct({
   sourcePath: RelationSourcePathV1Schema,
   targetDocumentId: AppDocumentIdV1Schema,
   duplicateOrdinal: Schema.Literal(RELATION_OCCURRENCE_DUPLICATE_ORDINAL_V1),
-}).annotate(StrictStructOptions);
+});
 export type RelationOccurrenceV1 = typeof RelationOccurrenceV1Schema.Type;
 
 const decodeRelationOccurrenceShapeV1Result = Schema.decodeUnknownResult(

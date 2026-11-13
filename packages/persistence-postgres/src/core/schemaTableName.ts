@@ -1,5 +1,6 @@
+import * as Hex from "effect/encoding/Hex";
 /** Native qualified identities need legal Source identifiers, not physical names. */
-import { Effect, Encoding } from "effect";
+import { Effect } from "effect";
 import { digestApplicationWritePolicyFrame } from "@flarex/analysis/internal/application-write-policy";
 import type { QualifiedLogicalTable } from "flarex-protocol/internal/logical-schema-candidate";
 import type { Json } from "flarex-protocol/json";
@@ -12,7 +13,7 @@ const encodedName = Effect.fn("CoreSchema.nativeIdentifier")(function* (prefix: 
     reason: cause.reason === "digestUnavailable" ? "hashFailure" : "unsupportedCapability",
     message: "Native identifier digest failed", cause,
   })));
-  const bytes = yield* Effect.fromResult(Encoding.decodeHex(digest)).pipe(Effect.orDie);
+  const bytes = yield* Effect.fromResult(Hex.decode(digest)).pipe(Effect.orDie);
   let output = prefix, accumulator = 0, bits = 0;
   for (const byte of bytes) {
     accumulator = accumulator << 8 | byte;

@@ -6,7 +6,7 @@ import { compileCompleteRow, compileRowProjection } from "../../value/complete-r
 import { NativePreimageConfig } from "../../workflow/preimage";
 import type { captureShippingProfileMetadata } from "./shipping-profile-schema";
 
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 export const ShippingProfileUpdateIds = Schema.Array(Id).pipe(Schema.mutable).check(Schema.isMaxLength(4));
 export const ShippingProfileUpdateSelector = Schema.Struct({ id: Schema.Union([Id, ShippingProfileUpdateIds]) });
 export const ShippingProfileUpdateData = Schema.Struct({ name: Schema.optionalKey(Schema.String), type: Schema.optionalKey(Schema.String),

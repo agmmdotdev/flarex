@@ -5,7 +5,7 @@ import { commerceDecoder } from "../../value/decoder";
 import { compileCompleteRow } from "../../value/complete-row";
 import type { captureStoreMetadata } from "./schema";
 
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 export const StoreDeletionIds = Schema.Array(Id).pipe(Schema.mutable).check(Schema.isMaxLength(4));
 export const decodeStoreDeletionIds = commerceDecoder(StoreDeletionIds, "invalidInput");
 export const decodeStoreDeletionArguments = commerceDecoder(Schema.Tuple([StoreDeletionIds]), "invalidInput");

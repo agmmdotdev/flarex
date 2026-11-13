@@ -11,7 +11,7 @@ import type { LogicalCommerceCallValidation } from "@flarex/persistence-postgres
 export function linkLogicalEventPolicy(tableName: string, serviceName: string, entityName: string,
   endpoints: readonly [string, string], createCommands: readonly string[] = [], dismissCommands: readonly string[] = [], deleteCommands: readonly string[] = [], restoreCommands: readonly string[] = []) {
   const [primary, foreign] = endpoints;
-  const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+  const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
   const decode = moduleEventDecoder(Schema.Struct({ name: Schema.String,
     metadata: Schema.Struct({ source: Schema.Literal(serviceName), object: Schema.Literal(entityName), action: Schema.Literals(["attached", "detached"]) }),
     data: Schema.Struct({ id: Schema.Union([Id, Schema.Array(Id).check(Schema.isMinLength(1),

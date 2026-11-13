@@ -29,13 +29,13 @@ import type { prepareCartMutationRepository } from "./mutation-repository";
 import { captureCartMutationLine } from "./mutation-repository";
 
 type Prepared = Result.Result.Success<ReturnType<typeof prepareCartMutationRepository>>;
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 const decodeIds = commerceDecoder(Schema.Array(Id), "receiptMismatch");
 const eventMetadata = { source: Schema.Literal(Modules.CART), action: Schema.Literals(["created", "updated", "deleted", "restored"]) };
 const decode = moduleEventDecoder(Schema.Union([
   Schema.Struct({ name: Schema.String,
     metadata: Schema.Struct({ ...eventMetadata, object: Schema.Literals(["cart", "address", "line_item", "shipping_method"]) }),
-    data: Schema.Struct({ id: Schema.Union([Id, Schema.Array(Id).check(Schema.isLengthBetween(1, 8))]) }) }),
+    data: Schema.Struct({ id: Schema.Union([Id, Schema.Array(Id).check(Schema.isBetweenLength(1, 8))]) }) }),
   Schema.Struct({ name: Schema.String,
     metadata: Schema.Struct({ ...eventMetadata, object: Schema.Literals(["line_item_tax_line", "line_item_adjustment", "shipping_method_tax_line"]) }),
     data: Schema.Struct({ id: Schema.Union([Id, CartLineHistoryIds]) }) }),

@@ -1,6 +1,7 @@
+import * as Hex from "effect/encoding/Hex";
 import { frameworkGraphDriverRowReferences, makeFrameworkGraphReferenceRead, withFrameworkGraphReadPass } from "../../migrationCoordination/graphReadPass";
 import { eq, sql } from "drizzle-orm";
-import { Effect, Encoding, Option } from "effect";
+import { Effect, Option } from "effect";
 
 import { detachDriverRows } from "../../../database/detachDriverRows";
 import { runDrizzleStatementEffect } from "../../../database/drizzleStatementEffect";
@@ -721,7 +722,7 @@ function restoredReceiptPrefixesExactlyMatch(
 function decodeAuthenticatedSha256(
   value: string,
 ): Effect.Effect<Uint8Array> {
-  return Effect.fromResult(Encoding.decodeHex(value)).pipe(Effect.orDie);
+  return Effect.fromResult(Hex.decode(value)).pipe(Effect.orDie);
 }
 
 const installationCanonicalBytesWithinReadBounds = sql`

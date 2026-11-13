@@ -8,7 +8,7 @@ import { ServiceZoneGeoZoneCreate } from "./service-zone-create-input";
 import { compileFulfillmentGraphContracts } from "./fulfillment-graph-contracts";
 import type { captureServiceZoneCreationMetadata } from "./shipping-profile-schema";
 
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 export const ServiceZoneUpdateIds = Schema.Array(Id).pipe(Schema.mutable).check(Schema.isMaxLength(4));
 export const ServiceZoneUpdateSelector = Schema.Struct({ id: Schema.Union([Id, ServiceZoneUpdateIds]) });
 /** The native workflow admits new geography or an ID-only existing member. */

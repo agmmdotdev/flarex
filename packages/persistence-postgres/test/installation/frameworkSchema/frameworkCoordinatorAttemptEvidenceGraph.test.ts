@@ -1,4 +1,5 @@
-import { Effect, Encoding, Result } from "effect";
+import * as Hex from "effect/encoding/Hex";
+import { Effect, Result } from "effect";
 import { describe, expect, it, vi } from "vitest";
 import * as driverRows from "../../../src/database/detachDriverRows";
 import * as storedValues from "../../../src/installation/migrationCoordination/storedRestoration";
@@ -25,7 +26,7 @@ describe("attempt evidence graph", { concurrent: false }, () => {
     if (first === undefined) throw new Error("Missing first receipt");
     const changed = await runEffect(encodeFrameworkMigrationStepReceiptFrame({ ...first.receipt.frame, completedAt: COORDINATOR_TERMINAL_AT }));
     const bytes = new TextEncoder().encode(changed.canonicalJson);
-    const digest = Result.getOrThrow(Encoding.decodeHex(changed.sha256));
+    const digest = Result.getOrThrow(Hex.decode(changed.sha256));
     let terminalPhase = false;
     let altered = false;
     const detach = driverRows.detachDriverRows;

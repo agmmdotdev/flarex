@@ -5,7 +5,7 @@ import { type CommerceResources } from "@flarex/persistence-postgres/internal/co
 import { Modules, CommonEvents } from "@medusajs/framework/utils/portable";
 import type { ProductRuntimeMetadata } from "../runtime-metadata";
 
-export const EventId = Schema.String.check(Schema.isLengthBetween(1, 256));
+export const EventId = Schema.String.check(Schema.isBetweenLength(1, 256));
 
 const messageSchema = (maximumIds: number) => Schema.Struct({
   name: Schema.String,

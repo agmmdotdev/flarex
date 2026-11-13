@@ -17,10 +17,7 @@ import {
   type CanonicalJsonEncodingInvariantIssue,
   type Json,
 } from "./json";
-import {
-  StrictParseOptions,
-  StrictStructOptions,
-} from "./strict-schema-options";
+import { StrictParseOptions } from "./strict-schema-options";
 import {
   LegacyObjectValidatorJsonWireCodecV1,
   DocumentValidatorJsonV1,
@@ -121,10 +118,10 @@ export const SchemaManifestAppDocumentDefinitionV1Schema = Schema.Struct({
   ),
   Schema.makeFilter(definition => isManifestDataValue(encodeLegacyValidatorJsonWireCoreV1(definition.documentType),
     0, new WeakSet(), "wire") ? undefined : "Expected the frozen PostgreSQL-safe V1 validator declaration"),
-).annotate(StrictStructOptions);
+);
 export type SchemaManifestAppDocumentDefinitionV1 =
   typeof SchemaManifestAppDocumentDefinitionV1Schema.Type;
-export const encodeSchemaManifestAppDocumentDefinitionV1 = Schema.encodeSync(SchemaManifestAppDocumentDefinitionV1Schema);
+export const encodeSchemaManifestAppDocumentDefinitionV1 = Schema.encodeSync(SchemaManifestAppDocumentDefinitionV1Schema, { onExcessProperty: "error" });
 
 const SourceDeclarationProfile = { maximumRawContainers: SOURCE_JSON_MAXIMUM_OPEN_CONTAINERS };
 const PersistableSourceDocumentValidator = DocumentValidatorJsonV1.check(Schema.makeFilter(value => {
@@ -134,14 +131,14 @@ const PersistableSourceDocumentValidator = DocumentValidatorJsonV1.check(Schema.
 
 /** Backend Source JSON text must be readable by the same Source owner before publication. */
 const SourceDocumentDeclarationCodec = Schema.String.pipe(Schema.decodeTo(PersistableSourceDocumentValidator, {
-  decode: SchemaGetter.transformOrFail((text, options) => {
+  decode: SchemaGetter.transformEffect((text, options) => {
     const parsed = decodeValidatorSourceTextResult(text);
     const normalized = parsed.ok ? normalizeSourceDocumentValidator(parsed.value) : parsed;
     return normalized.ok ? Effect.succeed(normalized.value) : Effect.fail(new SchemaIssue.InvalidValue({
       message: normalized.issue.message,
     }, text, options));
   }),
-  encode: SchemaGetter.transformOrFail((value, options) => {
+  encode: SchemaGetter.transformEffect((value, options) => {
     const serialized = serializeValidatorSourceResult(value, SourceDeclarationProfile);
     return serialized.ok ? Effect.succeed(serialized.value) : Effect.fail(new SchemaIssue.InvalidValue({
       message: serialized.issue.message,
@@ -154,28 +151,28 @@ export const SchemaManifestAppDocumentDefinitionV2Schema = Schema.Struct({
   kind: Schema.Literal("appDocument"), definitionVersion: Schema.Literal(2),
   documentType: SourceDocumentDeclarationCodec.check(Schema.makeFilter(value => validatorJsonHasNonfiniteLiteralV1(value)
     ? "Infinite or NaN values are not supported in literal validators." : undefined)),
-}).annotate(StrictStructOptions);
+});
 export type SchemaManifestAppDocumentDefinitionV2 = typeof SchemaManifestAppDocumentDefinitionV2Schema.Type;
 export const SchemaManifestAppDocumentDefinitionSchema = Schema.Union([
   SchemaManifestAppDocumentDefinitionV1Schema, SchemaManifestAppDocumentDefinitionV2Schema,
 ]);
 export type SchemaManifestAppDocumentDefinition = typeof SchemaManifestAppDocumentDefinitionSchema.Type;
-export const encodeSchemaManifestAppDocumentDefinition = Schema.encodeSync(SchemaManifestAppDocumentDefinitionSchema);
-export const encodeSchemaManifestAppDocumentDefinitionV2 = Schema.encodeSync(SchemaManifestAppDocumentDefinitionV2Schema);
+export const encodeSchemaManifestAppDocumentDefinition = Schema.encodeSync(SchemaManifestAppDocumentDefinitionSchema, { onExcessProperty: "error" });
+export const encodeSchemaManifestAppDocumentDefinitionV2 = Schema.encodeSync(SchemaManifestAppDocumentDefinitionV2Schema, { onExcessProperty: "error" });
 
 export const SchemaManifestAppTableDefinitionV1Schema = Schema.Struct({
   tableId: CatalogTableIdSchema,
   namespace: Schema.Literal("app"),
   logicalName: SchemaManifestAppTableNameSchema,
   definition: SchemaManifestAppDocumentDefinitionSchema,
-}).annotate(StrictStructOptions);
+});
 export type SchemaManifestAppTableDefinitionV1 =
   typeof SchemaManifestAppTableDefinitionV1Schema.Type;
 
 export const SchemaManifestAppTableDeclarationV1Schema = Schema.Struct({
   logicalName: SchemaManifestAppTableNameSchema,
   definition: SchemaManifestAppDocumentDefinitionSchema,
-}).annotate(StrictStructOptions);
+});
 export type SchemaManifestAppTableDeclarationV1 =
   typeof SchemaManifestAppTableDeclarationV1Schema.Type;
 export type SchemaManifestAppTableDeclarationInputV1 = {
@@ -275,7 +272,7 @@ export const SchemaManifestTableDefinitionsV1Schema = Schema.Struct({
   kind: Schema.Literal("tableDefinitions"),
   sectionVersion: Schema.Literal(1),
   tables: SchemaManifestAppTableDefinitionsV1Schema,
-}).annotate(StrictStructOptions);
+});
 export type SchemaManifestTableDefinitionsV1 =
   typeof SchemaManifestTableDefinitionsV1Schema.Type;
 
@@ -297,7 +294,7 @@ export function captureSchemaManifestTableDefinitionsV1Result(
   });
 }
 
-export const encodeSchemaManifestTableDefinitionsV1 = Schema.encodeSync(SchemaManifestTableDefinitionsV1Schema);
+export const encodeSchemaManifestTableDefinitionsV1 = Schema.encodeSync(SchemaManifestTableDefinitionsV1Schema, { onExcessProperty: "error" });
 
 export function decodeSchemaManifestTableDefinitionsV1(
   value: unknown,
@@ -378,7 +375,7 @@ export const SchemaManifestAppDeveloperOrderedIndexSpecV1Schema =
     specVersion: Schema.Literal(1),
     fields: SchemaManifestAppIndexDeclaredFieldsV1Schema,
     decimalFields: Schema.optionalKey(SchemaManifestAppIndexDeclaredFieldsV1Schema),
-  }).check(Schema.makeFilter(validateDecimalIndexFields)).annotate(StrictStructOptions);
+  }).check(Schema.makeFilter(validateDecimalIndexFields));
 export type SchemaManifestAppDeveloperOrderedIndexSpecV1 =
   typeof SchemaManifestAppDeveloperOrderedIndexSpecV1Schema.Type;
 export const decodeSchemaManifestAppDeveloperOrderedIndexSpecV1 =
@@ -392,7 +389,7 @@ export const SchemaManifestAppIndexDeclarationV1Schema = Schema.Struct({
   descriptor: SchemaManifestAppIndexDescriptorSchema,
   fields: SchemaManifestAppIndexDeclaredFieldsV1Schema,
   decimalFields: Schema.optionalKey(SchemaManifestAppIndexDeclaredFieldsV1Schema),
-}).check(Schema.makeFilter(validateDecimalIndexFields)).annotate(StrictStructOptions);
+}).check(Schema.makeFilter(validateDecimalIndexFields));
 
 function validateDecimalIndexFields(index: { readonly fields: readonly string[]; readonly decimalFields?: readonly string[] }): string | undefined {
   if (index.decimalFields === undefined) return undefined;
@@ -481,7 +478,7 @@ export const SchemaManifestAppIndexBindingV1Schema = Schema.Struct({
   namespace: Schema.Literal("app"),
   descriptor: SchemaManifestAppIndexDescriptorSchema,
   spec: SchemaManifestAppDeveloperOrderedIndexSpecV1Schema,
-}).annotate(StrictStructOptions);
+});
 export type SchemaManifestAppIndexBindingV1 =
   typeof SchemaManifestAppIndexBindingV1Schema.Type;
 
@@ -498,7 +495,7 @@ export const SchemaManifestIndexBindingsV1Schema = Schema.Struct({
   kind: Schema.Literal("indexBindings"),
   sectionVersion: Schema.Literal(1),
   indexes: SchemaManifestAppIndexBindingsV1Schema,
-}).annotate(StrictStructOptions);
+});
 export type SchemaManifestIndexBindingsV1 =
   typeof SchemaManifestIndexBindingsV1Schema.Type;
 
@@ -539,7 +536,7 @@ export const SchemaManifestAppSchemaV1Schema = Schema.Struct({
   Schema.makeFilter((manifest) =>
     validateSchemaManifestAppSchemaReferences(manifest)
   ),
-).annotate(StrictStructOptions);
+);
 export type SchemaManifestAppSchemaV1 =
   typeof SchemaManifestAppSchemaV1Schema.Type;
 
@@ -561,7 +558,7 @@ export function captureSchemaManifestAppSchemaV1Result(
   });
 }
 
-export const encodeSchemaManifestAppSchemaV1 = Schema.encodeSync(SchemaManifestAppSchemaV1Schema);
+export const encodeSchemaManifestAppSchemaV1 = Schema.encodeSync(SchemaManifestAppSchemaV1Schema, { onExcessProperty: "error" });
 
 export function decodeSchemaManifestAppSchemaV1(
   value: unknown,

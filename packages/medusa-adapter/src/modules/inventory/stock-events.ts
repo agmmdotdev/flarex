@@ -8,11 +8,11 @@ import { inventoryCreateEventPolicy } from "./events";
 
 export function inventoryStockEventPolicy() {
   const creation = inventoryCreateEventPolicy(true);
-  const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+  const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
   const decode = moduleEventDecoder(Schema.Struct({ name: Schema.String,
     metadata: Schema.Struct({ source: Schema.Literal(Modules.INVENTORY), object: Schema.Literals(["inventory_level", "reservation_item"]),
       action: Schema.Literals([CommonEvents.CREATED, CommonEvents.UPDATED, CommonEvents.DELETED]) }),
-    data: Schema.Struct({ id: Schema.Union([Id, Schema.Array(Id).check(Schema.isLengthBetween(1, 8))]) }),
+    data: Schema.Struct({ id: Schema.Union([Id, Schema.Array(Id).check(Schema.isBetweenLength(1, 8))]) }),
   }), defaultCommerceResources);
   const capture = Effect.fn("InventoryStockEvents.capture")(function* (value: unknown) {
     if (isNonArrayRecord(value) && isNonArrayRecord(value.metadata) && value.metadata.object === "inventory_item") return yield* creation.capture(value);

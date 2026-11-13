@@ -37,7 +37,7 @@ export async function allNullCatalogScenario(persistence: Pick<FlarexPersistence
   const table = manifest.tableDefinitions.tables[0], index = manifest.indexBindings.indexes[0];
   if (table === undefined || index === undefined) throw new Error("Missing genuine all-null catalog parents");
   const predicate = { kind: "fieldsAreNull", fields: ["deleted_at", "province"] };
-  const orderedSpec = Schema.decodeUnknownSync(AppOrderedIndexPhysicalSpecV1Schema)({
+  const orderedSpec = Schema.decodeUnknownSync(AppOrderedIndexPhysicalSpecV1Schema, { onExcessProperty: "error" })({
     kind: "appOrdered", specVersion: 1, accessPath: "developer", keyCodecVersion: 1,
     collation: "binaryUtf8", maxEncodedKeyBytes: 2048,
     orderedFields: [{ kind: "documentPath", path: "parent" }, { kind: "systemCreationTime" }],

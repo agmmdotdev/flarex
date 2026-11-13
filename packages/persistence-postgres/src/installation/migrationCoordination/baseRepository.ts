@@ -1,5 +1,6 @@
+import * as Hex from "effect/encoding/Hex";
 import { and, eq } from "drizzle-orm";
-import { Effect, Encoding, Option } from "effect";
+import { Effect, Option } from "effect";
 import { runDrizzleStatementEffect } from "../../database/drizzleStatementEffect";
 import type { FlarexMetadataTransaction } from "../../database/metadataTransaction";
 import { restoreStoredFrameworkSchemaReadinessReferenceBySha256InTransactionEffect } from "../frameworkSchema/installation/readinessRepository";
@@ -24,7 +25,7 @@ export const authenticateFrameworkMigrationBaseEffect = Effect.fn("FrameworkMigr
       physicalLocator: Object.freeze({ ...input.identity.physicalLocator }),
       targetNamespace: Object.freeze({ ...input.identity.targetNamespace }),
     }) });
-    const digest = yield* Effect.fromResult(Encoding.decodeHex(reference.readinessSha256)).pipe(
+    const digest = yield* Effect.fromResult(Hex.decode(reference.readinessSha256)).pipe(
       Effect.mapError(() => FrameworkMigrationRepositoryError.storedCorruption(operation)));
     // Check the one-hop boundary before recursively restoring any base graph.
     const roots = yield* runDrizzleStatementEffect(transaction.select({
@@ -74,7 +75,7 @@ export const insertFrameworkMigrationBaseEffect = Effect.fn("FrameworkMigrationB
     if (frame.version === 1) return;
     const base = yield* authenticateFrameworkMigrationBaseEffect(transaction, collision, frame.baseInstallation, operation);
     const installation = base.installation;
-    const decode = (value: string) => Effect.fromResult(Encoding.decodeHex(value)).pipe(
+    const decode = (value: string) => Effect.fromResult(Hex.decode(value)).pipe(
       Effect.mapError(() => FrameworkMigrationRepositoryError.storedCorruption(operation)));
     yield* runDrizzleStatementEffect(transaction.insert(fxSystemFrameworkMigrationPlanBases).values({
       planStorageId, collisionStorageId: collision.storageId,
@@ -100,10 +101,10 @@ export const restoreFrameworkMigrationBaseEffect = Effect.fn("FrameworkMigration
     }
     const row = rows[0];
     if (rows.length !== 1 || row === undefined || row.collisionStorageId !== collision.storageId ||
-      Encoding.encodeHex(row.installationSha256) !== frame.baseInstallation.identity.installationSha256 ||
-      Encoding.encodeHex(row.installationReceiptSha256) !== frame.baseInstallation.installationReceiptSha256 ||
-      Encoding.encodeHex(row.readinessSha256) !== frame.baseInstallation.readinessSha256 ||
-      Encoding.encodeHex(row.physicalLayoutSha256) !== frame.baseInstallation.physicalLayoutSha256) {
+      Hex.encode(row.installationSha256) !== frame.baseInstallation.identity.installationSha256 ||
+      Hex.encode(row.installationReceiptSha256) !== frame.baseInstallation.installationReceiptSha256 ||
+      Hex.encode(row.readinessSha256) !== frame.baseInstallation.readinessSha256 ||
+      Hex.encode(row.physicalLayoutSha256) !== frame.baseInstallation.physicalLayoutSha256) {
       return yield* Effect.fail(FrameworkMigrationRepositoryError.storedCorruption(operation));
     }
     const base = yield* authenticateFrameworkMigrationBaseEffect(transaction, collision, frame.baseInstallation, operation);

@@ -7,7 +7,7 @@ import { defineComposedWorkflowResource } from "../workflow/composed-resource";
 import type { WorkflowModule } from "../workflow/module";
 import { captureProductLinkCascade, nativePricingCascadeModule } from "./product-cascade";
 
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 const ProductIds = Schema.Array(Id).pipe(Schema.mutable).check(Schema.isMaxLength(4));
 const decodeDelete = commerceDecoder(Schema.Tuple([Schema.Union([
   Schema.Struct({ product: Schema.Struct({ product_id: Schema.optionalKey(ProductIds), variant_id: Schema.optionalKey(ProductIds) }) }),

@@ -18,7 +18,7 @@ import type { CommerceReferenceReplacement, CommerceSetNullSelection } from "./c
 
 const nativeResult = <A>(work: Effect.Effect<A, CoreError>) => work.pipe(
   Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectCoreCommerceFailure))));
-const decodeSetNull = Schema.decodeUnknownEffect(CoreNativeSetNullIntentSchema);
+const decodeSetNull = Schema.decodeUnknownEffect(CoreNativeSetNullIntentSchema, { onExcessProperty: "error" });
 
 export interface NativeCommerceReadObservation {
   readonly table: string;

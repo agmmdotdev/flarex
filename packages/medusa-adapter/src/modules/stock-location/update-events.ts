@@ -21,11 +21,11 @@ const orderRows = (rows: readonly JsonObject[], where: unknown) => preservePrima
 /** Bind every native return/event to actual scalar writes or observed no-op
  * rows. Address upsert may create standalone rows: no Location owner is assumed. */
 export function stockLocationUpdateEventPolicy(contracts: Contracts, validateRead: LogicalCallReceiptValidation) {
-  const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+  const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
   const decode = moduleEventDecoder(Schema.Struct({ name: Schema.String,
     metadata: Schema.Struct({ source: Schema.Literal(Modules.STOCK_LOCATION),
       object: Schema.Literals(["stock_location", "stock_location_address"]), action: Schema.Literals(["created", "updated"]) }),
-    data: Schema.Struct({ id: Schema.Union([Id, Schema.Array(Id).check(Schema.isLengthBetween(1, 4))]) }),
+    data: Schema.Struct({ id: Schema.Union([Id, Schema.Array(Id).check(Schema.isBetweenLength(1, 4))]) }),
   }), defaultCommerceResources);
   const capture = Effect.fn("StockLocationEvents.captureUpdate")(function* (input: unknown) {
     const event = yield* decode(input);

@@ -1,6 +1,7 @@
+import * as Hex from "effect/encoding/Hex";
 import { observeExecution } from "../../../execution/diagnostics/operation";
 import { and, asc, eq, gt, getTableColumns, sql, type SQLWrapper } from "drizzle-orm";
-import { Effect, Encoding, Option, Result } from "effect";
+import { Effect, Option, Result } from "effect";
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import type { JsonObject } from "flarex-protocol/json";
 import type { FlarexMetadataTransaction } from "../../../database/metadataTransaction";
@@ -931,7 +932,7 @@ export const writeBindingActivation = Effect.fn(
 
 const hexBytes = Effect.fn("DataBindingRepository.decodeDigest")(
   (value: string) =>
-    Effect.fromResult(Encoding.decodeHex(value)).pipe(
+    Effect.fromResult(Hex.decode(value)).pipe(
       Effect.mapError((cause) => bindingError("storedCorruption", cause)),
     ),
 );

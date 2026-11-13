@@ -12,10 +12,7 @@ import {
   type AppOrderedIndexPhysicalFieldV1,
   type AppOrderedIndexPhysicalSpecV1,
 } from "./ordered-index";
-import {
-  StrictParseOptions,
-  StrictStructOptions,
-} from "./strict-schema-options";
+import { StrictParseOptions } from "./strict-schema-options";
 
 /**
  * A valid v1 spec can contain fifteen 8,319-byte nested field paths. This
@@ -84,7 +81,7 @@ export const AppDeveloperPhysicalIndexAccessIdentityV1Schema = Schema.Struct({
   kind: Schema.Literal("developer"),
   tableId: CatalogTableIdSchema,
   logicalIndexId: CatalogIndexIdSchema,
-}).annotate(StrictStructOptions);
+});
 export type AppDeveloperPhysicalIndexAccessIdentityV1 =
   typeof AppDeveloperPhysicalIndexAccessIdentityV1Schema.Type;
 
@@ -92,7 +89,7 @@ export const AppCreationTimePhysicalIndexAccessIdentityV1Schema =
   Schema.Struct({
     kind: Schema.Literal("by_creation_time"),
     tableId: CatalogTableIdSchema,
-  }).annotate(StrictStructOptions);
+  });
 export type AppCreationTimePhysicalIndexAccessIdentityV1 =
   typeof AppCreationTimePhysicalIndexAccessIdentityV1Schema.Type;
 

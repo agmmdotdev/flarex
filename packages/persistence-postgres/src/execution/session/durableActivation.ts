@@ -278,7 +278,7 @@ async function createSession(
       scopeId: input.prepared.scopeId,
       epoch: clock.record.epoch,
       commitSeq: clock.record.lastCommitSeq,
-    }),
+    }, { parseOptions: { onExcessProperty: "error" } }),
     hardExpiresAt: hardExpiresAt.toISOString(),
     leaseExpiresAt: leaseExpiresAt.toISOString(),
     createdAt: databaseNow.toISOString(),

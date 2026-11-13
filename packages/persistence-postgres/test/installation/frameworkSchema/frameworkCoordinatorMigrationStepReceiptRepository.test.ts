@@ -1,3 +1,4 @@
+import * as Hex from "effect/encoding/Hex";
 import {
   rejectingSelectTransaction,
   useFileScopedFrameworkCoordinatorGraphPersistence,
@@ -6,7 +7,7 @@ import { compareUtf16Strings } from "@flarex/utils/strings";
 import { administrativelyRepairFrameworkMetadata, withAdministrativeFrameworkMetadataRepair } from "./frameworkMetadataRepairTestSupport";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { and, asc, eq } from "drizzle-orm";
-import { Effect, Encoding, Option, Result } from "effect";
+import { Effect, Option, Result } from "effect";
 import { describe, expect, it } from "vitest";
 
 
@@ -84,7 +85,7 @@ describe("framework coordinator migration-step receipt repository", { concurrent
       const read = (id: bigint | null, digest: string | null) =>
         restoreFrameworkMigrationStepReceiptPrefixForAttemptTerminalInTransactionEffect(
           transaction, stored.attempt, id,
-          digest === null ? null : Result.getOrThrow(Encoding.decodeHex(digest)), "readStepReceipt");
+          digest === null ? null : Result.getOrThrow(Hex.decode(digest)), "readStepReceipt");
       await runEffect(withFrameworkGraphReadPass(Effect.gen(function* () {
         const first = yield* read(tail.storageId, tail.receipt.sha256);
         expect(yield* read(tail.storageId, tail.receipt.sha256)).toBe(first);
@@ -1043,13 +1044,13 @@ async function storedReceiptRoots(
     attemptId: row.attemptId,
     attemptFence: row.attemptFence,
     stepId: row.stepId,
-    stepSha256: Encoding.encodeHex(row.stepSha256),
-    preconditionSha256: Encoding.encodeHex(row.preconditionSha256),
-    postconditionSha256: Encoding.encodeHex(row.postconditionSha256),
+    stepSha256: Hex.encode(row.stepSha256),
+    preconditionSha256: Hex.encode(row.preconditionSha256),
+    postconditionSha256: Hex.encode(row.postconditionSha256),
     observedPostconditionSha256:
-      Encoding.encodeHex(row.observedPostconditionSha256),
+      Hex.encode(row.observedPostconditionSha256),
     dependencyCount: row.dependencyCount,
-    stepReceiptSha256: Encoding.encodeHex(row.stepReceiptSha256),
+    stepReceiptSha256: Hex.encode(row.stepReceiptSha256),
     frameFormat: row.frameFormat,
     frameVersion: row.frameVersion,
     canonicalByteLength: row.canonicalByteLength,
@@ -1099,7 +1100,7 @@ async function storedReceiptDependencies(
     dependencyReceiptStorageId: row.dependencyReceiptStorageId,
     dependencyStepId: row.dependencyStepId,
     dependencyStepReceiptSha256:
-      Encoding.encodeHex(row.dependencyStepReceiptSha256),
+      Hex.encode(row.dependencyStepReceiptSha256),
   }));
 }
 

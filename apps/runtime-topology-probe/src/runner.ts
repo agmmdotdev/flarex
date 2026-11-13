@@ -57,7 +57,6 @@ import {
   type ProbeRunStatusV1,
 } from "./runProtocol";
 import { decodeProbeControlledGatewaySampleV1OrNull } from "./runtimeProtocol";
-import { StrictStructOptions } from "./strictSchemaOptions";
 
 export const PROBE_DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 export const PROBE_MAX_REQUEST_TIMEOUT_MS = 300_000;
@@ -67,7 +66,7 @@ const ProbeRunnerCheckpointV1Shape = Schema.Struct({
   version: Schema.Literal(1),
   campaignId: ProbeCampaignIdSchema,
   externalCompletions: Schema.Array(ProbeExternalCompletionRequestV1Schema),
-}).annotate(StrictStructOptions);
+});
 export const ProbeRunnerCheckpointV1Schema = ProbeRunnerCheckpointV1Shape.check(
   Schema.makeFilter(checkpoint => {
     if (
@@ -659,7 +658,7 @@ async function executeOneSample(
     runId: run.runId,
     sampleOrdinal,
     externalDurationMs: ProbeDurationMsSchema.make(externalDurationMs),
-  });
+  }, { parseOptions: { onExcessProperty: "error" } });
   await recordCheckpointCompletion(
     options.checkpoint,
     options.manifest.campaignId,
@@ -1010,7 +1009,7 @@ class ProbeRunnerClient {
           runId: run.runId,
           cursor,
           limit: 100,
-        });
+        }, { parseOptions: { onExcessProperty: "error" } });
         const response = await this.post(
           PROBE_EVIDENCE_PAGE_ROUTE,
           request,
@@ -1368,7 +1367,7 @@ export function mergeProbeRunnerCheckpointCompletionV1(
       ...current.externalCompletions,
       completion,
     ].sort(compareExternalCompletions),
-  });
+  }, { parseOptions: { onExcessProperty: "error" } });
 }
 
 function compareExternalCompletions(

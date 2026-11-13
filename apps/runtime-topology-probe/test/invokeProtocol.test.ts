@@ -117,13 +117,13 @@ describe("P05 full-invoke protocol", () => {
       ProbeInvokeFacetRequestV1Schema.make({
         ...request,
         payload: "xxxxx",
-      }),
+      }, { parseOptions: { onExcessProperty: "error" } }),
     );
     const changedEntries = await probeInvokeJournalSealDigest(
       ProbeInvokeFacetRequestV1Schema.make({
         ...request,
         journalEntries: 3,
-      }),
+      }, { parseOptions: { onExcessProperty: "error" } }),
     );
 
     expect(first).toMatch(/^[0-9a-f]{64}$/);
@@ -301,7 +301,7 @@ describe("P05 full-invoke protocol", () => {
     const snapshot = ProbeMockReadResponseV1Schema.make({
       ...readRequest,
       syntheticRevision: ProbeSyntheticCursorSchema.make(0),
-    });
+    }, { parseOptions: { onExcessProperty: "error" } });
     expect(decodeProbeInvokeFacetExecutionRequestV1OrNull({
       ...request,
       prefetchedRead: snapshot,
@@ -512,5 +512,5 @@ function invokeRequest(
     }),
     journalEntries: 2,
     payload: "xxxx",
-  });
+  }, { parseOptions: { onExcessProperty: "error" } });
 }

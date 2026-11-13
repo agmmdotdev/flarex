@@ -9,7 +9,7 @@ import { internalModuleWorkflowEvents } from "../../workflow/events";
 import { variantItemPricingParticipantLimit, variantItemPricingResources } from "../../workflow/policy";
 import { prepareVariantItemPricingModules } from "./variant-item-pricing-graph";
 
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 const Numeric = Schema.Union([Schema.String, Schema.Number.check(Schema.isFinite())]);
 /** These are supplied native values, not Cart/Customer/Region read authority.
  * The finite JSON rest retains native partial DTO and caller context fields.

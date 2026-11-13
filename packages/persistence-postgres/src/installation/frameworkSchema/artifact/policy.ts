@@ -1,10 +1,11 @@
+import * as Hex from "effect/encoding/Hex";
 import { compareBytesLexicographically, copyBytes } from "@flarex/utils/bytes";
 import { isPositiveSafeInteger } from "@flarex/utils/numbers";
 import {
   compareUtf16Strings,
   isNonBlankString,
 } from "@flarex/utils/strings";
-import { Brand, Encoding, Result } from "effect";
+import { Brand, Result } from "effect";
 import { isJsonObject, type Json, type JsonObject } from "flarex-protocol/json";
 
 import {
@@ -213,7 +214,7 @@ export function decodeFrameworkSchemaArtifactIdentityResult(
       Result.map(brandLineageId),
     );
     const artifactSha256 = yield* decodeArtifactSha256(fields.at(3));
-    const artifactSha256Bytes = yield* Encoding.decodeHex(
+    const artifactSha256Bytes = yield* Hex.decode(
       artifactSha256,
     ).pipe(Result.mapError(() => FrameworkSchemaArtifactError.invalidInput()));
     const stableArtifactSha256Bytes = copyBytes(artifactSha256Bytes);
@@ -251,7 +252,7 @@ export function decodeFrameworkSchemaArtifactListInputResult(
       : yield* decodeArtifactSha256(cursorInput);
     const decodedCursorBytes = afterArtifactSha256 === null
       ? null
-      : yield* Encoding.decodeHex(afterArtifactSha256).pipe(
+      : yield* Hex.decode(afterArtifactSha256).pipe(
         Result.mapError(() => FrameworkSchemaArtifactError.invalidInput()),
       );
     const stableCursorBytes = decodedCursorBytes === null

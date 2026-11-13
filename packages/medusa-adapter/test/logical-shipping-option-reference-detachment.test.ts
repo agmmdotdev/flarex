@@ -36,7 +36,7 @@ function retainedIdsTap(prefix: "serzo_" | "fuset_") {
   const getter = Object.getOwnPropertyDescriptor(StepResponse.prototype, "compensateInput")?.get;
   if (getter === undefined) throw new Error("Missing native retained ID getter");
   const values: unknown[] = [];
-  const schema = Schema.Array(Schema.String.check(Schema.isStartsWith(prefix))).check(Schema.isMinLength(1));
+  const schema = Schema.Array(Schema.String.check(Schema.isStartingWith(prefix))).check(Schema.isMinLength(1));
   const spy = vi.spyOn(StepResponse.prototype, "compensateInput", "get").mockImplementation(function (this: StepResponse<unknown, unknown>) {
     const value: unknown = Reflect.apply(getter, this, []); if (Schema.is(schema)(value)) values.push(value); return value;
   });

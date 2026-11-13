@@ -14,7 +14,7 @@ type Contracts = Result.Result.Success<ReturnType<typeof compileTaxRateDeletionC
 const decodeEvent = moduleEventDecoder(Schema.Struct({ name: Schema.String,
   metadata: Schema.Struct({ source: Schema.Literal(Modules.TAX), object: Schema.Literals(["tax_rate", "tax_rate_rule"]),
     action: Schema.Literals(["deleted", "updated"]) }),
-  data: Schema.Struct({ id: Schema.Union([TaxId, Schema.Array(TaxId).check(Schema.isLengthBetween(1, 8))]) }),
+  data: Schema.Struct({ id: Schema.Union([TaxId, Schema.Array(TaxId).check(Schema.isBetweenLength(1, 8))]) }),
 }), defaultCommerceResources);
 
 /** Authenticate the distinct active-forward and historical-inverse selections,

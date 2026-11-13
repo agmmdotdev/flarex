@@ -629,7 +629,7 @@ function captureLoadedAttemptInspection(
             scopeId: anchor.snapshotToken.scopeId,
             epoch: anchor.snapshotToken.epoch,
             commitSeq: anchor.snapshotToken.commitSeq,
-          }),
+          }, { parseOptions: { onExcessProperty: "error" } }),
         ),
         schemaVersionId: decodeCatalogSchemaVersionId(
           result.executionPin.schemaVersionId,

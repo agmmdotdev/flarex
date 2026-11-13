@@ -22,7 +22,7 @@ import { decodeUpdatePriceListPrices, type PriceListPriceUpdateContracts, type U
 type Call = Parameters<LogicalCallReceiptValidation>[0];
 type Activity = Parameters<LogicalCallReceiptValidation>[1];
 type Row = JsonObject & Readonly<{ id: string }>;
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 const decodeIds = commerceDecoder(Schema.Array(Schema.Struct({ id: Id })).check(Schema.isMaxLength(defaultCommerceResources.queryRows)), "receiptMismatch");
 const decodeEvent = moduleEventDecoder(Schema.Struct({ name: Schema.String,
   metadata: Schema.Struct({ source: Schema.Literal(Modules.PRICING), object: Schema.Literals(["price", "price_rule"]),

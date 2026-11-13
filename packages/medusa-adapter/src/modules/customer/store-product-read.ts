@@ -28,7 +28,7 @@ import { defineCustomerPersistenceModule } from "./module";
 import { captureCustomerMetadata } from "./schema";
 
 const MembershipFilter = Schema.Struct({ customers: Schema.Struct({ id: ScalarId }) });
-const Fields = Schema.Array(Schema.Literal("id")).check(Schema.isLengthBetween(1, 1));
+const Fields = Schema.Array(Schema.Literal("id")).check(Schema.isBetweenLength(1, 1));
 const ReadConfig = Schema.Struct({ select: Fields,
   relations: Schema.optionalKey(Schema.Array(Schema.Never)), take: Schema.optionalKey(QueryLimit),
   skip: Schema.optionalKey(Schema.Literal(0)), order: Schema.optionalKey(Schema.Struct({ id: Schema.Literal("ASC") })) });

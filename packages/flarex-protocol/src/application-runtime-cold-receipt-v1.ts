@@ -2,7 +2,7 @@ import { isCanonicalCalendarDate } from "@flarex/time/calendar-date";
 import { Data, Result, Schema } from "effect";
 
 import { encodeCanonicalJson, type JsonObject } from "./json";
-import { StrictParseOptions, StrictStructOptions } from "./strict-schema-options";
+import { StrictParseOptions } from "./strict-schema-options";
 
 export const APPLICATION_RUNTIME_COLD_RECEIPT_FORMAT_V1 =
   "flarex.application-runtime-cold-receipt" as const;
@@ -52,7 +52,7 @@ const ApplicationRuntimeColdReceiptV1StructuralSchema = Schema.Struct({
     Schema.Literal("public"),
     Schema.Literal("internal"),
   ]),
-}).annotate(StrictStructOptions);
+});
 
 export type ApplicationRuntimeColdReceiptV1 =
   typeof ApplicationRuntimeColdReceiptV1StructuralSchema.Type;

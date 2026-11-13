@@ -6,22 +6,20 @@ import { CoreNativeIdentitySchema } from "../../src/core/nativePolicyTypes";
 import { CORE_PHYSICAL_TABLES } from "../../src/database/corePersistence/layout.generated";
 import type { CoreSqlParameter } from "../../src/database/corePersistence/driver";
 import type { CorePersistenceFixture } from "./fixture";
-
-const strict = { parseOptions: { onExcessProperty: "error" } } as const;
 const Hex = Schema.String.check(Schema.isPattern(/^(?:[0-9a-f]{2})*$/));
 const Integer = Schema.String.check(Schema.isPattern(/^(0|-?[1-9][0-9]*)$/));
 const Scalar = Schema.Union([Schema.String, Schema.Finite, Schema.Boolean, Schema.Null,
-  Schema.Struct({ $bytes: Hex }).annotate(strict), Schema.Struct({ $bigint: Integer }).annotate(strict)]);
+  Schema.Struct({ $bytes: Hex }), Schema.Struct({ $bigint: Integer })]);
 const Rows = Schema.Array(Schema.Record(Schema.String, Scalar));
 const CapturedStore = Schema.Struct({
   sourceCommit: Schema.Literal("8cc4e383b007b983153f0da7f60a27b59a832970"),
   instance: Schema.NonEmptyString, nativeIdentity: CoreNativeIdentitySchema,
   command: Schema.Literal("native10FrozenCreate"), requestKey: TransactionRequestKeyV1Schema,
   input: Schema.Literal("native10-frozen-title"), result: Json,
-  storage: Schema.Struct({ documents: Rows, indexes: Rows, leases: Rows, read_only: Rows, persistence_globals: Rows }).annotate(strict),
-}).annotate(strict);
+  storage: Schema.Struct({ documents: Rows, indexes: Rows, leases: Rows, read_only: Rows, persistence_globals: Rows }),
+});
 export type CapturedNativePayloadStore = typeof CapturedStore.Type;
-const decodeCapturedStore = Schema.decodeUnknownSync(CapturedStore);
+const decodeCapturedStore = Schema.decodeUnknownSync(CapturedStore, { onExcessProperty: "error" });
 
 /** Actual five-table rows captured from the unmodified Native10 commit. */
 export async function readNative10CapturedStore(): Promise<CapturedNativePayloadStore> {

@@ -117,7 +117,7 @@ const OwnedApplicationManifestV2Schema = Schema.declare<ApplicationManifestV2>(
 
 export const ApplicationManifestV2Schema = Schema.Unknown.pipe(
   Schema.decodeTo(OwnedApplicationManifestV2Schema, {
-    decode: SchemaGetter.transformOrFail<ApplicationManifestV2, unknown>(
+    decode: SchemaGetter.transformEffect<ApplicationManifestV2, unknown>(
       (value, options) => Result.match(decodeApplicationManifestV2(value), {
         onFailure: (failure) => Effect.fail(new SchemaIssue.InvalidValue(
           { message: `Invalid Application Manifest V2: ${failure.reason}` },

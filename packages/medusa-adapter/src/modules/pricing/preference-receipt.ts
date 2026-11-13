@@ -16,12 +16,12 @@ import { decodePricePreferenceCreate } from "./input";
 
 type Contracts = Result.Result.Success<ReturnType<typeof compilePricePreferenceContracts>>;
 type Row = Result.Result.Success<ReturnType<Contracts["decodeRow"]>>;
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 const decodeSelectedIdentities = commerceDecoder(Schema.Array(Schema.Struct({ id: Id })).check(Schema.isMaxLength(4)), "receiptMismatch");
 const decodeEvent = moduleEventDecoder(Schema.Struct({ name: Schema.String,
   metadata: Schema.Struct({ source: Schema.Literal(Modules.PRICING), object: Schema.Literal("price_preference"),
     action: Schema.Literals(["created", "updated", "deleted"]) }),
-  data: Schema.Struct({ id: Schema.Union([Id, Schema.Array(Id).check(Schema.isLengthBetween(1, 4))]) }),
+  data: Schema.Struct({ id: Schema.Union([Id, Schema.Array(Id).check(Schema.isBetweenLength(1, 4))]) }),
 }), defaultCommerceResources);
 
 /** This named profile authenticates complete native preference rows, public

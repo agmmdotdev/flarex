@@ -45,7 +45,7 @@ it("preserves the parent's Clock and current span inside the transaction callbac
     const result = await Effect.runPromise(driver.transaction(() => Effect.gen(function* () {
       const time = yield* Clock.currentTimeMillis;
       const span = yield* Effect.withFiber(fiber => Effect.succeed(
-        fiber.currentSpan?._tag === "Span" ? fiber.currentSpan.name : undefined,
+        fiber.cache.span?._tag === "Span" ? fiber.cache.span.name : undefined,
       ));
       return { time, span };
     })).pipe(Effect.withSpan("transaction-parent"), Effect.provideService(Clock.Clock, clock)));

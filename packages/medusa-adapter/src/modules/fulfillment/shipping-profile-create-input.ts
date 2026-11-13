@@ -5,7 +5,7 @@ import { compileShippingProfileCreationOutput } from "./shipping-profile-create-
 import { compileShippingProfileDeletionContracts } from "./shipping-profile-delete-input";
 import type { captureShippingProfileDeletionMetadata } from "./shipping-profile-schema";
 
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 export const ShippingProfileCreate = Schema.Struct({ id: Schema.optionalKey(Id), name: Schema.String,
   type: Schema.String, metadata: Schema.optionalKey(Schema.NullOr(Schema.JsonObject)) });
 export const ShippingProfileCreates = Schema.Array(ShippingProfileCreate).pipe(Schema.mutable).check(Schema.isMaxLength(4));

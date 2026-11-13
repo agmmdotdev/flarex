@@ -25,7 +25,7 @@ import { productImageVariantReadProfile } from "./image-variant-profile";
 export type ProductRepositoryProfile = "public" | "collectionMembership" | "categoryProjection" | "internalProduct" | "deletion" | "typeWorkflow" | "collectionWorkflow" | "categoryWorkflow" | "optionWorkflow" | "imageVariantWorkflow" | "variantImageWorkflow";
 const decodeCollectionReplacement = commerceDecoder(Schema.Array(Schema.Struct({
   id: ProductRelationshipId, productIds: ProductRelationshipIds,
-})).check(Schema.isLengthBetween(1, 1)), "invalidInput");
+})).check(Schema.isBetweenLength(1, 1)), "invalidInput");
 
 /** Request-owned DAL composition; all framework transaction methods borrow core. */
 export function productRepository(root: CommerceCommandContext, owner: CommercePromiseOwner, metadata: ProductRuntimeMetadata, profile: ProductRepositoryProfile = "public") {

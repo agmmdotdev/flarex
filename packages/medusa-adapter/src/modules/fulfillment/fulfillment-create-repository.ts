@@ -27,8 +27,8 @@ import { prepareFulfillmentReturnQuery } from "./fulfillment-return-query";
 
 type Metadata = Effect.Success<ReturnType<typeof captureFulfillmentCreationMetadata>>["frame"];
 const decodePairs = commerceDecoder(Schema.Array(Schema.Struct({ entity: Schema.JsonObject, update: Schema.JsonObject }))
-  .check(Schema.isLengthBetween(1, 1)), "unsupportedProfile");
-const decodeDelete = commerceDecoder(Schema.Struct({ $or: Schema.Array(Schema.Struct({ id: FulfillmentCreationId })).check(Schema.isLengthBetween(1, 1)) }), "unsupportedProfile");
+  .check(Schema.isBetweenLength(1, 1)), "unsupportedProfile");
+const decodeDelete = commerceDecoder(Schema.Struct({ $or: Schema.Array(Schema.Struct({ id: FulfillmentCreationId })).check(Schema.isBetweenLength(1, 1)) }), "unsupportedProfile");
 const decodeId = commerceDecoder(FulfillmentCreationId, "storedCorruption");
 const decodeAddress = commerceDecoder(FulfillmentCreationAddress, "invalidInput"), decodeItem = commerceDecoder(FulfillmentCreationItem, "invalidInput"),
   decodeLabel = commerceDecoder(FulfillmentCreationLabel, "invalidInput");

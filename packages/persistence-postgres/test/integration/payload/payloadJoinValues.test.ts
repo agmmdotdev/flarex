@@ -28,7 +28,7 @@ import { payloadRelatedPostField } from "../../../../payload-adapter/src/contrac
 const posts = makePayloadCollectionRuntime(payloadJoinConfiguration.tables[0]!);
 
 it("keeps virtual metadata exact and old profiles unchanged", async () => {
-  const decode = Schema.decodeUnknownResult(PayloadConfigurationSchema);
+  const decode = Schema.decodeUnknownResult(PayloadConfigurationSchema, { onExcessProperty: "error" });
   for (const configuration of [payloadScalarConfiguration, payloadRelationConfiguration, payloadManyConfiguration, payloadJoinConfiguration]) {
     expect(Result.getOrThrow(decode(configuration))).toEqual(configuration);
   }

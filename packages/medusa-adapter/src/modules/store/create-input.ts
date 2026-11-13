@@ -5,7 +5,7 @@ import { commerceDecoder } from "../../value/decoder";
 import { compileStoreDeletionContracts } from "./delete-input";
 import type { captureStoreMetadata } from "./schema";
 
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 /** Business strings remain native strings, including empty values. Native
  * normalization and validation own duplicate/default and case behavior. */
 export const StoreCurrencyCreate = Schema.Struct({ currency_code: Schema.String, is_default: Schema.optionalKey(Schema.Boolean) });
@@ -32,9 +32,9 @@ const decodeReplacement = commerceDecoder(Schema.Struct({ input: StoreCreates, c
 // An empty Struct accepts arbitrary properties in the installed Effect API.
 const EmptyActions = Schema.Record(Schema.String, Schema.Never);
 const decodeActions = commerceDecoder(Schema.Struct({
-  created: Schema.Struct({ Store: Schema.optionalKey(Schema.Array(Schema.Struct({ id: Id })).check(Schema.isLengthBetween(1, 4))),
-    StoreCurrency: Schema.optionalKey(Schema.Array(Schema.Struct({ id: Id })).check(Schema.isLengthBetween(1, 8))),
-    StoreLocale: Schema.optionalKey(Schema.Array(Schema.Struct({ id: Id })).check(Schema.isLengthBetween(1, 8))) }),
+  created: Schema.Struct({ Store: Schema.optionalKey(Schema.Array(Schema.Struct({ id: Id })).check(Schema.isBetweenLength(1, 4))),
+    StoreCurrency: Schema.optionalKey(Schema.Array(Schema.Struct({ id: Id })).check(Schema.isBetweenLength(1, 8))),
+    StoreLocale: Schema.optionalKey(Schema.Array(Schema.Struct({ id: Id })).check(Schema.isBetweenLength(1, 8))) }),
   updated: EmptyActions, deleted: EmptyActions,
 }), "storedCorruption");
 type Metadata = Effect.Success<ReturnType<typeof captureStoreMetadata>>["frame"];

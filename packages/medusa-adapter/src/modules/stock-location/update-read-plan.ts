@@ -9,7 +9,7 @@ import { QueryEnvelope, QueryLimit, QueryOffset } from "../../query/decoder";
 import type { ReadPlan } from "../../query/read";
 import type { CommerceRelations } from "../../query/relations";
 
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 const strings = commerceDecoder(Schema.Union([Schema.String, Schema.Array(Schema.String).check(Schema.isMaxLength(4))]), "unsupportedProfile");
 const decodeWhere = commerceDecoder(Schema.JsonObject, "unsupportedProfile");
 const decodeEnvelope = commerceDecoder(QueryEnvelope, "unsupportedProfile");

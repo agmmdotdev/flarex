@@ -12,16 +12,14 @@ export class LogicalSchemaAdmissionEvidenceError extends Data.TaggedError("Logic
 
 export const MAX_LOGICAL_SCHEMA_HISTORY_RECORDS = 64;
 export const MAX_LOGICAL_SCHEMA_HISTORY_BYTES = 16_777_216;
-
-const strict = { parseOptions: { onExcessProperty: "error" } } as const;
-const Binding = Schema.Struct({ table: QualifiedLogicalTableSchema, tableId: CatalogTableIdSchema }).annotate(strict);
+const Binding = Schema.Struct({ table: QualifiedLogicalTableSchema, tableId: CatalogTableIdSchema });
 const Admission = Schema.Struct({
   kind: Schema.Literal("logicalSchemaAdmission"), definitionVersion: Schema.Literal(1),
   candidate: SchemaManifestJsonSchema,
   tableBindings: Schema.Array(Binding).check(Schema.isMaxLength(256)),
-}).annotate(strict);
+});
 export type LogicalSchemaAdmissionBinding = typeof Binding.Type;
-const decodeAdmission = Schema.decodeUnknownEffect(Admission);
+const decodeAdmission = Schema.decodeUnknownEffect(Admission, { onExcessProperty: "error" });
 
 /** Discrimination only. Callers must verify evidence before skipping a candidate. */
 export function isLogicalSchemaAdmissionManifest(value: Json): boolean {

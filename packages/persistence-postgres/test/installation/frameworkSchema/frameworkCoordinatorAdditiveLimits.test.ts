@@ -1,4 +1,5 @@
-import { Brand, Effect, Encoding, Option, Result } from "effect";
+import * as Hex from "effect/encoding/Hex";
+import { Brand, Effect, Option, Result } from "effect";
 import { describe, expect, it } from "vitest";
 import { createAdditiveFixture, useFileScopedFrameworkCoordinatorAdditivePersistence } from "./frameworkCoordinatorAdditiveTestSupport";
 import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
@@ -18,7 +19,7 @@ import { changeBaseAvailability } from "./frameworkCoordinatorAdditiveAvailabili
 import { waitForFrameworkLeaseExpiry } from "./frameworkCoordinatorLeaseTestSupport";
 
 const int64 = Brand.nominal<CanonicalNonNegativeInt64>();
-const bytes = (value: string) => Result.getOrThrow(Encoding.decodeHex(value));
+const bytes = (value: string) => Result.getOrThrow(Hex.decode(value));
 
 describe("additive cold graph limits", { concurrent: false }, () => {
   const withPersistence = useFileScopedFrameworkCoordinatorAdditivePersistence();

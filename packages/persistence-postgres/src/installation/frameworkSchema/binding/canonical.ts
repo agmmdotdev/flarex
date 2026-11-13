@@ -1,3 +1,4 @@
+import { strictSchemaGuard } from "flarex-protocol/internal/strict-schema";
 import { observeExecution } from "../../../execution/diagnostics/operation";
 import { Effect, Result, Schema } from "effect";
 import {
@@ -54,9 +55,9 @@ function invalidCanonical(): never {
 }
 const isScopeEpoch = Schema.is(ScopeEpochSchema);
 const isScopeId = Schema.is(ScopeIdSchema);
-const isLogicalSchemaBinding = Schema.is(LogicalSchemaBindingSchema);
+const isLogicalSchemaBinding = strictSchemaGuard(LogicalSchemaBindingSchema);
 const isCatalogTableId = Schema.is(CatalogTableIdSchema);
-const isStrongReferenceActivationProjections = Schema.is(StrongReferenceActivationProjectionsSchema);
+const isStrongReferenceActivationProjections = strictSchemaGuard(StrongReferenceActivationProjectionsSchema);
 
 function arrayOf<T>(
   input: unknown,

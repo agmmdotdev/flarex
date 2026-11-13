@@ -379,7 +379,7 @@ const decodeScopeUuidResult = Schema.decodeUnknownResult(
   Schema.toType(ScopeUuidV1Schema),
 );
 const decodeSnapshotTokenResult = Schema.decodeUnknownResult(
-  Schema.toType(SnapshotTokenSchema),
+  Schema.toType(SnapshotTokenSchema), { onExcessProperty: "error" },
 );
 const decodeStorageGenerationFenceResult = Schema.decodeUnknownResult(
   Schema.toType(StorageGenerationFenceSchema),

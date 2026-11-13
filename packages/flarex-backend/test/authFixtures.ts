@@ -1,4 +1,5 @@
-import { Encoding } from "effect";
+import * as Base64Url from "effect/encoding/Base64Url";
+
 
 import type { Json } from "../src/types";
 
@@ -45,7 +46,7 @@ export async function signJwt(input: {
     input.privateKey,
     new TextEncoder().encode(signingInput),
   );
-  const encodedSignature = Encoding.encodeBase64Url(
+  const encodedSignature = Base64Url.encode(
     new Uint8Array(signature),
   );
   return `${signingInput}.${encodedSignature}`;
@@ -61,7 +62,7 @@ function requiredString(value: unknown, field: string): string {
 }
 
 function base64UrlJson(value: unknown): string {
-  return Encoding.encodeBase64Url(
+  return Base64Url.encode(
     new TextEncoder().encode(JSON.stringify(value)),
   );
 }

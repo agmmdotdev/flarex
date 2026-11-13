@@ -13,7 +13,7 @@ export const InventoryLevelDeletionFilters = Schema.Struct({ id: Schema.optional
   $or: Schema.optionalKey(Schema.Array(Tuple).check(Schema.isMaxLength(4))) });
 export const InventoryLevelDeletionInput = Schema.Struct({ ...InventoryLevelDeletionFilters.fields, force: Schema.optionalKey(Schema.Boolean) });
 export const InventoryLevelDeletionReadInput = Schema.Struct({ filters: Schema.optionalKey(InventoryLevelDeletionFilters),
-  config: Schema.optionalKey(Schema.Struct({ select: Schema.optionalKey(Schema.Array(Schema.String).check(Schema.isLengthBetween(1, 16), Schema.makeFilter(fields => fields.includes("id")))),
+  config: Schema.optionalKey(Schema.Struct({ select: Schema.optionalKey(Schema.Array(Schema.String).check(Schema.isBetweenLength(1, 16), Schema.makeFilter(fields => fields.includes("id")))),
     relations: Schema.optionalKey(Schema.Array(Schema.Never)), take: Schema.optionalKey(QueryLimit), skip: Schema.optionalKey(Schema.Literal(0)),
     order: Schema.optionalKey(Schema.Struct({ id: Schema.optionalKey(Schema.Literal("ASC")) })) })) });
 export const InventoryLevelDeletionOutput = Schema.Struct({ inventory_level_id: Schema.optionalKey(InventoryLevelDeletionIds) });

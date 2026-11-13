@@ -10,8 +10,8 @@ import { projectCoreCommerceFailure } from "./nativeFailure";
 
 /** An actual private host callback owns this command; it is not a public service method. */
 export const commerceNativeInitializationCommand = Object.freeze({ name: "commerce-initialize", mode: "write" as const });
-const InitializationResult = Schema.Struct({ rowCount: Schema.Int }).annotate({ parseOptions: { onExcessProperty: "error" } });
-const decodeResult = Schema.decodeUnknownEffect(InitializationResult);
+const InitializationResult = Schema.Struct({ rowCount: Schema.Int });
+const decodeResult = Schema.decodeUnknownEffect(InitializationResult, { onExcessProperty: "error" });
 export interface NativeCommerceInitialization {
   readonly descriptor: CommerceInitialization;
   readonly identity: CoreRequestIdentity;

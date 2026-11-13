@@ -216,7 +216,7 @@ describe("campaign protocol", () => {
         completedPurgeTasks: 0,
       },
       evidence: null,
-    })).not.toThrow();
+    }, { parseOptions: { onExcessProperty: "error" } })).not.toThrow();
   });
 
   it("deduplicates stable source IDs and counts each new-code ordinal", () => {
@@ -324,7 +324,7 @@ describe("campaign protocol", () => {
         completedPurgeTasks: 0,
       },
       evidence: null,
-    });
+    }, { parseOptions: { onExcessProperty: "error" } });
 
     expect(status.state).toBe("running");
     expect(() => ProbeCampaignStatusV1Schema.make({
@@ -336,21 +336,21 @@ describe("campaign protocol", () => {
           sampleExecutions: status.budgets.planned.sampleExecutions + 1,
         },
       },
-    })).toThrow();
+    }, { parseOptions: { onExcessProperty: "error" } })).toThrow();
     expect(() => ProbeCampaignStatusV1Schema.make({
       ...status,
       progress: {
         ...status.progress,
         completedReconciliationTasks: 1,
       },
-    })).toThrow();
+    }, { parseOptions: { onExcessProperty: "error" } })).toThrow();
     expect(() => ProbeCampaignStatusV1Schema.make({
       ...status,
       evidence: {
         recordCount: planned.sampleExecutions,
         sha256: "1".repeat(64),
       },
-    })).toThrow();
+    }, { parseOptions: { onExcessProperty: "error" } })).toThrow();
   });
 });
 
@@ -382,11 +382,11 @@ function run(
       payloadBytes: options.payloadBytes ?? 0,
       sessionMode: "new-session",
     },
-  });
+  }, { parseOptions: { onExcessProperty: "error" } });
 }
 
 function manifest(campaignId: string, runs: readonly ProbeRunRequestV1[]) {
-  return ProbeCampaignManifestV1Schema.make(rawManifest(runs, campaignId));
+  return ProbeCampaignManifestV1Schema.make(rawManifest(runs, campaignId), { parseOptions: { onExcessProperty: "error" } });
 }
 
 function rawManifest(

@@ -14,10 +14,7 @@ import {
   ProbeProtocolVersionV1Schema,
   ProbeSessionModeSchema,
 } from "./protocol";
-import {
-  StrictParseOptions,
-  StrictStructOptions,
-} from "./strictSchemaOptions";
+import { StrictParseOptions } from "./strictSchemaOptions";
 
 const SyntheticPayloadSchema = Schema.String.check(
   Schema.isPattern(/^x*$/),
@@ -31,7 +28,7 @@ const ProbeSessionEchoRequestV1Shape = Schema.Struct({
   sessionId: ProbeSessionIdSchema,
   sessionMode: ProbeSessionModeSchema,
   payload: SyntheticPayloadSchema,
-}).annotate(StrictStructOptions);
+});
 
 export const ProbeSessionEchoRequestV1Schema =
   ProbeSessionEchoRequestV1Shape.check(
@@ -70,7 +67,7 @@ const ProbeSessionEchoResponseV1Shape = Schema.Struct({
       value >= 0 ? undefined : "payloadBytes must be non-negative"
     ),
   ),
-}).annotate(StrictStructOptions);
+});
 
 export const ProbeSessionEchoResponseV1Schema =
   ProbeSessionEchoResponseV1Shape.check(
@@ -105,7 +102,7 @@ export const ProbeSessionControlResponseV1Schema = Schema.Struct({
   protocolVersion: ProbeProtocolVersionV1Schema,
   sessionId: ProbeSessionIdSchema,
   value: ControlValueSchema,
-}).annotate(StrictStructOptions);
+});
 export type ProbeSessionControlResponseV1 =
   typeof ProbeSessionControlResponseV1Schema.Type;
 

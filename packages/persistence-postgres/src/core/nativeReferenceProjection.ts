@@ -18,7 +18,7 @@ const decodeManyIds = Schema.decodeUnknownResult(Schema.Array(DeveloperDocumentI
 const decodeMembership = Schema.decodeUnknownResult(Schema.Struct({
   _id: DeveloperDocumentIdSchema, _creationTime: Schema.Number,
   sourceId: DeveloperDocumentIdSchema, targetId: DeveloperDocumentIdSchema,
-}).annotate({ parseOptions: { onExcessProperty: "error" } }));
+}), { onExcessProperty: "error" });
 
 /** Structural/canonical ID admission precedes any target-liveness preparation. */
 export function coreNativeManyTargets(reference: CoreNativeManyReference, target: CoreTableDefinition,

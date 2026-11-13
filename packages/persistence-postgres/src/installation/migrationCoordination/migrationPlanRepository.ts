@@ -1,3 +1,4 @@
+import * as Hex from "effect/encoding/Hex";
 import { captureMigrationCanonicalValue, currentPlanVerification } from "./planVerificationScope";
 import { copyBytes } from "@flarex/utils/bytes";
 import { withAdditiveMigrationGraphLimits } from "./graphLimits";
@@ -5,7 +6,7 @@ import { reaffirmCapturedPlanAdmissionAuthority } from "./authority";
 import { makeFrameworkGraphReferenceRead, withFrameworkGraphReadPass } from "./graphReadPass";
 import { insertFrameworkMigrationBaseEffect, restoreFrameworkMigrationBaseEffect } from "./baseRepository";
 import { and, asc, eq, sql } from "drizzle-orm";
-import { Effect, Encoding, Option } from "effect";
+import { Effect, Option } from "effect";
 
 import { detachDriverRows } from "../../database/detachDriverRows";
 import { runDrizzleStatementEffect } from "../../database/drizzleStatementEffect";
@@ -475,7 +476,7 @@ export const restoreStoredFreshRelationalMigrationPlanReferenceInTransactionEffe
       );
     }
     const migrationPlanSha256Bytes = yield* Effect.fromResult(
-      Encoding.decodeHex(planSha256),
+      Hex.decode(planSha256),
     ).pipe(Effect.mapError(() =>
       FrameworkMigrationRepositoryError.storedCorruption(operation)
     ));
@@ -1002,10 +1003,10 @@ const loadPlanSidecars = Effect.fn("FrameworkMigrationPlanRepository.loadSidecar
   const steps = prepared.steps.map(step => ({ ...step, planStorageId, collisionStorageId }));
   const dependencies = prepared.dependencies.map(dependency => ({ ...dependency, planStorageId }));
   const expectedSteps = steps.map(step => [String(step.planStorageId), String(step.collisionStorageId), step.stepOrdinal,
-    step.stepId, Encoding.encodeHex(step.stepSha256), Encoding.encodeHex(step.preconditionSha256),
-    Encoding.encodeHex(step.postconditionSha256), step.phase, step.operationFormat, step.operationVersion, step.dependencyCount]);
+    step.stepId, Hex.encode(step.stepSha256), Hex.encode(step.preconditionSha256),
+    Hex.encode(step.postconditionSha256), step.phase, step.operationFormat, step.operationVersion, step.dependencyCount]);
   const expectedDependencies = dependencies.map(dependency => [String(dependency.planStorageId), dependency.sourceStepId,
-    dependency.dependencyOrdinal, dependency.dependencyStepId, Encoding.encodeHex(dependency.dependencyStepSha256)]);
+    dependency.dependencyOrdinal, dependency.dependencyStepId, Hex.encode(dependency.dependencyStepSha256)]);
   const step = fxSystemFrameworkMigrationPlanSteps;
   const dependency = fxSystemFrameworkMigrationPlanStepDependencies;
   // Compare every persisted sidecar member and the complete bounded inventory
@@ -1053,7 +1054,7 @@ function runRepositoryStatement<Value>(
 }
 
 function decodeAuthenticatedSha256(value: string): Effect.Effect<Uint8Array> {
-  return Effect.fromResult(Encoding.decodeHex(value)).pipe(Effect.orDie);
+  return Effect.fromResult(Hex.decode(value)).pipe(Effect.orDie);
 }
 
 function mapStoredValueError(

@@ -9,7 +9,7 @@ import { ProductLinkBatch } from "./product-service";
 import { VariantInventoryLinkBatch, VariantPricingLinkBatch } from "./variant-service";
 import { captureProductLinkCascade, nativePricingCascadeModule } from "./product-cascade";
 
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 const ProductBatch = ProductLinkBatch.check(Schema.isMaxLength(8));
 const CreateBatch = Schema.Union([ProductBatch, VariantPricingLinkBatch]);
 const DismissBatch = Schema.Union([ProductBatch, VariantInventoryLinkBatch]);

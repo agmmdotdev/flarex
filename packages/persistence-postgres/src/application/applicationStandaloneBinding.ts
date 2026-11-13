@@ -33,9 +33,9 @@ export const StandaloneApplicationBindingSchema = Schema.Struct({
   readiness: Schema.Union([legacy, relation, policy]),
   analysis: Schema.Struct({ candidateId: identity, analysisId: identity,
     manifestSha256: digest, sourceArtifactRootSha256: digest }),
-}).annotate({ parseOptions: { onExcessProperty: "error" } });
+});
 export type StandaloneApplicationBinding = typeof StandaloneApplicationBindingSchema.Type;
-const decode = Schema.decodeUnknownEffect(StandaloneApplicationBindingSchema);
+const decode = Schema.decodeUnknownEffect(StandaloneApplicationBindingSchema, { onExcessProperty: "error" });
 const utf8 = new TextEncoder();
 const utf8Fatal = new TextDecoder("utf-8", { fatal: true });
 export const MAX_STANDALONE_APPLICATION_BINDING_BYTES = 16_384;

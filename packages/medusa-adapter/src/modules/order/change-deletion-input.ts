@@ -12,11 +12,11 @@ export const OrderChangeDeletionIds = Schema.Array(Schema.String.check(Schema.is
 export const decodeOrderChangeDeletionIds = commerceDecoder(OrderChangeDeletionIds, "invalidInput");
 export const decodeOrderChangeDeletionArguments = commerceDecoder(Schema.Tuple([OrderChangeDeletionIds]), "invalidInput");
 const affectedIds = (maximum: number) => Schema.Array(OrderChangeId).pipe(Schema.mutable).check(
-  Schema.isLengthBetween(1, maximum), Schema.makeFilter(ids => new Set(ids).size === ids.length || "Expected distinct affected identities"));
+  Schema.isBetweenLength(1, maximum), Schema.makeFilter(ids => new Set(ids).size === ids.length || "Expected distinct affected identities"));
 export const OrderChangeDeletionOutput = Schema.Struct({
   order_change_id: Schema.optionalKey(affectedIds(4)),
   OrderChangeAction: Schema.optionalKey(Schema.Array(Schema.JsonObject).pipe(Schema.mutable)
-    .check(Schema.isLengthBetween(1, 8))),
+    .check(Schema.isBetweenLength(1, 8))),
 });
 const decodeOutputShape = commerceDecoder(OrderChangeDeletionOutput, "storedCorruption");
 const decodeTuple = commerceDecoder(Schema.Tuple([

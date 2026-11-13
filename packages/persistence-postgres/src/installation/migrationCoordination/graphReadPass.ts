@@ -1,4 +1,5 @@
-import { Context, Effect, Encoding, Option } from "effect";
+import * as Hex from "effect/encoding/Hex";
+import { Context, Effect, Option } from "effect";
 import { isUint8Array } from "@flarex/utils/bytes";
 import { frameworkMigrationGraphPolicy } from "./graphLimits";
 
@@ -134,7 +135,7 @@ function referenceNode<Value>(): ReferenceNode<Value> {
  * must still pass the caller's full decoder before any success is retained. */
 export function frameworkGraphDriverRowReferences(row: Readonly<Record<string, unknown>>): readonly unknown[] {
   return Object.entries(row).flatMap(([key, value]) =>
-    isUint8Array(value) ? [key, "bytes", Encoding.encodeHex(value)] :
+    isUint8Array(value) ? [key, "bytes", Hex.encode(value)] :
       value instanceof Date ? [key, "date", Date.prototype.getTime.call(value)] :
         [key, typeof value, value]);
 }

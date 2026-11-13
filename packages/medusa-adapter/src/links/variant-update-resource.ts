@@ -6,7 +6,7 @@ import { defineComposedWorkflowResource } from "../workflow/composed-resource";
 import { linkWorkflowServiceDefinition } from "./workflow-service";
 import { decodeVariantPricingListArguments, listNativeVariantPricing } from "./variant-pricing-read";
 
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 const decodeDismiss = commerceDecoder(Schema.Tuple([Schema.Array(Schema.Struct({
   product: Schema.Struct({ variant_id: Id }), inventory: Schema.Struct({ inventory_item_id: Id }),
 })).check(Schema.isMaxLength(8))]), "invalidInput");

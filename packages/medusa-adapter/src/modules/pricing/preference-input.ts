@@ -8,7 +8,7 @@ import { NativePreimageConfig } from "../../workflow/preimage";
 import { compileWhere, valuePredicate, type Predicate, type WherePolicy } from "../../query/predicate";
 import { jsonEqual } from "flarex-protocol/json";
 
-const Text = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Text = Schema.String.check(Schema.isBetweenLength(1, 256));
 export const StorePreferencePair = Schema.Struct({ attribute: Text, value: Text });
 export const StorePreferenceFilters = Schema.Struct({ $or: Schema.Array(StorePreferencePair).pipe(Schema.mutable).check(Schema.isMaxLength(4)) });
 const Create = Schema.Struct({ attribute: Text, value: Text, is_tax_inclusive: Schema.optionalKey(Schema.Boolean) });

@@ -64,7 +64,7 @@ export function withExecutionDiagnosticDefaults<Value, Failure, Requirements>(
 export function captureExecutionDiagnosticContext(fiber: Fiber.Fiber<unknown, unknown>): Context.Context<never> {
   let context: Context.Context<never> = Context.empty();
   const tracer = Context.getOrUndefined(fiber.context, Tracer.Tracer);
-  const parent = fiber.currentSpan ?? Context.getOrUndefined(fiber.context, Tracer.ParentSpan);
+  const parent = fiber.cache.span ?? Context.getOrUndefined(fiber.context, Tracer.ParentSpan);
   const enabled = Context.getOrUndefined(fiber.context, References.TracerEnabled);
   const timing = Context.getOrUndefined(fiber.context, References.TracerTimingEnabled);
   const annotations = Context.getOrUndefined(fiber.context, References.TracerSpanAnnotations);

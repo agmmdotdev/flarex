@@ -16,12 +16,12 @@ import { readCommerceRelationRows } from "../../query/relations";
 import type { captureCartCreationMetadata } from "./creation-schema";
 
 type Metadata = Effect.Success<ReturnType<typeof captureCartCreationMetadata>>["frame"];
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 const id = commerceDecoder(Id, "unsupportedProfile");
 const ids = commerceDecoder(Schema.Array(Id).check(Schema.isMaxLength(8)), "unsupportedProfile");
 const rows = commerceDecoder(Schema.Array(Schema.JsonObject).check(Schema.isMaxLength(8)), "unsupportedProfile");
 const updates = commerceDecoder(Schema.Array(Schema.Struct({ entity: Schema.JsonObject,
-  update: Schema.Struct({ state: Schema.Literal("compensated") }) })).check(Schema.isLengthBetween(1, 1)), "unsupportedProfile");
+  update: Schema.Struct({ state: Schema.Literal("compensated") }) })).check(Schema.isBetweenLength(1, 1)), "unsupportedProfile");
 
 /** Translate the native receipt protocol to the already exclusive logical
  * scope. Native Cart retains generation, sharing, supersession and replay

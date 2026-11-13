@@ -12,7 +12,7 @@ import { captureLinkOperationMetadata } from "./operation-schema";
 import { prepareLinkService } from "./service";
 import { prepareLinkWorkflowService, linkWorkflowServiceDefinition } from "./workflow-service";
 
-const Ids = Schema.Array(Schema.String.check(Schema.isLengthBetween(1, 256))).pipe(Schema.mutable).check(Schema.isMaxLength(4));
+const Ids = Schema.Array(Schema.String.check(Schema.isBetweenLength(1, 256))).pipe(Schema.mutable).check(Schema.isMaxLength(4));
 const decodeEndpoint = commerceDecoder(Schema.Tuple([Schema.Struct({
   api_key: Schema.Struct({ publishable_key_id: Ids }),
 })]), "invalidInput");

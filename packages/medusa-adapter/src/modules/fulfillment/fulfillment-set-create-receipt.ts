@@ -10,11 +10,11 @@ import { decodeFulfillmentSetCreates, decodeFulfillmentSetPhysicalDeletionIds,
   type compileFulfillmentSetCreationContracts } from "./fulfillment-set-create-input";
 
 type Contracts = Result.Result.Success<ReturnType<typeof compileFulfillmentSetCreationContracts>>;
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 const decodeEvent = moduleEventDecoder(Schema.Struct({ name: Schema.String,
   metadata: Schema.Struct({ source: Schema.Literal(Modules.FULFILLMENT), object: Schema.Literal("fulfillment_set"),
     action: Schema.Literals(["created", "deleted"]) }),
-  data: Schema.Struct({ id: Schema.Union([Id, Schema.Array(Id).check(Schema.isLengthBetween(1, 1))]) }),
+  data: Schema.Struct({ id: Schema.Union([Id, Schema.Array(Id).check(Schema.isBetweenLength(1, 1))]) }),
 }), defaultCommerceResources);
 
 export function fulfillmentSetCreationPolicy(contracts: Contracts) {

@@ -15,10 +15,7 @@ import {
 } from "./statistics";
 import { sameProbeDimensionsV1 } from "./protocol";
 import { sha256Hex } from "./sha256";
-import {
-  StrictParseOptions,
-  StrictStructOptions,
-} from "./strictSchemaOptions";
+import { StrictParseOptions } from "./strictSchemaOptions";
 
 const Sha256HexSchema = Schema.String.check(Schema.isPattern(/^[0-9a-f]{64}$/));
 const CompatibilityDateSchema = Schema.String.check(
@@ -37,7 +34,7 @@ export const ProbeEvidenceTargetV1Schema = Schema.Struct({
   // V1 names the loaded Dynamic Worker date. Keep this strict wire shape frozen;
   // two-runtime provenance requires artifact V2 or a versioned companion.
   compatibilityDate: CompatibilityDateSchema,
-}).annotate(StrictStructOptions);
+});
 export type ProbeEvidenceTargetV1 = typeof ProbeEvidenceTargetV1Schema.Type;
 
 const ProbeRawEvidenceArtifactV1Shape = Schema.Struct({
@@ -46,7 +43,7 @@ const ProbeRawEvidenceArtifactV1Shape = Schema.Struct({
   target: ProbeEvidenceTargetV1Schema,
   campaign: ProbeCampaignStatusV1Schema,
   evidence: Schema.Array(ProbeRunEvidenceRecordV1Schema),
-}).annotate(StrictStructOptions);
+});
 
 export const ProbeRawEvidenceArtifactV1Schema =
   ProbeRawEvidenceArtifactV1Shape.check(
@@ -65,7 +62,7 @@ const ProbeEvidenceIntegrityV1Shape = Schema.Struct({
   notStartedSamples: ArtifactCountSchema,
   excludedWarmupSamples: ArtifactCountSchema,
   excludedDuplicateWakeSamples: ArtifactCountSchema,
-}).annotate(StrictStructOptions);
+});
 
 export const ProbeEvidenceIntegrityV1Schema =
   ProbeEvidenceIntegrityV1Shape.check(
@@ -110,7 +107,7 @@ export const ProbeSummaryArtifactV1Schema = Schema.Struct({
   manifestSha256: Sha256HexSchema,
   integrity: ProbeEvidenceIntegrityV1Schema,
   cohorts: Schema.Array(ProbeHopLatencySummaryV1Schema),
-}).annotate(StrictStructOptions);
+});
 export type ProbeSummaryArtifactV1 =
   typeof ProbeSummaryArtifactV1Schema.Type;
 
@@ -119,7 +116,7 @@ export const ProbeEvidencePersistenceReceiptV1Schema = Schema.Struct({
   manifestSha256: Sha256HexSchema,
   evidenceSha256: Sha256HexSchema,
   recordCount: ArtifactCountSchema,
-}).annotate(StrictStructOptions);
+});
 export type ProbeEvidencePersistenceReceiptV1 =
   typeof ProbeEvidencePersistenceReceiptV1Schema.Type;
 
@@ -181,7 +178,7 @@ export function buildProbeRawEvidenceArtifactV1(
     target,
     campaign,
     evidence,
-  });
+  }, { parseOptions: { onExcessProperty: "error" } });
 }
 
 export async function buildProbeSummaryArtifactV1(
@@ -216,7 +213,7 @@ export async function buildProbeSummaryArtifactV1(
       sample =>
         sample.control.measurementDisposition === "excluded-duplicate-wake",
     ).length,
-  });
+  }, { parseOptions: { onExcessProperty: "error" } });
   return ProbeSummaryArtifactV1Schema.make({
     artifactVersion: 1,
     kind: "runtime-topology-probe-summary",
@@ -224,7 +221,7 @@ export async function buildProbeSummaryArtifactV1(
     manifestSha256: raw.campaign.manifestSha256,
     integrity,
     cohorts: summarizeProbeSamples(observed),
-  });
+  }, { parseOptions: { onExcessProperty: "error" } });
 }
 
 export function probeEvidencePersistenceReceiptV1(
@@ -240,7 +237,7 @@ export function probeEvidencePersistenceReceiptV1(
     manifestSha256: summary.manifestSha256,
     evidenceSha256: evidence.sha256,
     recordCount: evidence.recordCount,
-  });
+  }, { parseOptions: { onExcessProperty: "error" } });
 }
 
 export function probeEvidencePersistenceReceiptMatchesV1(

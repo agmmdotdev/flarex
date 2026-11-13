@@ -341,7 +341,7 @@ describe("P08 resumable production flow", { concurrent: false }, () => {
                 completedReconciliationTasks: 0,
               },
             },
-          });
+          }, { parseOptions: { onExcessProperty: "error" } });
           return new Response(JSON.stringify(tampered), {
             status: response.status,
             headers: { "content-type": "application/json" },
@@ -376,7 +376,7 @@ function focusedAbortManifest(
     campaignId: ProbeCampaignIdSchema.make(campaignId),
     collectorConcurrency: 1,
     runs: [run],
-  });
+  }, { parseOptions: { onExcessProperty: "error" } });
 }
 
 async function persistEvidenceInMemory(

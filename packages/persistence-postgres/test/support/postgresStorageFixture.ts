@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { Pool } from "pg";
 import { Effect } from "effect";
-import { FetchHttpClient } from "effect/unstable/http";
+import { FetchHttpClient } from "effect/http";
 import { inject } from "vitest";
 import { createPostgresPersistence, type PostgresFlarexPersistence } from "../../src/database/postgres";
 import { openPreparedHostTestRuntime, closePreparedHostTestRuntime } from "../execution/preparation/preparedHostRuntimeTestSupport";

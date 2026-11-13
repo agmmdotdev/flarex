@@ -1,6 +1,7 @@
+import * as Hex from "effect/encoding/Hex";
 import type { CoreApplicationRegistrationMetadata, CoreDatabase, CorePersistenceError, CoreRetainedInterval } from "@flarex/persistence-postgres/internal/core";
 import { compareUtf16Strings } from "@flarex/utils/strings";
-import { Data, Effect, Encoding, Option } from "effect";
+import { Data, Effect, Option } from "effect";
 import type { CoreQueryCheckpointRequest } from "flarex-protocol/internal/core-query-checkpoint";
 import type { ExecutorApplicationProfile } from "./applicationConfiguration";
 
@@ -42,7 +43,7 @@ export const readExecutorApplicationCheckpoint = Effect.fn("ExecutorApplication.
     if (Option.isNone(active) || !matchesConfiguredRegistration(active.value, profile))
       return yield* new ExecutorApplicationCheckpointError({ reason: "profileNotReady" });
     const registration = active.value;
-    const sourceId = Encoding.encodeHex(yield* sha256(sourceIdentityBytes(registration)));
+    const sourceId = Hex.encode(yield* sha256(sourceIdentityBytes(registration)));
     const interval = yield* target.retainedInterval(target.timestamp);
     const response = {
       format: "flarex.core-query-checkpoint.response" as const, version: 1 as const,

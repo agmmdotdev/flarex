@@ -1,5 +1,5 @@
 import { Data, Effect, Schema, Stream } from "effect";
-import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http";
+import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http";
 import { decodeStorageRequest, storageResponseSchema, type PostgresStorageSessionEndpoint } from "./postgresStorageProtocol";
 
 export class PostgresStorageSessionError extends Data.TaggedError("PostgresStorageSessionError")<{

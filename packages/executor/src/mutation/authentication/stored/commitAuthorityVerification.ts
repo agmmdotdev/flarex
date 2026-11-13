@@ -75,10 +75,6 @@ import {
 } from "./commitAuthorityModel";
 import { detachVerifiedGrant } from "./verifiedGrantEvidence";
 
-const StrictStructOptions: {
-  readonly parseOptions: { readonly onExcessProperty: "error" };
-} = { parseOptions: { onExcessProperty: "error" } };
-
 const PinnedPointMutationFunctionMetadataSnapshotV1Schema = Schema.Struct({
   deploymentId: TransactionGrantDeploymentIdV1Schema,
   scopeId: ReplacementScopeIdV1Schema,
@@ -91,7 +87,7 @@ const PinnedPointMutationFunctionMetadataSnapshotV1Schema = Schema.Struct({
   functionKind: TransactionFunctionKindV1Schema,
   schemaVersionId: CatalogSchemaVersionIdSchema,
   functionMetadata: PointMutationTargetFunctionMetadataV1Schema,
-}).annotate(StrictStructOptions);
+});
 
 const decodePinnedPointMutationFunctionMetadataSnapshotV1 =
   Schema.decodeUnknownSync(PinnedPointMutationFunctionMetadataSnapshotV1Schema, {

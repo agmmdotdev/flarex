@@ -12,7 +12,7 @@ import { compileKeyedUpdates } from "../write/keyed";
 import { captureCommerceInput } from "../value/input";
 
 type Table = Effect.Success<ReturnType<typeof decodeCompiledDml>>["tables"][number];
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 const decodeId = commerceDecoder(Id, "invalidInput");
 const decodeRows = commerceDecoder(Schema.Array(Schema.JsonObject).check(Schema.isMaxLength(256)), "invalidInput");
 const decodeUpdates = commerceDecoder(Schema.Array(Schema.Struct({ entity: Schema.JsonObject, update: Schema.JsonObject }))

@@ -15,7 +15,7 @@ import { prepareRegionCountryReadRepository } from "./country-read-repository";
 const decodeEnvelope = commerceDecoder(QueryEnvelope, "unsupportedProfile"), decodeFilters = commerceDecoder(RegionCartFilters, "unsupportedProfile");
 const where: WherePolicy = { decode: decodeFilters, fields: new Map([["id", { column: "id", decode: commerceDecoder(Schema.Union([Schema.Null, RegionCartId,
   Schema.Array(RegionCartId).check(Schema.isMaxLength(regionReadLimit))]), "unsupportedProfile") }]]) };
-const decodeOptions = commerceDecoder(Schema.Struct({ fields: Schema.optionalKey(Schema.Array(Schema.String).check(Schema.isLengthBetween(1, 64))),
+const decodeOptions = commerceDecoder(Schema.Struct({ fields: Schema.optionalKey(Schema.Array(Schema.String).check(Schema.isBetweenLength(1, 64))),
   populate: Schema.optionalKey(Schema.Array(Schema.Literal("countries")).check(Schema.isMaxLength(1))),
   limit: Schema.optionalKey(QueryLimit), offset: Schema.optionalKey(QueryOffset),
   orderBy: Schema.optionalKey(Schema.Struct({ id: Schema.optionalKey(Schema.Literals(["ASC", "DESC"])) })),

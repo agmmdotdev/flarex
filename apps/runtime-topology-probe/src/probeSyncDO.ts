@@ -80,7 +80,7 @@ export class ProbeSyncDO extends DurableObject<Record<string, never>> {
         previousCursor,
         cursor,
         cursorDurationMs: ProbeDurationMsSchema.make(cursorDurationMs),
-      });
+      }, { parseOptions: { onExcessProperty: "error" } });
     });
   }
 
@@ -111,7 +111,7 @@ export class ProbeSyncDO extends DurableObject<Record<string, never>> {
         scopeId: request.scopeId,
         operation: request.operation,
         cursor,
-      });
+      }, { parseOptions: { onExcessProperty: "error" } });
     });
   }
 
@@ -155,7 +155,7 @@ export class ProbeSyncDO extends DurableObject<Record<string, never>> {
           cursorAfter,
           capabilityCallCount: 1,
           terminalAck: true,
-        });
+        }, { parseOptions: { onExcessProperty: "error" } });
       });
     });
   }
@@ -225,7 +225,7 @@ function syncPurgeReceipt(
     scopeId: request.scopeId,
     probeDataCleared: true,
     completionTombstoneRetained: true,
-  });
+  }, { parseOptions: { onExcessProperty: "error" } });
 }
 
 function initializeSyncStorage(sql: SqlStorage): void {

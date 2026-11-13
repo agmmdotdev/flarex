@@ -1,3 +1,4 @@
+import { strictSchemaGuard } from "flarex-protocol/internal/strict-schema";
 import { Clock, Effect, Result, Schema } from "effect";
 import { captureDocumentObject, decodeDocumentValue, encodeDocumentValue } from "flarex-protocol/document-value";
 import { expect, it } from "vitest";
@@ -16,10 +17,10 @@ const decodePhysicalDocuments = Schema.decodeUnknownSync(Schema.Array(Schema.Str
 })));
 // Freeze the old private clause shape explicitly; do not derive this witness
 // from the current normalized policy reader.
-const isActiveUnaryPolicy = Schema.is(Schema.Struct({ nativePolicy: Schema.Struct({ state: Schema.Literal("active"),
-  uniqueConstraints: Schema.Array(Schema.Struct({ descriptor: Schema.String, field: Schema.String, indexName: Schema.String })
-    .annotate({ parseOptions: { onExcessProperty: "error" } })),
-}) }));
+const retainedPolicyFields = Schema.Record(Schema.String, Schema.Unknown);
+const isActiveUnaryPolicy = strictSchemaGuard(Schema.StructWithRest(Schema.Struct({ nativePolicy: Schema.StructWithRest(Schema.Struct({ state: Schema.Literal("active"),
+  uniqueConstraints: Schema.Array(Schema.Struct({ descriptor: Schema.String, field: Schema.String, indexName: Schema.String })),
+}), [retainedPolicyFields]) }), [retainedPolicyFields]));
 
 async function physicalFixture(driver: "pglite" | "postgres"): Promise<CorePersistenceFixture> {
   if (driver === "pglite") return createCorePGliteFixture();

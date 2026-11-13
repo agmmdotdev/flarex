@@ -18,7 +18,7 @@ import type { captureCustomerMetadata } from "./schema";
 type Metadata = Effect.Success<ReturnType<typeof captureCustomerMetadata>>["frame"];
 const decodePopulate = commerceDecoder(Schema.Struct({ populate: Schema.Literal(true) }), "unsupportedProfile");
 const decodeSerialized = commerceDecoder(Schema.Array(Schema.JsonObject).check(Schema.isMaxLength(1)), "storedCorruption");
-const decodeCreateRows = commerceDecoder(Schema.Array(CustomerSelectionCreate).check(Schema.isLengthBetween(1, 1)), "unsupportedProfile");
+const decodeCreateRows = commerceDecoder(Schema.Array(CustomerSelectionCreate).check(Schema.isBetweenLength(1, 1)), "unsupportedProfile");
 const where: WherePolicy = { decode: commerceDecoder(CustomerSelectionWhere, "unsupportedProfile"), fields: new Map([
   ["id", { column: "id", decode: commerceDecoder(CustomerSelectionId, "unsupportedProfile") }],
   ["email", { column: "email", decode: commerceDecoder(Schema.String, "unsupportedProfile") }],

@@ -1,7 +1,8 @@
+import * as Hex from "effect/encoding/Hex";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import type { CanonicalIsoInstant } from "@flarex/time/iso-instant";
 import { eq } from "drizzle-orm";
-import { Brand, Effect, Encoding, Option } from "effect";
+import { Brand, Effect, Option } from "effect";
 import { describe, expect, it, vi } from "vitest";
 import * as storedValues from "../../../src/installation/migrationCoordination/storedRestoration";
 import * as driverRows from "../../../src/database/detachDriverRows";
@@ -892,9 +893,9 @@ async function storedCollisionHeadRow(
   return {
     collisionStorageId: row.collisionStorageId,
     currentPlanStorageId: row.currentPlanStorageId,
-    currentPlanSha256: Encoding.encodeHex(row.currentPlanSha256),
+    currentPlanSha256: Hex.encode(row.currentPlanSha256),
     currentAdmissionStorageId: row.currentAdmissionStorageId,
-    currentAdmissionSha256: Encoding.encodeHex(row.currentAdmissionSha256),
+    currentAdmissionSha256: Hex.encode(row.currentAdmissionSha256),
     headRevision: row.headRevision,
     attemptFence: row.attemptFence,
     currentAttemptStorageId: row.currentAttemptStorageId,
@@ -906,8 +907,8 @@ async function storedCollisionHeadRow(
     lastEventSequence: row.lastEventSequence,
     lastEventSha256: row.lastEventSha256 === null
       ? null
-      : Encoding.encodeHex(row.lastEventSha256),
-    collisionHeadSha256: Encoding.encodeHex(row.collisionHeadSha256),
+      : Hex.encode(row.lastEventSha256),
+    collisionHeadSha256: Hex.encode(row.collisionHeadSha256),
     frameFormat: row.frameFormat,
     frameVersion: row.frameVersion,
     canonicalByteLength: row.canonicalByteLength,

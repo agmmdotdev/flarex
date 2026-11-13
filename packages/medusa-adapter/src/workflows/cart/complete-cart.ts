@@ -19,7 +19,7 @@ import { prepareWorkflowLocking } from "../../workflow/locking";
 export const CheckoutInput = Schema.Struct({ id: ScalarId });
 export const CheckoutOutput = Schema.Struct({ id: ScalarId });
 const decodeCreated = commerceDecoder(Schema.Array(Schema.StructWithRest(Schema.Struct({ id: ScalarId }),
-  [Schema.Record(Schema.String, Schema.Json)])).check(Schema.isLengthBetween(1, 1)), "receiptMismatch");
+  [Schema.Record(Schema.String, Schema.Json)])).check(Schema.isBetweenLength(1, 1)), "receiptMismatch");
 type Logger = Effect.Success<ReturnType<typeof makePaymentLifecycleCommands>>["loggerResource"];
 type Links = Result.Result.Success<ReturnType<typeof prepareCheckoutNativeLinkResource>>;
 

@@ -85,7 +85,7 @@ export async function prepareCoreOrderChangeDecline(driver: "pglite" | "postgres
       workflow: { name: "probeOrderChangeDeclineLateParent", resources, prepared: Result.getOrThrow(flow.prepare()), input: OrderChangeDeclineInput,
         output: Schema.Null, events: internalModuleWorkflowEvents } })));
   };
-  const ConcurrentInput = Schema.Array(OrderChangeDeclineInput).pipe(Schema.mutable).check(Schema.isLengthBetween(2, 2));
+  const ConcurrentInput = Schema.Array(OrderChangeDeclineInput).pipe(Schema.mutable).check(Schema.isBetweenLength(2, 2));
   const prepareConcurrent = async () => {
     const step = createStep("probe-concurrent-change-decline-children", resources.callback(async (values: typeof ConcurrentInput.Type, context) => {
       await Promise.all(values.map(async value => {

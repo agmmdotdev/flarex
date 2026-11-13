@@ -23,7 +23,7 @@ export const ListCartShippingOptionsInput = Schema.Struct({ cart_id: ScalarId, i
   enabled_in_store: Schema.optionalKey(Schema.Boolean), option_ids: Schema.optionalKey(Schema.Array(ScalarId).pipe(Schema.mutable).check(Schema.isMaxLength(4))),
   fields: Schema.optionalKey(Schema.Array(Schema.String).pipe(Schema.mutable).check(Schema.isMaxLength(256))), additional_data: Schema.optionalKey(Schema.JsonObject) });
 export const AddCartShippingMethodInput = Schema.Struct({ cart_id: ScalarId,
-  options: Schema.Array(Schema.Struct({ id: ScalarId, data: Schema.optionalKey(Schema.JsonObject) })).pipe(Schema.mutable).check(Schema.isLengthBetween(1, 4)),
+  options: Schema.Array(Schema.Struct({ id: ScalarId, data: Schema.optionalKey(Schema.JsonObject) })).pipe(Schema.mutable).check(Schema.isBetweenLength(1, 4)),
   additional_data: Schema.optionalKey(Schema.JsonObject) });
 type Preparation = Parameters<typeof prepareCartCreationResources>;
 

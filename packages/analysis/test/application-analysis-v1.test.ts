@@ -342,7 +342,7 @@ describe("Application Analysis V1 contracts", () => {
       },
     };
     expect(Result.isFailure(Schema.decodeUnknownResult(
-      ApplicationManifestV1Schema,
+      ApplicationManifestV1Schema, { onExcessProperty: "error" },
     )(duplicateModules))).toBe(true);
     expect(canonicalizeApplicationManifestV1(duplicateModules)).toMatchObject({
       _tag: "Failure",
@@ -364,7 +364,7 @@ describe("Application Analysis V1 contracts", () => {
       },
     });
     expect(Result.isFailure(Schema.decodeUnknownResult(
-      ApplicationManifestV1Schema,
+      ApplicationManifestV1Schema, { onExcessProperty: "error" },
     )(input))).toBe(true);
 
     const cyclicValidator: { type: "array"; value?: unknown } = {
@@ -377,7 +377,7 @@ describe("Application Analysis V1 contracts", () => {
       failure: { reason: "invalidInput" },
     });
     expect(Result.isFailure(Schema.decodeUnknownResult(
-      ApplicationManifestV1Schema,
+      ApplicationManifestV1Schema, { onExcessProperty: "error" },
     )(cyclicInput))).toBe(true);
   });
 
@@ -420,7 +420,7 @@ describe("Application Analysis V1 contracts", () => {
   it("returns the same owned plain JSON representation from public decoders", () => {
     const input = manifestWithTableValidator({ type: "any" });
     const schemaDecoded = Schema.decodeUnknownResult(
-      ApplicationManifestV1Schema,
+      ApplicationManifestV1Schema, { onExcessProperty: "error" },
     )(input);
     const namedDecoded = canonicalizeApplicationManifestV1(input);
     expect(Result.isSuccess(schemaDecoded)).toBe(true);

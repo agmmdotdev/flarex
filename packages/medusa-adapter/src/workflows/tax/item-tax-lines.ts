@@ -9,7 +9,7 @@ import { captureInstalledWorkflowModules, prepareAtomicWorkflowHost, type Atomic
 import { workflowModuleDefinition } from "../../workflow/module";
 import { prepareWorkflowResources } from "../../workflow/resources";
 
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 const Numeric = Schema.Union([Schema.String, Schema.Number.check(Schema.isFinite())]);
 const OptionalText = Schema.optionalKey(Schema.NullOr(Schema.String));
 const Address = Schema.StructWithRest(Schema.Struct({ country_code: OptionalText, province: OptionalText,

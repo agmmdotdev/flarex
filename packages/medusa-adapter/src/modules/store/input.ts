@@ -1,7 +1,7 @@
 import { Schema } from "effect";
 import { commerceDecoder } from "../../value/decoder";
 
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 export const StoreGuardFilters = Schema.Struct({ default_sales_channel_id: Schema.Array(Id).check(Schema.isMaxLength(4)) });
 export const StoreGuardConfig = Schema.Struct({ select: Schema.Tuple([Schema.Literal("default_sales_channel_id")]) });
 export const StoreGuardReadInput = Schema.Struct({ filters: StoreGuardFilters, config: StoreGuardConfig });

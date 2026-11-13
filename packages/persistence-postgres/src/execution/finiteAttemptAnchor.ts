@@ -48,10 +48,10 @@ import {
 const MAX_ANCHOR_BYTES = 131_072;
 const AnchorSchema = Schema.Struct({ format: Schema.Literal("flarex.finite-attempt-anchor"), version: Schema.Literal(1),
   snapshotToken: SnapshotTokenSchema, reservation: Schema.NullOr(FiniteMetadataReservationSchema),
-}).annotate({ parseOptions: { onExcessProperty: "error" } });
-const encode = Schema.encodeSync(AnchorSchema);
+});
+const encode = Schema.encodeSync(AnchorSchema, { onExcessProperty: "error" });
 const decode = Schema.decodeUnknownEffect(AnchorSchema, { onExcessProperty: "error" });
-const decodeType = Schema.decodeUnknownEffect(Schema.toType(AnchorSchema));
+const decodeType = Schema.decodeUnknownEffect(Schema.toType(AnchorSchema), { onExcessProperty: "error" });
 type SessionRow = typeof fxSystemTransactionSessions.$inferSelect;
 
 /** Exact live frontier envelope. Canonical anchor bytes and digest remain in
@@ -345,7 +345,7 @@ const decodePublicationMutable = Schema.decodeUnknownEffect(Schema.Struct({
   finiteClaimOwner: Schema.NullOr(TransactionExecutionClaimOwnerV1Schema),
   finiteClaimFence: Schema.NullOr(TransactionExecutionClaimFenceV1Schema),
   finiteClaimedAt: Schema.NullOr(Schema.Date), finiteClaimExpiresAt: Schema.NullOr(Schema.Date),
-}).annotate({ parseOptions: { onExcessProperty: "error" } }));
+}), { onExcessProperty: "error" });
 export const lendComparedFinitePublicationAnchor = Effect.fn("FiniteAttemptAnchor.lendPublication")(function* (
   entry: OriginalFiniteExecutionEntry, issuer: StoredCommitAuthorityEvidenceLoaderPortsV1, input: unknown,
 ) {

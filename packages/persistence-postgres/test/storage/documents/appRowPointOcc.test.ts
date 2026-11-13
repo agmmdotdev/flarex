@@ -309,7 +309,7 @@ function snapshot(
     scopeId: selectedScopeId,
     epoch,
     commitSeq: seq(commitSeq),
-  });
+  }, { parseOptions: { onExcessProperty: "error" } });
 }
 
 function present(

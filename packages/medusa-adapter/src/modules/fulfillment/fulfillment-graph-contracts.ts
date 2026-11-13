@@ -83,7 +83,7 @@ export function compileFulfillmentLifecycleGraph(metadata: Metadata, selection: 
     const decodeTuple = commerceDecoder(Schema.Tuple([
       Schema.Array(Schema.JsonObject).check(Schema.isMaxLength(rootEntity.maximum)),
       Schema.Struct(Object.fromEntries(entities.map(entity => [entity.model,
-        Schema.optionalKey(Schema.Array(Schema.JsonObject).check(Schema.isLengthBetween(1, entity.maximum)))]))),
+        Schema.optionalKey(Schema.Array(Schema.JsonObject).check(Schema.isBetweenLength(1, entity.maximum)))]))),
     ]), "storedCorruption");
     const decodeLifecycleResult = (input: unknown) => Result.gen(function* () {
       const tuple = yield* decodeTuple(input);

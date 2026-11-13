@@ -9,7 +9,7 @@ import { captureCommerceInput } from "../value/input";
 import { StoreRegionOrder, type makeStoreRegionReadCommands } from "../modules/region/store-read";
 import { makeNativeQueryBridge, type NativeQueryMetadata } from "../local-graph/native-bridge";
 
-const Field = Schema.String.check(Schema.isLengthBetween(1, 256), Schema.isPattern(/^(\*|[a-zA-Z_][a-zA-Z0-9_]*)$/));
+const Field = Schema.String.check(Schema.isBetweenLength(1, 256), Schema.isPattern(/^(\*|[a-zA-Z_][a-zA-Z0-9_]*)$/));
 const Fields = Schema.Array(Field).check(Schema.isMaxLength(64), Schema.isUnique());
 const decodeRemote = commerceDecoder(Schema.Struct({ __value: Schema.Struct({ region: Schema.Struct({ fields: Fields,
   isServiceAccess: Schema.Literal(false), __args: Schema.Struct({ filters: Schema.optionalKey(Schema.JsonObject),

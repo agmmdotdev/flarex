@@ -69,7 +69,7 @@ export const captureLinkMetadata = Effect.fn("Link.captureMetadata")(function* (
     indexes: Schema.Array(Schema.Struct({
       properties: Schema.Union([Schema.String, Schema.Array(Schema.String)]), name: GeneratedIndexName,
       unique: Schema.optionalKey(Schema.Literal(true)), expression: Schema.optionalKey(Schema.String),
-    })).check(Schema.isLengthBetween(4, 4)),
+    })).check(Schema.isBetweenLength(4, 4)),
   }), { onExcessProperty: "error" });
   const generated = yield* decodeGenerated(generatedInput).pipe(Effect.mapError(cause => new LinkSchemaError({ cause })));
   const indexes: SchemaTable["indexes"][number][] = [];

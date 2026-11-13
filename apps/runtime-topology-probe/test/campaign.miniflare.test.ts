@@ -67,7 +67,7 @@ describe("P07B campaign coordinator", { concurrent: false }, () => {
             payloadBytes: 1,
           },
         }],
-      });
+      }, { parseOptions: { onExcessProperty: "error" } });
       const conflict = await post(first, PROBE_CAMPAIGN_ROUTE, changed);
       expect(conflict.status).toBe(409);
       expect(conflict.body).toMatchObject({
@@ -177,7 +177,7 @@ describe("P07B campaign coordinator", { concurrent: false }, () => {
           ...frozenRun,
           dimensions: { ...frozenRun.dimensions, payloadBytes: 1 },
         }, ...PROBE_ACTIVE_CAMPAIGN_MATRIX_V1.runs.slice(1)],
-      });
+      }, { parseOptions: { onExcessProperty: "error" } });
       expect((await post(harness, PROBE_CAMPAIGN_ROUTE, changed)).status).toBe(
         404,
       );
@@ -193,7 +193,7 @@ describe("P07B campaign coordinator", { concurrent: false }, () => {
             protocolVersion: PROBE_PROTOCOL_VERSION_V1,
             runId: arbitraryRunId,
             sampleOrdinal: ProbeOrdinalSchema.make(0),
-          }),
+          }, { parseOptions: { onExcessProperty: "error" } }),
         ),
         post(
           harness,
@@ -203,7 +203,7 @@ describe("P07B campaign coordinator", { concurrent: false }, () => {
             runId: arbitraryRunId,
             sampleOrdinal: ProbeOrdinalSchema.make(0),
             externalDurationMs: ProbeDurationMsSchema.make(1),
-          }),
+          }, { parseOptions: { onExcessProperty: "error" } }),
         ),
         post(
           harness,
@@ -213,7 +213,7 @@ describe("P07B campaign coordinator", { concurrent: false }, () => {
             runId: arbitraryRunId,
             cursor: ProbeOrdinalSchema.make(0),
             limit: 1,
-          }),
+          }, { parseOptions: { onExcessProperty: "error" } }),
         ),
       ]);
       expect(arbitraryRequests.map(result => result.status)).toEqual([
@@ -262,7 +262,7 @@ function singleRunManifest() {
     campaignId: ProbeCampaignIdSchema.make("p07b_campaign_freeze"),
     collectorConcurrency: 1,
     runs: [run],
-  });
+  }, { parseOptions: { onExcessProperty: "error" } });
 }
 
 async function post(

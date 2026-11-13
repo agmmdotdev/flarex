@@ -19,7 +19,7 @@ import { executeRead, orderedCatalog, type ReadPlan } from "../query/read";
 import type { SchemaTable } from "../schema/model";
 import type { decodeCompiledDml } from "../schema/compiled";
 
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 const decodeId = commerceDecoder(Id, "invalidInput");
 const decodeRows = commerceDecoder(Schema.Array(Schema.JsonObject).check(Schema.isMaxLength(256)), "invalidInput");
 const decodeProjection = commerceDecoder(Schema.Union([Schema.JsonObject, Schema.Array(Schema.JsonObject)]), "storedCorruption");

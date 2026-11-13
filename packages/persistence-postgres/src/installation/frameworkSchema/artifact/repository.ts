@@ -1,6 +1,7 @@
+import * as Hex from "effect/encoding/Hex";
 import { copyBytes } from "@flarex/utils/bytes";
 import { isPositiveSafeInteger } from "@flarex/utils/numbers";
-import { Data, Duration, Effect, Encoding, Option, Result } from "effect";
+import { Data, Duration, Effect, Option, Result } from "effect";
 
 import type { FlarexMetadataDatabase } from "../../../application/deployments";
 import type { FlarexMetadataTransaction } from "../../../database/metadataTransaction";
@@ -579,7 +580,7 @@ function snapshotFrameworkSchemaArtifactAdmissionDependencies(
   dependencies: readonly FrameworkSchemaArtifactIdentity[],
 ): readonly FrameworkSchemaArtifactAdmissionDependencyEvidence[] {
   return Object.freeze(dependencies.map((dependency) => {
-    const stableArtifactSha256Bytes = Encoding.decodeHex(
+    const stableArtifactSha256Bytes = Hex.decode(
       dependency.artifactSha256,
     ).pipe(Result.match({
       onFailure: () => {

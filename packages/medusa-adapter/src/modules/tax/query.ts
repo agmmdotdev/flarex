@@ -5,15 +5,15 @@ import { QueryEnvelope } from "../../query/decoder";
 import { compileWhere, type WherePolicy, type ScalarFilter } from "../../query/predicate";
 
 export const taxLinesLimits = Object.freeze({ items: 4, shipping: 4, regions: 2, rates: 8, rules: 16 });
-export const TaxId = Schema.String.check(Schema.isLengthBetween(1, 256));
+export const TaxId = Schema.String.check(Schema.isBetweenLength(1, 256));
 const Code = Schema.String.check(Schema.isMaxLength(256));
 const RegionBranch = Schema.Struct({ country_code: Code, province_code: Schema.NullOr(Code) });
 export const TaxRegionFilters = Schema.Struct({ $or: Schema.Tuple([RegionBranch, RegionBranch]) });
 const RuleBranch = Schema.Struct({ reference: Schema.Literals(["product", "product_type", "shipping_option"]),
   reference_id: Schema.optionalKey(Schema.NullOr(TaxId)) });
-const RuleSelection = Schema.Struct({ rules: Schema.Struct({ $or: Schema.Array(RuleBranch).check(Schema.isLengthBetween(1, 8)) }) });
+const RuleSelection = Schema.Struct({ rules: Schema.Struct({ $or: Schema.Array(RuleBranch).check(Schema.isBetweenLength(1, 8)) }) });
 export const TaxRateFilters = Schema.Struct({ $and: Schema.Tuple([
-  Schema.Struct({ tax_region_id: Schema.Array(TaxId).check(Schema.isLengthBetween(1, taxLinesLimits.regions)) }),
+  Schema.Struct({ tax_region_id: Schema.Array(TaxId).check(Schema.isBetweenLength(1, taxLinesLimits.regions)) }),
   Schema.Struct({ $or: Schema.Union([Schema.Tuple([Schema.Struct({ is_default: Schema.Literal(true) })]),
     Schema.Tuple([Schema.Struct({ is_default: Schema.Literal(true) }), RuleSelection])]) }),
 ]) });

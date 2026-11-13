@@ -11,7 +11,7 @@ import { graphNativeConfiguration } from "./native-metadata";
 import { type NativeQueryMetadata, type NativeQueryRead } from "./native-bridge";
 import type { GraphParticipant, GraphReadContext, GraphReadSelection } from "./model";
 
-const Fields = Schema.Array(Schema.String.check(Schema.isLengthBetween(1, 256))).check(Schema.isMaxLength(256));
+const Fields = Schema.Array(Schema.String.check(Schema.isBetweenLength(1, 256))).check(Schema.isMaxLength(256));
 const ReadOptions = Schema.Struct({ select: Schema.optionalKey(Fields), relations: Fields,
   args: Schema.optionalKey(Schema.Record(Schema.String, Schema.Never)),
   take: Schema.optionalKey(Schema.NullOr(QueryLimit)), skip: Schema.optionalKey(QueryOffset),

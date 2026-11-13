@@ -274,7 +274,7 @@ async function compositionFixture(persistence: MaterializationCompositionPersist
 async function commandForRows(tx: FlarexMetadataTransaction,
   fixture: Awaited<ReturnType<typeof compositionFixture>>, clock: ScopeClockRecord,
   rows: readonly AppendPreparedLiveAppRowRevisionV1Input[]): Promise<ApplicationDocumentMaterializationCommand> {
-  const snapshotToken = SnapshotTokenSchema.make({ scopeId: fixture.scopeId, epoch: clock.epoch, commitSeq: clock.lastCommitSeq });
+  const snapshotToken = SnapshotTokenSchema.make({ scopeId: fixture.scopeId, epoch: clock.epoch, commitSeq: clock.lastCommitSeq }, { parseOptions: { onExcessProperty: "error" } });
   const rowIntents: ApplicationDocumentMaterializationCommand["rowIntents"][number][] = [];
   const dependencies: ApplicationDocumentMaterializationCommand["dependencies"][number][] = [];
   for (const row of rows) {
@@ -1531,7 +1531,7 @@ async function verifyAwaitedMaterializationCallback(persistence: Materialization
         startCommitSeq: clock.lastCommitSeq, coveredThroughCommitSeq: clock.lastCommitSeq,
         firstReadableCommitSeq: clock.lastCommitSeq, lifecycle: "enabled",
         cursorCodecVersion: IndexBuildCursorCodecVersionV1Schema.make(1), attemptFence: IndexBuildAttemptFenceSchema.make(1n) });
-      const snapshotToken = SnapshotTokenSchema.make({ scopeId: fixture.scopeId, epoch: clock.epoch, commitSeq: clock.lastCommitSeq });
+      const snapshotToken = SnapshotTokenSchema.make({ scopeId: fixture.scopeId, epoch: clock.epoch, commitSeq: clock.lastCommitSeq }, { parseOptions: { onExcessProperty: "error" } });
       const read = await runEffect(getAppRowAtSnapshotInTransactionEffect(tx,
         { tableId: revision.tableId, rowId: revision.rowId, snapshotToken }));
       if (read.dependency.kind !== "missing") throw new Error("Expected genuinely absent materialization row");

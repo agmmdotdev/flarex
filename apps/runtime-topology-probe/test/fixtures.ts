@@ -116,7 +116,7 @@ export function controlledSample(
       scenarioWindowDurationMs: ProbeDurationMsSchema.make(1),
       syncWake,
       externalRequestIncludesControlPlane: true,
-    }),
+    }, { parseOptions: { onExcessProperty: "error" } }),
   };
 }
 

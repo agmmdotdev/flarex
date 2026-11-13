@@ -14,7 +14,7 @@ import type { prepareShippingOptionTypeDeletionRepository } from "./shipping-opt
 import { decodeShippingOptionTypeDeletionIds, decodeShippingOptionTypeDeletionRead } from "./shipping-option-type-delete-input";
 
 type Prepared = Result.Result.Success<ReturnType<typeof prepareShippingOptionTypeDeletionRepository>>;
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 const decodeEvent = moduleEventDecoder(Schema.Struct({ name: Schema.String,
   metadata: Schema.Struct({ source: Schema.Literal(Modules.FULFILLMENT), object: Schema.Literal("shipping_option_type"),
     action: Schema.Literals([CommonEvents.DELETED, CommonEvents.RESTORED]) }),

@@ -13,7 +13,7 @@ import { removeRemoteLinkStep } from "../../common/steps/remove-remote-links"
 import { useQueryGraphStep } from "../../common/steps/use-query-graph"
 
 const decodeInventoryDeletionRows = Schema.decodeUnknownResult(Schema.Array(Schema.Struct({
-  id: Schema.String.check(Schema.isLengthBetween(1, 256)), reserved_quantity: Schema.Number.check(Schema.isFinite()),
+  id: Schema.String.check(Schema.isBetweenLength(1, 256)), reserved_quantity: Schema.Number.check(Schema.isFinite()),
 })).check(Schema.isMaxLength(8)), { onExcessProperty: "error" })
 
 /**

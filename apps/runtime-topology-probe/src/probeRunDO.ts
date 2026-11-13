@@ -185,7 +185,7 @@ export class ProbeRunDO extends DurableObject<Record<string, never>> {
       kind: "registered",
       created: result.created,
       status: this.readStatus(),
-    });
+    }, { parseOptions: { onExcessProperty: "error" } });
   }
 
   async claim(value: unknown): Promise<ProbeSampleClaimReceiptV1> {
@@ -334,7 +334,7 @@ export class ProbeRunDO extends DurableObject<Record<string, never>> {
       sampleOrdinal: request.sampleOrdinal,
       phase: result.phase,
       observedOutstandingClaims: result.observedOutstandingClaims,
-    });
+    }, { parseOptions: { onExcessProperty: "error" } });
   }
 
   async finalize(value: unknown): Promise<ProbeSampleFinalizeReceiptV1> {
@@ -407,7 +407,7 @@ export class ProbeRunDO extends DurableObject<Record<string, never>> {
           ),
           syncWake: request.syncWake,
           externalRequestIncludesControlPlane: true,
-        });
+        }, { parseOptions: { onExcessProperty: "error" } });
         const controlled = controlledProbeGatewaySampleV1(
           request.fragment,
           control,
@@ -464,7 +464,7 @@ export class ProbeRunDO extends DurableObject<Record<string, never>> {
     return ProbeSampleFinalizeReceiptV1Schema.make({
       protocolVersion: PROBE_PROTOCOL_VERSION_V1,
       ...result,
-    });
+    }, { parseOptions: { onExcessProperty: "error" } });
   }
 
   async completeExternal(
@@ -540,7 +540,7 @@ export class ProbeRunDO extends DurableObject<Record<string, never>> {
     return ProbeExternalCompletionReceiptV1Schema.make({
       protocolVersion: PROBE_PROTOCOL_VERSION_V1,
       ...result,
-    });
+    }, { parseOptions: { onExcessProperty: "error" } });
   }
 
   async control(value: unknown): Promise<ProbeRunControlReceiptV1> {
@@ -618,7 +618,7 @@ export class ProbeRunDO extends DurableObject<Record<string, never>> {
       kind: "accepted",
       idempotent: result.idempotent,
       status: this.readStatus(),
-    });
+    }, { parseOptions: { onExcessProperty: "error" } });
   }
 
   async evidencePage(value: unknown): Promise<ProbeRunEvidencePageReceiptV1> {
@@ -650,7 +650,7 @@ export class ProbeRunDO extends DurableObject<Record<string, never>> {
             runId: run.runId,
             sampleOrdinal,
             phase,
-          }),
+          }, { parseOptions: { onExcessProperty: "error" } }),
         );
         continue;
       }
@@ -662,7 +662,7 @@ export class ProbeRunDO extends DurableObject<Record<string, never>> {
             sampleOrdinal,
             phase,
             reason: "campaign-reconciliation",
-          }),
+          }, { parseOptions: { onExcessProperty: "error" } }),
         );
         continue;
       }
@@ -677,7 +677,7 @@ export class ProbeRunDO extends DurableObject<Record<string, never>> {
             sampleOrdinal,
             phase,
             result: decodeStoredCompletedSample(sample.completed_sample_json),
-          }),
+          }, { parseOptions: { onExcessProperty: "error" } }),
         );
         continue;
       }
@@ -690,7 +690,7 @@ export class ProbeRunDO extends DurableObject<Record<string, never>> {
           fragment: decodeStoredControlledSample(
             sample.controlled_sample_json,
           ),
-        }),
+        }, { parseOptions: { onExcessProperty: "error" } }),
       );
     }
     const nextCursor = end < runRow.total_samples
@@ -702,7 +702,7 @@ export class ProbeRunDO extends DurableObject<Record<string, never>> {
       runId: run.runId,
       records,
       nextCursor,
-    });
+    }, { parseOptions: { onExcessProperty: "error" } });
   }
 
   async purge(value: unknown): Promise<ProbeRunPurgeReceiptV1> {
@@ -722,7 +722,7 @@ export class ProbeRunDO extends DurableObject<Record<string, never>> {
       kind: "storage-cleared",
       runId: request.runId,
       storageCleared: true,
-    });
+    }, { parseOptions: { onExcessProperty: "error" } });
   }
 
   async status(value: unknown): Promise<ProbeRunStatusReceiptV1> {
@@ -732,18 +732,18 @@ export class ProbeRunDO extends DurableObject<Record<string, never>> {
       return ProbeRunStatusReceiptV1Schema.make({
         protocolVersion: PROBE_PROTOCOL_VERSION_V1,
         kind: "not-found",
-      });
+      }, { parseOptions: { onExcessProperty: "error" } });
     }
     return readRunRowOrNull(this.sql) === null
       ? ProbeRunStatusReceiptV1Schema.make({
           protocolVersion: PROBE_PROTOCOL_VERSION_V1,
           kind: "not-found",
-        })
+        }, { parseOptions: { onExcessProperty: "error" } })
       : ProbeRunStatusReceiptV1Schema.make({
           protocolVersion: PROBE_PROTOCOL_VERSION_V1,
           kind: "found",
           status: this.readStatus(),
-        });
+        }, { parseOptions: { onExcessProperty: "error" } });
   }
 
   private hasRunIdentity(runId: ProbeRunRequestV1["runId"]): boolean {
@@ -793,7 +793,7 @@ export class ProbeRunDO extends DurableObject<Record<string, never>> {
           journalEntries: row.consumed_journal_entries,
           uniqueCodeIds: row.consumed_unique_code_ids,
         },
-      }),
+      }, { parseOptions: { onExcessProperty: "error" } }),
       counters: ProbeRunCountersV1Schema.make({
         claimed: row.claimed_count,
         terminal: row.terminal_count,
@@ -805,9 +805,9 @@ export class ProbeRunDO extends DurableObject<Record<string, never>> {
         eligible: row.eligible_count,
         excludedWarmup: row.excluded_warmup_count,
         excludedDuplicateWake: row.excluded_duplicate_wake_count,
-      }),
+      }, { parseOptions: { onExcessProperty: "error" } }),
       samples,
-    });
+    }, { parseOptions: { onExcessProperty: "error" } });
   }
 }
 
@@ -1021,7 +1021,7 @@ function sampleStatusFromRow(row: SampleRow): ProbeRunSampleStatusV1 {
       observedOutstandingClaims: row.observed_outstanding_claims,
       measurementDisposition: null,
       syncWake: null,
-    });
+    }, { parseOptions: { onExcessProperty: "error" } });
   }
   if (row.lifecycle_state === "abandoned") {
     if (row.abandonment_reason !== "campaign-reconciliation") {
@@ -1035,7 +1035,7 @@ function sampleStatusFromRow(row: SampleRow): ProbeRunSampleStatusV1 {
       measurementDisposition: null,
       syncWake: null,
       abandonmentReason: "campaign-reconciliation",
-    });
+    }, { parseOptions: { onExcessProperty: "error" } });
   }
   if (
     (row.lifecycle_state !== "completed" && row.lifecycle_state !== "failed") ||
@@ -1053,7 +1053,7 @@ function sampleStatusFromRow(row: SampleRow): ProbeRunSampleStatusV1 {
       row.measurement_disposition,
     ),
     syncWake: decodeStoredSyncWake(row.sync_wake_json),
-  });
+  }, { parseOptions: { onExcessProperty: "error" } });
 }
 
 function fragmentMatchesRegistration(
@@ -1156,7 +1156,7 @@ function rejectedRegistration(
     protocolVersion: PROBE_PROTOCOL_VERSION_V1,
     kind: "rejected",
     error: { code, retryable: retryableStateError(code) },
-  });
+  }, { parseOptions: { onExcessProperty: "error" } });
 }
 
 function rejectedClaim(code: ProbeRunStateErrorCode): ProbeSampleClaimReceiptV1 {
@@ -1164,7 +1164,7 @@ function rejectedClaim(code: ProbeRunStateErrorCode): ProbeSampleClaimReceiptV1 
     protocolVersion: PROBE_PROTOCOL_VERSION_V1,
     kind: "rejected",
     error: { code, retryable: retryableStateError(code) },
-  });
+  }, { parseOptions: { onExcessProperty: "error" } });
 }
 
 function rejectedFinalize(
@@ -1174,7 +1174,7 @@ function rejectedFinalize(
     protocolVersion: PROBE_PROTOCOL_VERSION_V1,
     kind: "rejected",
     error: { code, retryable: retryableStateError(code) },
-  });
+  }, { parseOptions: { onExcessProperty: "error" } });
 }
 
 function rejectedExternalCompletion(
@@ -1184,7 +1184,7 @@ function rejectedExternalCompletion(
     protocolVersion: PROBE_PROTOCOL_VERSION_V1,
     kind: "rejected",
     error: { code, retryable: retryableStateError(code) },
-  });
+  }, { parseOptions: { onExcessProperty: "error" } });
 }
 
 function rejectedRunControl(
@@ -1194,7 +1194,7 @@ function rejectedRunControl(
     protocolVersion: PROBE_PROTOCOL_VERSION_V1,
     kind: "rejected",
     error: { code, retryable: retryableStateError(code) },
-  });
+  }, { parseOptions: { onExcessProperty: "error" } });
 }
 
 function rejectedEvidencePage(
@@ -1204,5 +1204,5 @@ function rejectedEvidencePage(
     protocolVersion: PROBE_PROTOCOL_VERSION_V1,
     kind: "rejected",
     error: { code, retryable: retryableStateError(code) },
-  });
+  }, { parseOptions: { onExcessProperty: "error" } });
 }

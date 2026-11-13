@@ -30,7 +30,7 @@ const providerRead = commerceDecoder(Schema.Struct({ filters: Schema.optionalKey
 const eventDecoder = moduleEventDecoder(Schema.Struct({ name: Schema.String,
   metadata: Schema.Struct({ source: Schema.Literal(Modules.FULFILLMENT), object: Schema.Literals(["shipping_option", "shipping_option_type", "shipping_option_rule"]),
     action: Schema.Literals(["created", "updated", "deleted"]) }),
-  data: Schema.Struct({ id: Schema.Union([ShippingOptionId, Schema.Array(ShippingOptionId).check(Schema.isLengthBetween(1, 16))]) }),
+  data: Schema.Struct({ id: Schema.Union([ShippingOptionId, Schema.Array(ShippingOptionId).check(Schema.isBetweenLength(1, 16))]) }),
 }), defaultCommerceResources);
 
 /** Authenticate actual native updates, retained projections and ordered child

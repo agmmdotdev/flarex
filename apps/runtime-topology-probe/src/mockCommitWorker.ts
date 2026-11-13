@@ -59,7 +59,7 @@ export class MockReadEntrypoint extends WorkerEntrypoint<ProbeMockCommitEnv> {
       syntheticRevision: ProbeSyntheticCursorSchema.make(
         request.commitSeq - 1,
       ),
-    });
+    }, { parseOptions: { onExcessProperty: "error" } });
   }
 }
 
@@ -98,7 +98,7 @@ async function performMockFinish(
       scopeId: request.scopeId,
       scenario: request.scenario,
       commitSeq: request.commitSeq,
-    });
+    }, { parseOptions: { onExcessProperty: "error" } });
     const sync = env.PROBE_SYNC.getByName(request.scopeId);
     const startedAt = performance.now();
     const rawReceipt = await sync.wake(syncRequest);
@@ -122,7 +122,7 @@ async function performMockFinish(
       outcomeResolutionDurationMs: ProbeDurationMsSchema.make(0),
       syncWakeDurationMs: ProbeDurationMsSchema.make(syncWakeDurationMs),
       sync: receipt,
-    });
+    }, { parseOptions: { onExcessProperty: "error" } });
 }
 
 export class MockRerunEntrypoint extends WorkerEntrypoint<ProbeMockCommitEnv> {

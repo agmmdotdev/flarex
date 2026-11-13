@@ -7,7 +7,7 @@ import { captureCommerceInput } from "../../value/input";
 import { commerceDecoder } from "../../value/decoder";
 import { medusaLifecycle } from "../../repository/lifecycle";
 
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 export const ProductLifecycleIds = Schema.Array(Id).check(Schema.isMaxLength(commerceLimits.catalogRows));
 export const ProductDeletionIds = Schema.Array(Id).check(Schema.isMaxLength(4));
 export const VariantDeletionSelector = Schema.Struct({ id: ProductDeletionIds, product_id: Id });

@@ -37,7 +37,7 @@ import type {
 import { parseValidatorJson } from "../validation";
 import { DeploymentValidationError } from "./Errors";
 
-const decodeLogicalOrderedIndexSpec = Schema.decodeUnknownEffect(SchemaManifestAppDeveloperOrderedIndexSpecV1Schema);
+const decodeLogicalOrderedIndexSpec = Schema.decodeUnknownEffect(SchemaManifestAppDeveloperOrderedIndexSpecV1Schema, { onExcessProperty: "error" });
 
 export interface DeploymentPushStatusRow extends Record<string, string | number | null> {
   push_id: string;

@@ -18,7 +18,7 @@ import { prepareLocationFulfillmentProviderLink } from "./location-fulfillment-p
 import { prepareShippingOptionPriceSetLink } from "./shipping-option-price-set-service";
 import { captureShippingDeletionServices } from "./shipping-deletion-services";
 
-const Ids = Schema.Array(Schema.String.check(Schema.isLengthBetween(1, 256))).pipe(Schema.mutable).check(Schema.isMaxLength(4));
+const Ids = Schema.Array(Schema.String.check(Schema.isBetweenLength(1, 256))).pipe(Schema.mutable).check(Schema.isMaxLength(4));
 const Endpoint = Schema.Struct({ stock_location: Schema.Struct({
   stock_location_id: Schema.optionalKey(Ids), location_id: Schema.optionalKey(Ids),
 }).check(Schema.makeFilter(aliases => {

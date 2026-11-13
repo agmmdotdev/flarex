@@ -118,7 +118,7 @@ describe("P02 gateway runtime protocol", () => {
         scenarioWindowDurationMs: ProbeDurationMsSchema.make(0.5),
         syncWake: { kind: "not-applicable" },
         externalRequestIncludesControlPlane: true,
-      }),
+      }, { parseOptions: { onExcessProperty: "error" } }),
     );
     const completed = completeControlledProbeGatewaySampleV1(controlled, 2);
 
@@ -143,7 +143,7 @@ describe("P02 gateway runtime protocol", () => {
           name: "gateway_session_rtt",
           durationMs: ProbeDurationMsSchema.make(0),
           outcome: { kind: "ok" },
-        }),
+        }, { parseOptions: { onExcessProperty: "error" } }),
       ],
     });
     const sample = completeProbeGatewaySampleV1(fragment, 2);
@@ -169,7 +169,7 @@ describe("P02 gateway runtime protocol", () => {
           name: "gateway_dynamic_rtt",
           durationMs: ProbeDurationMsSchema.make(1),
           outcome: { kind: "ok" },
-        }),
+        }, { parseOptions: { onExcessProperty: "error" } }),
       ],
       startup: {
         workerLoader: "callback-ran",
@@ -404,7 +404,7 @@ function span(
     name,
     durationMs: ProbeDurationMsSchema.make(1),
     outcome,
-  });
+  }, { parseOptions: { onExcessProperty: "error" } });
 }
 
 function runRequest(

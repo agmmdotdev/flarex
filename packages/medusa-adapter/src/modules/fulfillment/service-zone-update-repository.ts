@@ -18,8 +18,8 @@ import { prepareServiceZoneUpdateGraph } from "./service-zone-update-graph";
 import { prepareServiceZoneUpdateQuery } from "./service-zone-update-query";
 
 type Metadata = Effect.Success<ReturnType<typeof captureServiceZoneCreationMetadata>>["frame"];
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
-const GeoIds = Schema.Array(Id).check(Schema.isLengthBetween(1, 16));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
+const GeoIds = Schema.Array(Id).check(Schema.isBetweenLength(1, 16));
 // The genuine module passes {id: ids} to its internal service, which forwards
 // one selector object as this exact DAL criterion rather than one branch per ID.
 const decodeGeoDelete = commerceDecoder(Schema.Struct({ $or: Schema.Tuple([Schema.Struct({ id: GeoIds })]) }), "unsupportedProfile");

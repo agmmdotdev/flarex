@@ -1,4 +1,5 @@
-import { Encoding } from "effect";
+import * as Base64Url from "effect/encoding/Base64Url";
+
 
 export const APPLICATION_TASK_DISCOVERY_DEADLINE_POLICY = Object.freeze({
   connectionTimeoutMilliseconds: 1_000,
@@ -27,7 +28,7 @@ export function replaceApplicationDispatchDigestInJson(
     ? {
         ...record,
         applicationTaskRuntimeTargetSha256: {
-          "$flarex.uint8array.v1": Encoding.encodeBase64Url(digest),
+          "$flarex.uint8array.v1": Base64Url.encode(digest),
         },
       }
     : record;

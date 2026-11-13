@@ -37,7 +37,7 @@ export function relationalTextIdentity<Failure>(table: RelationalTableDefinition
 
 const Raw = Schema.Struct({ value: Schema.String,
   precision: Schema.Number.check(Schema.isInt(), Schema.isBetween({ minimum: 1, maximum: 1000 })),
-}).annotate({ parseOptions: { onExcessProperty: "ignore" } });
+});
 const decodeRaw = Schema.decodeUnknownResult(Raw);
 
 const belongsTo = (table: RelationalTableDefinition, column: RelationalColumnIdentity) =>

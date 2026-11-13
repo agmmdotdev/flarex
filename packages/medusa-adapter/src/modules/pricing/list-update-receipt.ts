@@ -14,13 +14,13 @@ import { decodePriceListUpdate, decodePriceListUpdateRead, type PriceListUpdateC
 type Call = Parameters<LogicalCallReceiptValidation>[0];
 type Activity = Parameters<LogicalCallReceiptValidation>[1];
 type Row = Result.Result.Success<ReturnType<PriceListUpdateContracts["decodeListRow"]>>;
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 const decodeIdentities = commerceDecoder(Schema.Array(Schema.Struct({ id: Id }))
   .check(Schema.isMaxLength(defaultCommerceResources.queryRows)), "receiptMismatch");
 const decodeEvent = moduleEventDecoder(Schema.Struct({ name: Schema.String,
   metadata: Schema.Struct({ source: Schema.Literal(Modules.PRICING), object: Schema.Literals(["price_list", "price_list_rule"]),
     action: Schema.Literals(["created", "updated", "deleted"]) }),
-  data: Schema.Struct({ id: Schema.Union([Id, Schema.Array(Id).check(Schema.isLengthBetween(1, defaultCommerceResources.eventIds))]) }),
+  data: Schema.Struct({ id: Schema.Union([Id, Schema.Array(Id).check(Schema.isBetweenLength(1, defaultCommerceResources.eventIds))]) }),
 }), defaultCommerceResources);
 type Capture = (input: unknown) => ReturnType<typeof decodeEvent>;
 

@@ -30,7 +30,7 @@ const bindPromotion = prepareCommerceInternalService(Promotion), bindMethod = pr
 const event = moduleEventDecoder(Schema.Struct({ name: Schema.String,
   metadata: Schema.Struct({ source: Schema.Literal(Modules.PROMOTION), object: Schema.Literals(["promotion", "campaign_budget", "campaign_budget_usage"]),
     action: Schema.Literals(["created", "updated", "deleted"]) }),
-  data: Schema.Struct({ id: Schema.Union([Schema.String, Schema.Array(Schema.String).check(Schema.isLengthBetween(1, 4))]) }),
+  data: Schema.Struct({ id: Schema.Union([Schema.String, Schema.Array(Schema.String).check(Schema.isBetweenLength(1, 4))]) }),
 }), defaultCommerceResources);
 const capture = Effect.fn("PromotionUsage.captureEvent")(function* (input: unknown) {
   const value = yield* event(input);

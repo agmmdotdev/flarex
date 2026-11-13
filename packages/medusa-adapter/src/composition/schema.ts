@@ -31,8 +31,6 @@ import {
   QualifiedLogicalTableSchema,
   type LogicalSchemaSource,
 } from "flarex-protocol/internal/logical-schema-candidate";
-
-const strict = { parseOptions: { onExcessProperty: "error" } } as const;
 const MedusaModule = Schema.Literals(["product", "currency", "pricing", "variantPricingLink", "salesChannel", "store", "productSalesChannelLink", "shippingProfile", "shippingProfileDeletion", "serviceZoneCreation", "fulfillmentCreation", "productShippingProfileLink", "inventory", "stockLocation", "variantLinks", "salesChannelLocationLink", "locationFulfillmentSetLink", "locationFulfillmentProviderLink", "shippingOptionPriceSetLink", "region"]);
 const decodeModules = Schema.decodeUnknownResult(Schema.Array(MedusaModule));
 const Request = Schema.Struct({
@@ -40,10 +38,10 @@ const Request = Schema.Struct({
   payloadCollections: Schema.Unknown,
   payloadViews: Schema.Array(Schema.Struct({
     collections: Schema.Unknown,
-    bindings: Schema.Array(Schema.Struct({ localName: Schema.NonEmptyString, table: QualifiedLogicalTableSchema }).annotate(strict)),
-  }).annotate(strict)).check(Schema.isMaxLength(16)),
+    bindings: Schema.Array(Schema.Struct({ localName: Schema.NonEmptyString, table: QualifiedLogicalTableSchema })),
+  })).check(Schema.isMaxLength(16)),
   extensions: Schema.Array(LogicalSchemaExtensionSchema).check(Schema.isMaxLength(1024)),
-}).annotate(strict);
+});
 
 export class SchemaCompositionError extends Data.TaggedError("SchemaCompositionError")<{
   readonly reason: "invalidRequest" | "unanalyzedApplication" | "mixedApplicationPolicy" | "unsupportedPlacement" | "missingModuleDependency";
@@ -97,7 +95,7 @@ export function makeSchemaComposer(configuration: {
     if (modules.includes("variantLinks") && (!modules.includes("product") || !modules.includes("pricing") || !modules.includes("inventory") || modules.includes("variantPricingLink"))) {
       return yield* Effect.fail(new SchemaCompositionError({ reason: "missingModuleDependency" }));
     }
-    const config = yield* Schema.decodeUnknownEffect(Request)(request).pipe(
+    const config = yield* Schema.decodeUnknownEffect(Request, { onExcessProperty: "error" })(request).pipe(
       Effect.mapError(cause => new SchemaCompositionError({ reason: "invalidRequest", cause })),
     );
     const application = yield* inspect.call(repository, authority, config.applicationCandidateId);

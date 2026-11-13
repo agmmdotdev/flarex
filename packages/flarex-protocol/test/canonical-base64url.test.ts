@@ -1,4 +1,5 @@
-import { Encoding, Result, Schema } from "effect";
+import * as Base64Url from "effect/encoding/Base64Url";
+import { Result, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -46,7 +47,7 @@ describe("canonical Base64URL", () => {
 
   it("matches canonical encoded lengths across each padding remainder", () => {
     for (const byteLength of [0, 1, 2, 3, 4, 63, 64, 512]) {
-      const encoded = Encoding.encodeBase64Url(new Uint8Array(byteLength));
+      const encoded = Base64Url.encode(new Uint8Array(byteLength));
 
       expect(canonicalBase64UrlEncodedLength(byteLength)).toBe(
         encoded.length,

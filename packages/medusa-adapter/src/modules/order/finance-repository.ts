@@ -25,7 +25,7 @@ import { lowerDmlSchema } from "../../schema/lower";
 import { prepareOrderCreationGraphs } from "./creation-graph";
 
 const decodeBatch = commerceDecoder(Schema.Array(Schema.Unknown).check(Schema.isMaxLength(4)), "unsupportedProfile");
-const decodeId = commerceDecoder(Schema.String.check(Schema.isLengthBetween(1, 256)), "unsupportedProfile");
+const decodeId = commerceDecoder(Schema.String.check(Schema.isBetweenLength(1, 256)), "unsupportedProfile");
 const decodeDelete = commerceDecoder(Schema.Struct({ $or: Schema.Array(Schema.Struct({ id: Schema.String }))
   .check(Schema.isMaxLength(4)) }), "unsupportedProfile");
 const decodeNormalized = commerceDecoder(Schema.JsonObject, "unsupportedProfile");

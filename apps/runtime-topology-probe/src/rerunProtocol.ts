@@ -22,10 +22,7 @@ import {
   ProbeProtocolVersionV1Schema,
 } from "./protocol";
 import { ProbeSyntheticCursorSchema } from "./commitProtocol";
-import {
-  StrictParseOptions,
-  StrictStructOptions,
-} from "./strictSchemaOptions";
+import { StrictParseOptions } from "./strictSchemaOptions";
 
 const PayloadBytesSchema = Schema.Int.check(
   Schema.makeFilter((value: number) =>
@@ -54,7 +51,7 @@ const ProbeSyncRerunRequestV1Shape = Schema.Struct({
   ...RerunIdentityShape,
   reentryDepth: Schema.Literal(0),
   payload: SyntheticPayloadSchema,
-}).annotate(StrictStructOptions);
+});
 
 export const ProbeSyncRerunRequestV1Schema =
   ProbeSyncRerunRequestV1Shape.check(
@@ -73,7 +70,7 @@ const ProbeRuntimeRerunRequestV1Shape = Schema.Struct({
   ...RerunIdentityShape,
   reentryDepth: Schema.Literal(1),
   payload: SyntheticPayloadSchema,
-}).annotate(StrictStructOptions);
+});
 
 export const ProbeRuntimeRerunRequestV1Schema =
   ProbeRuntimeRerunRequestV1Shape.check(
@@ -92,7 +89,7 @@ const ProbeRerunFacetResponseV1Shape = Schema.Struct({
   ...RerunIdentityShape,
   reentryDepth: Schema.Literal(1),
   payloadBytes: PayloadBytesSchema,
-}).annotate(StrictStructOptions);
+});
 
 export const ProbeRerunFacetResponseV1Schema =
   ProbeRerunFacetResponseV1Shape.check(
@@ -125,7 +122,7 @@ const ProbeRerunSessionResponseV1Shape = Schema.Struct({
   facetDurationMs: ProbeDurationMsSchema,
   workerLoaderCallbackRan: Schema.Boolean,
   facetStartupCallbackRan: Schema.Boolean,
-}).annotate(StrictStructOptions);
+});
 
 export const ProbeRerunSessionResponseV1Schema =
   ProbeRerunSessionResponseV1Shape.check(
@@ -142,7 +139,7 @@ const ProbeRuntimeRerunResponseV1Shape = Schema.Struct({
   session: ProbeRerunSessionResponseV1Schema,
   runtimeSessionDurationMs: ProbeDurationMsSchema,
   terminalAck: Schema.Literal(true),
-}).annotate(StrictStructOptions);
+});
 
 export const ProbeRuntimeRerunResponseV1Schema =
   ProbeRuntimeRerunResponseV1Shape;
@@ -156,7 +153,7 @@ const ProbeSyncRerunReceiptV1Shape = Schema.Struct({
   cursorAfter: ProbeSyntheticCursorSchema,
   capabilityCallCount: Schema.Literal(1),
   terminalAck: Schema.Literal(true),
-}).annotate(StrictStructOptions);
+});
 
 export const ProbeSyncRerunReceiptV1Schema =
   ProbeSyncRerunReceiptV1Shape.check(

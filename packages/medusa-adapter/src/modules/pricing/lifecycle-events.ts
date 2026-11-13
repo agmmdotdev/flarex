@@ -16,7 +16,7 @@ const linkableKeys = pricingStaticResources.joinerConfig?.linkableKeys ?? {};
  * managed transition and its complete before/after row. */
 export function pricingLogicalProductUpdateEventPolicy(preferences: ReturnType<typeof pricingPreferencePolicy>) {
   const mutation = pricingLogicalMutationEventPolicy(preferences);
-  const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+  const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
   const decode = moduleEventDecoder(Schema.Struct({ name: Schema.String,
     metadata: Schema.Struct({ source: Schema.Literal(Modules.PRICING), object: Schema.Literals(["price_set", "price", "price_rule"]),
       action: Schema.Literal(CommonEvents.DELETED) }),

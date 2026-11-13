@@ -1,3 +1,4 @@
+import * as Hex from "effect/encoding/Hex";
 import {
   copyBytes,
   encodeBytesToLowercaseHex,
@@ -8,7 +9,7 @@ import {
 import type {
   RunAttemptPolicyV1,
 } from "@flarex/durable-task/internal/run-attempt-v1";
-import { Encoding, Result } from "effect";
+import { Result } from "effect";
 import { encodeValidatorJsonV1 } from "flarex-protocol/validator-json";
 import {
   encodeCanonicalJson,
@@ -682,7 +683,7 @@ function decodeCanonicalDigest(value: Json | undefined): Uint8Array | undefined 
   if (typeof value !== "string" || !/^[0-9a-f]{64}$/u.test(value)) {
     return undefined;
   }
-  const decoded = Encoding.decodeHex(value);
+  const decoded = Hex.decode(value);
   return Result.isSuccess(decoded)
     && isUint8ArrayWithByteLength(decoded.success, 32)
     ? decoded.success

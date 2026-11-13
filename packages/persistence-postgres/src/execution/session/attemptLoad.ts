@@ -344,7 +344,7 @@ export function runningAttemptKernelContextResult(
         epoch: clock.record.epoch, epochUuid: clock.epochUuid, oldestAvailableCommitSeq: clock.record.oldestAvailableCommitSeq,
         authorizationRevocationEpoch: clock.authorizationRevocationEpoch }, { sessionId: session.sessionId,
           attemptFence: locked.attemptFence, snapshotToken: SnapshotTokenSchema.make({ scopeId: loaded.scopeId,
-            epoch: locked.snapshotEpoch, commitSeq: locked.snapshotCommitSeq }) });
+            epoch: locked.snapshotEpoch, commitSeq: locked.snapshotCommitSeq }, { parseOptions: { onExcessProperty: "error" } }) });
   }
   const finiteAuthority = tx === undefined ? undefined : readFiniteExecutionAuthorityObservation(tx, loaded.scopeId);
   return decodeCheckedSchemaVersionIdResult(session.schemaVersionId).pipe(
@@ -372,7 +372,7 @@ export function runningAttemptKernelContextResult(
           scopeId: loaded.scopeId,
           epoch: locked.snapshotEpoch,
           commitSeq: locked.snapshotCommitSeq,
-        }),
+        }, { parseOptions: { onExcessProperty: "error" } }),
         hardExpiresAt: session.hardExpiresAt.toISOString(),
         leaseExpiresAt: locked.lease.leaseExpiresAt.toISOString(),
         createdAt: session.createdAt.toISOString(),

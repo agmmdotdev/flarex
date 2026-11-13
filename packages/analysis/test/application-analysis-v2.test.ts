@@ -244,7 +244,7 @@ describe("Application Manifest V2", () => {
     expect(isApplicationManifestV1(decodedV1.success.manifest)).toBe(true);
     expect(isApplicationManifestV2(decodedV2.success.manifest)).toBe(true);
     expect(Result.isSuccess(Schema.decodeUnknownResult(
-      ApplicationManifestSchema,
+      ApplicationManifestSchema, { onExcessProperty: "error" },
     )(structuredClone(v2.manifest)))).toBe(true);
     expect(canonicalizeApplicationManifest({
       ...structuredClone(v1.manifest),

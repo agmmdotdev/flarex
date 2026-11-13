@@ -20,7 +20,7 @@ export type CoreNativeScalar = typeof Scalar.Type;
 const isScalar = Schema.is(Scalar);
 const Range = Schema.Struct({ gt: Schema.optionalKey(Scalar), gte: Schema.optionalKey(Scalar),
   lt: Schema.optionalKey(Scalar), lte: Schema.optionalKey(Scalar),
-}).annotate({ parseOptions: { onExcessProperty: "error" } }).check(Schema.makeFilter(value =>
+}).check(Schema.makeFilter(value =>
   Object.keys(value).length > 0 && !(Object.hasOwn(value, "gt") && Object.hasOwn(value, "gte"))
     && !(Object.hasOwn(value, "lt") && Object.hasOwn(value, "lte")) ? undefined : "Expected one lower and/or upper bound"));
 export const CoreNativeWhereSchema = Schema.Record(Schema.String, Schema.Union([Scalar, Range]));

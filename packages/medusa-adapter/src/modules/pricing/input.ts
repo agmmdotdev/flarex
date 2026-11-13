@@ -2,8 +2,8 @@ import { Schema } from "effect";
 import { commerceDecoder } from "../../value/decoder";
 import { QueryLimit, QueryOffset } from "../../query/decoder";
 
-export const PricingId = Schema.String.check(Schema.isLengthBetween(1, 256));
-const Text = Schema.String.check(Schema.isLengthBetween(1, 256));
+export const PricingId = Schema.String.check(Schema.isBetweenLength(1, 256));
+const Text = Schema.String.check(Schema.isBetweenLength(1, 256));
 const Numeric = Schema.Union([Schema.String, Schema.Number]);
 export const BasePriceInput = Schema.Struct({
   id: Schema.optionalKey(PricingId), title: Schema.optionalKey(Schema.NullOr(Schema.String)),

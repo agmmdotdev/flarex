@@ -1,4 +1,5 @@
-import { Data, Encoding, Result, Schema } from "effect";
+import * as HexEncoding from "effect/encoding/Hex";
+import { Data, Result, Schema } from "effect";
 import { ExecutionIdentitySchema } from "./auth";
 import { isCanonicalUuidTextV1 } from "./canonical-uuid";
 import { captureDocumentObject, decodeDocumentValue, encodeDocumentValue,
@@ -6,8 +7,6 @@ import { captureDocumentObject, decodeDocumentValue, encodeDocumentValue,
 import { JsonValue, type Json } from "./json";
 import { TransactionFunctionPathV1Schema, TransactionRequestKeyV1Schema } from "./transaction-session";
 import { PushSourcePackage } from "./deployment";
-
-const strict = { parseOptions: { onExcessProperty: "error" as const } };
 const Text = Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(1024));
 const Sha256 = Schema.String.check(Schema.isPattern(/^[0-9a-f]{64}$/));
 const Uuid = Schema.String.check(Schema.makeFilter(value =>
@@ -18,12 +17,12 @@ const Timestamp = Schema.String.check(Schema.isPattern(/^(0|[1-9][0-9]{0,18})$/)
 const Hex = Schema.String.check(Schema.isPattern(/^(?:[0-9a-f]{2})*$/));
 // Core conflict evidence includes physical IDs and its fe/ff-prefixed metadata identities.
 const IndexIdentity = Schema.String.check(Schema.isPattern(/^(?:[0-9a-f]{32}|f[ef][0-9a-f]{32})$/));
-const Interval = Schema.Struct({ start: Schema.NullOr(Hex), end: Schema.NullOr(Hex) }).annotate(strict);
-const Read = Schema.Struct({ indexId: IndexIdentity, intervals: Schema.Array(Interval) }).annotate(strict);
-const Frontier = Schema.Struct({ timestamp: Timestamp, reads: Schema.Array(Read) }).annotate(strict);
+const Interval = Schema.Struct({ start: Schema.NullOr(Hex), end: Schema.NullOr(Hex) });
+const Read = Schema.Struct({ indexId: IndexIdentity, intervals: Schema.Array(Interval) });
+const Frontier = Schema.Struct({ timestamp: Timestamp, reads: Schema.Array(Read) });
 const Evaluation = Schema.Struct({ timestamp: Timestamp, reads: Schema.Array(Read),
-  metadataReadFrontiers: Schema.optionalKey(Schema.Array(Frontier)) }).annotate(strict);
-const Route = Schema.Struct({ deploymentId: Text, scopeUuid: Uuid, epochUuid: Uuid }).annotate(strict);
+  metadataReadFrontiers: Schema.optionalKey(Schema.Array(Frontier)) });
+const Route = Schema.Struct({ deploymentId: Text, scopeUuid: Uuid, epochUuid: Uuid });
 const WallTime = Schema.Finite.check(Schema.makeFilter(value => value >= 0 ? undefined : "Expected nonnegative epoch milliseconds"));
 export type CoreApplicationRouteIdentity = typeof Route.Type;
 export const CoreApplicationRouteIdentitySchema = Route;
@@ -35,32 +34,32 @@ const requestHeader = {
   requestKey: TransactionRequestKeyV1Schema, sourceArtifactRootSha256: Sha256, sourcePackageHash: Sha256,
   auth: ExecutionIdentitySchema, args: JsonValue,
 };
-const RequestWire = Schema.Struct(requestHeader).annotate(strict);
+const RequestWire = Schema.Struct(requestHeader);
 export type CoreApplicationInvocationRequest = Omit<typeof RequestWire.Type, "args"> & Readonly<{ args: DocumentObject }>;
 const CoreProfile = Schema.Struct({ format: Schema.Literal("flarex.core-application.profile"), version: Schema.Literal(1),
-  kind: Schema.Literal("core"), route: Route, sourceArtifactRootSha256: Sha256, sourcePackageHash: Sha256 }).annotate(strict);
+  kind: Schema.Literal("core"), route: Route, sourceArtifactRootSha256: Sha256, sourcePackageHash: Sha256 });
 const Profile = Schema.Union([CoreProfile, Schema.Struct({ format: Schema.Literal("flarex.core-application.profile"),
-  version: Schema.Literal(1), kind: Schema.Literal("legacy"), deploymentId: Text }).annotate(strict)]);
+  version: Schema.Literal(1), kind: Schema.Literal("legacy"), deploymentId: Text })]);
 export type CoreApplicationCoreProfile = typeof CoreProfile.Type;
 export type CoreApplicationProfile = typeof Profile.Type;
 const Control = Schema.Union([
   Schema.Struct({ format: Schema.Literal("flarex.core-application.control"), version: Schema.Literal(1),
     kind: Schema.Literal("core"), route: Route,
     maximumPushRequestBytes: Schema.Int.check(Schema.makeFilter(value => Number.isSafeInteger(value) && value > 0
-      ? undefined : "Expected a positive byte bound")) }).annotate(strict),
+      ? undefined : "Expected a positive byte bound")) }),
   Schema.Struct({ format: Schema.Literal("flarex.core-application.control"), version: Schema.Literal(1),
-    kind: Schema.Literal("legacy"), deploymentId: Text }).annotate(strict),
+    kind: Schema.Literal("legacy"), deploymentId: Text }),
 ]);
 export type CoreApplicationControl = typeof Control.Type;
 const Candidate = Schema.Struct({ format: Schema.Literal("flarex.core-application.candidate"), version: Schema.Literal(1),
   route: Route, pushId: Text, state: Schema.Literals(["pending", "validated", "active", "failed", "abandoned", "superseded"]),
   sourceArtifactRootSha256: Sha256, sourcePackageHash: Sha256, canonicalManifest: Schema.String,
   sourcePackage: PushSourcePackage, createdAt: WallTime, updatedAt: WallTime,
-  indexesReady: Schema.Boolean, error: Schema.optionalKey(Schema.String) }).annotate(strict);
+  indexesReady: Schema.Boolean, error: Schema.optionalKey(Schema.String) });
 export type CoreApplicationCandidate = typeof Candidate.Type;
-const Start = Schema.Struct({ sourcePackage: PushSourcePackage }).annotate(strict);
-const Finish = Schema.Struct({ activate: Schema.optionalKey(Schema.Boolean) }).annotate(strict);
-const Abandon = Schema.Struct({ reason: Schema.optionalKey(Schema.String) }).annotate(strict);
+const Start = Schema.Struct({ sourcePackage: PushSourcePackage });
+const Finish = Schema.Struct({ activate: Schema.optionalKey(Schema.Boolean) });
+const Abandon = Schema.Struct({ reason: Schema.optionalKey(Schema.String) });
 export type CoreApplicationStartRequest = typeof Start.Type;
 export type CoreApplicationFinishRequest = typeof Finish.Type;
 export type CoreApplicationAbandonRequest = typeof Abandon.Type;
@@ -80,9 +79,9 @@ export type CoreApplicationInvocationResult =
 const responseHeader = { format: Schema.Literal("flarex.core-application.response"), version: Schema.Literal(1),
   requestKey: TransactionRequestKeyV1Schema, functionPath: TransactionFunctionPathV1Schema, route: Route, value: JsonValue };
 const ResponseWire = Schema.Union([
-  Schema.Struct({ ...responseHeader, kind: Schema.Literal("query"), evaluation: Evaluation }).annotate(strict),
+  Schema.Struct({ ...responseHeader, kind: Schema.Literal("query"), evaluation: Evaluation }),
   Schema.Struct({ ...responseHeader, kind: Schema.Literal("mutation"), disposition: Schema.Literals(["published", "replayed"]),
-    publishedTimestamp: Timestamp }).annotate(strict),
+    publishedTimestamp: Timestamp }),
 ]);
 export type CoreApplicationInvocationSuccess = CoreApplicationInvocationResult & Readonly<{
   format: "flarex.core-application.response"; version: 1;
@@ -91,17 +90,17 @@ export type CoreApplicationInvocationSuccess = CoreApplicationInvocationResult &
   route: CoreApplicationRouteIdentity;
 }>;
 const Failure = Schema.Struct({ format: Schema.Literal("flarex.core-application.failure"), version: Schema.Literal(1),
-  error: Schema.Struct({ code: Text, message: Text }).annotate(strict) }).annotate(strict);
+  error: Schema.Struct({ code: Text, message: Text }) });
 export type CoreApplicationFailure = typeof Failure.Type;
-const decodeRequestWire = Schema.decodeUnknownResult(RequestWire);
-const decodeResponseWire = Schema.decodeUnknownResult(ResponseWire);
-const decodeProfileWire = Schema.decodeUnknownResult(Profile);
-const decodeFailureWire = Schema.decodeUnknownResult(Failure);
-const decodeControlWire = Schema.decodeUnknownResult(Control);
-const decodeCandidateWire = Schema.decodeUnknownResult(Candidate);
-const decodeStartWire = Schema.decodeUnknownResult(Start);
-const decodeFinishWire = Schema.decodeUnknownResult(Finish);
-const decodeAbandonWire = Schema.decodeUnknownResult(Abandon);
+const decodeRequestWire = Schema.decodeUnknownResult(RequestWire, { onExcessProperty: "error" });
+const decodeResponseWire = Schema.decodeUnknownResult(ResponseWire, { onExcessProperty: "error" });
+const decodeProfileWire = Schema.decodeUnknownResult(Profile, { onExcessProperty: "error" });
+const decodeFailureWire = Schema.decodeUnknownResult(Failure, { onExcessProperty: "error" });
+const decodeControlWire = Schema.decodeUnknownResult(Control, { onExcessProperty: "error" });
+const decodeCandidateWire = Schema.decodeUnknownResult(Candidate, { onExcessProperty: "error" });
+const decodeStartWire = Schema.decodeUnknownResult(Start, { onExcessProperty: "error" });
+const decodeFinishWire = Schema.decodeUnknownResult(Finish, { onExcessProperty: "error" });
+const decodeAbandonWire = Schema.decodeUnknownResult(Abandon, { onExcessProperty: "error" });
 
 export class CoreApplicationProtocolError extends Data.TaggedError("CoreApplicationProtocolError")<{
   readonly reason: "invalidRequest" | "invalidResponse" | "invalidValue";
@@ -161,19 +160,19 @@ export const decodeCoreApplicationAbandonRequest = (value: unknown) =>
 
 function readSetFromWire(reads: readonly typeof Read.Type[]): Result.Result<readonly CoreApplicationIndexRead[], CoreApplicationProtocolError> {
   return Result.all(reads.map(read => Result.gen(function* () {
-    const indexId = yield* Result.mapError(Encoding.decodeHex(read.indexId), cause => invalid("invalidResponse", cause));
+    const indexId = yield* Result.mapError(HexEncoding.decode(read.indexId), cause => invalid("invalidResponse", cause));
     const intervals = yield* Result.all(read.intervals.map(interval => Result.gen(function* () {
-      const start = interval.start === null ? null : yield* Result.mapError(Encoding.decodeHex(interval.start), cause => invalid("invalidResponse", cause));
-      const end = interval.end === null ? null : yield* Result.mapError(Encoding.decodeHex(interval.end), cause => invalid("invalidResponse", cause));
+      const start = interval.start === null ? null : yield* Result.mapError(HexEncoding.decode(interval.start), cause => invalid("invalidResponse", cause));
+      const end = interval.end === null ? null : yield* Result.mapError(HexEncoding.decode(interval.end), cause => invalid("invalidResponse", cause));
       return Object.freeze({ start, end });
     })));
     return Object.freeze({ indexId, intervals: Object.freeze(intervals) });
   })));
 }
 const readSetToWire = (reads: readonly CoreApplicationIndexRead[]) => reads.map(read => ({
-  indexId: Encoding.encodeHex(read.indexId), intervals: read.intervals.map(interval => ({
-    start: interval.start === null ? null : Encoding.encodeHex(interval.start),
-    end: interval.end === null ? null : Encoding.encodeHex(interval.end),
+  indexId: HexEncoding.encode(read.indexId), intervals: read.intervals.map(interval => ({
+    start: interval.start === null ? null : HexEncoding.encode(interval.start),
+    end: interval.end === null ? null : HexEncoding.encode(interval.end),
   })),
 }));
 function evaluationFromWire(value: typeof Evaluation.Type): Result.Result<CoreApplicationEvaluation, CoreApplicationProtocolError> {

@@ -1,6 +1,6 @@
 import { Layer } from "effect";
-import { HttpRouter, HttpServer } from "effect/unstable/http";
-import { HttpApiBuilder } from "effect/unstable/httpapi";
+import { HttpRouter, HttpServer } from "effect/http";
+import { HttpApiBuilder } from "effect/http-api";
 import { RegistryApi } from "flarex-protocol/registry";
 import { RegistryApiHandlers } from "./HttpApiHandlers";
 import type { RegistryService } from "./Service";

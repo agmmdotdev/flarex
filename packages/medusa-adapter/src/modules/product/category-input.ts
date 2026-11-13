@@ -4,7 +4,7 @@ import { commerceDecoder } from "../../value/decoder";
 import { NativePreimageConfig } from "../../workflow/preimage";
 import { decodeCategoryProjection } from "./category-projection";
 
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 const StoredRank = Schema.Number.check(Schema.isInt(), Schema.isBetween({ minimum: Number.MIN_SAFE_INTEGER, maximum: Number.MAX_SAFE_INTEGER }));
 const Rank = StoredRank.check(Schema.isGreaterThanOrEqualTo(0));
 export const ProductCategoryIds = Schema.Array(Id).pipe(Schema.mutable).check(Schema.isMaxLength(4));

@@ -1,5 +1,6 @@
+import * as Hex from "effect/encoding/Hex";
 import { and, eq, inArray, sql } from "drizzle-orm";
-import { Effect, Encoding, Option, Schema } from "effect";
+import { Effect, Option, Schema } from "effect";
 import { compareUtf16Strings } from "@flarex/utils/strings";
 
 import { detachDriverRows } from "../../database/detachDriverRows";
@@ -320,10 +321,10 @@ const prepareExpectedAssignment = Effect.fn(
     canonicalJson: captured.canonicalJson,
   });
   const assignmentSha256Bytes = yield* Effect.fromResult(
-    Encoding.decodeHex(assignment.assignmentSha256),
+    Hex.decode(assignment.assignmentSha256),
   ).pipe(Effect.orDie);
   const nameSha256Bytes = yield* Effect.fromResult(
-    Encoding.decodeHex(assignment.frame.nameSha256),
+    Hex.decode(assignment.frame.nameSha256),
   ).pipe(Effect.orDie);
   return Object.freeze({
     assignment,
@@ -734,9 +735,9 @@ const readExactAssignmentRows = Effect.fn("RelationalPhysicalNameAssignmentRepos
     const value = bySpelling.get(candidate.spelling);
     if (value === undefined) return Option.none();
     const bytes = new TextEncoder().encode(value.canonicalJson);
-    const assignmentSha256 = yield* Effect.fromResult(Encoding.decodeHex(value.assignmentSha256)).pipe(
+    const assignmentSha256 = yield* Effect.fromResult(Hex.decode(value.assignmentSha256)).pipe(
       Effect.mapError(() => FrameworkMigrationRepositoryError.referenceRefusal(operation)));
-    const nameSha256 = yield* Effect.fromResult(Encoding.decodeHex(value.frame.nameSha256)).pipe(
+    const nameSha256 = yield* Effect.fromResult(Hex.decode(value.frame.nameSha256)).pipe(
       Effect.mapError(() => FrameworkMigrationRepositoryError.referenceRefusal(operation)));
     rows.push({ assignmentStorageId: candidate.storageId, collisionStorageId: collision.storageId,
       physicalDatabaseIdentity: collision.coordinate.targetNamespace.physicalDatabaseIdentity,

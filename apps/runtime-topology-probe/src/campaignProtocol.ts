@@ -19,10 +19,7 @@ import {
   probeWorkerLoaderIdentityV1,
   type ProbeRunRequestV1,
 } from "./protocol";
-import {
-  StrictParseOptions,
-  StrictStructOptions,
-} from "./strictSchemaOptions";
+import { StrictParseOptions } from "./strictSchemaOptions";
 
 export const PROBE_CAMPAIGN_LIMITS_V1 = {
   runCells: 32,
@@ -76,14 +73,14 @@ export const ProbeCampaignBudgetValuesV1Schema = Schema.Struct({
   payloadBytes: PayloadBudgetSchema,
   journalEntries: JournalBudgetSchema,
   uniqueCodeIds: CodeBudgetSchema,
-}).annotate(StrictStructOptions);
+});
 export type ProbeCampaignBudgetValuesV1 =
   typeof ProbeCampaignBudgetValuesV1Schema.Type;
 
 export const ProbeCampaignBudgetsV1Schema = Schema.Struct({
   limits: ProbeCampaignBudgetValuesV1Schema,
   planned: ProbeCampaignBudgetValuesV1Schema,
-}).annotate(StrictStructOptions);
+});
 export type ProbeCampaignBudgetsV1 =
   typeof ProbeCampaignBudgetsV1Schema.Type;
 
@@ -92,7 +89,7 @@ const ProbeCampaignManifestV1Shape = Schema.Struct({
   campaignId: ProbeCampaignIdSchema,
   collectorConcurrency: CollectorConcurrencySchema,
   runs: Schema.Array(ProbeRunRequestV1Schema),
-}).annotate(StrictStructOptions);
+});
 
 export const ProbeCampaignManifestV1Schema = ProbeCampaignManifestV1Shape.check(
   Schema.makeFilter(manifest => campaignManifestIssueV1(manifest)),
@@ -126,14 +123,14 @@ export const ProbeCampaignProgressV1Schema = Schema.Struct({
   completedReconciliationTasks: RunCountSchema,
   totalPurgeTasks: CampaignTaskCountSchema,
   completedPurgeTasks: CampaignTaskCountSchema,
-}).annotate(StrictStructOptions);
+});
 export type ProbeCampaignProgressV1 =
   typeof ProbeCampaignProgressV1Schema.Type;
 
 export const ProbeCampaignEvidenceSealV1Schema = Schema.Struct({
   recordCount: SampleExecutionCountSchema,
   sha256: Sha256HexSchema,
-}).annotate(StrictStructOptions);
+});
 export type ProbeCampaignEvidenceSealV1 =
   typeof ProbeCampaignEvidenceSealV1Schema.Type;
 
@@ -145,7 +142,7 @@ const ProbeCampaignStatusV1Shape = Schema.Struct({
   budgets: ProbeCampaignBudgetsV1Schema,
   progress: ProbeCampaignProgressV1Schema,
   evidence: Schema.Union([ProbeCampaignEvidenceSealV1Schema, Schema.Null]),
-}).annotate(StrictStructOptions);
+});
 
 export const ProbeCampaignStatusV1Schema = ProbeCampaignStatusV1Shape.check(
   Schema.makeFilter(status => campaignStatusIssueV1(status)),
@@ -171,14 +168,14 @@ export type ProbeCampaignErrorCodeV1 =
 export const ProbeCampaignErrorV1Schema = Schema.Struct({
   code: ProbeCampaignErrorCodeV1Schema,
   retryable: Schema.Boolean,
-}).annotate(StrictStructOptions);
+});
 export type ProbeCampaignErrorV1 = typeof ProbeCampaignErrorV1Schema.Type;
 
 const CampaignRejectedReceiptSchema = Schema.Struct({
   protocolVersion: ProbeProtocolVersionV1Schema,
   kind: Schema.Literal("rejected"),
   error: ProbeCampaignErrorV1Schema,
-}).annotate(StrictStructOptions);
+});
 
 export const ProbeCampaignRegistrationReceiptV1Schema = Schema.Union([
   Schema.Struct({
@@ -186,7 +183,7 @@ export const ProbeCampaignRegistrationReceiptV1Schema = Schema.Union([
     kind: Schema.Literal("registered"),
     created: Schema.Boolean,
     status: ProbeCampaignStatusV1Schema,
-  }).annotate(StrictStructOptions),
+  }),
   CampaignRejectedReceiptSchema,
 ]);
 export type ProbeCampaignRegistrationReceiptV1 =
@@ -195,7 +192,7 @@ export type ProbeCampaignRegistrationReceiptV1 =
 export const ProbeCampaignControlRequestV1Schema = Schema.Struct({
   protocolVersion: ProbeProtocolVersionV1Schema,
   campaignId: ProbeCampaignIdSchema,
-}).annotate(StrictStructOptions);
+});
 export type ProbeCampaignControlRequestV1 =
   typeof ProbeCampaignControlRequestV1Schema.Type;
 
@@ -203,7 +200,7 @@ export const ProbeCampaignPurgeRequestV1Schema = Schema.Struct({
   protocolVersion: ProbeProtocolVersionV1Schema,
   campaignId: ProbeCampaignIdSchema,
   maxTasks: PurgeStepSizeSchema,
-}).annotate(StrictStructOptions);
+});
 export type ProbeCampaignPurgeRequestV1 =
   typeof ProbeCampaignPurgeRequestV1Schema.Type;
 
@@ -212,7 +209,7 @@ export const ProbeCampaignControlReceiptV1Schema = Schema.Union([
     protocolVersion: ProbeProtocolVersionV1Schema,
     kind: Schema.Literal("accepted"),
     status: ProbeCampaignStatusV1Schema,
-  }).annotate(StrictStructOptions),
+  }),
   CampaignRejectedReceiptSchema,
 ]);
 export type ProbeCampaignControlReceiptV1 =
@@ -223,11 +220,11 @@ export const ProbeCampaignStatusReceiptV1Schema = Schema.Union([
     protocolVersion: ProbeProtocolVersionV1Schema,
     kind: Schema.Literal("found"),
     status: ProbeCampaignStatusV1Schema,
-  }).annotate(StrictStructOptions),
+  }),
   Schema.Struct({
     protocolVersion: ProbeProtocolVersionV1Schema,
     kind: Schema.Literal("not-found"),
-  }).annotate(StrictStructOptions),
+  }),
 ]);
 export type ProbeCampaignStatusReceiptV1 =
   typeof ProbeCampaignStatusReceiptV1Schema.Type;
@@ -319,7 +316,7 @@ export function probeCampaignBudgetPlanV1(
     payloadBytes,
     journalEntries,
     uniqueCodeIds: codeIds.size,
-  });
+  }, { parseOptions: { onExcessProperty: "error" } });
 }
 
 function campaignStatusIssueV1(
@@ -566,7 +563,7 @@ export const PROBE_CAMPAIGN_BUDGET_LIMIT_VALUES_V1 =
     payloadBytes: PROBE_CAMPAIGN_LIMITS_V1.payloadBytes,
     journalEntries: PROBE_CAMPAIGN_LIMITS_V1.journalEntries,
     uniqueCodeIds: PROBE_CAMPAIGN_LIMITS_V1.uniqueCodeIds,
-  });
+  }, { parseOptions: { onExcessProperty: "error" } });
 
 export const PROBE_MAX_RUN_SAMPLES =
   PROBE_LIMITS_V1.maxRepetitions + PROBE_LIMITS_V1.maxWarmupRepetitions;

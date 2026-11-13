@@ -21,15 +21,14 @@ const DDL = `CREATE TABLE ${TABLE} (
   CHECK ((state = 'initialized' AND source_id IS NULL AND position IS NULL)
     OR (state = 'ready' AND source_id IS NOT NULL AND position IS NOT NULL))
 ) STRICT`;
-const strict = { parseOptions: { onExcessProperty: "error" as const } };
 const Rows = Schema.Array(Schema.Struct({ singleton: Schema.Literal(1), format: Schema.Literal("flarex.query-checkpoint"),
   deployment_id: Schema.String, scope_uuid: Schema.String,
   state: Schema.Literals(["initialized", "ready"]), source_id: Schema.NullOr(CoreQueryCheckpointSourceIdSchema),
-  position: Schema.NullOr(CoreApplicationTimestampSchema) }).annotate(strict));
+  position: Schema.NullOr(CoreApplicationTimestampSchema) }));
 const Objects = Schema.Array(Schema.Struct({ type: Schema.String, name: Schema.String, sql: Schema.NullOr(Schema.String) }));
-const decodeRows = Schema.decodeUnknownResult(Rows);
+const decodeRows = Schema.decodeUnknownResult(Rows, { onExcessProperty: "error" });
 const decodeObjects = Schema.decodeUnknownResult(Objects);
-const decodeState = Schema.decodeUnknownResult(CheckpointStateSchema);
+const decodeState = Schema.decodeUnknownResult(CheckpointStateSchema, { onExcessProperty: "error" });
 const failure = (reason: CheckpointError["reason"], cause?: unknown) => new CheckpointError({ reason, cause });
 const normalizeDdl = (value: string) => value.trim().replace(/\s+/g, " ");
 

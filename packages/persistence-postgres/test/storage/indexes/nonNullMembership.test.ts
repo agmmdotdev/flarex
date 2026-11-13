@@ -8,7 +8,7 @@ import { lowerAppOrderedIndexPhysicalKeyV1 } from "../../../src/storage/indexes/
 import { logicalValueRequiresNotNull } from "../../../src/storage/documents/logicalDocuments/query";
 
 const time = decodeAppCreationTimeV1(1);
-const spec = (mixed: boolean) => Schema.decodeUnknownSync(AppOrderedIndexPhysicalSpecV1Schema)({
+const spec = (mixed: boolean) => Schema.decodeUnknownSync(AppOrderedIndexPhysicalSpecV1Schema, { onExcessProperty: "error" })({
   kind: "appOrdered", specVersion: 1, accessPath: "developer", keyCodecVersion: 1,
   collation: "binaryUtf8", maxEncodedKeyBytes: 2048,
   orderedFields: [{ kind: "documentPath", path: "key" }, { kind: "systemCreationTime" }],

@@ -37,10 +37,6 @@ import {
   type TaskComputeExecutionRefV1,
   type TaskComputeProviderDescriptorV1,
 } from "./Model.js";
-
-const STRICT_STRUCT_OPTIONS = {
-  parseOptions: { onExcessProperty: "error" },
-} as const;
 const STRICT_PARSE_OPTIONS = { onExcessProperty: "error" } as const;
 
 export const TaskComputeProviderNameV1Schema = Schema.String.check(
@@ -84,7 +80,7 @@ const PositiveCancellationGenerationV1Schema = TaskCancellationGenerationV1Schem
 export const TaskComputeProviderDescriptorV1Schema = Schema.Struct({
   provider: TaskComputeProviderNameV1Schema,
   providerVersion: TaskComputeProviderVersionV1Schema,
-}).annotate(STRICT_STRUCT_OPTIONS);
+});
 
 export const TaskComputeDispatchIdentityV1Schema = Schema.Struct({
   version: Schema.Literal(TASK_COMPUTE_DISPATCH_IDENTITY_VERSION_V1),
@@ -93,17 +89,17 @@ export const TaskComputeDispatchIdentityV1Schema = Schema.Struct({
   requestedEffectSequence: TaskRequestedEffectSequenceV1Schema,
   attemptId: TaskAttemptIdV1Schema,
   executionFence: TaskExecutionFenceV1Schema,
-}).annotate(STRICT_STRUCT_OPTIONS);
+});
 
 export const TaskComputeCancellationProjectionV1Schema = Schema.Union([
   Schema.Struct({
     kind: Schema.Literal("not_requested"),
     generation: ZeroCancellationGenerationV1Schema,
-  }).annotate(STRICT_STRUCT_OPTIONS),
+  }),
   Schema.Struct({
     kind: Schema.Literal("requested"),
     generation: PositiveCancellationGenerationV1Schema,
-  }).annotate(STRICT_STRUCT_OPTIONS),
+  }),
 ]);
 
 export const TaskComputeDispatchRequestV1Schema = Schema.Struct({
@@ -115,7 +111,7 @@ export const TaskComputeDispatchRequestV1Schema = Schema.Struct({
   computeProfile: TaskComputeProfileRefV1Schema,
   cancellation: TaskComputeCancellationProjectionV1Schema,
   maximumDurationMs: PositiveTaskDurationMsV1Schema,
-}).annotate(STRICT_STRUCT_OPTIONS);
+});
 
 const ApplicationTaskRuntimeTargetSha256HexV1Schema =
   Schema.Uint8ArrayFromHex.check(
@@ -136,7 +132,7 @@ export const ApplicationTaskComputeDispatchRequestV1Schema = Schema.Struct({
   computeProfile: TaskComputeProfileRefV1Schema,
   cancellation: TaskComputeCancellationProjectionV1Schema,
   maximumDurationMs: PositiveTaskDurationMsV1Schema,
-}).annotate(STRICT_STRUCT_OPTIONS);
+});
 
 export const CurrentTaskComputeDispatchRequestV1Schema = Schema.Union([
   TaskComputeDispatchRequestV1Schema,
@@ -147,21 +143,21 @@ export const TaskComputeExecutionRefV1Schema = Schema.Struct({
   provider: TaskComputeProviderNameV1Schema,
   providerVersion: TaskComputeProviderVersionV1Schema,
   executionId: TaskComputeExecutionIdV1Schema,
-}).annotate(STRICT_STRUCT_OPTIONS);
+});
 
 export const TaskComputeDispatchAcceptanceV1Schema = Schema.Struct({
   version: Schema.Literal(TASK_COMPUTE_DISPATCH_ACCEPTANCE_VERSION_V1),
   kind: Schema.Literal("accepted"),
   identity: TaskComputeDispatchIdentityV1Schema,
   execution: TaskComputeExecutionRefV1Schema,
-}).annotate(STRICT_STRUCT_OPTIONS);
+});
 
 export const TaskComputeCancellationRequestV1Schema = Schema.Struct({
   version: Schema.Literal(TASK_COMPUTE_CANCELLATION_REQUEST_VERSION_V1),
   identity: TaskComputeDispatchIdentityV1Schema,
   execution: TaskComputeExecutionRefV1Schema,
   cancellationGeneration: PositiveCancellationGenerationV1Schema,
-}).annotate(STRICT_STRUCT_OPTIONS);
+});
 
 export const TaskComputeCancellationReceiptV1Schema = Schema.Struct({
   version: Schema.Literal(TASK_COMPUTE_CANCELLATION_RECEIPT_VERSION_V1),
@@ -169,7 +165,7 @@ export const TaskComputeCancellationReceiptV1Schema = Schema.Struct({
   identity: TaskComputeDispatchIdentityV1Schema,
   execution: TaskComputeExecutionRefV1Schema,
   cancellationGeneration: PositiveCancellationGenerationV1Schema,
-}).annotate(STRICT_STRUCT_OPTIONS);
+});
 
 const decodeProviderDescriptor = Schema.decodeUnknownResult(
   TaskComputeProviderDescriptorV1Schema,
@@ -224,16 +220,16 @@ const validateCancellationReceipt = Schema.decodeUnknownResult(
   STRICT_PARSE_OPTIONS,
 );
 
-const encodeDispatchRequest = Schema.encodeResult(TaskComputeDispatchRequestV1Schema);
+const encodeDispatchRequest = Schema.encodeResult(TaskComputeDispatchRequestV1Schema, { onExcessProperty: "error" });
 const encodeApplicationDispatchRequest = Schema.encodeResult(
-  ApplicationTaskComputeDispatchRequestV1Schema,
+  ApplicationTaskComputeDispatchRequestV1Schema, { onExcessProperty: "error" },
 );
 const encodeCurrentDispatchRequest = Schema.encodeResult(
-  CurrentTaskComputeDispatchRequestV1Schema,
+  CurrentTaskComputeDispatchRequestV1Schema, { onExcessProperty: "error" },
 );
-const encodeDispatchAcceptance = Schema.encodeResult(TaskComputeDispatchAcceptanceV1Schema);
-const encodeCancellationRequest = Schema.encodeResult(TaskComputeCancellationRequestV1Schema);
-const encodeCancellationReceipt = Schema.encodeResult(TaskComputeCancellationReceiptV1Schema);
+const encodeDispatchAcceptance = Schema.encodeResult(TaskComputeDispatchAcceptanceV1Schema, { onExcessProperty: "error" });
+const encodeCancellationRequest = Schema.encodeResult(TaskComputeCancellationRequestV1Schema, { onExcessProperty: "error" });
+const encodeCancellationReceipt = Schema.encodeResult(TaskComputeCancellationReceiptV1Schema, { onExcessProperty: "error" });
 
 export function decodeTaskComputeProviderDescriptorV1(
   input: unknown,

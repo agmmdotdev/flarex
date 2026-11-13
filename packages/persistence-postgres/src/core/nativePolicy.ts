@@ -273,22 +273,22 @@ export const makeCoreNativeDefinition = Effect.fn("CoreNativeDefinition.make")(f
 });
 
 const NativeCommands = Schema.Array(Schema.Struct({ name: Schema.NonEmptyString,
-  mode: Schema.Literals(["read", "write"]) }).annotate({ parseOptions: { onExcessProperty: "error" } }))
+  mode: Schema.Literals(["read", "write"]) }))
   .check(Schema.isMaxLength(128), Schema.makeFilter(commands =>
     new Set(commands.map(command => command.name)).size === commands.length ? undefined : "Native command names must be distinct"));
 const decodeRelationalInput = Schema.decodeUnknownEffect(Schema.Struct({ source: Schema.toType(LogicalSchemaSourceSchema),
   scopeUuid: ScopeUuidV1Schema, epochUuid: ScopeEpochUuidV1Schema, provenance: LogicalSchemaSourceSchema.fields.evidence,
   commands: NativeCommands, applicationRead: Schema.optionalKey(Schema.Boolean),
-}).annotate({ parseOptions: { onExcessProperty: "error" } }));
+}), { onExcessProperty: "error" });
 const decodeRelationalEvidence = Schema.decodeUnknownEffect(Schema.Struct({ provenance: LogicalSchemaSourceSchema.fields.evidence }));
 const decodeEventEvidence = Schema.decodeUnknownEffect(Schema.Struct({ kind: Schema.Literal("coreNativeEvents"),
   provenance: LogicalSchemaSourceSchema.fields.evidence,
   policy: Schema.optionalKey(LogicalSchemaSourceSchema.fields.evidence),
   privateEventTables: Schema.Array(Schema.Struct({ localName: Schema.NonEmptyString,
-    role: Schema.Literals(["family", "envelope", "delivery"]) }).annotate({ parseOptions: { onExcessProperty: "error" } }))
-    .check(Schema.isLengthBetween(3, 3), Schema.makeFilter(tables => new Set(tables.map(table => table.localName)).size === 3
+    role: Schema.Literals(["family", "envelope", "delivery"]) }))
+    .check(Schema.isBetweenLength(3, 3), Schema.makeFilter(tables => new Set(tables.map(table => table.localName)).size === 3
       && new Set(tables.map(table => table.role)).size === 3 ? undefined : "Event roles and native tables must be distinct")),
-}).annotate({ parseOptions: { onExcessProperty: "error" } }));
+}), { onExcessProperty: "error" });
 
 /** Trusted native producer seam. The expected bundle is rebuilt through that
  * producer on reopen; persisted relational metadata alone cannot issue proof. */

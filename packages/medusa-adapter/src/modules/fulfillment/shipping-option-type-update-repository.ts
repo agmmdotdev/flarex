@@ -15,7 +15,7 @@ import { QueryEnvelope } from "../../query/decoder";
 import type { captureShippingProfileDeletionMetadata } from "./shipping-profile-schema";
 import { compileShippingOptionTypeUpdateContracts, ShippingOptionTypeUpdateData, ShippingOptionTypeUpdateSelector, decodeShippingOptionTypeUpdateUpserts } from "./shipping-option-type-update-input";
 
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 const decodeId = commerceDecoder(Id, "invalidInput");
 const decodePairs = commerceDecoder(Schema.Array(Schema.Struct({ entity: Schema.JsonObject, update: Schema.JsonObject }))
   .check(Schema.isMaxLength(4)), "unsupportedProfile");

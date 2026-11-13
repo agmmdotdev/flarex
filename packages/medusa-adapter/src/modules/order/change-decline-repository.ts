@@ -11,7 +11,7 @@ const patch = Schema.Struct({ id: OrderChangeId, status: Schema.Literals(["pendi
   declined_at: Schema.NullOr(Schema.String), declined_by: Schema.optionalKey(Schema.NullOr(Schema.String)),
   metadata: Schema.optionalKey(OrderChangeLifecycleMetadata) });
 const decodePairs = commerceDecoder(Schema.Array(Schema.Struct({ entity: Schema.JsonObject, update: patch }))
-  .check(Schema.isLengthBetween(1, 1)), "unsupportedProfile");
+  .check(Schema.isBetweenLength(1, 1)), "unsupportedProfile");
 type Metadata = Effect.Success<ReturnType<typeof captureOrderMetadata>>["frame"];
 
 /** The decline profile owns its fields and forward/inverse patch domain.

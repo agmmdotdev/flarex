@@ -29,7 +29,7 @@ const definition = { serviceName: "AssetGroupLink", isLink: true,
     { serviceName: "groups", primaryKey: "id", foreignKey: "group_ref", alias: "group" },
   ], databaseConfig: { tableName: "asset_group", idPrefix: "ag" },
 } satisfies ModuleJoinerConfig;
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 const Pair = Schema.Struct({ assets: Schema.Struct({ asset_ref: Id }), groups: Schema.Struct({ group_ref: Id }),
   data: Schema.optionalKey(Schema.Struct({ id: Schema.optionalKey(Id),
     asset_ref: Schema.optionalKey(Id), group_ref: Schema.optionalKey(Id) })) });

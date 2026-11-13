@@ -823,7 +823,7 @@ export const consumeClosedLogicalDocumentRoot = (handle: ClosedLogicalDocumentRo
 
 /** The trusted entry owner fixes this watermark before any native selection.
  * Callers cannot replace it by sampling a newer activation's observation. */
-const decodeMetadataDependencyResult = Schema.decodeUnknownResult(Schema.toType(LogicalMetadataReadDependencySchema));
+const decodeMetadataDependencyResult = Schema.decodeUnknownResult(Schema.toType(LogicalMetadataReadDependencySchema), { onExcessProperty: "error" });
 export const recordLogicalDocumentRootMetadataDependency = (state: LogicalDocumentRootState,
   dependency: LogicalMetadataReadDependency): boolean => {
   if (state.closed || state.pins.metadataWatermark === undefined) return false;

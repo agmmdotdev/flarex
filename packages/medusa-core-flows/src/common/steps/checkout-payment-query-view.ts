@@ -8,7 +8,7 @@ export interface CheckoutPaymentQueryResource {
   graph(input: QueryGraphInput): ReturnType<WorkflowGraphResource["graph"]>;
 }
 
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 const Context = Schema.Struct({ customer: Schema.optionalKey(Schema.NullOr(Schema.Struct({ id: Id }))) });
 /** Only the retained native marker's selected view. The module validates
  * complete stored DML rows before graph projection; this checks its exact use. */

@@ -1,13 +1,13 @@
+import * as Base64 from "effect/encoding/Base64";
 /**
  * Convex common/src/{query.rs,json/query.rs,interval/} at
  * db914cf06e2b06ee985646611b9e12ed7a770318. Copyright 2026 Convex, Inc.
  * Rust source license: FSL-1.1-Apache-2.0, enclosing convex-backend/LICENSE.md.
  */
 import { sha256 } from "@noble/hashes/sha2.js";
-import { Data, Encoding, Result, Schema } from "effect";
+import { Data, Result, Schema } from "effect";
 import { captureDocumentValue, isDocumentArray, type DocumentValue, type DocumentValueError } from "./document-value";
 import { compareIndexKeys, encodeCapturedIndexValue } from "./index-key";
-import { StrictStructOptions } from "./strict-schema-options";
 
 export type QueryOrder = "asc" | "desc";
 export interface IndexRangeExpression {
@@ -49,18 +49,18 @@ const QueryFieldPathSchema = Schema.String.check(Schema.makeFilter(value => {
 }));
 const ExpressionSchema = Schema.Struct({
   op: Schema.Literals(["eq", "gt", "gte", "lt", "lte"]), field: QueryFieldPathSchema, value: Schema.Unknown,
-}).annotate(StrictStructOptions);
-const decodeExpression = Schema.decodeUnknownResult(ExpressionSchema);
+});
+const decodeExpression = Schema.decodeUnknownResult(ExpressionSchema, { onExcessProperty: "error" });
 const OrderSchema = Schema.Literals(["asc", "desc"]);
 const SourceSchema = Schema.Union([
-  Schema.Struct({ type: Schema.Literal("FullTableScan"), tableName: Schema.String, order: Schema.optionalKey(Schema.NullOr(OrderSchema)) }).annotate(StrictStructOptions),
-  Schema.Struct({ type: Schema.Literal("IndexRange"), indexName: Schema.String, range: Schema.Unknown, order: Schema.optionalKey(Schema.NullOr(OrderSchema)) }).annotate(StrictStructOptions),
+  Schema.Struct({ type: Schema.Literal("FullTableScan"), tableName: Schema.String, order: Schema.optionalKey(Schema.NullOr(OrderSchema)) }),
+  Schema.Struct({ type: Schema.Literal("IndexRange"), indexName: Schema.String, range: Schema.Unknown, order: Schema.optionalKey(Schema.NullOr(OrderSchema)) }),
 ]);
-const decodeSource = Schema.decodeUnknownResult(SourceSchema);
-const decodeQuery = Schema.decodeUnknownResult(Schema.Struct({ source: Schema.Unknown, operators: Schema.Unknown }).annotate(StrictStructOptions));
+const decodeSource = Schema.decodeUnknownResult(SourceSchema, { onExcessProperty: "error" });
+const decodeQuery = Schema.decodeUnknownResult(Schema.Struct({ source: Schema.Unknown, operators: Schema.Unknown }), { onExcessProperty: "error" });
 const decodeLimit = Schema.decodeUnknownResult(Schema.Struct({
   limit: Schema.Number.check(Schema.makeFilter(n => Number.isSafeInteger(n) && n >= 0 ? undefined : "Invalid query limit")),
-}).annotate(StrictStructOptions));
+}), { onExcessProperty: "error" });
 const utf8 = new TextEncoder();
 
 /** Descriptor-safe AST projection, followed by authoritative structural/value decoders. */
@@ -201,13 +201,13 @@ export function queryFingerprintJson(query: LogicalQuery, indexedFields: readonl
 function valueJson(value: DocumentValue | undefined): string {
   if (value === undefined) return '{"$undefined":null}';
   if (value === null || typeof value === "boolean" || typeof value === "string") return JSON.stringify(value);
-  if (typeof value === "bigint") { const bytes = new Uint8Array(8); new DataView(bytes.buffer).setBigInt64(0, value, true); return `{"$integer":${JSON.stringify(Encoding.encodeBase64(bytes))}}`; }
+  if (typeof value === "bigint") { const bytes = new Uint8Array(8); new DataView(bytes.buffer).setBigInt64(0, value, true); return `{"$integer":${JSON.stringify(Base64.encode(bytes))}}`; }
   if (typeof value === "number") {
     if (Number.isFinite(value) && !Object.is(value, -0)) return serdeFloat(value);
     const bytes = new Uint8Array(8); new DataView(bytes.buffer).setFloat64(0, value, true);
-    return `{"$float":${JSON.stringify(Encoding.encodeBase64(bytes))}}`;
+    return `{"$float":${JSON.stringify(Base64.encode(bytes))}}`;
   }
-  if (value instanceof ArrayBuffer) return `{"$bytes":${JSON.stringify(Encoding.encodeBase64(new Uint8Array(value)))}}`;
+  if (value instanceof ArrayBuffer) return `{"$bytes":${JSON.stringify(Base64.encode(new Uint8Array(value)))}}`;
   if (isDocumentArray(value)) return `[${value.map(valueJson).join(",")}]`;
   return `{${Object.keys(value).toSorted().map(key => `${JSON.stringify(key)}:${valueJson(value[key])}`).join(",")}}`;
 }

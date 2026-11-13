@@ -3,7 +3,7 @@
 ## Installed API And Stability
 
 Flarex currently installs `effect@4.0.0-beta.90`. Its client modules are
-exported from `effect/unstable/http`:
+exported from `effect/http`:
 
 ```ts
 import {
@@ -11,7 +11,7 @@ import {
   HttpClient,
   HttpClientRequest,
   HttpClientResponse,
-} from "effect/unstable/http"
+} from "effect/http"
 ```
 
 The `unstable` path is significant. Re-check imports, error shapes, and
@@ -47,7 +47,7 @@ import {
   HttpClient,
   HttpClientRequest,
   HttpClientResponse,
-} from "effect/unstable/http"
+} from "effect/http"
 
 const CreateWidgetInput = Schema.Struct({ name: Schema.String })
 const Widget = Schema.Struct({ id: Schema.String, name: Schema.String })

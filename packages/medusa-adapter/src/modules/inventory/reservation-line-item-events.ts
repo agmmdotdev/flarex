@@ -14,12 +14,12 @@ import { decodeReservationLineItemIds } from "./reservation-line-item-input";
 type Contracts = Result.Result.Success<ReturnType<typeof prepareReservationLineItemRepository>>["contracts"];
 type Reservation = Effect.Success<ReturnType<Contracts["decodeStoredRow"]>>;
 type Level = Effect.Success<ReturnType<Contracts["levelContracts"]["decodeStoredRow"]>>;
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 const decodeEvent = moduleEventDecoder(Schema.Struct({ name: Schema.String,
   metadata: Schema.Struct({ source: Schema.Literal(Modules.INVENTORY),
     object: Schema.Literals(["reservation_item", "inventory_level"]),
     action: Schema.Literals([CommonEvents.DELETED, CommonEvents.RESTORED, CommonEvents.UPDATED]) }),
-  data: Schema.Struct({ id: Schema.Union([Id, Schema.Array(Id).check(Schema.isLengthBetween(1, 4))]) }),
+  data: Schema.Struct({ id: Schema.Union([Id, Schema.Array(Id).check(Schema.isBetweenLength(1, 4))]) }),
 }), defaultCommerceResources);
 const pairKey = (row: Readonly<{ inventory_item_id: string; location_id: string }>) => JSON.stringify([row.inventory_item_id, row.location_id]);
 

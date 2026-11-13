@@ -12,11 +12,11 @@ import { projectExactNumericColumns } from "../../value/exact-numeric";
 import { decodePriceListPriceRemovalIds } from "./price-list-price-input";
 import { decodePriceListPriceRemovalRead, type PriceListPriceRemovalContracts } from "./price-list-price-removal-input";
 
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 const decodeEvent = moduleEventDecoder(Schema.Struct({ name: Schema.String,
   metadata: Schema.Struct({ source: Schema.Literal(Modules.PRICING), object: Schema.Literals(["price", "price_rule"]),
     action: Schema.Literals(["deleted", "updated"]) }),
-  data: Schema.Struct({ id: Schema.Union([Id, Schema.Array(Id).check(Schema.isLengthBetween(1, defaultCommerceResources.eventIds))]) }),
+  data: Schema.Struct({ id: Schema.Union([Id, Schema.Array(Id).check(Schema.isBetweenLength(1, defaultCommerceResources.eventIds))]) }),
 }), defaultCommerceResources);
 
 type Call = Parameters<LogicalCallReceiptValidation>[0];

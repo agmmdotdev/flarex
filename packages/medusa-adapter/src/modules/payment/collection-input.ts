@@ -4,15 +4,15 @@ import { commerceDecoder } from "../../value/decoder";
 import { ExactNumericRaw } from "../../value/exact-numeric";
 import { NativePaymentAmount, PaymentCollectionCreate, PaymentId } from "./input";
 
-export const CollectionIds = Schema.Array(PaymentId).pipe(Schema.mutable).check(Schema.isLengthBetween(1, 1));
+export const CollectionIds = Schema.Array(PaymentId).pipe(Schema.mutable).check(Schema.isBetweenLength(1, 1));
 export const CollectionCreates = Schema.Array(Schema.Struct({ ...PaymentCollectionCreate.fields, amount: NativePaymentAmount }))
-  .pipe(Schema.mutable).check(Schema.isLengthBetween(1, 1));
+  .pipe(Schema.mutable).check(Schema.isBetweenLength(1, 1));
 export const CollectionPatch = Schema.Struct({ amount: Schema.optionalKey(NativePaymentAmount), currency_code: Schema.optionalKey(Schema.String),
   metadata: Schema.optionalKey(Schema.NullOr(Schema.JsonObject)), status: Schema.optionalKey(Schema.Literals(Object.values(PaymentCollectionStatus))) });
 export const CollectionUpdate = Schema.Struct({ selector: Schema.Struct({ id: PaymentId }), update: CollectionPatch });
 export const CollectionUpserts = Schema.Array(Schema.Struct({ id: PaymentId, amount: Schema.optionalKey(NativePaymentAmount),
   currency_code: Schema.optionalKey(Schema.String), metadata: Schema.optionalKey(Schema.NullOr(Schema.JsonObject)) })).pipe(Schema.mutable)
-  .check(Schema.isLengthBetween(1, 1));
+  .check(Schema.isBetweenLength(1, 1));
 export const CollectionStoredPatch = Schema.Struct({ id: PaymentId, amount: Schema.optionalKey(Schema.String),
   raw_amount: Schema.optionalKey(ExactNumericRaw), currency_code: Schema.optionalKey(Schema.String),
   metadata: Schema.optionalKey(Schema.NullOr(Schema.JsonObject)), status: CollectionPatch.fields.status });

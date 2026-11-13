@@ -531,7 +531,7 @@ export function verifyInventoryItemDeleteCallbacks(nativeWorkflow, workflow, nat
     statement.declarationList.declarations.filter(declaration => ts.isIdentifier(declaration.name) && declaration.name.text === "decodeInventoryDeletionRows"));
   const decoder = decoders[0];
   const expectedDecoder = `const decodeInventoryDeletionRows = Schema.decodeUnknownResult(Schema.Array(Schema.Struct({
-    id: Schema.String.check(Schema.isLengthBetween(1, 256)), reserved_quantity: Schema.Number.check(Schema.isFinite()),
+    id: Schema.String.check(Schema.isBetweenLength(1, 256)), reserved_quantity: Schema.Number.check(Schema.isFinite()),
   })).check(Schema.isMaxLength(8)), { onExcessProperty: "error" })`;
   if (decoders.length !== 1 || decoder === undefined || testPortProgram("const " + decoder.getText(decoderFile)) !== testPortProgram(expectedDecoder)) throw new Error(failure);
 }

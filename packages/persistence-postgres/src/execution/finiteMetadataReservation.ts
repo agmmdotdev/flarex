@@ -13,7 +13,6 @@ import { runDrizzleStatementEffect } from "../database/drizzleStatementEffect";
 import { fxSystemSnapshotLeases } from "../database/schema";
 
 export const MAX_FINITE_METADATA_RESERVATION_BYTES = 65_536;
-const strict = { parseOptions: { onExcessProperty: "error" } } as const;
 const digest = Schema.String.check(Schema.isPattern(/^[0-9a-f]{64}$/));
 const sequence = Schema.String.check(Schema.isPattern(/^(0|[1-9][0-9]*)$/));
 
@@ -34,10 +33,10 @@ export const FiniteMetadataReservationSchema = Schema.Struct({
     revisionId: Schema.NonEmptyString, activationSequence: sequence,
     headSha256: digest, activationSha256: digest,
     schemaVersionId: CatalogSchemaVersionIdSchema, manifestSha256: digest,
-  }).annotate(strict),
+  }),
   binding: Schema.NullOr(Schema.Struct({ sequence, sha256: digest,
-    candidateSha256: digest, activationSha256: digest }).annotate(strict)),
-}).annotate(strict);
+    candidateSha256: digest, activationSha256: digest })),
+});
 export type FiniteMetadataReservation = typeof FiniteMetadataReservationSchema.Type;
 export type FiniteMetadataReservationInput = Omit<FiniteMetadataReservation, "format" | "version">;
 
@@ -47,9 +46,9 @@ export class FiniteMetadataReservationError extends Data.TaggedError("FiniteMeta
 }> {}
 const failure = (reason: FiniteMetadataReservationError["reason"], cause?: unknown) =>
   new FiniteMetadataReservationError({ reason, ...(cause === undefined ? {} : { cause }) });
-const encode = Schema.encodeSync(FiniteMetadataReservationSchema);
+const encode = Schema.encodeSync(FiniteMetadataReservationSchema, { onExcessProperty: "error" });
 const decode = Schema.decodeUnknownEffect(FiniteMetadataReservationSchema, { onExcessProperty: "error" });
-const decodeCapturedTypeEffect = Schema.decodeUnknownEffect(Schema.toType(FiniteMetadataReservationSchema));
+const decodeCapturedTypeEffect = Schema.decodeUnknownEffect(Schema.toType(FiniteMetadataReservationSchema), { onExcessProperty: "error" });
 
 declare const reservationBrand: unique symbol;
 export interface CapturedFiniteMetadataReservation { readonly [reservationBrand]: true }

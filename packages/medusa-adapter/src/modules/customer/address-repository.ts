@@ -21,7 +21,7 @@ const filter = commerceDecoder(Schema.Union([ScalarId, AddressIds]), "unsupporte
 const where: WherePolicy = { ...scalarIdWhere, decode: commerceDecoder(Where, "unsupportedProfile"),
   fields: new Map([...scalarIdWhere.fields, ["customer_id", { column: "customer_id", decode: filter }],
     ...["is_default_billing", "is_default_shipping"].map(column => [column, { column, decode: commerceDecoder(Schema.Boolean, "unsupportedProfile") }] as const)]) };
-const decodeCreates = commerceDecoder(Schema.Array(AddressCreate).check(Schema.isLengthBetween(1, 4)), "unsupportedProfile");
+const decodeCreates = commerceDecoder(Schema.Array(AddressCreate).check(Schema.isBetweenLength(1, 4)), "unsupportedProfile");
 const decodePatch = commerceDecoder(Schema.Struct({ ...AddressNativePatch.fields, id: ScalarId }), "unsupportedProfile");
 const decodeUpdateValues = Schema.decodeUnknownEffect(Schema.Array(Schema.Unknown).check(Schema.isMaxLength(4)));
 const decodePairs = commerceDecoder(Schema.Array(Schema.Struct({ entity: Schema.JsonObject, update: Schema.JsonObject })).check(Schema.isMaxLength(4)), "unsupportedProfile");

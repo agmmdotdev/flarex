@@ -44,14 +44,14 @@ const RefundReasonInput = Schema.Struct({ entry_point: Schema.Literal("refund_re
   variables: Schema.Struct({ id: Schema.String }), list: Schema.Literal(false), throw_if_key_not_found: Schema.Literal(true) });
 const Input = Schema.Union([ListInput, SingletonInput, PaymentCollectionInput, PaymentCustomerInput, OrderPaymentInput, CartCollectionCreateQuery,
   RefundPaymentInput, RefundOrderInput, RefundReasonInput]);
-const retainedProjection = { parseOptions: { onExcessProperty: "preserve" as const } };
+const retainedProperties = Schema.Record(Schema.String, Schema.Json);
 const RawAmount = Schema.Struct({ value: Schema.String, precision: Schema.Finite });
-const PaymentCollectionView = Schema.Struct({ id: Schema.String, amount: Schema.Number.check(Schema.isFinite()), raw_amount: RawAmount, currency_code: Schema.String,
-  payment_sessions: Schema.Array(Schema.Struct({ id: Schema.String, authorized_at: Schema.NullOr(Schema.String) }).annotate(retainedProjection)) }).annotate(retainedProjection);
-const PaymentCustomerView = Schema.Struct({ id: Schema.String, email: Schema.String, company_name: Schema.NullOr(Schema.String),
+const PaymentCollectionView = Schema.StructWithRest(Schema.Struct({ id: Schema.String, amount: Schema.Number.check(Schema.isFinite()), raw_amount: RawAmount, currency_code: Schema.String,
+  payment_sessions: Schema.Array(Schema.StructWithRest(Schema.Struct({ id: Schema.String, authorized_at: Schema.NullOr(Schema.String) }), [retainedProperties])) }), [retainedProperties]);
+const PaymentCustomerView = Schema.StructWithRest(Schema.Struct({ id: Schema.String, email: Schema.String, company_name: Schema.NullOr(Schema.String),
   first_name: Schema.NullOr(Schema.String), last_name: Schema.NullOr(Schema.String), phone: Schema.NullOr(Schema.String),
-  addresses: Schema.Array(Schema.JsonObject), account_holders: Schema.Array(Schema.Struct({ id: Schema.String, provider_id: Schema.String,
-    data: Schema.JsonObject }).annotate(retainedProjection)), metadata: Schema.NullOr(Schema.JsonObject) }).annotate(retainedProjection);
+  addresses: Schema.Array(Schema.JsonObject), account_holders: Schema.Array(Schema.StructWithRest(Schema.Struct({ id: Schema.String, provider_id: Schema.String,
+    data: Schema.JsonObject }), [retainedProperties])), metadata: Schema.NullOr(Schema.JsonObject) }), [retainedProperties]);
 const decodeCollectionView = Schema.decodeUnknownResult(Schema.UndefinedOr(PaymentCollectionView));
 const decodeCustomerView = Schema.decodeUnknownResult(Schema.UndefinedOr(PaymentCustomerView));
 const OrderPaymentView = Schema.Struct({ order: Schema.NullOr(Schema.Struct({ id: Schema.String })) });
@@ -64,9 +64,9 @@ const RefundPaymentView = Schema.Struct({ id: Schema.String, payment_collection_
   captures: Schema.Array(Schema.Struct({ raw_amount: RawAmount })),
   refunds: Schema.Array(Schema.Struct({ raw_amount: RawAmount })) });
 const RefundOrderView = Schema.Struct({ id: Schema.String, total: Schema.Finite, currency_code: Schema.String,
-  region_id: Schema.NullOr(Schema.String), summary: Schema.optionalKey(Schema.NullOr(Schema.Struct({
+  region_id: Schema.NullOr(Schema.String), summary: Schema.optionalKey(Schema.NullOr(Schema.StructWithRest(Schema.Struct({
     pending_difference: Schema.optionalKey(Schema.Finite), raw_pending_difference: Schema.optionalKey(RawAmount),
-  }).annotate(retainedProjection))) });
+  }), [retainedProperties]))) });
 const RefundReasonView = Schema.Struct({ id: Schema.String, label: Schema.String, code: Schema.String });
 export type RefundPaymentQueryView = typeof RefundPaymentView.Type;
 const decodeRefundPaymentView = Schema.decodeUnknownResult(RefundPaymentView, { onExcessProperty: "error" });

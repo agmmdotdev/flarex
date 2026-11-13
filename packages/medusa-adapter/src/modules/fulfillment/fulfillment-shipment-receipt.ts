@@ -21,7 +21,7 @@ type Row = JsonObject & { readonly id: string };
 const decodeEvent = moduleEventDecoder(Schema.Struct({ name: Schema.String,
   metadata: Schema.Struct({ source: Schema.Literal(Modules.FULFILLMENT), object: Schema.Literals(["fulfillment", "fulfillment_label"]),
     action: Schema.Literals(["created", "updated", "deleted"]) }),
-  data: Schema.Struct({ id: Schema.Union([FulfillmentCreationId, Schema.Array(FulfillmentCreationId).check(Schema.isLengthBetween(1, 4))]) }),
+  data: Schema.Struct({ id: Schema.Union([FulfillmentCreationId, Schema.Array(FulfillmentCreationId).check(Schema.isBetweenLength(1, 4))]) }),
 }), defaultCommerceResources);
 const mismatch = (phase: string, cause?: unknown) => commerceError("receiptMismatch", { phase, cause });
 const decodeOrderedIds = commerceDecoder(Schema.Array(Schema.Struct({ id: FulfillmentCreationId })).check(Schema.isMaxLength(256)), "receiptMismatch");

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { query } from "flarex/server";
 import { isValidator, v, type GenericValidator, type Validator } from "flarex/values";
 import { Context, Effect, Layer, ManagedRuntime } from "effect";
-import type { HttpApiGroup } from "effect/unstable/httpapi";
+import type { HttpApiGroup } from "effect/http-api";
 import {
   DeploymentApi,
   DeploymentBadRequestErrorResponse,

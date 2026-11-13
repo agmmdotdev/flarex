@@ -26,7 +26,7 @@ import type { ProductRequestCatalog } from "./product-request";
 
 const ProductQuery = Schema.Struct({
   entity: Schema.Literals(["product", "product_sales_channel", "product_option", "variant", "product_variant_inventory_items", "product_type", "product_tag", "product_category", "product_collection", "sales_channel", "price_lists", "prices"]),
-  fields: Schema.Array(Schema.String.check(Schema.isLengthBetween(1, 256))).check(Schema.isLengthBetween(1, 256)),
+  fields: Schema.Array(Schema.String.check(Schema.isBetweenLength(1, 256))).check(Schema.isBetweenLength(1, 256)),
   filters: Schema.optionalKey(Schema.Union([Schema.JsonObject, Schema.Undefined])),
   pagination: Schema.optionalKey(Schema.Union([Schema.Struct({ take: Schema.optionalKey(Schema.UndefinedOr(QueryLimit)), skip: Schema.optionalKey(Schema.UndefinedOr(QueryOffset)),
     order: Schema.optionalKey(Schema.UndefinedOr(Schema.Record(Schema.String, Schema.Literals(["ASC", "DESC"])))) }),
@@ -41,7 +41,7 @@ const decodeOptions = commerceDecoder(Schema.Struct({ throwIfKeyNotFound: Schema
 }), "unsupportedProfile");
 
 const CatalogEntity = Schema.Literals(["product_type", "product_tag", "product_category", "product_collection"]);
-const ScalarField = Schema.String.check(Schema.isLengthBetween(1, 256), Schema.isPattern(/^[a-zA-Z_][a-zA-Z0-9_]*$/));
+const ScalarField = Schema.String.check(Schema.isBetweenLength(1, 256), Schema.isPattern(/^[a-zA-Z_][a-zA-Z0-9_]*$/));
 const BoundedRemoteFields = Schema.Array(Schema.Union([ScalarField, Schema.Literal("*")])).check(Schema.isMaxLength(256));
 const RemoteFields = BoundedRemoteFields.check(Schema.isUnique());
 const RemoteArguments = Schema.Struct({ filters: Schema.optionalKey(Schema.JsonObject),
@@ -73,7 +73,7 @@ const decodeVariantRemoteNode = commerceDecoder(Schema.StructWithRest(
 const decodeVariantRemoteQuery = commerceDecoder(Schema.Struct({ __value: Schema.Struct({
   product_variant: Schema.StructWithRest(Schema.Struct({ fields: BoundedRemoteFields,
     isServiceAccess: Schema.Literal(false),
-    __args: Schema.Struct({ filters: Schema.Struct({ id: Schema.String.check(Schema.isLengthBetween(1, 256)) }) }),
+    __args: Schema.Struct({ filters: Schema.Struct({ id: Schema.String.check(Schema.isBetweenLength(1, 256)) }) }),
   }), [Schema.Record(Schema.String, RemoteNodeMember)]),
 }) }), "unsupportedProfile");
 const RemoteRoot = Schema.StructWithRest(Schema.Struct({ fields: BoundedRemoteFields,

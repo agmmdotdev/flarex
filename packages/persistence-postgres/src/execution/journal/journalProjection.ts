@@ -795,7 +795,7 @@ export const materializeSealCandidateEffect = Effect.fn(
         participantWorkCalls,
       }),
       participantOperations: Object.freeze(participantOperations),
-    }),
+    }, { parseOptions: { onExcessProperty: "error" } }),
   );
   const rootUpdatedAtMilliseconds = finiteDateMilliseconds(root.updatedAt);
   if (rootUpdatedAtMilliseconds === undefined) {
@@ -919,7 +919,7 @@ async function requireRepeatableReadAttemptAuthority(
       scopeId: attempt.selector.scopeId,
       epoch: replacementScopeEpochV1FromUuid(lease.snapshotEpochUuid),
       commitSeq: CommitSeqSchema.make(lease.snapshotCommitSeq),
-    });
+    }, { parseOptions: { onExcessProperty: "error" } });
   } catch (cause) {
     throw corruption(attempt, "snapshotLeaseInvalid", cause);
   }

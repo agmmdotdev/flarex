@@ -1,3 +1,4 @@
+import * as Hex from "effect/encoding/Hex";
 import {
   type TaskInputSha256V1,
   type TaskRunCreationAuthoritySha256V1,
@@ -26,7 +27,7 @@ import type {
   CompatibilityLifecycleCommitV1,
 } from "../../../durable-task/test/compatibility-harness.js";
 import { and, eq, inArray } from "drizzle-orm";
-import { Brand, Encoding, Result } from "effect";
+import { Brand, Result } from "effect";
 import {
   ScopeEpochSchema,
   ScopeIdSchema,
@@ -654,7 +655,7 @@ function repeatedHexBytes(byteHex: string): Uint8Array {
 }
 
 function decodeHexBytes(value: string): Uint8Array {
-  return Result.getOrThrow(Encoding.decodeHex(value));
+  return Result.getOrThrow(Hex.decode(value));
 }
 
 function nullableNumberAsBigInt(value: number | null): bigint | null {

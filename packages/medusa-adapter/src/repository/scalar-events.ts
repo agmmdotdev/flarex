@@ -7,7 +7,7 @@ import type { LogicalCommerceCallValidation } from "@flarex/persistence-postgres
 
 function scalarCapture(source: string, tableName: string,
   resources: typeof defaultCommerceResources, spanName: string) {
-  const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+  const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
   const decode = moduleEventDecoder(Schema.Struct({ name: Schema.String,
     metadata: Schema.Struct({ source: Schema.Literal(source), object: Schema.Literal(tableName),
       action: Schema.Literals([CommonEvents.CREATED, CommonEvents.UPDATED, CommonEvents.DELETED]) }),

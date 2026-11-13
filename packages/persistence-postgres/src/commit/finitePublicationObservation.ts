@@ -70,7 +70,7 @@ const decodeObservation = Schema.decodeUnknownEffect(Schema.Struct({
   application: Schema.Unknown,
   ownership: Schema.Unknown,
   sources: Schema.Unknown,
-}).annotate({ parseOptions: { onExcessProperty: "error" } }));
+}), { onExcessProperty: "error" });
 
 /** One actual bounded observation, with fixed named domain contributions.
  * Expectation construction and policy acceptance remain with their issuers.

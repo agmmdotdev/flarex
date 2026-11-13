@@ -15,7 +15,7 @@ const Selection = Schema.Struct({ ...OrderChangeDeclinePreimage.fields,
   status: Schema.NullOr(Schema.Literals(Object.values(OrderChangeStatus))) });
 export const OrderChangeDeclineFields = Object.freeze(Object.keys(OrderChangeDeclinePreimage.fields));
 export const OrderChangeDeclineRead = Schema.Struct({ id: OrderChangeId, config: Schema.Struct({
-  select: Schema.Array(Schema.Literals(OrderChangeDeclineFields)).pipe(Schema.mutable).check(Schema.isLengthBetween(4, 5),
+  select: Schema.Array(Schema.Literals(OrderChangeDeclineFields)).pipe(Schema.mutable).check(Schema.isBetweenLength(4, 5),
     Schema.makeFilter(fields => ["id", "status", "declined_at", "declined_by"].every(field => fields.includes(field)) &&
       new Set(fields).size === fields.length || "Expected decline preimage fields")),
   relations: Schema.Array(Schema.Never).pipe(Schema.mutable),

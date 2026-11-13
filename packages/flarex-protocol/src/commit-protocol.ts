@@ -1,3 +1,4 @@
+import * as Base64Url from "effect/encoding/Base64Url";
 import {
   bytesEqual,
   copyBytesToArrayBuffer,
@@ -5,7 +6,7 @@ import {
 } from "@flarex/utils/bytes";
 import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
 import { compareUtf16Strings } from "@flarex/utils/strings";
-import { Data, Effect, Encoding, Result, Schema } from "effect";
+import { Data, Effect, Result, Schema } from "effect";
 
 import { AppCreationTimeV1Schema } from "./app-document";
 import {
@@ -52,10 +53,7 @@ import {
 } from "./postgres-bigint";
 import { CommitSeqSchema, ScopeIdSchema } from "./storage-authority";
 import { CatalogSchemaVersionIdSchema } from "./schema-manifest";
-import {
-  StrictParseOptions,
-  StrictStructOptions,
-} from "./strict-schema-options";
+import { StrictParseOptions } from "./strict-schema-options";
 import {
   TransactionAttemptFenceSchema,
   TransactionSessionIdV1Schema,
@@ -157,7 +155,7 @@ export const LogicalMetadataKeySchema = Schema.Struct({
   namespace: Schema.Literals(["application", "binding", "execution"]),
   ownerKey: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(512)),
   contractKey: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(4096)),
-}).annotate(StrictStructOptions);
+});
 export type LogicalMetadataKey = typeof LogicalMetadataKeySchema.Type;
 
 export const LogicalMetadataReadDependencySchema = Schema.Struct({
@@ -167,17 +165,16 @@ export const LogicalMetadataReadDependencySchema = Schema.Struct({
   observed: Schema.Union([
     Schema.Struct({ kind: Schema.Literal("present"),
       semanticSha256Hex: Schema.String.check(Schema.isPattern(LOWERCASE_SHA256_PATTERN)),
-    }).annotate(StrictStructOptions),
-    Schema.Struct({ kind: Schema.Literal("missing") }).annotate(StrictStructOptions),
+    }),
+    Schema.Struct({ kind: Schema.Literal("missing") }),
   ]),
-}).annotate(StrictStructOptions);
+});
 export type LogicalMetadataReadDependency = typeof LogicalMetadataReadDependencySchema.Type;
 export const FiniteMetadataConflictSchema = Schema.Struct({ kind: Schema.Literal("metadata"),
   ...LogicalMetadataKeySchema.fields, capturedMetadataWatermark: MetadataSequenceSchema,
   lastChangedMetadataSequence: MetadataSequenceSchema,
 }).check(Schema.makeFilter(value =>
-  value.lastChangedMetadataSequence > value.capturedMetadataWatermark ? undefined : "Expected a changed metadata sequence"))
-  .annotate(StrictStructOptions);
+  value.lastChangedMetadataSequence > value.capturedMetadataWatermark ? undefined : "Expected a changed metadata sequence"));
 export type FiniteMetadataConflict = typeof FiniteMetadataConflictSchema.Type;
 export const MAX_COMMIT_METADATA_READ_DEPENDENCIES = 4096;
 export const logicalMetadataDependencyIdentity = (key: LogicalMetadataKey): string =>
@@ -220,16 +217,16 @@ export type CommitDocumentSemanticBytesV1 =
 const PresentReadObservationV1Schema = Schema.Struct({
   kind: Schema.Literal("present"),
   revisionCommitSeq: CommitSeqSchema,
-}).annotate(StrictStructOptions);
+});
 
 const NoVisibleRevisionV1Schema = Schema.Struct({
   kind: Schema.Literal("noVisibleRevision"),
-}).annotate(StrictStructOptions);
+});
 
 const TombstoneRevisionV1Schema = Schema.Struct({
   kind: Schema.Literal("tombstone"),
   revisionCommitSeq: CommitSeqSchema,
-}).annotate(StrictStructOptions);
+});
 
 const MissingReadObservationV1Schema = Schema.Struct({
   kind: Schema.Literal("missing"),
@@ -237,7 +234,7 @@ const MissingReadObservationV1Schema = Schema.Struct({
     NoVisibleRevisionV1Schema,
     TombstoneRevisionV1Schema,
   ]),
-}).annotate(StrictStructOptions);
+});
 
 const LogicalPointReadDependencyV1Schema = Schema.Struct({
   kind: Schema.Literal("appRowPoint"),
@@ -246,26 +243,26 @@ const LogicalPointReadDependencyV1Schema = Schema.Struct({
     PresentReadObservationV1Schema,
     MissingReadObservationV1Schema,
   ]),
-}).annotate(StrictStructOptions);
+});
 
 const LogicalIndexRangeLowerBoundV1Schema = Schema.Struct({
   kind: Schema.Literal("key"),
   encodedKey: OrderedIndexBoundHexV1Schema,
   inclusive: Schema.Literal(true),
-}).annotate(StrictStructOptions);
+});
 
 const LogicalIndexRangeUpperKeyBoundV1Schema = Schema.Struct({
   kind: Schema.Literal("key"),
   encodedKey: OrderedIndexBoundHexV1Schema,
   inclusive: Schema.Literal(false),
-}).annotate(StrictStructOptions);
+});
 
 const LogicalIndexRangeUpperPositionBoundV1Schema = Schema.Struct({
   kind: Schema.Literal("position"),
   encodedKey: OrderedIndexKeyBytesHexV1Schema,
   rowId: OrderedIndexRowIdHexV1Schema,
   inclusive: Schema.Literal(true),
-}).annotate(StrictStructOptions);
+});
 
 export const LogicalIndexRangeReadDependencyV1Schema = Schema.Struct({
   kind: Schema.Literal("appIndexRange"),
@@ -279,7 +276,7 @@ export const LogicalIndexRangeReadDependencyV1Schema = Schema.Struct({
     LogicalIndexRangeUpperKeyBoundV1Schema,
     LogicalIndexRangeUpperPositionBoundV1Schema,
   ])),
-}).annotate(StrictStructOptions);
+});
 export type LogicalIndexRangeReadDependencyV1 =
   typeof LogicalIndexRangeReadDependencyV1Schema.Type;
 
@@ -291,7 +288,7 @@ export const LogicalApplicationRelationIncomingReadDependencyV1Schema =
     observedAdjacencyVersion: CommitSeqSchema,
     activationSequence: ApplicationActivationSequenceV1Schema,
     activeHeadSha256Hex: ApplicationActiveHeadSha256HexV1Schema,
-  }).annotate(StrictStructOptions);
+  });
 export type LogicalApplicationRelationIncomingReadDependencyV1 =
   typeof LogicalApplicationRelationIncomingReadDependencyV1Schema.Type;
 
@@ -308,12 +305,12 @@ const LogicalPatchSetFieldV1Schema = Schema.Struct({
   kind: Schema.Literal("set"),
   field: Schema.String,
   valueJson: JsonValue,
-}).annotate(StrictStructOptions);
+});
 
 const LogicalPatchRemoveFieldV1Schema = Schema.Struct({
   kind: Schema.Literal("remove"),
   field: Schema.String,
-}).annotate(StrictStructOptions);
+});
 
 export const LogicalPatchFieldV1Schema = Schema.Union([
   LogicalPatchSetFieldV1Schema,
@@ -333,7 +330,7 @@ const LogicalInsertWriteV1Schema = Schema.Struct({
   creationTime: AppCreationTimeV1Schema,
   fieldsValueJson: AppDocumentFieldsJsonV1Schema,
   resultingDocumentSemanticBytes: CommitDocumentSemanticBytesV1Schema,
-}).annotate(StrictStructOptions);
+});
 
 const LogicalPatchWriteV1Schema = Schema.Struct({
   kind: Schema.Literal("patch"),
@@ -341,7 +338,7 @@ const LogicalPatchWriteV1Schema = Schema.Struct({
   documentId: AppDocumentIdV1Schema,
   changes: Schema.Array(LogicalPatchFieldV1Schema),
   resultingDocumentSemanticBytes: CommitDocumentSemanticBytesV1Schema,
-}).annotate(StrictStructOptions);
+});
 
 const LogicalReplaceWriteV1Schema = Schema.Struct({
   kind: Schema.Literal("replace"),
@@ -349,13 +346,13 @@ const LogicalReplaceWriteV1Schema = Schema.Struct({
   documentId: AppDocumentIdV1Schema,
   fieldsValueJson: AppDocumentFieldsJsonV1Schema,
   resultingDocumentSemanticBytes: CommitDocumentSemanticBytesV1Schema,
-}).annotate(StrictStructOptions);
+});
 
 const LogicalDeleteWriteV1Schema = Schema.Struct({
   kind: Schema.Literal("delete"),
   syscallSequence: CommitSyscallSequenceV1Schema,
   documentId: AppDocumentIdV1Schema,
-}).annotate(StrictStructOptions);
+});
 
 export const LogicalAppWriteV1Schema = Schema.Union([
   LogicalInsertWriteV1Schema,
@@ -373,7 +370,7 @@ export type LogicalAppWriteV1 = typeof LogicalAppWriteV1Schema.Type;
 export const SessionReadUsageV1Schema = Schema.Struct({
   documentsRead: CommitReadDocumentsV1Schema,
   semanticBytesRead: CommitReadSemanticBytesV1Schema,
-}).annotate(StrictStructOptions);
+});
 export type SessionReadUsageV1 = typeof SessionReadUsageV1Schema.Type;
 
 const ParticipantDigestSha256HexV1Schema = Schema.String.check(
@@ -385,7 +382,7 @@ const ParticipantSelectorV1Schema = Schema.String.check(
 const ParticipantBindingHeadV1Schema = Schema.Struct({
   sequence: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(64)),
   sha256: ParticipantDigestSha256HexV1Schema,
-}).annotate(StrictStructOptions);
+});
 
 /** Exact trusted preimage shared by live admission and finish-only recovery.
  * The caller hashes the canonical bytes; a sandbox selector is never authority. */
@@ -401,11 +398,11 @@ export const AdmittedParticipantBindingV1Schema = Schema.Struct({
   sourceKey: ParticipantSelectorV1Schema,
   sourceSha256Hex: ParticipantDigestSha256HexV1Schema,
   bindingHead: ParticipantBindingHeadV1Schema,
-}).annotate(StrictStructOptions);
+});
 export type AdmittedParticipantBindingV1 =
   typeof AdmittedParticipantBindingV1Schema.Type;
 const encodeAdmittedParticipantBindingResult = Schema.encodeUnknownResult(
-  AdmittedParticipantBindingV1Schema,
+  AdmittedParticipantBindingV1Schema, { onExcessProperty: "error" },
 );
 
 export const canonicalizeAdmittedParticipantBindingV1Result = (
@@ -430,16 +427,16 @@ export const AdmittedSourceBindingSchema = Schema.Struct({
   bindingHead: ParticipantBindingHeadV1Schema,
   sourceBindingSha256Hex: ParticipantDigestSha256HexV1Schema,
   methods: Schema.Array(ParticipantSelectorV1Schema).check(Schema.isMaxLength(32)),
-}).annotate(StrictStructOptions);
+});
 export type AdmittedSourceBinding = typeof AdmittedSourceBindingSchema.Type;
 export const AdmittedSourceBundleSchema = Schema.Struct({
   participant: ParticipantSelectorV1Schema,
   method: ParticipantSelectorV1Schema,
   profileRevision: ParticipantDigestSha256HexV1Schema,
   sources: Schema.Array(AdmittedSourceBindingSchema).check(Schema.isMaxLength(3)),
-}).annotate(StrictStructOptions);
+});
 export type AdmittedSourceBundle = typeof AdmittedSourceBundleSchema.Type;
-const encodeAdmittedSourceBundleResult = Schema.encodeUnknownResult(AdmittedSourceBundleSchema);
+const encodeAdmittedSourceBundleResult = Schema.encodeUnknownResult(AdmittedSourceBundleSchema, { onExcessProperty: "error" });
 export const canonicalizeAdmittedSourceBundleResult = (
   candidate: unknown,
 ): Result.Result<Readonly<{ bytes: Uint8Array; text: string }>, "invalidBundle"> =>
@@ -466,7 +463,7 @@ export const AdmittedParticipantLogicalEffectV1Schema = Schema.Struct({
   operation: Schema.Literals(["insert", "patch", "replace", "delete"]),
   before: Schema.NullOr(ParticipantDocumentV1Schema),
   after: Schema.NullOr(ParticipantDocumentV1Schema),
-}).annotate(StrictStructOptions);
+});
 export type AdmittedParticipantLogicalEffectV1 =
   typeof AdmittedParticipantLogicalEffectV1Schema.Type;
 
@@ -475,7 +472,7 @@ export const AdmittedParticipantWriteEventSchema = Schema.Struct({
   syscallSequence: CommitSyscallSequenceV1Schema,
   sourceBindingSha256Hex: ParticipantDigestSha256HexV1Schema,
   effect: AdmittedParticipantLogicalEffectV1Schema,
-}).annotate(StrictStructOptions);
+});
 export type AdmittedParticipantWriteEvent =
   typeof AdmittedParticipantWriteEventSchema.Type;
 
@@ -485,13 +482,13 @@ export const SourceContributionSchema = Schema.Struct({
     Schema.isMaxLength(MAX_COMMIT_WRITE_OPERATIONS_V1),
   ),
   dependencyEvidence: ParticipantDocumentV1Schema,
-}).annotate(StrictStructOptions);
+});
 export type SourceContribution = typeof SourceContributionSchema.Type;
 
 export const AdmittedParticipantEventIntentSchema = Schema.Struct({
   sourceKey: Schema.NullOr(ParticipantSelectorV1Schema),
   intent: JsonValue,
-}).annotate(StrictStructOptions);
+});
 export type AdmittedParticipantEventIntent = typeof AdmittedParticipantEventIntentSchema.Type;
 
 export const AdmittedParticipantOperationSchema = Schema.Struct({
@@ -504,7 +501,7 @@ export const AdmittedParticipantOperationSchema = Schema.Struct({
   resultSha256Hex: ParticipantDigestSha256HexV1Schema,
   sourceContributions: Schema.Array(SourceContributionSchema).check(Schema.isMaxLength(3)),
   eventIntents: Schema.Array(AdmittedParticipantEventIntentSchema).check(Schema.isMaxLength(2_048)),
-}).annotate(StrictStructOptions);
+});
 export type AdmittedParticipantOperation =
   typeof AdmittedParticipantOperationSchema.Type;
 
@@ -513,16 +510,18 @@ export type AdmittedParticipantOperation =
 export const GeneratedInsertionIntentSchema = Schema.Struct({
   documentId: AppDocumentIdV1Schema, tableId: CatalogTableIdSchema, rowId: AppRowIdHexV1Schema,
   effectOrdinal: Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: MAX_COMMIT_WRITE_OPERATIONS_V1 - 1 })),
-}).annotate(StrictStructOptions);
+});
 export const GeneratedInsertionIntentsSchema = Schema.Array(GeneratedInsertionIntentSchema).check(
   Schema.isMaxLength(MAX_COMMIT_POINT_READ_DEPENDENCIES_V1));
 export type GeneratedInsertionIntent = typeof GeneratedInsertionIntentSchema.Type;
 export interface AuthenticatedGeneratedInsertion extends GeneratedInsertionIntent {
   readonly origin: Readonly<{ syscallSequence: bigint; sourceBindingSha256Hex: string }>;
 }
-const decodeInsertionCarrier = Schema.decodeUnknownResult(Schema.Struct({
+// Other authenticated receipt fields belong to their source owner. Only the
+// optional insertion carrier is projected here; its entries remain closed.
+const decodeInsertionCarrier = Schema.decodeUnknownResult(Schema.StructWithRest(Schema.Struct({
   generatedInsertions: Schema.optionalKey(GeneratedInsertionIntentsSchema),
-}));
+}), [Schema.Record(Schema.String, Schema.Unknown)]), { onExcessProperty: "error" });
 export function authenticatedGeneratedInsertionsResult(operations: readonly AdmittedParticipantOperation[]) {
   return Result.gen(function* () {
     const intents = new Map<AppDocumentIdV1, AuthenticatedGeneratedInsertion>();
@@ -570,7 +569,7 @@ export const SessionJournalOperationUsageSchema = Schema.Struct({
   participantWorkCalls: Schema.Int.check(Schema.isBetween({
     minimum: 0, maximum: MAX_COMMIT_PARTICIPANT_WORK_CALLS_V1,
   })),
-}).annotate(StrictStructOptions);
+});
 export type SessionJournalOperationUsage =
   typeof SessionJournalOperationUsageSchema.Type;
 
@@ -589,7 +588,7 @@ export const SessionJournalSchema = Schema.Struct({
   participantOperations: Schema.Array(AdmittedParticipantOperationSchema)
     .check(Schema.isMaxLength(MAX_COMMIT_WRITE_OPERATIONS_V1)),
   finiteMetadataReservationSha256Hex: Schema.optionalKey(Schema.String.check(Schema.isPattern(LOWERCASE_SHA256_PATTERN))),
-}).annotate(StrictStructOptions);
+});
 export type SessionJournal = typeof SessionJournalSchema.Type;
 
 /** Canonical point evidence projected by the trusted loader. The helper checks
@@ -711,20 +710,20 @@ export const SuccessfulResultEvidenceV1Schema = Schema.Struct({
   valueCodecVersion: FlarexValueCodecVersionSchema,
   canonicalValueBase64Url: CanonicalSuccessfulResultBase64UrlV1Schema,
   sha256Hex: SuccessfulResultSha256HexV1Schema,
-}).annotate(StrictStructOptions);
+});
 export type SuccessfulResultEvidenceV1 =
   typeof SuccessfulResultEvidenceV1Schema.Type;
 
 export const StoredForSessionAttemptJournalCarriageV1Schema = Schema.Struct({
   kind: Schema.Literal("storedForSessionAttempt"),
-}).annotate(StrictStructOptions);
+});
 export type StoredForSessionAttemptJournalCarriageV1 =
   typeof StoredForSessionAttemptJournalCarriageV1Schema.Type;
 
 export const InlineUntrustedJournalCarriageV1Schema = Schema.Struct({
   kind: Schema.Literal("inlineUntrusted"),
   canonicalJournalBase64Url: CanonicalSessionJournalBase64UrlV1Schema,
-}).annotate(StrictStructOptions);
+});
 export type InlineUntrustedJournalCarriageV1 =
   typeof InlineUntrustedJournalCarriageV1Schema.Type;
 
@@ -743,7 +742,7 @@ export const CommitEnvelopeV1Schema = Schema.Struct({
   journal: JournalCarriageV1Schema,
   journalSha256Hex: SessionJournalSha256HexV1Schema,
   successfulResult: SuccessfulResultEvidenceV1Schema,
-}).annotate(StrictStructOptions);
+});
 export type CommitEnvelopeV1 = typeof CommitEnvelopeV1Schema.Type;
 
 export interface StoredForSessionAttemptCommitEnvelopeV1 {
@@ -1923,7 +1922,7 @@ const createCanonicalSuccessfulResultV1Effect = Effect.fn(function* (
     valueCodecVersion: FLAREX_VALUE_CODEC_VERSION_V1,
     canonicalValueBase64Url:
       CanonicalSuccessfulResultBase64UrlV1Schema.make(
-        Encoding.encodeBase64Url(stableCanonicalBytes),
+        Base64Url.encode(stableCanonicalBytes),
       ),
     sha256Hex: SuccessfulResultSha256HexV1Schema.make(
       encodeBytesToLowercaseHex(canonical.sha256),

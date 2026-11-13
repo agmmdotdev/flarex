@@ -10,7 +10,7 @@ export const TrustedWorkflowCheckpointDescriptorSchema = Schema.Struct({
   revision: Schema.BigInt.check(Schema.makeFilter(value => value >= 1n && value <= 9_223_372_036_854_775_807n)),
   sha256: Schema.Uint8Array.check(Schema.makeFilter(value => value.byteLength === 32)),
   byteLength: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: MAX_TRUSTED_WORKFLOW_CHECKPOINT_BYTES })),
-}).annotate({ parseOptions: { onExcessProperty: "error" } });
+});
 export type TrustedWorkflowCheckpointDescriptor = typeof TrustedWorkflowCheckpointDescriptorSchema.Type;
 /** Task aggregate persistence already encodes counters as canonical decimals. */
 export const TrustedWorkflowCheckpointDescriptorCodec = Schema.Struct({
@@ -18,7 +18,7 @@ export const TrustedWorkflowCheckpointDescriptorCodec = Schema.Struct({
   revision: Schema.String.check(Schema.isPattern(/^(?:0|[1-9][0-9]*)$/)).pipe(Schema.decodeTo(
     TrustedWorkflowCheckpointDescriptorSchema.fields.revision, SchemaTransformation.bigintFromString,
   )),
-}).annotate({ parseOptions: { onExcessProperty: "error" } });
+});
 
 export interface TrustedWorkflowContinuation {
   readonly waitId: string;

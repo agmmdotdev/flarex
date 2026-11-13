@@ -150,8 +150,8 @@ export async function finiteMetadataDependenciesScenario(db: FlarexMetadataDatab
   expect(inspectFiniteMetadataProjection({ ...current })).toBeNull();
   await activate(await prepare(1, 2, true));
   // Recovery uses decoded authenticated journal evidence, without process pins.
-  const encoded = await Effect.runPromise(Schema.encodeUnknownEffect(LogicalMetadataReadDependencySchema)(missing));
-  const recovered = Schema.decodeUnknownSync(LogicalMetadataReadDependencySchema)(JSON.parse(JSON.stringify(encoded)));
+  const encoded = await Effect.runPromise(Schema.encodeUnknownEffect(LogicalMetadataReadDependencySchema, { onExcessProperty: "error" })(missing));
+  const recovered = Schema.decodeUnknownSync(LogicalMetadataReadDependencySchema, { onExcessProperty: "error" })(JSON.parse(JSON.stringify(encoded)));
   expect(await validate(captured, [recovered])).toMatchObject({ _tag: "Failure", failure: { reason: "writeConflict" } });
   expect(await validate(after.lastMetadataSequence, [a])).toMatchObject({ _tag: "Failure", failure: { reason: "invalidInput" } });
 }

@@ -18,7 +18,7 @@ import { compileShippingPricingOutput, decodeShippingPriceSetCreate, decodeShipp
 
 type DecodeOutput = Result.Result.Success<ReturnType<typeof compileShippingPricingOutput>>;
 const models = new Map([["price_set", "PriceSet"], ["price", "Price"], ["price_rule", "PriceRule"]]);
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 const decodeEvent = moduleEventDecoder(Schema.Struct({ name: Schema.String,
   metadata: Schema.Struct({ source: Schema.Literal(Modules.PRICING), object: Schema.Literals(["price_set", "price", "price_rule"]),
     action: Schema.Literals([CommonEvents.CREATED, CommonEvents.UPDATED, CommonEvents.DELETED, CommonEvents.RESTORED]) }),

@@ -17,9 +17,9 @@ const eventDelta = (before: Inventory, after: Inventory) => {
 function retainedTap() {
   const getter = Object.getOwnPropertyDescriptor(StepResponse.prototype, "compensateInput")?.get;
   if (getter === undefined) throw new Error("Missing genuine SDK retained input getter");
-  const Creation = Schema.Array(Schema.String).check(Schema.isLengthBetween(1, 1));
+  const Creation = Schema.Array(Schema.String).check(Schema.isBetweenLength(1, 1));
   const Association = Schema.Array(Schema.Struct({ stock_location: Schema.Struct({ stock_location_id: Schema.String }),
-    fulfillment: Schema.Struct({ fulfillment_set_id: Schema.String }) })).check(Schema.isLengthBetween(1, 1));
+    fulfillment: Schema.Struct({ fulfillment_set_id: Schema.String }) })).check(Schema.isBetweenLength(1, 1));
   const values: unknown[] = [];
   const spy = vi.spyOn(StepResponse.prototype, "compensateInput", "get").mockImplementation(function (this: StepResponse<unknown, unknown>) {
     const value: unknown = Reflect.apply(getter, this, []); values.push(structuredClone(value)); return value;

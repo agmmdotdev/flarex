@@ -24,7 +24,7 @@ const StoredSchema = Schema.Struct({ ...DescriptorSchema.fields, codec: CodecSch
 export type StoredTrustedWorkflowCheckpoint = typeof StoredSchema.Type;
 const decodeInput = Schema.decodeUnknownResult(InputSchema, { onExcessProperty: "error" });
 const decodeStored = Schema.decodeUnknownResult(StoredSchema, { onExcessProperty: "error" });
-const decodeDigest = Schema.decodeUnknownResult(DescriptorSchema.fields.sha256);
+const decodeDigest = Schema.decodeUnknownResult(DescriptorSchema.fields.sha256, { onExcessProperty: "error" });
 type PreparedState = typeof InputSchema.Type & Readonly<{ sha256: Uint8Array; bindingSha256: Uint8Array; scopeId: TrustedScopeAuthority["scopeId"] }>;
 export interface PreparedTrustedWorkflowCheckpoint { readonly _PreparedTrustedWorkflowCheckpoint: unique symbol }
 const preparedStates = new WeakMap<object, PreparedState>();

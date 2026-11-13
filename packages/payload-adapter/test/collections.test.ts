@@ -18,7 +18,7 @@ const definitions = (): CollectionConfig[] => [
 ];
 const compile = (input: unknown) => Effect.runPromise(compilePayloadCollections(input));
 const refusal = (input: unknown) => Effect.runPromise(Effect.result(compilePayloadCollections(input)));
-const decodeConfiguration = Schema.decodeUnknownResult(PayloadConfigurationSchema);
+const decodeConfiguration = Schema.decodeUnknownResult(PayloadConfigurationSchema, { onExcessProperty: "error" });
 
 describe("Payload collection compiler", () => {
   it("authenticates nullable scalar storage and indexes optional unique values", async () => {

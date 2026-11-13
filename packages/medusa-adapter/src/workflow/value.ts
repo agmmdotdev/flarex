@@ -47,7 +47,7 @@ const decodeCommandEnvelope = commerceDecoder(Schema.Struct({
   undefinedPaths: Schema.Array(Schema.Array(Schema.Union([
     Schema.String,
     Schema.Number.check(Schema.isInt(), Schema.isBetween({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER })),
-  ])).check(Schema.isLengthBetween(1, 16))).check(Schema.isMaxLength(defaultCommerceResources.valueNodes)),
+  ])).check(Schema.isBetweenLength(1, 16))).check(Schema.isMaxLength(defaultCommerceResources.valueNodes)),
 }), "invalidInput");
 
 /** Serialized paths carry representation only. Capture foreign descriptors and

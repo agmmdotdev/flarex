@@ -13,10 +13,7 @@ import {
   PROBE_LIMITS_V1,
   ProbeProtocolVersionV1Schema,
 } from "./protocol";
-import {
-  StrictParseOptions,
-  StrictStructOptions,
-} from "./strictSchemaOptions";
+import { StrictParseOptions } from "./strictSchemaOptions";
 
 const SyntheticPayloadSchema = Schema.String.check(
   Schema.isPattern(/^x*$/),
@@ -34,7 +31,7 @@ const ProbeDirectEchoIdentityShape = {
 const ProbeDirectEchoRequestV1Shape = Schema.Struct({
   ...ProbeDirectEchoIdentityShape,
   payload: SyntheticPayloadSchema,
-}).annotate(StrictStructOptions);
+});
 
 export const ProbeDirectEchoRequestV1Schema =
   ProbeDirectEchoRequestV1Shape.check(
@@ -58,7 +55,7 @@ const ProbeDirectEchoResponseV1Shape = Schema.Struct({
         : "payloadBytes exceeds the protocol byte limit"
     ),
   ),
-}).annotate(StrictStructOptions);
+});
 
 export const ProbeDirectEchoResponseV1Schema =
   ProbeDirectEchoResponseV1Shape.check(

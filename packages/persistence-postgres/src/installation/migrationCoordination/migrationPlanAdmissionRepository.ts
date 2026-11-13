@@ -1,6 +1,7 @@
+import * as Hex from "effect/encoding/Hex";
 import { makeFrameworkGraphReferenceRead, withFrameworkGraphReadPass } from "./graphReadPass";
 import { asc, eq, sql } from "drizzle-orm";
-import { Effect, Encoding, Option } from "effect";
+import { Effect, Option } from "effect";
 
 import { detachDriverRows } from "../../database/detachDriverRows";
 import { runDrizzleStatementEffect } from "../../database/drizzleStatementEffect";
@@ -494,7 +495,7 @@ export const restoreStoredFrameworkMigrationPlanAdmissionReferenceInTransactionE
       );
     }
     const admissionSha256Bytes = yield* Effect.fromResult(
-      Encoding.decodeHex(admissionSha256),
+      Hex.decode(admissionSha256),
     ).pipe(Effect.mapError(() =>
       FrameworkMigrationRepositoryError.storedCorruption(operation)
     ));
@@ -538,7 +539,7 @@ export const restoreStoredFrameworkMigrationPlanAdmissionReferenceBySha256InTran
       );
     }
     const admissionSha256Bytes = yield* Effect.fromResult(
-      Encoding.decodeHex(admissionSha256),
+      Hex.decode(admissionSha256),
     ).pipe(Effect.mapError(() =>
       FrameworkMigrationRepositoryError.storedCorruption(operation)
     ));
@@ -926,7 +927,7 @@ function runRepositoryStatement<Value>(
 }
 
 function decodeAuthenticatedSha256(value: string): Effect.Effect<Uint8Array> {
-  return Effect.fromResult(Encoding.decodeHex(value)).pipe(Effect.orDie);
+  return Effect.fromResult(Hex.decode(value)).pipe(Effect.orDie);
 }
 
 function mapStoredValueError(

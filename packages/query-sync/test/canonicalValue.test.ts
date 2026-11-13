@@ -1,4 +1,5 @@
-import { Encoding, Result } from "effect";
+import * as Base64Url from "effect/encoding/Base64Url";
+import { Result } from "effect";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -364,7 +365,7 @@ describe("canonical query-sync values", () => {
       snapshotSequence: 0n,
       resultDigest: canonicalKey(51),
       authorityWitness: canonicalKey(61),
-      dependencyKeys: [...boundaryKeys, Encoding.encodeBase64Url("extra")],
+      dependencyKeys: [...boundaryKeys, Base64Url.encode("extra")],
     });
     expect(Result.isFailure(overBoundary)).toBe(true);
     if (Result.isFailure(overBoundary)) {

@@ -254,7 +254,7 @@ import {
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
 const withPostgresPersistence = useFileScopedPostgresPersistence();
-const encodeEnvelope = Schema.encodeSync(CommitEnvelopeV1Schema);
+const encodeEnvelope = Schema.encodeSync(CommitEnvelopeV1Schema, { onExcessProperty: "error" });
 
 describePostgres("real Postgres stored-attempt authority", () => {
   it("closes repeatable read before hashing and binds one complete sealed snapshot", async () => {

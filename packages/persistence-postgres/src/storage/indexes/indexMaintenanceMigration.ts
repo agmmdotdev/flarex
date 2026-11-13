@@ -1,6 +1,7 @@
+import * as Hex from "effect/encoding/Hex";
 import { bytesEqualFullScan, encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { and, asc, eq, getTableColumns, getTableName, sql } from "drizzle-orm";
-import { Data, Effect, Encoding, Schema } from "effect";
+import { Data, Effect, Schema } from "effect";
 import { CatalogSchemaVersionIdSchema } from "flarex-protocol/schema-manifest";
 import { ScopeIdSchema } from "flarex-protocol/storage-authority";
 import type { FlarexMetadataDatabase } from "../../application/deployments";
@@ -162,7 +163,7 @@ const authenticateOpening = Effect.fn("IndexMaintenanceMigration.authenticateOpe
     return yield* Effect.fail(failure("storedState"));
   return { active,schema };
 });
-const digestBytes = (value: string) => Effect.fromResult(Encoding.decodeHex(value)).pipe(Effect.mapError(cause => failure("storedState",cause)));
+const digestBytes = (value: string) => Effect.fromResult(Hex.decode(value)).pipe(Effect.mapError(cause => failure("storedState",cause)));
 
 const convertIndex = Effect.fn("IndexMaintenanceMigration.convertIndex")(function* (
   tx: FlarexMetadataTransaction,controlDb: FlarexMetadataDatabase,catalog: FlarexMetadataTransaction,row: InventoryRow,

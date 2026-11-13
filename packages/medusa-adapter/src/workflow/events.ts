@@ -10,7 +10,7 @@ import type { WorkflowCallResults } from "./host";
 export function orderedWorkflowIdEvents(name: string,
   expectedIds: (calls: WorkflowCallResults) => Effect.Effect<readonly string[], CommerceTransactionError>,
   options: { readonly pendingCancellation?: true; readonly dataShape?: "string"; readonly criticalPriority?: true } = {}) {
-  const id = Schema.String.check(Schema.isLengthBetween(1, 256));
+  const id = Schema.String.check(Schema.isBetweenLength(1, 256));
   const fields = { name: Schema.Literal(name),
     data: options.dataShape === "string" ? id : Schema.Struct({ id }),
     metadata: Schema.Struct({ eventGroupId: Schema.String }),

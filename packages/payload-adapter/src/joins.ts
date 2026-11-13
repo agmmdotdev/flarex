@@ -7,15 +7,14 @@ import {
 import { payloadJoins } from "./contract";
 
 export type PayloadJoinQuery = Readonly<Record<"referencedBy" | "referencedByMany", false | Readonly<{ limit: number }>>>;
-const strict = { parseOptions: { onExcessProperty: "error" } } as const;
 const EmptyJoinWhereSchema = Schema.Record(Schema.String, Schema.Never);
 const makeJoinOptionSchemas = (maximumLimit: number) => {
   const caller = Schema.Struct({
     limit: Schema.optionalKey(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: maximumLimit }))),
     page: Schema.optionalKey(Schema.Literal(1)),
     count: Schema.optionalKey(Schema.Literal(false)),
-  }).annotate(strict);
-  const sanitized = Schema.Struct({ ...caller.fields, where: Schema.optionalKey(EmptyJoinWhereSchema) }).annotate(strict);
+  });
+  const sanitized = Schema.Struct({ ...caller.fields, where: Schema.optionalKey(EmptyJoinWhereSchema) });
   return { caller, sanitized };
 };
 const ReferencedByJoinOptions = makeJoinOptionSchemas(payloadJoins[0].maximumLimit);
@@ -24,14 +23,14 @@ const ReferencedByManyJoinOptions = makeJoinOptionSchemas(payloadJoins[1].maximu
 export const PayloadJoinInputSchema = Schema.Union([Schema.Literal(false), Schema.Struct({
   referencedBy: Schema.optionalKey(Schema.Union([Schema.Literal(false), ReferencedByJoinOptions.caller])),
   referencedByMany: Schema.optionalKey(Schema.Union([Schema.Literal(false), ReferencedByManyJoinOptions.caller])),
-}).annotate(strict)]);
+})]);
 const SanitizedPayloadJoinInputSchema = Schema.Union([Schema.Literal(false), Schema.Struct({
   referencedBy: Schema.optionalKey(Schema.Union([Schema.Literal(false), ReferencedByJoinOptions.sanitized])),
   referencedByMany: Schema.optionalKey(Schema.Union([Schema.Literal(false), ReferencedByManyJoinOptions.sanitized])),
-}).annotate(strict)]);
+})]);
 export type PayloadJoinInput = typeof PayloadJoinInputSchema.Type;
-const decodeCallerJoinInput = Schema.decodeUnknownResult(PayloadJoinInputSchema);
-const decodeSanitizedJoinInput = Schema.decodeUnknownResult(SanitizedPayloadJoinInputSchema);
+const decodeCallerJoinInput = Schema.decodeUnknownResult(PayloadJoinInputSchema, { onExcessProperty: "error" });
+const decodeSanitizedJoinInput = Schema.decodeUnknownResult(SanitizedPayloadJoinInputSchema, { onExcessProperty: "error" });
 
 type MutablePayloadJoinQuery = { -readonly [Key in keyof PayloadJoinQuery]: PayloadJoinQuery[Key] };
 

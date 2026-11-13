@@ -1,10 +1,11 @@
+import * as Base64 from "effect/encoding/Base64";
 import { canonicalizeApplicationManifest } from "@flarex/analysis/application-analysis";
 import { compileCoreApplicationSchema } from "@flarex/persistence-postgres/internal/core-application-schema";
 import type { CoreApplicationCandidate } from "@flarex/persistence-postgres/internal/core";
 import { createCoreApplicationDefinition } from "@flarex/system-test/internal/application-core-definition";
 import { APPLICATION_ANALYSIS_ANALYZER_IDENTITY, APPLICATION_ANALYSIS_POLICY_IDENTITY,
   type ApplicationAnalysisHostResult } from "@flarex/source-analyzer-v2/internal/application-analysis-host";
-import { Effect, Encoding, Option, Result } from "effect";
+import { Effect, Option, Result } from "effect";
 import { captureDocumentObject } from "flarex-protocol/document-value";
 import type { PushSourcePackage } from "flarex-protocol/deployment";
 import { beforeAll, describe, expect, it } from "vitest";
@@ -155,9 +156,9 @@ describe("configured Application composition", () => {
     const fixture = executorApplicationConfigurationFixture();
     const profile = Result.getOrThrow(resolveExecutorApplicationProfile(fixture, fixture.profile.deploymentId));
     const key = { keyId: profile.keyId,
-      privateKeyPkcs8: Encoding.encodeBase64(new Uint8Array(await crypto.subtle.exportKey("pkcs8", pair.privateKey))),
-      publicKeySpki: Encoding.encodeBase64(new Uint8Array(await crypto.subtle.exportKey("spki", pair.publicKey))),
-      queryCursorSecret: Encoding.encodeBase64(crypto.getRandomValues(new Uint8Array(32))), issuedAtInclusiveEpochMilliseconds: 0 };
+      privateKeyPkcs8: Base64.encode(new Uint8Array(await crypto.subtle.exportKey("pkcs8", pair.privateKey))),
+      publicKeySpki: Base64.encode(new Uint8Array(await crypto.subtle.exportKey("spki", pair.publicKey))),
+      queryCursorSecret: Base64.encode(crypto.getRandomValues(new Uint8Array(32))), issuedAtInclusiveEpochMilliseconds: 0 };
     const env = { FLAREX_APPLICATION_KEYS: JSON.stringify({ version: 1, keys: [key] }) };
     const first = await Effect.runPromise(makeExecutorApplicationCredentials(env, profile));
     const second = await Effect.runPromise(makeExecutorApplicationCredentials(env, profile));

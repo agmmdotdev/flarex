@@ -12,7 +12,7 @@ import { prepareCartPromotionLinkRead } from "./cart-promotion-service";
 // The read owner also supplies the existing checked graph and read receipts.
 import { linkPreimageEventPolicy } from "./preimage-events";
 
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 const boundedRequest = LinkPreimageOperationRequestSchema.check(Schema.makeFilter(request => request.mutations.length <= 2 &&
   request.mutations.every(mutation => mutation.pairs.length <= 4) &&
   new Set(request.mutations.flatMap(mutation => mutation.pairs.map(pair => pair.primary))).size <= 1));

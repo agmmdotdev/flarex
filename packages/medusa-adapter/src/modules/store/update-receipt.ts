@@ -17,13 +17,13 @@ import type { prepareStoreUpdateRepository } from "./update-repository";
 
 type Prepared = Result.Result.Success<ReturnType<typeof prepareStoreUpdateRepository>>;
 type IdentifiedRow = JsonObject & Readonly<{ id: string }>;
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 const decodeRead = commerceDecoder(StoreUpdateReadInput, "receiptMismatch");
 const decodeChildren = commerceDecoder(Schema.Array(Schema.JsonObject).check(Schema.isMaxLength(2)), "receiptMismatch");
 const decodeEvent = moduleEventDecoder(Schema.Struct({ name: Schema.String,
   metadata: Schema.Struct({ source: Schema.Literal(Modules.STORE), object: Schema.Literals(["store", "store_currency", "store_locale"]),
     action: Schema.Literals(["created", "updated", "deleted"]) }),
-  data: Schema.Struct({ id: Schema.Union([Id, Schema.Array(Id).check(Schema.isLengthBetween(1, 8))]) }),
+  data: Schema.Struct({ id: Schema.Union([Id, Schema.Array(Id).check(Schema.isBetweenLength(1, 8))]) }),
 }), defaultCommerceResources);
 const key = (table: string, id: string) => JSON.stringify([table, id]);
 const withoutManaged = (row: JsonObject): Record<string, Json> => Object.fromEntries(Object.entries(row).filter(([field]) =>

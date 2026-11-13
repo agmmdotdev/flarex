@@ -5,7 +5,7 @@ import { commerceDecoder } from "../../value/decoder";
 import { compileFulfillmentLifecycleGraph, type FulfillmentPhysicalProfile } from "./fulfillment-graph-contracts";
 import type { captureServiceZoneCreationMetadata } from "./shipping-profile-schema";
 
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 export const FulfillmentSetCreate = Schema.Struct({ name: Schema.String, type: Schema.String });
 export const FulfillmentSetCreates = Schema.Array(FulfillmentSetCreate).pipe(Schema.mutable).check(Schema.isMaxLength(1));
 export const FulfillmentSetPhysicalDeletionIds = Schema.Array(Id).pipe(Schema.mutable).check(Schema.isMaxLength(1));

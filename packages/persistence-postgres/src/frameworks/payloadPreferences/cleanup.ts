@@ -37,11 +37,11 @@ export interface PayloadPreferenceCleanup {
 export const PayloadPreferenceDeletionIntentSchema = Schema.Struct({
   documentId: AppDocumentIdV1Schema, collectionSlug: Schema.String,
   key: Schema.String.check(Schema.isMaxLength(2048)),
-}).annotate({ parseOptions: { onExcessProperty: "error" } });
+});
 export type PayloadPreferenceDeletionIntent = typeof PayloadPreferenceDeletionIntentSchema.Type;
 const PayloadPreferenceDeletionIntentsSchema = Schema.Array(PayloadPreferenceDeletionIntentSchema)
   .check(Schema.isMaxLength(cmsLimits.identities));
-export const decodePayloadPreferenceDeletionIntents = Schema.decodeUnknownEffect(PayloadPreferenceDeletionIntentsSchema);
+export const decodePayloadPreferenceDeletionIntents = Schema.decodeUnknownEffect(PayloadPreferenceDeletionIntentsSchema, { onExcessProperty: "error" });
 export interface PayloadPreferenceDeletionEvidence extends PayloadPreferenceDeletionIntent {
   readonly preferenceIds: readonly string[];
 }

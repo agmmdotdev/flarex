@@ -1,7 +1,8 @@
+import * as Hex from "effect/encoding/Hex";
 import { makeFrameworkGraphReferenceRead, withFrameworkGraphReadPass } from "./graphReadPass";
 import { compareUtf16Strings } from "@flarex/utils/strings";
 import { and, asc, eq, inArray, or, sql } from "drizzle-orm";
-import { Brand, Effect, Encoding, Option, Result, Schema } from "effect";
+import { Brand, Effect, Option, Result, Schema } from "effect";
 
 import { detachDriverRows } from "../../database/detachDriverRows";
 import { runDrizzleStatementEffect } from "../../database/drizzleStatementEffect";
@@ -685,7 +686,7 @@ export const restoreFrameworkMigrationEventReceiptSubjectsInTransactionEffect = 
     const batch = pending.slice(offset, offset + 32);
     const digestBytes: Uint8Array[] = [];
     for (const digest of batch) {
-      digestBytes.push(yield* Effect.fromResult(Encoding.decodeHex(digest)).pipe(
+      digestBytes.push(yield* Effect.fromResult(Hex.decode(digest)).pipe(
         Effect.mapError(() => FrameworkMigrationRepositoryError.storedCorruption(operation))));
     }
     const rows = yield* runRepositoryStatement(operation,
@@ -1937,7 +1938,7 @@ function runRepositoryStatement<Value>(
 }
 
 function decodeAuthenticatedSha256(value: string): Effect.Effect<Uint8Array> {
-  return Effect.fromResult(Encoding.decodeHex(value)).pipe(Effect.orDie);
+  return Effect.fromResult(Hex.decode(value)).pipe(Effect.orDie);
 }
 
 function decodeStoredSha256(

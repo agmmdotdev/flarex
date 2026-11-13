@@ -279,8 +279,10 @@ describe("ValidatorJson", () => {
   });
   it("refuses preserving foreign extra values as a typed canonical DTO error", () => {
     const preserve = { onExcessProperty: "preserve" as const };
-    expect(Result.isFailure(Schema.decodeUnknownResult(ValidatorJsonWireCodecV1, preserve)({ type: "string", legacy: {} }))).toBe(true);
-    expect(Result.isFailure(Schema.decodeUnknownResult(Schema.toType(ValidatorJsonWireCodecV1), preserve)({ type: "string", legacy: {} }))).toBe(true);
+    const input = { type: "string", legacy: {} };
+    // This is the canonical owner's refused policy, no longer an Effect parse option.
+    expect(decodeValidatorJsonWireResultCoreV1(input, preserve)).toMatchObject({ ok: false, issue: { reason: "unsupportedExcessPolicy" } });
+    expect(decodeValidatorJsonResultCoreV1(input, preserve)).toMatchObject({ ok: false, issue: { reason: "unsupportedExcessPolicy" } });
   });
   it("admits declarations beyond displaced node and logical-depth quotas", () => {
     const shared = { type: "number" };

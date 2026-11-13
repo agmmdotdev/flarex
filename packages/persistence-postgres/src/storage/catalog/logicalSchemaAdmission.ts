@@ -53,7 +53,7 @@ export class LogicalSchemaAdmissionError extends Data.TaggedError("LogicalSchema
 }> {}
 const decodeIdentity = Schema.decodeUnknownEffect(Schema.Struct({
   schemaVersionId: CatalogSchemaVersionIdSchema, version: CatalogSchemaVersionSchema,
-}).annotate({ parseOptions: { onExcessProperty: "error" } }));
+}), { onExcessProperty: "error" });
 type AdmissionFailure = LogicalSchemaAdmissionError
   | Effect.Error<ReturnType<typeof lockSchemaManifestBindingDeploymentEffect>>
   | Effect.Error<ReturnType<typeof ensureStableTableIdentityInTransactionEffect>>
@@ -214,7 +214,7 @@ const requireRetainedOwners = Effect.fn("LogicalSchemaAdmission.requireRetainedO
       const payload = candidate.sources.filter(source => source.owner === "payload" && source.writeProfile !== "payload.readOnlyView");
       if (app.length !== 1 || payload.length !== 1 || app[0] === undefined || payload[0] === undefined)
         return yield* Effect.fail(new LogicalSchemaAdmissionError({ reason: "ownershipChanged" }));
-      const evidence = yield* Schema.decodeUnknownEffect(ApplicationLogicalV3Evidence)(app[0].evidence).pipe(
+      const evidence = yield* Schema.decodeUnknownEffect(ApplicationLogicalV3Evidence, { onExcessProperty: "error" })(app[0].evidence).pipe(
         Effect.mapError(cause => new LogicalSchemaAdmissionError({ reason: "ownershipChanged", cause })));
       const verified = yield* verifyApplicationManifestV3(evidence.manifest).pipe(
         Effect.mapError(cause => new LogicalSchemaAdmissionError({ reason: "ownershipChanged", cause })));

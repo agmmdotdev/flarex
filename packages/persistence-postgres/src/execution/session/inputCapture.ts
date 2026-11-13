@@ -95,7 +95,7 @@ const decodeAttemptFenceResult = Schema.decodeUnknownResult(
 );
 
 const decodeAttemptSnapshotTokenResult = Schema.decodeUnknownResult(
-  Schema.toType(SnapshotTokenSchema),
+  Schema.toType(SnapshotTokenSchema), { onExcessProperty: "error" },
 );
 
 export const decodeCheckedSchemaVersionIdResult = Schema.decodeUnknownResult(CatalogSchemaVersionIdSchema);
@@ -584,7 +584,7 @@ export function activationResult(
         scopeId: anchor.snapshotToken.scopeId,
         epoch: anchor.snapshotToken.epoch,
         commitSeq: anchor.snapshotToken.commitSeq,
-      }),
+      }, { parseOptions: { onExcessProperty: "error" } }),
     ),
   } satisfies PointMutationSessionAnchorV1);
   switch (status) {
@@ -615,7 +615,7 @@ export function captureSessionAnchor(
         scopeId: anchor.snapshotToken.scopeId,
         epoch: anchor.snapshotToken.epoch,
         commitSeq: anchor.snapshotToken.commitSeq,
-      }),
+      }, { parseOptions: { onExcessProperty: "error" } }),
     ),
   } satisfies PointMutationSessionAnchorV1);
 }

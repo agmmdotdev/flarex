@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { FetchHttpClient } from "effect/unstable/http";
+import { FetchHttpClient } from "effect/http";
 import { describe, expect, it } from "vitest";
 import { postgresStorageRequest } from "./postgresStorageClient";
 

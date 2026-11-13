@@ -5,7 +5,7 @@ import { SchemaManifestAppDeveloperOrderedIndexSpecV1Schema } from "flarex-proto
 import { CoreIndexDeclarationSchema, type CoreIndexDeclaration } from "../core/indexState";
 import { captureCoreSchema, CoreSchemaError, invalidCoreSchema, type CoreSchemaDefinition } from "../core/schemaTypes";
 
-const decodeDeclaredIndex = Schema.decodeUnknownResult(SchemaManifestAppDeveloperOrderedIndexSpecV1Schema);
+const decodeDeclaredIndex = Schema.decodeUnknownResult(SchemaManifestAppDeveloperOrderedIndexSpecV1Schema, { onExcessProperty: "error" });
 const decodeInstalledIndex = Schema.decodeUnknownResult(CoreIndexDeclarationSchema);
 
 /** Application authoring fields, before the source compiler adds its sort suffix. */

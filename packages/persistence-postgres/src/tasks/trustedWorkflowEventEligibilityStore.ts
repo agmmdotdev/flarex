@@ -24,7 +24,7 @@ import {
 
 const boundedCount = Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 16 }));
 const Roles = Schema.Array(Schema.Struct({ role: EventName, policyRevision: EventRevision,
-  maximumCommits: boundedCount, maximumOccurrences: boundedCount })).check(Schema.isLengthBetween(1, 2));
+  maximumCommits: boundedCount, maximumOccurrences: boundedCount })).check(Schema.isBetweenLength(1, 2));
 const Selection = Schema.Struct({ role: EventName, occurrence: boundedCount });
 const decodeRoles = Schema.decodeUnknownEffect(Roles, { onExcessProperty: "error" });
 const decodeSelection = Schema.decodeUnknownEffect(Selection, { onExcessProperty: "error" });

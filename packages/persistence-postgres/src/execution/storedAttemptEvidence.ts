@@ -144,7 +144,7 @@ const decodeStoredAttemptCommitSeqResult = Schema.decodeUnknownResult(
   Schema.toType(CommitSeqSchema),
 );
 const decodeStoredAttemptSnapshotTokenResult = Schema.decodeUnknownResult(
-  Schema.toType(SnapshotTokenSchema),
+  Schema.toType(SnapshotTokenSchema), { onExcessProperty: "error" },
 );
 
 export interface StoredAttemptEvidenceAuthorityV1 {

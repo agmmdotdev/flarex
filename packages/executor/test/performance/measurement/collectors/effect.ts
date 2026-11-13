@@ -250,7 +250,7 @@ export function createEffectMeasurementCollector(input: Readonly<{
   };
   const tracer = Tracer.make({
     ...(!ownersOnly ? { context<X>(primitive: Tracer.EffectPrimitive<X>, fiber: Parameters<NonNullable<Tracer.Tracer["context"]>>[1]): X {
-      return context.run({ parent: fiber.currentSpan, fiberId: String(fiber.id) }, () =>
+      return context.run({ parent: fiber.cache.span, fiberId: String(fiber.id) }, () =>
         primitive["~effect/Effect/evaluate"](fiber));
     } } : {}),
     span(options) {

@@ -1,4 +1,5 @@
-import { Encoding } from "effect";
+import * as Hex from "effect/encoding/Hex";
+
 
 import type { TaskRunListStoreItem } from "./ListSchema.js";
 import type {
@@ -71,7 +72,7 @@ function projectResult(
   return frozen({
     codec: result.codec,
     byteLength: result.byteLength,
-    sha256Hex: Encoding.encodeHex(result.sha256),
+    sha256Hex: Hex.encode(result.sha256),
   });
 }
 

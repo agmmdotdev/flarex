@@ -11,7 +11,7 @@ import { compileKeyedUpdates } from "../../write/keyed";
 import { executeRead } from "../../query/read";
 import { prepareStockLocationUpdateReadPlan, stockLocationUpdateWhere, stockLocationAddressWhere } from "./update-read-plan";
 
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 const decodeId = commerceDecoder(Id, "invalidInput");
 const decodePairs = commerceDecoder(Schema.Array(Schema.Struct({ entity: Schema.JsonObject, update: Schema.JsonObject })).check(Schema.isMaxLength(4)), "invalidInput");
 

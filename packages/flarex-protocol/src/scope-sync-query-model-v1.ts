@@ -34,10 +34,7 @@ import {
   ScopeUuidV1Schema,
   StorageGenerationFenceSchema,
 } from "./storage-authority";
-import {
-  StrictParseOptions,
-  StrictStructOptions,
-} from "./strict-schema-options";
+import { StrictParseOptions } from "./strict-schema-options";
 
 const UTF8_ENCODER = new TextEncoder();
 const UTF8_DECODER = new TextDecoder("utf-8", { fatal: true });
@@ -57,7 +54,7 @@ export const ScopeSyncCanonicalQueryKeyFrameV1Schema = Schema.Struct({
   format: Schema.Literal(SCOPE_SYNC_QUERY_KEY_FORMAT_V1),
   version: Schema.Literal(SCOPE_SYNC_PROTOCOL_VERSION_V1),
   identity: ScopeSyncCanonicalQueryIdentityV1Schema,
-}).annotate(StrictStructOptions);
+});
 export type ScopeSyncCanonicalQueryKeyFrameV1 =
   typeof ScopeSyncCanonicalQueryKeyFrameV1Schema.Type;
 
@@ -71,7 +68,7 @@ export const ScopeSyncQueryAuthorityV1Schema = Schema.Struct({
   storageGenerationFence: StorageGenerationFenceSchema,
   activationSequence: ApplicationActivationSequenceV1Schema,
   activeHeadSha256Hex: ApplicationActiveHeadSha256HexV1Schema,
-}).annotate(StrictStructOptions);
+});
 export type ScopeSyncQueryAuthorityV1 =
   typeof ScopeSyncQueryAuthorityV1Schema.Type;
 

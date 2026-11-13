@@ -20,7 +20,7 @@ const internal = (n: number) => new Uint8Array(16).fill(n);
 const source: CoreTableDefinition = { name: "articles", number: 10001, tabletId: internal(1), namespace: null, state: "active", indexes: [] };
 const target: CoreTableDefinition = { name: "authors", number: 10002, tabletId: internal(2), namespace: null, state: "active", indexes: [] };
 const index = { name: "by_reference_author", ref: { id: internal(3) }, fields: ["author"] };
-const reference = Schema.decodeUnknownSync(CoreNativeReferenceSchema)({
+const reference = Schema.decodeUnknownSync(CoreNativeReferenceSchema, { onExcessProperty: "error" })({
   declaration: { format: "flarex.relation-declaration", version: 1,
     source: { table: "articles", path: [{ kind: "field", name: "author" }], forwardName: "author" },
     target: { table: "authors" }, value: { cardinality: "one", required: false },

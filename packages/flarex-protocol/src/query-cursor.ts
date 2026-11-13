@@ -1,3 +1,4 @@
+import * as Hex from "effect/encoding/Hex";
 /**
  * Convex keybroker/{broker,encryptor,secret}.rs and pb/protos/convex_cursor.proto
  * at db914cf06e2b06ee985646611b9e12ed7a770318. Copyright 2026 Convex, Inc.
@@ -7,7 +8,7 @@ import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { gcmsiv } from "@noble/ciphers/aes.js";
 import { hmac } from "@noble/hashes/hmac.js";
 import { sha256 } from "@noble/hashes/sha2.js";
-import { Data, Encoding, Result, Schema } from "effect";
+import { Data, Result, Schema } from "effect";
 
 export type QueryCursorPosition = { readonly kind: "after"; readonly key: Uint8Array } | { readonly kind: "end" };
 export interface QueryCursor {
@@ -53,7 +54,7 @@ export function createQueryCursorBroker(configuration: {
         decode: cursor => Result.gen(function* () {
           // Pinned const-hex 1.19.1 accepts mixed case and either optional 0x prefix.
           const hex = cursor.startsWith("0x") || cursor.startsWith("0X") ? cursor.slice(2) : cursor;
-          const bytes = yield* Encoding.decodeHex(hex).pipe(Result.mapError(() => new QueryCursorError({ reason: "invalidEncoding" })));
+          const bytes = yield* Hex.decode(hex).pipe(Result.mapError(() => new QueryCursorError({ reason: "invalidEncoding" })));
           if (bytes[0] !== VERSION) return yield* Result.fail(new QueryCursorError({ reason: "invalidVersion" }));
           if (bytes.byteLength < 17) return yield* Result.fail(new QueryCursorError({ reason: "authenticationFailed" }));
           const plaintext = yield* Result.try({

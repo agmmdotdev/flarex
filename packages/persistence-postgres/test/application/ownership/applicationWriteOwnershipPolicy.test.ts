@@ -6,16 +6,16 @@ import { hashPolicyFixture } from "./applicationWritePolicyFixture";
 import { canonicalizeApplicationWriteOwnership, decodeStoredApplicationWriteOwnership } from "../../../src/application/ownership/Codec";
 import { ApplicationWriteOwnershipHistoryBudget, denyManagedApplicationTableWrites, retainApplicationManagedTableClaims } from "../../../src/application/ownership/Policy";
 
-const managed = Schema.decodeUnknownSync(ApplicationSchemaWritePolicyBindingSchema)({ applicationTableId: 2, logicalName: "posts", tableId: 12,
+const managed = Schema.decodeUnknownSync(ApplicationSchemaWritePolicyBindingSchema, { onExcessProperty: "error" })({ applicationTableId: 2, logicalName: "posts", tableId: 12,
   owner: "payload", policyId: "payload.scalar", writePolicySha256: hashPolicyFixture({ format: "flarex.application-table-write-policy", version: 1,
     logicalTableName: "posts", owner: "payload", policyId: "payload.scalar", configSha256: "b".repeat(64), provenanceSha256: "c".repeat(64) }),
   configSha256: "b".repeat(64), provenanceSha256: "c".repeat(64) });
-const ordinary = Schema.decodeUnknownSync(ApplicationSchemaWritePolicyBindingSchema)({ applicationTableId: 1, logicalName: "audit", tableId: 11,
+const ordinary = Schema.decodeUnknownSync(ApplicationSchemaWritePolicyBindingSchema, { onExcessProperty: "error" })({ applicationTableId: 1, logicalName: "audit", tableId: 11,
   owner: "application", writePolicySha256: "d".repeat(64) });
 
 describe("Application write ownership", () => {
   it("retains command-only Application claims without changing ordinary table writes", async () => {
-    const command = Schema.decodeUnknownSync(ApplicationSchemaWritePolicyBindingSchema)({
+    const command = Schema.decodeUnknownSync(ApplicationSchemaWritePolicyBindingSchema, { onExcessProperty: "error" })({
       applicationTableId: 3, logicalName: "permissions", tableId: 13, owner: "application-command",
       policyId: "application.reference-permissions", writePolicySha256: hashPolicyFixture({
         format: "flarex.application-table-write-policy", version: 1, logicalTableName: "permissions",

@@ -68,7 +68,10 @@ describe(name, () => {
         const fresh = yield* database.beginQuery(identity.functionPath);
         expect(fresh.program.identity).toEqual(replacement);
         expect(statements).toEqual([]);
-        yield* old.finish();
+        // The snapshot retains its selected program, but publishing a new
+        // program revokes completion authority for that older metadata read.
+        expect(Result.getFailure(yield* Effect.result(old.finish()))).toEqual(
+          Option.some(expect.objectContaining({ reason: "authorityRevoked" })));
         yield* fresh.finish();
       })));
     } finally { await fixture.close(); }

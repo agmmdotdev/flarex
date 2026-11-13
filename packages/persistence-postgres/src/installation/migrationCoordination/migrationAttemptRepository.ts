@@ -1,3 +1,4 @@
+import * as Hex from "effect/encoding/Hex";
 import { MAX_FRAMEWORK_BINDING_GRAPH_ROOTS, frameworkMigrationGraphPolicy, withFrameworkCollisionGraphLimits } from "./graphLimits";
 import { frameworkGraphDriverRowReferences, makeFrameworkGraphReferenceRead, withFrameworkGraphReadPass } from "./graphReadPass";
 import {
@@ -6,7 +7,7 @@ import {
 } from
   "@flarex/time/iso-instant";
 import { and, eq, sql } from "drizzle-orm";
-import { Effect, Encoding, Option } from "effect";
+import { Effect, Option } from "effect";
 
 import { detachDriverRows } from "../../database/detachDriverRows";
 import { runDrizzleStatementEffect } from "../../database/drizzleStatementEffect";
@@ -169,7 +170,7 @@ export const restoreFrameworkMigrationEventAttemptSubjectsInTransactionEffect = 
       // predecessor supplied this node, corroborate the digest's full occupant
       // cardinality once; a second corrupt row must not be hidden by the graph.
       if (reference.kind === "attemptStarted" && !selectedDigests.has(reference.attemptStartSha256)) {
-        const digest = yield* Effect.fromResult(Encoding.decodeHex(reference.attemptStartSha256)).pipe(Effect.mapError(() =>
+        const digest = yield* Effect.fromResult(Hex.decode(reference.attemptStartSha256)).pipe(Effect.mapError(() =>
           FrameworkMigrationRepositoryError.storedCorruption(operation)));
         const rows = yield* runRepositoryStatement(operation, transaction.select({
           attemptStorageId: fxSystemFrameworkMigrationAttemptStarts.attemptStorageId,
@@ -754,7 +755,7 @@ const loadAttemptStartSubjectRoot = Effect.fn("FrameworkMigrationAttemptStartRep
     }
     const selection = reference.kind === "attemptStarted"
       ? eq(fxSystemFrameworkMigrationAttemptStarts.attemptStartSha256,
-        yield* Effect.fromResult(Encoding.decodeHex(reference.attemptStartSha256)).pipe(Effect.mapError(() =>
+        yield* Effect.fromResult(Hex.decode(reference.attemptStartSha256)).pipe(Effect.mapError(() =>
           FrameworkMigrationRepositoryError.storedCorruption(operation))))
       : eq(fxSystemFrameworkMigrationAttemptStarts.attemptId, reference.attemptId);
     const rows = yield* runRepositoryStatement(operation,
@@ -1109,7 +1110,7 @@ function runRepositoryStatement<Value>(
 }
 
 function decodeAuthenticatedSha256(value: string): Effect.Effect<Uint8Array> {
-  return Effect.fromResult(Encoding.decodeHex(value)).pipe(Effect.orDie);
+  return Effect.fromResult(Hex.decode(value)).pipe(Effect.orDie);
 }
 
 function mapStoredValueError(

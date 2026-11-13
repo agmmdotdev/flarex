@@ -317,7 +317,7 @@ const decodeCommitSeqResult = Schema.decodeUnknownResult(
   Schema.toType(CommitSeqSchema),
 );
 const decodeSnapshotTokenResult = Schema.decodeUnknownResult(
-  Schema.toType(SnapshotTokenSchema),
+  Schema.toType(SnapshotTokenSchema), { onExcessProperty: "error" },
 );
 const decodeScopeUuidV1Result = Schema.decodeUnknownResult(
   Schema.toType(ScopeUuidV1Schema),

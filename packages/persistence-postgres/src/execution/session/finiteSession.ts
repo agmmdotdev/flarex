@@ -113,7 +113,7 @@ export const prepareProvisionalFiniteSessionEffect = Effect.fn("ApplicationMutat
     const hardExpiresAt = cloneValidDate(evidence.authorizationGrantExpiresAt);
     const leaseExpiresAt = yield* Effect.fromResult(deriveInitialLeaseExpiry(databaseNow, hardExpiresAt, input.leaseDurationMilliseconds));
     const snapshotToken = SnapshotTokenSchema.make({ scopeId: input.prepared.scopeId, epoch: clock.record.epoch,
-      commitSeq: clock.record.lastCommitSeq });
+      commitSeq: clock.record.lastCommitSeq }, { parseOptions: { onExcessProperty: "error" } });
     const claim = yield* Effect.fromResult(deriveTransactionExecutionClaimV1({ scopeUuid: clock.scopeUuid,
       sessionId: input.candidateSessionId, attemptFence: INITIAL_ATTEMPT_FENCE, claimFence: 1n, claimOwner: input.executionClaimOwner,
       databaseNow, durationMilliseconds: input.executionClaimDurationMilliseconds, leaseExpiresAt,

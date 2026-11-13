@@ -7,6 +7,7 @@
   ],
   "exports": {
     ".": "./src/index.ts",
+    "./internal/strict-schema": "./src/strict-schema-options.ts",
     "./app-document": "./src/app-document.ts",
     "./internal/exact-decimal": "./src/exact-decimal.ts",
     "./app-document-id": "./src/app-document-id.ts",

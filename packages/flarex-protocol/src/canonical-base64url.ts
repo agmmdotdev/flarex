@@ -1,4 +1,5 @@
-import { Encoding, Result, Schema } from "effect";
+import * as Base64Url from "effect/encoding/Base64Url";
+import { Result, Schema } from "effect";
 
 const UNPADDED_BASE64URL_PATTERN = /^[A-Za-z0-9_-]+$/;
 
@@ -47,13 +48,13 @@ export function decodeCanonicalBase64Url(
       maximumBytes,
     }));
   }
-  return Encoding.decodeBase64Url(value).pipe(
+  return Base64Url.decode(value).pipe(
     Result.mapError(() => DECODING_FAILED),
     Result.flatMap((bytes): Result.Result<
       Uint8Array,
       CanonicalBase64UrlDecodeIssue
     > => {
-      return Encoding.encodeBase64Url(bytes) === value
+      return Base64Url.encode(bytes) === value
         ? Result.succeed(bytes)
         : Result.fail(NON_CANONICAL);
     }),

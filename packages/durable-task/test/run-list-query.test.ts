@@ -241,7 +241,7 @@ describe("TaskRunListQuery", () => {
 
   it("keeps direct Schema decoding strict at every struct boundary", () => {
     const item = applicationReady(RUN_1, 1_000);
-    const decodeDirect = Schema.decodeUnknownResult(TaskRunListStoreItemSchema);
+    const decodeDirect = Schema.decodeUnknownResult(TaskRunListStoreItemSchema, { onExcessProperty: "error" });
 
     expect(Result.isFailure(decodeDirect({ ...item, extra: true }))).toBe(true);
     expect(Result.isFailure(decodeDirect({

@@ -32,7 +32,7 @@ const Ids = Schema.Array(Text).check(Schema.isMaxLength(8));
 const IdSelection = Schema.Union([Text, Ids]);
 const ListFilters = Schema.Struct({ id: IdSelection });
 const PriceFilters = Schema.Struct({ price_set_id: Ids, price_list_id: Text });
-const SelectedFields = Schema.Array(Text).check(Schema.isLengthBetween(1, 256));
+const SelectedFields = Schema.Array(Text).check(Schema.isBetweenLength(1, 256));
 const Config = Schema.Struct({ select: Schema.optionalKey(SelectedFields),
   relations: Schema.optionalKey(Schema.Array(Schema.Literals(["price_list_rules", "prices", "prices.price_rules"])).check(Schema.isMaxLength(3))),
   skip: Schema.optionalKey(QueryOffset), take: Schema.optionalKey(QueryLimit),

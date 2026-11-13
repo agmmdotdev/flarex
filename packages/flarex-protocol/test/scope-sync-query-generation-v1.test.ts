@@ -43,7 +43,7 @@ describe("scope sync query generation v1 protocol", () => {
       activationSequence: 3n,
     });
     expect(Object.isFrozen(decoded)).toBe(true);
-    expect(Schema.encodeSync(ScopeSyncCanonicalQueryIdentityV1Schema)(decoded))
+    expect(Schema.encodeSync(ScopeSyncCanonicalQueryIdentityV1Schema, { onExcessProperty: "error" })(decoded))
       .toEqual(rawIdentity());
   });
 
@@ -79,7 +79,7 @@ describe("scope sync query generation v1 protocol", () => {
     expect(Object.isFrozen(active.refreshedThroughCursor)).toBe(true);
     expect(Object.isFrozen(active.dependencies)).toBe(true);
     expect(active.dependencies.every(Object.isFrozen)).toBe(true);
-    expect(Schema.encodeSync(ScopeSyncQueryGenerationV1Schema)(active))
+    expect(Schema.encodeSync(ScopeSyncQueryGenerationV1Schema, { onExcessProperty: "error" })(active))
       .toEqual({
         format: SCOPE_SYNC_QUERY_GENERATION_FORMAT_V1,
         version: SCOPE_SYNC_PROTOCOL_VERSION_V1,
@@ -106,7 +106,7 @@ describe("scope sync query generation v1 protocol", () => {
     expect(normalized).not.toBe(source);
     expect(Object.isFrozen(normalized)).toBe(true);
     expect(normalized.every(Object.isFrozen)).toBe(true);
-    expect(Schema.encodeSync(ScopeSyncDependencyKeySetV1Schema)(normalized))
+    expect(Schema.encodeSync(ScopeSyncDependencyKeySetV1Schema, { onExcessProperty: "error" })(normalized))
       .toEqual([rawTableKey(1), rawTableKey(2)]);
   });
 

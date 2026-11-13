@@ -4,10 +4,7 @@ import {
   decodePointMutationExactRuntimeResultV1Effect,
   type PointMutationExactRuntimeResultV1,
 } from "./point-mutation-exact-runtime";
-import {
-  StrictParseOptions,
-  StrictStructOptions,
-} from "./strict-schema-options";
+import { StrictParseOptions } from "./strict-schema-options";
 import {
   FlarexValueCodecV1Error,
   normalizeFlarexValueV1,
@@ -77,12 +74,12 @@ const ApplicationErrorShapeV2Schema = Schema.Union([
   Schema.Struct({
     code: BoundedApplicationErrorTextV2Schema,
     message: BoundedApplicationErrorTextV2Schema,
-  }).annotate(StrictStructOptions),
+  }),
   Schema.Struct({
     code: BoundedApplicationErrorTextV2Schema,
     message: BoundedApplicationErrorTextV2Schema,
     data: Schema.Unknown,
-  }).annotate(StrictStructOptions),
+  }),
 ]);
 
 const PointMutationExactRuntimeHostResponseShapeV2Schema = Schema.Union([
@@ -95,7 +92,7 @@ const PointMutationExactRuntimeHostResponseShapeV2Schema = Schema.Union([
     ),
     kind: Schema.Literal("success"),
     result: Schema.Unknown,
-  }).annotate(StrictStructOptions),
+  }),
   Schema.Struct({
     format: Schema.Literal(
       POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_FORMAT_V2,
@@ -105,7 +102,7 @@ const PointMutationExactRuntimeHostResponseShapeV2Schema = Schema.Union([
     ),
     kind: Schema.Literal("applicationError"),
     error: ApplicationErrorShapeV2Schema,
-  }).annotate(StrictStructOptions),
+  }),
   Schema.Struct({
     format: Schema.Literal(
       POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_FORMAT_V2,
@@ -124,7 +121,7 @@ const PointMutationExactRuntimeHostResponseShapeV2Schema = Schema.Union([
       "journalBoundaryFailed",
       "invalidResult",
     ]),
-  }).annotate(StrictStructOptions),
+  }),
 ]);
 
 const decodePointMutationExactRuntimeHostResponseShapeV2Result =

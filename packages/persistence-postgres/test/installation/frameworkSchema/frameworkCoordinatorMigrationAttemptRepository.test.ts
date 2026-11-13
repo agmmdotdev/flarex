@@ -1,8 +1,9 @@
+import * as Hex from "effect/encoding/Hex";
 import { useFileScopedFrameworkCoordinatorGraphPersistence, resetFrameworkCoordinatorGraphRows, rejectingSelectTransaction } from "./frameworkCoordinatorRepositoryTestSupport";
 import { administrativelyRepairFrameworkMetadata } from "./frameworkMetadataRepairTestSupport";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { eq } from "drizzle-orm";
-import { Encoding, Option, Result } from "effect";
+import { Option, Result } from "effect";
 import { describe, expect, it } from "vitest";
 
 import type { FlarexMetadataTransaction } from "../../../src/database/metadataTransaction";
@@ -137,13 +138,13 @@ describe("framework coordinator migration-attempt repository", { concurrent: fal
       ).byteLength,
     });
     expect(row.leaseExpiresAt.toISOString()).toBe(LEASE_ONE);
-    expect(Encoding.encodeHex(row.migrationPlanSha256)).toBe(
+    expect(Hex.encode(row.migrationPlanSha256)).toBe(
       stored.admission.plan.plan.migrationPlanSha256,
     );
-    expect(Encoding.encodeHex(row.admissionSha256)).toBe(
+    expect(Hex.encode(row.admissionSha256)).toBe(
       stored.admission.admission.sha256,
     );
-    expect(Encoding.encodeHex(row.attemptStartSha256)).toBe(
+    expect(Hex.encode(row.attemptStartSha256)).toBe(
       stored.attempt.sha256,
     );
     expect(row.canonicalBytes).toEqual(
@@ -1037,7 +1038,7 @@ function canonicalBytes(
 }
 
 function decodeSha256(value: string): Uint8Array {
-  return Result.getOrThrow(Encoding.decodeHex(value));
+  return Result.getOrThrow(Hex.decode(value));
 }
 
 async function attemptCount(

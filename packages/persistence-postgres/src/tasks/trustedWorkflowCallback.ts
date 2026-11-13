@@ -16,19 +16,18 @@ import { inspectTrustedWorkflowInterpreterSubject, requireLiveTrustedWorkflowInt
 
 const maximumValueBytes = 65_536;
 const settlementReserveMs = 1000;
-const strict = { parseOptions: { onExcessProperty: "error" } } as const;
 const token = Schema.String.check(Schema.isPattern(/^[a-zA-Z][a-zA-Z0-9._-]{0,127}$/));
 const revision = Schema.String.check(Schema.isPattern(/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/));
 export const TrustedWorkflowCallbackDefinitionSchema = Schema.Struct({ id: token, revision, inputCodecRevision: revision, outcomeCodecRevision: revision,
-  allowControl: Schema.Boolean, maximumCallbackMs: Schema.Number.check(Schema.isInt(), Schema.isBetween({ minimum: 1, maximum: 60_000 })) }).annotate(strict);
+  allowControl: Schema.Boolean, maximumCallbackMs: Schema.Number.check(Schema.isInt(), Schema.isBetween({ minimum: 1, maximum: 60_000 })) });
 const decodeDefinition = Schema.decodeUnknownEffect(TrustedWorkflowCallbackDefinitionSchema, { onExcessProperty: "error" });
 const ordinalSchema = Schema.BigInt.check(Schema.makeFilter(value => value >= 1n && value <= 16n));
 const decodeOrdinal = Schema.decodeUnknownEffect(ordinalSchema);
 const digest = Schema.Uint8Array.check(Schema.makeFilter(value => value.byteLength === 32));
 const decodeDigest = Schema.decodeUnknownEffect(digest);
 export const TrustedWorkflowCallbackOutcomeSchema = Schema.Union([
-  Schema.Struct({ kind: Schema.Literal("returned"), value: Schema.Json }).annotate(strict),
-  Schema.Struct({ kind: Schema.Literal("failed"), error: Schema.Json }).annotate(strict),
+  Schema.Struct({ kind: Schema.Literal("returned"), value: Schema.Json }),
+  Schema.Struct({ kind: Schema.Literal("failed"), error: Schema.Json }),
 ]);
 export type TrustedWorkflowCallbackOutcome = typeof TrustedWorkflowCallbackOutcomeSchema.Type;
 const decodeOutcome = Schema.decodeUnknownEffect(TrustedWorkflowCallbackOutcomeSchema, { onExcessProperty: "error" });
@@ -57,7 +56,7 @@ const storedSchema = Schema.Struct({
   responseStoreIdentity: Schema.Null, responseCodecIdentity: Schema.Null, responseObjectKey: Schema.Null,
   responseByteLength: Schema.Null, responseSha256: Schema.Null,
 });
-const decodeStored = Schema.decodeUnknownEffect(storedSchema);
+const decodeStored = Schema.decodeUnknownEffect(storedSchema, { onExcessProperty: "error" });
 
 /** Constructor-owned callback identity and codecs are part of the immutable
  * request policy. The framework owns expected failure encoding and its foreign

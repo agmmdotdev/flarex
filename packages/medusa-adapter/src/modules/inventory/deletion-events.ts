@@ -26,7 +26,7 @@ export function inventoryDeletionEventPolicy(contracts: Result.Result.Success<Re
   const restoreCommand = dedicated ? "inventoryItemRestoreForWorkflow" : undefined;
   const countCommand = dedicated ? "inventoryItemCountForDeletion" : "inventoryCount";
   const creation = inventoryCreateEventPolicy();
-  const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+  const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
   const decode = moduleEventDecoder(Schema.Struct({ name: Schema.String,
     metadata: Schema.Struct({ source: Schema.Literal(Modules.INVENTORY), object: Schema.Literals(["inventory_item", "inventory_level", "reservation_item"]),
       action: dedicated ? Schema.Literals([CommonEvents.DELETED, CommonEvents.RESTORED]) : Schema.Literal(CommonEvents.DELETED) }),

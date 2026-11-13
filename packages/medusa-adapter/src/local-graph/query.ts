@@ -20,13 +20,13 @@ import { captureCommerceInput } from "../value/input";
 
 const queryFields = {
   context: Schema.optionalKey(GraphQueryContexts),
-  fields: Schema.Array(Schema.String.check(Schema.isLengthBetween(1, 256))).check(Schema.isLengthBetween(1, 256)),
+  fields: Schema.Array(Schema.String.check(Schema.isBetweenLength(1, 256))).check(Schema.isBetweenLength(1, 256)),
   filters: Schema.optionalKey(Schema.JsonObject),
   pagination: Schema.Struct({ take: QueryLimit, skip: Schema.optionalKey(QueryOffset),
     order: Schema.optionalKey(Schema.Record(Schema.String, Schema.Literals(["ASC", "DESC"]))),
   }),
 };
-const decodeInput = commerceDecoder(Schema.Struct({ entity: Schema.String.check(Schema.isLengthBetween(1, 256)), ...queryFields }), "unsupportedProfile");
+const decodeInput = commerceDecoder(Schema.Struct({ entity: Schema.String.check(Schema.isBetweenLength(1, 256)), ...queryFields }), "unsupportedProfile");
 export const decodeGraphList = commerceDecoder(Schema.Array(Schema.JsonObject).check(Schema.isMaxLength(commerceLimits.catalogRows)), "storedCorruption");
 export const decodeGraphCount = commerceDecoder(Schema.Tuple([
   Schema.Array(Schema.JsonObject).check(Schema.isMaxLength(commerceLimits.catalogRows)),

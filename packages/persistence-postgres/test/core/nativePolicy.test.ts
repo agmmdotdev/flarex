@@ -1,3 +1,4 @@
+import { strictSchemaGuard } from "flarex-protocol/internal/strict-schema";
 import { Result, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import { encodeDocumentId } from "flarex-protocol/document-id";
@@ -14,7 +15,7 @@ const identity = {
 // Schema structure is tested independently of source authenticity. Real cold
 // bootstrap and source/policy agreement are exercised by the captured store.
 describe("stored native policy wire boundaries", () => {
-  const accepts = Schema.is(CoreNativeTablePolicySchema);
+  const accepts = strictSchemaGuard(CoreNativeTablePolicySchema);
   const schemaId = Result.getOrThrow(encodeDocumentId(532, new Uint8Array(16).fill(1)));
   const policy = (constraint: unknown) => ({ state: "active", schemaId, identity,
     applicationRead: false, uniqueConstraints: [constraint] });

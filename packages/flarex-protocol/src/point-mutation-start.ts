@@ -15,10 +15,7 @@ import {
   type SchemaManifestAppSchemaV1,
 } from "./schema-manifest";
 import { ReplacementScopeIdV1Schema } from "./storage-authority";
-import {
-  StrictParseOptions,
-  StrictStructOptions,
-} from "./strict-schema-options";
+import { StrictParseOptions } from "./strict-schema-options";
 import {
   TransactionGrantDeploymentIdV1Schema,
   transactionGrantRequestSha256HexV1FromBytes,
@@ -84,9 +81,7 @@ const PointMutationFunctionVisibilityV1Schema = Schema.Literals([
 
 const PointMutationArgumentsValidatorV1Schema = Schema.Union([
   ObjectValidatorJsonV1,
-  Schema.Struct({ type: Schema.Literal("any") }).annotate(
-    StrictStructOptions,
-  ),
+  Schema.Struct({ type: Schema.Literal("any") }),
 ]);
 
 export const PointMutationTargetFunctionMetadataV1Schema = Schema.Struct({
@@ -96,7 +91,7 @@ export const PointMutationTargetFunctionMetadataV1Schema = Schema.Struct({
   visibility: PointMutationFunctionVisibilityV1Schema,
   argsValidator: PointMutationArgumentsValidatorV1Schema,
   returnsValidator: Schema.Union([ValidatorJsonV1, Schema.Null]),
-}).annotate(StrictStructOptions);
+});
 export type PointMutationTargetFunctionMetadataV1 =
   typeof PointMutationTargetFunctionMetadataV1Schema.Type;
 
@@ -112,7 +107,7 @@ export const ActivePointMutationTargetMetadataV1Schema = Schema.Struct({
   schemaVersionId: CatalogSchemaVersionIdSchema,
   functions: Schema.Array(PointMutationTargetFunctionMetadataV1Schema),
   schemaManifest: SchemaManifestAppSchemaV1Schema,
-}).annotate(StrictStructOptions).check(
+}).check(
   Schema.makeFilter((metadata) =>
     metadata.artifactId ===
         `artifact_${metadata.sourcePackageHash.slice(0, 32)}`
@@ -133,7 +128,7 @@ export const PointMutationCurrentScopeAuthorityV1Schema = Schema.Struct({
   scopeId: ReplacementScopeIdV1Schema,
   authorizationRevocationEpoch:
     Schema.toType(TransactionAuthorizationRevocationEpochSchema),
-}).annotate(StrictStructOptions);
+});
 export type PointMutationCurrentScopeAuthorityV1 =
   typeof PointMutationCurrentScopeAuthorityV1Schema.Type;
 export const decodePointMutationCurrentScopeAuthorityV1 =

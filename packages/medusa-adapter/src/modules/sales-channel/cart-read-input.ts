@@ -4,7 +4,7 @@ import type { SchemaTable } from "../../schema/model";
 import { commerceDecoder } from "../../value/decoder";
 import { compileCompleteRow } from "../../value/complete-row";
 
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 export const decodeSalesChannelCartRead = commerceDecoder(Schema.Struct({ id: Id }), "invalidInput");
 export const decodeSalesChannelCartReadArguments = commerceDecoder(Schema.Tuple([Id]), "invalidInput");
 

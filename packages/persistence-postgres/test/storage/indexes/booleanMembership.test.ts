@@ -8,7 +8,7 @@ import { Schema } from "effect";
 import { lowerAppOrderedIndexPhysicalKeyV1 } from "../../../src/storage/indexes/appDeveloperIndexKeys";
 
 const creationTime = decodeAppCreationTimeV1(1);
-const spec = (value: boolean) => Schema.decodeUnknownSync(AppOrderedIndexPhysicalSpecV1Schema)({
+const spec = (value: boolean) => Schema.decodeUnknownSync(AppOrderedIndexPhysicalSpecV1Schema, { onExcessProperty: "error" })({
   kind: "appOrdered", specVersion: 1, accessPath: "developer", keyCodecVersion: 1,
   collation: "binaryUtf8", maxEncodedKeyBytes: 2048,
   orderedFields: [{ kind: "documentPath", path: "parent" }, { kind: "systemCreationTime" }],

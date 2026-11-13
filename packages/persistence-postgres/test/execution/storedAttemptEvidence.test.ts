@@ -417,7 +417,7 @@ const sharedLocator = Object.freeze({
   databaseKey: "stored-attempt-evidence-primary",
   schemaName: "public",
 }) satisfies SharedDatabaseScopePhysicalLocator;
-const encodeEnvelope = Schema.encodeSync(CommitEnvelopeV1Schema);
+const encodeEnvelope = Schema.encodeSync(CommitEnvelopeV1Schema, { onExcessProperty: "error" });
 
 interface Scenario {
   readonly persistence: PGliteFlarexPersistence;
@@ -1215,7 +1215,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
           scopeId: current.anchor.scopeId,
           epoch: current.anchor.snapshotToken.epoch,
           commitSeq: CommitSeqSchema.make(1n),
-        }),
+        }, { parseOptions: { onExcessProperty: "error" } }),
         schemaVersionId: current.schemaVersionId,
         executionClaim: replacementExecutionClaim,
         previousSession: finishingStored.evidence.session,
@@ -1251,7 +1251,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
           scopeId: current.anchor.scopeId,
           epoch: current.anchor.snapshotToken.epoch,
           commitSeq: CommitSeqSchema.make(1n),
-        }),
+        }, { parseOptions: { onExcessProperty: "error" } }),
         schemaVersionId: current.schemaVersionId,
         executionClaim: replacementExecutionClaim,
         previousSession: finishingStored.evidence.session,

@@ -6,7 +6,7 @@ import type { ScalarFilter, WherePolicy } from "../../query/predicate";
 import type { captureShippingProfileMetadata } from "./shipping-profile-schema";
 import { compileShippingProfileCreationOutput } from "./shipping-profile-create-output";
 
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 const strings = commerceDecoder(Schema.Union([Schema.String, Schema.Array(Schema.String).check(Schema.isMaxLength(256))]), "unsupportedProfile");
 const where: WherePolicy = {
   decode: commerceDecoder(Schema.JsonObject, "unsupportedProfile"),

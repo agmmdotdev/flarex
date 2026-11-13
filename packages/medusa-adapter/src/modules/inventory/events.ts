@@ -14,10 +14,10 @@ const decodeItems = commerceDecoder(InventoryItemRows, "receiptMismatch");
 
 /** The trusted module profile selects item-only or nonempty level creation. */
 export function inventoryCreateEventPolicy(levels = false) {
-  const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+  const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
   const decode = moduleEventDecoder(Schema.Struct({ name: Schema.String,
     metadata: Schema.Struct({ source: Schema.Literal(Modules.INVENTORY), object: Schema.Literals(levels ? ["inventory_item", "inventory_level"] : ["inventory_item"]), action: Schema.Literal(CommonEvents.CREATED) }),
-    data: Schema.Struct({ id: Schema.Union([Id, Schema.Array(Id).check(Schema.isLengthBetween(1, levels ? 8 : 4))]) }),
+    data: Schema.Struct({ id: Schema.Union([Id, Schema.Array(Id).check(Schema.isBetweenLength(1, levels ? 8 : 4))]) }),
   }), defaultCommerceResources);
   const capture = Effect.fn("InventoryEvents.capture")(function* (input: unknown) {
     const message = yield* decode(input);

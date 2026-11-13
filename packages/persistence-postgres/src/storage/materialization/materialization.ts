@@ -1,11 +1,5 @@
-import {
-  Effect,
-  Result,
-  Data,
-  Schema,
-  Exit,
-  Encoding,
-} from "effect";
+import * as Hex from "effect/encoding/Hex";
+import { Effect, Result, Data, Schema, Exit,  } from "effect";
 import type {
   ApplicationDocumentDefinitionCommand,
   ApplicationDocumentMaterializationOptions,
@@ -771,7 +765,7 @@ export const materializeAcceptedApplicationPublicationRows = Effect.fnUntraced(f
   const definitions = [...intrinsic,...developer]; const profile = input.publicationProfile;
   const scalar = applicationIndexTransitionScalarArray; const bytes = applicationIndexTransitionByteArray; const buildColumns = fxSystemIndexBuildStates;
   const active = context.active;
-  const activeManifest = active === null ? null : yield* Effect.fromResult(Encoding.decodeHex(active.schema.schemaManifestSha256)).pipe(Effect.mapError(() => corruption("developerIndexBuildInvalid")));
+  const activeManifest = active === null ? null : yield* Effect.fromResult(Hex.decode(active.schema.schemaManifestSha256)).pipe(Effect.mapError(() => corruption("developerIndexBuildInvalid")));
   const prefix = sql`${sql.param(command.authorityPins.scopeId,buildColumns.scopeId)}::text, ${sql.param(clock.record.storageGeneration,buildColumns.storageGeneration)}::text,
     ${sql.param(clock.record.storageGenerationFence,buildColumns.storageGenerationFence)}::bigint, ${sql.param(clock.record.epoch,buildColumns.epoch)}::text,
     ${sql.param(clock.record.lastCommitSeq,buildColumns.coveredThroughCommitSeq)}::bigint, ${command.authorityPins.deploymentId}::text, ${command.authorityPins.schemaVersionId}::text,

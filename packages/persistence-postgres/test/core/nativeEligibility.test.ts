@@ -13,7 +13,7 @@ const schemaId = Result.getOrThrow(encodeDocumentId(532, new Uint8Array(16).fill
 
 describe("bounded native conditional eligibility", () => {
   it("retains the exact single-null stored shape and confines new conjunction grammar", () => {
-    const decode = Schema.decodeUnknownResult(CoreNativeEligibilitySchema);
+    const decode = Schema.decodeUnknownResult(CoreNativeEligibilitySchema, { onExcessProperty: "error" });
     const old = { field: "deleted_at", value: null };
     expect(Result.getOrThrow(decode(old))).toEqual(old);
     const all: CoreNativeEligibility = { all: [{ field: "deleted_at", value: null }, { field: "selected", value: true }] };

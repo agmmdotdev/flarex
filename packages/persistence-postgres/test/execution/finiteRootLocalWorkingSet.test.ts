@@ -69,7 +69,7 @@ it("preserves canonical metadata ordering across punctuation and non-ASCII names
       for (const name of ["é", "a_", "a.", "a-"]) expect(recordLogicalDocumentRootMetadataDependency(state,
         LogicalMetadataReadDependencySchema.make({ kind: "metadata", namespace: "binding", ownerKey: "source_a",
           contractKey: JSON.stringify(["index", name]), capturedWatermark: metadataWatermark,
-          observed: { kind: "present", semanticSha256Hex: "a".repeat(64) } }))).toBe(true);
+          observed: { kind: "present", semanticSha256Hex: "a".repeat(64) } }, { parseOptions: { onExcessProperty: "error" } }))).toBe(true);
       const dependencies = root.snapshot().metadataDependencies;
       if (dependencies === undefined) throw new Error("Missing captured finite dependencies");
       expect(dependencies.map(member => member.contractKey)).toEqual(["a-", "a.", "a_", "é"].map(name => JSON.stringify(["index", name])));

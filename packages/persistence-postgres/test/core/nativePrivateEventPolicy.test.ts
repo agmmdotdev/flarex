@@ -1,3 +1,4 @@
+import { strictSchemaGuard } from "flarex-protocol/internal/strict-schema";
 import { Effect, Result, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import { captureLogicalSchemaSource } from "@flarex/analysis/internal/logical-schema-candidate";
@@ -32,7 +33,7 @@ describe("optional private durable event table policy", () => {
       expect(definition.tables.map(table => table.privateEvent?.role).sort()).toEqual(["delivery", "envelope", "family"]);
       for (const declaration of definition.tables) {
         const nativePolicy = coreNativePolicyForTable(definition, declaration, "active", schemaId);
-        expect(Schema.is(CoreNativeTablePolicySchema)(nativePolicy)).toBe(true);
+        expect(strictSchemaGuard(CoreNativeTablePolicySchema)(nativePolicy)).toBe(true);
         const table: CoreTableDefinition = { name: declaration.name, namespace: null, state: "active", number: 1001,
           tabletId: new Uint8Array(16).fill(2), indexes: [], nativePolicy };
         expect(isCorePrivateTable(table)).toBe(true);

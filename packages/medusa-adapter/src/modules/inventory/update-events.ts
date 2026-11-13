@@ -12,10 +12,10 @@ import { decodeInventoryItemUpdateCommandInput, decodeInventoryItemUpdateReadInp
 
 type Contracts = Result.Result.Success<ReturnType<typeof compileInventoryItemContracts>>;
 type Item = Result.Result.Success<ReturnType<Contracts["decodeRow"]>>;
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 const decodeEvent = moduleEventDecoder(Schema.Struct({ name: Schema.String,
   metadata: Schema.Struct({ source: Schema.Literal(Modules.INVENTORY), object: Schema.Literal("inventory_item"), action: Schema.Literal("updated") }),
-  data: Schema.Struct({ id: Schema.Union([Id, Schema.Array(Id).check(Schema.isLengthBetween(1, 4))]) }),
+  data: Schema.Struct({ id: Schema.Union([Id, Schema.Array(Id).check(Schema.isBetweenLength(1, 4))]) }),
 }), defaultCommerceResources);
 
 /** Authenticate the native selected final patch for each ID against full stored

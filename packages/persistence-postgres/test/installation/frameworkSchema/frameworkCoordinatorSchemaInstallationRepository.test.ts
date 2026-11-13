@@ -1,7 +1,8 @@
+import * as Hex from "effect/encoding/Hex";
 import { administrativelyRepairFrameworkMetadata } from "./frameworkMetadataRepairTestSupport";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { asc, eq } from "drizzle-orm";
-import { Effect, Encoding, Option } from "effect";
+import { Effect, Option } from "effect";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -359,17 +360,17 @@ async function storedInstallationRows(
     installationStorageId: row.installationStorageId,
     collisionStorageId: row.collisionStorageId,
     planStorageId: row.planStorageId,
-    migrationPlanSha256: Encoding.encodeHex(row.migrationPlanSha256),
+    migrationPlanSha256: Hex.encode(row.migrationPlanSha256),
     admissionStorageId: row.admissionStorageId,
-    admissionSha256: Encoding.encodeHex(row.admissionSha256),
+    admissionSha256: Hex.encode(row.admissionSha256),
     terminalStorageId: row.terminalStorageId,
     terminalOutcomeKind: row.terminalOutcomeKind,
-    terminalSha256: Encoding.encodeHex(row.terminalSha256),
-    installationSha256: Encoding.encodeHex(row.installationSha256),
+    terminalSha256: Hex.encode(row.terminalSha256),
+    installationSha256: Hex.encode(row.installationSha256),
     installationReceiptSha256:
-      Encoding.encodeHex(row.installationReceiptSha256),
+      Hex.encode(row.installationReceiptSha256),
     installedStructureSha256:
-      Encoding.encodeHex(row.installedStructureSha256),
+      Hex.encode(row.installedStructureSha256),
     frameFormat: row.frameFormat,
     frameVersion: row.frameVersion,
     canonicalByteLength: row.canonicalByteLength,

@@ -11,18 +11,18 @@ const Order = Schema.Struct({ order_id: ScalarId });
 const Batch = Schema.Array(Schema.Union([
   Schema.Struct({ order: Order, cart: Schema.Struct({ cart_id: ScalarId }) }),
   Schema.Struct({ order: Order, payment: Schema.Struct({ payment_collection_id: ScalarId }) }),
-])).pipe(Schema.mutable).check(Schema.isLengthBetween(1, 2));
+])).pipe(Schema.mutable).check(Schema.isBetweenLength(1, 2));
 const decodeArguments = commerceDecoder(Schema.Tuple([Batch]), "invalidInput");
 const decodeRows = commerceDecoder(Schema.Array(Schema.JsonObject).check(Schema.isMaxLength(2)), "storedCorruption");
 const PromotionBatch = Schema.Array(Schema.Union([
   Schema.Struct({ order: Order, cart: Schema.Struct({ cart_id: ScalarId }) }),
   Schema.Struct({ order: Order, payment: Schema.Struct({ payment_collection_id: ScalarId }) }),
   Schema.Struct({ order: Order, promotion: Schema.Struct({ promotion_id: ScalarId }) }),
-])).pipe(Schema.mutable).check(Schema.isLengthBetween(1, 6));
+])).pipe(Schema.mutable).check(Schema.isBetweenLength(1, 6));
 const decodePromotionArguments = commerceDecoder(Schema.Tuple([PromotionBatch]), "invalidInput");
 const decodePromotionRows = commerceDecoder(Schema.Array(Schema.JsonObject).check(Schema.isMaxLength(6)), "storedCorruption");
 const AccountBatch = Schema.Array(Schema.Struct({ customer: Schema.Struct({ customer_id: ScalarId }),
-  payment: Schema.Struct({ account_holder_id: ScalarId }) })).pipe(Schema.mutable).check(Schema.isLengthBetween(1, 1));
+  payment: Schema.Struct({ account_holder_id: ScalarId }) })).pipe(Schema.mutable).check(Schema.isBetweenLength(1, 1));
 const decodeAccountArguments = commerceDecoder(Schema.Tuple([AccountBatch]), "invalidInput");
 const decodeCustomerCheckoutArguments = commerceDecoder(Schema.Union([Schema.Tuple([Batch]), Schema.Tuple([AccountBatch])]), "invalidInput");
 const decodeCustomerPromotionArguments = commerceDecoder(Schema.Union([Schema.Tuple([PromotionBatch]), Schema.Tuple([AccountBatch])]), "invalidInput");

@@ -16,12 +16,12 @@ import type { prepareServiceZoneUpdateRepository } from "./service-zone-update-r
 
 type Prepared = Result.Result.Success<ReturnType<typeof prepareServiceZoneUpdateRepository>>;
 type Row = JsonObject & { readonly id: string };
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 const decodeRead = commerceDecoder(ServiceZoneUpdateReadInput, "receiptMismatch");
 const decodeOrderedIdentities = commerceDecoder(Schema.Array(Schema.Struct({ id: Id })).check(Schema.isMaxLength(32)), "receiptMismatch");
 const decodeEvent = moduleEventDecoder(Schema.Struct({ name: Schema.String, metadata: Schema.Struct({ source: Schema.Literal(Modules.FULFILLMENT),
   object: Schema.Literals(["service_zone", "geo_zone"]), action: Schema.Literals(["created", "updated", "deleted"]) }),
-  data: Schema.Struct({ id: Schema.Union([Id, Schema.Array(Id).check(Schema.isLengthBetween(1, 16))]) }),
+  data: Schema.Struct({ id: Schema.Union([Id, Schema.Array(Id).check(Schema.isBetweenLength(1, 16))]) }),
 }), defaultCommerceResources);
 
 /** Correlate actual native projection, selected ownership, full historical

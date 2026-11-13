@@ -1,3 +1,4 @@
+import * as Hex from "effect/encoding/Hex";
 import { fxSystemApplicationFunctionsV1 } from "../../database/schema";
 import {
   applyFiniteMetadataActivationProjection,
@@ -93,7 +94,7 @@ import { publishStandaloneBindingInTransaction } from "./readBindingPublication"
 import { clockMatches } from "./selectionIdentity";
 import { bytesEqualFullScan, copyBytes, encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { and, eq } from "drizzle-orm";
-import { Effect, Encoding, Result } from "effect";
+import { Effect, Result } from "effect";
 
 export const tryReplayStoredActivation = Effect.fn("ApplicationActivation.tryReplayStored")(
   (target: LocatedReadCommittedAttemptTargetV1, authority: TrustedScopeAuthority,
@@ -377,7 +378,7 @@ export const persistActivationInTransaction = Effect.fn(
     : previousActivationSequence + 1n;
   const ownership = validated.kind === "relation" ? validated.basis.writeOwnership : null;
   const writePolicySetSha256 = ownership === null ? null : yield* Effect.fromResult(
-    Encoding.decodeHex(ownership.frame.writePolicySetSha256).pipe(Result.mapError(cause =>
+    Hex.decode(ownership.frame.writePolicySetSha256).pipe(Result.mapError(cause =>
       activationError("activate", "storedState", basis.revisionId, false, cause))));
   if (ownership === null) {
     const retained = yield* query(tx.select({ sequence: fxSystemApplicationWriteOwnership.activationSequence })

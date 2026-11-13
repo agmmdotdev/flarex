@@ -15,8 +15,8 @@ export const MAX_COMMERCE_BINDINGS = 8;
 
 export const LogicalSchemaBindingSchema = Schema.Struct({
   schemaVersionId: CatalogSchemaVersionIdSchema,
-  manifestSha256: Schema.String.check(Schema.isLengthBetween(64, 64), Schema.isPattern(/^[a-f0-9]{64}$/)),
-}).annotate({ parseOptions: { onExcessProperty: "error" } });
+  manifestSha256: Schema.String.check(Schema.isBetweenLength(64, 64), Schema.isPattern(/^[a-f0-9]{64}$/)),
+});
 export type LogicalSchemaBinding = typeof LogicalSchemaBindingSchema.Type;
 
 import type { ApplicationBindingReference } from "../../../application/applicationBindingProjection";

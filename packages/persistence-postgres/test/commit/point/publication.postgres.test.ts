@@ -329,7 +329,7 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
       await commitCompetingIndexedUser(persistence, scope, attempt, "24".repeat(16));
       const digest = "0".repeat(64);
       const operation = Result.getOrThrow(Schema.decodeUnknownResult(
-        Schema.toType(AdmittedParticipantOperationSchema))({
+        Schema.toType(AdmittedParticipantOperationSchema), { onExcessProperty: "error" })({
           syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
           participant: "fixture.borrowed", method: "readIndex", profileRevision: digest,
           admissionBundleSha256Hex: digest, requestSha256Hex: digest, resultSha256Hex: digest,

@@ -290,7 +290,7 @@ describe("P07B runner recovery", { concurrent: false }, () => {
         protocolVersion: PROBE_PROTOCOL_VERSION_V1,
         runId: run.runId,
         sampleOrdinal: ProbeOrdinalSchema.make(0),
-      }));
+      }, { parseOptions: { onExcessProperty: "error" } }));
       expect(claim.kind).toBe("claimed");
 
       const resumed = await runProbeCampaignV1({
@@ -428,7 +428,7 @@ describe("P07B runner recovery", { concurrent: false }, () => {
             return ProbeEvidencePersistenceReceiptV1Schema.make({
               ...valid,
               rawSha256: "0".repeat(64),
-            });
+            }, { parseOptions: { onExcessProperty: "error" } });
           },
         }),
       );
@@ -522,7 +522,7 @@ describe("P07B runner recovery", { concurrent: false }, () => {
               "p07b_runner_checkpoint_other",
             ),
             externalCompletions: [],
-          });
+          }, { parseOptions: { onExcessProperty: "error" } });
         },
         async record() {},
       };
@@ -580,7 +580,7 @@ function singleRunManifest(campaignId: string, runId: string) {
     campaignId: ProbeCampaignIdSchema.make(campaignId),
     collectorConcurrency: 1,
     runs: [run],
-  });
+  }, { parseOptions: { onExcessProperty: "error" } });
 }
 
 type RequestInterceptor = (

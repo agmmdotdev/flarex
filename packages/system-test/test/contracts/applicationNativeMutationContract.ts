@@ -1,6 +1,7 @@
+import * as Hex from "effect/encoding/Hex";
 import { readFileSync } from "node:fs";
 import { expect, it } from "vitest";
-import { Cause, Clock, Effect, Encoding, Exit, Result, Schema } from "effect";
+import { Cause, Clock, Effect, Exit, Result, Schema } from "effect";
 import { jsonToFlarexValueV1 } from "flarex-protocol/value";
 import { decodeDocumentId } from "flarex-protocol/document-id";
 import { APPLICATION_REVISION_SYSCALL_DOCUMENT_VALIDATION_ERROR_NAME_V1,
@@ -24,7 +25,7 @@ const idOracle = Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Struct({
 function firstDrawForFixtureDays(name: "ascending" | "zero", days: readonly number[]): readonly Uint8Array[] {
   const vector = idOracle.sequences.find(sequence => sequence.name === name)?.ids[0];
   if (vector === undefined) throw new Error("Missing independent transaction ID vector: " + name);
-  const first = Result.getOrThrow(Encoding.decodeHex(vector));
+  const first = Result.getOrThrow(Hex.decode(vector));
   return days.map(day => {
     const expected = first.slice();
     new DataView(expected.buffer, expected.byteOffset, expected.byteLength).setUint16(14, day, false);

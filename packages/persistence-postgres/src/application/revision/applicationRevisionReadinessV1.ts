@@ -1,3 +1,4 @@
+import * as Hex from "effect/encoding/Hex";
 import {
   bytesEqualFullScan,
   copyBytes,
@@ -7,7 +8,7 @@ import {
 import { isNonBlankString } from "@flarex/utils/strings";
 import { and, asc, eq, sql } from "drizzle-orm";
 import { readRequiredEnabledIndexBuildsInTransactionEffect, MAX_REQUIRED_INDEX_BUILDS } from "../../storage/indexes/indexBuildStates";
-import { Cause, Data, Effect, Encoding, Exit, Result, Schema, Scope } from "effect";
+import { Cause, Data, Effect, Exit, Result, Schema, Scope } from "effect";
 import {
   APPLICATION_REVISION_READINESS_RECEIPT_CODEC_VERSION_V1,
   decodeApplicationRevisionReadinessReceiptV1,
@@ -1796,7 +1797,7 @@ const schemaValidationReceiptSha256 = Effect.fn(
   evidence: AppSchemaCandidateReadinessEvidence,
 ) {
   const bytes = yield* Effect.fromResult(
-    Encoding.decodeHex(evidence.receiptSha256Hex),
+    Hex.decode(evidence.receiptSha256Hex),
   ).pipe(Effect.mapError(cause =>
     new ApplicationRevisionReadinessCorruptionV1Error({
       revisionId,

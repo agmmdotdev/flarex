@@ -1,3 +1,4 @@
+import * as Hex from "effect/encoding/Hex";
 import { AppSchemaCandidateWriteGuardError } from "./appSchemaCandidateWriteGuardErrors";
 import { readFiniteEntryPlanningObservation, type FiniteEntryObservation } from "../../execution/finiteEntryObservation";
 import { observeExecution } from "../../execution/diagnostics/operation";
@@ -15,7 +16,7 @@ import {
 import { copyFiniteDate } from "@flarex/utils/dates";
 import { isNonBlankString } from "@flarex/utils/strings";
 import { and, eq, sql } from "drizzle-orm";
-import { Cause, Clock, Data, Effect, Encoding, Exit, Result, Schema } from "effect";
+import { Cause, Clock, Data, Effect, Exit, Result, Schema } from "effect";
 import {
   AppCreationTimeV1Schema,
 } from "flarex-protocol/app-document";
@@ -2768,7 +2769,7 @@ const decodeHexEffect = Effect.fn(
   operation: "install" | "advance" | "settle",
 ) {
   return yield* Effect.fromResult(
-    Encoding.decodeHex(value).pipe(
+    Hex.decode(value).pipe(
       Result.mapError(() => operationError(operation, "corruption")),
     ),
   );

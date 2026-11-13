@@ -1,3 +1,4 @@
+import { strictSchemaGuard } from "flarex-protocol/internal/strict-schema";
 import { Effect, Result, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import { encodeDocumentId } from "flarex-protocol/document-id";
@@ -25,7 +26,7 @@ describe("authenticated private native many lowering", () => {
       const many = definition.references.find(reference => "projection" in reference);
       if (many === undefined || !("projection" in many)) throw new Error("Missing private many reference");
       expect(many.reference).toMatchObject({ kind: "manyMembership", sourceKey: "payload" });
-      expect(Schema.is(CoreNativeReferenceSchema)(many)).toBe(true);
+      expect(strictSchemaGuard(CoreNativeReferenceSchema)(many)).toBe(true);
       expect(definition.schema.tables.find(table => table.tableName === "posts")?.indexes)
         .not.toContainEqual({ indexDescriptor: many.indexName, fields: [many.field] });
       const privateTable = definition.privateTables?.[0];
@@ -62,7 +63,7 @@ describe("authenticated private native many lowering", () => {
       expect(Result.isFailure(compileLogicalDocumentReference(source, many))).toBe(true);
       expect(Result.isFailure(compileLogicalDocumentReference(source, { ...scalar }))).toBe(true);
       const scalarDescriptor = definition.references.find(reference => !("projection" in reference));
-      expect(Schema.is(CoreNativeReferenceSchema)({ ...scalarDescriptor, declaration: many })).toBe(false);
+      expect(strictSchemaGuard(CoreNativeReferenceSchema)({ ...scalarDescriptor, declaration: many })).toBe(false);
     }));
   });
 
@@ -84,7 +85,7 @@ describe("authenticated private native many lowering", () => {
         expect(Result.isFailure(checkCoreTableAccess(table, mode))).toBe(true);
         expect(Result.isFailure(checkCoreTableAccess(table, mode, authority))).toBe(true);
       }
-      const accepts = Schema.is(CoreNativeTablePolicySchema);
+      const accepts = strictSchemaGuard(CoreNativeTablePolicySchema);
       expect(accepts(policy)).toBe(true);
       expect(accepts({ ...policy, applicationRead: true })).toBe(false);
       expect(accepts({ ...policy, privateReference: { ...policy.privateReference, kind: "other" } })).toBe(false);

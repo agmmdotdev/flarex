@@ -7,15 +7,12 @@ import {
 } from "../runAttempt/Schema.js";
 
 const STRICT_PARSE_OPTIONS = { onExcessProperty: "error" } as const;
-const STRICT_STRUCT_OPTIONS = {
-  parseOptions: STRICT_PARSE_OPTIONS,
-} as const;
 
 export const TaskAttemptHistoryStoreItemSchema = Schema.Struct({
   attemptId: TaskAttemptIdV1Schema,
   attemptNumber: TaskAttemptNumberV1Schema,
   acceptedRunVersion: Schema.toType(TaskRunVersionV1Schema),
-}).annotate(STRICT_STRUCT_OPTIONS);
+});
 
 export type TaskAttemptHistoryStoreItem =
   typeof TaskAttemptHistoryStoreItemSchema.Type;

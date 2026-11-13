@@ -39,7 +39,7 @@ describe("app unique constraint physical definition", () => {
       expect(Result.isFailure(decodeAppUniqueConstraintPhysicalSpecV1Result({ ...spec(false), predicate: invalid }))).toBe(true);
     }
     const declaration = { tableLogicalName: "members", descriptor: "selected-parent", fields: ["parent"], sparse: false, nullsDistinct: false };
-    const decodeDeclaration = Schema.decodeUnknownResult(LogicalDocumentUniqueConstraintDeclarationSchema);
+    const decodeDeclaration = Schema.decodeUnknownResult(LogicalDocumentUniqueConstraintDeclarationSchema, { onExcessProperty: "error" });
     expect(Result.isSuccess(decodeDeclaration({ ...declaration, predicate: { kind: "fieldIsNull", field: "retired" } }))).toBe(true);
     expect(Result.isFailure(decodeDeclaration({ ...declaration, predicate }))).toBe(true);
   });

@@ -1,4 +1,5 @@
-import { Encoding } from "effect";
+import * as Base64Url from "effect/encoding/Base64Url";
+
 
 import {
   type PointCommitConflictEvidenceV1,
@@ -171,7 +172,7 @@ export function serializePrivateCapabilityStateForTestV1(
       }
       if (value instanceof Uint8Array) {
         return Object.freeze({
-          bytes: Encoding.encodeBase64Url(value),
+          bytes: Base64Url.encode(value),
         });
       }
       return value;

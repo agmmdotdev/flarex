@@ -297,7 +297,7 @@ async function witness(
   expect(stored.tableBindings.some(binding => binding.table.logicalName === "cms_view")).toBe(false);
   expect((await persistence.drizzle.select().from(fxControlTables))).toHaveLength(16);
   expect((await persistence.query("select tablename as name from pg_tables where schemaname = current_schema() order by tablename")).rows).toEqual(before.rows);
-  expect(Schema.decodeUnknownResult(ApplicationManifestSchema)(stored.artifact.manifestJson)).toMatchObject({ _tag: "Failure" });
+  expect(Schema.decodeUnknownResult(ApplicationManifestSchema, { onExcessProperty: "error" })(stored.artifact.manifestJson)).toMatchObject({ _tag: "Failure" });
   if (historyLimits === null) {
     const currencyTable = stored.tableBindings.find(binding => binding.table.logicalName === "commerce.currency/currency");
     if (currencyTable === undefined) throw new Error("Missing native Currency binding");

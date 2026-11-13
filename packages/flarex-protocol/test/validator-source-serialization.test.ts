@@ -27,14 +27,14 @@ describe("normalized backend Source serialization", () => {
     ["unions", array(nest(union, 61))],
   ] as const)("round trips signed zero at the 127 raw-container boundary through %s", (_name, payload) => {
     const input = { kind: "appDocument", definitionVersion: 2, documentType: object(payload) };
-    const decoded = Schema.decodeUnknownSync(SchemaManifestAppDocumentDefinitionV2Schema)(input);
+    const decoded = Schema.decodeUnknownSync(SchemaManifestAppDocumentDefinitionV2Schema, { onExcessProperty: "error" })(input);
     const metrics = measureValidatorSourceResult(decoded.documentType, { maximumRawContainers: SOURCE_JSON_MAXIMUM_OPEN_CONTAINERS });
     expect(metrics).toMatchObject({ ok: true, value: { rawContainers: 127 } });
     const encoded = encodeSchemaManifestAppDocumentDefinitionV2(decoded);
     expect(encoded.documentType).toContain('"value":-0.0');
     expect(encoded.documentType).not.toContain("$float");
-    expect(Schema.decodeUnknownSync(SchemaManifestAppDocumentDefinitionV2Schema)(encoded)).toEqual(decoded);
-    expect(Result.isFailure(Schema.decodeUnknownResult(SchemaManifestAppDocumentDefinitionV2Schema)({
+    expect(Schema.decodeUnknownSync(SchemaManifestAppDocumentDefinitionV2Schema, { onExcessProperty: "error" })(encoded)).toEqual(decoded);
+    expect(Result.isFailure(Schema.decodeUnknownResult(SchemaManifestAppDocumentDefinitionV2Schema, { onExcessProperty: "error" })({
       ...input, documentType: object(array(payload)),
     }))).toBe(true);
   });
@@ -45,7 +45,7 @@ describe("normalized backend Source serialization", () => {
     const documentType = { type: "object" as const, value: { payload: { fieldType: payload, optional: false } } };
     const definition = { kind: "appDocument", definitionVersion: 2, documentType };
     expect(Result.isFailure(captureSchemaManifestAppTableDeclarationsV1Result([{ logicalName: "items", definition }]))).toBe(true);
-    expect(Result.isFailure(Schema.encodeUnknownResult(SchemaManifestAppDocumentDefinitionV2Schema)(definition))).toBe(true);
+    expect(Result.isFailure(Schema.encodeUnknownResult(SchemaManifestAppDocumentDefinitionV2Schema, { onExcessProperty: "error" })(definition))).toBe(true);
   });
 
   it("measures shared graphs before expansion against the actual metadata string ceiling", () => {
@@ -70,10 +70,10 @@ describe("normalized backend Source serialization", () => {
     } });
     const decoded = decodeValidatorSourceTextResult(serialized.value);
     expect(decoded).toEqual({ ok: true, value: validator });
-    const definition = Schema.decodeUnknownSync(SchemaManifestAppDocumentDefinitionV2Schema)({
+    const definition = Schema.decodeUnknownSync(SchemaManifestAppDocumentDefinitionV2Schema, { onExcessProperty: "error" })({
       kind: "appDocument", definitionVersion: 2, documentType: serialized.value,
     });
-    expect(Schema.decodeUnknownSync(SchemaManifestAppDocumentDefinitionV2Schema)(encodeSchemaManifestAppDocumentDefinitionV2(definition)))
+    expect(Schema.decodeUnknownSync(SchemaManifestAppDocumentDefinitionV2Schema, { onExcessProperty: "error" })(encodeSchemaManifestAppDocumentDefinitionV2(definition)))
       .toEqual(definition);
   });
 });

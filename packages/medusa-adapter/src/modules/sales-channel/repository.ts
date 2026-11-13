@@ -15,7 +15,7 @@ import { medusaLifecycle } from "../../repository/lifecycle";
 import { compileSalesChannelDeletionContracts, decodeSalesChannelDeletionIds } from "./delete-input";
 
 type Metadata = Effect.Success<ReturnType<typeof captureSalesChannelMetadata>>["frame"];
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 const decodeId = commerceDecoder(Id, "invalidInput");
 const decodeIds = commerceDecoder(Schema.Array(Schema.StructWithRest(Schema.Struct({ id: Id }), [Schema.Record(Schema.String, Schema.Json)])), "storedCorruption");
 const decodePairs = commerceDecoder(Schema.Array(Schema.Struct({ entity: Schema.JsonObject, update: Schema.JsonObject })).check(Schema.isMaxLength(256)), "invalidInput");

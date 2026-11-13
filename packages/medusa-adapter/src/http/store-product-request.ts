@@ -55,7 +55,7 @@ export const admitStoreProductQueryContext = (value: unknown) => admitNativeQuer
 
 const decodeProductQuery = commerceDecoder(Schema.Struct({
   entity: Schema.Literals(["product", "product_collection", "product_tag", "product_type", "product_category", "product_sales_channel", "product_variant_inventory_items", "sales_channels"]),
-  fields: Schema.Array(Schema.String.check(Schema.isLengthBetween(1, 256))).check(Schema.isLengthBetween(1, 256)),
+  fields: Schema.Array(Schema.String.check(Schema.isBetweenLength(1, 256))).check(Schema.isBetweenLength(1, 256)),
   filters: Schema.optionalKey(Schema.Union([Schema.JsonObject, Schema.Undefined])),
   context: Schema.optionalKey(Schema.Union([Schema.JsonObject, Schema.Undefined])),
   pagination: Schema.optionalKey(Schema.Union([Schema.Struct({ take: Schema.optionalKey(Schema.UndefinedOr(QueryLimit)), skip: Schema.optionalKey(Schema.UndefinedOr(QueryOffset)),
@@ -64,8 +64,8 @@ const decodeProductQuery = commerceDecoder(Schema.Struct({
 }), "unsupportedProfile");
 export const decodeStoreProductQueryOptions = commerceDecoder(Schema.Struct({
   cache: Schema.optionalKey(Schema.Struct({ enable: Schema.optionalKey(Schema.Boolean),
-    tags: Schema.optionalKey(Schema.Array(Schema.String.check(Schema.isLengthBetween(1, 512))).check(Schema.isMaxLength(8))) })),
-  locale: Schema.optionalKey(Schema.Union([Schema.String.check(Schema.isLengthBetween(1, 256)), Schema.Undefined])),
+    tags: Schema.optionalKey(Schema.Array(Schema.String.check(Schema.isBetweenLength(1, 512))).check(Schema.isMaxLength(8))) })),
+  locale: Schema.optionalKey(Schema.Union([Schema.String.check(Schema.isBetweenLength(1, 256)), Schema.Undefined])),
   throwIfKeyNotFound: Schema.optionalKey(Schema.Boolean),
 }), "unsupportedProfile");
 const decodeEntity = commerceDecoder(Schema.StructWithRest(Schema.Struct({ entity: Schema.String }), [Schema.Record(Schema.String, Schema.Unknown)]), "unsupportedProfile");

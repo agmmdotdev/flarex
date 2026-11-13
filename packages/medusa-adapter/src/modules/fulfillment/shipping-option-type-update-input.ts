@@ -7,7 +7,7 @@ import { NativePreimageConfig } from "../../workflow/preimage";
 import type { captureShippingProfileDeletionMetadata } from "./shipping-profile-schema";
 import { compileShippingOptionTypeCreationContracts } from "./shipping-option-type-input";
 
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 export const ShippingOptionTypeUpdateIds = Schema.Array(Id).pipe(Schema.mutable).check(Schema.isMaxLength(4));
 export const ShippingOptionTypeUpdateSelector = Schema.Struct({ id: Schema.Union([Id, ShippingOptionTypeUpdateIds]) });
 /** Native public update.id retargets the internal update lookup. It does not

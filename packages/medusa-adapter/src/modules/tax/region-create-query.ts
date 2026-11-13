@@ -7,7 +7,7 @@ import type { WherePolicy } from "../../query/predicate";
 import { TaxId } from "./query";
 import type { captureTaxMetadata } from "./schema";
 
-const Ids = Schema.Array(Schema.NullOr(TaxId)).check(Schema.isLengthBetween(1, 4));
+const Ids = Schema.Array(Schema.NullOr(TaxId)).check(Schema.isBetweenLength(1, 4));
 const decodeIn = commerceDecoder(Schema.Struct({ $in: Ids }), "unsupportedProfile");
 const where: WherePolicy = { decode: commerceDecoder(Schema.Struct({ id: Schema.Struct({ $in: Ids }) }), "unsupportedProfile"),
   fields: new Map([["id", { column: "id", decode: input => decodeIn(input).pipe(Result.map(value => value.$in)) }]]) };

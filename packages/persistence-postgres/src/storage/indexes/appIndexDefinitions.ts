@@ -113,7 +113,7 @@ const decodeAppIndexPhysicalSpecCodecVersionResult =
   Schema.decodeUnknownResult(AppIndexPhysicalSpecCodecVersionSchema);
 const decodeSchemaManifestAppDeveloperOrderedIndexSpecV1Result =
   Schema.decodeUnknownResult(
-    SchemaManifestAppDeveloperOrderedIndexSpecV1Schema,
+    SchemaManifestAppDeveloperOrderedIndexSpecV1Schema, { onExcessProperty: "error" },
   );
 
 export interface PrepareAppDeveloperIndexDefinitionBindingV1Input {

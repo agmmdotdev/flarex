@@ -122,8 +122,8 @@ describe("P07A run-control protocol", () => {
         observedOutstandingClaims: 1,
         measurementDisposition: "eligible",
         syncWake: { kind: "observed", disposition: "applied" },
-      })],
-    });
+      }, { parseOptions: { onExcessProperty: "error" } })],
+    }, { parseOptions: { onExcessProperty: "error" } });
 
     expect(status.state).toBe("complete");
   });
@@ -163,7 +163,7 @@ describe("P07A run-control protocol", () => {
       runId: run.runId,
       cursor: ordinal(0),
       limit: 1,
-    });
+    }, { parseOptions: { onExcessProperty: "error" } });
     const valid = ProbeRunEvidencePageReceiptV1Schema.make({
       protocolVersion: PROBE_PROTOCOL_VERSION_V1,
       kind: "page",
@@ -175,7 +175,7 @@ describe("P07A run-control protocol", () => {
         phase: "measurement",
       }],
       nextCursor: ordinal(1),
-    });
+    }, { parseOptions: { onExcessProperty: "error" } });
     if (valid.kind !== "page") throw new Error("page fixture is rejected");
 
     expect(probeRunEvidencePageReceiptMatchesRequestV1(valid, request, run))
@@ -183,7 +183,7 @@ describe("P07A run-control protocol", () => {
     const stalled = ProbeRunEvidencePageReceiptV1Schema.make({
       ...valid,
       nextCursor: ordinal(0),
-    });
+    }, { parseOptions: { onExcessProperty: "error" } });
     const overlapping = ProbeRunEvidencePageReceiptV1Schema.make({
       ...valid,
       records: [{
@@ -192,11 +192,11 @@ describe("P07A run-control protocol", () => {
         sampleOrdinal: ordinal(1),
         phase: "measurement",
       }],
-    });
+    }, { parseOptions: { onExcessProperty: "error" } });
     const wrongRun = ProbeRunEvidencePageReceiptV1Schema.make({
       ...valid,
       runId: validRun("p07b_evidence_wrong_run").runId,
-    });
+    }, { parseOptions: { onExcessProperty: "error" } });
     if (
       stalled.kind !== "page" ||
       overlapping.kind !== "page" ||
@@ -227,7 +227,7 @@ describe("P07A run-control protocol", () => {
       observedOutstandingClaims: 2,
       measurementDisposition: null,
       syncWake: null,
-    });
+    }, { parseOptions: { onExcessProperty: "error" } });
     const second = ProbeRunSampleStatusV1Schema.make({
       sampleOrdinal: ordinal(1),
       phase: "measurement",
@@ -235,7 +235,7 @@ describe("P07A run-control protocol", () => {
       observedOutstandingClaims: 2,
       measurementDisposition: null,
       syncWake: null,
-    });
+    }, { parseOptions: { onExcessProperty: "error" } });
     const status = ProbeRunStatusV1Schema.make({
       protocolVersion: PROBE_PROTOCOL_VERSION_V1,
       run,
@@ -266,7 +266,7 @@ describe("P07A run-control protocol", () => {
         excludedDuplicateWake: 0,
       },
       samples: [first, second],
-    });
+    }, { parseOptions: { onExcessProperty: "error" } });
     const completedFirst = ProbeRunSampleStatusV1Schema.make({
       sampleOrdinal: ordinal(0),
       phase: "measurement",
@@ -274,37 +274,37 @@ describe("P07A run-control protocol", () => {
       observedOutstandingClaims: 2,
       measurementDisposition: "eligible",
       syncWake: { kind: "not-applicable" },
-    });
+    }, { parseOptions: { onExcessProperty: "error" } });
     const completedSecond = ProbeRunSampleStatusV1Schema.make({
       ...completedFirst,
       sampleOrdinal: ordinal(1),
-    });
+    }, { parseOptions: { onExcessProperty: "error" } });
     const duplicateSecond = ProbeRunSampleStatusV1Schema.make({
       ...second,
       sampleOrdinal: ordinal(0),
-    });
+    }, { parseOptions: { onExcessProperty: "error" } });
     const wrongPhaseSecond = ProbeRunSampleStatusV1Schema.make({
       ...second,
       phase: "warmup",
-    });
+    }, { parseOptions: { onExcessProperty: "error" } });
 
     expect(() =>
       ProbeRunStatusV1Schema.make({
         ...status,
         samples: [completedFirst, second],
-      })
+      }, { parseOptions: { onExcessProperty: "error" } })
     ).toThrow();
     expect(() =>
       ProbeRunStatusV1Schema.make({
         ...status,
         samples: [first, duplicateSecond],
-      })
+      }, { parseOptions: { onExcessProperty: "error" } })
     ).toThrow();
     expect(() =>
       ProbeRunStatusV1Schema.make({
         ...status,
         samples: [first, wrongPhaseSecond],
-      })
+      }, { parseOptions: { onExcessProperty: "error" } })
     ).toThrow();
 
     const completeStatus = ProbeRunStatusV1Schema.make({
@@ -323,7 +323,7 @@ describe("P07A run-control protocol", () => {
         excludedDuplicateWake: 0,
       },
       samples: [completedFirst, completedSecond],
-    });
+    }, { parseOptions: { onExcessProperty: "error" } });
     const impossibleEdgeWake = ProbeRunSampleStatusV1Schema.make({
       sampleOrdinal: ordinal(0),
       phase: "measurement",
@@ -331,7 +331,7 @@ describe("P07A run-control protocol", () => {
       observedOutstandingClaims: 2,
       measurementDisposition: "excluded-duplicate-wake",
       syncWake: { kind: "observed", disposition: "duplicate" },
-    });
+    }, { parseOptions: { onExcessProperty: "error" } });
     expect(() =>
       ProbeRunStatusV1Schema.make({
         ...completeStatus,
@@ -341,7 +341,7 @@ describe("P07A run-control protocol", () => {
           excludedDuplicateWake: 1,
         },
         samples: [impossibleEdgeWake, completedSecond],
-      })
+      }, { parseOptions: { onExcessProperty: "error" } })
     ).toThrow();
 
     const warmupRun = validRun("p07a_status_warmup", {
@@ -355,7 +355,7 @@ describe("P07A run-control protocol", () => {
       observedOutstandingClaims: 1,
       measurementDisposition: "excluded-warmup",
       syncWake: { kind: "not-applicable" },
-    });
+    }, { parseOptions: { onExcessProperty: "error" } });
     const warmupStatus = ProbeRunStatusV1Schema.make({
       protocolVersion: PROBE_PROTOCOL_VERSION_V1,
       run: warmupRun,
@@ -386,7 +386,7 @@ describe("P07A run-control protocol", () => {
         excludedDuplicateWake: 0,
       },
       samples: [warmupSample],
-    });
+    }, { parseOptions: { onExcessProperty: "error" } });
     expect(() =>
       ProbeRunStatusV1Schema.make({
         ...warmupStatus,
@@ -403,9 +403,9 @@ describe("P07A run-control protocol", () => {
             observedOutstandingClaims: 1,
             measurementDisposition: "eligible",
             syncWake: { kind: "not-applicable" },
-          }),
+          }, { parseOptions: { onExcessProperty: "error" } }),
         ],
-      })
+      }, { parseOptions: { onExcessProperty: "error" } })
     ).toThrow();
 
     const wakeRun = validRun("p07a_status_wake_state", {
@@ -448,7 +448,7 @@ describe("P07A run-control protocol", () => {
       observedOutstandingClaims: 1,
       measurementDisposition: "eligible",
       syncWake: { kind: "unobserved" },
-    });
+    }, { parseOptions: { onExcessProperty: "error" } });
     const failedApplied = ProbeRunSampleStatusV1Schema.make({
       sampleOrdinal: ordinal(0),
       phase: "measurement",
@@ -456,12 +456,12 @@ describe("P07A run-control protocol", () => {
       observedOutstandingClaims: 1,
       measurementDisposition: "eligible",
       syncWake: { kind: "observed", disposition: "applied" },
-    });
+    }, { parseOptions: { onExcessProperty: "error" } });
     expect(() =>
       ProbeRunStatusV1Schema.make({
         ...wakeStatusBase,
         samples: [completedUnobserved],
-      })
+      }, { parseOptions: { onExcessProperty: "error" } })
     ).toThrow();
     expect(() =>
       ProbeRunStatusV1Schema.make({
@@ -472,7 +472,7 @@ describe("P07A run-control protocol", () => {
           failed: 1,
         },
         samples: [failedApplied],
-      })
+      }, { parseOptions: { onExcessProperty: "error" } })
     ).toThrow();
   });
 });

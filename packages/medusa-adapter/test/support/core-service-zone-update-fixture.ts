@@ -114,7 +114,7 @@ export async function prepareCoreServiceZoneUpdate(driver: "pglite" | "postgres"
           if (command !== insert || call.commandName !== "serviceZoneGeoRaceFixtureInsert" || call.mode !== "write" || call.events.length ||
             activity.mutations.length !== 1 || activity.lifecycle.length || activity.setNull.length || activity.referenceReplacements.length)
             return yield* Effect.fail(commerceError("receiptMismatch"));
-          const supplied = yield* Effect.fromResult(contracts.decodeGeoRow(call.input)), result = yield* Schema.decodeUnknownEffect(Schema.Array(Schema.JsonObject).check(Schema.isLengthBetween(1, 1)))(call.result)
+          const supplied = yield* Effect.fromResult(contracts.decodeGeoRow(call.input)), result = yield* Schema.decodeUnknownEffect(Schema.Array(Schema.JsonObject).check(Schema.isBetweenLength(1, 1)))(call.result)
             .pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
           const mutation = activity.mutations[0], row = result[0];
           if (mutation === undefined || mutation.ordinal !== 0 || mutation.table !== contracts.geo.name || mutation.operation !== "insert" || mutation.before !== null ||

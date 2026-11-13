@@ -14,7 +14,7 @@ import { prepareWorkflowResources } from "../../workflow/resources";
 
 type Links = Effect.Success<ReturnType<typeof prepareApiKeyAssociationLinks>>;
 type SalesChannel = Effect.Success<ReturnType<typeof prepareSalesChannelApiKeyRead>>;
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 const Ids = Schema.Array(Id).check(Schema.isMaxLength(4));
 export const ApiKeyAssociationInput = Schema.Struct({ id: Id, add: Schema.optionalKey(Ids), remove: Schema.optionalKey(Ids) });
 

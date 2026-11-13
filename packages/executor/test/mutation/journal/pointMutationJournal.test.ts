@@ -717,7 +717,7 @@ describe("C03 executor point-mutation journal boundary", () => {
               scopeId: result.anchor.snapshotToken.scopeId,
               epoch: result.anchor.snapshotToken.epoch,
               commitSeq: CommitSeqSchema.make(20n),
-            }),
+            }, { parseOptions: { onExcessProperty: "error" } }),
           }),
         });
       }),
@@ -1572,7 +1572,7 @@ function anchor(
       scopeId: selector.scopeId,
       epoch: ScopeEpochSchema.make("epoch_point_journal"),
       commitSeq: CommitSeqSchema.make(19n),
-    }),
+    }, { parseOptions: { onExcessProperty: "error" } }),
     hardExpiresAt: "2099-01-01T00:00:00.000Z",
     leaseExpiresAt: "2098-12-31T23:59:00.000Z",
     createdAt: "2026-07-15T00:00:00.000Z",

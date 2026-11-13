@@ -11,7 +11,7 @@ import type { RelationDeclarationV1 } from "flarex-protocol/internal/relation-de
 import { snapshotDecodedProtocolPlainData } from "flarex-protocol/internal/decoded-protocol-snapshot";
 
 export const ApplicationLogicalV3Evidence = Schema.Struct({ manifest: ApplicationManifestV3Schema,
-  manifestSha256: Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/)) }).annotate({ parseOptions: { onExcessProperty: "error" } });
+  manifestSha256: Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/)) });
 
 const schemaSourceBrand: unique symbol = Symbol("Flarex/PreparedApplicationSchemaSource");
 export interface PreparedApplicationSchemaSource {

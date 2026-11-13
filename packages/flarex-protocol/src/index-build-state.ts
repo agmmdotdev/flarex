@@ -5,10 +5,7 @@ import {
   CanonicalPositivePostgresBigIntFromString,
   POSTGRES_SIGNED_BIGINT_MAX,
 } from "./postgres-bigint";
-import {
-  StrictParseOptions,
-  StrictStructOptions,
-} from "./strict-schema-options";
+import { StrictParseOptions } from "./strict-schema-options";
 
 export const MAX_INDEX_BUILD_ATTEMPT_FENCE = POSTGRES_SIGNED_BIGINT_MAX;
 
@@ -55,7 +52,7 @@ export const decodeIndexBuildCursorCodecVersionV1 = Schema.decodeUnknownSync(
 export const IndexBuildBackfillCursorV1Schema = Schema.Struct({
   codecVersion: IndexBuildCursorCodecVersionV1Schema,
   afterRowId: Schema.Union([OrderedIndexRowIdHexV1Schema, Schema.Null]),
-}).annotate(StrictStructOptions);
+});
 export type IndexBuildBackfillCursorV1 =
   typeof IndexBuildBackfillCursorV1Schema.Type;
 const decodeIndexBuildBackfillCursorV1Shape = Schema.decodeUnknownSync(
