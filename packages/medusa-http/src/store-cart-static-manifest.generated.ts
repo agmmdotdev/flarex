@@ -10,6 +10,7 @@ import * as storeCartsByIdShippingMethodsRoute from "./api/store/carts/[id]/ship
 import * as storeShippingOptionsRoute from "./api/store/shipping-options/route"
 import * as storePaymentCollectionsRoute from "./api/store/payment-collections/route"
 import * as storePaymentCollectionsByIdPaymentSessionsRoute from "./api/store/payment-collections/[id]/payment-sessions/route"
+import * as storeCartsByIdCompleteRoute from "./api/store/carts/[id]/complete/route"
 import { storeCartRoutesMiddlewares } from "./api/store/carts/middlewares"
 import { storeShippingOptionRoutesMiddlewares } from "./api/store/shipping-options/middlewares"
 import { storePaymentCollectionsMiddlewares } from "./api/store/payment-collections/middlewares"
@@ -65,6 +66,11 @@ export const storeCartHttpManifest = {
       route: "/store/payment-collections/:id/payment-sessions",
       module: storePaymentCollectionsByIdPaymentSessionsRoute,
       relativePath: "packages/medusa-http/src/api/store/payment-collections/[id]/payment-sessions/route.ts",
+    },
+    {
+      route: "/store/carts/:id/complete",
+      module: storeCartsByIdCompleteRoute,
+      relativePath: "packages/medusa-http/src/api/store/carts/[id]/complete/route.ts",
     },
   ],
   middlewares: [

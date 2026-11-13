@@ -15,6 +15,7 @@ const selected = requested[0]?.slice("--entry=".length);
 const entries = [
   "packages/medusa-adapter/src/http/product-request.ts",
   "packages/medusa-adapter/src/http/store-product-request.ts",
+  "packages/medusa-adapter/src/http/store-cart-request.ts",
   "packages/medusa-adapter/src/workflows/product/variant-inventory-links.ts",
   "packages/medusa-api-key/src/static-manifest.ts",
   "packages/medusa-adapter/src/modules/api-key/service.ts",

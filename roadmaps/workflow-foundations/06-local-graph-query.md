@@ -156,6 +156,16 @@ it does not rerun reads or establish a durable per-query snapshot.
 
 ## Validation And Retirement
 
+Native service presentation can flatten physical relationship wrappers. Public
+relation metadata must follow the admitted module read paths and their checked
+target tables, while DML retains the storage graph. Cart completion exposed the
+distinction: native Order presents `items` as OrderLineItem and
+`shipping_methods` as OrderShippingMethod, with the OrderItem wrapper under
+`items.detail`. Using only physical DML targets misidentifies those public
+descendants. The metadata issuer owns this correction; HTTP and module adapters
+must retain native `formatOrder` and cannot repair it with a second joiner.
+Conflicting public targets across admitted reads refuse during preparation.
+
 The exact source guards compare complete promoted native programs and retained
 native assertion ports. Raw pinned versus promoted comparisons cover descriptors,
 selection, joins, aliases, context, missing-key behavior and output representation.

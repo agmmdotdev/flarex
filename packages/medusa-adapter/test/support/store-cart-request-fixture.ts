@@ -4,7 +4,7 @@ import { openCoreDatabase } from "@flarex/persistence-postgres/internal/core";
 import type { CorePersistenceFixture } from "../../../persistence-postgres/test/core/fixture";
 import { readCoreNativeFixtureInventory } from "../../../persistence-postgres/test/core/nativeFixtureInventory";
 import { CORE_SCHEMA_WORKER_TEST_OPTIONS } from "../../../persistence-postgres/test/core/schemaFixture";
-import { makeStoreCartRequestRuntime, type StoreCartRequestRuntime, type StoreCartRequestCatalog } from "../../src/http/store-cart-request";
+import { makeStoreCartRequestRuntime, storeCartRequestHostLimits, type StoreCartRequestRuntime, type StoreCartRequestCatalog } from "../../src/http/store-cart-request";
 import { createCoreNativeWorkflowFixture } from "./core-native-workflow-fixture";
 import { compileStoreCartRequestFixtureCatalog } from "./store-cart-request-catalog";
 
@@ -19,7 +19,7 @@ export async function prepareStoreCartRequestFixture(driver: "pglite" | "postgre
   const use = <A, E>(work: (runtime: StoreCartRequestRuntime) => Effect.Effect<A, E, Scope.Scope>,
     configuration: Pick<Parameters<typeof makeStoreCartRequestRuntime>[0], "hooks" | "mutationHooks"> = {}) => fixture.run(Effect.scoped(
     fixture.useGeneration(generation => Effect.gen(function* () {
-      const hostRuntime = yield* makePreparedHostRuntime({ maximumHosts: 32, maximumPreparedBytes: 8 * 1024 * 1024 });
+      const hostRuntime = yield* makePreparedHostRuntime(storeCartRequestHostLimits);
       const runtime = yield* makeStoreCartRequestRuntime({ ...configuration, database: generation.database, hostRuntime, catalog,
         identityAndAccessPolicy: { profile: "native-store-cart-http-proof" }, revision: "1".repeat(64),
         subscribers: [{ id: "native-store-cart-http", revision: "2".repeat(64) }] });

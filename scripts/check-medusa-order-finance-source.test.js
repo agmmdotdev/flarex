@@ -33,6 +33,14 @@ test("refuses selection and native orchestration drift", () => {
   assert.throws(() => verifyOrderFinanceSource(source, corrected, transformed.replace("await this.orderSummaryService_.update(summaries, sharedContext)", "void summaries"), accounting, totals, preview));
 });
 
+test("authenticates the native field literal and fresh exported selection descriptor", () => {
+  verifyOrderFinanceHelpers(source, accounting, totals, preview);
+  assert.throws(() => verifyOrderFinanceHelpers(source, accounting, totals.replace('"refundable_amount",', '"invented_total",'), preview));
+  assert.throws(() => verifyOrderFinanceHelpers(source, accounting, totals.replace('const totalFields = orderTotalsFields()', 'const totalFields = ["total"]'), preview));
+  assert.throws(() => verifyOrderFinanceHelpers(source, accounting, totals.replace('export function orderTotalsFields(): string[]', 'function orderTotalsFields(): string[]'), preview));
+  assert.throws(() => verifyOrderFinanceHelpers(source, accounting, totals + '\nexport const alternateTotals = true\n', preview));
+});
+
 test("retains native preview enrichment and both read ports without alternate totals", () => {
   verifyOrderFinanceHelpers(source, accounting, totals, preview);
   assert.throws(() => verifyOrderFinanceHelpers(source, accounting, totals, preview.replace("reads.listOrderLineItems(", "reads.listOrderShippingMethods(")));

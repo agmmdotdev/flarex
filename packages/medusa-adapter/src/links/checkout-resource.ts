@@ -1,6 +1,6 @@
 import { Result, Schema } from "effect";
 import { Link } from "@medusajs/modules-sdk/link";
-import { OrderCart, OrderPaymentCollection, CustomerAccountHolder } from "@medusajs/link-modules";
+import { OrderCart, OrderPaymentCollection, OrderPromotion, CustomerAccountHolder } from "@medusajs/link-modules";
 import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { commerceDecoder } from "../value/decoder";
 import { ScalarId } from "../repository/scalar-id-read";
@@ -14,13 +14,21 @@ const Batch = Schema.Array(Schema.Union([
 ])).pipe(Schema.mutable).check(Schema.isLengthBetween(1, 2));
 const decodeArguments = commerceDecoder(Schema.Tuple([Batch]), "invalidInput");
 const decodeRows = commerceDecoder(Schema.Array(Schema.JsonObject).check(Schema.isMaxLength(2)), "storedCorruption");
+const PromotionBatch = Schema.Array(Schema.Union([
+  Schema.Struct({ order: Order, cart: Schema.Struct({ cart_id: ScalarId }) }),
+  Schema.Struct({ order: Order, payment: Schema.Struct({ payment_collection_id: ScalarId }) }),
+  Schema.Struct({ order: Order, promotion: Schema.Struct({ promotion_id: ScalarId }) }),
+])).pipe(Schema.mutable).check(Schema.isLengthBetween(1, 6));
+const decodePromotionArguments = commerceDecoder(Schema.Tuple([PromotionBatch]), "invalidInput");
+const decodePromotionRows = commerceDecoder(Schema.Array(Schema.JsonObject).check(Schema.isMaxLength(6)), "storedCorruption");
 const AccountBatch = Schema.Array(Schema.Struct({ customer: Schema.Struct({ customer_id: ScalarId }),
   payment: Schema.Struct({ account_holder_id: ScalarId }) })).pipe(Schema.mutable).check(Schema.isLengthBetween(1, 1));
 const decodeAccountArguments = commerceDecoder(Schema.Tuple([AccountBatch]), "invalidInput");
 const decodeCustomerCheckoutArguments = commerceDecoder(Schema.Union([Schema.Tuple([Batch]), Schema.Tuple([AccountBatch])]), "invalidInput");
+const decodeCustomerPromotionArguments = commerceDecoder(Schema.Union([Schema.Tuple([PromotionBatch]), Schema.Tuple([AccountBatch])]), "invalidInput");
 type Native = Result.Result.Success<ReturnType<typeof prepareLinkWorkflowService>>;
 type Definition = NonNullable<ReturnType<typeof linkWorkflowServiceDefinition>>;
-type NativeLinkProfile = "checkout" | "customer-account" | "customer-checkout";
+type NativeLinkProfile = "checkout" | "customer-account" | "customer-checkout" | "checkout-with-promotions" | "customer-checkout-with-promotions";
 const nativeLinkProfiles = new WeakMap<object, NativeLinkProfile>();
 export const nativeLinkResourceProfile = (resource: object): NativeLinkProfile | undefined => nativeLinkProfiles.get(resource);
 
@@ -35,16 +43,20 @@ function prepareNativeLinkResource(services: readonly Native[], profile: NativeL
       selected.push({ ...definition, dismissMethod: definition.dismissMethod });
     }
     const names = selected.map(service => service.routing.__joinerConfig.serviceName);
+    const promotions = profile === "checkout-with-promotions" || profile === "customer-checkout-with-promotions";
+    const customer = profile === "customer-checkout" || profile === "customer-checkout-with-promotions";
     const expected = profile === "customer-account" ? [CustomerAccountHolder.serviceName]
-      : profile === "checkout" ? [OrderCart.serviceName, OrderPaymentCollection.serviceName]
-      : [OrderCart.serviceName, OrderPaymentCollection.serviceName, CustomerAccountHolder.serviceName];
+      : [OrderCart.serviceName, OrderPaymentCollection.serviceName, ...(promotions ? [OrderPromotion.serviceName] : []),
+        ...(customer ? [CustomerAccountHolder.serviceName] : [])];
     if (selected.length !== expected.length || new Set(names).size !== expected.length || expected.some(name => !names.includes(name)))
       return yield* Result.fail(commerceError("unsupportedProfile"));
-    const argumentsDecoder = profile === "checkout" ? decodeArguments : profile === "customer-account" ? decodeAccountArguments : decodeCustomerCheckoutArguments;
-    const resource = yield* defineComposedWorkflowResource({ identity: { format: profile === "checkout" ? "medusa.checkout.native-links"
-      : profile === "customer-account" ? "medusa.customer-account.native-links" : "medusa.customer-checkout.native-links", services: selected.map(service => service.routing) },
+    const argumentsDecoder = profile === "checkout" ? decodeArguments : profile === "customer-account" ? decodeAccountArguments
+      : profile === "checkout-with-promotions" ? decodePromotionArguments : profile === "customer-checkout-with-promotions" ? decodeCustomerPromotionArguments
+        : decodeCustomerCheckoutArguments;
+    const resource = yield* defineComposedWorkflowResource({ identity: { format: "medusa." + profile + ".native-links", services: selected.map(service => service.routing) },
       dependencies: selected.flatMap(service => [service.createMethod, service.listMethod, service.dismissMethod]),
-      methods: { create: { arguments: argumentsDecoder, output: decodeRows }, dismiss: { arguments: argumentsDecoder, output: decodeRows } },
+      methods: { create: { arguments: argumentsDecoder, output: promotions ? decodePromotionRows : decodeRows },
+        dismiss: { arguments: argumentsDecoder, output: promotions ? decodePromotionRows : decodeRows } },
       bind: invoke => {
         const loaded = selected.map(service => ({ ...structuredClone(service.routing),
           list: async (filters: unknown = {}, config: unknown = {}) => [...await invoke(service.listMethod, filters, config)],
@@ -63,3 +75,5 @@ function prepareNativeLinkResource(services: readonly Native[], profile: NativeL
 export const prepareCheckoutNativeLinkResource = (services: readonly Native[]) => prepareNativeLinkResource(services, "checkout");
 export const prepareCustomerAccountNativeLinkResource = (service: Native) => prepareNativeLinkResource([service], "customer-account");
 export const prepareCustomerCheckoutNativeLinkResource = (services: readonly Native[]) => prepareNativeLinkResource(services, "customer-checkout");
+export const prepareCheckoutPromotionNativeLinkResource = (services: readonly Native[]) => prepareNativeLinkResource(services, "checkout-with-promotions");
+export const prepareCustomerCheckoutPromotionNativeLinkResource = (services: readonly Native[]) => prepareNativeLinkResource(services, "customer-checkout-with-promotions");

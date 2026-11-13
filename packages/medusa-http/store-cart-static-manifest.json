@@ -34,6 +34,9 @@
     },
     {
       "relativePath": "packages/medusa-http/src/api/store/payment-collections/[id]/payment-sessions/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa-http/src/api/store/carts/[id]/complete/route.ts"
     }
   ],
   "middlewares": [

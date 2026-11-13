@@ -50,4 +50,19 @@ describe("bounded native Order creation input", () => {
     for (const extra of [{ id: "caller-address" }, { is_default_billing: true }, { unexpected: true }])
       expect(Result.isFailure(decodeCheckoutOrderCreates([{ ...order, shipping_address: { ...address, ...extra } }]))).toBe(true);
   });
+  it("admits the bounded native checkout shipping, tax, discount and credit families", () => {
+    const tax = { code: "VAT", rate: "10", provider_id: "tax-system" }, adjustment = { amount: "0.25", code: "SAVE", promotion_id: "promo-existing" };
+    const populated = { ...order, items: [{ ...item, requires_shipping: true, tax_lines: [tax], adjustments: [adjustment] }],
+      shipping_methods: [{ name: "Standard", amount: "2.5", tax_lines: [tax], adjustments: [adjustment] }],
+      credit_lines: [{ amount: "0.5", raw_amount: { value: "0.5", precision: 20 }, reference: "credit", reference_id: "credit-existing" }],
+      promo_codes: ["SAVE"] };
+    expect(Result.getOrThrow(decodeCheckoutOrderCreates([populated]))).toEqual([populated]);
+    for (const extra of [{ id: "caller-tax" }, { item_id: "foreign-item" }, { created_at: "2026-01-01T00:00:00.000Z" }, { raw_rate: { value: "10", precision: 20 } }])
+      expect(Result.isFailure(decodeCheckoutOrderCreates([{ ...populated, items: [{ ...item, tax_lines: [{ ...tax, ...extra }] }] }]))).toBe(true);
+    expect(Result.isFailure(decodeCheckoutOrderCreates([{ ...populated,
+      shipping_methods: [{ ...populated.shipping_methods[0], id: "caller-shipping" }] }]))).toBe(true);
+    expect(Result.isFailure(decodeCheckoutOrderCreates([{ ...populated,
+      items: [{ ...item, tax_lines: [tax, tax, tax] }, { ...item, tax_lines: [tax, tax] }] }]))).toBe(true);
+    expect(Result.isFailure(decodeOrderCreates([populated]))).toBe(true);
+  });
 });

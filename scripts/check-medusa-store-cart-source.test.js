@@ -41,6 +41,19 @@ describe("native Store Cart HTTP source preservation", () => {
     for (const pair of storeCartHttpSourcePairs) verifyStoreCartHttpSource(readFileSync(pair.source, "utf8"), readFileSync(pair.target, "utf8"), pair.target);
     verifyStoreCartHttpSharedSources(process.cwd());
   });
+  it("confines the completion projection proof to the pinned Order query configuration", () => {
+    const file = "packages/medusa-adapter/test/store-cart-completion-contracts.test.ts";
+    const specifier = "../../medusa-http/src/api/store/orders/query-config";
+    const target = "packages/medusa-http/src/api/store/orders/query-config.ts";
+    const source = "third_party/medusa/upstream/packages/medusa/src/api/store/orders/query-config.ts";
+    const promotion = { sourceCommit: "test", files: [{ target: file, classification: "authored", targetSha256: "test" },
+      { target, source, classification: "unchanged", targetSha256: "test", sourceSha256: "test" }], packages: [], buildFiles: [], testAliases: [] };
+    expect(admitsCurrencyImport(promotion, file, specifier)).toBe(true);
+    expect(admitsCurrencyImport(promotion, file + ".adjacent", specifier)).toBe(false);
+    expect(admitsCurrencyImport(promotion, file, specifier + "/adjacent")).toBe(false);
+    expect(admitsCurrencyImport({ ...promotion, files: promotion.files.filter(entry => entry.target !== target) }, file, specifier)).toBe(false);
+    expect(admitsCurrencyImport({ ...promotion, files: promotion.files.map(entry => entry.target === target ? { ...entry, source: source + ".adjacent" } : entry) }, file, specifier)).toBe(false);
+  });
   it("uses the existing package exports for genuine mutation projection fields", () => {
     /** @type {import("./check-medusa-currency-promotion.mjs").Promotion} */
     const manifest = JSON.parse(readFileSync("roadmaps/flarexdb-framework-integration/preflight/medusa-currency-promotion.json", "utf8"));
@@ -65,6 +78,13 @@ describe("native Store Cart HTTP source preservation", () => {
       ["store/carts/[id]/taxes/route.ts", '"update-tax-lines"', '"upsert-tax-lines"'],
       ["store/carts/[id]/taxes/route.ts", "force_tax_calculation: true", "force_tax_calculation: false"],
       ["store/carts/[id]/taxes/route.ts", "cart_id: req.params.id", "cart_id: req.validatedBody.cart_id"],
+      ["store/carts/[id]/complete/route.ts", '"complete-cart"', '"create-cart"'],
+      ["store/carts/[id]/complete/route.ts", "throwOnError: false,", "throwOnError: true,"],
+      ["store/carts/[id]/complete/route.ts", "!transaction.hasFinished()", "transaction.hasFinished()"],
+      ["store/carts/[id]/complete/route.ts", "MedusaError.Types.PAYMENT_REQUIRES_MORE_ERROR,", "MedusaError.Types.NOT_ALLOWED,"],
+      ["store/carts/[id]/complete/route.ts", 'type: "order"', 'type: "cart"'],
+      ["store/orders/query-config.ts", '"*items.detail"', '"*items.wrapper"'],
+      ["store/orders/validators.ts", "StoreGetOrderParams = createSelectParams()", "StoreGetOrderParams = createSelectParams().strict()"],
       ["store/carts/[id]/shipping-methods/route.ts", '"add-shipping-method-to-cart"', '"refresh-cart-items"'],
       ["store/carts/[id]/shipping-methods/route.ts", "cart_id: req.params.id", "cart_id: payload.option_id"],
       ["store/shipping-options/route.ts", '"list-shipping-options-for-cart"', '"list-shipping-options-for-cart-with-pricing"'],

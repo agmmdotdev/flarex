@@ -33,7 +33,8 @@ function issueMetadata(configs: readonly ModuleJoinerConfig[], entityRelations: 
 }
 
 /** Actual module/link declarations supply query semantics. Checked DML supplies
- * relation model names; neither metadata source grants a command capability. */
+ * storage models; admitted native read paths supply their public projection.
+ * Neither metadata source grants a command capability. */
 export function withNativeGraphMetadata(graph: GraphModuleDefinition, configs: readonly ModuleJoinerConfig[], tables: Tables) {
   return Result.gen(function* () {
     if (graph.reads.some(read => read.paths.length > 0 && tables.find(table => table.name === read.table.name)?.relationships === undefined))
@@ -48,11 +49,31 @@ export function withNativeGraphMetadata(graph: GraphModuleDefinition, configs: r
     for (const read of graph.reads) yield* retain(read.table.name, read.model);
     for (const table of tables) for (const relation of table.relationships ?? [])
       yield* retain(relation.targetTable, relation.targetModel);
-    const entityRelations = new Map<string, ReadonlyMap<string, string>>();
+    const entityRelations = new Map<string, Map<string, string>>();
     for (const table of tables) {
       const model = modelByTable.get(table.name);
       if (model === undefined) continue;
       entityRelations.set(model, new Map((table.relationships ?? []).map(relation => [relation.name, relation.targetModel])));
+    }
+    const publicRelations = new Map<string, Map<string, string>>();
+    for (const read of graph.reads) {
+      const paths = new Map(read.paths.map(path => [path.path, path]));
+      for (const path of [...read.paths].sort((a, b) => a.path.split(".").length - b.path.split(".").length)) {
+        let source = read.model;
+        const parts = path.path.split(".");
+        for (const [index, property] of parts.entries()) {
+          const selected = paths.get(parts.slice(0, index + 1).join("."));
+          const target = selected === undefined ? entityRelations.get(source)?.get(property) : modelByTable.get(selected.table.name);
+          if (target === undefined) return yield* Result.fail(commerceError("unsupportedProfile"));
+          const relations = publicRelations.get(source) ?? new Map<string, string>();
+          const previous = relations.get(property);
+          if (previous !== undefined && previous !== target) return yield* Result.fail(commerceError("unsupportedProfile"));
+          relations.set(property, target); publicRelations.set(source, relations);
+          const native = entityRelations.get(source) ?? new Map<string, string>();
+          native.set(property, target); entityRelations.set(source, native);
+          source = target;
+        }
+      }
     }
     const native = yield* issueMetadata(configs, entityRelations);
     return { ...graph, native };

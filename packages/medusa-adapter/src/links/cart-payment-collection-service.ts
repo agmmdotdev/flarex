@@ -1,4 +1,4 @@
-import { paymentStaticResources } from "@medusajs/payment/static-manifest";
+import { PaymentModuleService } from "@medusajs/payment/services";
 import { cartStaticResources } from "@medusajs/cart/static-manifest";
 import { checkoutLinkReadPolicy } from "./checkout-link-read-receipt";
 import { Effect, Result, Schema } from "effect";
@@ -74,6 +74,6 @@ export const prepareCartPaymentCollectionLinkRead = Effect.fn("CartPaymentCollec
     source: { name: prepared.serviceName, profile: "cart-payment-collection-read" }, methods: {},
     graph: yield* Effect.fromResult(withNativeLinkGraphMetadata({ aliases, services: yield* Effect.fromResult(nativeLinkGraphServices(prepared.joiner)),
       reads: [{ model, command: count, table: prepared.prepared.table, paths: [], orderable: ["cart_id"], uniqueOrder: [], multipleOrder: false, decode: decodeGraphCount }],
-      linkEndpoints: endpoints, remotePaths }, [prepared.joiner], [metadata.frame], [cartStaticResources.joinerConfig, paymentStaticResources.joinerConfig])), logical: { ...policy, commands } }));
+      linkEndpoints: endpoints, remotePaths }, [prepared.joiner], [metadata.frame], [cartStaticResources.joinerConfig, PaymentModuleService.prototype.__joinerConfig()])), logical: { ...policy, commands } }));
   return { metadata, prepared, workflow, count, commands, logicalEventPolicy: () => policy };
 });

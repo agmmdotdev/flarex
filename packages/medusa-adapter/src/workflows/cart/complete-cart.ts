@@ -12,7 +12,7 @@ import { orderedWorkflowIdEvents } from "../../workflow/events";
 import { commerceDecoder } from "../../value/decoder";
 import { ScalarId } from "../../repository/scalar-id-read";
 import { paymentFinanceCallLimit } from "../payment/finance-configuration";
-import { prepareCheckoutModules, prepareCustomerCheckoutModules, checkoutModuleNames, customerCheckoutModuleNames, type CheckoutModules, type CustomerCheckoutModules, type InstalledCheckoutModule } from "./checkout-graph";
+import { prepareCheckoutModules, prepareCustomerCheckoutModules, prepareStoreCheckoutModules, storeCheckoutModuleNames, type StoreCheckoutModules, checkoutModuleNames, customerCheckoutModuleNames, type CheckoutModules, type CustomerCheckoutModules, type InstalledCheckoutModule } from "./checkout-graph";
 import { makeCheckoutInventoryResource } from "../../modules/inventory/checkout-resource";
 import { prepareWorkflowLocking } from "../../workflow/locking";
 
@@ -76,22 +76,36 @@ export function prepareCustomerCheckoutResources(modules: CustomerCheckoutModule
   }, true, composed)));
 }
 
+export function prepareStoreCheckoutResources(modules: StoreCheckoutModules, link: Links, logger: Logger) {
+  if (nativeLinkResourceProfile(link) !== "customer-checkout-with-promotions") return Result.fail(commerceError("invalidAuthority"));
+  const selections = checkoutSelections(modules);
+  return checkoutCompositions(modules, link, logger).pipe(Result.flatMap(composed => prepareWorkflowResources({ ...selections,
+    promotion: { ...selections.promotion, methods: ["registerUsage", "revertUsage"], expose: true },
+    payment: { ...selections.payment, methods: [...selections.payment.methods, "createAccountHolder", "deleteAccountHolder"] },
+    customer_account_holder_links: { module: modules.customer_account_holder_links.module, methods: ["nativeCreate", "nativeList", "nativeDismiss"], graph: true, expose: false },
+    order_promotion_links: { module: modules.order_promotion_links.module, methods: ["nativeCreate", "nativeList", "nativeDismiss"], graph: true, expose: false },
+  }, true, composed)));
+}
+
 interface CompleteCartOptions {
   readonly execution: AtomicWorkflowExecution; readonly modules: CheckoutModules; readonly link: Links; readonly logger: Logger;
   readonly revision: string; readonly subscribers: AtomicCommerceEvents["subscribers"];
 }
-const prepareCompleteCartProfile = Effect.fn("Checkout.prepareCompleteCart")(function* (input: Omit<CompleteCartOptions, "modules"> & { readonly modules: Readonly<Record<string, InstalledCheckoutModule>> }, profile: "checkout" | "customer") {
+const prepareCompleteCartProfile = Effect.fn("Checkout.prepareCompleteCart")(function* (input: Omit<CompleteCartOptions, "modules"> & { readonly modules: Readonly<Record<string, InstalledCheckoutModule>> }, profile: "checkout" | "customer" | "store") {
   const options = yield* Effect.fromResult(captureWorkflowRecord(input));
   if (Object.keys(options).some(key => !["execution", "modules", "link", "logger", "revision", "subscribers"].includes(key)))
     return yield* Effect.fail(commerceError("unsupportedProfile"));
   const registrations = yield* Effect.fromResult(captureWorkflowRecord(options.modules));
-  if (Object.keys(registrations).length !== (profile === "customer" ? 19 : 18))
+  if (Object.keys(registrations).length !== (profile === "store" ? 20 : profile === "customer" ? 19 : 18))
     return yield* Effect.fail(commerceError("unsupportedProfile"));
-  const selected = profile === "customer"
+  const selected = profile === "store"
+    ? { profile: "store" as const, modules: yield* prepareStoreCheckoutModules(yield* Effect.fromResult(captureInstalledWorkflowModules(registrations, storeCheckoutModuleNames))) }
+    : profile === "customer"
     ? { profile: "customer" as const, modules: yield* prepareCustomerCheckoutModules(yield* Effect.fromResult(captureInstalledWorkflowModules(registrations, customerCheckoutModuleNames))) }
     : { profile: "checkout" as const, modules: yield* prepareCheckoutModules(yield* Effect.fromResult(captureInstalledWorkflowModules(registrations, checkoutModuleNames))) };
   const modules = selected.modules;
-  const resources = yield* Effect.fromResult(selected.profile === "customer"
+  const resources = yield* Effect.fromResult(selected.profile === "store"
+    ? prepareStoreCheckoutResources(selected.modules, options.link, options.logger) : selected.profile === "customer"
     ? prepareCustomerCheckoutResources(selected.modules, options.link, options.logger) : prepareCheckoutResources(selected.modules, options.link, options.logger));
   const prepared = yield* Effect.fromResult(checkoutRoot.prepare()).pipe(Effect.mapError(cause => commerceError("unsupportedProfile", cause)));
   const created = modules.order.module.methods.createOrders;
@@ -103,12 +117,14 @@ const prepareCompleteCartProfile = Effect.fn("Checkout.prepareCompleteCart")(fun
   }), { criticalPriority: true, pendingCancellation: true });
   const { inventory, ...otherModules } = modules;
   return yield* prepareAtomicWorkflowHost({ execution: options.execution, modules: { ...otherModules, inventory_commands: inventory }, revision: options.revision, subscribers: options.subscribers,
-    ...(profile === "customer" ? { identityEncoding: "resourceDigest" as const } : {}),
-    requestParticipantLimit: profile === "customer" ? 19 : 18, requestCallLimit: paymentFinanceCallLimit,
+    identityEncoding: profile === "store" ? "framedResourceDigest" : "resourceDigest",
+    requestParticipantLimit: profile === "store" ? 20 : profile === "customer" ? 19 : 18, requestCallLimit: paymentFinanceCallLimit,
     executionIsolation: "scopeExclusive", operationScheduling: "queued", borrowedOperationScheduling: "queued",
-    workflow: { name: profile === "customer" ? "completeCustomerCartWorkflow" : "completeCartWorkflow", resources, prepared, input: CheckoutInput, output: CheckoutOutput, events } });
+    workflow: { name: profile === "store" ? "completeStoreCartWorkflow" : profile === "customer" ? "completeCustomerCartWorkflow" : "completeCartWorkflow", resources, prepared, input: CheckoutInput, output: CheckoutOutput, events } });
 });
 
 interface CustomerCompleteCartOptions extends Omit<CompleteCartOptions, "modules"> { readonly modules: CustomerCheckoutModules }
 export const prepareCompleteCartWorkflow = (input: CompleteCartOptions) => prepareCompleteCartProfile(input, "checkout");
 export const prepareCustomerCompleteCartWorkflow = (input: CustomerCompleteCartOptions) => prepareCompleteCartProfile(input, "customer");
+
+export const prepareStoreCompleteCartWorkflow = (input: Omit<CompleteCartOptions, "modules"> & { readonly modules: StoreCheckoutModules }) => prepareCompleteCartProfile(input, "store");

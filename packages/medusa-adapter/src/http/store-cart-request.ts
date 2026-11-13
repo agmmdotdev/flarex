@@ -23,6 +23,13 @@ import { prepareCartTaxesWorkflow } from "../workflows/cart/taxes";
 import { cartShippingCoreDefinitions, cartShippingModuleNames, makeCartShippingLinkRuntimes, prepareCartShippingModules, type CartShippingLinks } from "../workflows/cart/shipping-graph";
 import { prepareCartShippingWorkflows } from "../workflows/cart/shipping";
 import { makeStorePaymentRuntimes, prepareStorePaymentWorkflows } from "../workflows/payment/store";
+import { makeStoreCheckoutRuntimes } from "../workflows/cart/checkout-runtimes";
+import { prepareStoreCheckoutModules, storeCheckoutModuleNames, type StoreCheckoutModules } from "../workflows/cart/checkout-graph";
+import { prepareStoreCompleteCartWorkflow } from "../workflows/cart/complete-cart";
+import { compileOrderCoreDefinition } from "../modules/order/schema";
+import { compileOrderCartLinkCoreDefinition } from "../links/order-cart-schema";
+import { compileOrderPaymentCollectionLinkCoreDefinition } from "../links/order-payment-collection-schema";
+import { compileOrderPromotionLinkCoreDefinition } from "../links/order-promotion-schema";
 import { compileCustomerAccountHolderLinkCoreDefinition } from "../links/customer-account-holder-schema";
 import { captureInstalledWorkflowModules, type AtomicWorkflowExecution, type OrdinaryNativeInstalledWorkflowModule } from "../workflow/host";
 import { workflowModuleDefinition } from "../workflow/module";
@@ -30,15 +37,25 @@ import { commerceDecoder } from "../value/decoder";
 import { ScalarId } from "../repository/scalar-id-read";
 import { captureCommerceInput } from "../value/input";
 import { compileStoreRequestReadCatalog, makeStoreRequestReads } from "./store-request-reads";
+import { runCompletedCartRequestPromise } from "./store-cart-completion";
 import { runProductRequestPromise } from "./product-request";
 
 type NativeName = typeof cartShippingModuleNames[number];
-export const storeCartRequestModuleNames = [...cartShippingModuleNames, "customer_account_holder_links"] as const;
+const completionSourceNames = ["order", "order_cart_links", "order_payment_collection_links", "order_promotion_links"] as const;
+type CompletionSourceName = typeof completionSourceNames[number];
+// Three auth readers, twenty commerce readers (Store/Tax need no read lease),
+// and twelve native workflow roots retain one shared generation budget.
+export const storeCartRequestHostLimits = Object.freeze({ maximumHosts: 35, maximumPreparedBytes: 8 * 1024 * 1024 });
+export const storeCartRequestModuleNames = [...cartShippingModuleNames, "customer_account_holder_links", ...completionSourceNames] as const;
 export const storeCartRequestCoreDefinitions = Effect.fn("StoreCartRequest.compileDefinitions")(function* (
   target: Readonly<{ scopeUuid: string; epochUuid: string }>,
 ) {
   return { ...yield* cartShippingCoreDefinitions(target),
-    customer_account_holder_links: yield* compileCustomerAccountHolderLinkCoreDefinition(target) };
+    customer_account_holder_links: yield* compileCustomerAccountHolderLinkCoreDefinition(target),
+    order: yield* compileOrderCoreDefinition(target, "generate"),
+    order_cart_links: yield* compileOrderCartLinkCoreDefinition(target),
+    order_payment_collection_links: yield* compileOrderPaymentCollectionLinkCoreDefinition(target),
+    order_promotion_links: yield* compileOrderPromotionLinkCoreDefinition(target) };
 });
 export type StoreCartRequestInitializations = Readonly<{
   native: Readonly<Record<typeof storeCartRequestModuleNames[number], CommerceInitialization>>;
@@ -56,6 +73,9 @@ interface StoreCartRequestRuntimes extends CartCreationRuntimes {
 export interface StoreCartRequestCatalog {
   readonly target: Readonly<{ scopeUuid: string; epochUuid: string }>;
   readonly runtimes: StoreCartRequestRuntimes;
+  readonly completionRuntimes: Effect.Success<ReturnType<typeof makeStoreCheckoutRuntimes>>;
+  readonly completionModules: StoreCheckoutModules;
+  readonly completionSources: readonly (CatalogSource & { readonly name: CompletionSourceName; readonly source: Result.Result.Success<ReturnType<typeof defineAtomicCommerceNativeSource>> })[];
   readonly paymentRuntimes: Effect.Success<ReturnType<typeof makeStorePaymentRuntimes>>;
   readonly paymentAccountSource: CatalogSource & { readonly source: Result.Result.Success<ReturnType<typeof defineAtomicCommerceNativeSource>> };
   readonly modules: CartCreationModules;
@@ -75,29 +95,60 @@ export const compileStoreCartRequestCatalog = Effect.fn("StoreCartRequest.compil
   const runtimes = { ...base, workflows: { ...base.workflows, ...yield* makeCartShippingLinkRuntimes() } };
   const definitions = yield* storeCartRequestCoreDefinitions(target);
   const paymentRuntimes = yield* makeStorePaymentRuntimes();
+  const completionRuntimes = yield* makeStoreCheckoutRuntimes(logger);
+  const sourceCommands = (name: string, original: readonly CommerceCommand[]) => Result.gen(function* () {
+    const completion = Object.entries(completionRuntimes.workflows).find(([key]) => key === name)?.[1];
+    const extra = completion === undefined ? [] : workflowModuleDefinition(completion)?.logical?.commands;
+    if (extra === undefined) return yield* Result.fail(commerceError("invalidAuthority"));
+    const selected = new Map<string, CommerceCommand>();
+    for (const command of [...original, ...extra]) {
+      const identity = commerceCommandIdentity(command);
+      if (identity === undefined) return yield* Result.fail(commerceError("invalidAuthority"));
+      const prior = selected.get(identity.name);
+      if (prior !== undefined && commerceCommandIdentity(prior)?.mode !== identity.mode) return yield* Result.fail(commerceError("invalidAuthority"));
+      if (prior === undefined) selected.set(identity.name, command);
+    }
+    return [...selected.values()];
+  });
   const accountDefinition = workflowModuleDefinition(paymentRuntimes.customerAccountHolder.workflow)?.logical;
   if (accountDefinition === undefined) return yield* commerceError("invalidAuthority");
   const paymentAccountSource = { name: "customer_account_holder_links", definition: definitions.customer_account_holder_links,
-    commands: accountDefinition.commands, initialization: Object.freeze({ ...initialization.native.customer_account_holder_links }),
+    commands: yield* Effect.fromResult(sourceCommands("customer_account_holder_links", accountDefinition.commands)), initialization: Object.freeze({ ...initialization.native.customer_account_holder_links }),
     source: yield* Effect.fromResult(defineAtomicCommerceNativeSource("customer_account_holder_links", definitions.customer_account_holder_links)) };
   const nativeSources = [];
   for (const name of cartShippingModuleNames) {
     const logical = workflowModuleDefinition(runtimes.workflows[name])?.logical;
     if (logical === undefined) return yield* commerceError("invalidAuthority");
     const source = yield* Effect.fromResult(defineAtomicCommerceNativeSource(name, definitions[name]));
-    nativeSources.push(Object.freeze({ name, definition: definitions[name], source, commands: logical.commands,
+    nativeSources.push(Object.freeze({ name, definition: definitions[name], source, commands: yield* Effect.fromResult(sourceCommands(name, logical.commands)),
       initialization: Object.freeze({ ...initialization.native[name] }) }));
   }
   const installed = yield* Effect.fromResult(captureInstalledWorkflowModules(Object.fromEntries(nativeSources.map(source =>
     [source.name, { module: runtimes.workflows[source.name], nativeStorage: source.source }])), cartShippingModuleNames));
   const { location_fulfillment_set_links, shipping_option_price_set_links, ...modules } = installed;
   const shippingLinks = { location_fulfillment_set_links, shipping_option_price_set_links };
+  const completionSources = [];
+  for (const name of completionSourceNames) {
+    const logical = workflowModuleDefinition(completionRuntimes.workflows[name])?.logical;
+    if (logical === undefined) return yield* commerceError("invalidAuthority");
+    completionSources.push({ name, definition: definitions[name], commands: logical.commands,
+      initialization: Object.freeze({ ...initialization.native[name] }),
+      source: yield* Effect.fromResult(defineAtomicCommerceNativeSource(name, definitions[name])) });
+  }
+  const commerceSources = [...nativeSources, paymentAccountSource, ...completionSources];
+  const completionEntries = [];
+  for (const name of storeCheckoutModuleNames) {
+    const source = commerceSources.find(source => source.name === name);
+    if (source === undefined) return yield* commerceError("invalidAuthority");
+    completionEntries.push([name, { module: completionRuntimes.workflows[name], nativeStorage: source.source }]);
+  }
+  const completionModules = yield* Effect.fromResult(captureInstalledWorkflowModules(Object.fromEntries(completionEntries), storeCheckoutModuleNames));
   const auth = yield* compileStoreRequestReadCatalog(target, initialization.auth);
-  const sources = Object.freeze([...nativeSources, paymentAccountSource, ...Object.entries(auth).map(([name, source]) => ({ name, ...source }))]);
+  const sources = Object.freeze([...commerceSources, ...Object.entries(auth).map(([name, source]) => ({ name, ...source }))]);
   const eventDefinition = yield* compileCoreNativeEventStorageDefinition(target);
   const bundle = yield* makeCoreSchemaBundle({ sources: [...sources.map(source => ({ kind: "native" as const, definition: source.definition })),
     { kind: "native", definition: eventDefinition }] });
-  const result: StoreCartRequestCatalog = Object.freeze({ target: Object.freeze({ ...target }), runtimes, paymentRuntimes, paymentAccountSource,
+  const result: StoreCartRequestCatalog = Object.freeze({ target: Object.freeze({ ...target }), runtimes, paymentRuntimes, paymentAccountSource, completionRuntimes, completionModules, completionSources,
     modules, shippingLinks, nativeSources: Object.freeze(nativeSources), auth, sources, eventDefinition, bundle });
   return result;
 });
@@ -122,9 +173,9 @@ const decodeCartRemoteRoot = commerceDecoder(CartRemoteRoot, "unsupportedProfile
 const decodeCollectionLinkRemoteRoot = commerceDecoder(CollectionLinkRemoteRoot, "unsupportedProfile");
 const decodeRemoteEnvelope = commerceDecoder(Schema.Struct({ __value: Schema.Record(Schema.Literals(["cart", "api_key", "cart_payment_collection"]),
   Schema.optionalKey(Schema.JsonObject)).check(Schema.makeFilter(value => Object.keys(value).length === 1)) }), "unsupportedProfile");
-const paymentEntity = Schema.is(Schema.Struct({ entity: Schema.Literal("payment_collection") }));
+const commerceEntity = Schema.is(Schema.Struct({ entity: Schema.Literals(["payment_collection", "order"]) }));
 const GraphFields = Schema.Array(Schema.String.check(Schema.isLengthBetween(1, 256))).check(Schema.isMaxLength(256));
-const decodePaymentGraphQuery = commerceDecoder(Schema.Struct({ entity: Schema.Literal("payment_collection"), fields: GraphFields,
+const decodeCommerceGraphQuery = commerceDecoder(Schema.Struct({ entity: Schema.Literals(["payment_collection", "order"]), fields: GraphFields,
   filters: Schema.Struct({ id: ScalarId }), pagination: Schema.optionalKey(Schema.Never), withDeleted: Schema.optionalKey(Schema.Never),
   context: Schema.optionalKey(Schema.Never) }), "unsupportedProfile");
 
@@ -141,16 +192,19 @@ export const makeStoreCartRequestRuntime = Effect.fn("StoreCartRequest.makeRunti
   revision: string; subscribers: AtomicCommerceEvents["subscribers"]; hooks?: CartCreationHooks; mutationHooks?: CartMutationHooks;
 }>) {
   const selected = yield* prepareCartCreationModules(input.catalog.modules, input.catalog.runtimes.salesChannelRead);
-  const graphModules = yield* Effect.fromResult(prepareCartShippingModules(selected.modules, input.catalog.shippingLinks));
+  const cartGraphModules = yield* Effect.fromResult(prepareCartShippingModules(selected.modules, input.catalog.shippingLinks));
+  const completionModules = yield* prepareStoreCheckoutModules(input.catalog.completionModules);
+  const graphModules = { ...cartGraphModules, order: completionModules.order, order_payment_collection_links: completionModules.order_payment_collection_links };
   const members = [];
   const hosts = new Map<AtomicCommerceParticipant, { readonly commands: ReadonlySet<CommerceCommand>;
     readonly read: (command: CommerceCommand, args: Json) => Effect.Effect<Json, CommerceTransactionError> }>();
   const closures: Effect.Effect<void>[] = [];
-  for (const source of input.catalog.nativeSources) {
+  for (const source of [...input.catalog.nativeSources, ...input.catalog.completionSources.filter(source => source.name === "order" || source.name === "order_payment_collection_links")]) {
     // No public Cart or Shipping path reaches Store. Native creation retains
     // its separate Store participant; this read facade needs no Store lease.
     if (source.name === "store") continue;
-    const definition = workflowModuleDefinition(graphModules[source.name].module);
+    const member = Object.entries(graphModules).find(([name]) => name === source.name)?.[1];
+    const definition = member === undefined ? undefined : workflowModuleDefinition(member.module);
     if (definition === undefined) return yield* commerceError("invalidAuthority");
     const commands = [...new Set(definition.graph.reads.map(read => read.command))];
     const participant = defineAtomicCommerceParticipant(`storeCartRead_${source.name}`);
@@ -183,7 +237,7 @@ export const makeStoreCartRequestRuntime = Effect.fn("StoreCartRequest.makeRunti
   const execution: AtomicWorkflowExecution = { identityAndAccessPolicy: input.identityAndAccessPolicy,
     prepare: composition => Scope.provide(generationScope)(Effect.acquireRelease(makeAtomicCommerceNativeHost({ ...composition,
       database: input.database, hostRuntime: input.hostRuntime, bundle: input.catalog.bundle,
-      sources: [...input.catalog.nativeSources, input.catalog.paymentAccountSource],
+      sources: [...input.catalog.nativeSources, input.catalog.paymentAccountSource, ...input.catalog.completionSources],
       eventStorage: { definition: input.catalog.eventDefinition } }), host => host.close)),
   };
   const workflow = yield* prepareCreateCartWorkflow({ execution, modules: input.catalog.modules,
@@ -215,6 +269,13 @@ export const makeStoreCartRequestRuntime = Effect.fn("StoreCartRequest.makeRunti
     customer_account_holder_links: { module: paymentRuntimes.customerAccountHolder.workflow, nativeStorage: input.catalog.paymentAccountSource.source },
   }, customerAccountLink: paymentRuntimes.customerAccountLink, logger: input.catalog.runtimes.logger,
   revision: input.revision, subscribers: input.subscribers });
+  const completion = yield* prepareStoreCompleteCartWorkflow({ execution, modules: input.catalog.completionModules,
+    link: input.catalog.completionRuntimes.link, logger: input.catalog.completionRuntimes.logger,
+    revision: input.revision, subscribers: input.subscribers });
+  const admitOrderRefetchFields = (fields: readonly string[]): void => {
+    Result.getOrThrowWith(graph.admitProjection("order", fields), cause => new MedusaError(MedusaError.Types.INVALID_DATA,
+      "The private completion profile requires supported Order response fields before execution.", undefined, undefined, { cause }));
+  };
   const admitShippingOptionFields = (fields: readonly string[]): void => {
     Result.getOrThrowWith(graph.admitProjection("shipping_options", [...new Set(["id", ...fields])]), cause => new MedusaError(MedusaError.Types.INVALID_DATA,
       "The private Shipping profile requires supported response fields before execution.", undefined, undefined, { cause }));
@@ -234,6 +295,10 @@ export const makeStoreCartRequestRuntime = Effect.fn("StoreCartRequest.makeRunti
   const runWorkflow = Effect.fn("StoreCartRequest.runWorkflow")(function* (name: string, value: unknown) {
     const captured = yield* Effect.fromResult(captureCommerceInput(value));
     switch (name) {
+      case "complete-cart": {
+        const args = yield* Effect.fromResult(completion.decodeInput(captured));
+        return { result: yield* completion.run(completion.newRequestKey(), args) };
+      }
       case "create-cart": {
         const args = yield* Effect.fromResult(workflow.decodeInput(captured));
         return { result: yield* workflow.run(workflow.newRequestKey(), args) };
@@ -290,13 +355,13 @@ export const makeStoreCartRequestRuntime = Effect.fn("StoreCartRequest.makeRunti
   }, presentCartFailure);
   const queryGraph = Effect.fn("StoreCartRequest.queryGraph")(function* (value: unknown, options?: unknown) {
     const captured = yield* Effect.fromResult(captureCommerceInput(value));
-    if (!paymentEntity(captured)) return yield* auth.query.graph(value, options);
+    if (!commerceEntity(captured)) return yield* auth.query.graph(value, options);
     if (options !== undefined) return yield* commerceError("unsupportedProfile");
-    const query = yield* Effect.fromResult(decodePaymentGraphQuery(captured));
+    const query = yield* Effect.fromResult(decodeCommerceGraphQuery(captured));
     return yield* graph.bind(readContext()).nativeGraph(query);
   }, presentCartFailure);
-  return Object.freeze({ admitCartRefetchFields, admitShippingOptionFields, admitPaymentCollectionFields, runWorkflow, remoteQuery, query: Object.freeze({ graph: queryGraph }),
-    close: Effect.forEach(closures, close => close, { discard: true }).pipe(Effect.ensuring(auth.close), Effect.ensuring(workflow.close),
+  return Object.freeze({ admitCartRefetchFields, admitShippingOptionFields, admitPaymentCollectionFields, admitOrderRefetchFields, runWorkflow, remoteQuery, query: Object.freeze({ graph: queryGraph }),
+    close: Effect.forEach(closures, close => close, { discard: true }).pipe(Effect.ensuring(auth.close), Effect.ensuring(workflow.close), Effect.ensuring(completion.close),
       Effect.ensuring(Effect.forEach(Object.values(mutations), host => host.close, { discard: true })), Effect.ensuring(promotions.close), Effect.ensuring(taxes.close),
       Effect.ensuring(Effect.forEach(Object.values(shipping), host => host.close, { discard: true })),
       Effect.ensuring(Effect.forEach(Object.values(payments), host => host.close, { discard: true }))) });
@@ -308,8 +373,10 @@ export const makeStoreCartRequestScopeFactory = Effect.fn("StoreCartRequest.make
   runtime: StoreCartRequestRuntime; container: AwilixContainer;
 }>) {
   const container = yield* Effect.acquireRelease(Effect.sync(() => input.container.createScope().register({
-    [Modules.WORKFLOW_ENGINE]: asValue({ run: (name: string, options: Readonly<{ input: unknown }>) =>
-      runProductRequestPromise(input.runtime.runWorkflow(name, options.input)) }),
+    [Modules.WORKFLOW_ENGINE]: asValue({ run: (name: string, options: Readonly<{ input: unknown; throwOnError?: boolean }>) =>
+      name === "complete-cart" && options.throwOnError === false
+        ? runCompletedCartRequestPromise(input.runtime.runWorkflow(name, options.input))
+        : runProductRequestPromise(input.runtime.runWorkflow(name, options.input)) }),
     remoteQuery: asValue((query: unknown) => runProductRequestPromise(input.runtime.remoteQuery(query))),
     query: asValue({ graph: (query: unknown, options?: unknown) => runProductRequestPromise(input.runtime.query.graph(query, options)) }),
   })), scope => Effect.promise(() => scope.dispose()));

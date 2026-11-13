@@ -17,11 +17,12 @@ import { bindCommerceRelationRows, readCommerceRelationRows, populateCommerceRel
 import { projectRows } from "../../query/projection";
 import { compileOrderCreationContracts, compileOrderFinanceContracts } from "./finance-contracts";
 import { captureGraph, insertGraphRows } from "../../write/create";
-import type { CreationProfile, GraphCatalog } from "../../write/graph-model";
+import type { CreationNode } from "../../write/graph-model";
 import { prepareOrderFinanceQuery, orderFinanceVersionFilters } from "./finance-query";
 import type { captureOrderMetadata } from "./schema";
 import { captureOrderCreationFields } from "./creation-values";
 import { lowerDmlSchema } from "../../schema/lower";
+import { prepareOrderCreationGraphs } from "./creation-graph";
 
 const decodeBatch = commerceDecoder(Schema.Array(Schema.Unknown).check(Schema.isMaxLength(4)), "unsupportedProfile");
 const decodeId = commerceDecoder(Schema.String.check(Schema.isLengthBetween(1, 256)), "unsupportedProfile");
@@ -75,9 +76,11 @@ function prepareOrderRepository(metadata: Effect.Success<ReturnType<typeof captu
     const contracts = yield* (profile === "finance" ? compileOrderFinanceContracts(metadata) : compileOrderCreationContracts(metadata));
     const defaults = new Map(lowerDmlSchema(metadata.tables, "commerce.order").tables.map(table =>
       [table.tableId, new Map(table.columns.map(column => [column.columnId, column.default]))]));
-    const { query } = prepareOrderFinanceQuery(contracts.catalog, contracts.entities.map(entity => entity.table));
+    const { query } = prepareOrderFinanceQuery(contracts.catalog, contracts.entities.map(entity => entity.table), profile === "checkout" ? "checkout" : "finance");
     const creationInputs = profile === "finance" ? [] : contracts.entities.filter(entity =>
-      ["order", "order_summary", "order_item", "order_line_item", ...(profile === "checkout" ? ["order_address"] : [])].includes(entity.table.name)).map(entity =>
+      ["order", "order_summary", "order_item", "order_line_item", ...(profile === "checkout" ? ["order_address", "order_shipping",
+        "order_shipping_method", "order_shipping_method_tax_line", "order_shipping_method_adjustment", "order_line_item_tax_line",
+        "order_line_item_adjustment", "order_credit_line"] : [])].includes(entity.table.name)).map(entity =>
         [entity.table.name, entity.table.columns.filter(column => !(entity.table.name === "order_address" ? ["id"] : ["id", "display_id", "created_at", "updated_at", "deleted_at"]).includes(column.name))
           .map(column => column.name)] as const);
     const createDecoders = new Map([...(profile === "creation" ? [] : creations), ...creationInputs]
@@ -85,23 +88,7 @@ function prepareOrderRepository(metadata: Effect.Success<ReturnType<typeof captu
     const patchDecoders = new Map((profile !== "creation" ? [...assignments] : []).map(([table, names]) => [table, commerceRowDecoder(["id", ...names], "unsupportedProfile")]));
     const upsertDecoders = new Map((profile !== "creation" ? [...versionedInputs] : []).map(([table, names]) => [table, commerceRowDecoder(names, "unsupportedProfile")]));
     type Entity = typeof contracts.entities[number];
-    const orderCreation = profile === "finance" ? undefined : yield* Result.gen(function* () {
-      const order = yield* contracts.entity("order"), summary = yield* contracts.entity("order_summary");
-      if (!order.table.relationships.some(relation => relation.name === "summary" && relation.type === "hasMany" && relation.targetTable === summary.table.name) ||
-        !summary.table.foreignKeys.some(key => key.columns.length === 1 && key.columns[0] === "order_id" &&
-          key.referencedTable === order.table.name && key.referencedColumns.length === 1 && key.referencedColumns[0] === "id"))
-        return yield* Result.fail(commerceError("unsupportedProfile"));
-      const graphEntity = (entity: Entity) => ({ table: entity.table, model: entity.model, keyColumn: "id",
-        prefix: entity.table.columns.find(column => column.name === "id")?.options?.prefix });
-      const orderGraph = graphEntity(order), summaryGraph = graphEntity(summary);
-      const catalog: GraphCatalog = { entities: [orderGraph, summaryGraph], tables: metadata.tables, writablePivots: [], queryRelations: new Map(),
-        decodeRow: (_current, value) => decodeNormalized(value).pipe(Result.map(supplied => ({ supplied, key: undefined }))),
-        decodeReference: () => Result.fail(commerceError("unsupportedProfile")), decodeAssociation: () => Result.fail(commerceError("unsupportedProfile")) };
-      const creation: CreationProfile = { catalog, root: { entity: orderGraph, omitRelations: ["summary"], steps: [
-        { kind: "children", name: "summary", foreignKey: "order_id", node: { entity: summaryGraph, omitRelations: [], steps: [] } },
-      ] }, rowLimitDetail: (maximum, attempted, tables) => ({ maximum, attempted, tables }) };
-      return { creation, summary };
-    });
+    const creationGraphs = profile === "finance" ? undefined : yield* prepareOrderCreationGraphs(contracts, metadata.tables, profile);
     const bind = (root: CommerceCommandContext, owner: CommercePromiseOwner) => {
       const first = contracts.entities[0];
       if (first === undefined) throw new Error("Missing compiled financial Order");
@@ -192,20 +179,21 @@ function prepareOrderRepository(metadata: Effect.Success<ReturnType<typeof captu
           const rows: JsonObject[] = [];
           for (const value of yield* Effect.fromResult(decodeBatch(input))) {
             const normalized = yield* Effect.fromResult(decodeNormalized(value)), fields = { ...normalized };
-            if (profile !== "finance" && name === "order") delete fields.summary;
+            for (const relation of creationGraphs?.get(name)?.root.omitRelations ?? []) delete fields[relation];
             for (const number of entity.numbers) delete fields["raw_" + number.name];
             yield* Effect.fromResult(decode(fields)); rows.push(normalized);
           }
-          if (profile !== "finance" && name === "order") {
+          const creation = creationGraphs?.get(name);
+          if (creation !== undefined) {
             if (shared === undefined || !events.isSubscribed(shared)) return yield* ctx.refuse(commerceError("unadmittedEvent"));
-            if (orderCreation === undefined) return yield* ctx.refuse(commerceError("unsupportedProfile"));
-            const { creation, summary } = orderCreation;
             const graph = yield* captureGraph(creation, rows, ctx.resources), written = yield* insertGraphRows(ctx, creation.catalog, graph.rows);
-            const created = written.get(name) ?? [], summaries = written.get(summary.table.name) ?? [];
-            yield* Effect.fromResult(checkedRows(name, created)); yield* Effect.fromResult(checkedRows(summary.table.name, summaries));
-            remember(name, created); remember(summary.table.name, summaries);
-            yield* events.created([...created.map(row => ({ modelName: entity.model, entity: { ...row } })),
-              ...summaries.map(row => ({ modelName: summary.model, entity: { ...row } }))], shared);
+            const created = written.get(name) ?? [], notifications = [];
+            for (const current of creation.catalog.entities) {
+              const members = written.get(current.table.name) ?? [];
+              yield* Effect.fromResult(checkedRows(current.table.name, members)); remember(current.table.name, members);
+              for (const row of members) notifications.push({ modelName: current.model, entity: { ...row } });
+            }
+            yield* events.created(notifications, shared);
             const nativeCreated = created.map(row => ({ ...row })); fillEmptyToManyRelations(nativeCreated, entity.creationRelations);
             return returned(name, nativeCreated);
           }
@@ -293,7 +281,7 @@ function prepareOrderRepository(metadata: Effect.Success<ReturnType<typeof captu
           })));
         const remove: DAL.RepositoryService["delete"] = (input, shared) => bridge.executeInput(shared, input, (ctx, captured) =>
           bridge.checked(ctx, Effect.gen(function* () {
-            const physicalGraph = profile !== "finance" && (["order", "order_line_item"].includes(name) || profile === "checkout" && name === "order_address");
+          const physicalGraph = profile !== "finance" && (["order", "order_line_item"].includes(name) || profile === "checkout" && ["order_address", "order_shipping_method"].includes(name));
             if (!physicalGraph && !(profile !== "creation" && ["order_transaction", "order_change", "order_change_action"].includes(name)))
               return yield* ctx.refuse(commerceError("unsupportedProfile"));
             const selection = yield* Effect.fromResult(decodeDelete(captured));
@@ -307,16 +295,29 @@ function prepareOrderRepository(metadata: Effect.Success<ReturnType<typeof captu
           })));
         // Capture native quantities and dates before the core charges and queues
         // each complete DAL call. All storage work stays inside its existing FIFO.
+        const normalizeCreation = Effect.fn("OrderFinance.captureCreationGraph")(function* (ctx: CommerceCommandContext,
+          value: unknown, node: CreationNode, retainedRaw: boolean): Effect.fn.Return<JsonObject, CommerceTransactionError> {
+          const native = yield* captureOrderCreationFields(value, node.entity.table.name, profile === "checkout" ? "checkout" : "creation");
+          const children: Record<string, Json> = {};
+          for (const step of node.steps) {
+            if (step.kind === "references") return yield* ctx.refuse(commerceError("unsupportedProfile"));
+            const member = native[step.name]; delete native[step.name];
+            if (member === undefined) continue;
+            if (step.kind === "ownedToOne") children[step.name] = yield* normalizeCreation(ctx, member, step.node, retainedRaw);
+            else {
+              const input = step.name === "summary" && !Array.isArray(member) ? [member] : member;
+              const rows: JsonObject[] = [];
+              for (const item of yield* Effect.fromResult(decodeBatch(input))) rows.push(yield* normalizeCreation(ctx, item, step.node, retainedRaw));
+              children[step.name] = rows;
+            }
+          }
+          return { ...(yield* contracts.normalize(native, node.entity.table.name, ctx.resources, retainedRaw)), ...children };
+        });
         const normalizeRows = Effect.fn("OrderFinance.captureRows")(function* (ctx: CommerceCommandContext, input: unknown, retainedRaw: boolean) {
           const rows: JsonObject[] = [];
           for (const value of yield* Effect.fromResult(decodeBatch(input))) {
-            if (profile !== "finance" && name === "order") {
-              const native = yield* captureOrderCreationFields(value, name), summaries = Array.isArray(native.summary) ? native.summary : [native.summary];
-              delete native.summary;
-              const normalized = yield* normalize(ctx, native), children: JsonObject[] = [];
-              for (const child of summaries) children.push(yield* contracts.normalize(child, "order_summary", ctx.resources));
-              rows.push({ ...normalized, summary: children }); continue;
-            }
+            const creation = creationGraphs?.get(name);
+            if (creation !== undefined) { rows.push(yield* normalizeCreation(ctx, value, creation.root, retainedRaw)); continue; }
             if (profile !== "finance" && name === "order_line_item") {
               const native = yield* captureOrderCreationFields(value, name);
               rows.push(yield* normalize(ctx, native, retainedRaw)); continue;

@@ -73,6 +73,13 @@ const nativeStoreApplicationDOImports = new Map([
   ["apps/executor/test/storePaymentApplicationDO.postgres.test.ts", new Set([
     "@flarex/medusa-adapter/internal/system-test/store-cart-request-catalog", "@flarex/medusa-adapter/internal/system-test/store-cart-request-fixture",
   ])],
+  ["apps/executor/test/storeCartCompletionApplicationDO.workerd.worker.ts", new Set([
+    "@flarex/medusa-adapter/internal/store-cart-request", "@flarex/medusa-adapter/internal/system-test/store-cart-request-catalog",
+    "@flarex/medusa-http/store-cart-effect", "@medusajs/deps/awilix-portable",
+  ])],
+  ["apps/executor/test/storeCartCompletionApplicationDO.postgres.test.ts", new Set([
+    "@flarex/medusa-adapter/internal/system-test/store-cart-request-catalog", "@flarex/medusa-adapter/internal/system-test/store-cart-request-fixture",
+  ])],
   ["apps/executor/test/adminProductApplicationDO.workerd.worker.ts", new Set([
     "@flarex/medusa-adapter/internal/system-test/store-product-request-catalog",
   ])],

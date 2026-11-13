@@ -14,7 +14,7 @@ import { inventoryCheckoutPolicy } from "./checkout-receipt";
  * native reservation service. Each command keeps its real service/repository
  * owner; the outer workflow alone owns exclusion, replay and settlement. */
 export const makeInventoryCheckoutCommands = Effect.fn("InventoryAdapter.checkoutCommands")(function* () {
-  const native = yield* prepareInventoryCommandModule("checkout"), reads = yield* makeLocalInventoryCommands("variant-price-calculation");
+  const native = yield* prepareInventoryCommandModule("checkout"), reads = yield* makeLocalInventoryCommands("variant-price-calculation", "location-levels");
   const graph = workflowModuleDefinition(reads.workflow);
   if (graph?.logical === undefined) return yield* Effect.fail(commerceError("invalidAuthority"));
   const contracts = yield* Effect.fromResult(compileReservationLineItemContracts(native.metadata.frame.tables));

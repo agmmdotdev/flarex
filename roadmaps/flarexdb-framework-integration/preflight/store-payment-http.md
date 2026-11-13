@@ -71,7 +71,8 @@ Store is unreachable from the public Cart/Shipping read graph, so that facade
 does not acquire a Store read host. Native Cart creation retains its Store
 participant. Session-only Customer/account capabilities stay internal to their
 workflow and require no additional public read hosts. The combined host admits
-the two new prepared roots within its existing 32-host and 8 MiB limits. Each
+its prepared roots within the combined host's 35-host and 8 MiB limits, shared
+with the [completion profile](./store-cart-completion-http.md). Each Payment
 root retains three participants and the existing 512-call Payment allowance;
 participant, byte, event and per-module limits are unchanged.
 

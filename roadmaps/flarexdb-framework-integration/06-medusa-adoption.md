@@ -144,10 +144,19 @@ Sessions retain the local System provider, optional verified Customer context,
 saved billing Addresses, account-holder creation/reuse and native replacement.
 The existing Customer–AccountHolder Link adds a twenty-first catalog source;
 each new workflow selects three sources under the same settlement owner. The
-combined HTTP host retains its existing 32-host and 8 MiB limits. Response fields
+combined HTTP host uses the shared 35-host and 8 MiB limits. Response fields
 are admitted before execution and refetched independently after settlement.
 Native creation can retain four authorized Sessions and add a fifth; the unchanged
 four-Session response read then refuses after the workflow has committed.
+
+The admitted [Store completion HTTP profile](./preflight/store-cart-completion-http.md)
+selects `POST /store/carts/:id/complete`, twenty genuine logical participants
+and the full native Order response graph. It extends the serving catalog with
+Order and the three native Order Links, and admits both success and error
+projections before execution. Populated Shipping, Tax, Promotion usage,
+Inventory and local Payment remain under one trusted settlement owner. The
+focused owner records connected database/Workerd acceptance; general Order
+browsing, remote gateways and deployment remain separate scopes.
 
 The native default response preserves Cart/item totals, selected Product and
 taxonomy relations, Customer Groups, Region Countries, Addresses, Promotions,
@@ -173,7 +182,7 @@ standalone creation Pricing retain their ten/seventeen bounds. The issued mutati
 of 1,065 operations; default authoring, creation and participant bounds remain distinct.
 Cart updates admit nullable Address members and metadata. Explicit nulls outside
 the separate creation input profile and unsupported response fields refuse before
-mutation. Checkout completion HTTP,
+mutation. General Order HTTP,
 translation, remote providers, mixed deployment and capacity acceptance retain
 their separate gates.
 

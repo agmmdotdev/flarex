@@ -2155,6 +2155,11 @@ export function admitsCurrencyImport(promotion, file, specifier) {
     const reference = references.get(specifier);
     if (reference !== undefined && promotion.files.some(entry => entry.target === reference.target && entry.source === reference.source)) return true;
   }
+  // Completion checks its pinned native Order response configuration.
+  if (file === "packages/medusa-adapter/test/store-cart-completion-contracts.test.ts"
+    && specifier === "../../medusa-http/src/api/store/orders/query-config"
+    && promotion.files.some(entry => entry.target === "packages/medusa-http/src/api/store/orders/query-config.ts"
+      && entry.source === "third_party/medusa/upstream/packages/medusa/src/api/store/orders/query-config.ts")) return true;
   // The Category contract checks the native list producer's own-undefined ABI.
   if (file === "packages/medusa-adapter/test/product-request-category-reads.test.ts"
     && specifier === "../../medusa-framework/src/http/utils/get-query-config"

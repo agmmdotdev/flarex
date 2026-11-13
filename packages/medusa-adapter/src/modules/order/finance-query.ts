@@ -43,12 +43,13 @@ export function orderFinanceWhere(table: SchemaTable): WherePolicy {
 /** Native Drizzle reads retain OrderItem/OrderShipping wrappers. The public
  * detail selection requests the wrapper; item/shipping method leaves travel
  * through its owning relation before native formatOrder flattens the result. */
-export function prepareOrderFinanceQuery(catalog: ReadCatalog, tables: readonly SchemaTable[]) {
+export function prepareOrderFinanceQuery(catalog: ReadCatalog, tables: readonly SchemaTable[], profile: "finance" | "checkout" = "finance") {
   const byName = new Map(tables.map(table => [table.name, table]));
   const policy = (table: string, paths: readonly string[]): ProjectionPolicy => {
     const members = [...new Set(paths.map(path => path.split(".")[0]!))]
       .flatMap(name => { const relation = catalog.relations.get(table)?.get(name); return relation === undefined ? [] : [relation]; });
     return { keys: "retain", storageKeys: "last", joinKeys: "retain", incomingKeys: true, allowWildcard: true,
+      ...(profile === "checkout" ? { ignoreUnknownScalarFields: true } : {}),
       selectableRelations: members.map(relation => relation.name),
       nested: new Map(members.map(relation => [relation.name, policy(relation.targetTable,
         paths.filter(path => path.startsWith(relation.name + ".")).map(path => path.slice(relation.name.length + 1)))])) };
@@ -75,7 +76,8 @@ export function prepareOrderFinanceQuery(catalog: ReadCatalog, tables: readonly 
         if (relation !== undefined) { prefix.push(name); paths.push(prefix.join(".")); source = relation.targetTable; }
         else {
           const target = byName.get(source);
-          if (index !== parts.length - 1 || target === undefined || name !== "*" && !target.columns.some(column => column.name === name))
+          if (index !== parts.length - 1 || target === undefined || name !== "*" && !target.columns.some(column => column.name === name) &&
+            !(profile === "checkout" && selection && /^[a-z][a-z0-9_]*$/.test(name)))
             return yield* Result.fail(commerceError("unsupportedProfile"));
         }
       }

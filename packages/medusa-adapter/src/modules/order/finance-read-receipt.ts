@@ -112,7 +112,7 @@ export const validateOrderFinanceRead = (prepared: Prepared): LogicalCallReceipt
   if (call.mode !== "read" || activity.mutations.length || activity.lifecycle.length || activity.setNull.length ||
     activity.referenceReplacements.length || call.events.length) return yield* Effect.fail(mismatch("read-effects"));
   const table = call.commandName === "orderPaymentFinanceOrders" ? "order" : call.commandName === "orderPaymentFinanceChanges" ? "order_change"
-    : call.commandName === "orderPaymentFinanceTransactionsRead" ? "order_transaction" : undefined;
+    : call.commandName === "orderPaymentFinanceTransactionsRead" ? "order_transaction" : call.commandName === "orderCheckoutLineItems" ? "order_line_item" : undefined;
   if (table === undefined) return yield* Effect.fail(mismatch("read-command"));
   const input = yield* Effect.fromResult(decodeOrderFinanceRead(call.input));
   const state = yield* Effect.fromResult(captureOrderFinanceReadRows(prepared, activity.observedRows));

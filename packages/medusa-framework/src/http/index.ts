@@ -1,5 +1,6 @@
 export type * from "./types"
 export { validateAndTransformQuery } from "./utils/validate-query"
+export { prepareRetrieveQuery } from "./utils/get-query-config"
 export { validateAndTransformBody } from "./utils/validate-body"
 export { refetchEntity, refetchEntities, type RefetchGraphQuery } from "./utils/refetch-entities"
 export { maybeApplyLinkFilter } from "./utils/maybe-apply-link-filter"

@@ -33,6 +33,22 @@ const dates = Schema.Struct({ $and: Schema.Tuple([
 const decodeActive = commerceDecoder(Schema.Struct({ status: Schema.Literal("active"), $or: Schema.Tuple([
   Schema.Struct({ campaign_id: Schema.Null, ...RootFields }), Schema.Struct({ ...RootFields, campaign: dates }),
 ]) }), "unsupportedProfile");
+/** The executing native active query has two clock leaves and one shared
+ * instant. Both calculation and usage keep this same predicate translation. */
+export function preparePromotionActiveFilter(input: unknown) {
+  return Result.gen(function* () {
+    const filters = yield* decodeActive(input), [absent, present] = filters.$or;
+    const { campaign_id: _absent, ...candidateA } = absent, { campaign, ...candidateB } = present;
+    const left = yield* compileWhere(candidateA, rootWhere), right = yield* compileWhere(candidateB, rootWhere);
+    const start = campaign.$and[0].$or[1].starts_at.$lte, end = campaign.$and[1].$or[1].ends_at.$gt;
+    if (start !== end) return yield* Result.fail(commerceError("unsupportedProfile"));
+    const campaignPredicate: Predicate = { kind: "and", children: [{ kind: "isNull", column: "deleted_at" },
+      { kind: "or", children: [{ kind: "isNull", column: "starts_at" }, { kind: "lessThan", column: "starts_at", value: start }, { kind: "in", column: "starts_at", values: [start] }] },
+      { kind: "or", children: [{ kind: "isNull", column: "ends_at" }, { kind: "greaterThan", column: "ends_at", value: end }] },
+    ] };
+    return { candidateA: left, candidateB: right, campaignPredicate, nativeNow: start };
+  });
+}
 export const promotionComputePaths = ["application_method", "application_method.target_rules", "application_method.target_rules.values",
   "application_method.buy_rules", "application_method.buy_rules.values", "rules", "rules.values", "campaign", "campaign.budget"] as const;
 const decodeEnvelope = commerceDecoder(Schema.Struct({ where: Schema.JsonObject, options: Schema.Struct({
@@ -92,17 +108,7 @@ export function preparePromotionComputeQuery(table: "promotion" | "promotion_cam
       if (value.options.fields !== undefined || value.options.populate.length !== promotionComputePaths.length ||
         value.options.populate.some((path, index) => path !== promotionComputePaths[index]))
         return yield* Result.fail(commerceError("unsupportedProfile"));
-      const filters = yield* decodeActive(value.where), [absent, present] = filters.$or;
-      const { campaign_id: _absent, ...candidateA } = absent, { campaign, ...candidateB } = present;
-      const left = yield* compileWhere(candidateA, rootWhere), right = yield* compileWhere(candidateB, rootWhere);
-      const start = campaign.$and[0].$or[1].starts_at.$lte, end = campaign.$and[1].$or[1].ends_at.$gt;
-      if (start !== end)
-        return yield* Result.fail(commerceError("unsupportedProfile"));
-      const campaignPredicate: Predicate = { kind: "and", children: [{ kind: "isNull", column: "deleted_at" },
-        { kind: "or", children: [{ kind: "isNull", column: "starts_at" }, { kind: "lessThan", column: "starts_at", value: start }, { kind: "in", column: "starts_at", values: [start] }] },
-        { kind: "or", children: [{ kind: "isNull", column: "ends_at" }, { kind: "greaterThan", column: "ends_at", value: end }] },
-      ] };
-      return { value, active: true as const, graph: false as const, candidateA: left, candidateB: right, campaignPredicate, nativeNow: start };
+      return { value, active: true as const, graph: false as const, ...yield* preparePromotionActiveFilter(value.where) };
     }
     if (value.options.orderBy === undefined || !("id" in value.options.orderBy) || value.options.populate.length || value.options.fields?.join("\0") !== "id\0code")
       return yield* Result.fail(commerceError("unsupportedProfile"));
@@ -116,11 +122,17 @@ export function replayPromotionComputeQueryClock(input: unknown, retained: strin
   return Result.gen(function* () {
     const value = yield* captureCommerceInput(input).pipe(Result.flatMap(decodeEnvelope));
     if (value.options.orderBy === undefined || !("application_method" in value.options.orderBy)) return value;
-    const filters = yield* decodeActive(value.where), [absent, present] = filters.$or;
+    return { ...value, where: yield* replayPromotionActiveFilterClock(value.where, retained) };
+  });
+}
+
+export function replayPromotionActiveFilterClock(input: unknown, retained: string) {
+  return Result.gen(function* () {
+    const filters = yield* decodeActive(input), [absent, present] = filters.$or;
     const { campaign, ...candidate } = present;
-    return { ...value, where: { ...filters, $or: [absent, { ...candidate, campaign: { ...campaign, $and: [
+    return { ...filters, $or: [absent, { ...candidate, campaign: { ...campaign, $and: [
       { $or: [{ starts_at: null }, { starts_at: { $lte: retained } }] },
       { $or: [{ ends_at: null }, { ends_at: { $gt: retained } }] },
-    ] } }] } };
+    ] } }] };
   });
 }

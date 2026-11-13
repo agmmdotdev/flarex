@@ -32,11 +32,11 @@ export async function prepareCoreOrderCheckout(driver: "pglite" | "postgres", cl
   const options = { execution: base.execution, revision: "c".repeat(64), subscribers: [{ id: "order-checkout-test", revision: "d".repeat(64) }],
     modules: { order: { module: order.workflow, nativeStorage: base.source } },
     operationScheduling: "queued" as const, borrowedOperationScheduling: "queued" as const };
-  const create = async (mode: "create" | "account" | "account-default" | "late") => {
+  const create = async (mode: "create" | "account" | "account-default" | "late" | "populated" | "populated-late") => {
     const step = createStep("native-checkout-order-" + mode, resources.callback(async (input: typeof CheckoutOrderCreates.Type, { resources }) => {
       const created = await resources.order.createOrders(input), first = created[0];
       if (first === undefined || typeof first.id !== "string") throw new Error("Missing native created Order");
-      if (mode === "late") throw new Error("Late failure after admitted native Order creation");
+      if (mode === "late" || mode === "populated-late") throw new Error("Late failure after admitted native Order creation");
       if (mode === "account" || mode === "account-default") {
         await resources.order.addOrderTransactions([{ order_id: first.id, amount: "2.5", currency_code: "usd", reference: "capture", reference_id: "capture-checkout" }]);
         return new StepResponse((await resources.query.graph({ entity: "order", fields: ["id", "total", "summary"], filters: { id: first.id } })).data);
@@ -45,18 +45,19 @@ export async function prepareCoreOrderCheckout(driver: "pglite" | "postgres", cl
     }));
     const flow = createWorkflow("checkout-order-admission-" + mode, (input: WorkflowData<typeof CheckoutOrderCreates.Type>) => new WorkflowResponse(step(input)));
     return own(await Effect.runPromise(prepareAtomicWorkflowHost({ ...options,
-      // Reuse the already admitted native Payment/Order accounting allowance
-      // for this connected financial root. Ordinary creation retains defaults.
-      ...(mode === "account" ? { requestCallLimit: paymentFinanceCallLimit } : {}),
+      // Reuse the existing native checkout/Payment allowance for its populated
+      // Order participant. Ordinary creation retains its default refusal.
+      ...(mode === "account" || mode === "populated" || mode === "populated-late" ? { requestCallLimit: paymentFinanceCallLimit } : {}),
       workflow: { name: "checkoutOrder" + mode, resources,
       prepared: Result.getOrThrow(flow.prepare()), input: CheckoutOrderCreates, output: Schema.Array(Schema.JsonObject), events: internalModuleWorkflowEvents } })));
   };
-  const remove = async () => {
+  const remove = async (mode?: "populated") => {
     const step = createStep("native-checkout-order-delete", resources.callback(async (input: typeof CheckoutOrderDeletes.Type, { resources }) => {
       await resources.order.deleteOrders(input); return new StepResponse(null);
     }));
     const flow = createWorkflow("checkout-order-admission-delete", (input: WorkflowData<typeof CheckoutOrderDeletes.Type>) => new WorkflowResponse(step(input)));
-    return own(await Effect.runPromise(prepareAtomicWorkflowHost({ ...options, workflow: { name: "checkoutOrderDelete", resources,
+    return own(await Effect.runPromise(prepareAtomicWorkflowHost({ ...options,
+      ...(mode === "populated" ? { requestCallLimit: paymentFinanceCallLimit } : {}), workflow: { name: "checkoutOrderDelete", resources,
       prepared: Result.getOrThrow(flow.prepare()), input: CheckoutOrderDeletes, output: Schema.Null, events: internalModuleWorkflowEvents } })));
   };
   const nativeFlow = createWorkflow("checkout-native-create-orders", (input: WorkflowData<CreateOrdersStepInput>) => new WorkflowResponse(createOrdersStep(input)));

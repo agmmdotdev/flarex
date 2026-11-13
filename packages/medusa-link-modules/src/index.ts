@@ -23,6 +23,7 @@ export { LinkOperationRequest as LinkOperationRequestSchema, LinkOperationHandle
 export { CartPaymentCollection } from "./definitions/cart-payment-collection"
 
 export { OrderCart } from "./definitions/order-cart"
+export { OrderPromotion } from "./definitions/order-promotion"
 
 export { CartCustomer } from "./definitions/readonly/cart-customer"
 export { CartRegion } from "./definitions/readonly/cart-region"
@@ -37,3 +38,5 @@ export { LinkPreimageOperationRequest as LinkPreimageOperationRequestSchema, Lin
 export type { LinkPreimageStorage } from "./operations/preimage-storage"
 
 export { CartShippingOption } from "./definitions/readonly/cart-shipping-option"
+
+export { OrderProduct } from "./definitions/readonly/order-product"

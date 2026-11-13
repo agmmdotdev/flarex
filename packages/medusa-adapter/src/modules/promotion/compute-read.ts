@@ -19,13 +19,14 @@ import { captureNativeNumericDto } from "../../value/native-numeric";
 import { preparePromotionPrefilterPort } from "./prefilter-port";
 import { capturePromotionComputeQuery, preparePromotionComputeQuery, promotionComputePaths } from "./compute-query";
 import type { capturePromotionMetadata } from "./schema";
+import { preparePromotionUsageQuery, promotionUsagePaths, type PromotionUsageTable } from "./usage-query";
 
 type Metadata = Effect.Success<ReturnType<typeof capturePromotionMetadata>>["frame"];
 const rawNumber = commerceDecoder(ExactNumericRaw, "storedCorruption");
 
 /** Read-only native calculation closure. Historical prefilter cohorts retain
  * their separate port; this DAL hydrates only active final entities. */
-export function preparePromotionComputeRead(metadata: Metadata) {
+export function preparePromotionComputeRead(metadata: Metadata, profile: "compute" | "usage" = "compute") {
   return Result.gen(function* () {
     const prefilter = yield* preparePromotionPrefilterPort(metadata), byName = new Map(prefilter.entities.map(entity => [entity.table.name, entity]));
     const promotion = byName.get("promotion"), usage = byName.get("promotion_campaign_budget_usage");
@@ -61,19 +62,26 @@ export function preparePromotionComputeRead(metadata: Metadata) {
       nullToOne: true, selectableRelations: [], nested: new Map() };
     const ruleProjection: ProjectionPolicy = { ...leaf, selectableRelations: ["values"], nested: new Map([["values", leaf]]) };
     const methodProjection: ProjectionPolicy = { ...leaf, selectableRelations: ["target_rules", "buy_rules"], nested: new Map([["target_rules", ruleProjection], ["buy_rules", ruleProjection]]) };
-    const campaignProjection: ProjectionPolicy = { ...leaf, selectableRelations: ["budget"], nested: new Map([["budget", leaf]]) };
-    const promotionProjection: ProjectionPolicy = { ...leaf, allowedPaths: promotionComputePaths, selectableRelations: ["application_method", "rules", "campaign"],
+    const budgetProjection: ProjectionPolicy = { ...leaf, selectableRelations: profile === "usage" ? ["usages"] : [], nested: new Map([["usages", leaf]]) };
+    const campaignProjection: ProjectionPolicy = { ...leaf, selectableRelations: ["budget"], nested: new Map([["budget", budgetProjection]]) };
+    const promotionProjection: ProjectionPolicy = { ...leaf, allowedPaths: profile === "usage" ? [...promotionUsagePaths, "application_method"] : promotionComputePaths,
+      selectableRelations: ["application_method", "rules", "campaign"],
       nested: new Map([["application_method", methodProjection], ["rules", ruleProjection], ["campaign", campaignProjection]]) };
     const graphProjection: ProjectionPolicy = { ...promotionProjection, keys: "selected", joinKeys: "storage", storageKeys: "last",
       ignoreUnknownScalarFields: true };
     const rootScalar = yield* prepareScalarRepository(promotion.table, "Promotion", scalarIdWhere);
     const usageScalar = yield* prepareScalarRepository(usage.table, "CampaignBudgetUsage", scalarIdWhere);
-    const admitSelection = (table: string, rows: readonly JsonObject[]) => prefilter.complete(table, rows).pipe(Result.map(() => undefined));
+    const admitSelection = (table: string, rows: readonly JsonObject[]) => Result.gen(function* () {
+      yield* prefilter.complete(table, rows);
+      if (profile === "usage" && rows.length > 4) return yield* Result.fail(commerceError("limitExceeded"));
+    });
+    const query = (table: PromotionUsageTable, input: unknown) => profile === "usage" ? preparePromotionUsageQuery(table, input)
+      : table === "promotion_campaign_budget" ? Result.fail(commerceError("unsupportedProfile")) : preparePromotionComputeQuery(table, input);
     const visible = (predicate: Predicate): Predicate => ({ kind: "and", children: [{ kind: "isNull", column: "deleted_at" }, predicate] });
 
     const read = Effect.fn("Promotion.computeRead")(function* (readRows: CommerceRelationRows,
-      table: "promotion" | "promotion_campaign_budget_usage", input: unknown) {
-      const parsed = yield* Effect.fromResult(preparePromotionComputeQuery(table, input));
+      table: PromotionUsageTable, input: unknown) {
+      const parsed = yield* Effect.fromResult(query(table, input));
       let predicate: Predicate;
       if (parsed.active) {
         const campaign = yield* resolveCommerceRelationFilter(readRows, promotion.table.name, "campaign", parsed.campaignPredicate, catalog.relations);
@@ -86,9 +94,10 @@ export function preparePromotionComputeRead(metadata: Metadata) {
       const window = parsed.graph ? rows.slice(0, parsed.value.options.limit ?? rows.length) : rows;
       const populated = yield* populateCommerceRelations(readRows, table, window, parsed.value.options.populate, catalog.relations, new Map());
       const projection = yield* Effect.fromResult(compileProjection(catalog, table, parsed.value.options.fields, parsed.value.options.populate,
-        table === promotion.table.name ? parsed.graph ? graphProjection : promotionProjection : leaf));
+        table === promotion.table.name ? parsed.graph ? graphProjection : promotionProjection
+          : table === usage.table.name ? { ...leaf, selectableRelations: ["budget"], nested: new Map([["budget", leaf]]) } : leaf));
       const selected = yield* Effect.fromResult(projectRows(populated, projection.node));
-      if (parsed.active) yield* orderByApplicationValue(selected);
+      if (parsed.active && profile === "compute") yield* orderByApplicationValue(selected);
       return { rows: selected, count: rows.length, parsed };
     });
 
@@ -146,7 +155,7 @@ export function preparePromotionComputeRead(metadata: Metadata) {
         find: async (input, shared) => (await find("promotion_campaign_budget_usage", input, shared)).rows };
       return { ...root, repository, usageRepository, denied, prefilter: prefilter.bind(bridge) };
     };
-    return { bind, read, internal, prefilter, catalog, relations, entities: prefilter.entities, query: preparePromotionComputeQuery,
+    return { bind, read, internal, prefilter, catalog, relations, entities: prefilter.entities, query,
       captureQuery: capturePromotionComputeQuery, admitSelection, table: yield* catalog.table(promotion.table.name) };
   });
 }

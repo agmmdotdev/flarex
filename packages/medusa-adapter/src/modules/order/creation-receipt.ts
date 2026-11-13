@@ -19,8 +19,12 @@ import type { ColumnDefault } from "../../schema/model";
 
 type Prepared = Result.Result.Success<ReturnType<typeof prepareOrderCheckoutRepository>>;
 const mismatch = (phase: string, cause?: unknown) => commerceError("receiptMismatch", { phase, cause });
-const creationTables = ["order_address", "order", "order_summary", "order_line_item", "order_item"];
+export const orderCheckoutCreationTables = ["order_address", "order", "order_summary", "order_shipping_method",
+  "order_shipping_method_tax_line", "order_shipping_method_adjustment", "order_shipping", "order_line_item",
+  "order_line_item_tax_line", "order_line_item_adjustment", "order_item", "order_credit_line"];
+const creationTables = orderCheckoutCreationTables;
 const lineTables = ["order_line_item", "order_line_item_tax_line", "order_line_item_adjustment"];
+const shippingTables = ["order_shipping_method", "order_shipping_method_tax_line", "order_shipping_method_adjustment"];
 const resultRelations = ["shipping_address", "billing_address", "summary", "items", "credit_lines", "items.tax_lines", "items.adjustments",
   "shipping_methods", "shipping_methods.tax_lines", "shipping_methods.adjustments", "transactions"];
 function literalDefault(value: ColumnDefault | undefined) {
@@ -80,7 +84,7 @@ export const validateCheckoutOrderCreation = (prepared: Prepared): LogicalCallRe
       }
       const ids: string[] = [], items: Array<{ readonly order: string; readonly input: typeof input[number]["items"] }> = [];
       for (const requested of input) {
-        const { items: lineItems, shipping_address: _shipping, billing_address: _billing, shipping_methods: _methods,
+        const { items: lineItems, shipping_address: _shipping, billing_address: _billing, shipping_methods: methods,
           credit_lines: _credits, promo_codes: _promos, ...scalars } = requested;
         // The native method uses these genuine pure owners on the same finite
         // input. Its public VirtualOrder annotation requires fields not needed
@@ -93,15 +97,38 @@ export const validateCheckoutOrderCreation = (prepared: Prepared): LogicalCallRe
         const totals = yield* captureOrderFinanceTotals((yield* captureNativeRecord(calculated)).summary);
         const root = yield* insert("order", { ...scalars, ...addressKeys.get(requested) }); ids.push(root.id);
         yield* insert("order_summary", { order_id: root.id, totals });
+        const shipping: Array<{ readonly id: string; readonly input: NonNullable<typeof methods>[number] }> = [];
+        for (const method of methods ?? []) {
+          const { tax_lines: _tax, adjustments: _adjustments, ...fields } = method;
+          const row = yield* insert("order_shipping_method", fields); shipping.push({ id: row.id, input: method });
+        }
+        for (const method of shipping) for (const tax of method.input.tax_lines ?? [])
+          yield* insert("order_shipping_method_tax_line", { ...tax, shipping_method_id: method.id });
+        for (const method of shipping) for (const adjustment of method.input.adjustments ?? [])
+          yield* insert("order_shipping_method_adjustment", { ...adjustment, shipping_method_id: method.id });
+        for (const method of shipping) yield* insert("order_shipping", { order_id: root.id, shipping_method_id: method.id });
         items.push({ order: root.id, input: lineItems });
       }
       const wrappers: Array<{ order_id: string; item_id: string; quantity: unknown }> = [];
+      const lines: Array<{ readonly id: string; readonly input: NonNullable<typeof input[number]["items"]>[number] }> = [];
       for (const group of items) for (const requested of group.input ?? []) {
-        const fields = yield* captureOrderCreationFields(requested, "order_line_item");
+        const fields = yield* captureOrderCreationFields(requested, "order_line_item", "checkout");
+        delete fields.tax_lines; delete fields.adjustments;
         const row = yield* insert("order_line_item", fields);
+        lines.push({ id: row.id, input: requested });
         wrappers.push({ order_id: group.order, item_id: row.id, quantity: requested.quantity });
       }
+      for (const line of lines) for (const tax of line.input.tax_lines ?? [])
+        yield* insert("order_line_item_tax_line", { ...tax, item_id: line.id });
+      for (const line of lines) for (const adjustment of line.input.adjustments ?? [])
+        yield* insert("order_line_item_adjustment", { ...adjustment, item_id: line.id });
       for (const wrapper of wrappers) yield* insert("order_item", { ...wrapper, version: 1 });
+      for (const [index, requested] of input.entries()) for (const credit of requested.credit_lines ?? []) {
+        const { raw_amount, ...fields } = credit;
+        // Native decorateCartTotals restores a supplied raw amount before
+        // createOrders forwards the converted amount to CreditLine.create.
+        yield* insert("order_credit_line", { ...fields, amount: raw_amount ?? credit.amount, order_id: ids[index] });
+      }
       if (ordinal !== activity.mutations.length) return yield* Effect.fail(mismatch("creation-mutation-count"));
       for (const observation of activity.observedRows) if (!activity.mutations.some(mutation =>
         mutation.table === observation.table && mutation.after !== null && jsonEqual(projectNativeRow(mutation.after), projectNativeRow(observation.row)))) {
@@ -141,15 +168,14 @@ export const validateCheckoutOrderCreation = (prepared: Prepared): LogicalCallRe
         if (id !== null && typeof id !== "string") return yield* Effect.fail(mismatch("delete-address-identity"));
         if (typeof id === "string") addressIds.push(id);
       }
-      if (changes.roots.length || shipping.roots.length ||
-        ownedRows("order_change").length || ownedRows("order_shipping").length ||
+      if (changes.roots.length || ownedRows("order_change").length ||
         !jsonEqual(activity.relationalReads.slice(0, state.reads.length), state.reads)) return yield* Effect.fail(mismatch("delete-preimage"));
       const remainingReads = activity.relationalReads.slice(state.reads.length), entities = prepared.contracts.entities.map(entity => ({
         table: entity.table, maximum: 4, decodeRow: entity.complete,
       }));
       // Native deletion awaits Addresses, then the complete Order cascade,
       // then standalone Line Items. Preserve every causal barrier.
-      const phase = (table: string) => table === "order_address" ? 0 : lineTables.includes(table) ? 2 : 1;
+      const phase = (table: string) => table === "order_address" ? 0 : lineTables.includes(table) || shippingTables.includes(table) ? 2 : 1;
       let mutationPhase = 0, readPhase = 0;
       for (const mutation of activity.mutations) {
         const next = phase(mutation.table);
@@ -162,13 +188,14 @@ export const validateCheckoutOrderCreation = (prepared: Prepared): LogicalCallRe
         if (next < readPhase) return yield* Effect.fail(mismatch("delete-read-order"));
         readPhase = next;
       }
-      const graph = (root: string, requestedIds: readonly string[], selectedPhase: number) => Result.gen(function* () {
+      const graph = (root: string, requestedIds: readonly string[], selectedPhase: number, selectedTables?: readonly string[]) => Result.gen(function* () {
         const entity = yield* prepared.contracts.entity(root);
+        const selected = (table: string) => phase(table) === selectedPhase && (selectedTables === undefined || selectedTables.includes(table));
         return yield* correlatePhysicalGraphReceipt({ root: entity.table, tables: prepared.tables, entities,
           requestedIds, activity: { ...activity,
-            observedRows: activity.observedRows.filter(row => phase(row.table) === selectedPhase),
-            relationalReads: remainingReads.filter(row => typeof row.table === "string" && phase(row.table) === selectedPhase),
-            mutations: activity.mutations.filter(row => phase(row.table) === selectedPhase).map((row, ordinal) => ({ ...row, ordinal })),
+            observedRows: activity.observedRows.filter(row => selected(row.table)),
+            relationalReads: remainingReads.filter(row => typeof row.table === "string" && selected(row.table)),
+            mutations: activity.mutations.filter(row => selected(row.table)).map((row, ordinal) => ({ ...row, ordinal })),
           } });
       });
       const deletedAddresses = yield* Effect.fromResult(graph("order_address", addressIds, 0));
@@ -180,10 +207,19 @@ export const validateCheckoutOrderCreation = (prepared: Prepared): LogicalCallRe
       }
       if (ownedRows("order_item").some(row => typeof row.item_id !== "string" || !itemIds.includes(row.item_id)))
         return yield* Effect.fail(mismatch("delete-hidden-item"));
-      const deletedItems = yield* Effect.fromResult(graph("order_line_item", itemIds, 2));
+      const shippingIds: string[] = [];
+      for (const row of shipping.roots) {
+        if (typeof row.shipping_method_id !== "string") return yield* Effect.fail(mismatch("delete-shipping-method"));
+        shippingIds.push(row.shipping_method_id);
+      }
+      if (ownedRows("order_shipping").some(row => typeof row.shipping_method_id !== "string" || !shippingIds.includes(row.shipping_method_id)))
+        return yield* Effect.fail(mismatch("delete-hidden-shipping"));
+      const deletedItems = yield* Effect.fromResult(graph("order_line_item", itemIds, 2, lineTables));
+      const deletedMethods = yield* Effect.fromResult(graph("order_shipping_method", shippingIds, 2, shippingTables));
       expectedEvents.push(...deletedAddresses.map(id => ({ object: "order_address", action: "deleted", id })),
         ...roots.map(id => ({ object: "order", action: "deleted", id })),
-        ...deletedItems.map(id => ({ object: "order_line_item", action: "deleted", id })));
+        ...deletedItems.map(id => ({ object: "order_line_item", action: "deleted", id })),
+        ...deletedMethods.map(id => ({ object: "order_shipping_method", action: "deleted", id })));
     } else return yield* Effect.fail(mismatch("command"));
     const emitted: typeof expectedEvents = [];
     for (const event of call.events) {

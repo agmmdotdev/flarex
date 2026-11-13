@@ -1,9 +1,10 @@
-import { applyLocale, ensurePublishableApiKeyMiddleware, setMedusaRequestAuthContext, type AuthContext, type MiddlewareFunction } from "@medusajs/framework/http"
+import { applyLocale, ensurePublishableApiKeyMiddleware, prepareRetrieveQuery, setMedusaRequestAuthContext, type AuthContext, type MiddlewareFunction } from "@medusajs/framework/http"
 import { createFetchHttpStaticHandler, type FetchHttpAdapterOptions, type FetchHttpStaticHandler } from "@medusajs/framework/http/fetch"
 import { MedusaError } from "@medusajs/utils/common/errors"
 import { FeatureFlag } from "@medusajs/utils/feature-flags/flag-router"
 import { withMedusaNamespaceCors } from "./cors"
 import { storeCartHttpManifest } from "./store-cart-static-manifest.generated"
+import { defaultStoreCartFields } from "./api/store/carts/query-config"
 
 export type StoreCartHttpOptions = {
   storeCors: string
@@ -16,6 +17,8 @@ export type StoreCartHttpOptions = {
   admitShippingOptionFields?(fields: readonly string[]): void
   /** Payment reads and mutations require their authenticated graph capability. */
   admitPaymentCollectionFields?(fields: readonly string[]): void
+  /** Completion admits both the successful Order and native error Cart refetch. */
+  admitOrderRefetchFields?(fields: readonly string[]): void
 }
 
 export function createStoreCartHttpHandler(options: StoreCartHttpOptions): FetchHttpStaticHandler {
@@ -35,6 +38,15 @@ export function createStoreCartHttpHandler(options: StoreCartHttpOptions): Fetch
       throw new MedusaError(MedusaError.Types.NOT_ALLOWED, "Payment Collections are outside the admitted Store Cart profile")
     }
     options.admitPaymentCollectionFields(request.queryConfig.fields)
+    next()
+  }
+  const admitCompletion: MiddlewareFunction = async (request, _response, next) => {
+    if (options.admitOrderRefetchFields === undefined) {
+      throw new MedusaError(MedusaError.Types.NOT_ALLOWED, "Cart completion is outside the admitted Store Cart profile")
+    }
+    options.admitOrderRefetchFields(request.queryConfig.fields)
+    const cart = await prepareRetrieveQuery({}, { defaults: defaultStoreCartFields }, request)
+    options.admitCartRefetchFields(cart.remoteQueryConfig.fields)
     next()
   }
   const native = createFetchHttpStaticHandler({
@@ -67,6 +79,7 @@ export function createStoreCartHttpHandler(options: StoreCartHttpOptions): Fetch
           { method: ["GET"], matcher: "/store/shipping-options", middlewares: [admitShippingOptions] },
           { method: ["POST"], matcher: "/store/payment-collections", middlewares: [admitPaymentCollection] },
           { method: ["POST"], matcher: "/store/payment-collections/:id/payment-sessions", middlewares: [admitPaymentCollection] },
+          { method: ["POST"], matcher: "/store/carts/:id/complete", middlewares: [admitCompletion] },
         ] } } },
       ],
     },

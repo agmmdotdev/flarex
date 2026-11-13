@@ -110,6 +110,14 @@ cannot reuse a retained result under the same request key. Caller labels,
 workflow names, schema artifacts and Function.toString alone are not revisions.
 Public bundle distribution and application activation remain later decisions.
 
+The full Store checkout selects `framedResourceDigest` for its complete resource
+proof. The workflow owner synchronously captures every ordered participant and
+composed-resource frame before hashing can suspend. Each frame and the final
+identity policy retain the 64 KiB bound; domain-separated ordered frame hashes
+retain every source, method, dependency and graph descriptor. Existing raw,
+`resourceDigest` and `resourceAndDefinitionDigest` encodings keep their identities.
+Framing changes representation and grants no execution or persistence authority.
+
 The selected surface admits up to 64 ordered nodes, including conditions and
 their guarded results, deferred property/nested
 references, one-to-seven-function transform chains, StepResponse, WorkflowResponse

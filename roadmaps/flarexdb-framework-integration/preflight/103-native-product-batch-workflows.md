@@ -83,10 +83,17 @@ array slots. The private value owner now uses explicit intermediate capture
 and owned omission metadata, retaining descriptor safety and all resource
 accounting. It restores only genuine own undefined slots for reached transforms;
 ordinary input, final output and stored/wire JSON retain their strict contracts.
-The source wrapper retains its existing byte/node/depth bounds. The omission
+The source wrapper retains its existing byte/node/depth bounds, including depth
+16 for `{ value: input }`. Its private transport adds one `payload` level and
+therefore admits depth 17, with unchanged byte/node ceilings and serialized
+shape. Decoding restores the value and recaptures the original source wrapper
+at depth 16 before the authoritative argument decoder. Ordinary native JSON
+retains depth 16. The omission
 sidecar independently retains the same byte/node caps before accumulation; the
-complete JSON envelope consumes the existing root byte budget. These are
-separate source and metadata node bounds, rather than a combined node ceiling.
+complete JSON envelope consumes the existing root byte budget. Lifetime value
+capture uses separate source and metadata node bounds, rather than a combined
+node ceiling. Method-input transport also retains its existing complete-envelope
+node cap.
 The continuing goal authorizes this connected owner correction. Native batch
 transforms must remain unchanged; bypassing capture or replacing their tuple
 with an adapter record would hide the defect.

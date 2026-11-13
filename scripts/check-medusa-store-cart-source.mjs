@@ -7,6 +7,7 @@ const sourceRoot = "third_party/medusa/upstream/packages/medusa/src/api/";
 const targetRoot = "packages/medusa-http/src/api/";
 const names = ["store/carts/route.ts", "store/carts/[id]/route.ts", "store/carts/helpers.ts", "store/carts/query-config.ts",
   "store/carts/[id]/line-items/route.ts", "store/carts/[id]/line-items/[line_id]/route.ts",
+  "store/carts/[id]/complete/route.ts", "store/orders/validators.ts", "store/orders/query-config.ts",
   "store/carts/[id]/promotions/route.ts", "store/carts/[id]/taxes/route.ts",
   "store/carts/[id]/shipping-methods/route.ts", "store/shipping-options/route.ts", "store/shipping-options/validators.ts",
   "store/shipping-options/middlewares.ts", "store/shipping-options/query-config.ts",
@@ -57,6 +58,12 @@ export function verifyStoreCartHttpSource(native, promoted, target) {
     "store/carts/[id]/line-items/[line_id]/route.ts", "store/carts/[id]/promotions/route.ts", "store/carts/[id]/taxes/route.ts",
     "store/carts/[id]/shipping-methods/route.ts", "store/shipping-options/route.ts"].includes(name)) {
     expected = expected.replace('from "@medusajs/framework/utils"', 'from "@medusajs/utils/modules-sdk/definition"');
+  } else if (name === "store/carts/[id]/complete/route.ts") {
+    expected = expected.replace(/import \{\s*ContainerRegistrationKeys,\s*MedusaError,\s*Modules,\s*\} from "@medusajs\/framework\/utils"/,
+      'import { ContainerRegistrationKeys } from "@medusajs/utils/common/container"\nimport { MedusaError } from "@medusajs/utils/common/errors"\nimport { Modules } from "@medusajs/utils/modules-sdk/definition"');
+  } else if (name === "store/orders/validators.ts") {
+    expected = 'import { z } from "@medusajs/framework/zod"\nimport { createSelectParams } from "../../utils/validators"\n'
+      + declarations(expected, ["StoreGetOrderParams"]);
   } else if (name === "store/carts/helpers.ts") {
     expected = expected.replace(/import \{\s*ContainerRegistrationKeys,\s*MedusaError,\s*remoteQueryObjectFromString,\s*\} from "@medusajs\/framework\/utils"/,
       'import { ContainerRegistrationKeys } from "@medusajs/utils/common/container"\nimport { MedusaError } from "@medusajs/utils/common/errors"\nimport { remoteQueryObjectFromString } from "@medusajs/utils/common/remote-query-object-from-string"');
@@ -76,8 +83,9 @@ export function verifyStoreCartHttpSource(native, promoted, target) {
     expected = 'import { validateAndTransformBody, validateAndTransformQuery } from "@medusajs/framework/http"\n'
       + 'import { ensurePublishableKeyAndSalesChannelMatch } from "../../utils/middlewares/common/ensure-pub-key-sales-channel-match"\n'
       + 'import { maybeAttachPublishableKeyScopes } from "../../utils/middlewares/common/maybe-attach-pub-key-scopes"\n'
+      + 'import * as OrderQueryConfig from "../orders/query-config"\nimport { StoreGetOrderParams } from "../orders/validators"\n'
       + 'import * as QueryConfig from "./query-config"\nimport { StoreCreateCart, StoreGetCartsCart, StoreUpdateCart, StoreAddCartLineItem, StoreUpdateCartLineItem, StoreAddCartPromotions, StoreRemoveCartPromotions, StoreCalculateCartTaxes, StoreAddCartShippingMethods } from "./validators"\n'
-      + 'export const storeCartRoutesMiddlewares = [' + [0, 1, 2, 4, 5, 6, 7, 8, 9, 10].map(index => elements[index].getText(file)).join(",") + ']';
+      + 'export const storeCartRoutesMiddlewares = [' + [0, 1, 2, 4, 5, 6, 7, 8, 9, 10, 11].map(index => elements[index].getText(file)).join(",") + ']';
   } else if (name === "store/shipping-options/validators.ts") {
     expected = 'import { z } from "@medusajs/framework/zod"\nimport { applyAndAndOrOperators, booleanString } from "../../utils/common-validators"\nimport { createFindParams } from "../../utils/validators"\n'
       + declarations(expected, ["StoreGetShippingOptionsFields", "StoreGetShippingOptions"]);

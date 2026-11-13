@@ -37,6 +37,16 @@ const decodeClockQuery = commerceDecoder(Schema.Struct({ take: Schema.Literal(de
     ]) }),
   ]) }),
 }), "receiptMismatch");
+/** The native active filter's authenticated single clock, shared by the two
+ * Promotion proof profiles. It is not a live configurable business clock. */
+export function promotionReceiptQueryClock(query: unknown) {
+  return Result.gen(function* () {
+    const clock = yield* decodeClockQuery(query), start = clock.predicate.children[1].children[1].value;
+    if (!isRelationalColumnValue("timestamptz", false, start) || start !== clock.predicate.children[1].children[2].values[0] ||
+      start !== clock.predicate.children[2].children[1].value) return yield* Result.fail(commerceError("receiptMismatch"));
+    return start;
+  });
+}
 const bindPromotion = prepareCommerceInternalService(Promotion), bindMethod = prepareCommerceInternalService(ApplicationMethod),
   bindCampaign = prepareCommerceInternalService(Campaign), bindBudget = prepareCommerceInternalService(CampaignBudget),
   bindUsage = prepareCommerceInternalService(CampaignBudgetUsage), bindRule = prepareCommerceInternalService(PromotionRule),
@@ -129,9 +139,7 @@ export function promotionComputeReadPolicy(prepared: Prepared) {
           if (parsed.active) {
             const observation = activity.relationalReads[cursor];
             if (observation?.table !== "promotion_campaign") return yield* Effect.fail(mismatch());
-            const clock = yield* Effect.fromResult(decodeClockQuery(observation.query)), start = clock.predicate.children[1].children[1].value;
-            if (!isRelationalColumnValue("timestamptz", false, start) || start !== clock.predicate.children[1].children[2].values[0] ||
-              start !== clock.predicate.children[2].children[1].value) return yield* Effect.fail(mismatch());
+            const start = yield* Effect.fromResult(promotionReceiptQueryClock(observation.query));
             captured = yield* Effect.fromResult(replayPromotionComputeQueryClock(captured, start));
           }
           const result = yield* prepared.read(readRows, table, captured), native = yield* prepared.internal(result.rows, table);

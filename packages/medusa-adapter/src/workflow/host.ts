@@ -7,7 +7,7 @@ import { captureCommerceResources, commerceError, isJsonObject, type CommerceRes
 import { prepareLocalGraph } from "../local-graph/query";
 import { runNativeMedusaWorkflow } from "./runtime";
 import { captureCommerceInput } from "../value/input";
-import { captureWorkflowArray, captureWorkflowRecord, captureWorkflowPolicy, captureWorkflowResourceDigest } from "./configuration";
+import { captureWorkflowArray, captureWorkflowRecord, captureWorkflowPolicy, captureWorkflowResourceDigest, captureWorkflowFramedResourceDigest } from "./configuration";
 import { workflowMethodDefinition, workflowModuleDefinition, type WorkflowMethod, type WorkflowModule } from "./module";
 import { workflowResourceSelections, workflowComposedResources, workflowAbsentResources, type PreparedWorkflowResources } from "./resources";
 import { composedWorkflowResourceDefinition } from "./composed-resource";
@@ -19,7 +19,7 @@ import { captureWorkflowDefinitionDigest } from "./definition-identity";
 import type { TrustedWorkflowExecutionSubject, TrustedWorkflowControlSubject } from "@flarex/persistence-postgres/internal/trusted-workflow-execution-subject";
 import type { PreparedCommitEventEligibility } from "@flarex/persistence-postgres/internal/commit-event-eligibility";
 
-const decodeIdentityEncoding = Schema.decodeUnknownEffect(Schema.UndefinedOr(Schema.Literals(["resourceDigest", "resourceAndDefinitionDigest"])));
+const decodeIdentityEncoding = Schema.decodeUnknownEffect(Schema.UndefinedOr(Schema.Literals(["resourceDigest", "resourceAndDefinitionDigest", "framedResourceDigest"])));
 const decodeOperationScheduling = Schema.decodeUnknownEffect(Schema.UndefinedOr(Schema.Literal("queued")));
 const decodeExecutionIsolation = Schema.decodeUnknownEffect(Schema.UndefinedOr(Schema.Literal("scopeExclusive")));
 const decodeLogicalPublication = Schema.decodeUnknownResult(Schema.UndefinedOr(Schema.Literal("mixed")));
@@ -121,7 +121,7 @@ export interface AtomicWorkflowDefinition<Resources, Input extends Json, Output 
  * per invocation, and exactly one existing core transaction/recovery owner. */
 export const prepareWorkflowComposition = Effect.fn("Workflow.prepareComposition")(function* <Resources, Input extends Json, Output extends Json, EncodedInput extends Json>(input: {
   readonly identityAndAccessPolicy: Json;
-  readonly identityEncoding?: "resourceDigest" | "resourceAndDefinitionDigest";
+  readonly identityEncoding?: "resourceDigest" | "resourceAndDefinitionDigest" | "framedResourceDigest";
   readonly modules: Readonly<Record<string, InstalledWorkflowModule>>;
   readonly workflow: AtomicWorkflowDefinition<Resources, Input, Output, EncodedInput>;
   readonly revision: string;
@@ -334,7 +334,8 @@ export const prepareWorkflowComposition = Effect.fn("Workflow.prepareComposition
   if (absentResources === undefined) return yield* Effect.fail(commerceError("invalidAuthority"));
   const resourceProof = { resources: identities, ...(composedIdentities.length ? { composedResources: composedIdentities } : {}) };
   const resourceIdentity = identityEncoding === undefined ? resourceProof
-    : { identityEncoding, resourceDigest: yield* captureWorkflowResourceDigest(resourceProof) };
+    : { identityEncoding, resourceDigest: yield* (identityEncoding === "framedResourceDigest"
+      ? captureWorkflowFramedResourceDigest(resourceProof) : captureWorkflowResourceDigest(resourceProof)) };
   const definitionIdentity = identityEncoding === "resourceAndDefinitionDigest"
     ? { format: "flarex.medusa-workflow-definition-digest", version: 1, sha256: yield* captureWorkflowDefinitionDigest(workflow.prepared) }
     : workflow.prepared.identity;
@@ -367,7 +368,7 @@ export const prepareWorkflowComposition = Effect.fn("Workflow.prepareComposition
 
 interface WorkflowHostInput<Resources, Input extends Json, Output extends Json, EncodedInput extends Json, Host extends AtomicCommerceHost> {
   readonly execution: AtomicWorkflowExecution<Host>;
-  readonly identityEncoding?: "resourceDigest" | "resourceAndDefinitionDigest";
+  readonly identityEncoding?: "resourceDigest" | "resourceAndDefinitionDigest" | "framedResourceDigest";
   readonly modules: Readonly<Record<string, InstalledWorkflowModule>>;
   readonly workflow: AtomicWorkflowDefinition<Resources, Input, Output, EncodedInput>;
   readonly revision: string;

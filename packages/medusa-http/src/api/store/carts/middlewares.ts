@@ -1,6 +1,8 @@
 import { validateAndTransformBody, validateAndTransformQuery, type MiddlewareFunction, type MiddlewareRoute } from "@medusajs/framework/http"
 import { ensurePublishableKeyAndSalesChannelMatch } from "../../utils/middlewares/common/ensure-pub-key-sales-channel-match"
 import { maybeAttachPublishableKeyScopes } from "../../utils/middlewares/common/maybe-attach-pub-key-scopes"
+import * as OrderQueryConfig from "../orders/query-config"
+import { StoreGetOrderParams } from "../orders/validators"
 import * as QueryConfig from "./query-config"
 import { StoreCreateCart, StoreGetCartsCart, StoreUpdateCart, StoreAddCartLineItem, StoreUpdateCartLineItem, StoreAddCartPromotions, StoreRemoveCartPromotions, StoreCalculateCartTaxes, StoreAddCartShippingMethods } from "./validators"
 
@@ -113,6 +115,16 @@ export const storeCartRoutesMiddlewares: MiddlewareRoute[] = [
       validateAndTransformQuery(
         StoreGetCartsCart,
         QueryConfig.retrieveTransformQueryConfig
+      ),
+    ],
+  },
+{
+    method: ["POST"],
+    matcher: "/store/carts/:id/complete",
+    middlewares: [
+      validateAndTransformQuery(
+        StoreGetOrderParams,
+        OrderQueryConfig.retrieveTransformQueryConfig
       ),
     ],
   }

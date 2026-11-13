@@ -2,7 +2,6 @@ import { Effect, Result, Schema } from "effect";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import type { AtomicCommerceContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { capturePrivateIntermediateJsonData, commerceError, defaultCommerceResources, type CommerceTransactionError, type Json, type PrivateIntermediateJsonPath } from "@flarex/persistence-postgres/internal/commerce-values";
-import { captureCommerceInput } from "../value/input";
 import { commerceDecoder } from "../value/decoder";
 
 /** Native intermediate values may own undefined object members and dense array
@@ -11,8 +10,12 @@ export type WorkflowIntermediateValue = string | number | boolean | null | undef
   | readonly WorkflowIntermediateValue[] | { readonly [key: string]: WorkflowIntermediateValue };
 export type WorkflowInputPresence = "preserveOwnUndefined";
 
-const captureIntermediate = (input: unknown) => capturePrivateIntermediateJsonData({ value: input },
-  { bytes: defaultCommerceResources.commandBytes, nodes: defaultCommerceResources.valueNodes, depth: 16 }, commerceError);
+const sourceBounds = Object.freeze({ bytes: defaultCommerceResources.commandBytes, nodes: defaultCommerceResources.valueNodes, depth: 16 });
+// The unchanged source bound includes its stable value wrapper. Transport
+// adds one payload level; restored sources still pass the original bound.
+const transportBounds = Object.freeze({ ...sourceBounds, depth: sourceBounds.depth + 1 });
+const captureIntermediate = (input: unknown) => capturePrivateIntermediateJsonData({ value: input }, sourceBounds, commerceError);
+const captureTransport = (input: unknown) => capturePrivateIntermediateJsonData(input, transportBounds, commerceError);
 
 /** Method/Query inputs retain dense positional undefined values until their
  * native argument decoder normalizes them. Object undefined stays omitted by
@@ -23,7 +26,7 @@ export function captureWorkflowInput(input: unknown, inputPresence?: WorkflowInp
     if (inputPresence !== undefined && inputPresence !== "preserveOwnUndefined")
       return yield* Result.fail(commerceError("unsupportedProfile"));
     const snapshot = yield* captureIntermediate(input);
-    const envelope = yield* captureCommerceInput({ payload: snapshot.value, undefinedPaths: snapshot.undefinedPaths });
+    const { value: envelope } = yield* captureTransport({ payload: snapshot.value, undefinedPaths: snapshot.undefinedPaths });
     if (!isNonArrayRecord(envelope)) return yield* Result.fail(commerceError("storedCorruption"));
     return yield* restoreWorkflowValue(envelope.payload, inputPresence === "preserveOwnUndefined"
       ? snapshot.undefinedPaths : snapshot.undefinedPaths.filter(path => typeof path.at(-1) === "number"));
@@ -35,7 +38,7 @@ export function captureWorkflowInput(input: unknown, inputPresence?: WorkflowInp
 export function captureWorkflowCommandInput(value: WorkflowIntermediateValue) {
   return Result.gen(function* () {
     const snapshot = yield* captureIntermediate(value);
-    return yield* captureCommerceInput({ payload: snapshot.value, undefinedPaths: snapshot.undefinedPaths });
+    return (yield* captureTransport({ payload: snapshot.value, undefinedPaths: snapshot.undefinedPaths })).value;
   });
 }
 
@@ -53,8 +56,7 @@ const decodeCommandEnvelope = commerceDecoder(Schema.Struct({
 export function decodeWorkflowCommandInput<Input>(input: unknown,
   decode: (value: unknown) => Result.Result<Input, CommerceTransactionError>) {
   return Result.gen(function* () {
-    const snapshot = yield* capturePrivateIntermediateJsonData(input,
-      { bytes: defaultCommerceResources.commandBytes, nodes: defaultCommerceResources.valueNodes, depth: 16 }, commerceError);
+    const snapshot = yield* captureTransport(input);
     if (snapshot.undefinedPaths.length !== 0) return yield* Result.fail(commerceError("invalidInput"));
     const envelope = yield* decodeCommandEnvelope(snapshot.value);
     if (envelope.undefinedPaths.some(path => path[0] !== "value")) return yield* Result.fail(commerceError("invalidInput"));

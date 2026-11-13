@@ -44,7 +44,7 @@ export type AtomicCommerceNativeGenerationInput = Pick<AtomicCommerceNativeHostI
 
 const Limits = Schema.Struct({ calls: CommerceCallLimit, commandBytes: CommerceCommandByteLimit, commandMs: FrameworkCommandMilliseconds,
   eventLimit: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: commitEventLimits.messages })),
-  participantLimit: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 19 })),
+  participantLimit: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 20 })),
   operationScheduling: Schema.UndefinedOr(Schema.Literal("queued")), borrowedOperationScheduling: Schema.UndefinedOr(Schema.Literal("queued")),
 });
 const decodeLimits = Schema.decodeUnknownResult(Limits);

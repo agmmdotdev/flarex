@@ -62,9 +62,17 @@ export function verifyOrderFinanceHelpers(original, accounting, totals, preview)
   if (arithmetic.body.statements.length !== 4) throw new Error(failure + ": accounting layout");
   equal(accountingHeader + "{\n" + arithmetic.body.statements.slice(1, 3).map(node => node.getText(arithmetic.file)).join("\n") + "\n}", accounting);
   const selection = method(original, "shouldIncludeTotals"), relations = method(original, "addRelationsToCalculateTotals");
-  const selectionBody = replace(selection.body.getText(selection.file), "this.addRelationsToCalculateTotals(config, totalFields)", "addOrderRelationsForTotals(config, totalFields)");
+  const declaration = selection.body.statements[0];
+  if (declaration === undefined || !ts.isVariableStatement(declaration) || declaration.declarationList.declarations.length !== 1)
+    throw new Error(failure + ": total-field declaration");
+  const fields = declaration.declarationList.declarations[0];
+  if (fields === undefined || !ts.isIdentifier(fields.name) || fields.name.text !== "totalFields" ||
+    fields.initializer === undefined || !ts.isArrayLiteralExpression(fields.initializer)) throw new Error(failure + ": total-field literal");
+  const selectionBody = replace(replace(selection.body.getText(selection.file), fields.initializer.getText(selection.file), "orderTotalsFields()"),
+    "this.addRelationsToCalculateTotals(config, totalFields)", "addOrderRelationsForTotals(config, totalFields)");
   equal(`import type { FindConfig } from "@medusajs/framework/types"
 import { deduplicate } from "@medusajs/framework/utils/portable"
+export function orderTotalsFields(): string[] { return ${fields.initializer.getText(selection.file)} }
 export function includeOrderTotals(config: FindConfig<Record<string, unknown>>): boolean ${selectionBody}
 function addOrderRelationsForTotals(config: FindConfig<Record<string, unknown>>, totalFields: readonly string[]) ${relations.body.getText(relations.file)}`, totals);
   const details = method(original, "includeTaxLinesAndAdjustmentsToPreview");

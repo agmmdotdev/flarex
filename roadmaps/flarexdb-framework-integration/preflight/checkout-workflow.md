@@ -6,7 +6,7 @@ Status: admitted private atomic System-provider checkout for existing Carts
 with up to four digital Line Items, including manual items and actual Product
 Variants, and up to four native Inventory Reservations. Existing Customer
 identities and nullable Cart billing/shipping Addresses participate in the graph;
-Promotion, shipping, tax and credit-line branches remain empty. Its
+Promotion, shipping, tax and credit-line branches remain empty in that base profile. Its
 finite SDK correction retains the native storage declarations and requires the
 trusted execution port to select the atomic outcome policy before any callback.
 The genuine native root composes the complete eighteen-source graph, stored
@@ -19,8 +19,9 @@ The executing reference is Medusa 2.13.4 at
 `cart/workflows/complete-cart.ts`. Preserve its complete native root, actual
 steps, validation, hooks, compensation and already-completed Cart branch.
 Accepted framework/storage boundaries and the existing transaction owners remain
-authoritative. This profile uses existing Carts and local System
-payments; Cart creation and remote gateways retain separate gates.
+authoritative. This profile completes existing Carts using local System
+payments. [Store Cart creation](./store-cart-http.md) has its own admitted
+HTTP profile; remote gateways remain unadmitted.
 
 ## Connected owners and prerequisite order
 
@@ -44,6 +45,16 @@ merging, duplicate Link storage or larger implicit allowance is admissible.
 Connected checkout retains the complete graph, native Link inverse and
 database-backed execution obligations below.
 
+The [Store completion profile](./store-cart-completion-http.md) extends the
+connected native closure to populated shipping, tax, adjustments, credit lines
+and Promotion usage, with twenty genuine sources. It adds the native
+Order–Promotion Link and retains Customer–AccountHolder participation. Its
+serving Cart–Promotion source is the existing preimage-enabled source; the
+eighteen/nineteen-source profiles keep their original source identity. The
+full default Order response graph is an explicit Order read selection; older
+digital roots retain their smaller projection. The focused owner admits the
+bounded Store HTTP profile; remote-provider and deployment gates remain distinct.
+
 The root reads the actual Order-Cart Link and complete Cart graph, validates its
 Payment sessions before the hook, and creates an Order only when no Order-Cart
 Link exists. The creation branch validates Shipping, translates stored Cart
@@ -60,23 +71,24 @@ retained inverse, the Order-Cart Link and the complete selected Cart graph. Its
 explicit Cart checkout profile is distinct from the existing Cart payment reads.
 Managed Inventory reservation uses its actual Inventory and Locking owners as
 described below. Empty Inventory and Promotion inputs retain their genuine native
-early-return branches. Populated Promotion remains separately gated.
+early-return branches. Populated Promotion uses the Store completion profile.
 
-Complete Cart creation is separate from completing an existing Cart. Its pending
-Country ordering, Address inverse, Cart-Promotion inverse and Promotion candidate
-selection decisions must not be silently accepted through this checkout work.
-The uncommitted Cart context-read candidate belongs to the stopped Cart session
-and is not a substitute for admitted checkout graph reads.
+Cart creation and completion retain distinct native workflows and selected
+graphs. Store completion uses the serving catalog's genuine creation, mutation,
+Shipping and Payment sources, with their existing lifecycle and inverse owners.
 
 ## Existing Customer and Cart Address participation
 
 Checkout reads the existing Customer through the genuine Cart-Customer edge;
 the native transform assigns that Customer identity to the Order and retains the
-Cart's email. Guest checkout keeps a null Order Customer. Customer rows, saved
+Cart's email. A Cart without a stored Customer keeps a null Order Customer.
+Native Store creation may attach an unregistered Customer to a guest's email.
+Customer rows, saved
 Customer Addresses and Customer Group membership receive no mutation authority.
 Customer creation, address-book management and Customer payment-account/session
-creation remain separate workflows. The retained Payment recreation profile
-still excludes Session context that activates the Customer/account-holder branch.
+creation remain separate workflows. The base eighteen-source Payment recreation
+profile excludes Session context that activates the Customer/account-holder
+branch; the Customer and Store profiles select that native dependency explicitly.
 
 The two nullable Cart Address slots use their authenticated native owning FKs.
 Their authenticated read transcript retains populated, absent and shared-target

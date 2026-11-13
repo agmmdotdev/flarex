@@ -4,8 +4,7 @@ import { deduplicate } from "@medusajs/framework/utils/portable"
 /** Native Order total selection mutates the DAL request before formatting.
  * Keeping it with the native module lets call receipts derive that same read
  * closure without copying the selection algorithm into the adapter. */
-export function includeOrderTotals(config: FindConfig<Record<string, unknown>>): boolean {
-  const totalFields = [
+export function orderTotalsFields(): string[] { return [
     "total",
     "subtotal",
     "tax_total",
@@ -33,7 +32,10 @@ export function includeOrderTotals(config: FindConfig<Record<string, unknown>>):
     "credit_line_tax_total",
     "credit_line_subtotal",
     "refundable_amount",
-  ]
+  ] }
+
+export function includeOrderTotals(config: FindConfig<Record<string, unknown>>): boolean {
+  const totalFields = orderTotalsFields()
 
   const includeTotals = (config?.select ?? []).some((field) =>
     totalFields.includes(field as string)

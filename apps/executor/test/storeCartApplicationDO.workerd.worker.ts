@@ -1,7 +1,7 @@
 import { Cause, Clock, Effect, Result, Schema } from "effect";
 import { asValue, createContainer } from "@medusajs/deps/awilix-portable";
 import { makePreparedHostRuntime } from "@flarex/persistence-postgres/internal/prepared-host-runtime";
-import { makeStoreCartRequestRuntime, makeStoreCartRequestScopeFactory } from "@flarex/medusa-adapter/internal/store-cart-request";
+import { makeStoreCartRequestRuntime, makeStoreCartRequestScopeFactory, storeCartRequestHostLimits } from "@flarex/medusa-adapter/internal/store-cart-request";
 import { compileStoreCartRequestFixtureCatalog, storeCartLogger, storePaymentHttpProofSeedRows, installStoreCartShippingTaxFailure, installStorePaymentFailure } from "@flarex/medusa-adapter/internal/system-test/store-cart-request-catalog";
 import { makeStoreCartEffectHttpHandler } from "@flarex/medusa-http/store-cart-effect";
 import { makeExecutorApplicationCredentials, executorApplicationSha256 } from "../src/applicationComposition";
@@ -28,7 +28,7 @@ const NativeOwner = makeApplicationDurableObject<ExecutorApplicationEnv, Failure
     const profile = Result.getOrThrow(readExecutorApplicationProfiles(env))[0];
     if (profile === undefined) return yield* Effect.die(new Error("Missing private Store Cart identity"));
     const credentials = yield* makeExecutorApplicationCredentials(env, profile);
-    const hostRuntime = yield* makePreparedHostRuntime({ maximumHosts: 32, maximumPreparedBytes: 8 * 1024 * 1024 });
+    const hostRuntime = yield* makePreparedHostRuntime(storeCartRequestHostLimits);
     const runtime = yield* makeStoreCartRequestRuntime({ database: infrastructure.coreDatabase, hostRuntime, catalog,
       identityAndAccessPolicy: { profile: "native-store-cart-private-do-proof" },
       revision: "1".repeat(64), subscribers: [{ id: "native-store-cart-http", revision: "2".repeat(64) }],
@@ -39,6 +39,7 @@ const NativeOwner = makeApplicationDurableObject<ExecutorApplicationEnv, Failure
       admitCartRefetchFields: runtime.admitCartRefetchFields,
       admitShippingOptionFields: runtime.admitShippingOptionFields,
       admitPaymentCollectionFields: runtime.admitPaymentCollectionFields,
+      admitOrderRefetchFields: runtime.admitOrderRefetchFields,
       // A fixed test credential stands in for the trusted verifier. Arbitrary
       // actor headers never become a native customer principal.
       resolveCustomerPrincipal: request => request.headers.get("x-proof-customer-credential") === "store-cart-verified-secret"

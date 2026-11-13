@@ -18,9 +18,8 @@ const LineItem = Schema.Struct({
   tax_lines: Schema.optionalKey(Schema.Array(Schema.Never)), adjustments: Schema.optionalKey(Schema.Array(Schema.Never)),
 });
 
-/** Initial checkout prerequisite: native creation of digital/manual-item Orders.
- * The complete schema remains installed; shipping, Address creation, discounts,
- * tax lines and credit-line writes need their own connected admission. */
+/** The standalone creation profile remains digital/manual-item only. Populated
+ * checkout writes use the separately admitted one-Order contract below. */
 const OrderCreate = Schema.Struct({
   currency_code: Schema.String,
   items: Schema.optionalKey(Schema.Array(LineItem).check(Schema.isMaxLength(4))),
@@ -41,9 +40,33 @@ const CheckoutAddress = Schema.NullOr(Schema.Struct({
   city: Text, country_code: Text, province: Text, postal_code: Text, phone: Text, metadata: Json,
   created_at: Schema.optionalKey(Schema.String), updated_at: Schema.optionalKey(Schema.String), deleted_at: Text,
 }));
+const CheckoutTaxLine = Schema.Struct({ code: Schema.String, rate: Amount,
+  description: Text, tax_rate_id: Text, provider_id: Text });
+const CheckoutAdjustment = Schema.Struct({ amount: Amount, description: Text, promotion_id: Text,
+  code: Text, provider_id: Text, is_tax_inclusive: Schema.optionalKey(Schema.Boolean) });
+const CheckoutLineItem = Schema.Struct({ ...LineItem.fields, requires_shipping: Schema.Boolean,
+  tax_lines: Schema.optionalKey(Schema.Array(CheckoutTaxLine).check(Schema.isMaxLength(4))),
+  adjustments: Schema.optionalKey(Schema.Array(CheckoutAdjustment).check(Schema.isMaxLength(4))),
+});
+const CheckoutShippingMethod = Schema.Struct({ name: Schema.String, amount: Amount,
+  description: Schema.optionalKey(Schema.NullOr(Schema.Json)), is_tax_inclusive: Schema.optionalKey(Schema.Boolean),
+  is_custom_amount: Schema.optionalKey(Schema.Boolean), shipping_option_id: Text, data: Json, metadata: Json,
+  tax_lines: Schema.optionalKey(Schema.Array(CheckoutTaxLine).check(Schema.isMaxLength(4))),
+  adjustments: Schema.optionalKey(Schema.Array(CheckoutAdjustment).check(Schema.isMaxLength(4))),
+});
+const CheckoutCreditLine = Schema.Struct({ amount: Amount, raw_amount: Schema.optionalKey(Schema.Struct(ExactNumericRaw.fields)),
+  reference: Text, reference_id: Text, metadata: Json });
 export const CheckoutOrderCreates = Schema.Array(Schema.Struct({ ...OrderCreate.fields,
   shipping_address: Schema.optionalKey(CheckoutAddress), billing_address: Schema.optionalKey(CheckoutAddress),
-})).check(Schema.isLengthBetween(1, 1));
+  items: Schema.optionalKey(Schema.Array(CheckoutLineItem).check(Schema.isMaxLength(4))),
+  shipping_methods: Schema.optionalKey(Schema.Array(CheckoutShippingMethod).check(Schema.isMaxLength(4))),
+  credit_lines: Schema.optionalKey(Schema.Array(CheckoutCreditLine).check(Schema.isMaxLength(4))),
+  promo_codes: Schema.optionalKey(Schema.Array(Schema.String).check(Schema.isMaxLength(8))),
+})).check(Schema.isLengthBetween(1, 1), Schema.makeFilter(orders => orders.every(order =>
+  [order.items ?? [], order.shipping_methods ?? []].every(members =>
+    members.reduce((sum, member) => sum + (member.tax_lines?.length ?? 0), 0) <= 4 &&
+    members.reduce((sum, member) => sum + (member.adjustments?.length ?? 0), 0) <= 4)) ||
+  "Expected at most four rows per Order child family"));
 export const CheckoutOrderDeletes = Schema.Array(ScalarId).check(Schema.isLengthBetween(1, 1));
 export const decodeCheckoutOrderCreates = commerceDecoder(CheckoutOrderCreates, "invalidInput");
 export const decodeCheckoutOrderDeletes = commerceDecoder(CheckoutOrderDeletes, "invalidInput");

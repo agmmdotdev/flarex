@@ -1,6 +1,6 @@
 # Private Medusa HTTP
 
-## Store Cart creation, retrieval and checkout preparation
+## Store Cart creation, retrieval and checkout
 
 `@flarex/medusa-http/store-cart` exports `createStoreCartHttpHandler` for
 `POST /store/carts`, `GET /store/carts/:id`, `POST /store/carts/:id`,
@@ -9,7 +9,8 @@
 `/store/carts/:id/promotions`, `POST /store/carts/:id/taxes`,
 `GET /store/shipping-options` and `POST /store/carts/:id/shipping-methods`.
 It also serves `POST /store/payment-collections` and
-`POST /store/payment-collections/:id/payment-sessions` through the same host.
+`POST /store/payment-collections/:id/payment-sessions`, and
+`POST /store/carts/:id/complete` through the same host.
 `@flarex/medusa-http/store-cart-effect` mounts the same native handlers in an
 Effect HTTP host. The host supplies Store CORS, request scopes, a verified
 optional Customer principal and the Cart graph's `admitCartRefetchFields`.
@@ -88,6 +89,17 @@ five after creation, exceeding the unchanged four-Session response read bound;
 that later refetch failure leaves the workflow committed. See the
 [Payment scope](../../roadmaps/flarexdb-framework-integration/preflight/store-payment-http.md).
 
+Completion requires `admitOrderRefetchFields` and admits both the requested
+Order and native error-Cart projections before execution. The native complete-cart
+workflow settles Order creation, Inventory reservations, Promotion usage and
+Links, Cart completion, local Payment authorization and events under one trusted
+atomic owner. Success refetches the full native Order graph independently after
+settlement; native payment-action errors retain their Cart envelope. The serving
+catalog explicitly enables native Order serial generation for fresh installation.
+The shared prepared runtime admits 35 hosts within the existing 8 MiB budget.
+See the [completion scope](../../roadmaps/flarexdb-framework-integration/preflight/store-cart-completion-http.md)
+for connected runtime acceptance and remaining provider/deployment gates.
+
 This bounded profile retains four creation items and four promotion codes,
 existing complete-cohort read limits and the local System Tax provider. The
   native HTTP schemas retain their nullable members. Cart updates support nullable
@@ -96,7 +108,7 @@ existing complete-cohort read limits and the local System Tax provider. The
   ceiling of 156. Ordinary mutation Pricing retains 64 attributes; standalone creation Pricing
   retains its seventeen-attribute bound. Creation retains its separate input profile, where
   unsupported explicit null values return 400 before durable acquisition.
-Translation-enabled requests refuse. Customer replacement and checkout completion,
+Translation-enabled requests refuse. Customer replacement,
 mixed app deployment and capacity acceptance remain separate gates. See the
 [Cart creation/retrieval scope](../../roadmaps/flarexdb-framework-integration/preflight/store-cart-http.md)
 and [Cart update/line-item scope](../../roadmaps/flarexdb-framework-integration/preflight/store-cart-mutations-http.md),

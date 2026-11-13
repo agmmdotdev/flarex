@@ -121,6 +121,63 @@ describe("native Order checkout participant admission", () => {
     }
     expect(events.map(event => event.envelope.contract)).toEqual(["order.order.deleted", "order.order-line-item.deleted"]);
   }, 240_000);
+  it("creates populated native checkout families and deletes both standalone child graphs without residue", async () => {
+    const populated: typeof CheckoutOrderCreates.Type = [{ currency_code: "usd", email: "checkout@example.invalid",
+      billing_address: { city: "Yangon", country_code: "mm" }, shipping_address: { city: "Yangon", country_code: "mm" },
+      items: [{ title: "Shipped checkout item", quantity: 2, unit_price: "10", requires_shipping: true,
+        tax_lines: [{ code: "VAT", rate: "10" }], adjustments: [{ code: "SAVE", amount: "2", promotion_id: "promo-checkout" }] }],
+      shipping_methods: [{ name: "Standard", amount: "5", tax_lines: [{ code: "VAT", rate: "10" }],
+        adjustments: [{ code: "SHIP", amount: "1", promotion_id: "promo-shipping" }] }],
+      credit_lines: [{ amount: 1, raw_amount: { value: "1", precision: 20 }, reference: "credit", reference_id: "checkout-credit" }],
+      promo_codes: ["SAVE", "SHIP"],
+    }];
+    const ordinary = await local.create("create"), before = await local.snapshot();
+    expect(await Effect.runPromise(Effect.result(ordinary.run(ordinary.newRequestKey(), populated))))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "limitExceeded" } });
+    expect(await local.snapshot()).toEqual(before);
+    const late = await local.create("populated-late"), lateExit = await Effect.runPromiseExit(late.run(late.newRequestKey(), populated));
+    expect(Exit.isFailure(lateExit)).toBe(true);
+    if (Exit.isFailure(lateExit)) expect(Cause.pretty(lateExit.cause)).toContain("Late failure after admitted native Order creation");
+    expect(await local.snapshot()).toEqual(before);
+    const packetOffset = packets.length, host = await local.create("populated"), key = host.newRequestKey();
+    const creation = await Effect.runPromiseExit(host.run(key, populated));
+    if (Exit.isFailure(creation)) throw new Error(Cause.pretty(creation.cause) + "\n" + JSON.stringify(creation.cause));
+    const created = rows(creation.value), after = await local.snapshot(), orderId = id(created[0]?.id);
+    expect(created).toMatchObject([{ status: "pending", shipping_address: { city: "Yangon" }, billing_address: { city: "Yangon" },
+      items: [{ quantity: 2, requires_shipping: true, tax_lines: [{ code: "VAT", rate: 10 }], adjustments: [{ amount: 2, code: "SAVE" }], detail: { quantity: 2 } }],
+      shipping_methods: [{ amount: 5, tax_lines: [{ code: "VAT", rate: 10 }], adjustments: [{ amount: 1, code: "SHIP" }] }],
+      credit_lines: [{ amount: 1, reference_id: "checkout-credit" }] }]);
+    const writes = checkoutWrite(before, after, key), names = writes.revisions.map(row => local.definition.tables.find(table => table.name === row.table)?.localName);
+    expect(names.sort()).toEqual(["order", "order_address", "order_address", "order_credit_line", "order_item", "order_line_item",
+      "order_line_item_adjustment", "order_line_item_tax_line", "order_shipping", "order_shipping_method", "order_shipping_method_adjustment",
+      "order_shipping_method_tax_line", "order_summary"].sort());
+    const packet = packets.slice(packetOffset).find(value => value.call.commandName === "orderCreateForCheckout");
+    if (packet === undefined) throw new Error("Missing actual populated native creation receipt");
+    const validate = original(local.order.prepared);
+    for (const table of ["order_line_item_tax_line", "order_line_item_adjustment", "order_shipping_method_tax_line", "order_shipping_method_adjustment", "order_credit_line"]) {
+      const field = table.endsWith("tax_line") ? "rate" : "amount";
+      const mutations = packet.activity.mutations.map(mutation => mutation.table === table && mutation.after !== null
+        ? { ...mutation, after: { ...mutation.after, [field]: "999", ["raw_" + field]: { value: "999", precision: 20 } } } : mutation);
+      expect(await Effect.runPromise(Effect.result(validate(packet.call, { ...packet.activity, mutations }))))
+        .toMatchObject({ _tag: "Failure", failure: { reason: "receiptMismatch" } });
+    }
+    const remove = await local.remove("populated"), removeKey = remove.newRequestKey();
+    const removal = await Effect.runPromiseExit(remove.run(removeKey, [orderId]));
+    if (Exit.isFailure(removal)) throw new Error(Cause.pretty(removal.cause) + "\n" + JSON.stringify(removal.cause));
+    expect(removal.value).toBeNull();
+    const deleted = await local.snapshot(), inverse = checkoutWrite(after, deleted, removeKey);
+    expect(inverse.revisions.map(row => local.definition.tables.find(table => table.name === row.table)?.localName).sort()).toEqual(names);
+    expect(inverse.revisions.every(row => row.deleted && row.value === null)).toBe(true);
+    expect(deleted.rows).toEqual(before.rows);
+    expect(inverse.events.map(event => event.envelope.contract)).toEqual(["order.order-address.deleted", "order.order-address.deleted",
+      "order.order.deleted", "order.order-line-item.deleted", "order.order-shipping-method.deleted"]);
+    const deletion = packets.slice(packetOffset).find(value => value.call.commandName === "orderDeleteForCheckout");
+    if (deletion === undefined) throw new Error("Missing actual populated native deletion receipt");
+    expect(await Effect.runPromise(Effect.result(validate(deletion.call, { ...deletion.activity,
+      mutations: deletion.activity.mutations.filter(mutation => mutation.table !== "order_shipping_method_tax_line")
+        .map((mutation, ordinal) => ({ ...mutation, ordinal })) }))))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "receiptMismatch" } });
+  }, 240_000);
   it("publishes no Order, child rows or events after a late failure", async () => {
     const host = await local.create("late"), before = await local.snapshot(), exit = await Effect.runPromiseExit(host.run(host.newRequestKey(), input));
     expect(Exit.isFailure(exit)).toBe(true);

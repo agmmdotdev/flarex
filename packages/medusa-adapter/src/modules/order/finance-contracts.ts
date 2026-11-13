@@ -67,6 +67,7 @@ function compileOrderContracts(metadata: Metadata, models: readonly (readonly [s
     }
     const catalog = yield* makeReadCatalog(entities.map(({ table }) => ({ name: table.name,
       columns: table.columns.map(column => column.name), primaryKeys: ["id"], foreignKeys: table.foreignKeys.flatMap(key => key.columns),
+      nullableColumns: table.columns.filter(column => column.nullable).map(column => column.name),
       companions: Object.fromEntries(table.columns.filter(column => column.type === "bigNumber").map(column => [column.name, "raw_" + column.name])),
     })), relations);
     const entity = (name: string) => {

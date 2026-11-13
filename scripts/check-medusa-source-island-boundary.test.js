@@ -51,6 +51,8 @@ describe("Medusa source-island boundary checker", () => {
     const test = "apps/executor/test/storeCartApplicationDO.postgres.test.ts";
     const shippingTest = "apps/executor/test/storeCartShippingApplicationDO.postgres.test.ts";
     const paymentTest = "apps/executor/test/storePaymentApplicationDO.postgres.test.ts";
+    const completionWorker = "apps/executor/test/storeCartCompletionApplicationDO.workerd.worker.ts";
+    const completionTest = "apps/executor/test/storeCartCompletionApplicationDO.postgres.test.ts";
     const root = "@flarex/medusa-adapter/internal/store-cart-request";
     const catalog = "@flarex/medusa-adapter/internal/system-test/store-cart-request-catalog";
     const fixture = "@flarex/medusa-adapter/internal/system-test/store-cart-request-fixture";
@@ -66,21 +68,27 @@ describe("Medusa source-island boundary checker", () => {
     expect(check(test, testImports)).toEqual([]);
     expect(check(shippingTest, testImports)).toEqual([]);
     expect(check(paymentTest, testImports)).toEqual([]);
+    expect(check(completionWorker, workerImports)).toEqual([]);
+    expect(check(completionTest, testImports)).toEqual([]);
+    expect(check(completionWorker, [fixture]).length).toBeGreaterThan(0);
     const writer = "apps/executor/test/adminProductApplicationDO.workerd.worker.ts";
     expect(check(writer, [catalog]).length).toBeGreaterThan(0);
     for (const specifier of [root, fixture, http]) expect(check(writer, [specifier]).length).toBeGreaterThan(0);
     expect(check(worker, [fixture]).length).toBeGreaterThan(0);
-    for (const importer of [test, shippingTest, paymentTest])
+    for (const importer of [test, shippingTest, paymentTest, completionTest])
       for (const specifier of [root, http, awilix]) expect(check(importer, [specifier]).length).toBeGreaterThan(0);
     for (const importer of [worker.replace("storeCartApplicationDO", "adjacent"), test.replace("storeCartApplicationDO", "adjacent"),
       worker.replace("/test/", "/src/"), test.replace("/test/", "/src/"),
       worker.replace("storeCartApplicationDO", "storeCurrencyApplicationDO"), test.replace("storeCartApplicationDO", "storeCurrencyApplicationDO")])
       for (const specifier of [root, catalog, fixture, http]) expect(check(importer, [specifier]).length).toBeGreaterThan(0);
     for (const importer of [shippingTest.replace("/test/", "/src/"), shippingTest.replace("storeCartShippingApplicationDO", "adjacent"),
-      paymentTest.replace("/test/", "/src/"), paymentTest.replace("storePaymentApplicationDO", "adjacent")])
+      paymentTest.replace("/test/", "/src/"), paymentTest.replace("storePaymentApplicationDO", "adjacent"),
+      completionTest.replace("/test/", "/src/"), completionTest.replace("storeCartCompletionApplicationDO", "adjacent"),
+      completionWorker.replace("/test/", "/src/"), completionWorker.replace("storeCartCompletionApplicationDO", "adjacent")])
       for (const specifier of [root, catalog, fixture, http]) expect(check(importer, [specifier]).length).toBeGreaterThan(0);
     for (const { importer, specifiers } of [{ importer: worker, specifiers: workerImports }, { importer: test, specifiers: testImports },
-      { importer: shippingTest, specifiers: testImports }, { importer: paymentTest, specifiers: testImports }])
+      { importer: shippingTest, specifiers: testImports }, { importer: paymentTest, specifiers: testImports },
+      { importer: completionTest, specifiers: testImports }, { importer: completionWorker, specifiers: workerImports }])
       for (const specifier of specifiers) {
         expect(check(importer, [specifier + ".ts"]).length).toBeGreaterThan(0);
         expect(check(importer, [specifier.replace(/\/([^/]+)$/, "/./$1")]).length).toBeGreaterThan(0);
