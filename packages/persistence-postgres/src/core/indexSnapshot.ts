@@ -206,7 +206,7 @@ export function createCoreIndexSnapshot(input: Readonly<{
     return yield* Effect.fromResult(fill(yield* fetch(request, undefined, input.resident?.(request))));
   }, effect => Effect.withSpan(effect, "CoreIndexSnapshot.scan", { captureStackTrace: false }));
 
-  const rangeBatch: CoreBatchIndexSnapshot["rangeBatch"] = Effect.fn("CoreIndexSnapshot.rangeBatch")(function* (requests, options) {
+  const rangeBatch: CoreBatchIndexSnapshot["rangeBatch"] = Effect.fnUntraced(function* (requests, options) {
     // Flarex transport divergence (divergences/native-read-batches.md): the
     // misses' first SQL pages travel in one statement at this snapshot's
     // timestamp; each fetch below still performs its ordinary scan. A typed

@@ -63,7 +63,7 @@ export function makeCommerceCommandContext(
 
 /** A command and every nested borrow close their own FIFO before the manager is
  * revoked. The native transaction callback itself never enters this queue. */
-export const withCommerceCommandContext = Effect.fn("Commerce.withCommandContext")(function* <Value>(
+export const withCommerceCommandContext = Effect.fnUntraced(function* <Value>(
   lifetime: BoundedRequestLifetime<CommerceTransactionError>, working: CommerceContextWorking,
   id: string, manager: BoundedRequestContext,
   invoke: CommerceContextInvocation, captureEvent: CommerceContextEventCapture,

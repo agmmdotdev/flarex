@@ -27,7 +27,7 @@ export const CORE_INDEX_CAPTURE_PAGE_SIZE = 128;
 
 /** Complete physical consumption for the bounded native profile, before pending masking.
  * This is not logical Limit exhaustion and does not itself record semantic reads. */
-export const captureCoreIndexRange = Effect.fn("CoreQuery.captureIndexRange")(function* (input: Readonly<{
+export const captureCoreIndexRange = Effect.fnUntraced(function* (input: Readonly<{
   snapshot: CoreIndexSnapshot;
   table: CoreTableDefinition;
   index: CoreIndexDefinition;

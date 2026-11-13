@@ -74,7 +74,7 @@ export function prepareCommerceRelationPopulation(columns: readonly string[], pa
  * physical profile enforces its own catalog bound. A truncated population
  * would silently omit Medusa relationships, so a page alone is insufficient.
  */
-export const readCommerceRelationRows = Effect.fn("MedusaAdapter.readRelationRows")(function* (
+export const readCommerceRelationRows = Effect.fnUntraced(function* (
   ctx: CommerceRelationReadContext, table: string, predicate: Json, order: CommerceRelationOrder = "id", options: CommerceRelationReadOptions = {},
 ) {
   const store = yield* ctx.table(table);
@@ -128,7 +128,7 @@ export function reusePrimaryRelationRows<Row extends JsonObject>(previous: reado
   return matching.length === ids.size ? matching : undefined;
 }
 
-const readPopulationRelation = Effect.fn("MedusaAdapter.readRelation")(function* (
+const readPopulationRelation = Effect.fnUntraced(function* (
   population: RelationPopulation,
   targetTable: string, columns: readonly string[], parents: readonly JsonObject[],
   parentColumns: readonly string[], softDelete: boolean, order: CommerceRelationOrder, primaryLookup = false, predicate?: Predicate,
@@ -146,7 +146,7 @@ const readPopulationRelation = Effect.fn("MedusaAdapter.readRelation")(function*
   return loaded;
 });
 
-const populateRelationTree = Effect.fn("MedusaAdapter.populateTree")(function* (
+const populateRelationTree = Effect.fnUntraced(function* (
   population: RelationPopulation,
   source: string, rows: readonly JsonObject[], tree: PopulateTree, prefix = "",
 ): Effect.fn.Return<JsonObject[], CommerceTransactionError> {
@@ -187,7 +187,7 @@ const populateRelationTree = Effect.fn("MedusaAdapter.populateTree")(function* (
 
 /** Core owns the session, bounds and row decoding. Medusa owns relation grouping.
  * This instance is local to one call and never acquires a second manager. */
-export const populateCommerceRelations = Effect.fn("MedusaAdapter.populateRelations")(function* (
+export const populateCommerceRelations = Effect.fnUntraced(function* (
   readRows: CommerceRelationRows,
   table: string,
   roots: readonly JsonObject[],

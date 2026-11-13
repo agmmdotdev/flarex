@@ -102,7 +102,7 @@ export class CoreNativeActivityOwner {
       referenceReplacements: Object.freeze(activity.referenceReplacements.slice(position.referenceReplacements)) }));
   }
 
-  prepareMutation = Effect.fn("CoreNativeActivity.prepareMutation")((source: NativeSource, entry: Mutation, documentId: string) => Effect.suspend(() => {
+  prepareMutation = (source: NativeSource, entry: Mutation, documentId: string) => Effect.suspend(() => {
     const activity = this.#sources.get(source), charge = this.chargeRetained;
     if (activity === undefined) return Effect.succeed(() => {});
     const table = entry.table, operation = entry.operation;
@@ -123,7 +123,7 @@ export class CoreNativeActivityOwner {
     return () => { activity.mutations.push(Object.freeze({ table, operation, documentId, ordinal: activity.mutations.length,
       before, after, ...(realNormalization === undefined ? {} : { realNormalization }) })); };
     });
-  }));
+  });
 
   lifecycle = Effect.fn("CoreNativeActivity.lifecycle")((source: NativeSource, entry: Omit<CoreNativeLifecycleActivity, "attemptOrdinal">,
     changed: boolean) => Effect.suspend(() => {

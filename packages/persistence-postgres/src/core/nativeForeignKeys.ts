@@ -136,7 +136,7 @@ export const prepareCoreNativeForeignKeys = Effect.fn("CoreNativeForeignKeys.pre
     return identities.size > maxIdentities || source !== undefined && source.identities.size > source.maxIdentities
       ? Result.fail(new CoreTransactionError({ reason: "capacity", cause: "Native foreign key identity limit" })) : Result.succeed(undefined);
   };
-  const probe = Effect.fn("CoreNativeForeignKeys.probe")(function* (
+  const probe = Effect.fnUntraced(function* (
     table: CoreTableDefinition, index: CoreIndexDefinition, fields: readonly string[], tuple: readonly CoreNativeKeyValue[],
   ) {
     const interval = yield* Effect.fromResult(coreNativeKeyInterval(index, fields, tuple));

@@ -88,7 +88,7 @@ export function prepareLinkRepository(metadata: Effect.Success<ReturnType<typeof
     const bind = (root: CommerceCommandContext, owner: CommercePromiseOwner) => {
       const bridge = commerceRepositoryContext(root, owner);
       const refuse = () => owner.run(root.refuse(commerceError("unsupportedProfile")));
-      const find = Effect.fn("LinkRepository.find")(function* (ctx: CommerceCommandContext, input: unknown, count: boolean) {
+      const find = Effect.fnUntraced(function* (ctx: CommerceCommandContext, input: unknown, count: boolean) {
         const captured = yield* Effect.fromResult(captureCommerceInput(input, ctx.resources));
         return yield* executeRead(ctx, catalog, yield* Effect.fromResult(query(captured, ctx.resources.queryRows)), count);
       });

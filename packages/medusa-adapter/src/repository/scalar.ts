@@ -98,7 +98,7 @@ export function prepareScalarRepository(table: SchemaTable, modelName: string, w
       const bridge = sharedBridge ?? commerceRepositoryContext(root, owner);
       const events = sharedEvents;
       const refuse = () => owner.run(root.refuse(commerceError("unsupportedProfile")));
-      const find = Effect.fn("ScalarRepository.find")(function* (ctx: CommerceCommandContext, input: unknown, withCount: boolean) {
+      const find = Effect.fnUntraced(function* (ctx: CommerceCommandContext, input: unknown, withCount: boolean) {
         const value = yield* Effect.fromResult(captureCommerceInput(input, ctx.resources));
         const plan = yield* Effect.fromResult(query(value));
         return yield* executeRead(ctx, catalog, plan, withCount);
@@ -110,7 +110,7 @@ export function prepareScalarRepository(table: SchemaTable, modelName: string, w
           yield* events.dispatch(event, args, shared, subscriber);
         }))),
       };
-      const createRows = Effect.fn("ScalarRepository.create")(function* (
+      const createRows = Effect.fnUntraced(function* (
         ctx: CommerceCommandContext, input: unknown, shared: Parameters<DAL.RepositoryService["create"]>[1],
       ) {
         const captured = yield* Effect.fromResult(captureCommerceInput(input, ctx.resources));

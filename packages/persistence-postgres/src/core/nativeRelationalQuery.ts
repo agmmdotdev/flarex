@@ -65,7 +65,7 @@ interface InspectedRow {
   readonly creationTime: unknown;
 }
 
-const inspectCoreNativeRelationalCohort = Effect.fn("CoreNativeRelational.inspectCohort")(function* (
+const inspectCoreNativeRelationalCohort = Effect.fnUntraced(function* (
   find: CoreNativeOperations["find"], table: CoreTableDefinition, policy: CoreNativeRelationalRowPolicy, query: Query,
   prefetch?: (wheres: readonly JsonObject[]) => Effect.Effect<void>,
 ) {

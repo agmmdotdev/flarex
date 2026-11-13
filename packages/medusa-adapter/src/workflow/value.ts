@@ -97,7 +97,7 @@ function restoreWorkflowValue(payload: Json | undefined, undefinedPaths: readonl
 
 /** The staged SDK retains own undefined properties and positional results.
  * Budget the shared owner's JSON envelope before restoring only issued slots. */
-export const captureWorkflowValue = Effect.fn("MedusaWorkflow.captureValue")(function* (ctx: AtomicCommerceContext, value: unknown) {
+export const captureWorkflowValue = Effect.fnUntraced(function* (ctx: AtomicCommerceContext, value: unknown) {
   let undefinedPaths: readonly PrivateIntermediateJsonPath[] = [];
   const captured = yield* ctx.capture(value, input =>
     captureIntermediate(input)

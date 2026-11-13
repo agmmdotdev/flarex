@@ -58,8 +58,8 @@ export class CoreSchemaModel {
   readonly validations: CoreSchemaValidations;
   constructor(private readonly tx: CoreSchemaTransaction) { this.validations = new CoreSchemaValidations(tx); }
 
-  readonly getByState = Effect.fn("CoreSchemaModel.getByState")((state: CoreSchemaUniqueState) =>
-    this.tx.tableExists(SCHEMAS) ? Effect.fromResult(this.tx.schemaRegistry.getByState(this.tx.namespace, state,
+  readonly getByState = (state: CoreSchemaUniqueState) =>
+    Effect.suspend(() => this.tx.tableExists(SCHEMAS) ? Effect.fromResult(this.tx.schemaRegistry.getByState(this.tx.namespace, state,
       this.tx.schemaTableStateIndex(), this.tx.addIndexRead)) : Effect.succeed(Option.none<CoreSchemaSelection>()));
   readonly active = () => this.getByState("active");
   readonly pending = () => this.getByState("pending");
@@ -175,7 +175,7 @@ export class CoreSchemaModel {
     return overwritten;
   }));
 
-  readonly enforceDocument = Effect.fn("CoreSchemaModel.enforceDocument")((tableName: string, body: DocumentObject,
+  readonly enforceDocument = (tableName: string, body: DocumentObject,
     idPolicy: ValidatorIdPolicyV1) => Effect.gen({ self: this }, function* () {
     if (tableName.startsWith("_")) return;
     const active = yield* this.active();
@@ -193,7 +193,7 @@ export class CoreSchemaModel {
     if (Result.isFailure(verdict)) yield* this.markFailed(proposed.value.id,
       `New document in ${tableName} violates the proposed validator (${verdict.failure.issue.reason} at ${verdict.failure.issue.path})`, tableName);
     yield* this.checkStagedWrite(proposed.value, tableName, body, idPolicy);
-  }));
+  });
 
   /** Called by the real deletion/replacement owner before losing the table mapping. */
   readonly enforceTableDeletion = Effect.fn("CoreSchemaModel.enforceTableDeletion")((tableName: string) => Effect.gen({ self: this }, function* () {
@@ -216,8 +216,8 @@ export class CoreSchemaModel {
     return schema.value;
   }));
 
-  private readonly checkStagedWrite = Effect.fn("CoreSchemaModel.checkStagedWrite")((selected: CoreSchemaSelection,
-    tableName: string, body: DocumentObject, idPolicy: ValidatorIdPolicyV1) => Result.match(
+  private readonly checkStagedWrite = (selected: CoreSchemaSelection,
+    tableName: string, body: DocumentObject, idPolicy: ValidatorIdPolicyV1) => Effect.suspend(() => Result.match(
     violation(selected.schema, tableName, body, idPolicy, true), {
       onSuccess: () => Effect.void,
       onFailure: failure => this.validations.markFailed(selected.id, tableName,

@@ -59,6 +59,9 @@ Every implementation slice in this stream must satisfy these rules:
 - Public route handlers keep one runtime boundary per Worker/DO/adapter
   entrypoint.
 - Reusable Effect functions use `Effect.fn("Qualified.name")`.
+  Measured native hot paths use `Effect.fnUntraced`; the
+  [slice note](../experiments/core/engine/slices/native-untraced-hot-paths.md)
+  owns the threshold and the list.
 - Schema decoders and Effect Schema compiler calls are hoisted, not rebuilt in
   hot request paths.
 - No client-provided deployment analysis is trusted as hosted authority.

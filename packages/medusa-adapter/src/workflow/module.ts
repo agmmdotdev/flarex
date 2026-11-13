@@ -151,7 +151,7 @@ export function defineWorkflowModule<const Methods extends Readonly<Record<strin
     const logical = supplied === undefined ? undefined : Object.freeze({
       capture: supplied.capture,
       ...(supplied.validateLogical === undefined ? {} : { validateLogical: supplied.validateLogical }),
-      validateLogicalCall: Effect.fn("Workflow.validateModuleCall")(function* (call: Parameters<LogicalCommerceCallValidation>[0],
+      validateLogicalCall: Effect.fnUntraced(function* (call: Parameters<LogicalCommerceCallValidation>[0],
         activity: Parameters<LogicalCommerceCallValidation>[1], command: CommerceCommand) {
         const identity = commerceCommandIdentity(command);
         if (!admitted.has(command) || identity?.name !== call.commandName || identity.mode !== call.mode)

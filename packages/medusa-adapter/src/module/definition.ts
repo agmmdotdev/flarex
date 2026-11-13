@@ -147,8 +147,8 @@ export function defineCommerceModule<
       models: Object.freeze(models.map(entry => Object.freeze({ name: entry.name, repository: lowerCaseFirst(entry.name) + "Repository", service: entry.service }))),
       extensions: Object.freeze(extensions.map(extension => Object.freeze({ name: extension.key, mode: extension.mode, requires: Object.freeze([...extension.requires]) }))),
     });
-    const use = Effect.fn("CommerceModule.use")((ctx: CommerceCommandContext, work: (service: Service) => Promise<unknown>) =>
-      withCommerceService(ctx, owner => {
+    const use = (ctx: CommerceCommandContext, work: (service: Service) => Promise<unknown>) =>
+      Effect.suspend(() => withCommerceService(ctx, owner => {
         // DML identities stay with their compiler. Detect renaming before binding
         // and repository construction, rather than silently accepting new names.
         if (models.some(entry => entry.model.name !== entry.name)) return owner.reject(commerceError("unsupportedProfile"));

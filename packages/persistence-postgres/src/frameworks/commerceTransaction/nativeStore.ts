@@ -50,7 +50,7 @@ export interface NativeCommerceInvocation {
 
 /** Core owns row, key, default, observation and mutation semantics. This owner
  * translates the existing native query values and framework request envelope. */
-export const makeNativeCommerceParticipant = Effect.fn("NativeCommerce.makeParticipant")(function* (
+export const makeNativeCommerceParticipant = Effect.fnUntraced(function* (
   operations: CoreNativeOperations, metadata: CoreNativeBindingMetadata,
   lifetime: BoundedRequestLifetime<CommerceTransactionError>, initialContext: BoundedRequestContext,
   transactionId: string, unixTime: number, resources: CommerceResources = defaultCommerceResources,
@@ -72,7 +72,7 @@ export const makeNativeCommerceParticipant = Effect.fn("NativeCommerce.makeParti
     if (policy === undefined || table === undefined) return yield* commerceError("unsupportedProfile");
     const guard = <Value>(context: BoundedRequestContext, mode: "read" | "write", work: Effect.Effect<Value, CommerceTransactionError>) =>
       lifetime.operation(context, transactionId, mode, work);
-    const returnedRows = Effect.fn("NativeCommerce.returnRows")(function* (documents: readonly DocumentObject[]) {
+    const returnedRows = Effect.fnUntraced(function* (documents: readonly DocumentObject[]) {
       const rows = yield* nativeResult(Effect.forEach(documents, document => Effect.fromResult(coreNativeRelationalRow(document))));
       const value = yield* retain(rows);
       if (!Array.isArray(value) || !value.every(isJsonObject)) return yield* commerceError("storedCorruption");
@@ -122,7 +122,7 @@ export const makeNativeCommerceParticipant = Effect.fn("NativeCommerce.makeParti
       findPage: (context, input) => readPage(context, input, {}),
       count: (context, input) => read(context, input, {}, "count").pipe(Effect.map(result => result.count)),
       ...(onRead === undefined || readRelated === undefined ? {} : {
-        related: Effect.fn("NativeCommerce.readRelated")((context: BoundedRequestContext, input: unknown) => guard(context, "read", Effect.gen(function* () {
+        related: (context: BoundedRequestContext, input: unknown) => Effect.suspend(() => guard(context, "read", Effect.gen(function* () {
           const query = yield* retain(input);
           const selected = yield* nativeResult(readRelated(table.name, query, { pageRows: resources.queryRows,
             ...(resources.relatedPredicateNodes === undefined ? {} : { relatedPredicateNodes: resources.relatedPredicateNodes }) }));
@@ -145,7 +145,7 @@ export const makeNativeCommerceParticipant = Effect.fn("NativeCommerce.makeParti
         return yield* returnedRows(yield* nativeResult(operations.lifecycle(table.name, mode, captured.value,
           invocation?.allowActiveRestoreUpdate === true ? { allowActiveRestoreUpdate: true } : undefined)));
       })),
-      write: Effect.fn("NativeCommerce.write")((context: BoundedRequestContext, mode: Parameters<CommerceStore["write"]>[1], input: unknown) => guard(context, "write", Effect.gen(function* () {
+      write: (context: BoundedRequestContext, mode: Parameters<CommerceStore["write"]>[1], input: unknown) => Effect.suspend(() => guard(context, "write", Effect.gen(function* () {
         const upsertPolicy = invocation?.allowPreservingDeletionUpsert;
         const insertValidation = invocation?.insertValidation;
         const statementReferenceChecks = invocation?.statementReferenceChecks === true;

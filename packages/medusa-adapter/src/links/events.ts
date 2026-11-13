@@ -17,7 +17,7 @@ export function linkLogicalEventPolicy(tableName: string, serviceName: string, e
     data: Schema.Struct({ id: Schema.Union([Id, Schema.Array(Id).check(Schema.isMinLength(1),
       Schema.isMaxLength(defaultCommerceResources.eventIds))]) }),
   }), defaultCommerceResources);
-  const capture = Effect.fn("LinkEvents.captureLogical")(function* (input: unknown) {
+  const capture = Effect.fnUntraced(function* (input: unknown) {
     const message = yield* decode(input);
     if (message.name !== entityName + "." + message.metadata.action)
       return yield* Effect.fail(commerceError("unadmittedEvent"));
@@ -117,7 +117,7 @@ export function selectedLinkLogicalEventPolicy(definitions: readonly {
     name: Schema.String, metadata: Schema.Struct({ source: Schema.String, object: Schema.String, action: Schema.String }),
     data: Schema.Unknown,
   }));
-  const identify = Effect.fn("LinkEvents.identifyLogical")(function* (input: unknown) {
+  const identify = Effect.fnUntraced(function* (input: unknown) {
     const value = yield* Effect.fromResult(captureCommerceInput(input, defaultCommerceResources));
     const identity = yield* decodeIdentity(value).pipe(Effect.mapError(cause => commerceError("unadmittedEvent", cause)));
     const member = selected.find(item => item.serviceName === identity.metadata.source

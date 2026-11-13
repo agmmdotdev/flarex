@@ -228,7 +228,7 @@ export const prepareWorkflowComposition = Effect.fn("Workflow.prepareComposition
     for (const name of moduleEventNames) {
       if (capture === undefined || names.has(name)) return yield* Effect.fail(commerceError("unsupportedProfile"));
       const contract = name === replacement?.eventName && derivedContract !== undefined ? derivedContract : defineCommerceEventContract({ name, revision: options.revision, internal: true,
-        decode: Effect.fn("Workflow.moduleEvent")(function* (value) {
+        decode: Effect.fnUntraced(function* (value) {
           const message = yield* capture(value);
           if (!isJsonObject(message) || message.name !== name) return yield* Effect.fail(commerceError("unadmittedEvent"));
           return message;
@@ -260,7 +260,7 @@ export const prepareWorkflowComposition = Effect.fn("Workflow.prepareComposition
       ...(derivedContract === undefined ? {} : { allowReferenceReplacement: true as const, derivedIdEvent: { contract: derivedContract } }),
       ...(moduleContracts.size === 0 ? {} : { events: {
         contracts: [...moduleContracts.values()],
-        select: Effect.fn("Workflow.selectModuleEvent")(function* (message: Json) {
+        select: Effect.fnUntraced(function* (message: Json) {
           const token = isJsonObject(message) && typeof message.name === "string" ? moduleContracts.get(message.name) : undefined;
           if (token === undefined) return yield* Effect.fail(commerceError("unadmittedEvent"));
           return token;

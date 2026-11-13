@@ -44,7 +44,7 @@ export const makeNativeCommerceInitialization = Effect.fn("NativeCommerce.prepar
     source: { ...source }, initialization: { ...descriptor } })).sha256Hex;
   const identity: CoreRequestIdentity = Object.freeze({ kind: "native", key, requestHash,
     native: Object.freeze({ source, ...commerceNativeInitializationCommand }) });
-  const readBinding = Effect.fn("NativeCommerce.initializationBinding")(function* () {
+  const readBinding = Effect.fnUntraced(function* () {
     const current = yield* database.readNativeBinding(binding).pipe(Effect.mapError(projectCoreCommerceFailure));
     if (!sameCoreNativeIdentity(current.definition.identity, source)) return yield* commerceError("seedMismatch");
     return current;

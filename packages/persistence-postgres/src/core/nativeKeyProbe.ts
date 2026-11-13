@@ -17,7 +17,7 @@ export interface CoreNativeKeyProbe {
   readonly documents?: ReadonlyMap<string, DocumentObject>;
 }
 
-export const captureCoreNativeKeyProbe = Effect.fn("CoreNativeKeyProbe.capture")(function* (input: Readonly<{
+export const captureCoreNativeKeyProbe = Effect.fnUntraced(function* (input: Readonly<{
   snapshot: CorePersistenceSnapshot; table: CoreTableDefinition; index: CoreIndexDefinition; interval: CoreInterval;
   maxIdentities: number;
   chargeQuery: (interval: CoreInterval) => Result.Result<void, CoreError>;

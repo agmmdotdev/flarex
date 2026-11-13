@@ -106,7 +106,7 @@ export const captureExactNumericUpdatePair = Effect.fn("MedusaAdapter.captureExa
 
 /** Call for selected numeric columns only. Physical raw nullability never
  * excuses a missing companion for a present numeric value. */
-export const decodeExactNumeric = Effect.fn("MedusaAdapter.decodeExactNumeric")(function* (
+export const decodeExactNumeric = Effect.fnUntraced(function* (
   value: unknown, rawValue: unknown, nullable = false,
 ) {
   if (value === null && rawValue === null && nullable) return null;
@@ -124,7 +124,7 @@ export const decodeExactNumeric = Effect.fn("MedusaAdapter.decodeExactNumeric")(
  * decimals; public DTOs convert only after every stored companion is checked.
  * The explicit native ORM presentation reuses its genuine raw-value spelling
  * normalizer only for these metadata-declared companions, after validation. */
-export const projectExactNumericColumns = Effect.fn("MedusaAdapter.projectExactNumericColumns")(function* (
+export const projectExactNumericColumns = Effect.fnUntraced(function* (
   value: Json,
   columns: readonly { readonly name: string; readonly nullable?: boolean }[], mode: "exact" | "dto" | "reserialize" | "nativeOrm" = "dto",
 ) {

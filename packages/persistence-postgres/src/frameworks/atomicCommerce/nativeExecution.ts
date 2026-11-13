@@ -83,7 +83,7 @@ export const executeAtomicCommerceNative = Effect.fn("AtomicCommerceNative.execu
   return yield* Effect.acquireUseRelease(configuration.limits.operationScheduling === "queued"
     ? makeCommerceOperations(lifetime, configuration.limits.calls, lifetime.context) : Effect.succeed(undefined),
   queue => Effect.gen(function* () {
-    const invoke = Effect.fn("AtomicCommerceNative.invoke")(function* (
+    const invoke = Effect.fnUntraced(function* (
       participant: typeof participants[number], manager: BoundedRequestContext, nested: CommerceCommand, input: Json,
       emitted: Json[], capturedInput?: Readonly<{ value: Json }>,
     ): Effect.fn.Return<Pick<AtomicCommerceCallObservation, "input" | "result">, CommerceTransactionError> {

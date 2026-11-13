@@ -14,7 +14,7 @@ export function makeNativeCommerceActivity(operations: CoreNativeOperations, met
   const reads: LogicalCommerceActivity["relationalReads"][number][] = [];
   const localName = (table: string) => metadata.definition.tables.find(candidate => candidate.name === table)?.localName;
   const cursor = () => Object.freeze({ core: operations.nativeActivityCursor(), reads: reads.length });
-  const onRead = Effect.fn("NativeCommerceActivity.read")(function* (observation: NativeCommerceReadObservation) {
+  const onRead = Effect.fnUntraced(function* (observation: NativeCommerceReadObservation) {
     const table = localName(observation.table);
     if (table === undefined) return yield* commerceError("invalidAuthority");
     let related: NativeCommerceReadObservation["related"];
@@ -32,7 +32,7 @@ export function makeNativeCommerceActivity(operations: CoreNativeOperations, met
     // Keep the compiler's exact native query and already-owned identity values.
     reads.push(Object.freeze(read));
   });
-  const since = Effect.fn("NativeCommerceActivity.since")(function* (position: ReturnType<typeof cursor>): Effect.fn.Return<LogicalCommerceActivity, CommerceTransactionError> {
+  const since = Effect.fnUntraced(function* (position: ReturnType<typeof cursor>): Effect.fn.Return<LogicalCommerceActivity, CommerceTransactionError> {
     const activity = yield* operations.nativeActivitySince(position.core).pipe(Effect.catchCause(cause =>
       Effect.failCause(Cause.map(cause, projectCoreCommerceFailure))));
     const projectTable = (table: string) => {

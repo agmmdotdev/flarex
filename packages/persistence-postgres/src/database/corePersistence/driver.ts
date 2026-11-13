@@ -49,12 +49,12 @@ export interface CorePostgresPool {
 
 // pg query rejection is the documented foreign operation boundary. Waiting
 // uninterruptibly drains the actual query before the checkout can be reused.
-const queryPostgres = Effect.fn("CorePostgres.query")((
+const queryPostgres = (
   client: CorePostgresClient, statement: string, parameters: readonly CoreSqlParameter[] = [],
 ) => Effect.uninterruptible(Effect.tryPromise({
   try: () => client.query<Record<string, unknown>>(statement, [...parameters]),
   catch: classifyCoreQueryFailure,
-}).pipe(Effect.map(result => result.rows))));
+}).pipe(Effect.map(result => result.rows)));
 
 function pgConnection(client: CorePostgresClient): CoreSqlConnection {
   const query: CoreSqlConnection["query"] = (statement, parameters) => queryPostgres(client, statement, parameters);
@@ -86,14 +86,13 @@ export function makeCorePostgresDriver(pool: CorePostgresPool): CoreSqlDriver {
         if (failure !== undefined) return yield* Effect.fail(unavailable(failure));
         return value;
       }), releasePostgresCheckout),
-    query: Effect.fn("CorePostgres.read")((statement: string, parameters: readonly CoreSqlParameter[] = []) =>
+    query: (statement: string, parameters: readonly CoreSqlParameter[] = []) =>
       Effect.acquireUseRelease(acquire, owned => Effect.gen(function* () {
         const rows = yield* queryPostgres(owned.client, statement, parameters);
         const failure = owned.errors.failure();
         if (failure !== undefined) return yield* Effect.fail(unavailable(failure));
         return rows;
       }), releasePostgresCheckout),
-    ),
     transaction: <A, E>(run: (connection: CoreSqlConnection) => Effect.Effect<A, E>) =>
       Effect.acquireUseRelease(acquire, owned => Effect.uninterruptibleMask(restore => Effect.gen(function* () {
         const connection = pgConnection(owned.client);

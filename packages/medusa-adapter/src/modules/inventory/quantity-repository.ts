@@ -86,7 +86,7 @@ export function prepareInventoryQuantityRepository(table: SchemaTable, model: "I
       }) });
     const bind = (...args: Parameters<typeof scalar.bind>) => {
       const bound = scalar.bind(...args);
-      const decodeRows = Effect.fn("InventoryQuantity.decodeRows")(function* (rows: readonly JsonObject[], exact = false) {
+      const decodeRows = Effect.fnUntraced(function* (rows: readonly JsonObject[], exact = false) {
         const output = yield* (exact ? exactProjection(rows) : project(rows));
         const decoded = yield* Effect.fromResult(decodeObjects(output));
         return decoded.map(row => structuredClone({ ...row }));

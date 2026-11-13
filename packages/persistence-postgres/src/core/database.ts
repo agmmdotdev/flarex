@@ -1178,7 +1178,7 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
         const metadataReads = yield* Effect.fromResult(nativeRootMetadataReads(selected.selected.registry, selected.data));
         for (const read of metadataReads) for (const interval of read.intervals) selected.context.addIndexRead(read.indexId, interval);
         yield* requireClaimRevision(selected.selected, selected.claimData, selected.context);
-        const native = Effect.fn("CoreNativeRoot.native")(function* (childBinding: CoreNativeBinding) {
+        const native = Effect.fnUntraced(function* (childBinding: CoreNativeBinding) {
           const access = selected.data.natives.get(childBinding);
           if (access === undefined) return yield* new CoreTransactionError({ reason: "authorityRevoked" });
           const operations = yield* selected.context.nativeFor(access);

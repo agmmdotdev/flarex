@@ -19,7 +19,7 @@ const messageSchema = (maximumIds: number) => Schema.Struct({
  * durable workflow publication. Neither consumer invents a dummy destination. */
 export function productModuleEventCapture(catalog: ProductRuntimeMetadata, resources: CommerceResources) {
   const decode = moduleEventDecoder(messageSchema(resources.eventIds), resources);
-  const capture = Effect.fn("ProductEvents.capture")(function* (input: unknown) {
+  const capture = Effect.fnUntraced(function* (input: unknown) {
     const message = yield* decode(input);
     const candidates = catalog.entities.filter(entity => entity !== catalog.assignment);
     if (!candidates.some(entity => entity.eventObject === message.metadata.object &&

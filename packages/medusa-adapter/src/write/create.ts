@@ -20,7 +20,7 @@ export const captureGraph = Effect.fn("MedusaGraph.capture")(function* (
   for (const table of profile.catalog.writablePivots) rows.set(table.name, []);
   const ids = new Set<string>();
   const roots: string[] = [];
-  const add = Effect.fn("MedusaGraph.captureNode")(function* (
+  const add = Effect.fnUntraced(function* (
     node: CreationNode, inputRow: Json, extra: JsonObject, scope: Map<string, JsonObject>,
   ): Effect.fn.Return<string, CommerceTransactionError> {
     const { supplied, key: suppliedKey } = yield* Effect.fromResult(profile.catalog.decodeRow(node.entity, inputRow));

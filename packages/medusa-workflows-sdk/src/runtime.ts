@@ -82,7 +82,7 @@ const executeFrame = Effect.fn("MedusaWorkflow.frame")(function* <Failure>(
     pendingTransforms.set(reference, pending);
     return Deferred.complete(pending, work).pipe(Effect.andThen(Deferred.await(pending)));
   });
-  const resolve = Effect.fn("MedusaWorkflow.resolve")(function* (resolution: WorkflowResolution, parent?: object, depth = 0): Effect.fn.Return<WorkflowResolvedValue, Failure | ReturnType<typeof definitionError>> {
+  const resolve = Effect.fnUntraced(function* (resolution: WorkflowResolution, parent?: object, depth = 0): Effect.fn.Return<WorkflowResolvedValue, Failure | ReturnType<typeof definitionError>> {
     const evaluation = resolveWorkflowValue(resolution, frame, depth);
     let next = evaluation.next();
     while (!next.done) {
@@ -105,7 +105,7 @@ const executeFrame = Effect.fn("MedusaWorkflow.frame")(function* <Failure>(
     }
     return yield* Effect.fromResult(next.value);
   });
-  const executeNode = Effect.fn("MedusaWorkflow.node")(function* (index: number): Effect.fn.Return<void, Failure | ReturnType<typeof definitionError>> {
+  const executeNode = Effect.fnUntraced(function* (index: number): Effect.fn.Return<void, Failure | ReturnType<typeof definitionError>> {
     const node = definition.nodes[index]!;
     if (node.guards.some(guard => outputs.get(guard) !== true)) {
       outputs.set(node.id, undefined);
