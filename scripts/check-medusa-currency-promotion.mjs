@@ -1,5 +1,6 @@
 // @ts-check
 import { storeCartHttpSourcePairs, verifyStoreCartHttpSelection, verifyStoreCartHttpSource, verifyStoreCartHttpSharedSources } from "./check-medusa-store-cart-source.mjs";
+import { storeOrderReadSourcePairs, verifyStoreOrderReadSelection, verifyStoreOrderReadSource, verifyStoreOrderRemoteQueryExtension } from "./check-medusa-store-order-workflow-source.mjs";
 import { cartMutationSourcePairs, verifyCartMutationSourceSelection, verifyCartMutationSource, verifyCartMutationOperationSelection } from "./check-medusa-cart-mutation-source.mjs";
 import { remoteQuerySourcePairs, remoteQueryTestSourcePairs, verifyRemoteQuerySelection, verifyRemoteQuerySource, verifyRemoteQueryTestSource } from "./check-medusa-remote-query-source.mjs";
 import { verifyNativeRelationPopulateFields } from "./check-medusa-test-port.mjs";
@@ -1158,6 +1159,8 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
   verifyProductBatchAuthorizationHttpSelection(supplied.files);
   verifyStoreProductSelection(supplied.files);
   verifyStoreCartHttpSelection(supplied.files);
+  verifyStoreOrderReadSelection(supplied.files);
+  verifyStoreOrderRemoteQueryExtension(readFileSync(path.join(root, "packages/medusa-core-flows/src/common/steps/use-remote-query.ts"), "utf8"));
   verifyCartMutationSourceSelection(supplied.files);
   verifyRemoteQuerySelection(supplied.files);
   verifyCartMutationOperationSelection(readFileSync(path.join(root, "packages/medusa-adapter/src/workflows/cart/mutations.ts"), "utf8"),
@@ -1908,6 +1911,8 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
         verifyRemoteQueryTestSource(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"), file.target);
       if (storeCartHttpSourcePairs.some(pair => pair.target === file.target))
         verifyStoreCartHttpSource(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"), file.target);
+      if (storeOrderReadSourcePairs.some(pair => pair.target === file.target))
+        verifyStoreOrderReadSource(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"), file.target);
       if (checkoutSourcePairs.some(pair => pair.target === file.target))
         verifyCheckoutSource(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"), file.target);
       if (apiKeySourcePairs.some(pair => pair.target === file.target))

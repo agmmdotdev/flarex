@@ -90,6 +90,7 @@ export { storePaymentHttpSeedRows };
 export { installStorePaymentFailure } from "./store-payment-fault";
 export { storeCartCompletionSeedRows } from "./store-cart-completion-seeds";
 export { installStoreCartCompletionFailure } from "./store-cart-completion-fault";
+export { storeOrderHttpSeedRows, storeOrderIds, storeOrderSpecialId, storeOrderEmptyId, storeOrderOtherId, storeOrderDraftId, storeOrderDeletedId } from "./store-order-http-seeds";
 /** The same complete endpoint dataset serves Node and actual Workerd proofs. */
 export const storePaymentHttpProofSeedRows: Readonly<Record<string, readonly Row[]>> = Object.fromEntries(
   [...new Set([...Object.keys(storeCartShippingProofSeedRows), ...Object.keys(storePaymentHttpSeedRows)])]
@@ -154,6 +155,7 @@ export const compileStoreCartRequestFixtureCatalog = Effect.fn("StoreCartFixture
     customer_account_holder_links: nativeReceipt("customer_account_holder_links"),
     order: nativeReceipt("order"), order_cart_links: nativeReceipt("order_cart_links"),
     order_payment_collection_links: nativeReceipt("order_payment_collection_links"), order_promotion_links: nativeReceipt("order_promotion_links"),
+    order_fulfillment_links: nativeReceipt("order_fulfillment_links"),
   });
   const catalog = yield* compileStoreCartRequestCatalog(target, { native, auth: { currency: yield* receipt("currency", authRows.currency, authRows.currency.length),
     apiKey: yield* receipt("apiKey", authRows.apiKey, authRows.apiKey.length),

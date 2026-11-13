@@ -1,7 +1,7 @@
 import { Effect, Result, Schema } from "effect";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { createQuery, RemoteQuery, type RemoteFetchServiceResult, type RemoteQueryFetchRequest } from "@medusajs/modules-sdk/remote-query";
-import { commerceError, type CommerceTransactionError } from "@flarex/persistence-postgres/internal/commerce-values";
+import { commerceError, defaultCommerceResources, type CommerceResources, type CommerceTransactionError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { makeCommercePromiseOwner, type CommercePromiseOwner } from "../module/promise-owner";
 import { commerceDecoder } from "../value/decoder";
 import { captureWorkflowInput } from "../workflow/value";
@@ -12,6 +12,7 @@ export type NativeQueryRead = (request: RemoteQueryFetchRequest, owner: Commerce
 export interface NativeQueryBridgeOptions extends NativeQueryMetadata {
   readonly read: NativeQueryRead;
   readonly recordFailure?: GraphReadContext["recordFailure"];
+  readonly resources?: Pick<CommerceResources, "commandBytes" | "valueNodes">;
 }
 export interface NativeQueryBridge {
   readonly query: (input: unknown, options?: unknown) => Effect.Effect<unknown, CommerceTransactionError>;
@@ -35,9 +36,10 @@ const unsafeSelection = (path: string) => unsafePath(path) || path.split(".").so
 
 /** Bound foreign descriptors before inspecting security-sensitive names.
  * This admits values, never interprets selections or expands a query. */
-export function admitNativeQueryPaths(input: unknown) {
+export function admitNativeQueryPaths(input: unknown,
+  resources: Pick<CommerceResources, "commandBytes" | "valueNodes"> = defaultCommerceResources) {
   return Result.gen(function* () {
-    const captured = yield* captureWorkflowInput(input, "preserveOwnUndefined");
+    const captured = yield* captureWorkflowInput(input, "preserveOwnUndefined", resources);
     const pending: unknown[] = [captured];
     while (pending.length > 0) {
       const value = pending.pop();
@@ -57,11 +59,13 @@ export function admitNativeQueryPaths(input: unknown) {
 /** Medusa owns query normalization, fetching and presentation. This boundary
  * owns only bounded values and the executable native Promise lifetime. */
 export function makeNativeQueryBridge(configuration: NativeQueryBridgeOptions): NativeQueryBridge {
+  const selectedResources = configuration.resources ?? defaultCommerceResources;
+  const resources = Object.freeze({ commandBytes: selectedResources.commandBytes, valueNodes: selectedResources.valueNodes });
   const execute = (method: "query" | "graph", input: unknown, options?: unknown) => Effect.gen(function* () {
     const owner = yield* makeCommercePromiseOwner(configuration.recordFailure);
     return yield* owner.withClose(Effect.gen(function* () {
-      const capturedInput = yield* Effect.fromResult(admitNativeQueryPaths(input));
-      const capturedOptions = options === undefined ? undefined : yield* Effect.fromResult(admitNativeQueryPaths(options));
+      const capturedInput = yield* Effect.fromResult(admitNativeQueryPaths(input, resources));
+      const capturedOptions = options === undefined ? undefined : yield* Effect.fromResult(admitNativeQueryPaths(options, resources));
       const native = createQuery({ remoteQuery: new RemoteQuery({
         servicesConfig: configuration.servicesConfig,
         entitiesMap: configuration.entitiesMap,
@@ -76,7 +80,7 @@ export function makeNativeQueryBridge(configuration: NativeQueryBridgeOptions): 
       // The guarded native joiner hides internal alias paths as nonenumerable
       // data properties. Detach its trusted public result before the bounded
       // intermediate capture, retaining native undefined array positions.
-      return yield* Effect.fromResult(captureWorkflowInput(structuredClone(result), "preserveOwnUndefined"));
+      return yield* Effect.fromResult(captureWorkflowInput(structuredClone(result), "preserveOwnUndefined", resources));
     }));
   });
   return Object.freeze({

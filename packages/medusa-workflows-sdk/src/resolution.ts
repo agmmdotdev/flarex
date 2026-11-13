@@ -39,12 +39,12 @@ export function prepareWorkflowResolution(inputs: readonly unknown[], result: un
 /** A reached transformer may return authentic WorkflowData from its closure.
  * Snapshot only own data descriptors before interpreting that new structure;
  * the execution port still owns final value capture and resource charging. */
-export function prepareTransformResolution(value: unknown): Result.Result<WorkflowResolution, ReturnType<typeof definitionError>> {
+export function prepareTransformResolution(value: unknown, maximumNodes = 4096): Result.Result<WorkflowResolution, ReturnType<typeof definitionError>> {
   const compiled = new Map<object, WorkflowResolution>();
   const active = new Set<object>();
   let visited = 0;
   function compile(value: unknown, depth: number): Result.Result<WorkflowResolution, ReturnType<typeof definitionError>> {
-    if (++visited > 4096 || depth > 64) return Result.fail(definitionError("invalidReference", "Transform resolution bounds exceeded"));
+    if (++visited > maximumNodes || depth > 64) return Result.fail(definitionError("invalidReference", "Transform resolution bounds exceeded"));
     if (typeof value !== "object" || value === null) return Result.succeed({ kind: "constant", value });
     if (active.has(value)) return Result.fail(definitionError("invalidReference", "Cyclic transform result"));
     const previous = compiled.get(value);
@@ -72,7 +72,7 @@ export function prepareTransformResolution(value: unknown): Result.Result<Workfl
       if (array ? prototype !== Array.prototype : prototype !== Object.prototype && prototype !== null)
         return yield* Result.fail(definitionError("invalidReference", "Transform results require plain data records"));
       const keys = Reflect.ownKeys(value);
-      if (keys.length > 4097) return yield* Result.fail(definitionError("invalidReference", "Transform resolution bounds exceeded"));
+      if (keys.length > maximumNodes + 1) return yield* Result.fail(definitionError("invalidReference", "Transform resolution bounds exceeded"));
       const entries: Array<readonly [string, unknown]> = [];
       const length = array ? Object.getOwnPropertyDescriptor(value, "length")?.value : undefined;
       for (const key of keys) {
@@ -123,7 +123,7 @@ type Task =
 /** One pure traversal per reached input/result. Its only suspension is an actual
  * transform boundary; the caller retains capture, invocation and cancellation.
  * The explicit stack preserves member order without a runtime per scalar. */
-export function* resolveWorkflowValue(resolution: WorkflowResolution, frame: WorkflowResolutionFrame, depth = 0):
+export function* resolveWorkflowValue(resolution: WorkflowResolution, frame: WorkflowResolutionFrame, depth = 0, maximumNodes = 4096):
   Generator<TransformResolution, Result.Result<WorkflowResolvedValue, ReturnType<typeof definitionError>>, WorkflowResolvedValue> {
   const tasks: Task[] = [{ kind: "visit", resolution, depth }];
   const values: unknown[] = [];
@@ -152,7 +152,7 @@ export function* resolveWorkflowValue(resolution: WorkflowResolution, frame: Wor
     // Shared source objects compile to a DAG. Charge every expanded visit,
     // including aliases, before allocating the resolved tree for final capture.
     // This counter survives transform suspension within this traversal.
-    if (++visited > 4096) return Result.fail(definitionError("invalidReference", "Resolution traversal bounds exceeded"));
+    if (++visited > maximumNodes) return Result.fail(definitionError("invalidReference", "Resolution traversal bounds exceeded"));
     if (task.depth > 64) return Result.fail(definitionError("invalidReference", "Reference depth exceeded"));
     const current = task.resolution;
     if (current.kind === "constant") { values.push(current.value); continue; }

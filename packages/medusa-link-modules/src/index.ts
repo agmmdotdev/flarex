@@ -40,3 +40,4 @@ export type { LinkPreimageStorage } from "./operations/preimage-storage"
 export { CartShippingOption } from "./definitions/readonly/cart-shipping-option"
 
 export { OrderProduct } from "./definitions/readonly/order-product"
+export { OrderFulfillment } from "./definitions/order-fulfillment"

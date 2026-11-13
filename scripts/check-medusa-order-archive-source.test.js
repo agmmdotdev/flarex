@@ -8,6 +8,7 @@ import { orderCompleteSourcePairs } from "./check-medusa-order-complete-source.m
 import { orderChangeUpdateSourcePairs } from "./check-medusa-order-change-update-source.mjs";
 import { orderChangeCancellationSourcePairs } from "./check-medusa-order-change-cancellation-source.mjs";
 import { orderChangeDeletionSourcePairs } from "./check-medusa-order-change-deletion-source.mjs";
+import { storeOrderReadSourcePairs } from "./check-medusa-store-order-workflow-source.mjs";
 
 const failure = "Changed native Order archive source";
 /** @param {string} target */
@@ -21,6 +22,14 @@ const workflow = entry("packages/medusa-core-flows/src/order/workflows/archive-o
 const joiner = entry("packages/medusa-order/src/joiner-config.ts");
 
 describe("bounded native Order source preparation", () => {
+  it("recognizes only the separately guarded exact Store Order read programs", () => {
+    expect(() => verifyOrderArchiveSourceSelection([...orderArchiveSourcePairs, ...storeOrderReadSourcePairs])).not.toThrow();
+    for (const pair of storeOrderReadSourcePairs.filter(pair => pair.target.startsWith("packages/medusa-core-flows/src/order/"))) {
+      for (const changed of [{ ...pair, source: pair.source + ".other" }, { ...pair, target: pair.target + ".other" },
+        { ...pair, classification: "authored" }])
+        expect(() => verifyOrderArchiveSourceSelection([...orderArchiveSourcePairs, changed])).toThrow(failure);
+    }
+  });
   it("permits only the exact native total snapshot correction before Summary creation", () => {
     const selected = entry("packages/medusa-order/src/utils/calculate-order-change.ts");
     expect(selected.classification).toBe("orderSummaryPrecisionFork");

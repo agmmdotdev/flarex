@@ -8,6 +8,8 @@ import type { ReadCatalog } from "../../query/catalog";
 import type { SchemaTable } from "../../schema/model";
 import type { PopulationFilter } from "../../query/population";
 import { captureCommerceInput } from "../../value/input";
+import { decodeStoreOrderDalQuery, orderStoreWhere } from "./store-read-query";
+import { storeOrderPageLimit } from "./store-read-input";
 
 const Id = Schema.String.check(Schema.isBetweenLength(1, 256));
 const strings = commerceDecoder(Schema.Union([Schema.NullOr(Id), Schema.Array(Id).check(Schema.isMaxLength(4))]), "unsupportedProfile");
@@ -43,19 +45,23 @@ export function orderFinanceWhere(table: SchemaTable): WherePolicy {
 /** Native Drizzle reads retain OrderItem/OrderShipping wrappers. The public
  * detail selection requests the wrapper; item/shipping method leaves travel
  * through its owning relation before native formatOrder flattens the result. */
-export function prepareOrderFinanceQuery(catalog: ReadCatalog, tables: readonly SchemaTable[], profile: "finance" | "checkout" = "finance") {
+export function prepareOrderFinanceQuery(catalog: ReadCatalog, tables: readonly SchemaTable[], profile: "finance" | "checkout" | "store-read" = "finance") {
   const byName = new Map(tables.map(table => [table.name, table]));
   const policy = (table: string, paths: readonly string[]): ProjectionPolicy => {
     const members = [...new Set(paths.map(path => path.split(".")[0]!))]
       .flatMap(name => { const relation = catalog.relations.get(table)?.get(name); return relation === undefined ? [] : [relation]; });
     return { keys: "retain", storageKeys: "last", joinKeys: "retain", incomingKeys: true, allowWildcard: true,
-      ...(profile === "checkout" ? { ignoreUnknownScalarFields: true } : {}),
+      ...(profile !== "finance" ? { ignoreUnknownScalarFields: true } : {}),
       selectableRelations: members.map(relation => relation.name),
       nested: new Map(members.map(relation => [relation.name, policy(relation.targetTable,
         paths.filter(path => path.startsWith(relation.name + ".")).map(path => path.slice(relation.name.length + 1)))])) };
   };
   const query = (table: SchemaTable, input: unknown) => Result.gen(function* () {
-    const envelope = yield* captureCommerceInput(input).pipe(Result.flatMap(decodeQuery)), options = envelope.options ?? {}, paths: string[] = [], fields: string[] = [];
+    const captured = yield* captureCommerceInput(input);
+    const envelope = yield* (profile === "store-read" ? decodeStoreOrderDalQuery(captured) : decodeQuery(captured));
+    const options: { readonly fields?: readonly string[]; readonly populate?: readonly string[]; readonly limit?: number; readonly offset?: number;
+      readonly orderBy?: { readonly id?: "ASC" | "DESC"; readonly actions?: { readonly ordering: "ASC" } } } = envelope.options ?? {};
+    const paths: string[] = [], fields: string[] = [];
     const translate = (path: string, selection: boolean) => Result.gen(function* () {
       let translated = path;
       if (table.name === "order") {
@@ -77,7 +83,7 @@ export function prepareOrderFinanceQuery(catalog: ReadCatalog, tables: readonly 
         else {
           const target = byName.get(source);
           if (index !== parts.length - 1 || target === undefined || name !== "*" && !target.columns.some(column => column.name === name) &&
-            !(profile === "checkout" && selection && /^[a-z][a-z0-9_]*$/.test(name)))
+            !(profile !== "finance" && selection && /^[a-z][a-z0-9_]*$/.test(name)))
             return yield* Result.fail(commerceError("unsupportedProfile"));
         }
       }
@@ -100,7 +106,7 @@ export function prepareOrderFinanceQuery(catalog: ReadCatalog, tables: readonly 
     if (selected.some(path => !populations.get(table.name)?.includes(path))) return yield* Result.fail(commerceError("unsupportedProfile"));
     const projection = yield* compileProjection(catalog, table.name, options.fields === undefined ? undefined : fields,
       selected, projectionPolicy);
-    const predicate = yield* compileWhere(envelope.where ?? {}, orderFinanceWhere(table));
+    const predicate = yield* compileWhere(envelope.where ?? {}, profile === "store-read" ? orderStoreWhere(table) : orderFinanceWhere(table));
     const ordering = new Map<string, string>();
     if (options.orderBy?.actions !== undefined) {
       if (table.name !== "order_change" || !selected.includes("actions")) return yield* Result.fail(commerceError("unsupportedProfile"));
@@ -109,8 +115,12 @@ export function prepareOrderFinanceQuery(catalog: ReadCatalog, tables: readonly 
       ordering.set(actions.targetTable, "ordering");
     }
     return { table: table.name, projection, paths: selected, relationFilters: [], ordering, withDeleted: false,
-      query: { skip: 0, order: { column: "id", direction: "asc" }, predicate: { kind: "and", children: [predicate, { kind: "isNull", column: "deleted_at" }] } },
-      window: { kind: "catalog", order: "id", select: orderedCatalog("asc") },
+      query: { ...(profile === "store-read" ? { take: options.limit ?? storeOrderPageLimit } : {}),
+        skip: profile === "store-read" ? options.offset ?? 0 : 0,
+        order: { column: "id", direction: profile === "store-read" && options.orderBy?.id === "DESC" ? "desc" : "asc" },
+        predicate: { kind: "and", children: [predicate, { kind: "isNull", column: "deleted_at" }] } },
+      window: profile === "store-read" ? { kind: "database", countAt: "beforePopulation" }
+        : { kind: "catalog", order: "id", select: orderedCatalog("asc") },
     } satisfies ReadPlan;
   });
   return { query };
@@ -122,12 +132,18 @@ export function orderFinanceVersionFilters(table: string, paths: readonly string
   return Result.gen(function* () {
     const selected = ["items", "shipping_methods", "summary", "credit_lines"].filter(path => paths.includes(path));
     if (table !== "order" || selected.length === 0) return [];
-    const parents: Array<Result.Result.Success<ReturnType<typeof parentVersion>>> = [];
-    for (const row of rows) parents.push(yield* parentVersion({ id: row.id, version: row.version }));
+    const versions = new Map<number, Set<string>>();
+    for (const row of rows) {
+      const parent = yield* parentVersion({ id: row.id, version: row.version });
+      const ids = versions.get(parent.version) ?? new Set<string>();
+      ids.add(parent.id); versions.set(parent.version, ids);
+    }
+    // Equal-version parents share one ID membership. This preserves each
+    // exact parent/version pair without one predicate branch per Order.
     return selected.map((path): PopulationFilter => ({ path,
-      predicate: { kind: "or", children: parents.map(row => ({ kind: "and", children: [
-        { kind: "in", column: "order_id", values: [row.id] },
-        { kind: "numberIn", column: "version", values: [row.version] },
+      predicate: { kind: "or", children: [...versions].map(([version, ids]) => ({ kind: "and", children: [
+        { kind: "in", column: "order_id", values: [...ids] },
+        { kind: "numberIn", column: "version", values: [version] },
       ] })) } satisfies Predicate }));
   });
 }

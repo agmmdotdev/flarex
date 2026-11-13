@@ -146,6 +146,36 @@ pending writes. HTTP refetches retain their existing independent protected read
 lifetimes. Several independent reads do not become one atomic snapshot. There
 is no extra database transaction, commit, retry store, lock or recovery path.
 
+The named [Store Order read profile](../flarexdb-framework-integration/preflight/store-order-http.md)
+uses the existing database page/count window with fifty root rows and up to two
+hundred related identities. Native Link metadata's absolute ceiling is 256,
+matching the shared complete-read ceiling; each selected path retains its own
+bounds. Shared ID readers select larger cohorts, owning references and native
+relation presentation explicitly; their ordinary four-row defaults remain.
+This introduces no SQL limit pushdown or larger Core capacity claim. Native
+top-level own-undefined filter/page values reach native normalization, while
+the shared ID query boundary uses existing omission capture for native DAL
+option objects. Invalid nested values and unsupported capabilities still refuse.
+
+The five Store Order readers select a finite native working set through the
+existing trusted host contract: authenticated source table count times the
+existing 256-row complete-cohort allowance. Ordinary readers retain their
+128-identity default and Core ceilings remain unchanged. Count and residual
+evaluation can observe candidates beyond the returned page; those identities
+consume the selected allowance and can still refuse. This selection grants no
+additional module methods, table access or mutation authority.
+The same five-reader profile selects the existing thirty-second command ceiling
+for page/count and local formatting; ordinary ten-second deadlines remain.
+
+The shared Link interpreter combines native alias and relationship listness
+for two-hop endpoints. The genuine `Order.payment_collections` alias declares a
+list even though its relationship wrapper omits `isList`; ignoring that alias
+previously rejected two genuine Collections as corrupt. Singular reverse paths
+and suffix alias output cardinality retain their native contracts and selected
+bounds. The Order version-filter owner also factors equal-version parent IDs
+into membership groups, preserving exact pairs within the existing relational
+predicate budget. Neither correction introduces batching or a larger Core limit.
+
 Caller descriptors and module results are captured before native code receives
 mutable detached copies. Trusted native outputs are detached before the same
 bounded intermediate capture, including native nonenumerable hydration members.

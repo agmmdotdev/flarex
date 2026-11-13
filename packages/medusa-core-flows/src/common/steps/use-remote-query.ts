@@ -4,6 +4,7 @@ import { queryWorkflowGraph, type WorkflowGraphResource } from "./use-query-grap
 import { CartCollectionCreateQuery, CartCollectionCreateView, decodeCartCollectionCreateView } from "./payment-collection-query-views";
 import { decodeNativeShippingOptions, type NativeShippingOptionView } from "./cart-mutation-shipping-query-views";
 import { NativeCartMutationRefreshView } from "./cart-mutation-query-views";
+import { StoreOrderListQuery, isStoreOrderListQuery, decodeStoreOrderListResult, type StoreOrderListResult } from "./store-order-query-views";
 
 // Pinned Product lists retain the bounded graph seam. Named Fulfillment and
 // Payment singleton profiles use the exact native callable Query ABI.
@@ -42,7 +43,7 @@ const RefundOrderInput = Schema.Struct({ entry_point: Schema.Literal("order"),
 const RefundReasonInput = Schema.Struct({ entry_point: Schema.Literal("refund_reason"),
   fields: Schema.Tuple([Schema.Literal("id"), Schema.Literal("label"), Schema.Literal("code")]),
   variables: Schema.Struct({ id: Schema.String }), list: Schema.Literal(false), throw_if_key_not_found: Schema.Literal(true) });
-const Input = Schema.Union([ListInput, SingletonInput, PaymentCollectionInput, PaymentCustomerInput, OrderPaymentInput, CartCollectionCreateQuery,
+const Input = Schema.Union([StoreOrderListQuery, ListInput, SingletonInput, PaymentCollectionInput, PaymentCustomerInput, OrderPaymentInput, CartCollectionCreateQuery,
   RefundPaymentInput, RefundOrderInput, RefundReasonInput]);
 const retainedProperties = Schema.Record(Schema.String, Schema.Json);
 const RawAmount = Schema.Struct({ value: Schema.String, precision: Schema.Finite });
@@ -79,8 +80,9 @@ type ListStepInput = Omit<typeof ListInput.Type, "variables"> & {
 };
 type SingletonStepInput = typeof SingletonInput.Type;
 export type EntryStepInput = ListStepInput | SingletonStepInput | typeof PaymentCollectionInput.Type | typeof PaymentCustomerInput.Type | typeof OrderPaymentInput.Type
-  | typeof RefundPaymentInput.Type | typeof RefundOrderInput.Type | typeof RefundReasonInput.Type | typeof CartCollectionCreateQuery.Type;
+  | typeof RefundPaymentInput.Type | typeof RefundOrderInput.Type | typeof RefundReasonInput.Type | typeof CartCollectionCreateQuery.Type | typeof StoreOrderListQuery.Type;
 type Row = typeof Schema.JsonObject.Type;
+type EntryStepResult = Row | readonly Row[] | typeof CartCollectionCreateView.Type | typeof RefundOrderView.Type | StoreOrderListResult | undefined;
 interface SingletonQueryResource {
   (input: { readonly entryPoint: "stock_location" | "payment_collection" | "customer" | "payment" | "order" | "refund_reason" | "cart"; readonly fields: readonly string[]; readonly variables: { readonly id: string } }
     | { readonly entryPoint: "order_payment_collection"; readonly fields: readonly string[]; readonly variables: { readonly payment_collection_id: string } },
@@ -89,11 +91,18 @@ interface SingletonQueryResource {
 type NativeCartQueryResource = (...args: Parameters<SingletonQueryResource>) => Promise<readonly unknown[]>;
 const decode = Schema.decodeUnknownResult(Input, { onExcessProperty: "error" });
 export const useRemoteQueryStepId = "use-remote-query";
-const step = createStep<EntryStepInput, Row | readonly Row[] | typeof CartCollectionCreateView.Type | undefined>(useRemoteQueryStepId, async (input, { container }) => {
+const step = createStep<EntryStepInput, EntryStepResult>(useRemoteQueryStepId, async (input, { container }) => {
   // Deliberate Promise/throw boundary matching the native step contract.
   const data = Result.getOrThrow(decode(input).pipe(Result.mapError(() => new WorkflowDefinitionError({
     reason: "unsupportedProfile", detail: "Unsupported native remote query step options",
   }))));
+  if (isStoreOrderListQuery(data)) {
+    const query = container.resolve<(input: { readonly entryPoint: "orders"; readonly fields: readonly string[];
+      readonly variables: typeof data.variables }) => Promise<unknown>>("query");
+    const result = await query({ entryPoint: "orders", fields: data.fields, variables: data.variables });
+    return new StepResponse(Result.getOrThrow(decodeStoreOrderListResult(result).pipe(Result.mapError(() =>
+      new WorkflowDefinitionError({ reason: "invalidDefinition", detail: "Malformed native Store Order page" })))));
+  }
   if (data.list === false) {
     const query = container.resolve<SingletonQueryResource>("query");
     if (data.entry_point === "order_payment_collection") {
@@ -134,6 +143,7 @@ const step = createStep<EntryStepInput, Row | readonly Row[] | typeof CartCollec
 // Dynamic selection exposes partial records, never a caller-chosen module DTO.
 export function useRemoteQueryStep(input: typeof CartCollectionCreateQuery.Type): StepOutput<typeof CartCollectionCreateView.Type>;
 export function useRemoteQueryStep(input: SingletonStepInput): StepOutput<Row | undefined>;
+export function useRemoteQueryStep(input: typeof StoreOrderListQuery.Type): StepOutput<StoreOrderListResult>;
 export function useRemoteQueryStep(input: typeof PaymentCollectionInput.Type): StepOutput<typeof PaymentCollectionView.Type | undefined>;
 export function useRemoteQueryStep(input: typeof PaymentCustomerInput.Type): StepOutput<typeof PaymentCustomerView.Type | undefined>;
 export function useRemoteQueryStep(input: typeof OrderPaymentInput.Type & { readonly throw_if_key_not_found: true }): StepOutput<typeof OrderPaymentView.Type>;
@@ -142,7 +152,7 @@ export function useRemoteQueryStep(input: typeof RefundPaymentInput.Type): StepO
 export function useRemoteQueryStep(input: typeof RefundOrderInput.Type): StepOutput<typeof RefundOrderView.Type>;
 export function useRemoteQueryStep(input: typeof RefundReasonInput.Type): StepOutput<typeof RefundReasonView.Type>;
 export function useRemoteQueryStep(input: ListStepInput): StepOutput<readonly Row[]>;
-export function useRemoteQueryStep(input: EntryStepInput): StepOutput<Row | readonly Row[] | typeof CartCollectionCreateView.Type | undefined>;
+export function useRemoteQueryStep(input: EntryStepInput): StepOutput<EntryStepResult>;
 export function useRemoteQueryStep(input: EntryStepInput): unknown { return step(input); }
 
 /** Only successful Shipping projections are narrowed. The existing input

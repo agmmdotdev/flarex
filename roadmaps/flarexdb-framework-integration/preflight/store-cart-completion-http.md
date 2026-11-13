@@ -123,7 +123,7 @@ their complete native dependency and runtime boundaries are proven.
 
 ## Next Correctness Gates
 
-General Store Order browsing requires its own native route, query and access
-contracts. Remote gateways require their complete provider and workflow
+Store Order browsing uses its separate [native read and access profile](./store-order-http.md).
+Remote gateways require their complete provider and workflow
 lifetimes. Production activation and measured capacity retain independent
 acceptance gates; this profile does not establish them.

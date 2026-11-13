@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { Cause, Clock, Effect, Exit, Result, Scope, Semaphore } from "effect";
-import type { JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
+import type { CommerceResources, JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { commerceError, CommerceTransactionError, logicalCommerceBatchResources } from "@flarex/persistence-postgres/internal/commerce-values";
-import type { CoreDatabase, CoreDatabaseOptions, CoreError, CoreProgramDefinition } from "../../../persistence-postgres/src/core/api";
+import type { CoreDatabase, CoreDatabaseOptions, CoreError, CoreNativeLimits, CoreProgramDefinition } from "../../../persistence-postgres/src/core/api";
 import { CorePersistenceError, type CorePersistence } from "../../../persistence-postgres/src/core/contracts";
 import { coreNativeRelationalRows, type CoreNativeDefinition } from "../../../persistence-postgres/src/core/nativePolicy";
 import { openCoreDatabase } from "../../../persistence-postgres/src/core/database";
@@ -62,6 +62,8 @@ interface NativeDirectProfile {
   readonly name: string;
   readonly commands: readonly CommerceCommand[];
   readonly readOnly?: true;
+  readonly resources?: CommerceResources;
+  readonly nativeLimits?: CoreNativeLimits;
 }
 export interface CoreNativeWorkflowFixture {
   readonly physical: CorePersistenceFixture;
@@ -71,7 +73,9 @@ export interface CoreNativeWorkflowFixture {
   readonly eventDefinition: CoreNativeDefinition | undefined;
   readonly execution: AtomicWorkflowExecution;
   readonly source: (name: string) => AtomicCommerceNativeSource;
-  readonly openReadHost: (sourceName: string, commands: readonly CommerceCommand[]) =>
+  readonly openReadHost: (sourceName: string, commands: readonly CommerceCommand[], profile?: Readonly<{
+    resources?: CommerceResources; nativeLimits?: CoreNativeLimits;
+  }>) =>
     Effect.Effect<Pick<CommerceHost, "read" | "close">, CommerceTransactionError>;
   readonly openWriteHost: (sourceName: string, commands: readonly CommerceCommand[]) =>
     Effect.Effect<Pick<CommerceHost, "run" | "newRequestKey" | "close">, CommerceTransactionError>;
@@ -235,6 +239,8 @@ export async function createCoreNativeWorkflowFixture(driver: "pglite" | "postgr
                 commands: yield* Effect.fromResult(commerceNativeRegistrations(profile.commands, readOptions)) });
               return yield* Effect.acquireRelease(makeCommerceNativeHost({ database, binding, hostRuntime,
                 commands: profile.commands, initialization: selectedSource.initialization, ...readOptions,
+                ...(profile.resources === undefined ? {} : { resources: profile.resources }),
+                ...(profile.nativeLimits === undefined ? {} : { nativeLimits: profile.nativeLimits }),
                 identityAndAccessPolicy: { profile: profile.readOnly === true ? "native-workflow-observation" : "native-direct-writer",
                   source: profile.name },
               }), host => host.close);
@@ -251,13 +257,16 @@ export async function createCoreNativeWorkflowFixture(driver: "pglite" | "postgr
           return yield* makeAtomicCommerceNativeOwnerHost({ owner, hostRuntime: facadeRuntime,
             select: generation => generation.getHost(profile), projectOwnerFailure: projectFailure }).pipe(Scope.provide(scope));
         }) };
-      const openDirectHost = (name: string, commands: readonly CommerceCommand[], readOnly?: true) => {
+      const openDirectHost = (name: string, commands: readonly CommerceCommand[], readOnly?: true,
+        selected?: Readonly<{ resources?: CommerceResources; nativeLimits?: CoreNativeLimits }>) => {
         const profile = Object.freeze({ name, commands: Object.freeze([...commands]),
+          ...(selected?.resources === undefined ? {} : { resources: Object.freeze({ ...selected.resources }) }),
+          ...(selected?.nativeLimits === undefined ? {} : { nativeLimits: Object.freeze({ ...selected.nativeLimits }) }),
           ...(readOnly === undefined ? {} : { readOnly }) });
         return makeNativeOwnerHost({ owner, hostRuntime: facadeRuntime,
           select: generation => generation.getDirectHost(profile), projectOwnerFailure: projectFailure }).pipe(Scope.provide(scope));
       };
-      const openReadHost: CoreNativeWorkflowFixture["openReadHost"] = (name, commands) => openDirectHost(name, commands, true).pipe(
+      const openReadHost: CoreNativeWorkflowFixture["openReadHost"] = (name, commands, selected) => openDirectHost(name, commands, true, selected).pipe(
         Effect.map(({ read, close }) => Object.freeze({ read, close })), Effect.withSpan("CoreNativeWorkflowFixture.openReadHost"));
       const openWriteHost: CoreNativeWorkflowFixture["openWriteHost"] = (name, commands) => openDirectHost(name, commands).pipe(
         Effect.map(({ run, newRequestKey, close }) => Object.freeze({ run, newRequestKey, close })), Effect.withSpan("CoreNativeWorkflowFixture.openWriteHost"));

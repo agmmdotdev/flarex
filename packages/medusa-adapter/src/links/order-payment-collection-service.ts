@@ -19,8 +19,9 @@ import { linkLogicalEventPolicy } from "./events";
 import { captureOrderPaymentCollectionLinkMetadata } from "./order-payment-collection-schema";
 import { captureCommerceInput } from "../value/input";
 
-const Filter = Schema.Union([Id, Schema.Array(Id).pipe(Schema.mutable).check(Schema.isMaxLength(4))]);
-const decodeRead = commerceDecoder(Schema.Struct({ filters: Schema.optionalKey(Schema.Struct({
+const makeReadDecoder = (maximumIds: number) => {
+const Filter = Schema.Union([Id, Schema.Array(Id).pipe(Schema.mutable).check(Schema.isMaxLength(maximumIds))]);
+return commerceDecoder(Schema.Struct({ filters: Schema.optionalKey(Schema.Struct({
   id: Schema.optionalKey(Filter), order_id: Schema.optionalKey(Filter), payment_collection_id: Schema.optionalKey(Filter),
 })), config: Schema.optionalKey(Schema.Struct({
   select: Schema.optionalKey(Schema.Array(Schema.String).pipe(Schema.mutable).check(Schema.isMinLength(1))),
@@ -28,43 +29,47 @@ const decodeRead = commerceDecoder(Schema.Struct({ filters: Schema.optionalKey(S
   skip: Schema.optionalKey(Schema.Literal(0)), take: Schema.optionalKey(Schema.Literals([4, 15, 256])),
   order: Schema.optionalKey(Schema.Struct({ order_id: Schema.optionalKey(Schema.Literal("ASC")) })),
 })) }), "invalidInput");
+};
+const readDecoders = { checkout: makeReadDecoder(4), "store-orders": makeReadDecoder(200) };
 
 /** Genuine stored Module Link reads. Payment workflows receive no Link create,
  * cascade or dismissal capability; installed rows remain authoritative. */
-export const prepareOrderPaymentCollectionLinkRead = Effect.fn("OrderPaymentCollectionLink.prepareRead")(function* () {
+const prepareOrderPaymentReadProfile = Effect.fn("OrderPaymentCollectionLink.prepareRead")(function* (profile: "checkout" | "store-orders") {
+  const store = profile === "store-orders", maximumRows = store ? 200 : 4, maximumOrders = store ? 50 : 4;
+  const decodeRead = readDecoders[profile], commandName = store ? "orderPaymentCollectionCountForStoreOrders" : "orderPaymentCollectionCount";
   const metadata = yield* captureOrderPaymentCollectionLinkMetadata(), prepared = yield* prepareLinkService(metadata);
   const prepare = commerceCommandPreparation("OrderPaymentCollectionLink.prepareInput")(decodeRead);
-  const count = defineGraphReadCommand("orderPaymentCollectionCount", Effect.fn("OrderPaymentCollectionLink.count")(function* (ctx: CommerceCommandContext, input: Json) {
+  const count = defineGraphReadCommand(commandName, Effect.fn("OrderPaymentCollectionLink.count")(function* (ctx: CommerceCommandContext, input: Json) {
     const args = yield* prepare(ctx, input);
     const result = yield* prepared.useService(ctx, ({ service, context }) => service.listAndCount(args.filters,
-      { ...args.config, take: args.config?.take ?? 4 }, context));
+      { ...args.config, take: args.config?.take ?? (store ? 256 : 4) }, context));
     const [rows, total] = yield* Effect.fromResult(decodeGraphCount(result))
       .pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
-    if (total > 4 || rows.length !== total) return yield* ctx.refuse(commerceError("limitExceeded"));
+    if (total > maximumRows || rows.length !== total) return yield* ctx.refuse(commerceError("limitExceeded"));
     return [rows, total];
   }));
   const aliases = yield* Effect.fromResult(moduleAliases(prepared.joiner)), model = aliases[0]?.model;
   if (model === undefined || aliases.some(alias => alias.model !== model)) return yield* Effect.fail(commerceError("unsupportedProfile"));
   const endpoints = yield* Effect.fromResult(nativeLinkGraphEndpoints(prepared.joiner, [
-    { path: "order", maximumSources: 4, maximumTargets: 4 },
-    { path: "payment_collection", maximumSources: 4, maximumTargets: 4 },
+    { path: "order", maximumSources: maximumRows, maximumTargets: maximumOrders },
+    { path: "payment_collection", maximumSources: maximumRows, maximumTargets: maximumRows },
   ]));
   const remotePaths = [
     ...(yield* Effect.fromResult(nativeLinkGraphPaths(prepared.joiner, [
-      { root: "Order", path: "payment_collections", maximumSources: 4, maximumLinks: 4, maximumTargets: 4, maximumPerSource: 4 },
-      { root: "PaymentCollection", path: "order", maximumSources: 4, maximumLinks: 4, maximumTargets: 4, maximumPerSource: 1 },
+      { root: "Order", path: "payment_collections", maximumSources: maximumOrders, maximumLinks: maximumRows, maximumTargets: maximumRows, maximumPerSource: 4 },
+      { root: "PaymentCollection", path: "order", maximumSources: maximumRows, maximumLinks: maximumRows, maximumTargets: maximumOrders, maximumPerSource: 1 },
     ], undefined, [OrderPaymentCollection]))),
     // Native batch refunds start at Payment and traverse its checked local
     // collection before this genuine stored Link. Metadata owns both joins.
-    ...(yield* Effect.fromResult(nativeLinkGraphPaths(prepared.joiner, [
+    ...(store ? [] : yield* Effect.fromResult(nativeLinkGraphPaths(prepared.joiner, [
       { root: "Payment", path: "payment_collection.order", maximumSources: 4, maximumLinks: 4, maximumTargets: 4, maximumPerSource: 1 },
     ], "PaymentCollection", [OrderPaymentCollection]))),
   ];
   const basePolicy = linkLogicalEventPolicy(metadata.frame.name, prepared.serviceName, prepared.entityName, ["order_id", "payment_collection_id"]);
-  const policy = yield* Effect.fromResult(checkoutLinkReadPolicy(metadata.frame, ["order_id", "payment_collection_id"], "orderPaymentCollectionCount",
+  const policy = yield* Effect.fromResult(checkoutLinkReadPolicy(metadata.frame, ["order_id", "payment_collection_id"], commandName,
     "OrderPaymentCollectionLink.validateRead", basePolicy, input => Result.gen(function* () {
       const args = yield* decodeRead(input);
-      const plan = yield* captureCommerceInput(buildQuery(args.filters, { ...args.config, take: args.config?.take ?? 4,
+      const plan = yield* captureCommerceInput(buildQuery(args.filters, { ...args.config, take: args.config?.take ?? (store ? 256 : 4),
         ...(args.config?.select === undefined ? {} : { select: [...args.config.select] }),
         ...(args.config?.relations === undefined ? {} : { relations: [...args.config.relations] }),
       })).pipe(Result.flatMap(query => prepared.prepared.readPlan(query, defaultCommerceResources.queryRows)));
@@ -73,12 +78,14 @@ export const prepareOrderPaymentCollectionLinkRead = Effect.fn("OrderPaymentColl
           const filter = args.filters?.[name], value = row[name];
           return filter === undefined || typeof value === "string" && (typeof filter === "string" ? filter === value : filter.includes(value));
         }) };
-    })));
+    }), maximumRows));
   const commands = [count];
   const workflow = yield* Effect.fromResult(defineWorkflowModule({ name: "order_payment_collection_links",
-    source: { name: prepared.serviceName, profile: "order-payment-collection-read" }, methods: {},
+    source: { name: prepared.serviceName, profile: store ? "order-payment-collection-store-read" : "order-payment-collection-read" }, methods: {},
     graph: yield* Effect.fromResult(withNativeLinkGraphMetadata({ aliases, services: yield* Effect.fromResult(nativeLinkGraphServices(prepared.joiner)),
       reads: [{ model, command: count, table: prepared.prepared.table, paths: [], orderable: ["order_id"], uniqueOrder: [], multipleOrder: false, decode: decodeGraphCount }],
       linkEndpoints: endpoints, remotePaths }, [prepared.joiner], [metadata.frame], [OrderModuleService.prototype.__joinerConfig(), PaymentModuleService.prototype.__joinerConfig()])), logical: { ...policy, commands } }));
   return { metadata, prepared, workflow, count, commands, logicalEventPolicy: () => policy };
 });
+export const prepareOrderPaymentCollectionLinkRead = () => prepareOrderPaymentReadProfile("checkout");
+export const prepareStoreOrderPaymentCollectionLinkRead = () => prepareOrderPaymentReadProfile("store-orders");

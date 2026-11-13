@@ -303,6 +303,7 @@ Preflight records:
 | [Internal Product and command registration](./preflight/46-commerce-command-registration-bound.md) | Implemented privately on both drivers | Final 23 originals plus four direct-call boundary checks; all ten Product files yield 205 passes and one retained upstream skip per driver; 128 registered definitions with unchanged execution bounds |
 | [Shared Medusa persistence adapter](./preflight/47-medusa-shared-persistence-adapter.md) | Shared reads implemented and validated on PGlite and ordinary-role PostgreSQL | One metadata-driven read/projection engine for Currency and Product, preserving module policy and named extensions; later schema/write and module-factory capabilities remain distinct |
 | [Payload adapter package extraction](./preflight/52-payload-adapter-package-extraction.md) | Private ownership correction implemented | Pinned Payload profile, Local API runtime and compatibility bridge moved behind one package; persistence retains transaction, lifecycle storage, materialization and publication authority |
+| [Store Order retrieval and listing HTTP](./preflight/store-order-http.md) | Private bounded PGlite, ordinary-role Postgres and actual Workerd acceptance | Native public detail and verified-Customer list, status aggregation, bounded page/count and genuine Fulfillment/Payment/Order Links behind private Effect HTTP |
 
 ## Current Architecture
 

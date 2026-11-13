@@ -1,5 +1,5 @@
 import { Effect, Result, Schema } from "effect";
-import { commerceError, commerceLimits, capturePrivateJsonData, isJsonObject, type CommerceTransactionError, type Json, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
+import { commerceError, commerceLimits, capturePrivateJsonData, captureCommerceResources, defaultCommerceResources, isJsonObject, type CommerceResources, type CommerceTransactionError, type Json, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { commerceDecoder } from "../value/decoder";
 import { checkedCommerceValue } from "../value/checked";
 import { QueryLimit, QueryOffset } from "../query/decoder";
@@ -67,8 +67,10 @@ function planQuery(input: unknown, entries: ReadonlyMap<string, GraphReadSelecti
 
 /** Capture trusted module metadata once. Scope/installation/command authority
  * remains with core; this registry only restricts graph dispatch and projection. */
-export function prepareLocalGraph(participants: readonly GraphParticipant[]): Result.Result<PreparedLocalGraph, CommerceTransactionError> {
+export function prepareLocalGraph(participants: readonly GraphParticipant[],
+  resources: CommerceResources = defaultCommerceResources): Result.Result<PreparedLocalGraph, CommerceTransactionError> {
   return Result.gen(function* () {
+    const selectedResources = yield* captureCommerceResources(resources);
     const entries = new Map<string, GraphReadSelection>();
     const services = new Map<string, GraphReadSelection>();
     const allModels = new Map<string, GraphReadSelection[]>();
@@ -209,7 +211,7 @@ export function prepareLocalGraph(participants: readonly GraphParticipant[]): Re
       }
       catalog.set(alias, { ...entry, read: Object.freeze({ ...entry.read, paths: Object.freeze(expanded) }) });
     }
-    const nativeRegistry = yield* prepareNativeReadRegistry(capturedParticipants);
+    const nativeRegistry = yield* prepareNativeReadRegistry(capturedParticipants, selectedResources);
     const decodePage = commerceDecoder(Schema.Struct({ data: Schema.Array(Schema.JsonObject).check(Schema.isMaxLength(commerceLimits.catalogRows)),
       metadata: Schema.Struct({ count: Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: commerceLimits.catalogRows })),
         skip: QueryOffset, take: QueryLimit }) }), "storedCorruption");
@@ -223,22 +225,23 @@ export function prepareLocalGraph(participants: readonly GraphParticipant[]): Re
           const root = (service ? services : entries).get(name);
           return root === undefined ? Result.fail(commerceError("unsupportedProfile"))
             : fields === undefined ? Result.succeed(undefined) : planGraphFields(root.read, fields);
-        }));
+        }, selectedResources));
         const entry = (inspected.service ? services : entries).get(inspected.entity);
         if (entry === undefined || method === "graph" && !("entity" in inspected.value))
           return yield* context.refuse(commerceError("unsupportedProfile"));
         yield* checkedCommerceValue(context, () => planGraphFields(entry.read, inspected.fields));
-        if (options !== undefined) yield* checkedCommerceValue(context, () => admitNativeQueryPaths(options).pipe(Result.flatMap(decodeNativeGraphOptions)));
+        if (options !== undefined) yield* checkedCommerceValue(context, () => admitNativeQueryPaths(options, selectedResources).pipe(Result.flatMap(decodeNativeGraphOptions)));
         const cohorts = yield* checkedCommerceValue(context, () => prepareNativeCohorts({ root: entry, fields: inspected.fields,
           remote: remotePaths.get(entry.read.model) ?? new Map(), direct: directPaths.get(entry.read.model) ?? new Map(),
           endpoints: linkEndpoints.get(entry.read.model) ?? new Map() }));
-        const bridge = makeNativeQueryBridge({ ...registry.metadata, read: registry.bind(context, cohorts.observe), recordFailure: context.recordFailure });
+        const bridge = makeNativeQueryBridge({ ...registry.metadata, read: registry.bind(context, cohorts.observe), recordFailure: context.recordFailure,
+          resources: selectedResources });
         return yield* (method === "query" ? bridge.query(inspected.value, options) : bridge.graph(inspected.value, options));
       });
       const graph = Effect.fn("LocalGraph.graph")(function* (input: unknown, options?: unknown) {
         const { args, order } = yield* checkedCommerceValue(context, () => planQuery(input, entries));
         const result = yield* native("graph", { ...args, pagination: { ...args.pagination, skip: args.pagination.skip ?? 0, order } }, options);
-        return yield* checkedCommerceValue(context, () => captureCommerceInput(result).pipe(Result.flatMap(decodePage)));
+        return yield* checkedCommerceValue(context, () => captureCommerceInput(result, selectedResources).pipe(Result.flatMap(decodePage)));
       });
       return Object.freeze({ graph,
         remoteQuery: (input: unknown, options?: unknown) => native("query", input, options),

@@ -37,6 +37,12 @@
     },
     {
       "relativePath": "packages/medusa-http/src/api/store/carts/[id]/complete/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa-http/src/api/store/orders/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa-http/src/api/store/orders/[id]/route.ts"
     }
   ],
   "middlewares": [
@@ -51,6 +57,10 @@
     {
       "relativePath": "packages/medusa-http/src/api/store/payment-collections/middlewares.ts",
       "exportName": "storePaymentCollectionsMiddlewares"
+    },
+    {
+      "relativePath": "packages/medusa-http/src/api/store/orders/middlewares.ts",
+      "exportName": "storeOrderRoutesMiddlewares"
     }
   ]
 }

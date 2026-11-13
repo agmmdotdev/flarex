@@ -3,6 +3,7 @@ import { Result } from "effect";
 import { capturePrivateIntermediateJsonData, inspectCapturedPrivateJsonData, commerceError, defaultCommerceResources } from "@flarex/persistence-postgres/internal/commerce-values";
 import { captureCommerceInput } from "../src/value/input";
 import { captureWorkflowCommandInput, captureWorkflowInput, decodeWorkflowCommandInput, type WorkflowIntermediateValue } from "../src/workflow/value";
+import { storeOrderReadResources } from "../src/modules/order/store-read-input";
 
 const bounds = { bytes: defaultCommerceResources.commandBytes, nodes: defaultCommerceResources.valueNodes, depth: 16 };
 const chain = (depth: number, leaf: WorkflowIntermediateValue = "leaf"): WorkflowIntermediateValue => {
@@ -65,4 +66,27 @@ it("retains the complete transport node and byte caps", () => {
   expect(decodeWorkflowCommandInput({ payload: { value: input }, undefinedPaths: [] }, decode))
     .toMatchObject({ _tag: "Failure", failure: { reason: "limitExceeded" } });
   expect(decode).not.toHaveBeenCalled();
+});
+
+it("uses an explicit native read value budget while retaining ordinary capture and descriptor refusals", () => {
+  const input = { values: Array.from({ length: 9_000 }, () => 0), own: undefined, dense: [undefined] };
+  expect(captureWorkflowInput(input, "preserveOwnUndefined"))
+    .toMatchObject({ _tag: "Failure", failure: { reason: "limitExceeded" } });
+  const captured = Result.getOrThrow(captureWorkflowInput(input, "preserveOwnUndefined", storeOrderReadResources));
+  expect(captured).toEqual(input); expect(captured).not.toBe(input);
+  let getters = 0;
+  const getter = Object.defineProperty({}, "value", { enumerable: true, get() { getters++; return 1; } });
+  expect(captureWorkflowInput(getter, "preserveOwnUndefined", storeOrderReadResources))
+    .toMatchObject({ _tag: "Failure", failure: { reason: "invalidInput" } });
+  expect(getters).toBe(0);
+  expect(captureWorkflowCommandInput(input)).toMatchObject({ _tag: "Failure", failure: { reason: "limitExceeded" } });
+});
+
+it("charges the selected source and complete undefined sidecar envelope independently", () => {
+  const positions = Array.from({ length: 9_000 }, () => undefined);
+  expect(Result.getOrThrow(captureWorkflowInput(positions, "preserveOwnUndefined", storeOrderReadResources))).toEqual(positions);
+  for (const input of [Array.from({ length: storeOrderReadResources.valueNodes }, () => 0),
+    Array.from({ length: 18_000 }, () => undefined)])
+    expect(captureWorkflowInput(input, "preserveOwnUndefined", storeOrderReadResources))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "limitExceeded" } });
 });

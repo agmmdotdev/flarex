@@ -4,6 +4,8 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./order/get-order-detail": "./src/order/workflows/get-order-detail.ts",
+    "./order/get-orders-list": "./src/order/workflows/get-orders-list.ts",
     "./cart/update-cart": "./src/cart/workflows/update-cart.ts",
     "./cart/add-to-cart": "./src/cart/workflows/add-to-cart.ts",
     "./cart/update-line-item-in-cart": "./src/cart/workflows/update-line-item-in-cart.ts",

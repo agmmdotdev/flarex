@@ -2,7 +2,7 @@ import { Result, Schema } from "effect";
 import { normalizeQueryConfig } from "@medusajs/modules-sdk/remote-query";
 import { toRemoteJoinerQuery } from "@medusajs/orchestration/joiner";
 import type { RemoteJoinerQuery } from "@medusajs/types";
-import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
+import { commerceError, defaultCommerceResources, type CommerceResources } from "@flarex/persistence-postgres/internal/commerce-values";
 import { commerceDecoder } from "../value/decoder";
 import { QueryLimit, QueryOffset } from "../query/decoder";
 import { admitNativeQueryPaths, type NativeQueryMetadata } from "./native-bridge";
@@ -14,7 +14,7 @@ const Page = Schema.Struct({ take: Schema.optionalKey(Schema.UndefinedOr(QueryLi
   order: Schema.optionalKey(Schema.UndefinedOr(Schema.Record(Name, Schema.Literals(["ASC", "DESC", "asc", "desc"])))) });
 const Variables = Schema.StructWithRest(Schema.Struct({ id: Schema.optionalKey(Schema.UndefinedOr(Schema.Union([
   Schema.String, Schema.Array(Schema.UndefinedOr(Schema.String)).check(Schema.isMaxLength(256)),
-]))), }), [Schema.Record(Schema.String.check(Schema.makeFilter(key => key !== "id")), Schema.Json)]);
+]))), }), [Schema.Record(Schema.String.check(Schema.makeFilter(key => key !== "id")), Schema.UndefinedOr(Schema.Json))]);
 interface SelectionNode {
   readonly fields?: readonly string[];
   readonly __args?: object;
@@ -29,7 +29,7 @@ const Node: Schema.Codec<SelectionNode> = Schema.suspend(() => Schema.StructWith
   isServiceAccess: Schema.optionalKey(Schema.Boolean),
 }), [Schema.Record(ChildName, Node)]));
 const decodeInput = commerceDecoder(Schema.Union([
-  Schema.Struct({ entity: Name, fields: Fields, filters: Schema.optionalKey(Schema.UndefinedOr(Schema.JsonObject)),
+  Schema.Struct({ entity: Name, fields: Fields, filters: Schema.optionalKey(Schema.UndefinedOr(Schema.Record(Schema.String, Schema.UndefinedOr(Schema.Json)))),
     pagination: Schema.optionalKey(Schema.UndefinedOr(Page)), context: Schema.optionalKey(Schema.UndefinedOr(Schema.JsonObject)),
     withDeleted: Schema.optionalKey(Schema.UndefinedOr(Schema.Boolean)) }),
   Schema.Struct({ entryPoint: Name, fields: Fields, variables: Schema.optionalKey(Variables) }),
@@ -47,9 +47,10 @@ export const decodeNativeGraphOptions = commerceDecoder(Schema.Struct({
 /** Inspect the genuine native normalized plan only for profile admission. No
  * selection tree, filter, alias, expansion or response is reconstructed here. */
 export function prepareNativeGraphInput(input: unknown, metadata: NativeQueryMetadata,
-  admitRoot: (name: string, service: boolean, fields?: readonly string[]) => Result.Result<void, ReturnType<typeof commerceError>>) {
+  admitRoot: (name: string, service: boolean, fields?: readonly string[]) => Result.Result<void, ReturnType<typeof commerceError>>,
+  resources: Pick<CommerceResources, "commandBytes" | "valueNodes"> = defaultCommerceResources) {
   return Result.gen(function* () {
-    const captured = yield* admitNativeQueryPaths(input);
+    const captured = yield* admitNativeQueryPaths(input, resources);
     const value = yield* decodeInput(captured);
     const rootName = "entity" in value ? value.entity : "entryPoint" in value ? value.entryPoint
       : "service" in value ? value.service : Object.keys(value.__value)[0];

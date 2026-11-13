@@ -1,4 +1,4 @@
-import { Deferred, Effect, Result } from "effect";
+import { Deferred, Effect, Result, Schema } from "effect";
 import { StepResponse, stepCallbackOutput } from "./responses";
 import { SkipStepResponse } from "@medusajs/orchestration/transaction/errors";
 import { definitionError, type ParallelGroup, type StepExecutionContext, type WorkflowContainer } from "./model";
@@ -7,6 +7,9 @@ import { prepareTransformResolution, resolveWorkflowValue, type WorkflowResoluti
 import { bindCallbackContainer, callbackWorkflowInput } from "./callback-binding";
 
 export interface WorkflowExecutionPort<Failure> {
+  /** Trusted execution quota for reached transform data, independent of the
+   * captured definition's unchanged construction and depth limits. */
+  readonly resolutionNodes?: number;
   /** Explicit compatibility disposition supplied only by the trusted caller.
    * It promises one durable atomic outcome, not native step checkpoints or TTL. */
   readonly storedWorkflowPolicy?: "atomicRootOutcome";
@@ -24,11 +27,15 @@ export interface WorkflowExecutionPort<Failure> {
   readonly bindCallbackResources?: (container: WorkflowContainer) => () => void;
   readonly context: StepExecutionContext;
 }
+const decodeResolutionNodes = Schema.decodeUnknownResult(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 131_072 })));
 /** Fork of reference/transform/response execution, with a caller-owned runtime.
  * There is no distributed transaction, scheduler, local registry or compensating commit. */
 export const executeWorkflow = Effect.fn("MedusaWorkflow.execute")(function <Failure>(
   definition: PreparedWorkflow, input: unknown, port: WorkflowExecutionPort<Failure>,
 ) {
+  const selectedNodes = port.resolutionNodes;
+  const resolutionNodes = decodeResolutionNodes(selectedNodes === undefined ? 4096 : selectedNodes).pipe(Result.mapError(() =>
+    definitionError("unsupportedProfile", "Invalid workflow resolution node quota")));
   if (!isPreparedWorkflow(definition)) return Effect.fail(definitionError("invalidDefinition", "Workflow was not prepared by this SDK"));
   if (port.runChild !== undefined && port.refuseCallback === undefined)
     return Effect.fail(definitionError("unsupportedProfile", "Callback children require their owning synchronous refusal boundary"));
@@ -46,11 +53,11 @@ export const executeWorkflow = Effect.fn("MedusaWorkflow.execute")(function <Fai
       }
     }
   }
-  return executeFrame(definition, input, port, true);
+  return Effect.fromResult(resolutionNodes).pipe(Effect.flatMap(nodes => executeFrame(definition, input, port, nodes, true)));
 });
 /** Child frames borrow the root port; only their evaluation caches are local. */
 const executeFrame = Effect.fn("MedusaWorkflow.frame")(function* <Failure>(
-  definition: PreparedWorkflow, input: unknown, port: WorkflowExecutionPort<Failure>, root = false, framePath: readonly number[] = [],
+  definition: PreparedWorkflow, input: unknown, port: WorkflowExecutionPort<Failure>, resolutionNodes: number, root = false, framePath: readonly number[] = [],
   parentStepIdempotencyKey?: string,
 ): Effect.fn.Return<unknown, Failure | ReturnType<typeof definitionError>> {
   const outputs = new Map<object, unknown>();
@@ -83,7 +90,7 @@ const executeFrame = Effect.fn("MedusaWorkflow.frame")(function* <Failure>(
     return Deferred.complete(pending, work).pipe(Effect.andThen(Deferred.await(pending)));
   });
   const resolve = Effect.fn("MedusaWorkflow.resolve")(function* (resolution: WorkflowResolution, parent?: object, depth = 0): Effect.fn.Return<WorkflowResolvedValue, Failure | ReturnType<typeof definitionError>> {
-    const evaluation = resolveWorkflowValue(resolution, frame, depth);
+    const evaluation = resolveWorkflowValue(resolution, frame, depth, resolutionNodes);
     let next = evaluation.next();
     while (!next.done) {
       const request = next.value;
@@ -96,7 +103,7 @@ const executeFrame = Effect.fn("MedusaWorkflow.frame")(function* <Failure>(
         // as transformer invocation. The initialized failure also refuses a
         // broken port that reports success without running its callback.
         let inspected: ReturnType<typeof prepareTransformResolution> = Result.fail(definitionError("invalidReference", "Transform result inspection did not complete"));
-        yield* port.invoke(() => { inspected = prepareTransformResolution(output); });
+        yield* port.invoke(() => { inspected = prepareTransformResolution(output, resolutionNodes); });
         const returned = yield* Effect.fromResult(inspected);
         const resolved = yield* resolve(returned, request.reference, request.depth + 1);
         return { value: yield* port.capture(resolved.value), undefinedStepResult: resolved.undefinedStepResult };
@@ -137,7 +144,7 @@ const executeFrame = Effect.fn("MedusaWorkflow.frame")(function* <Failure>(
     }
     const input = yield* port.capture(resolvedInput);
     if (node.kind === "workflow") {
-      const output = yield* executeFrame(node.workflow, input, port, false, [...framePath, index],
+      const output = yield* executeFrame(node.workflow, input, port, resolutionNodes, false, [...framePath, index],
         JSON.stringify([port.context.eventGroupId, ...framePath, index]));
       outputs.set(node.id, yield* port.capture(output));
       // Native runAsStep wraps a child's result in StepResponse, including void.
@@ -160,7 +167,7 @@ const executeFrame = Effect.fn("MedusaWorkflow.frame")(function* <Failure>(
         : Effect.gen(function* () {
           const childInput = yield* port.invoke(() => callbackWorkflowInput(options));
           const captured = yield* port.capture(childInput);
-          const result = yield* executeFrame(declared.workflow, captured, port, false, [...framePath, index, position], invocationKey);
+          const result = yield* executeFrame(declared.workflow, captured, port, resolutionNodes, false, [...framePath, index, position], invocationKey);
           return { result: yield* port.capture(result) };
         });
       used.add(child);

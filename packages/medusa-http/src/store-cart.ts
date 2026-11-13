@@ -19,6 +19,8 @@ export type StoreCartHttpOptions = {
   admitPaymentCollectionFields?(fields: readonly string[]): void
   /** Completion admits both the successful Order and native error Cart refetch. */
   admitOrderRefetchFields?(fields: readonly string[]): void
+  /** Native Order reads admit their mandatory status dependency projections. */
+  admitOrderReadFields?(fields: readonly string[], kind: "detail" | "list"): void
 }
 
 export function createStoreCartHttpHandler(options: StoreCartHttpOptions): FetchHttpStaticHandler {
@@ -47,6 +49,13 @@ export function createStoreCartHttpHandler(options: StoreCartHttpOptions): Fetch
     options.admitOrderRefetchFields(request.queryConfig.fields)
     const cart = await prepareRetrieveQuery({}, { defaults: defaultStoreCartFields }, request)
     options.admitCartRefetchFields(cart.remoteQueryConfig.fields)
+    next()
+  }
+  const admitOrderRead = (kind: "detail" | "list"): MiddlewareFunction => (request, _response, next) => {
+    if (options.admitOrderReadFields === undefined) {
+      throw new MedusaError(MedusaError.Types.NOT_ALLOWED, "Order reads are outside the admitted Store profile")
+    }
+    options.admitOrderReadFields(request.queryConfig.fields, kind)
     next()
   }
   const native = createFetchHttpStaticHandler({
@@ -80,6 +89,8 @@ export function createStoreCartHttpHandler(options: StoreCartHttpOptions): Fetch
           { method: ["POST"], matcher: "/store/payment-collections", middlewares: [admitPaymentCollection] },
           { method: ["POST"], matcher: "/store/payment-collections/:id/payment-sessions", middlewares: [admitPaymentCollection] },
           { method: ["POST"], matcher: "/store/carts/:id/complete", middlewares: [admitCompletion] },
+          { method: ["GET"], matcher: "/store/orders", middlewares: [admitOrderRead("list")] },
+          { method: ["GET"], matcher: "/store/orders/:id", middlewares: [admitOrderRead("detail")] },
         ] } } },
       ],
     },

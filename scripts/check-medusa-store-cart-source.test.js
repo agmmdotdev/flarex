@@ -4,6 +4,21 @@ import { storeCartHttpSourcePairs, verifyStoreCartHttpSelection, verifyStoreCart
 import { admitsCurrencyImport } from "./check-medusa-currency-promotion.mjs";
 
 describe("native Store Cart HTTP source preservation", () => {
+  it("preserves Order read ownership, native access and pagination forwarding", () => {
+    for (const [suffix, before, after] of [
+      ["store/orders/route.ts", "customer_id: req.auth_context.actor_id", 'customer_id: "forged"'],
+      ["store/orders/route.ts", "is_draft_order: false", "is_draft_order: true"],
+      ["store/orders/route.ts", "...req.queryConfig.pagination", "...{}"],
+      ["store/orders/[id]/route.ts", 'workflow.run("get-order-detail",', 'workflow.run("get-orders-list",'],
+      ["store/orders/middlewares.ts", 'authenticate("customer", ["session", "bearer"]),', ""],
+      ["store/orders/validators.ts", "limit: 50", "limit: 4"],
+    ]) {
+      const pair = storeCartHttpSourcePairs.find(pair => pair.target.endsWith(suffix));
+      const native = readFileSync(pair.source, "utf8"), original = readFileSync(pair.target, "utf8"), changed = original.replace(before, after);
+      expect(changed).not.toBe(original);
+      expect(() => verifyStoreCartHttpSource(native, changed, pair.target)).toThrow();
+    }
+  });
   it("confines the Category native list ABI proof to its authenticated producer", () => {
     const file = "packages/medusa-adapter/test/product-request-category-reads.test.ts";
     const specifier = "../../medusa-framework/src/http/utils/get-query-config";

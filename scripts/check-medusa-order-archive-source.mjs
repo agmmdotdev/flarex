@@ -11,6 +11,7 @@ import { paymentCollectionSourcePairs } from "./check-medusa-payment-collection-
 import { checkoutSourcePairs } from "./check-medusa-checkout-source.mjs";
 import { orderChangeCancellationSourcePairs, verifyOrderChangeCancellationSource } from "./check-medusa-order-change-cancellation-source.mjs";
 import { orderChangeDeletionSourcePairs } from "./check-medusa-order-change-deletion-source.mjs";
+import { storeOrderReadSourcePairs } from "./check-medusa-store-order-workflow-source.mjs";
 
 import { orderChangeDeclineSourcePairs } from "./check-medusa-order-change-decline-source.mjs";
 
@@ -115,6 +116,8 @@ export function verifyOrderArchiveSourceSelection(files) {
     if (orderChangeDeclineSourcePairs.some(pair => pair.source === file.source && pair.target === file.target &&
       pair.classification === file.classification)) continue;
     if (orderChangeDeletionSourcePairs.some(pair => pair.source === file.source && pair.target === file.target &&
+      pair.classification === file.classification)) continue;
+    if (storeOrderReadSourcePairs.some(pair => pair.source === file.source && pair.target === file.target &&
       pair.classification === file.classification)) continue;
     const relevant = ["orderArchiveFork", "orderArchiveCompensationFork", "orderSummaryPrecisionFork", "orderChangeCancellationFork", "orderChangeCancellationRestoreFork"].includes(file.classification) || file.target.startsWith("packages/medusa-order/") ||
       file.target.startsWith(workflowTarget) || file.target.startsWith(helperTarget) ||

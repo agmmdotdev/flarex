@@ -6,7 +6,7 @@ import { captureCommerceInput } from "../value/input";
 import { commerceDecoder } from "../value/decoder";
 
 const Name = Schema.String.check(Schema.isPattern(/^[A-Za-z][A-Za-z0-9_]*$/));
-const Bound = Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 128 }));
+const Bound = Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 256 }));
 export const GraphLinkEndpointSchema = Schema.Struct({ root: Name, path: Name, sourceKey: Name, targetModel: Name, targetKey: Name,
   maximumSources: Bound, maximumTargets: Bound });
 export type GraphLinkEndpoint = typeof GraphLinkEndpointSchema.Type;
@@ -120,9 +120,13 @@ export function nativeLinkGraphPaths(joiner: ModuleJoinerConfig, selections: rea
         const canonical = canonicalNames[0] ?? (pieces.length > 2 ? edgePath : undefined);
         if (alias.forwardArgumentsOnPath?.some(path => path !== edgePath)) return yield* Result.fail(commerceError("unsupportedProfile"));
         const prefix = selection.path.split(".").slice(0, -1);
+        // Native alias implosion combines endpoint alias and relationship
+        // listness. A suffix alias describes its local output instead; it
+        // must not turn a singleton remote endpoint into a list capability.
+        const many = extension.relationship.isList === true || pieces.length === 2 && alias.isList === true;
         resolved = { sourceModel: current, sourceKey: source.primaryKey, linkModel,
           sourceColumn: source.foreignKey, targetColumn: target.foreignKey, targetModel: target.entity, targetKey: target.primaryKey,
-          ...(extension.relationship.isList === true ? {} : { many: false as const }),
+          ...(many ? {} : { many: false as const }),
           ...(canonical === undefined ? {} : { canonicalPath: [...prefix, canonical].join(".") }),
           ...(pieces.length === 2 ? {} : { targetSuffix: pieces.slice(2).join("."), outputMany: alias.isList === true }),
           ...(alias.forwardArgumentsOnPath === undefined ? {} : { forwardArgumentsOnPath: [...alias.forwardArgumentsOnPath] }) };

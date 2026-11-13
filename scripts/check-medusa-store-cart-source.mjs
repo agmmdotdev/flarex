@@ -8,6 +8,7 @@ const targetRoot = "packages/medusa-http/src/api/";
 const names = ["store/carts/route.ts", "store/carts/[id]/route.ts", "store/carts/helpers.ts", "store/carts/query-config.ts",
   "store/carts/[id]/line-items/route.ts", "store/carts/[id]/line-items/[line_id]/route.ts",
   "store/carts/[id]/complete/route.ts", "store/orders/validators.ts", "store/orders/query-config.ts",
+  "store/orders/route.ts", "store/orders/[id]/route.ts", "store/orders/middlewares.ts",
   "store/carts/[id]/promotions/route.ts", "store/carts/[id]/taxes/route.ts",
   "store/carts/[id]/shipping-methods/route.ts", "store/shipping-options/route.ts", "store/shipping-options/validators.ts",
   "store/shipping-options/middlewares.ts", "store/shipping-options/query-config.ts",
@@ -62,8 +63,21 @@ export function verifyStoreCartHttpSource(native, promoted, target) {
     expected = expected.replace(/import \{\s*ContainerRegistrationKeys,\s*MedusaError,\s*Modules,\s*\} from "@medusajs\/framework\/utils"/,
       'import { ContainerRegistrationKeys } from "@medusajs/utils/common/container"\nimport { MedusaError } from "@medusajs/utils/common/errors"\nimport { Modules } from "@medusajs/utils/modules-sdk/definition"');
   } else if (name === "store/orders/validators.ts") {
-    expected = 'import { z } from "@medusajs/framework/zod"\nimport { createSelectParams } from "../../utils/validators"\n'
-      + declarations(expected, ["StoreGetOrderParams"]);
+    expected = 'import { z } from "@medusajs/framework/zod"\nimport { createFindParams, createSelectParams } from "../../utils/validators"\nimport { applyAndAndOrOperators } from "../../utils/common-validators"\n'
+      + declarations(expected, ["StoreGetOrderParams", "StoreGetOrdersParamsFields", "StoreGetOrdersParams"]);
+  } else if (name === "store/orders/route.ts" || name === "store/orders/[id]/route.ts") {
+    const detail = name.includes("[id]"), symbol = detail ? "getOrderDetailWorkflow" : "getOrdersListWorkflow";
+    const workflowId = detail ? "get-order-detail" : "get-orders-list";
+    expected = expected.replace(`import { ${symbol} } from "@medusajs/core-flows"`, 'import { Modules } from "@medusajs/utils/modules-sdk/definition"')
+      .replace(`const workflow = ${symbol}(req.scope)`, 'const workflow = req.scope.resolve(Modules.WORKFLOW_ENGINE)')
+      .replace("await workflow.run({", `await workflow.run("${workflowId}", {`);
+  } else if (name === "store/orders/middlewares.ts") {
+    const file = parse(expected);
+    const statement = file.statements.find(node => ts.isVariableStatement(node) && node.declarationList.declarations.some(declaration => declaration.name.getText(file) === "storeOrderRoutesMiddlewares"));
+    const declaration = statement && ts.isVariableStatement(statement) ? statement.declarationList.declarations[0] : undefined;
+    if (declaration?.initializer === undefined || !ts.isArrayLiteralExpression(declaration.initializer)) throw new Error("Missing native Order middleware");
+    expected = 'import { authenticate, validateAndTransformQuery } from "@medusajs/framework/http"\nimport * as QueryConfig from "./query-config"\nimport { StoreGetOrdersParams, StoreGetOrderParams } from "./validators"\n'
+      + 'export const storeOrderRoutesMiddlewares = [' + [0, 1].map(index => declaration.initializer.elements[index].getText(file)).join(",") + ']';
   } else if (name === "store/carts/helpers.ts") {
     expected = expected.replace(/import \{\s*ContainerRegistrationKeys,\s*MedusaError,\s*remoteQueryObjectFromString,\s*\} from "@medusajs\/framework\/utils"/,
       'import { ContainerRegistrationKeys } from "@medusajs/utils/common/container"\nimport { MedusaError } from "@medusajs/utils/common/errors"\nimport { remoteQueryObjectFromString } from "@medusajs/utils/common/remote-query-object-from-string"');

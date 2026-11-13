@@ -2,7 +2,7 @@ import { Effect, Result, Schema } from "effect";
 import type { ModuleJoinerConfig } from "@medusajs/types";
 import { appendRemoteFetchMethodSuffix, executeCountedRemoteFetchRequest, executeRemoteFetchServiceRequest,
   hasRemoteFetchPagination, type RemoteFetchOptions, type RemoteQueryFetchRequest } from "@medusajs/modules-sdk/remote-query";
-import { commerceError, commerceLimits, type CommerceTransactionError, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
+import { commerceError, commerceLimits, defaultCommerceResources, type CommerceResources, type CommerceTransactionError, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { QueryLimit, QueryOffset } from "../query/decoder";
 import { commerceDecoder } from "../value/decoder";
 import { captureCommerceInput } from "../value/input";
@@ -22,7 +22,9 @@ const decodeRead = commerceDecoder(Schema.Struct({ filters: Schema.JsonObject, o
 
 /** Native service/entity declarations select only already-issued read tokens.
  * The native fetch owner retains IDs, arguments, batching and result envelopes. */
-export function prepareNativeReadRegistry(participants: readonly GraphParticipant[]) {
+export function prepareNativeReadRegistry(participants: readonly GraphParticipant[],
+  resources: Pick<CommerceResources, "commandBytes" | "valueNodes"> = defaultCommerceResources) {
+  const valueResources = Object.freeze({ commandBytes: resources.commandBytes, valueNodes: resources.valueNodes });
   return Result.gen(function* () {
     const servicesConfig: ModuleJoinerConfig[] = [];
     const seenConfigurations = new Map<string, string>();
@@ -87,7 +89,7 @@ export function prepareNativeReadRegistry(participants: readonly GraphParticipan
       const selected = yield* checkedCommerceValue(context, () => select(request));
       const read = selected.read;
       const invoke = Effect.fn("NativeGraph.read")(function* (filters: Record<string, unknown>, options: RemoteFetchOptions) {
-        const args = yield* checkedCommerceValue(context, () => captureCommerceInput({ filters, options }).pipe(Result.flatMap(decodeRead)));
+        const args = yield* checkedCommerceValue(context, () => captureCommerceInput({ filters, options }, valueResources).pipe(Result.flatMap(decodeRead)));
         const config = args.options;
         const order = Object.keys(config.order ?? {});
         if (order.some(field => !read.orderable.includes(field)) || !read.multipleOrder && order.length > 1)
@@ -97,7 +99,7 @@ export function prepareNativeReadRegistry(participants: readonly GraphParticipan
         const complete = !hasRemoteFetchPagination(options) && (config.take === undefined || config.take === null);
         const { args: _transportArguments, take: _nativeTake, ...plain } = config;
         const input = yield* checkedCommerceValue(context, () => captureCommerceInput({ filters: args.filters,
-          config: { ...plain, ...(read.result === "list" ? {} : { take: config.take ?? commerceLimits.catalogRows, skip: config.skip ?? 0 }) } }));
+          config: { ...plain, ...(read.result === "list" ? {} : { take: config.take ?? commerceLimits.catalogRows, skip: config.skip ?? 0 }) } }, valueResources));
         const value = yield* context.call(selected.participant, read.command, input);
         if (read.result === "list") {
           const rows = yield* checkedCommerceValue(context, () => read.decode(value));

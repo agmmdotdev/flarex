@@ -80,6 +80,13 @@ const nativeStoreApplicationDOImports = new Map([
   ["apps/executor/test/storeCartCompletionApplicationDO.postgres.test.ts", new Set([
     "@flarex/medusa-adapter/internal/system-test/store-cart-request-catalog", "@flarex/medusa-adapter/internal/system-test/store-cart-request-fixture",
   ])],
+  ["apps/executor/test/storeOrderApplicationDO.workerd.worker.ts", new Set([
+    "@flarex/medusa-adapter/internal/store-cart-request", "@flarex/medusa-adapter/internal/system-test/store-cart-request-catalog",
+    "@flarex/medusa-http/store-cart-effect", "@medusajs/deps/awilix-portable",
+  ])],
+  ["apps/executor/test/storeOrderApplicationDO.postgres.test.ts", new Set([
+    "@flarex/medusa-adapter/internal/system-test/store-cart-request-catalog", "@flarex/medusa-adapter/internal/system-test/store-cart-request-fixture",
+  ])],
   ["apps/executor/test/adminProductApplicationDO.workerd.worker.ts", new Set([
     "@flarex/medusa-adapter/internal/system-test/store-product-request-catalog",
   ])],
@@ -1051,6 +1058,8 @@ export function discoverRootToolSources(repoRoot) {
     "scripts/check-medusa-store-product-source.test.js",
     "scripts/check-medusa-store-cart-source.mjs",
     "scripts/check-medusa-store-cart-source.test.js",
+    "scripts/check-medusa-store-order-workflow-source.mjs",
+    "scripts/check-medusa-store-order-workflow-source.test.js",
     "scripts/check-medusa-cart-mutation-source.mjs",
     "scripts/check-medusa-cart-mutation-source.test.js",
   ]);

@@ -53,6 +53,8 @@ describe("Medusa source-island boundary checker", () => {
     const paymentTest = "apps/executor/test/storePaymentApplicationDO.postgres.test.ts";
     const completionWorker = "apps/executor/test/storeCartCompletionApplicationDO.workerd.worker.ts";
     const completionTest = "apps/executor/test/storeCartCompletionApplicationDO.postgres.test.ts";
+    const orderWorker = "apps/executor/test/storeOrderApplicationDO.workerd.worker.ts";
+    const orderTest = "apps/executor/test/storeOrderApplicationDO.postgres.test.ts";
     const root = "@flarex/medusa-adapter/internal/store-cart-request";
     const catalog = "@flarex/medusa-adapter/internal/system-test/store-cart-request-catalog";
     const fixture = "@flarex/medusa-adapter/internal/system-test/store-cart-request-fixture";
@@ -70,12 +72,15 @@ describe("Medusa source-island boundary checker", () => {
     expect(check(paymentTest, testImports)).toEqual([]);
     expect(check(completionWorker, workerImports)).toEqual([]);
     expect(check(completionTest, testImports)).toEqual([]);
+    expect(check(orderWorker, workerImports)).toEqual([]);
+    expect(check(orderTest, testImports)).toEqual([]);
+    expect(check(orderWorker, [fixture]).length).toBeGreaterThan(0);
     expect(check(completionWorker, [fixture]).length).toBeGreaterThan(0);
     const writer = "apps/executor/test/adminProductApplicationDO.workerd.worker.ts";
     expect(check(writer, [catalog]).length).toBeGreaterThan(0);
     for (const specifier of [root, fixture, http]) expect(check(writer, [specifier]).length).toBeGreaterThan(0);
     expect(check(worker, [fixture]).length).toBeGreaterThan(0);
-    for (const importer of [test, shippingTest, paymentTest, completionTest])
+    for (const importer of [test, shippingTest, paymentTest, completionTest, orderTest])
       for (const specifier of [root, http, awilix]) expect(check(importer, [specifier]).length).toBeGreaterThan(0);
     for (const importer of [worker.replace("storeCartApplicationDO", "adjacent"), test.replace("storeCartApplicationDO", "adjacent"),
       worker.replace("/test/", "/src/"), test.replace("/test/", "/src/"),
@@ -86,9 +91,13 @@ describe("Medusa source-island boundary checker", () => {
       completionTest.replace("/test/", "/src/"), completionTest.replace("storeCartCompletionApplicationDO", "adjacent"),
       completionWorker.replace("/test/", "/src/"), completionWorker.replace("storeCartCompletionApplicationDO", "adjacent")])
       for (const specifier of [root, catalog, fixture, http]) expect(check(importer, [specifier]).length).toBeGreaterThan(0);
+    for (const importer of [orderTest.replace("/test/", "/src/"), orderWorker.replace("/test/", "/src/"),
+      orderTest.replace("storeOrderApplicationDO", "adjacent"), orderWorker.replace("storeOrderApplicationDO", "adjacent")])
+      for (const specifier of [root, catalog, fixture, http]) expect(check(importer, [specifier]).length).toBeGreaterThan(0);
     for (const { importer, specifiers } of [{ importer: worker, specifiers: workerImports }, { importer: test, specifiers: testImports },
       { importer: shippingTest, specifiers: testImports }, { importer: paymentTest, specifiers: testImports },
-      { importer: completionTest, specifiers: testImports }, { importer: completionWorker, specifiers: workerImports }])
+      { importer: completionTest, specifiers: testImports }, { importer: completionWorker, specifiers: workerImports },
+      { importer: orderTest, specifiers: testImports }, { importer: orderWorker, specifiers: workerImports }])
       for (const specifier of specifiers) {
         expect(check(importer, [specifier + ".ts"]).length).toBeGreaterThan(0);
         expect(check(importer, [specifier.replace(/\/([^/]+)$/, "/./$1")]).length).toBeGreaterThan(0);
@@ -286,6 +295,7 @@ describe("Medusa source-island boundary checker", () => {
     const verifierPaths = ["scripts/check-medusa-shipping-option-source.mjs", "scripts/check-medusa-shipping-option-source.test.js",
       "scripts/check-medusa-store-product-source.mjs", "scripts/check-medusa-store-product-source.test.js",
       "scripts/check-medusa-store-cart-source.mjs", "scripts/check-medusa-store-cart-source.test.js",
+      "scripts/check-medusa-store-order-workflow-source.mjs", "scripts/check-medusa-store-order-workflow-source.test.js",
       "scripts/check-medusa-cart-mutation-source.mjs", "scripts/check-medusa-cart-mutation-source.test.js",
       "scripts/check-medusa-remote-query-source.mjs", "scripts/check-medusa-remote-query-source.test.js",
       "scripts/check-medusa-awilix-portable-source.mjs", "scripts/check-medusa-awilix-portable-source.test.js",

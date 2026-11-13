@@ -103,6 +103,16 @@ arrays and excessive depth/node counts without invoking getters. The prepared
 hook set is an owned record, not a mutable process-global name registry. Separate
 hosts can use the same workflow name with different hook bundles.
 
+Execution ports may select a trusted `resolutionNodes` quota, captured once as
+an integer between 1 and 131,072. Omitted selections retain 4,096 nodes. The
+same quota bounds transform-result compilation and expanded reference traversal,
+including child frames. Definition preparation, depth, callback/reference
+authentication, getter, cycle and sparse-array checks keep their contracts.
+The [Store Order read profile](../flarexdb-framework-integration/preflight/store-order-http.md)
+selects 65,536 nodes for full fifty-Order DTOs; its value capture uses the same
+selected allowance. The former fixed execution quota rejected those native
+transform results. This selection grants no database or settlement capability.
+
 Trusted assembly supplies a content identity for the reviewed workflow code AND
 hook bundle. The atomic host hashes it, admitted event contracts/routing and
 subscriber revisions with its existing identity/access policy. A changed bundle

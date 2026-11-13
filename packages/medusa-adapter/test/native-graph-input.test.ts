@@ -62,3 +62,12 @@ it("admits the native Store option port without activating locale or dropping un
     expect(decodeNativeGraphOptions(invalid)).toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedProfile" } });
   }
 });
+
+it("retains native own-undefined filter and pagination variables for their native normalizer", () => {
+  for (const input of [
+    { entity: "product", fields: ["id"], filters: { id: "p", version: undefined } },
+    { entryPoint: "product", fields: ["id"], variables: { filters: { id: "p" }, take: 50, skip: 0, order: undefined } },
+  ]) expect(Result.getOrThrow(prepareNativeGraphInput(input, metadata, admit)).value).toStrictEqual(input);
+  for (const value of [() => undefined, Symbol("foreign"), new Date(), { nested: undefined }])
+    expect(Result.isFailure(prepareNativeGraphInput({ entity: "product", fields: ["id"], filters: { id: "p", version: value } }, metadata, admit))).toBe(true);
+});

@@ -128,7 +128,10 @@ describe("native Link-derived local graph paths", () => {
       { participant: inventoryParticipant, module: declaredNativeGraph({ aliases: [{ name: "target", model: first.targetModel }], reads: [{ ...read(first.targetModel, inventoryRead),
         paths: [{ path: names[0], table: scalar("detail"), many: true, sourceFields: ["id"] },
           { path: names[1], table: scalar("calculation"), many: false, optional: true, sourceFields: ["id"] }] }] }, [targetConfig],
-        [{ name: first.targetModel.toLowerCase(), relationships: [] }]) },
+        [{ name: first.targetModel.toLowerCase(), relationships: [
+          { name: names[0], type: "hasMany", targetModel: "Detail", targetTable: "detail", nullable: false, cascadeDelete: false, cascadeDetach: false },
+          { name: names[1], type: "hasOne", targetModel: "Calculation", targetTable: "calculation", nullable: true, cascadeDelete: false, cascadeDetach: false },
+        ] }]) },
       { participant: linkParticipant, module: declaredNativeGraph({ aliases: [{ name: "pairs", model: first.linkModel }], remotePaths: selected,
         reads: [read(first.linkModel, linkRead, { name: "pairs", columns: [first.sourceColumn, first.targetColumn],
           primaryKeys: [first.sourceColumn, first.targetColumn], foreignKeys: [], companions: {} })] }, [kind === "shipping" ? ShippingOptionPriceSet : neutral], []) },

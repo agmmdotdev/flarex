@@ -158,6 +158,17 @@ Inventory and local Payment remain under one trusted settlement owner. The
 focused owner records connected database/Workerd acceptance; general Order
 browsing, remote gateways and deployment remain separate scopes.
 
+The admitted [Store Order read profile](./preflight/store-order-http.md) connects
+`GET /store/orders/:id` and `GET /store/orders`. It retains native public
+detail access and verified-Customer listing, actual detail/list workflows,
+status aggregation and the shared page/count query owner. Its separate read
+registry includes genuine Fulfillment and Order Links. The named profile admits
+fifty root Orders and two hundred related identities under existing shared
+resource limits, with connected PGlite, ordinary-role Postgres and actual Workerd
+acceptance under its recorded private host profile.
+These GETs create no durable workflow outcome and promise no common snapshot
+across independent native service reads.
+
 The native default response preserves Cart/item totals, selected Product and
 taxonomy relations, Customer Groups, Region Countries, Addresses, Promotions,
 and Payment Collection/Sessions. Publishable-key validation, verified optional

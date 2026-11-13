@@ -30,6 +30,9 @@ const Input = Schema.Struct({
   // Native intermediate context can retain own undefined members. The bound
   // Query owner captures and admits its data before any graph execution.
   context: Schema.optionalKey(Schema.Record(Schema.String, Schema.Unknown)),
+  // Native read transforms retain own undefined filter members, such as an
+  // omitted Order version. The bounded Query/DAL owner admits their meaning.
+  filters: Schema.optionalKey(Schema.Record(Schema.String, Schema.Unknown)),
   options: Schema.optionalKey(Schema.Struct({ isList: Schema.optionalKey(Schema.Boolean),
     cache: Schema.optionalKey(WorkflowGraphCacheOptions.fields.cache), throwIfKeyNotFound: Schema.optionalKey(Schema.Literal(true)) })),
 });

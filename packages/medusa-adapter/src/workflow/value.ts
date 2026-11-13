@@ -1,7 +1,7 @@
 import { Effect, Result, Schema } from "effect";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import type { AtomicCommerceContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
-import { capturePrivateIntermediateJsonData, commerceError, defaultCommerceResources, type CommerceTransactionError, type Json, type PrivateIntermediateJsonPath } from "@flarex/persistence-postgres/internal/commerce-values";
+import { capturePrivateIntermediateJsonData, commerceError, defaultCommerceResources, type CommerceResources, type CommerceTransactionError, type Json, type PrivateIntermediateJsonPath } from "@flarex/persistence-postgres/internal/commerce-values";
 import { commerceDecoder } from "../value/decoder";
 
 /** Native intermediate values may own undefined object members and dense array
@@ -10,23 +10,25 @@ export type WorkflowIntermediateValue = string | number | boolean | null | undef
   | readonly WorkflowIntermediateValue[] | { readonly [key: string]: WorkflowIntermediateValue };
 export type WorkflowInputPresence = "preserveOwnUndefined";
 
-const sourceBounds = Object.freeze({ bytes: defaultCommerceResources.commandBytes, nodes: defaultCommerceResources.valueNodes, depth: 16 });
 // The unchanged source bound includes its stable value wrapper. Transport
 // adds one payload level; restored sources still pass the original bound.
-const transportBounds = Object.freeze({ ...sourceBounds, depth: sourceBounds.depth + 1 });
-const captureIntermediate = (input: unknown) => capturePrivateIntermediateJsonData({ value: input }, sourceBounds, commerceError);
-const captureTransport = (input: unknown) => capturePrivateIntermediateJsonData(input, transportBounds, commerceError);
+const captureIntermediate = (input: unknown, resources: Pick<CommerceResources, "commandBytes" | "valueNodes"> = defaultCommerceResources) =>
+  capturePrivateIntermediateJsonData({ value: input }, { bytes: resources.commandBytes, nodes: resources.valueNodes, depth: 16 }, commerceError);
+const captureTransport = (input: unknown, resources: Pick<CommerceResources, "commandBytes" | "valueNodes"> = defaultCommerceResources) =>
+  capturePrivateIntermediateJsonData(input, { bytes: resources.commandBytes, nodes: resources.valueNodes, depth: 17 }, commerceError);
 
 /** Method/Query inputs retain dense positional undefined values until their
  * native argument decoder normalizes them. Object undefined stays omitted by
  * default; a trusted method profile may preserve all issued object paths.
  * The shared capture owner bounds descriptors and the complete sidecar first. */
-export function captureWorkflowInput(input: unknown, inputPresence?: WorkflowInputPresence) {
+export function captureWorkflowInput(input: unknown, inputPresence?: WorkflowInputPresence,
+  resources: Pick<CommerceResources, "commandBytes" | "valueNodes"> = defaultCommerceResources) {
+  const selectedResources = Object.freeze({ commandBytes: resources.commandBytes, valueNodes: resources.valueNodes });
   return Result.gen(function* () {
     if (inputPresence !== undefined && inputPresence !== "preserveOwnUndefined")
       return yield* Result.fail(commerceError("unsupportedProfile"));
-    const snapshot = yield* captureIntermediate(input);
-    const { value: envelope } = yield* captureTransport({ payload: snapshot.value, undefinedPaths: snapshot.undefinedPaths });
+    const snapshot = yield* captureIntermediate(input, selectedResources);
+    const { value: envelope } = yield* captureTransport({ payload: snapshot.value, undefinedPaths: snapshot.undefinedPaths }, selectedResources);
     if (!isNonArrayRecord(envelope)) return yield* Result.fail(commerceError("storedCorruption"));
     return yield* restoreWorkflowValue(envelope.payload, inputPresence === "preserveOwnUndefined"
       ? snapshot.undefinedPaths : snapshot.undefinedPaths.filter(path => typeof path.at(-1) === "number"));
