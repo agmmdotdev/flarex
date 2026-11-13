@@ -15,8 +15,7 @@ if (mode === "aot") {
   generated.install(suites.map(suite => suite.schema.ast));
 }
 
-// Create fresh parsers after installation. Existing core module-level parser
-// closures are intentionally outside this isolated experiment's activation.
+// Owner parser activation is checked separately, without timing instrumentation.
 const formatIssue = SchemaIssue.makeFormatterStandardSchemaV1();
 const observations: unknown[] = [];
 const measurements: { name: string; policy: string; input: string; iterations: number; nsPerDecode: number; cpuMs: number; successes: number }[] = [];

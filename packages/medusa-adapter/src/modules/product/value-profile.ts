@@ -5,34 +5,23 @@ import { commerceDecoder, commerceRowDecoder } from "../../value/decoder";
 import { compileKeyedUpdates } from "../../write/keyed";
 import type { ProductEntityMetadata } from "./runtime-metadata";
 import { SimpleVariantInput } from "./variant-workflow-input";
+import { ProductRelationshipReferences, ProductRelationshipUpsertRows, GraphArraySchema, ProductProjectionSchema,
+  ProductCountSchema, ObjectSchema, UpdatePairsSchema, RelatedUpdateSchema, IdSchema, OptionValuesSchema,
+  VariantOptionsSchema, VariantReferenceSchema } from "./value-schemas";
+// Preserve schema exports used by native workflow consumers.
+export { ProductRelationshipId, ProductRelationshipIds, ProductRelationshipReferences, ProductRelationshipUpsertRows } from "./value-schemas";
 
-export const ProductRelationshipId = Schema.String.check(Schema.isBetweenLength(1, 256));
-export const ProductRelationshipIds = Schema.Array(ProductRelationshipId).check(Schema.isMaxLength(256));
-export const ProductRelationshipReferences = Schema.Array(Schema.Struct({ id: ProductRelationshipId })).check(Schema.isMaxLength(256));
-export const ProductRelationshipUpsertRows = Schema.Array(Schema.Struct({
-  id: ProductRelationshipId, category_ids: ProductRelationshipIds,
-})).check(Schema.isMaxLength(256));
 export const decodeProductRelationshipUpsert = commerceDecoder(ProductRelationshipUpsertRows, "invalidInput");
-
-export const decodeGraphArray = commerceDecoder(Schema.Array(Schema.Json), "invalidInput");
-export const decodeProductProjection = commerceDecoder(Schema.Union([
-  Schema.JsonObject, Schema.Array(Schema.JsonObject),
-]), "storedCorruption");
-export const decodeProductCount = commerceDecoder(Schema.Struct({
-  rows: Schema.Array(Schema.JsonObject), count: Schema.Number,
-}), "storedCorruption");
-const decodeObject = commerceDecoder(Schema.JsonObject, "invalidInput");
-const decodeUpdatePairs = commerceDecoder(Schema.Array(Schema.Struct({ entity: Schema.JsonObject, update: Schema.JsonObject })).check(Schema.isMaxLength(256)), "invalidInput");
-export const decodeRelatedUpdate = commerceDecoder(Schema.Struct({
-  id: Schema.String.check(Schema.isBetweenLength(1, 256)), data: Schema.JsonObject,
-}), "invalidInput");
-const decodeId = commerceDecoder(Schema.UndefinedOr(Schema.String.check(Schema.isBetweenLength(1, 256))), "invalidInput");
-const decodeOptionValues = commerceDecoder(Schema.Array(Schema.String), "invalidInput");
-const decodeVariantOptions = commerceDecoder(Schema.Record(Schema.String, Schema.String), "invalidInput");
-export const decodeVariantReference = commerceDecoder(Schema.StructWithRest(
-  Schema.Struct({ id: Schema.String }), [Schema.Record(Schema.String, Schema.Json)],
-), "invalidInput");
-
+export const decodeGraphArray = commerceDecoder(GraphArraySchema, "invalidInput");
+export const decodeProductProjection = commerceDecoder(ProductProjectionSchema, "storedCorruption");
+export const decodeProductCount = commerceDecoder(ProductCountSchema, "storedCorruption");
+const decodeObject = commerceDecoder(ObjectSchema, "invalidInput");
+const decodeUpdatePairs = commerceDecoder(UpdatePairsSchema, "invalidInput");
+export const decodeRelatedUpdate = commerceDecoder(RelatedUpdateSchema, "invalidInput");
+const decodeId = commerceDecoder(IdSchema, "invalidInput");
+const decodeOptionValues = commerceDecoder(OptionValuesSchema, "invalidInput");
+const decodeVariantOptions = commerceDecoder(VariantOptionsSchema, "invalidInput");
+export const decodeVariantReference = commerceDecoder(VariantReferenceSchema, "invalidInput");
 /** DML owns scalar names. These nested shapes select the supported service
  * profile, which differs from Medusa's HTTP/workflow creation validators. */
 export function compileProductValueProfile(catalog: {

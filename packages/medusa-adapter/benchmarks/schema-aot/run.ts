@@ -2,8 +2,9 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
+import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
@@ -14,11 +15,10 @@ import { suites } from "./cases";
 
 const { values } = parseArgs({ options: { out: { type: "string" },
   iterations: { type: "string", default: "100000" }, rounds: { type: "string", default: "5" } } });
-assert(values.out !== undefined, "Provide --out <artifact directory>");
 const iterations = Number(values.iterations), rounds = Number(values.rounds);
 assert(Number.isSafeInteger(iterations) && iterations > 0 && iterations <= 10000000);
 assert(Number.isSafeInteger(rounds) && rounds > 0 && rounds <= 20);
-const out = resolve(values.out);
+const out = values.out === undefined ? await mkdtemp(resolve(tmpdir(), "flarex-schema-aot-")) : resolve(values.out);
 await mkdir(out, { recursive: true });
 const generatedPath = resolve(out, "core-schema-aot.mjs");
 const source = SchemaAOTCompiler.compile(suites.map(suite => ({ ast: suite.schema.ast, operations: ["decode"] })));
@@ -35,13 +35,27 @@ const decodeWorker = Schema.decodeUnknownSync(Schema.Struct({ mode: Schema.Liter
   observations: Schema.String, measurements: Schema.Array(Measurement) }));
 const runs: (ReturnType<typeof decodeWorker> & { readonly round: number })[] = [];
 let reference: unknown;
+let ownerReference: unknown;
 for (let round = 0; round < rounds; round++) {
   for (const mode of round % 2 === 0 ? ["interpreter", "aot"] : ["aot", "interpreter"]) {
-    const child = spawnSync(process.execPath, ["--disallow-code-generation-from-strings", "--conditions=source", "--import", import.meta.resolve("tsx"),
-      fileURLToPath(new URL("./worker.ts", import.meta.url)), mode, generatedPath, String(iterations)],
+    const workerArgs = ["--disallow-code-generation-from-strings", "--conditions=source",
+      ...(mode === "interpreter" ? ["--import", new URL("../../../../scripts/schema-aot-interpreter.mjs", import.meta.url).href] : []),
+      "--import", import.meta.resolve("tsx"),
+      fileURLToPath(new URL("./worker.ts", import.meta.url)), mode, generatedPath, String(iterations)];
+    const child = spawnSync(process.execPath, workerArgs,
     { encoding: "utf8", timeout: 120000, maxBuffer: 16 * 1024 * 1024, windowsHide: true });
     assert.ifError(child.error);
     assert.equal(child.status, 0, child.stderr);
+    if (round === 0) {
+      const activationArgs = workerArgs.slice();
+      activationArgs.splice(-4, 4, fileURLToPath(new URL("./activation.mjs", import.meta.url)), mode);
+      const activation = spawnSync(process.execPath, activationArgs, { encoding: "utf8", timeout: 120000, windowsHide: true });
+      assert.ifError(activation.error);
+      assert.equal(activation.status, 0, activation.stderr);
+      const observedOwners: unknown = deserialize(Buffer.from(activation.stdout, "base64"));
+      if (ownerReference === undefined) ownerReference = observedOwners;
+      else assert.deepEqual(observedOwners, ownerReference, "Existing owner parsers must match");
+    }
     const result = decodeWorker(JSON.parse(child.stdout));
     assert.equal(result.mode, mode);
     const observed: unknown = deserialize(Buffer.from(result.observations, "base64"));
@@ -66,6 +80,7 @@ const { version } = Schema.decodeUnknownSync(Schema.Struct({ version: Schema.Str
 const effectCoreSha256 = createHash("sha256").update(readFileSync(resolve(dirname(require.resolve("effect/package.json")), "dist/internal/core.js"))).digest("hex");
 await writeFile(resolve(out, "results.json"), JSON.stringify({ node: process.version, effect: version,
   effectCoreSha256, platform: process.platform, arch: process.arch, iterations, rounds, generatedBytes: Buffer.byteLength(generated),
-  semanticsMatch: true, codeGenerationFromStrings: false, summary, runs }, null, 2));
+  semanticsMatch: true, ownerDecodersMatch: true, rawAccessorParity: true,
+  codeGenerationFromStrings: false, summary, runs }, null, 2));
 console.table(summary);
 console.log(`Matched decoded values and ordered diagnostics in every worker. Artifacts: ${out}`);

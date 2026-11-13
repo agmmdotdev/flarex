@@ -1,3 +1,4 @@
+import { install as installSchemaAot } from "./api.schema-aot.generated.mjs";
 import { Data, Schema, type Effect, type Option } from "effect";
 import type { DocumentObject, DocumentValue } from "flarex-protocol/document-value";
 import type { CoreTableNamespace } from "./namespace";
@@ -636,3 +637,9 @@ export function issueCoreNativePendingDelete(): CoreNativePendingDelete {
 export function issueFinalizedTransaction(): CoreFinalizedTransaction {
   return Object.freeze({ [finalizedTransactionBrand]: true as const });
 }
+
+/** Exact ordered build targets; install before any parser captures these ASTs. */
+// Program identities, source pins and schema-worker budgets/options are decoded
+// from borrowed objects. Their raw traversal must not replay accessors.
+export const schemaAotTargets = [CoreNativeRootIdentitySchema, CoreTransactionLimitsSchema, CoreNativeSetNullIntentSchema, CoreNativeReconstitutionPolicySchema] as const;
+installSchemaAot(schemaAotTargets.map(schema => schema.ast));

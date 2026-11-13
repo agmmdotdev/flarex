@@ -27,6 +27,9 @@ audit, and changed-lines coverage from drifting after package extraction.
   merge base for CI or branch review.
   Snapshot modes fail closed if the working Oxlint policy differs from the
   staged or committed policy they are meant to apply.
+  They materialize that policy beside snapshot sources so config-relative
+  ignores and overrides have the same meaning as in working-tree mode. Linter
+  and plugin dependencies resolve through the same installed node_modules.
   Large changed-file lists use bounded native invocations so Windows command
   limits do not truncate coverage. Each invocation uses the same configuration;
   all diagnostics are combined before the existing changed-line selection.

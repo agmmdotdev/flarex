@@ -1,3 +1,4 @@
+import { install as installSchemaAot } from "./nativePolicyTypes.schema-aot.generated.mjs";
 import { Schema } from "effect";
 import { ScopeEpochUuidV1Schema, ScopeUuidV1Schema } from "flarex-protocol/storage-authority";
 import { DeveloperDocumentIdSchema } from "flarex-protocol/document-id";
@@ -126,3 +127,7 @@ export const CoreNativeTablePolicySchema = Schema.Struct({ state: Schema.Literal
           && (policy.protectedReferences?.length ?? 0) === 0
           ? undefined : "Private event tables grant no application exposure or business relations"));
 export type CoreNativeTablePolicy = typeof CoreNativeTablePolicySchema.Type;
+
+/** Exact ordered build targets; install before any parser captures these ASTs. */
+export const schemaAotTargets = [CoreNativeIdentitySchema, CoreNativeReferenceProjectionSchema, CoreNativeReferenceSchema, CoreNativePrivateReferenceRoleSchema, CoreNativePrivateEventRoleSchema, CoreNativeEligibilitySchema, CoreNativeUniqueConstraintSchema, CoreNativeRowKeySchema, CoreNativeForeignKeySchema, CoreNativeProtectedReferenceSchema, CoreNativeTablePolicySchema] as const;
+installSchemaAot(schemaAotTargets.map(schema => schema.ast));

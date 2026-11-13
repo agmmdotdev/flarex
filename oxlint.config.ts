@@ -9,6 +9,7 @@ export default defineConfig({
   ],
   ignorePatterns: [
     "**/*.generated.ts",
+    "**/*.schema-aot.generated.mjs",
     ".codex-worktrees/**",
     ".tmp/**",
     "dist/**",

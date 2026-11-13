@@ -1,3 +1,4 @@
+import { install as installSchemaAot } from "./document.schema-aot.generated.mjs";
 /**
  * Mechanisms translated from Convex crates/common/src/document.rs
  * at db914cf06e2b06ee985646611b9e12ed7a770318. Upstream source:
@@ -24,6 +25,10 @@ const DocumentCreationTimeSchema = CoreCreationTimeSchema.check(
   Schema.makeFilter(value => value > 0 && value < 2 ** 53 ? undefined : "Expected a positive finite creation time below2^53"),
 );
 const SystemFields = Schema.Struct({ _id: DeveloperDocumentIdSchema, _creationTime: DocumentCreationTimeSchema });
+/** Exact ordered build targets; install before any parser captures these ASTs. */
+export const schemaAotTargets = [CoreCreationTimeSchema, SystemFields] as const;
+installSchemaAot(schemaAotTargets.map(schema => schema.ast));
+
 const decodeSystemFields = Schema.decodeUnknownResult(SystemFields);
 const decodeCreationTime = Schema.decodeUnknownResult(CoreCreationTimeSchema);
 

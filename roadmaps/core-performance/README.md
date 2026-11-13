@@ -2,6 +2,11 @@
 
 ## Current Priority
 
+The owner has also selected [static Schema AOT decoding](./schema-aot.md) for
+core contracts and the benchmarked Medusa Product adapter profiles. This parsing
+optimization and its Node/Bun AOT comparison do not reopen the broader runtime
+redesign or establish the performance targets below.
+
 The owner has selected the bounded
 [native validation lookup optimization](../../experiments/core/engine/slices/core-hot-path-reuse.md#invocation-local-native-validation-lookups):
 replace repeated index-specification and commerce command-membership scans

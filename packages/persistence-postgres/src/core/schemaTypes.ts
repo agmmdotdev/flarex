@@ -1,3 +1,4 @@
+import { install as installSchemaAot } from "./schemaTypes.schema-aot.generated.mjs";
 /**
  * Schema metadata translated from Convex common/bootstrap_model/schema_* and
  * database/bootstrap_model/schema* at db914cf06e2b06ee985646611b9e12ed7a770318.
@@ -45,7 +46,6 @@ export type CoreSchemaUniqueState = "pending" | "validated" | "active";
 export const CoreSchemaMetadataSchema = Schema.Struct({ state: CoreSchemaStateSchema, schema: Schema.String,
   native: Schema.optionalKey(Schema.String) });
 export type CoreSchemaMetadata = typeof CoreSchemaMetadataSchema.Type;
-export const decodeCoreSchemaMetadata = Schema.decodeUnknownResult(CoreSchemaMetadataSchema);
 
 const InputIndexSchema = Schema.Struct({ indexDescriptor: Schema.String, fields: Schema.Array(Schema.String) });
 const InputTableSchema = Schema.Struct({
@@ -97,7 +97,6 @@ export const CoreSchemaValidationMetadataSchema = Schema.Struct({ ...ValidationF
     ...(validatorHash == null ? {} : { validatorHash }) }), encode: value => value })));
 export type CoreSchemaValidationMetadata = typeof CoreSchemaValidationMetadataSchema.Type;
 export type CoreSchemaValidationState = typeof CoreSchemaValidationStateSchema.Type;
-export const decodeCoreSchemaValidationMetadata = Schema.decodeUnknownResult(CoreSchemaValidationMetadataSchema);
 
 /** Source in-memory u64 counters are checked into signed int64 document values. */
 export const CoreSchemaCountSchema = Schema.BigInt.check(Schema.makeFilter(value =>
@@ -106,7 +105,6 @@ export const CoreSchemaValidationProgressSchema = Schema.Struct({ validationId: 
   numDocsValidated: CoreSchemaCountSchema, totalDocs: Schema.NullOr(CoreSchemaCountSchema).pipe(
     Schema.withDecodingDefaultKey(Effect.succeed(null))) });
 export type CoreSchemaValidationProgressValue = typeof CoreSchemaValidationProgressSchema.Type;
-export const decodeCoreSchemaValidationProgress = Schema.decodeUnknownResult(CoreSchemaValidationProgressSchema);
 
 export function coreSchemaCorrupt(cause?: unknown): CorePersistenceError {
   return new CorePersistenceError({ reason: "corruptData", ...(cause === undefined ? {} : { cause }) });
@@ -115,6 +113,16 @@ export function invalidCoreSchema(message: string, cause?: unknown, tableName?: 
   return new CoreSchemaError({ reason: "invalidSchema", message,
     ...(cause === undefined ? {} : { cause }), ...(tableName === undefined ? {} : { tableName }) });
 }
+
+/** Exact ordered build targets; install before any parser captures these ASTs. */
+// CoreSchemaInputSchema consumes raw unknown data. Keep its interpreter's
+// single traversal: a failed AOT fast path can replay caller-owned getters.
+export const schemaAotTargets = [CoreSchemaErrorReasonSchema, CoreSchemaIdentifierSchema, CoreSchemaDocumentIdSchema, CoreSchemaStateSchema, CoreSchemaMetadataSchema, CoreSchemaTableSchema, CoreSchemaDefinitionSchema, CoreSchemaValidationStateSchema, CoreSchemaValidationMetadataSchema, CoreSchemaCountSchema, CoreSchemaValidationProgressSchema] as const;
+installSchemaAot(schemaAotTargets.map(schema => schema.ast));
+
+export const decodeCoreSchemaMetadata = Schema.decodeUnknownResult(CoreSchemaMetadataSchema);
+export const decodeCoreSchemaValidationMetadata = Schema.decodeUnknownResult(CoreSchemaValidationMetadataSchema);
+export const decodeCoreSchemaValidationProgress = Schema.decodeUnknownResult(CoreSchemaValidationProgressSchema);
 
 const decodeInput = Schema.decodeUnknownResult(CoreSchemaInputSchema);
 const decodeValidator = Schema.decodeUnknownResult(ValidatorJsonV1);

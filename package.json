@@ -3,6 +3,9 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "schema:aot:generate": "pnpm --filter @flarex/persistence-postgres exec tsx ../../scripts/build-schema-aot.mjs",
+    "schema:aot:check": "pnpm --filter @flarex/persistence-postgres exec tsx ../../scripts/build-schema-aot.mjs --check",
+    "schema:aot:test": "pnpm --filter @flarex/medusa-adapter exec tsx benchmarks/schema-aot/run.ts --iterations 10000 --rounds 2",
     "perf:core": "node scripts/run-core-performance.mjs",
     "build": "pnpm -r build",
     "lint": "pnpm lint:core",

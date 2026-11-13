@@ -1,8 +1,10 @@
 import {
+  cpSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { spawnSync } from "node:child_process";
@@ -408,6 +410,23 @@ export const partitionOxlintFiles = (files, fixedArguments, maximumUnits = 24_00
   return batches;
 };
 
+/** Keep config-relative ignores and overrides anchored to the same source tree
+ * in every mode. Policy equality is checked before snapshot construction.
+ * @param {string} snapshotRoot
+ * @param {string} [repositoryRoot]
+ */
+export const materializeSnapshotPolicy = (snapshotRoot, repositoryRoot = REPOSITORY_ROOT) => {
+  for (const policy of OXLINT_POLICY_PATHS) {
+    const target = resolve(snapshotRoot, policy);
+    mkdirSync(dirname(target), { recursive: true });
+    cpSync(resolve(repositoryRoot, policy), target, { recursive: true });
+  }
+  // Resolve the same installed linter and plugin dependencies without copying
+  // node_modules. Removing this owned snapshot removes the junction, not its target.
+  symlinkSync(resolve(repositoryRoot, "node_modules"), resolve(snapshotRoot, "node_modules"), "junction");
+  return resolve(snapshotRoot, "oxlint.config.ts");
+};
+
 const main = () => {
   const { base, help, staged } = readArguments(process.argv.slice(2));
   if (help) {
@@ -432,25 +451,27 @@ const main = () => {
   /** @type {string | undefined} */
   let temporaryRoot;
   let lintFiles = changed.files;
-  if (changed.sourceMode !== "worktree") {
-    const snapshotRoot = mkdtempSync(join(tmpdir(), "flarex-oxlint-"));
-    temporaryRoot = snapshotRoot;
-    lintRoot = snapshotRoot;
-    lintFiles = changed.files.map((file) => {
-      const target = resolve(snapshotRoot, file);
-      mkdirSync(dirname(target), { recursive: true });
-      writeFileSync(target, sourceByFile.get(file) ?? "", "utf8");
-      return target;
-    });
-  }
-
+  let configPath = resolve(REPOSITORY_ROOT, "oxlint.config.ts");
   /** @type {OxlintDiagnostic[]} */
   const reportedDiagnostics = [];
   try {
+    if (changed.sourceMode !== "worktree") {
+      const snapshotRoot = mkdtempSync(join(tmpdir(), "flarex-oxlint-"));
+      temporaryRoot = snapshotRoot;
+      lintRoot = snapshotRoot;
+      configPath = materializeSnapshotPolicy(snapshotRoot);
+      lintFiles = changed.files.map((file) => {
+        const target = resolve(snapshotRoot, file);
+        mkdirSync(dirname(target), { recursive: true });
+        writeFileSync(target, sourceByFile.get(file) ?? "", "utf8");
+        return target;
+      });
+    }
+
     const fixedArguments = [
         OXLINT_ENTRYPOINT,
         "--config",
-        resolve(REPOSITORY_ROOT, "oxlint.config.ts"),
+        configPath,
         "--format=json",
     ];
     for (const batch of partitionOxlintFiles(lintFiles, [process.execPath, ...fixedArguments])) {

@@ -78,7 +78,8 @@
     "@medusajs/types": "workspace:*",
     "@types/pg": "8.20.0",
     "drizzle-orm": "^0.45.2",
-    "pg": "8.22.0"
+    "pg": "8.22.0",
+    "tsx": "catalog:"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json && tsc -p tsconfig.compatibility.json && tsc -p tsconfig.composite.json && tsc -p ../medusa-product/integration-tests/tsconfig.json && tsc -p ../medusa-sales-channel/integration-tests/tsconfig.json",

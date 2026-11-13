@@ -15,12 +15,41 @@ import {
   diagnosticTouchesChangedLines,
   normalizeRepositoryPath,
   OXLINT_SOURCE_ROOTS,
+  materializeSnapshotPolicy,
   parseChangedLines,
   parseRenamedPaths,
   partitionOxlintFiles,
   readArguments,
   selectChangedLineDiagnostics,
 } from "./check-oxlint-diff.mjs";
+
+describe("snapshot-relative Oxlint policy", () => {
+  it("honors generated-file ignores while still applying built-in and project rules to ordinary source", () => {
+    const snapshot = mkdtempSync(join(tmpdir(), "flarex-oxlint-config-test-"));
+    try {
+      const config = materializeSnapshotPolicy(snapshot);
+      const directory = join(snapshot, "packages", "utils", "src");
+      mkdirSync(directory, { recursive: true });
+      const generated = join(directory, "fixture.schema-aot.generated.mjs");
+      const ordinary = join(directory, "fixture.ts");
+      const source = 'import { Effect } from "effect";\nconst unused = 1;\nexport const value = Effect.catchAll(Effect.succeed(1), () => Effect.succeed(2));\n';
+      writeFileSync(generated, source);
+      writeFileSync(ordinary, source);
+      const result = spawnSync(process.execPath, ["node_modules/oxlint/bin/oxlint", "--config", config, "--format=json", generated, ordinary], {
+        encoding: "utf8", windowsHide: true,
+      });
+      if (result.error !== undefined) throw result.error;
+      expect(result.status, result.stderr).toBe(1);
+      /** @type {{ diagnostics: { filename: string; code: string }[] }} */
+      const report = JSON.parse(result.stdout);
+      expect(report.diagnostics.some(diagnostic => diagnostic.filename.endsWith("fixture.schema-aot.generated.mjs"))).toBe(false);
+      expect(report.diagnostics.some(diagnostic => diagnostic.code === "eslint(no-unused-vars)")).toBe(true);
+      expect(report.diagnostics.some(diagnostic => diagnostic.code === "flarex(no-v3-effect-apis)")).toBe(true);
+    } finally {
+      rmSync(snapshot, { recursive: true, force: true });
+    }
+  });
+});
 
 const createPolicyRepository = () => {
   const repositoryRoot = mkdtempSync(join(tmpdir(), "flarex-oxlint-policy-test-"));

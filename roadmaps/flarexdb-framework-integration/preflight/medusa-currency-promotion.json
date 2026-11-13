@@ -864,7 +864,7 @@
     {
       "target": "packages/medusa-adapter/package.json",
       "classification": "authored",
-      "targetSha256": "1bfb0a08312e771390dbd43c049435fe19b0fbddc18ff9b9cec4b132d0137657"
+      "targetSha256": "fe18d566136aea035db381befa6b30915efbc1363316a2ead4e0e2126120d940"
     },
     {
       "target": "packages/medusa-adapter/src/composition/category-currency-command.ts",
@@ -3314,7 +3314,7 @@
     {
       "target": "packages/medusa-adapter/src/modules/product/service-input.ts",
       "classification": "authored",
-      "targetSha256": "8d23a8c7c417ec8bc6a66ee7791a80bc6915089a869d9a7da189024ad667268c"
+      "targetSha256": "0a9edbdb1cacc27af5933f8d2599f8b1cf86679de52e134107d9694f7fe1bbff"
     },
     {
       "target": "packages/medusa-adapter/src/modules/product/service.ts",
@@ -3339,7 +3339,7 @@
     {
       "target": "packages/medusa-adapter/src/modules/product/value-profile.ts",
       "classification": "authored",
-      "targetSha256": "85d9c173b419518a4c7d848133162b86104bd7bc98cbd114868c7f58366162de"
+      "targetSha256": "7074617286746c8521dfc66d4b0ec3d9efc603e14e50afdcfbf783291922bac7"
     },
     {
       "target": "packages/medusa-adapter/src/modules/product/variant-inventory-link-workflow.ts",
@@ -20935,6 +20935,66 @@
       "target": "packages/medusa-adapter/test/cart-native-scalar-projection.test.ts",
       "classification": "authored",
       "targetSha256": "2c4c21502c0086d4c75542fbbf9da02d6bb9f4f38f77bf2824b0ddccec42603c"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/product/service-schemas.schema-aot.generated.d.mts",
+      "classification": "authored",
+      "targetSha256": "4cf6c7db10d3c7be55acfad1ebe7e17b186781ea2f085307abc7a52b5bc14d52"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/product/service-schemas.schema-aot.generated.mjs",
+      "classification": "authored",
+      "targetSha256": "3c3c641627f6b3bb372f15e63624dee98cdae80ae41b96b02057479f963a8b8e"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/product/service-schemas.ts",
+      "classification": "authored",
+      "targetSha256": "2e1ee17cd9442fcd8fb144255461d85799ced6a6998511f51e44e76b4b2ccc5c"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/product/value-schemas.schema-aot.generated.d.mts",
+      "classification": "authored",
+      "targetSha256": "4cf6c7db10d3c7be55acfad1ebe7e17b186781ea2f085307abc7a52b5bc14d52"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/product/value-schemas.schema-aot.generated.mjs",
+      "classification": "authored",
+      "targetSha256": "eb78e77dba66c4f81c1e71f59c8e6c96081a5d68880034cf9fe580da6599c37c"
+    },
+    {
+      "target": "packages/medusa-adapter/src/modules/product/value-schemas.ts",
+      "classification": "authored",
+      "targetSha256": "8442b911b70da58aec7202af3844830a9b8e76c01d1560acb0c3cdfb7c8c908d"
+    },
+    {
+      "target": "packages/medusa-adapter/benchmarks/schema-aot/README.md",
+      "classification": "authored",
+      "targetSha256": "5e2650f2251323a32e5bc178575ee8df133c16a305e7c6072c2521d696bb5d50"
+    },
+    {
+      "target": "packages/medusa-adapter/benchmarks/schema-aot/cases.ts",
+      "classification": "authored",
+      "targetSha256": "955b59c832fca578fbe2fc3bbd2f2146ac05cc5c9b84412ad839e697f9734ea3"
+    },
+    {
+      "target": "packages/medusa-adapter/benchmarks/schema-aot/run.ts",
+      "classification": "authored",
+      "targetSha256": "14af3d558c7d6d68fd31fd4f318f9006f9e0553d387b3c9dad0e66b17684b3f0"
+    },
+    {
+      "target": "packages/medusa-adapter/benchmarks/schema-aot/worker.ts",
+      "classification": "authored",
+      "targetSha256": "f1364361769ce048dac8374f096e29f6b7d585bb81042ca2ae2eba38d15d3b9d"
+    },
+    {
+      "target": "packages/medusa-adapter/benchmarks/schema-aot/activation.mjs",
+      "classification": "authored",
+      "targetSha256": "433c78e76b34ca98a20f957f1c9c6b53ff956a5a64ccd4a83a9415678995d5fe"
+    },
+    {
+      "target": "packages/medusa-adapter/benchmarks/schema-aot/tsconfig.json",
+      "classification": "authored",
+      "targetSha256": "d242d0c4b0be55d2546f568a8c710dec92b90839cd5781fc49f2c346b22dbdd5"
     }
   ],
   "dependencies": {
@@ -21010,7 +21070,8 @@
         "@medusajs/types": "workspace:*",
         "@types/pg": "8.20.0",
         "drizzle-orm": "^0.45.2",
-        "pg": "8.22.0"
+        "pg": "8.22.0",
+        "tsx": "catalog:"
       },
       "exports": [
         "./internal/product-request",

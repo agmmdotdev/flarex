@@ -1,7 +1,9 @@
 import type { Schema } from "effect";
-import { CoreIndexMetadataSchema } from "../../src/core/indexState";
-import { CoreTableIteratorBudgetSchema } from "../../src/core/iteratorBudget";
-import { CoreNativeForeignKeySchema } from "../../src/core/nativePolicyTypes";
+import { CoreIndexMetadataSchema } from "../../../persistence-postgres/src/core/indexState";
+import { CoreTableIteratorBudgetSchema } from "../../../persistence-postgres/src/core/iteratorBudget";
+import { CoreNativeForeignKeySchema } from "../../../persistence-postgres/src/core/nativePolicyTypes";
+import { CoreSchemaMetadataSchema } from "../../../persistence-postgres/src/core/schemaTypes";
+import { ProductReadSchema, ProductFindConfigSchema } from "../../src/modules/product/service-schemas";
 
 const budget = { documentBytes: 1048576, documentCount: 1000, logPageSize: 100,
   maxLogPagesPerStep: 10, maxMetadataEntries: 1000, pageSize: 100 };
@@ -37,4 +39,14 @@ export const suites: readonly {
     invalid: [null, {}, { ...foreignKey, targetFields: ["id", "tenant"] },
       { ...foreignKey, sourceFields: ["parent_id", "parent_id"], targetFields: ["id", "tenant"] },
       { ...foreignKey, onDelete: "ignore" }, { ...foreignKey, sourceFields: [] }] },
+  { name: "schema-metadata-defaults", schema: CoreSchemaMetadataSchema,
+    valid: [{ state: { state: "active" }, schema: "{}" },
+      { state: { state: "failed", error: "failure" }, schema: "{}" }],
+    invalid: [null, {}, { state: { state: "failed" }, schema: "{}" }] },
+  { name: "product-read", schema: ProductReadSchema,
+    valid: [{ id: "product_aot" }, { filters: { handle: "example" }, config: { select: ["id", "title"] } }],
+    invalid: [null, { id: 1 }, { deletedAfter: null }] },
+  { name: "product-find-config", schema: ProductFindConfigSchema,
+    valid: [{ select: ["id", "title"], take: 10, withDeleted: false }, { skip: 0 }],
+    invalid: [null, { take: 1.5 }, { withDeleted: "false" }] },
 ];

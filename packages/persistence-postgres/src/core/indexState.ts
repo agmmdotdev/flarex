@@ -1,3 +1,4 @@
+import { install as installSchemaAot } from "./indexState.schema-aot.generated.mjs";
 /**
  * Database index metadata translated from Convex common/bootstrap_model/index
  * at db914cf06e2b06ee985646611b9e12ed7a770318.
@@ -49,6 +50,10 @@ export const CoreIndexMetadataSchema = Schema.Struct({
   }),
 });
 export type CoreIndexMetadata = typeof CoreIndexMetadataSchema.Type;
+/** Exact ordered build targets; install before any parser captures these ASTs. */
+export const schemaAotTargets = [CoreIndexFieldsSchema, CoreIndexDeclarationSchema, CoreDatabaseIndexStateSchema, CoreIndexMetadataSchema] as const;
+installSchemaAot(schemaAotTargets.map(schema => schema.ast));
+
 const decodeStoredCoreIndexMetadata = Schema.decodeUnknownResult(CoreIndexMetadataSchema);
 /** Source i64 -> NonZeroU32 conversion intentionally treats invalid optional IDs as absent. */
 export const decodeCoreIndexMetadata = (input: unknown) =>
