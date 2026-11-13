@@ -2,12 +2,14 @@
 
 ## Current Priority
 
-Optimization of the active core remains paused at the owner's request. Preserve
-the committed runtime and diagnostic evidence while continuing Medusa Product
-workflow integration. The existing CPU, latency and scaling targets remain
-unmet; pausing does not establish performance acceptance. Further optimization
-of that runtime requires a separately selected scope. Correctness regressions
-remain actionable at their actual owners during integration.
+The owner has selected the bounded
+[native validation lookup optimization](../../experiments/core/engine/slices/core-hot-path-reuse.md#invocation-local-native-validation-lookups):
+replace repeated index-specification and commerce command-membership scans
+while retaining fresh authority and generation checks. Broader optimization
+remains paused while Medusa Product workflow integration continues. The existing
+CPU, latency and scaling targets remain unmet; a local matched comparison does
+not establish complete performance acceptance. Correctness regressions remain
+actionable at their actual owners during integration.
 
 The owner has selected [refactoring the existing core](../../experiments/core/engine/REFACTOR.md)
 with reuse of Medusa/Payload integrations, necessary breaking internal changes,

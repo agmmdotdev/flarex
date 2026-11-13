@@ -596,31 +596,47 @@ function checkNativeTableIndexes(registry: CoreRegistry, table: CoreTableDefinit
   active: boolean): Result.Result<void, CorePersistenceError> {
   const schema = definition.schema.tables.find(candidate => candidate.tableName === table.name);
   if (schema === undefined) return Result.fail(corrupt("Native table is absent from its producer schema"));
-  const expected = [{ name: "by_id", fields: [] }, { name: "by_creation_time", fields: ["_creationTime"] },
+  const intrinsic = [{ name: "by_id", fields: [] }, { name: "by_creation_time", fields: ["_creationTime"] }];
+  const expected = [...intrinsic,
     ...schema.indexes.map(index => ({ name: index.indexDescriptor, fields: index.fields }))];
   return Result.gen(function* () {
-    const admitted = [...expected];
-    const enabled: { name: string; fields: readonly string[] }[] = [{ name: "by_id", fields: [] }, { name: "by_creation_time", fields: ["_creationTime"] }];
+    const declarations: { active: boolean; indexes: typeof schema.indexes }[] = [];
     // The shared registry has already authenticated the active/candidate pair.
     // Both generations receive writes; only the enabled generation serves reads.
     for (const state of ["active", "pending", "validated"] as const) {
       const selection = yield* registry.schemas.nativeByState(table.namespace, state);
       if (Option.isNone(selection)) continue;
       const declaration = selection.value.schema.tables.find(candidate => candidate.tableName === table.name);
-      if (state === "active") enabled.push(...(declaration?.indexes ?? []).map(index => ({ name: index.indexDescriptor, fields: index.fields })));
-      for (const index of declaration?.indexes ?? []) if (!admitted.some(candidate => candidate.name === index.indexDescriptor
-        && JSON.stringify(candidate.fields) === JSON.stringify(index.fields))) admitted.push({ name: index.indexDescriptor, fields: index.fields });
+      if (declaration !== undefined) declarations.push({ active: state === "active", indexes: declaration.indexes });
+    }
+    const expectedKeys = expected.map(index => nativeIndexSpecificationKey(index.name, index.fields));
+    const admitted = new Set(expectedKeys);
+    // Keep list cardinality: a malformed duplicate expectation must not be
+    // silently deduplicated into an admissible physical catalog.
+    let admittedCount = expected.length;
+    const enabled = new Set(intrinsic.map(index => nativeIndexSpecificationKey(index.name, index.fields)));
+    for (const declaration of declarations) for (const index of declaration.indexes) {
+      const key = nativeIndexSpecificationKey(index.indexDescriptor, index.fields);
+      if (declaration.active) enabled.add(key);
+      if (!admitted.has(key)) { admitted.add(key); admittedCount++; }
     }
     const actual = registry.indexesForTablet(table.tabletId);
-    if (actual.length !== admitted.length || actual.some(index => !admitted.some(declaration => declaration.name === index.name
-      && JSON.stringify(index.fields) === JSON.stringify(declaration.fields)) || isCoreIndexStaged(index)
-      || index.state.type === "Enabled" && !enabled.some(declaration => declaration.name === index.name
-        && JSON.stringify(index.fields) === JSON.stringify(declaration.fields)))
-      || expected.some(declaration => !actual.some(index => index.name === declaration.name
-        && JSON.stringify(index.fields) === JSON.stringify(declaration.fields) && (!active || index.state.type === "Enabled"))))
+    if (actual.length !== admittedCount)
+      return yield* Result.fail(corrupt("Native index generations differ from their authenticated declarations"));
+    const present = new Set<string>(), ready = new Set<string>();
+    for (const index of actual) {
+      const key = nativeIndexSpecificationKey(index.name, index.fields);
+      if (!admitted.has(key) || isCoreIndexStaged(index) || index.state.type === "Enabled" && !enabled.has(key))
+        return yield* Result.fail(corrupt("Native index generations differ from their authenticated declarations"));
+      present.add(key);
+      if (index.state.type === "Enabled") ready.add(key);
+    }
+    const required = active ? ready : present;
+    if (expectedKeys.some(key => !required.has(key)))
       return yield* Result.fail(corrupt("Native index generations differ from their authenticated declarations"));
   });
 }
+const nativeIndexSpecificationKey = (name: string, fields: readonly string[]) => JSON.stringify([name, fields]);
 export const checkCoreNativeTableIndexes = checkNativeTableIndexes;
 /** Issuer-authenticated proof already checked during registry publication. */
 export function authenticatedCoreNativeSchemaProof(registry: CoreRegistry, metadata: string | undefined) {

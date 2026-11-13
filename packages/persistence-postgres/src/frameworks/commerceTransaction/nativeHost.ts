@@ -158,8 +158,14 @@ const compose = Effect.fn("CommerceNativeHost.compose")(function* (hostInput: Re
   const initializerBinding = readOnly ? undefined : yield* coreResult(database.bindNativeInitialization({ binding, commandName: commerceNativeInitializationCommand.name }));
   const readBinding = Effect.fn("CommerceNativeHost.readBinding")(function* () {
     const metadata = yield* initialization.readBinding();
-    if (metadata.definition.source.definition.kind !== "relational" || registrations.some(selected => !metadata.commands.some(command =>
-      command.name === selected.name && command.mode === selected.mode))) return yield* commerceError("invalidAuthority");
+    if (metadata.definition.source.definition.kind !== "relational") return yield* commerceError("invalidAuthority");
+    const readable = new Set<string>(), writable = new Set<string>();
+    for (const command of metadata.commands) {
+      if (command.mode === "read") readable.add(command.name);
+      else if (command.mode === "write") writable.add(command.name);
+    }
+    if (registrations.some(selected => !(selected.mode === "read" ? readable : writable).has(selected.name)))
+      return yield* commerceError("invalidAuthority");
     return metadata;
   });
   const initial = yield* readBinding();
