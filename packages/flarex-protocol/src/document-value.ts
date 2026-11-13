@@ -10,6 +10,9 @@ import { Data, Encoding, Result, Schema } from "effect";
 import { JsonValue, isJsonArray, isJsonObject, type Json } from "./json";
 import {
   FlarexValueRuntimeCoreV1Error,
+  MAX_FLAREX_APP_DOCUMENT_NESTING_V1,
+  MAX_FLAREX_APP_DOCUMENT_SEMANTIC_BYTES_V1,
+  MAX_FLAREX_VALUE_SEMANTIC_BYTES_V1,
   MAX_FLAREX_VALUE_NESTING_V1,
   isCanonicalFlarexRuntimeObjectV1,
   normalizeFlarexRuntimeValueV1,
@@ -36,7 +39,9 @@ const decodeJson = Schema.decodeUnknownResult(JsonValue);
 const utf8 = new TextEncoder();
 const utf8Decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
 
-/** Returns detached, frozen containers and copied binary leaves. */
+/** Returns detached, frozen containers and copied binary leaves. Once the codec
+ * has walked a root this module issued, with scalar leaves only, later captures
+ * of that root return that walk's output without another walk. */
 export function captureDocumentValue(value: unknown): Result.Result<DocumentValue, DocumentValueError> {
   return captureDocumentValueWithSize(value).pipe(Result.map(captured => captured.value));
 }
@@ -85,27 +90,78 @@ export function captureDocumentPatch(value: unknown): Result.Result<
 }
 
 /** Container roots issued by capture: their complete trees are normalized and
- * frozen by the authoritative codec. Binary leaves stay owned by that tree. */
-const capturedRoots = new WeakSet<object>();
+ * frozen by the authoritative codec. Binary leaves stay owned by that tree.
+ * `proven` is the codec's own output for a later walk of that root whose input
+ * held scalar leaves only; `false` records that the root can never be proven. */
+interface IssuedRoot {
+  proven: CapturedDocumentValue | false | undefined;
+}
+const capturedRoots = new WeakMap<object, IssuedRoot>();
 /** True only for a root this module captured; structural checks never qualify. */
 export function isCapturedDocumentRoot(value: DocumentValue): boolean {
   return typeof value === "object" && value !== null && capturedRoots.has(value);
 }
 
+/** Frozen plain containers over scalar leaves cannot change after this check,
+ * and the codec copies nothing foreign out of them. A binary leaf can be
+ * written, transferred or detached by any holder, and the codec copies it
+ * through the input's own method, so a tree with one is never proven.
+ * Every genuine node costs at least one semantic byte, which bounds the walk. */
+function isImmutableScalarTree(value: unknown, depth: number, budget: { nodes: number }): boolean {
+  if (--budget.nodes < 0) return false;
+  if (value === null) return true;
+  if (typeof value !== "object")
+    return typeof value === "string" || typeof value === "number" || typeof value === "boolean" || typeof value === "bigint";
+  if (depth > MAX_FLAREX_VALUE_NESTING_V1) return false;
+  // Frozen first: a Proxy that reports frozen has a frozen target, and the
+  // language then pins its prototype, keys and values for every later read.
+  if (!Object.isFrozen(value)) return false;
+  const array = Array.isArray(value);
+  // Exact prototypes: the codec tests for a binary value before an array.
+  if (Object.getPrototypeOf(value) !== (array ? Array.prototype : Object.prototype)) return false;
+  for (const key of Reflect.ownKeys(value)) {
+    if (array && key === "length") continue;
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (typeof key !== "string" || descriptor === undefined || !("value" in descriptor) ||
+      !isImmutableScalarTree(descriptor.value, depth + 1, budget)) return false;
+  }
+  return true;
+}
+
 function capture(value: unknown, profile: FlarexValueProfileV1): Result.Result<CapturedDocumentValue, DocumentValueError> {
+  const issued = typeof value === "object" && value !== null ? capturedRoots.get(value) : undefined;
+  const proven = issued?.proven;
+  // The codec produced these facts for this content from scalar-only input,
+  // under this profile's limits or stricter ones; every other case walks.
+  if (proven !== undefined && proven !== false && proven.semanticSizeBytes <= limitBytes(profile) &&
+    proven.nestingDepth <= limitNesting(profile) && !(profile === "appDocument" && Array.isArray(proven.value)))
+    return Result.succeed(proven);
+  // Shape is pinned before the codec walks it, so both inspect the same tree.
+  const proving = issued !== undefined && proven === undefined &&
+    isImmutableScalarTree(value, 0, { nodes: limitBytes(profile) });
+  if (issued !== undefined && proven === undefined && !proving) issued.proven = false;
   return Result.try({
     try: () => {
       const { value: captured, semanticSizeBytes, nestingDepth } = normalizeFlarexRuntimeValueV1(value, profile);
-      if (typeof captured === "object" && captured !== null && !(captured instanceof ArrayBuffer)) capturedRoots.add(captured);
-      return Object.freeze({ value: captured, semanticSizeBytes, nestingDepth });
+      const result = Object.freeze({ value: captured, semanticSizeBytes, nestingDepth });
+      if (typeof captured === "object" && captured !== null && !(captured instanceof ArrayBuffer))
+        capturedRoots.set(captured, { proven: proving ? result : undefined });
+      // Later captures of either root return this output, never the first tree.
+      if (proving && issued !== undefined) issued.proven = result;
+      return result;
     },
     catch: (cause: unknown) => {
+      if (proving && issued !== undefined) issued.proven = false;
       if (cause instanceof FlarexValueRuntimeCoreV1Error)
         return new DocumentValueError({ reason: "invalidValue", issue: cause.issue });
       throw cause;
     },
   });
 }
+const limitBytes = (profile: FlarexValueProfileV1) =>
+  profile === "appDocument" ? MAX_FLAREX_APP_DOCUMENT_SEMANTIC_BYTES_V1 : MAX_FLAREX_VALUE_SEMANTIC_BYTES_V1;
+const limitNesting = (profile: FlarexValueProfileV1) =>
+  profile === "appDocument" ? MAX_FLAREX_APP_DOCUMENT_NESTING_V1 : MAX_FLAREX_VALUE_NESTING_V1;
 
 /** UTF-8 internal JSON for the complete document; no private outer envelope. */
 export function encodeDocumentValue(value: unknown): Result.Result<Uint8Array, DocumentValueError> {
