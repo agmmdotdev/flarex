@@ -1,7 +1,5 @@
-import {
-  MAX_RECONCILED_DEFINITIONS,
-  type PublishedPhysicalRequirementSnapshotV1,
-} from "../../storage/indexes/indexBuildReconciliation";
+import type { PublishedPhysicalRequirementSnapshotV1 } from "../../storage/indexes/indexBuildReconciliation";
+import { MAX_PHYSICAL_INDEX_DEFINITIONS } from "../../storage/indexes/catalogCapacity";
 import {
   type ScopeClockRecord,
   lockScopeClockForSnapshotReadInTransactionEffect,
@@ -62,7 +60,7 @@ import {
 } from "drizzle-orm";
 import { IndexMaintenanceError } from "../../storage/indexes/indexMaintenanceModel";
 
-export const MAX_PHYSICAL_DEFINITIONS = MAX_RECONCILED_DEFINITIONS;
+export const MAX_PHYSICAL_DEFINITIONS = MAX_PHYSICAL_INDEX_DEFINITIONS;
 
 type PhysicalBuildRowsResult =
   | Readonly<{
