@@ -8,8 +8,11 @@ import * as storeCartsByIdPromotionsRoute from "./api/store/carts/[id]/promotion
 import * as storeCartsByIdTaxesRoute from "./api/store/carts/[id]/taxes/route"
 import * as storeCartsByIdShippingMethodsRoute from "./api/store/carts/[id]/shipping-methods/route"
 import * as storeShippingOptionsRoute from "./api/store/shipping-options/route"
+import * as storePaymentCollectionsRoute from "./api/store/payment-collections/route"
+import * as storePaymentCollectionsByIdPaymentSessionsRoute from "./api/store/payment-collections/[id]/payment-sessions/route"
 import { storeCartRoutesMiddlewares } from "./api/store/carts/middlewares"
 import { storeShippingOptionRoutesMiddlewares } from "./api/store/shipping-options/middlewares"
+import { storePaymentCollectionsMiddlewares } from "./api/store/payment-collections/middlewares"
 
 export const storeCartHttpManifest = {
   routes: [
@@ -53,6 +56,16 @@ export const storeCartHttpManifest = {
       module: storeShippingOptionsRoute,
       relativePath: "packages/medusa-http/src/api/store/shipping-options/route.ts",
     },
+    {
+      route: "/store/payment-collections",
+      module: storePaymentCollectionsRoute,
+      relativePath: "packages/medusa-http/src/api/store/payment-collections/route.ts",
+    },
+    {
+      route: "/store/payment-collections/:id/payment-sessions",
+      module: storePaymentCollectionsByIdPaymentSessionsRoute,
+      relativePath: "packages/medusa-http/src/api/store/payment-collections/[id]/payment-sessions/route.ts",
+    },
   ],
   middlewares: [
     {
@@ -70,6 +83,14 @@ export const storeCartHttpManifest = {
         },
       },
       source: "packages/medusa-http/src/api/store/shipping-options/middlewares.ts",
+    },
+    {
+      module: {
+        default: {
+          routes: storePaymentCollectionsMiddlewares,
+        },
+      },
+      source: "packages/medusa-http/src/api/store/payment-collections/middlewares.ts",
     },
   ],
 } satisfies StaticHttpResourceManifest

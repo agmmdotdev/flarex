@@ -1,10 +1,10 @@
 import { Effect } from "effect";
 import type { Logger } from "@medusajs/framework/types";
 import { capturePrivateCanonicalValue, commerceError, type Json, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
-import { compileStoreCartRequestCatalog } from "../../src/http/store-cart-request";
-import { cartShippingModuleNames, cartShippingCoreDefinitions } from "../../src/workflows/cart/shipping-graph";
+import { compileStoreCartRequestCatalog, storeCartRequestModuleNames, storeCartRequestCoreDefinitions } from "../../src/http/store-cart-request";
 import { cartCreateRootSeeds } from "./cart-create-root-seeds";
 import { storeCartShippingSeedRows, orderStoreCartSeedRows } from "./cart-shipping-http-seeds";
+import { storePaymentHttpSeedRows } from "./store-payment-http-seeds";
 import { compileStoreRequestReadFixtureCatalog, storeRequestReadToken, storeRequestReadRevokedToken } from "./store-request-read-catalog";
 
 export const storeCartRequestTarget = Object.freeze({ scopeUuid: "e1000000-0000-4000-8000-000000000001", epochUuid: "e1000000-0000-4000-8000-000000000002" });
@@ -86,6 +86,16 @@ export const storeCartShippingProofSeedRows: Readonly<Record<string, readonly Ro
       return [name, name === "cart" ? orderStoreCartSeedRows(rows) : rows];
     }));
 
+export { storePaymentHttpSeedRows };
+export { installStorePaymentFailure } from "./store-payment-fault";
+/** The same complete endpoint dataset serves Node and actual Workerd proofs. */
+export const storePaymentHttpProofSeedRows: Readonly<Record<string, readonly Row[]>> = Object.fromEntries(
+  [...new Set([...Object.keys(storeCartShippingProofSeedRows), ...Object.keys(storePaymentHttpSeedRows)])]
+    .map(name => {
+      const rows = [...(storeCartShippingProofSeedRows[name] ?? []), ...(storePaymentHttpSeedRows[name] ?? [])];
+      return [name, name === "cart" ? orderStoreCartSeedRows(rows) : rows];
+    }));
+
 export const storeCartMutationSeedRows: Readonly<Record<string, readonly Row[]>> = {
   region: [{ table: "region", row: { id: "reg-cart-update", name: "Cart Update Region", currency_code: "usd" } },
     { table: "region_country", row: { iso_2: "gb", iso_3: "gbr", num_code: "826", name: "UNITED KINGDOM", display_name: "United Kingdom", region_id: "reg-cart-update" } }],
@@ -116,9 +126,9 @@ export const compileStoreCartRequestFixtureCatalog = Effect.fn("StoreCartFixture
       { table: "publishable_api_key_sales_channel", row: { id: "pksc_cart_multi_a", publishable_key_id: "apk_cart_multi", sales_channel_id: "sc-create-root" } },
       { table: "publishable_api_key_sales_channel", row: { id: "pksc_cart_multi_b", publishable_key_id: "apk_cart_multi", sales_channel_id: "sc-other" } }],
   };
-  const definitions = yield* cartShippingCoreDefinitions(target);
+  const definitions = yield* storeCartRequestCoreDefinitions(target);
   const rows: Readonly<Record<string, readonly Row[]>> = Object.fromEntries([
-    ...cartShippingModuleNames.map(name => [name, [...(defaults[name] ?? []), ...(cartCreateRootSeeds[name] ?? []), ...(additionalRows[name] ?? [])]]),
+    ...storeCartRequestModuleNames.map(name => [name, [...(defaults[name] ?? []), ...(cartCreateRootSeeds[name] ?? []), ...(additionalRows[name] ?? [])]]),
     ["currency", authRows.currency.map(row => ({ table: "currency", row }))],
     ["apiKey", authRows.apiKey.map(row => ({ table: "api_key", row }))], ["apiKeySalesChannel", authRows.apiKeySalesChannel],
   ]);
@@ -127,7 +137,7 @@ export const compileStoreCartRequestFixtureCatalog = Effect.fn("StoreCartFixture
       { invalidInput: () => commerceError("invalidInput"), hashFailure: cause => commerceError("resourceFailure", cause) });
     return { stepId: `${name.toLowerCase()}-initial`, datasetSha256: captured.sha256Hex, expectedRowCount: count };
   });
-  const nativeReceipt = (name: typeof cartShippingModuleNames[number]) => {
+  const nativeReceipt = (name: typeof storeCartRequestModuleNames[number]) => {
     const selected = rows[name] ?? [];
     return receipt(name, definitions[name].tables.length === 1 ? selected.map(row => row.row) : selected, selected.length);
   };
@@ -139,6 +149,7 @@ export const compileStoreCartRequestFixtureCatalog = Effect.fn("StoreCartFixture
     promotion: nativeReceipt("promotion"), tax: nativeReceipt("tax"), payment: nativeReceipt("payment"),
     cart_promotion_links: nativeReceipt("cart_promotion_links"), cart_payment_collection_links: nativeReceipt("cart_payment_collection_links"),
     location_fulfillment_set_links: nativeReceipt("location_fulfillment_set_links"), shipping_option_price_set_links: nativeReceipt("shipping_option_price_set_links"),
+    customer_account_holder_links: nativeReceipt("customer_account_holder_links"),
   });
   const catalog = yield* compileStoreCartRequestCatalog(target, { native, auth: { currency: yield* receipt("currency", authRows.currency, authRows.currency.length),
     apiKey: yield* receipt("apiKey", authRows.apiKey, authRows.apiKey.length),

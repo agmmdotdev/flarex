@@ -3,7 +3,7 @@ import { createStep, StepResponse, WorkflowDefinitionError, type StepOutput } fr
 import { queryWorkflowGraph, type WorkflowGraphResource } from "./use-query-graph";
 import { CartCollectionCreateQuery, CartCollectionCreateView, decodeCartCollectionCreateView } from "./payment-collection-query-views";
 import { decodeNativeShippingOptions, type NativeShippingOptionView } from "./cart-mutation-shipping-query-views";
-import { CartMutationRefreshView } from "./cart-mutation-query-views";
+import { NativeCartMutationRefreshView } from "./cart-mutation-query-views";
 
 // Pinned Product lists retain the bounded graph seam. Named Fulfillment and
 // Payment singleton profiles use the exact native callable Query ABI.
@@ -86,9 +86,10 @@ interface SingletonQueryResource {
     | { readonly entryPoint: "order_payment_collection"; readonly fields: readonly string[]; readonly variables: { readonly payment_collection_id: string } },
     options: { readonly throwIfKeyNotFound: boolean; readonly throwIfRelationNotFound: undefined }): Promise<readonly Row[]>;
 }
+type NativeCartQueryResource = (...args: Parameters<SingletonQueryResource>) => Promise<readonly unknown[]>;
 const decode = Schema.decodeUnknownResult(Input, { onExcessProperty: "error" });
 export const useRemoteQueryStepId = "use-remote-query";
-const step = createStep<EntryStepInput, Row | readonly Row[] | undefined>(useRemoteQueryStepId, async (input, { container }) => {
+const step = createStep<EntryStepInput, Row | readonly Row[] | typeof CartCollectionCreateView.Type | undefined>(useRemoteQueryStepId, async (input, { container }) => {
   // Deliberate Promise/throw boundary matching the native step contract.
   const data = Result.getOrThrow(decode(input).pipe(Result.mapError(() => new WorkflowDefinitionError({
     reason: "unsupportedProfile", detail: "Unsupported native remote query step options",
@@ -106,7 +107,11 @@ const step = createStep<EntryStepInput, Row | readonly Row[] | undefined>(useRem
       { throwIfKeyNotFound: data.entry_point !== "payment_collection" && data.entry_point !== "customer", throwIfRelationNotFound: undefined });
     const result = entities[0];
     if (data.entry_point === "cart") return new StepResponse(Result.getOrThrow(decodeCartCollectionCreateView(result)
-      .pipe(Result.mapError(() => new WorkflowDefinitionError({ reason: "invalidDefinition", detail: "Malformed native Cart payment projection" })))));
+      .pipe(Result.mapError(cause => {
+        const error = new WorkflowDefinitionError({ reason: "invalidDefinition", detail: "Malformed native Cart payment projection" });
+        error.cause = cause;
+        return error;
+      }))));
     if (data.entry_point === "payment_collection") return new StepResponse(Result.getOrThrow(decodeCollectionView(result)
       .pipe(Result.mapError(() => new WorkflowDefinitionError({ reason: "invalidDefinition", detail: "Malformed native Payment collection projection" })))));
     if (data.entry_point === "customer") return new StepResponse(Result.getOrThrow(decodeCustomerView(result)
@@ -122,7 +127,8 @@ const step = createStep<EntryStepInput, Row | readonly Row[] | undefined>(useRem
   const result = await queryWorkflowGraph({ entity: data.entry_point, fields: data.fields,
     ...(data.variables?.filters === undefined ? {} : { filters: data.variables.filters }),
   }, container.resolve<WorkflowGraphResource>("query"));
-  return new StepResponse(data.entry_point === "shipping_options" ? decodeNativeShippingOptions(result.data) : result.data);
+  if (data.entry_point === "shipping_options") decodeNativeShippingOptions(result.data);
+  return new StepResponse(result.data);
 });
 
 // Dynamic selection exposes partial records, never a caller-chosen module DTO.
@@ -136,7 +142,7 @@ export function useRemoteQueryStep(input: typeof RefundPaymentInput.Type): StepO
 export function useRemoteQueryStep(input: typeof RefundOrderInput.Type): StepOutput<typeof RefundOrderView.Type>;
 export function useRemoteQueryStep(input: typeof RefundReasonInput.Type): StepOutput<typeof RefundReasonView.Type>;
 export function useRemoteQueryStep(input: ListStepInput): StepOutput<readonly Row[]>;
-export function useRemoteQueryStep(input: EntryStepInput): StepOutput<Row | readonly Row[] | undefined>;
+export function useRemoteQueryStep(input: EntryStepInput): StepOutput<Row | readonly Row[] | typeof CartCollectionCreateView.Type | undefined>;
 export function useRemoteQueryStep(input: EntryStepInput): unknown { return step(input); }
 
 /** Only successful Shipping projections are narrowed. The existing input
@@ -159,15 +165,17 @@ export function useCartShippingRemoteQueryStep(input: typeof ShippingInput.Type)
 const MutationCartInput = Schema.Struct({ entry_point: Schema.Literal("cart"), fields: Schema.Array(Schema.String),
   variables: Schema.Struct({ id: Schema.String }), list: Schema.Literal(false), throw_if_key_not_found: Schema.Literal(true) });
 const decodeMutationCartInput = Schema.decodeUnknownResult(MutationCartInput, { onExcessProperty: "error" });
-const decodeMutationCart = Schema.decodeUnknownResult(CartMutationRefreshView);
+const decodeMutationCart = Schema.decodeUnknownResult(NativeCartMutationRefreshView);
 const mutationCartStep = createStep("use-remote-query", async (input: unknown, { container }) => {
   const data = Result.getOrThrow(decodeMutationCartInput(input).pipe(Result.mapError(() => new WorkflowDefinitionError({
     reason: "unsupportedProfile", detail: "Unsupported native Cart mutation remote query options",
   }))));
-  const rows = await container.resolve<SingletonQueryResource>("query")({ entryPoint: "cart", fields: data.fields, variables: data.variables },
+  const rows = await container.resolve<NativeCartQueryResource>("query")({ entryPoint: "cart", fields: data.fields, variables: data.variables },
     { throwIfKeyNotFound: true, throwIfRelationNotFound: undefined });
-  return new StepResponse(Result.getOrThrow(decodeMutationCart(rows[0]).pipe(Result.mapError(() => new WorkflowDefinitionError({
-    reason: "invalidDefinition", detail: "Malformed native Cart mutation projection",
-  })))));
+  return new StepResponse(Result.getOrThrow(decodeMutationCart(rows[0]).pipe(Result.mapError(cause => {
+    const error = new WorkflowDefinitionError({ reason: "invalidDefinition", detail: "Malformed native Cart mutation projection" });
+    error.cause = cause;
+    return error;
+  }))));
 });
-export function useCartMutationRemoteQueryStep(input: typeof MutationCartInput.Type): StepOutput<typeof CartMutationRefreshView.Type> { return mutationCartStep(input); }
+export function useCartMutationRemoteQueryStep(input: typeof MutationCartInput.Type): StepOutput<typeof NativeCartMutationRefreshView.Type> { return mutationCartStep(input); }

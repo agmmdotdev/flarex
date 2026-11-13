@@ -1,3 +1,4 @@
+import { withNativeGraphMetadata } from "../../local-graph/native-metadata";
 import { Effect, Result, Schema } from "effect";
 import { Country, Region } from "@medusajs/region/models";
 import { regionStaticResources } from "@medusajs/region/static-manifest";
@@ -42,7 +43,7 @@ export const makeLocalRegionReadCommands = Effect.fn("RegionAdapter.readCommands
     const joiner = regionStaticResources.joinerConfig;
     if (joiner === undefined) return yield* Result.fail(commerceError("unsupportedProfile"));
     const aliases = yield* moduleAliases({ ...joiner, alias: (Array.isArray(joiner.alias) ? joiner.alias : []).filter(alias => alias.entity === "Region") });
-    const graph = yield* scalarGraphDefinition(aliases, "Region", count, prepared.table), policy = regionReadPolicy(prepared), admitted = [list, count];
+    const graph = yield* withNativeGraphMetadata(yield* scalarGraphDefinition(aliases, "Region", count, prepared.table), [joiner], metadata.frame.tables), policy = regionReadPolicy(prepared), admitted = [list, count];
     const workflow = yield* defineWorkflowModule({ name: Modules.REGION, source: module.description, methods: { listRegions }, graph,
       logical: { ...policy, commands: admitted } });
     return { list, count, commands: admitted, workflow, graph, contracts: prepared.contracts, withService: module.use, logicalEventPolicy: () => policy };

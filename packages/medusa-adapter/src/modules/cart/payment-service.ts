@@ -1,3 +1,4 @@
+import { withNativeGraphMetadata } from "../../local-graph/native-metadata";
 import { Effect, Result, Schema } from "effect";
 import { Address, Cart, LineItem } from "@medusajs/cart/models";
 import { CartModuleService } from "@medusajs/cart/services";
@@ -100,12 +101,12 @@ const makeCartCommands = Effect.fn("Cart.commands")(function* (profile: "payment
         encode: ([input]) => input, output: decodeEmptyCartAddresses }),
     };
     const workflow = yield* defineWorkflowModule({ name: Modules.CART, source: module.description, methods,
-      graph: { aliases: aliases.filter(alias => alias.model === "Cart" || profile === "checkout" && alias.model === "LineItem"), reads: [{ model: "Cart", command: count,
+      graph: yield* withNativeGraphMetadata({ aliases: aliases.filter(alias => alias.model === "Cart" || profile === "checkout" && alias.model === "LineItem"), reads: [{ model: "Cart", command: count,
         table: yield* presentation.table("cart"), paths: profile === "checkout" ? yield* relationPaths(read.catalog, "cart", read.paths, { nativeFields: true }) : [],
-        ...(profile === "checkout" ? { nativeFields: true as const } : { selectedFieldsOnly: true }),
+        ...(profile === "checkout" ? { nativeFields: true as const } : {}),
         orderable: ["id"], uniqueOrder: ["id"], multipleOrder: false, decode: decodeGraphCount },
         ...(profile === "checkout" ? [{ model: "LineItem", command: countLines, table: yield* read.catalog.table("cart_line_item"),
-          paths: [], orderable: ["id"], uniqueOrder: ["id"], multipleOrder: false, decode: decodeGraphCount }] : [])] }, logical: { ...policy, commands: admitted } });
+          paths: [], orderable: ["id"], uniqueOrder: ["id"], multipleOrder: false, decode: decodeGraphCount }] : [])] }, [joiner], metadata.frame.tables), logical: { ...policy, commands: admitted } });
     return { prepared, workflow, count, list, complete, addresses, updateAddresses, commands: admitted, logicalEventPolicy: () => policy };
   }));
 });

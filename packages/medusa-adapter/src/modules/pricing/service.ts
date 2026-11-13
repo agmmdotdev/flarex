@@ -1,3 +1,4 @@
+import { withNativeGraphMetadata } from "../../local-graph/native-metadata";
 import { Effect, Result, Schema } from "effect";
 import { Price, PriceSet, PriceRule, PriceList, PriceListRule, PricePreference } from "@medusajs/pricing/models";
 import { PricingModuleService } from "@medusajs/pricing/services";
@@ -299,11 +300,11 @@ export const makeLocalPricingCommands = Effect.fn("PricingAdapter.commands")(fun
         service.calculatePrices({ id: [...args.filters.id] }, args.pricingContext, context));
     const joiner = pricingStaticResources.joinerConfig;
     if (!joiner) return yield* Result.fail(commerceError("unsupportedProfile"));
-    const graph: GraphModuleDefinition = preferences || listCreations || listUpdates || listDeletions || listPrices ? { aliases: [], reads: [] } : { aliases: yield* moduleAliases({ ...joiner, alias: (Array.isArray(joiner.alias) ? joiner.alias : joiner.alias === undefined ? [] : [joiner.alias]).filter(alias => alias.entity === "PriceSet") }),
+    const graph: GraphModuleDefinition = preferences || listCreations || listUpdates || listDeletions || listPrices ? { aliases: [], reads: [] } : yield* withNativeGraphMetadata({ aliases: yield* moduleAliases({ ...joiner, alias: (Array.isArray(joiner.alias) ? joiner.alias : joiner.alias === undefined ? [] : [joiner.alias]).filter(alias => alias.entity === "PriceSet") }),
       reads: [{ model: "PriceSet", command: count, table: prepared.table, paths: variantItemPricing && !calculatedRead ? [] : prepared.paths,
-        ...(calculatedRead ? { computedObjects: { calculated_price: storeCalculatedPriceObject }, selectedFieldsOnly: true as const, nativeFields: true as const } : {}),
+        ...(calculatedRead ? { computedObjects: { calculated_price: storeCalculatedPriceObject }, nativeFields: true as const } : {}),
         orderable: ["id"], uniqueOrder: ["id"], multipleOrder: false, decode: calculatedRead ? decodeStorePriceSetCount : decodeGraphCount }],
-    };
+    }, [joiner], metadata.frame.tables);
     const decodeShippingCreateArguments = commerceDecoder(Schema.Tuple([ShippingPriceSetsInput]), "invalidInput");
     const decodeSelectedCreateArguments = (value: unknown): Result.Result<readonly [typeof ShippingPriceSetsInput.Type], CommerceTransactionError> =>
       shipping ? decodeShippingCreateArguments(value) : decodeCreateArguments(value);

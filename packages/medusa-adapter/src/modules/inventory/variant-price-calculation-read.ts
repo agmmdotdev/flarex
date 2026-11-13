@@ -16,6 +16,14 @@ const Config = Schema.optionalKey(Schema.Struct({
 export const InventoryVariantPriceCalculationItemRead = Schema.Struct({
   filters: Schema.Struct({ id: Member }), config: Config,
 });
+/** Shipping already admits this same-service path through its Variant graph.
+ * Keep the ordinary Variant scalar read profile unchanged. */
+export const InventoryVariantPriceCalculationPopulatedItemRead = Schema.Struct({
+  ...InventoryVariantPriceCalculationItemRead.fields,
+  config: Schema.optionalKey(Schema.Struct({ ...Config.schema.fields,
+    relations: Schema.optionalKey(Schema.Array(Schema.Literal("location_levels")).check(Schema.isMaxLength(1))),
+  })),
+});
 export const InventoryVariantPriceCalculationLevelRead = Schema.Struct({
   filters: Schema.Struct({ id: Schema.optionalKey(Member), inventory_item_id: Schema.optionalKey(Member) })
     .check(Schema.makeFilter(filters => filters.id !== undefined || filters.inventory_item_id !== undefined)),

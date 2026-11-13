@@ -1,5 +1,8 @@
+import { withNativeGraphMetadata } from "../local-graph/native-metadata";
 import { Effect, Result, Schema } from "effect";
 import { Link } from "@medusajs/modules-sdk/link";
+import { joinerConfig as productJoiner } from "@medusajs/product/joiner-config";
+import { pricingStaticResources } from "@medusajs/pricing/static-manifest";
 import type { FindConfig } from "@medusajs/types";
 import type { CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError, commerceLimits, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
@@ -35,11 +38,13 @@ const nativeVariantRead = Schema.Struct({ filters: Schema.Struct({
   variant_id: Schema.Array(Schema.String.check(Schema.isMaxLength(256))).check(Schema.isMaxLength(4)) }),
   config: Schema.Struct({ select: Schema.Tuple([Schema.Literal("variant_id"), Schema.Literal("price_set_id")]),
     relations: Schema.Array(Schema.Never), skip: Schema.Literal(0), take: Schema.Literal(commerceLimits.catalogRows),
-    order: Schema.Struct({ variant_id: Schema.Literal("ASC") }) }),
+    order: Schema.optionalKey(Schema.Struct({ variant_id: Schema.Literal("ASC") })) }),
 });
 const decodeRead = commerceDecoder(Schema.Union([readInput, nativeVariantRead]), "invalidInput");
 export const prepareVariantPricingLink = Effect.fn("VariantPricingLink.prepare")(function* () {
   const native = yield* prepareLinkService(yield* captureVariantPricingLinkMetadata());
+  const pricingJoiner = pricingStaticResources.joinerConfig;
+  if (pricingJoiner === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
   const use = (ctx: CommerceCommandContext, work: (scope: {
     readonly create: (input: unknown) => Promise<unknown>;
     readonly dismiss: (input: unknown) => Promise<unknown>;
@@ -74,7 +79,7 @@ export const prepareVariantPricingLink = Effect.fn("VariantPricingLink.prepare")
   const dismiss = commands.write("linkDismiss", prepare(decodeLinks), ({ dismiss: nativeDismiss }, data) => nativeDismiss(data));
   const restore = commands.write("linkRestore", prepare(decodeRestore), ({ restore: nativeRestore }, data) => nativeRestore(data));
   const count = commands.read("linkCount", prepare(decodeRead), ({ service, context }, args) => service.listAndCount(args.filters, args.config as FindConfig<unknown> | undefined, context));
-  const graph: GraphModuleDefinition = { aliases: yield* Effect.fromResult(moduleAliases(native.joiner)), reads: [{ model: native.entityName, command: count, table: native.prepared.table, paths: [], orderable: ["variant_id"], uniqueOrder: ["variant_id"], multipleOrder: false, decode: decodeGraphCount }] };
+  const graph: GraphModuleDefinition = yield* Effect.fromResult(withNativeGraphMetadata({ aliases: yield* Effect.fromResult(moduleAliases(native.joiner)), reads: [{ model: native.entityName, command: count, table: native.prepared.table, paths: [], orderable: ["variant_id"], uniqueOrder: ["variant_id"], multipleOrder: false, decode: decodeGraphCount }] }, [native.joiner, productJoiner, pricingJoiner], [native.metadata.frame]));
   const method = yield* Effect.fromResult(defineWorkflowMethod({ command: create, arguments: decodeArguments, encode: ([links]) => links, output: decodeCreated, moduleEvents: [native.entityName + ".attached"] }));
   const logicalEventPolicy = () => linkLogicalEventPolicy("product_variant_price_set", native.serviceName, native.entityName,
     ["variant_id", "price_set_id"]);

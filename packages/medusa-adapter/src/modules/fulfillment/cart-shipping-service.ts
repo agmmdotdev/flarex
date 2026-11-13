@@ -1,3 +1,4 @@
+import { withNativeGraphMetadata } from "../../local-graph/native-metadata";
 import { Effect, Result, Schema } from "effect";
 import { FulfillmentSet, ServiceZone, ShippingOption, ShippingProfile } from "@medusajs/fulfillment/models";
 import { fulfillmentStaticResources } from "@medusajs/fulfillment/static-manifest";
@@ -102,7 +103,7 @@ export const makeFulfillmentCartShippingCommands = Effect.fn("Fulfillment.cartSh
     ["shipping_profile", "ShippingProfile", profile, []], ["fulfillment_set", "FulfillmentSet", set, []], ["service_zone", "ServiceZone", zone, ["fulfillment_set", "geo_zones"]]] as const)
       reads.push({ model, command, table: yield* prepared.catalog.table(table), paths: yield* relationPaths(prepared.catalog, table, paths, { nativeFields: true }),
         nativeFields: true as const, orderable: ["id"], uniqueOrder: ["id"], multipleOrder: false, decode: decodeGraphCount });
-    const graph = { aliases: (yield* moduleAliases(joiner)).filter(alias => reads.some(read => read.model === alias.model)), reads };
+    const graph = yield* withNativeGraphMetadata({ aliases: (yield* moduleAliases(joiner)).filter(alias => reads.some(read => read.model === alias.model)), reads }, [joiner], metadata.frame.tables);
     const admitted = [option, profile, set, zone, validation, calculation], policy = { capture: readPolicy.capture, validateLogicalCall };
     const workflow = yield* defineWorkflowModule({ name: Modules.FULFILLMENT, source: module.description,
       methods: { validateFulfillmentData, calculateShippingOptionsPrices }, graph, logical: { ...policy, commands: admitted } });

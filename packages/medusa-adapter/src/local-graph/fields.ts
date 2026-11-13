@@ -1,106 +1,41 @@
 import { Result } from "effect";
-import { toPopulateTree, type PopulateTree } from "@medusajs/drizzle/relation-query";
-import { commerceError, type CommerceTransactionError, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
-import type { ReadTable } from "../query/catalog";
-import { projectRows, type ProjectionNode } from "../query/projection";
-import type { GraphReadDefinition, GraphRelationPath } from "./model";
-import { graphSelectableColumns, type GraphPresentation } from "./presentation";
-import { computedObjectProjection, type GraphComputedObject } from "./computed";
+import { commerceError, type CommerceTransactionError } from "@flarex/persistence-postgres/internal/commerce-values";
+import type { GraphReadDefinition } from "./model";
+import { graphSelectableColumns } from "./presentation";
+import type { GraphComputedObject } from "./computed";
 
-export interface GraphFieldPlan {
-  readonly node: ProjectionNode;
-  /** Selected root scalars and companions before local hydration broadens reads. */
-  readonly scalarSelect: readonly string[];
-  readonly select: readonly string[];
-  readonly relations: readonly string[];
-  readonly project: (rows: readonly JsonObject[]) => Result.Result<JsonObject[], CommerceTransactionError>;
+/** Computed metadata restricts capabilities; native Query alone expands and
+ * presents the selected object. A selected object prefix grants its own leaves. */
+function admitsComputed(object: GraphComputedObject, field: string) {
+  return field === "" || field === "*" || object.fields.some(allowed => allowed === field || allowed.startsWith(field + ".")
+    || field.endsWith(".*") && allowed.startsWith(field.slice(0, -1)));
 }
 
-/** Validate native admission, then reuse the promoted Medusa path tree and shared
- * projection executor. No remote-query AST, row reader or relation loader. */
-export function planGraphFields(read: GraphReadDefinition, fields: readonly string[], native = false): Result.Result<GraphFieldPlan, CommerceTransactionError> {
+/** Static field/path admission only. This produces no tree, storage selection,
+ * hydration fields or response mask; all execution belongs to native Query. */
+export function planGraphFields(read: GraphReadDefinition, fields: readonly string[]): Result.Result<void, CommerceTransactionError> {
   return Result.gen(function* () {
     const paths = new Map(read.paths.map(relation => [relation.path, relation]));
-    const requested = new Set<string>();
     for (const field of fields) {
       const parts = field.split(".");
       if (parts.some(part => part.length === 0)) return yield* Result.fail(commerceError("unsupportedProfile"));
       const output = read.paths.find(path => path.outputObject !== undefined && (field === path.path || field.startsWith(path.path + ".")));
-      if (output !== undefined) {
-        for (let index = 1; index <= output.path.split(".").length; index++) requested.add(output.path.split(".").slice(0, index).join("."));
-        continue;
-      }
-      const computed = [read, ...read.paths].find(owner => {
-        const base = "path" in owner ? owner.path + "." : "";
-        return Object.keys(owner.computedObjects ?? {}).some(name => field === base + name || field.startsWith(base + name + "."));
-      });
-      if (computed !== undefined) {
-        const base = "path" in computed ? computed.path : "";
-        if (base !== "") for (let index = 1; index <= base.split(".").length; index++) requested.add(base.split(".").slice(0, index).join("."));
-        continue;
-      }
-      const column = parts.pop();
-      const selected = parts.length === 0 ? read : paths.get(parts.join("."));
-      if (column === undefined || selected === undefined || (column !== "*" && !graphSelectableColumns(selected).includes(column) &&
-        !selected.optionalFields?.includes(column))) return yield* Result.fail(commerceError("unsupportedProfile"));
-      for (let index = 1; index <= parts.length; index++) requested.add(parts.slice(0, index).join("."));
-    }
-    const tree = toPopulateTree(fields);
-    const root = yield* fieldProjection(tree, read.table, paths, "", read.selectedFieldsOnly !== true, native, [], read.optionalFields, read.nativeFields === true, read.presentation, read.computedObjects);
-    const fetch = read.selectedFieldsOnly === true ? yield* fieldProjection(tree, read.table, paths, "", true, native, [], read.optionalFields, read.nativeFields === true, read.presentation, read.computedObjects) : root;
-    // Hydration may need root keys not selected by the caller. Fetch all root
-    // columns for relation reads, then mask them; all intermediate budgets apply.
-    const selected = [...fetch.fields].filter(field => graphSelectableColumns(read).includes(field));
-    const select = fetch.children.length === 0 ? selected : [...new Set([...read.table.columns, ...selected])];
-    return { node: root, scalarSelect: selected, select, relations: [...read.paths.filter(relation => requested.has(relation.path)).map(relation => relation.path),
-      ...Object.keys(read.computedObjects ?? {}).filter(name => tree.has(name))],
-      project: rows => projectRows(rows, root) };
-  });
-}
-
-/** Native-only policy: expand a node wildcard against its admitted columns and
- * require selected scalars. Prefix normalization and row projection are reused. */
-function fieldProjection(tree: PopulateTree, table: ReadTable, paths: ReadonlyMap<string, GraphRelationPath>, prefix: string,
-  companions: boolean, native: boolean, incoming: readonly string[] = [], optionalFields?: readonly string[], nativeGraph = false,
-  presentation?: GraphPresentation, computedObjects?: Readonly<Record<string, GraphComputedObject>>): Result.Result<ProjectionNode, CommerceTransactionError> {
-  return Result.gen(function* () {
-    const fields = new Set<string>(incoming);
-    const children: Array<ProjectionNode["children"][number]> = [];
-    for (const [name, child] of tree) {
-      const computed = computedObjects?.[name];
-      if (computed !== undefined) {
-        children.push({ name, many: false, node: yield* computedObjectProjection(child, computed) });
-        continue;
-      }
-      const output = paths.get(prefix + name);
       if (output?.outputObject !== undefined) {
-        if (native || nativeGraph && output.nativeFields === true) for (const key of output.sourceFields ?? []) fields.add(key);
-        children.push({ name, many: output.many, optional: output.optional === true,
-          node: yield* computedObjectProjection(child, output.outputObject) });
+        if (!admitsComputed(output.outputObject, field === output.path ? "" : field.slice(output.path.length + 1)))
+          return yield* Result.fail(commerceError("unsupportedProfile"));
         continue;
       }
-      if (child.size === 0) {
-        for (const column of name === "*" ? graphSelectableColumns({ table, ...(presentation === undefined ? {} : { presentation }) }) : [name]) {
-          fields.add(column);
-          const companion = Object.hasOwn(table.companions, column) ? table.companions[column]
-            : presentation !== undefined && Object.hasOwn(presentation.companions, column) ? presentation.companions[column] : undefined;
-          if (companions && companion !== undefined) fields.add(companion);
-        }
-      } else {
-        const path = prefix + name;
-        const relation = paths.get(path);
-        if (relation === undefined) return yield* Result.fail(commerceError("unsupportedProfile"));
-        const retained = native || nativeGraph && relation.nativeFields === true;
-        if (retained) {
-          if (relation.sourceFields === undefined) return yield* Result.fail(commerceError("unsupportedProfile"));
-          for (const column of relation.sourceFields) fields.add(column);
-        }
-        children.push({ name, many: relation.many, optional: relation.optional === true,
-          node: yield* fieldProjection(child, relation.table, paths, path + ".", companions, native,
-            retained ? relation.targetFields ?? relation.table.primaryKeys : [], relation.optionalFields, nativeGraph, relation.presentation, relation.computedObjects) });
+      const computed = [read, ...read.paths].flatMap(owner => Object.entries(owner.computedObjects ?? {}).map(([name, object]) =>
+        ({ name: ("path" in owner ? owner.path + "." : "") + name, object })))
+        .find(candidate => field === candidate.name || field.startsWith(candidate.name + "."));
+      if (computed !== undefined) {
+        if (!admitsComputed(computed.object, field === computed.name ? "" : field.slice(computed.name.length + 1)))
+          return yield* Result.fail(commerceError("unsupportedProfile"));
+        continue;
       }
+      const column = parts.pop(), selected = parts.length === 0 ? read : paths.get(parts.join("."));
+      if (column === undefined || selected === undefined || column !== "*" && !graphSelectableColumns(selected).includes(column)
+        && !selected.optionalFields?.includes(column)) return yield* Result.fail(commerceError("unsupportedProfile"));
     }
-    return { fields, children, nullRelations: [], requireFields: true,
-      ...(optionalFields === undefined ? {} : { optionalFields }) };
   });
 }

@@ -56,7 +56,7 @@ export const makeInventoryLevelBatchCommands = Effect.fn("InventoryAdapter.level
     const { createLevels, deleteForWorkflow, createInventoryLevels, deleteInventoryLevels } =
       yield* prepareInventoryLevelCreationMethods(module.use, contracts);
     const updates = yield* prepareInventoryLevelUpdateMethods(module.use, contracts);
-    const deletions = yield* prepareInventoryLevelDeletionMethods(module.use, prepared.table);
+    const deletions = yield* prepareInventoryLevelDeletionMethods(module.use, prepared.table, metadata.frame.tables);
     const { list, update, listInventoryLevels, updateInventoryLevels } = updates;
     const { count, softDeleteForWorkflow, restoreForWorkflow, softDeleteInventoryLevels, restoreInventoryLevels, graph } = deletions;
     const admitted = [createLevels, list, update, count, softDeleteForWorkflow, restoreForWorkflow, deleteForWorkflow];

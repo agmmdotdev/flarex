@@ -1,3 +1,4 @@
+import { withNativeGraphMetadata } from "../../local-graph/native-metadata";
 import { Effect, Result, Schema } from "effect";
 import type { ICartModuleService } from "@medusajs/types/cart/service";
 import type { ICartCreationOwnershipService } from "@medusajs/types/cart/creation";
@@ -291,14 +292,14 @@ export const makeCartCreationWorkflowCommands = Effect.fn("CartCreation.workflow
         setLineItemTaxLines, setShippingMethodTaxLines, addLineItemAdjustments, softDeleteLineItemAdjustments, restoreLineItemAdjustments,
         addShippingMethodAdjustments, softDeleteShippingMethodAdjustments, restoreShippingMethodAdjustments,
         listShippingMethods, addShippingMethods, updateShippingMethods, deleteShippingMethods, softDeleteShippingMethods, restoreShippingMethods },
-      graph: { aliases: (yield* moduleAliases(joiner)).filter(alias => ["Cart", "LineItem", "ShippingMethod"].includes(alias.model)), reads: [{ model: "Cart", command: count,
+      graph: yield* withNativeGraphMetadata({ aliases: (yield* moduleAliases(joiner)).filter(alias => ["Cart", "LineItem", "ShippingMethod"].includes(alias.model)), reads: [{ model: "Cart", command: count,
         table: stored, presentation, paths, nativeFields: true,
         optionalFields: cartTotals.filter(name => !cartTotalsFields().includes(name)).flatMap(name => [name, "raw_" + name]),
         orderable: ["id"], uniqueOrder: ["id"], multipleOrder: false, decode: decodeGraphCount },
         { model: "LineItem", command: countLines, table: yield* read.catalog.table("cart_line_item"), paths: [], nativeFields: true,
           orderable: ["id"], uniqueOrder: ["id"], multipleOrder: false, decode: decodeGraphCount },
         { model: "ShippingMethod", command: countShipping, table: yield* read.catalog.table("cart_shipping_method"), paths: [], nativeFields: true,
-          orderable: ["id"], uniqueOrder: ["id"], multipleOrder: false, decode: decodeGraphCount }] }, logical: { ...policy, commands: admitted } });
+          orderable: ["id"], uniqueOrder: ["id"], multipleOrder: false, decode: decodeGraphCount }] }, [joiner], metadata.frame.tables), logical: { ...policy, commands: admitted } });
     return { workflow, prepared, commands: admitted, create, compensate, count, countLines, countShipping, list, listItemTax, listShippingTax, setItemTax, setShippingTax,
       addItemAdjustments, softDeleteItemAdjustments, restoreItemAdjustments, addShippingAdjustments, softDeleteShippingAdjustments, restoreShippingAdjustments,
       update, listAddressesCommand, updateAddressesCommand, listLines, addLines, updateLines, deleteLines, softDeleteLines, restoreLines, upsertItemTax, upsertShippingTax,

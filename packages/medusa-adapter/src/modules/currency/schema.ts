@@ -78,7 +78,7 @@ const currencySchemaOrigins: SchemaOrigins = {
 
 /** Adapt the closed foreign property representation to the shared checked DML
  * input. Field names, defaults and options come from the decoded model. */
-function currencySchemaTable(metadata: typeof CurrencyMetadata.Type): SchemaTable {
+export function currencySchemaTable(metadata: typeof CurrencyMetadata.Type): SchemaTable {
   const columns = Object.values(metadata.schema).map((field): SchemaColumn => {
     const base = { name: field.fieldName, nullable: field.nullable, primaryKey: "primaryKey" in field && field.primaryKey };
     if (field.fieldName === "raw_rounding") return { ...base, type: field.dataType.name, defaultValue: field.defaultValue };

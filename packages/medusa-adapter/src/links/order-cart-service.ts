@@ -1,3 +1,5 @@
+import { cartStaticResources } from "@medusajs/cart/static-manifest";
+import { OrderModuleService } from "@medusajs/order/services";
 import { Effect, Result, Schema } from "effect";
 import { commerceError, defaultCommerceResources, type Json, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import type { CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
@@ -10,7 +12,7 @@ import { decodeGraphCount } from "../local-graph/query";
 import { defineWorkflowModule } from "../workflow/module";
 import { commerceDecoder } from "../value/decoder";
 import { ScalarId as Id } from "../repository/scalar-id-read";
-import { prepareLinkService } from "./service";
+import { prepareLinkService, withNativeLinkGraphMetadata } from "./service";
 import { linkLogicalEventPolicy } from "./events";
 import { checkoutLinkReadPolicy } from "./checkout-link-read-receipt";
 import { captureOrderCartLinkMetadata } from "./order-cart-schema";
@@ -59,8 +61,8 @@ export const prepareOrderCartLinkRead = Effect.fn("OrderCartLink.prepareRead")(f
   const commands = [count];
   const workflow = yield* Effect.fromResult(defineWorkflowModule({ name: "order_cart_links",
     source: { name: prepared.serviceName, profile: "order-cart-read" }, methods: {},
-    graph: { aliases, services: yield* Effect.fromResult(nativeLinkGraphServices(prepared.joiner)),
-      reads: [{ model, command: count, table: prepared.prepared.table, paths: [], orderable: ["order_id"], uniqueOrder: [], multipleOrder: false, decode: decodeGraphCount }] },
+    graph: yield* Effect.fromResult(withNativeLinkGraphMetadata({ aliases, services: yield* Effect.fromResult(nativeLinkGraphServices(prepared.joiner)),
+      reads: [{ model, command: count, table: prepared.prepared.table, paths: [], orderable: ["order_id"], uniqueOrder: [], multipleOrder: false, decode: decodeGraphCount }] }, [prepared.joiner], [metadata.frame], [OrderModuleService.prototype.__joinerConfig(), cartStaticResources.joinerConfig])),
     logical: { ...policy, commands } }));
   return { metadata, prepared, workflow, count, commands, logicalEventPolicy: () => policy };
 });

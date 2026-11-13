@@ -8,6 +8,8 @@
 `/store/carts/:id/line-items/:line_id`, plus `POST`/`DELETE` on
 `/store/carts/:id/promotions`, `POST /store/carts/:id/taxes`,
 `GET /store/shipping-options` and `POST /store/carts/:id/shipping-methods`.
+It also serves `POST /store/payment-collections` and
+`POST /store/payment-collections/:id/payment-sessions` through the same host.
 `@flarex/medusa-http/store-cart-effect` mounts the same native handlers in an
 Effect HTTP host. The host supplies Store CORS, request scopes, a verified
 optional Customer principal and the Cart graph's `admitCartRefetchFields`.
@@ -73,6 +75,18 @@ Shipping graph when selected by the HTTP host. The named HTTP Cart read profile
 requires an assigned Sales Channel; ordinary standalone reads retain nullable
 channel eligibility. See the
 [Shipping scope](../../roadmaps/flarexdb-framework-integration/preflight/store-cart-shipping-http.md).
+
+Payment Collection POST returns an existing linked collection without running a
+mutation; otherwise its native child creates the collection and Cart Link from
+stored totals. Session POST runs the genuine local System-provider workflow,
+using only verified optional Customer identity. Customer Address selection and
+account-holder creation/reuse remain native. Strict bodies accept `{ cart_id }`
+and `{ provider_id, data? }`, respectively. The host supplies
+`admitPaymentCollectionFields` before either route. Responses use independent
+protected reads after settlement. Four retained authorized Sessions can become
+five after creation, exceeding the unchanged four-Session response read bound;
+that later refetch failure leaves the workflow committed. See the
+[Payment scope](../../roadmaps/flarexdb-framework-integration/preflight/store-payment-http.md).
 
 This bounded profile retains four creation items and four promotion codes,
 existing complete-cohort read limits and the local System Tax provider. The

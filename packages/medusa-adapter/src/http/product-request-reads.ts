@@ -1,37 +1,41 @@
 import { Cause, Effect, Result, Schema } from "effect";
+import { isNonArrayRecord } from "@flarex/utils/records";
 import { ProductSalesChannel, ProductShippingProfile, ProductVariantInventoryItem, ProductVariantPriceSet } from "@medusajs/link-modules";
 import { MedusaError } from "@medusajs/utils/common/errors";
 import { describeToManyRelation } from "@medusajs/drizzle/relation-query";
+import { ProductModuleService } from "@medusajs/product/services";
 import type { CoreDatabase } from "@flarex/persistence-postgres/internal/core";
 import type { PreparedHostRuntime } from "@flarex/persistence-postgres/internal/prepared-host-runtime";
 import { commerceNativeRegistrations, makeCommerceNativeReadHost } from "@flarex/persistence-postgres/internal/commerce-native";
 import { commerceCommandIdentity, defineAtomicCommerceParticipant, type AtomicCommerceParticipant, type CommerceCommand } from "@flarex/persistence-postgres/internal/commerce-adapter";
-import { commerceError, commerceLimits, isJsonObject, type CommerceTransactionError, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
+import { commerceError, type CommerceTransactionError, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
 import { localGraphDirectPath, nativeLinkGraphDirectPaths } from "../local-graph/direct-paths";
 import { nativeLinkGraphPaths } from "../local-graph/links";
 import type { GraphModuleDefinition, GraphParticipant, GraphReadContext, GraphReadDefinition } from "../local-graph/model";
-import { decodeGraphCount, decodeGraphList, prepareLocalGraph } from "../local-graph/query";
-import { planGraphFields } from "../local-graph/fields";
-import { projectRows } from "../query/projection";
-import { prepareGraphKeys, prepareGraphKeyValidation, validateGraphKeys, validateGraphPrimaryKey } from "../local-graph/key-validation";
-import { decodeCategoryProjection } from "../modules/product/category-projection";
+import { prepareLocalGraph } from "../local-graph/query";
+import { admitNativeQueryPaths, decodeNativeQueryGraphResult } from "../local-graph/native-bridge";
+import { prepareNativeGraphInput } from "../local-graph/native-input";
+import { withNativeGraphMetadata } from "../local-graph/native-metadata";
 import { decodeProductCategoryRead, decodeProductCollectionRead } from "../modules/product/service-input";
 import type { ProductRuntimeMetadata } from "../modules/product/runtime-metadata";
 import { commerceDecoder } from "../value/decoder";
-import { captureCommerceInput } from "../value/input";
 import { QueryLimit, QueryOffset } from "../query/decoder";
 import { makeReadCatalog } from "../query/catalog";
 import { captureInventoryMetadata } from "../modules/inventory/schema";
 import type { ProductRequestCatalog } from "./product-request";
 
-const decodeQuery = commerceDecoder(Schema.Struct({
+const ProductQuery = Schema.Struct({
   entity: Schema.Literals(["product", "product_sales_channel", "product_option", "variant", "product_variant_inventory_items", "product_type", "product_tag", "product_category", "product_collection", "sales_channel", "price_lists", "prices"]),
   fields: Schema.Array(Schema.String.check(Schema.isLengthBetween(1, 256))).check(Schema.isLengthBetween(1, 256)),
-  filters: Schema.optionalKey(Schema.JsonObject),
-  pagination: Schema.optionalKey(Schema.Struct({ take: Schema.optionalKey(QueryLimit), skip: Schema.optionalKey(QueryOffset),
-    order: Schema.optionalKey(Schema.Record(Schema.String, Schema.Literals(["ASC", "DESC"]))) })),
-  withDeleted: Schema.optionalKey(Schema.Boolean),
-}), "unsupportedProfile");
+  filters: Schema.optionalKey(Schema.Union([Schema.JsonObject, Schema.Undefined])),
+  pagination: Schema.optionalKey(Schema.Union([Schema.Struct({ take: Schema.optionalKey(Schema.UndefinedOr(QueryLimit)), skip: Schema.optionalKey(Schema.UndefinedOr(QueryOffset)),
+    order: Schema.optionalKey(Schema.UndefinedOr(Schema.Record(Schema.String, Schema.Literals(["ASC", "DESC"])))) }),
+    Schema.Undefined])),
+  withDeleted: Schema.optionalKey(Schema.Union([Schema.Boolean, Schema.Undefined])),
+  context: Schema.optionalKey(Schema.Union([Schema.Record(Schema.String, Schema.Never), Schema.Undefined])),
+});
+const decodeQuery = commerceDecoder(ProductQuery, "unsupportedProfile");
+const decodeCategoryQuery = decodeQuery;
 const decodeOptions = commerceDecoder(Schema.Struct({ throwIfKeyNotFound: Schema.optionalKey(Schema.Boolean),
   cache: Schema.optionalKey(Schema.Struct({ enable: Schema.Boolean })),
 }), "unsupportedProfile");
@@ -82,137 +86,84 @@ const decodeAssociationRemoteQuery = commerceDecoder(Schema.Struct({ __value: Sc
 const decodeCategoryOrder = commerceDecoder(Schema.Struct({ id: Schema.optionalKey(Schema.Literals(["ASC", "DESC"])),
   rank: Schema.optionalKey(Schema.Literals(["ASC", "DESC"])) }), "unsupportedProfile");
 const decodeCollectionOrder = commerceDecoder(Schema.Struct({ id: Schema.optionalKey(Schema.Literals(["ASC", "DESC"])) }), "unsupportedProfile");
-const decodeCategoryToOne = commerceDecoder(Schema.NullOr(Schema.JsonObject), "storedCorruption");
 
-const catalogRemoteSelection = (captured: Json) => Result.gen(function* () {
-  const remote = (yield* decodeCatalogRemoteQuery(captured)).__value;
-  const entity = "product_type" in remote ? "product_type" : "product_collection";
-  const node = "product_type" in remote ? remote.product_type : remote.product_collection;
-  const products = "product_collection" in remote ? remote.product_collection.products : undefined;
-  return { entity, args: node.__args, fields: [...node.fields, ...products?.fields.map(field => "products." + field) ?? []] };
-});
+const nativeProductMetadata = {
+  servicesConfig: [ProductModuleService.prototype.__joinerConfig()],
+  entitiesMap: new Map<string, unknown>(), entityRelations: new Map<string, ReadonlyMap<string, string>>(),
+};
+const admitRemoteRoot = (allowed: readonly string[]) => (name: string, service: boolean) =>
+  !service && allowed.includes(name) ? Result.succeed(undefined) : Result.fail(commerceError("unsupportedProfile"));
 
-const flattenRemoteSelection = (root: typeof RemoteRoot.Type) => Result.gen(function* () {
-  const fields = [...root.fields];
+/** Validate the bounded producer grammar without interpreting its selections. */
+const admitRemoteChildren = (root: typeof RemoteRoot.Type) => Result.gen(function* () {
+  let fieldCount = root.fields.length;
   const pending = Object.entries(root).filter(([key]) => key !== "fields" && key !== "__args" && key !== "isServiceAccess")
-    .map(([path, node]) => ({ name: path, path, node, depth: 1 }));
+    .map(([name, node]) => ({ name, node, depth: 1 }));
   for (let index = 0; index < pending.length; index++) {
     const current = pending[index];
-    if (current === undefined || current.depth > 8) return yield* Result.fail(commerceError("unsupportedProfile"));
+    if (current === undefined || current.depth > 8 || pending.length > 256) return yield* Result.fail(commerceError("unsupportedProfile"));
     yield* decodeRemoteRelation(current.name);
     const node = yield* decodeVariantRemoteNode(current.node);
     const children = Object.entries(node).filter(([key]) => key !== "fields");
     if ((node.fields?.length ?? 0) === 0 && children.length === 0) return yield* Result.fail(commerceError("unsupportedProfile"));
-    fields.push(...node.fields?.map(field => current.path + "." + field) ?? []);
-    if (fields.length > 256) return yield* Result.fail(commerceError("unsupportedProfile"));
-    pending.push(...children.map(([name, child]) => ({ name, path: current.path + "." + name, node: child, depth: current.depth + 1 })));
+    fieldCount += node.fields?.length ?? 0;
+    if (fieldCount > 256) return yield* Result.fail(commerceError("unsupportedProfile"));
+    pending.push(...children.map(([name, child]) => ({ name, node: child, depth: current.depth + 1 })));
   }
-  return { args: root.__args, fields };
 });
-const variantRemoteSelection = (captured: Json,
+
+const catalogRemoteSelection = (captured: unknown) => Result.gen(function* () {
+  const remote = (yield* decodeCatalogRemoteQuery(captured)).__value;
+  const node = "product_type" in remote ? remote.product_type : remote.product_collection;
+  const native = yield* prepareNativeGraphInput(captured, nativeProductMetadata, admitRemoteRoot(["product_type", "product_collection"]));
+  return { entity: native.entity, args: node.__args, fields: native.fields };
+});
+const variantRemoteSelection = (captured: unknown,
   admitProjection: (fields: readonly string[]) => Result.Result<void, CommerceTransactionError>) => Result.gen(function* () {
   const root = (yield* decodeVariantRemoteQuery(captured)).__value.product_variant;
-  const selected = yield* flattenRemoteSelection(root);
-  const query = yield* decodeQuery({ entity: "variant", fields: selected.fields });
-  yield* admitProjection(query.fields);
-  return { entity: "variant" as const, args: selected.args, fields: query.fields };
+  yield* admitRemoteChildren(root);
+  const native = yield* prepareNativeGraphInput(captured, nativeProductMetadata, admitRemoteRoot(["product_variant"]));
+  yield* admitProjection(native.fields);
+  return { entity: native.entity, args: root.__args, fields: native.fields };
 });
-
-const associationRemoteSelection = (captured: Json,
+const associationRemoteSelection = (captured: unknown,
   admitProjection: (entity: string, fields: readonly string[]) => Result.Result<void, CommerceTransactionError>) => Result.gen(function* () {
   const value = (yield* decodeAssociationRemoteQuery(captured)).__value;
-  const [entity, root] = "product" in value ? ["product", value.product] as const
-    : "variant" in value ? ["variant", value.variant] as const : "variants" in value ? ["variant", value.variants] as const
-    : "sales_channel" in value ? ["sales_channel", value.sales_channel] as const
-    : "price_lists" in value ? ["price_lists", value.price_lists] as const : ["prices", value.prices] as const;
-  const selected = yield* flattenRemoteSelection(root);
-  const query = yield* decodeQuery({ entity, fields: selected.fields });
-  yield* admitProjection(entity, query.fields);
-  return { entity, args: selected.args, fields: query.fields };
+  const root = "product" in value ? value.product : "variant" in value ? value.variant : "variants" in value ? value.variants
+    : "sales_channel" in value ? value.sales_channel : "price_lists" in value ? value.price_lists : value.prices;
+  yield* admitRemoteChildren(root);
+  const native = yield* prepareNativeGraphInput(captured, nativeProductMetadata,
+    admitRemoteRoot(["product", "variant", "variants", "sales_channel", "price_lists", "prices"]));
+  yield* admitProjection(native.entity, native.fields);
+  return { entity: native.entity, args: root.__args, fields: native.fields };
 });
 
-export const decodeProductCatalogRemoteQuery = (input: unknown) => captureCommerceInput(input).pipe(Result.flatMap(catalogRemoteSelection));
+export const decodeProductCatalogRemoteQuery = (input: unknown) => admitNativeQueryPaths(input).pipe(Result.flatMap(catalogRemoteSelection));
 export const decodeProductVariantRemoteQuery = (input: unknown,
   admitProjection: (fields: readonly string[]) => Result.Result<void, CommerceTransactionError>) =>
-  captureCommerceInput(input).pipe(Result.flatMap(captured => variantRemoteSelection(captured, admitProjection)));
+  admitNativeQueryPaths(input).pipe(Result.flatMap(captured => variantRemoteSelection(captured, admitProjection)));
 export const decodeProductAssociationRemoteQuery = (input: unknown,
   admitProjection: (entity: string, fields: readonly string[]) => Result.Result<void, CommerceTransactionError>) =>
-  captureCommerceInput(input).pipe(Result.flatMap(captured => associationRemoteSelection(captured, admitProjection)));
+  admitNativeQueryPaths(input).pipe(Result.flatMap(captured => associationRemoteSelection(captured, admitProjection)));
 
-/** Category's native service owns tree hydration and its projected recursive
- * DTO. RemoteJoiner preserves a nested wildcard verbatim, while selected root
- * scalars still mask implicit hydration (e.g. parent_category_id alone). */
+/** Category retains its named tree capability. All normalization, expansion and
+ * presentation execute in the same genuine native Query as other reads. */
 export function prepareCategoryRequestRead(read: GraphReadDefinition, participant: AtomicCommerceParticipant, metadata: ProductRuntimeMetadata) {
-  const productJsonFields = metadata.product.table.columns.filter(column => column.type === "json").map(column => column.name);
-  // The existing graph read's checked table/path metadata owns every field,
-  // including Product scalars and the two service-hydrated Category relations.
-  const admitProjection = (fields: readonly string[]) => decodeQuery({ entity: "product_category", fields }).pipe(
-    Result.flatMap(selected => planGraphFields(read, selected.fields)), Result.map(() => undefined));
+  const prepared = withNativeGraphMetadata({ aliases: [{ name: "product_category", model: read.model }], reads: [read] },
+    nativeProductMetadata.servicesConfig, metadata.tables).pipe(Result.flatMap(module => prepareLocalGraph([{ participant, module }])));
+  const admitProjection = (fields: readonly string[]) => prepared.pipe(Result.flatMap(graph => graph.admitProjection("product_category", fields)));
   const execute = Effect.fn("ProductRequest.categoryRead")(function* (context: GraphReadContext,
-    query: Result.Result.Success<ReturnType<typeof decodeQuery>>, options?: unknown) {
-    const fields = query.fields;
-    const plan = yield* Effect.fromResult(planGraphFields(read, fields));
-    const filters = (yield* Effect.fromResult(decodeProductCategoryRead({ filters: query.filters ?? {} }))).filters ?? {};
-    const order = query.pagination?.order === undefined ? undefined : yield* Effect.fromResult(decodeCategoryOrder(query.pagination.order));
-    if (query.withDeleted === true) return yield* commerceError("unsupportedProfile");
-    const keyPlan = yield* Effect.fromResult(prepareGraphKeyValidation(read, filters, options));
-    if (keyPlan !== undefined) yield* validateGraphPrimaryKey(keyPlan);
-    const keys = keyPlan === undefined ? undefined : yield* Effect.fromResult(prepareGraphKeys(keyPlan));
-    const skip = query.pagination?.skip ?? 0, take = query.pagination?.take ?? commerceLimits.catalogRows;
-    if (keyPlan !== undefined && skip !== 0) return yield* commerceError("unsupportedProfile");
-    const select = fields.includes("*") ? undefined : [...new Set([...fields, ...(keyPlan === undefined ? [] : [keyPlan.pkField])])];
-    const hydratesTrees = filters.include_ancestors_tree === true || filters.include_descendants_tree === true ||
-      plan.relations.some(path => path === "parent_category" || path === "category_children") || select?.includes("parent_category_id") === true;
-    const nativeTreeScalars = new Set(["id", "mpath", "parent_category_id", ...fields.filter(field => !field.includes("."))]);
-    const value = yield* context.call(participant, read.command, { filters, config: {
-      ...(select === undefined ? {} : { select }), relations: plan.relations, skip, take,
-      ...(order === undefined ? {} : { order }),
-    } });
-    // The command validates/restores the native undefined representation. JSON
-    // HTTP responses omit those own undefined properties exactly as JSON.stringify.
-    const decoded = yield* Effect.fromResult(decodeCategoryProjection(value));
-    const captured = yield* Effect.fromResult(captureCommerceInput(decoded, undefined, () => {}));
-    const [rows, count] = yield* Effect.fromResult(decodeGraphCount(captured));
-    if (rows.length !== Math.min(take, Math.max(0, count - skip))) return yield* commerceError("storedCorruption");
-    if (keyPlan !== undefined) {
-      if (rows.length !== count) return yield* commerceError("unsupportedProfile");
-      yield* validateGraphKeys({ uniqueIds: keys, resData: rows, expand: { serviceConfig: keyPlan.serviceConfig },
-        pkField: keyPlan.pkField, options: keyPlan.options });
-    }
-    const masked = fields.includes("*") ? rows : yield* Effect.fromResult(planGraphFields(read, fields.filter(field => !field.includes("."))).pipe(
-      Result.flatMap(mask => mask.project(rows))));
-    const projected = masked.map(row => ({ ...row }));
-    for (let index = 0; index < rows.length; index++) {
-      const source = rows[index], target = projected[index];
-      if (source === undefined || target === undefined) return yield* commerceError("storedCorruption");
-      for (const child of plan.node.children) {
-        const value = source[child.name];
-        if (value === undefined && child.optional === true) continue;
-        const related = child.many ? yield* Effect.fromResult(decodeGraphList(value))
-          : yield* Effect.fromResult(decodeCategoryToOne(value));
-        if (fields.includes(child.name + ".*") || related === null) { target[child.name] = related; continue; }
-        // Native Category projection can omit a requested child scalar: tree
-        // projection draws its scalars from the root select, and Product
-        // unwrapping drops object-valued fields during tree hydration. The
-        // native joiner's mask skips those absent fields rather than failing.
-        const optionalFields = child.name === "products" ? hydratesTrees ? productJsonFields : []
-          : fields.includes("*") ? [] : [...child.node.fields].filter(field => !nativeTreeScalars.has(field));
-        const selections = yield* Effect.fromResult(projectRows(Array.isArray(related) ? related : [related],
-          { ...child.node, optionalFields }));
-        if (child.many) target[child.name] = selections.map(row => Object.keys(row).length === 0 ? null : row);
-        else {
-          const selected = selections[0];
-          if (selected === undefined) return yield* commerceError("storedCorruption");
-          if (Object.keys(selected).length === 0) delete target[child.name];
-          else target[child.name] = selected;
-        }
-      }
-    }
-    return { data: projected, metadata: { count, skip, take } };
+    input: unknown, options?: unknown) {
+    const query = yield* Effect.fromResult(decodeCategoryQuery(input));
+    if (query.entity !== "product_category" || query.withDeleted === true) return yield* commerceError("unsupportedProfile");
+    yield* Effect.fromResult(decodeProductCategoryRead({ filters: query.filters ?? {} }));
+    if (query.pagination?.order !== undefined) yield* Effect.fromResult(decodeCategoryOrder(query.pagination.order));
+    yield* Effect.fromResult(admitProjection(query.fields));
+    const graph = yield* Effect.fromResult(prepared);
+    return yield* Effect.fromResult(decodeNativeQueryGraphResult(yield* graph.bind(context).nativeGraph(query, options)));
   });
   return { admitProjection, execute };
 }
-
 /** Preserve the complete read Cause while projecting admitted query refusals to HTTP. */
 export function presentProductReadFailure<A, R>(work: Effect.Effect<A, CommerceTransactionError, R>) {
   return work.pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, error =>
@@ -274,7 +225,7 @@ export const prepareProductRequestReadGraph = Effect.fn("ProductRequest.prepareR
     ...product.storeGraph, reads: product.storeGraph.reads.map(read => read.model === root ? { ...read, nativeFields: true } : read),
   };
   const definitions: Readonly<Record<string, GraphModuleDefinition>> = {
-    product: productGraph, pricing: storePricing ?? { aliases: [...pricing.graph.aliases, ...catalog.runtimes.pricingReads.graph.aliases],
+    product: productGraph, pricing: storePricing ?? { ...pricing.graph, aliases: [...pricing.graph.aliases, ...catalog.runtimes.pricingReads.graph.aliases],
       reads: [...pricing.graph.reads, ...catalog.runtimes.pricingReads.graph.reads] }, inventory: { ...inventoryGraph, directPaths: inventoryPaths },
     stock_location: stock.graph, sales_channel: sales.graph, fulfillment: fulfillment.graph,
     product_links: { ...productLinks.graph, remotePaths: [...remotePaths, ...shipping] },
@@ -286,7 +237,7 @@ export const prepareProductRequestReadGraph = Effect.fn("ProductRequest.prepareR
     if (module === undefined) return undefined;
     const participant = defineAtomicCommerceParticipant(`productRead_${source.name}`);
     participants.push({ participant, module });
-    return { source, participant, commands: [...new Set(module.reads.map(read => read.command))] };
+    return { source, participant, module, commands: [...new Set(module.reads.map(read => read.command))] };
   });
   if (members.some(member => member === undefined)) return yield* commerceError("invalidAuthority");
   const graph = yield* Effect.fromResult(prepareLocalGraph(participants));
@@ -322,25 +273,9 @@ export const makeProductRequestReads = Effect.fn("ProductRequest.makeReads")(fun
     hosts.set(variantMember.participant, { commands: new Set(variantMember.commands), read: host.read });
     closures.push(host.close);
   }
-  const graph = Effect.fn("ProductRequest.graph")(function* (value: unknown, options?: unknown) {
-    const query = yield* Effect.fromResult(captureCommerceInput(value).pipe(Result.flatMap(decodeQuery)));
-    const checkedOptions = options === undefined ? undefined
-      : yield* Effect.fromResult(captureCommerceInput(options).pipe(Result.flatMap(decodeOptions)));
-    // Generic Core timestamp-order support does not activate this independent
-    // Admin HTTP capability; retain the private Product profile's refusal.
-    if (query.entity === "product" && (query.pagination?.order?.created_at !== undefined || query.pagination?.order?.updated_at !== undefined))
-      return yield* commerceError("unsupportedProfile");
-    if (query.entity === "product_collection") {
-      // Admin's existing bounded profile retains scalar title/handle filters
-      // and id-only ordering; Store's expanded owner admission is independent.
-      if (Array.isArray(query.filters?.title) || Array.isArray(query.filters?.handle)) return yield* commerceError("unsupportedProfile");
-      yield* Effect.fromResult(decodeProductCollectionRead({ filters: query.filters ?? {} }));
-      if (query.pagination?.order !== undefined) yield* Effect.fromResult(decodeCollectionOrder(query.pagination.order));
-    }
-    // This owner has no untrusted callback or finalizer. A failed native read
-    // stops the sequential graph, preserving the complete original Cause.
+  const contextFor = (): GraphReadContext => {
     let failure: Cause.Cause<CommerceTransactionError> | undefined;
-    const context: GraphReadContext = {
+    return {
       refuse: error => Effect.fail(error),
       recordFailure: cause => { failure ??= cause; return Result.succeed(failure); },
       call: Effect.fn("ProductRequest.readGroup")(function* (participant, command, args) {
@@ -348,49 +283,43 @@ export const makeProductRequestReads = Effect.fn("ProductRequest.makeReads")(fun
         const host = hosts.get(participant);
         if (host === undefined || !host.commands.has(command) || commerceCommandIdentity(command)?.mode !== "read")
           return yield* commerceError("invalidAuthority");
-        if (!isJsonObject(args) || args.config === undefined || !isJsonObject(args.config)) return yield* commerceError("unsupportedProfile");
-        return yield* host.read(command, { ...args, config: { ...args.config,
-          ...(query.withDeleted === undefined ? {} : { withDeleted: query.withDeleted }) } });
+        return yield* host.read(command, args);
       }),
     };
-    const keyOptions = checkedOptions?.throwIfKeyNotFound === true ? { throwIfKeyNotFound: true } : undefined;
-    if (query.entity === "product_category") return yield* categories.execute(context, query, keyOptions);
+  };
+  const graph = Effect.fn("ProductRequest.graph")(function* (value: unknown, options?: unknown) {
+    const query = yield* Effect.fromResult(admitNativeQueryPaths(value).pipe(Result.flatMap(decodeQuery)));
+    const checkedOptions = options === undefined ? undefined
+      : yield* Effect.fromResult(admitNativeQueryPaths(options).pipe(Result.flatMap(decodeOptions)));
+    if (query.entity === "product" && (query.pagination?.order?.created_at !== undefined || query.pagination?.order?.updated_at !== undefined))
+      return yield* commerceError("unsupportedProfile");
+    if (query.entity === "product_collection") {
+      if (Array.isArray(query.filters?.title) || Array.isArray(query.filters?.handle)) return yield* commerceError("unsupportedProfile");
+      yield* Effect.fromResult(decodeProductCollectionRead({ filters: query.filters ?? {} }));
+      if (query.pagination?.order !== undefined) yield* Effect.fromResult(decodeCollectionOrder(query.pagination.order));
+    }
+    const context = contextFor();
+    if (query.entity === "product_category") return yield* categories.execute(context, query, checkedOptions);
     const selected = query.entity === "variant" || query.entity === "product_variant_inventory_items" ? variants : prepared;
-    // Native cache options are advisory. These protected reads always use Core.
-    return yield* selected.graph.bind(context).graph({ entity: query.entity, fields: query.fields,
-      filters: query.filters ?? {}, pagination: { take: query.pagination?.take ?? commerceLimits.catalogRows,
-        skip: query.pagination?.skip ?? 0, ...(query.pagination?.order === undefined ? {} : { order: query.pagination.order }) } },
-      keyOptions);
+    return yield* Effect.fromResult(decodeNativeQueryGraphResult(yield* selected.graph.bind(context).nativeGraph(query, checkedOptions)));
   }, presentProductReadFailure);
-  const remoteQuery = Effect.fn("ProductRequest.remoteCatalogQuery")(function* (value: unknown) {
-    const captured = yield* Effect.fromResult(captureCommerceInput(value));
-    const remoteRoot = isJsonObject(captured) && isJsonObject(captured.__value ?? null) ? captured.__value : undefined;
-    if (isJsonObject(captured) && captured.__value !== undefined && isJsonObject(captured.__value) && Object.hasOwn(captured.__value, "product_variant")) {
-      const query = yield* Effect.fromResult(variantRemoteSelection(captured,
-        fields => variants.graph.admitProjection("variant", fields)));
-      const selected = yield* graph({ entity: query.entity, fields: query.fields, filters: query.args.filters });
-      if (selected.data.length !== selected.metadata.count) return yield* commerceError("unsupportedProfile");
-      return selected.data;
+  const remoteQuery = Effect.fn("ProductRequest.remoteQuery")(function* (value: unknown) {
+    const captured = yield* Effect.fromResult(admitNativeQueryPaths(value));
+    const remoteRoot = isNonArrayRecord(captured) && isNonArrayRecord(captured.__value) ? captured.__value : undefined;
+    let selected = prepared;
+    if (remoteRoot !== undefined && Object.hasOwn(remoteRoot, "product_variant")) {
+      yield* Effect.fromResult(variantRemoteSelection(captured, fields => variants.graph.admitProjection("variant", fields)));
+      selected = variants;
+    } else if (remoteRoot !== undefined && ["product", "variant", "variants", "sales_channel", "price_lists", "prices"].some(key => Object.hasOwn(remoteRoot, key))) {
+      const variantSelection = Object.hasOwn(remoteRoot, "variant") || Object.hasOwn(remoteRoot, "variants");
+      selected = variantSelection ? variants : prepared;
+      yield* Effect.fromResult(associationRemoteSelection(captured, (entity, fields) => selected.graph.admitProjection(entity, fields)));
+    } else {
+      const query = yield* Effect.fromResult(catalogRemoteSelection(captured));
+      yield* Effect.fromResult(prepared.graph.admitProjection(query.entity, query.fields));
     }
-    if (remoteRoot !== undefined && isJsonObject(remoteRoot) &&
-      ["product", "variant", "variants", "sales_channel", "price_lists", "prices"].some(key => Object.hasOwn(remoteRoot, key))) {
-      const query = yield* Effect.fromResult(associationRemoteSelection(captured, (entity, fields) =>
-        (entity === "variant" ? variants : prepared).graph.admitProjection(entity, fields)));
-      const selected = yield* graph({ entity: query.entity, fields: query.fields, filters: query.args.filters });
-      if (selected.data.length !== selected.metadata.count) return yield* commerceError("unsupportedProfile");
-      return selected.data;
-    }
-    const { entity, args, fields } = yield* Effect.fromResult(catalogRemoteSelection(captured));
-    const selected = yield* graph({ entity, fields, filters: args.filters ?? {},
-      pagination: { take: args.take ?? commerceLimits.catalogRows, skip: args.skip ?? 0,
-        ...(args.order === undefined ? {} : { order: args.order }) } });
-    if (args.take !== undefined || args.skip !== undefined) return { rows: selected.data, metadata: selected.metadata };
-    // Callable native refetches have no paging envelope. Refuse an incomplete
-    // result instead of silently presenting one page as the entire selection.
-    if (selected.data.length !== selected.metadata.count) return yield* commerceError("unsupportedProfile");
-    return selected.data;
-  }, presentProductReadFailure);
-  return Object.freeze({ graph, remoteQuery,
+    return yield* selected.graph.bind(contextFor()).remoteQuery(captured);
+  }, presentProductReadFailure);  return Object.freeze({ graph, remoteQuery,
     admitCatalogRefetchFields: (entity: typeof CatalogEntity.Type, fields: readonly string[]) => entity === "product_category"
       ? categories.admitProjection(fields) : prepared.graph.admitProjection(entity, fields),
     admitProductRefetchFields: (fields: readonly string[]) => prepared.graph.admitProjection("product", fields),

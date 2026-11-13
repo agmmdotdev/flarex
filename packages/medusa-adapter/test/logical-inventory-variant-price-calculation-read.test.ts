@@ -7,6 +7,8 @@ import { prepareLocalGraph } from "../src/local-graph/query";
 import { prepareCoreInventoryMaintenance } from "./support/core-inventory-maintenance-fixture";
 import { ExactNumericRaw } from "../src/value/exact-numeric";
 import { InventoryLevelsOutput } from "../src/modules/inventory/level-input";
+import { decodeGraphCount } from "../src/local-graph/query";
+import type { LogicalCallReceiptValidation } from "../src/repository/call-receipt";
 
 const driver = process.env.FLAREX_TEST_DRIVER ?? "pglite";
 if (driver !== "pglite" && driver !== "postgres") throw new Error("Invalid Inventory graph read driver");
@@ -90,5 +92,63 @@ describe("native read-only Inventory graph for Variant price calculation", () =>
     } finally {
       itemCount.mockRestore(); levelCount.mockRestore(); await Effect.runPromise(host.close);
     }
+  }, 180_000);
+
+  it("populates native Shipping Levels with exact quantities, authenticated receipts and the existing four-row bound", async () => {
+    const items = await connected.seed("shipping-local-level-read", 1), first = items[0];
+    if (first === undefined) throw new Error("Missing genuine Shipping Inventory seed");
+    const locations = Array.from({ length: 4 }, (_, index) => ({ id: `shipping-local-level-${index}`, name: `Local ${index}` }));
+    const stocking = await Effect.runPromise(connected.stocking.run(connected.stocking.newRequestKey(), { locations,
+      inventory_levels: locations.map(location => ({ inventory_item_id: first, location_id: location.id, stocked_quantity: 10.25 })) }));
+    const reservations = await Effect.runPromise(connected.reservations.run(connected.reservations.newRequestKey(), {
+      reservations: [{ inventory_item_id: first, location_id: locations[0]!.id, quantity: 0.125 }],
+    }));
+    const populated = await Effect.runPromise(makeLocalInventoryCommands("variant-price-calculation", "location-levels"));
+    const participant = defineAtomicCommerceParticipant("shippingLocalLevelRead");
+    const read = defineAtomicCommerceCommand("shippingLocalLevelRead", (ctx, input) => ctx.call(participant, populated.count, input));
+    const packets: Array<Parameters<LogicalCallReceiptValidation>> = [], policy = populated.logicalEventPolicy();
+    const host = await Effect.runPromise(connected.execution.prepare({ identityAndAccessPolicy: connected.execution.identityAndAccessPolicy,
+      commands: [read], participants: [{ participant, nativeStorage: connected.members.inventory.source, commands: populated.commands,
+        validateLogicalCall: (call, activity) => policy.validateLogicalCall(call, activity).pipe(Effect.tap(() =>
+          Effect.sync(() => { packets.push(structuredClone([call, activity])); }))) }] }));
+    cleanup.push(() => Effect.runPromise(host.close));
+    const input = { filters: { id: [first] }, config: { select: ["requires_shipping", "id"], relations: ["location_levels"], take: 256, skip: 0 } };
+    const before = await connected.fixture.snapshot();
+    const output = await Effect.runPromise(host.run(host.newRequestKey(), read, input));
+    const [rows, count] = Result.getOrThrow(decodeGraphCount(output));
+    expect(count).toBe(1);
+    const levels = Schema.decodeUnknownSync(Schema.Array(Schema.JsonObject))(rows[0]?.location_levels);
+    expect(levels).toHaveLength(4);
+    expect(levels).toEqual(expect.arrayContaining(locations.map(location => expect.objectContaining({
+      inventory_item_id: first, location_id: location.id, stocked_quantity: 10.25,
+      reserved_quantity: location.id === locations[0]?.id ? 0.125 : 0,
+      available_quantity: location.id === locations[0]?.id ? 10.125 : 10.25,
+    }))));
+    for (const level of levels) {
+      const created = stocking.inventory_levels.find(value => value.id === level.id);
+      if (created === undefined) throw new Error("Missing genuine native Level output");
+      expect(decodeRaw(level.raw_stocked_quantity)).toEqual(decodeRaw(created.raw_stocked_quantity));
+      expect(decodeRaw(level.raw_reserved_quantity)).toEqual(decodeRaw(level.location_id === locations[0]?.id
+        ? reservations[0]?.raw_quantity : created.raw_reserved_quantity));
+    }
+    const after = await connected.fixture.snapshot();
+    expect(after.rows).toEqual(before.rows); expect(after.revisions).toEqual(before.revisions); expect(after.events).toEqual(before.events);
+    const packet = packets[0];
+    if (packet === undefined) throw new Error("Missing genuine populated Inventory receipt");
+    await Effect.runPromise(policy.validateLogicalCall(...packet));
+    expect(await Effect.runPromise(Effect.result(policy.validateLogicalCall(packet[0], { ...packet[1], relationalReads: [] }))))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "receiptMismatch" } });
+    expect(await Effect.runPromise(Effect.result(policy.validateLogicalCall({ ...packet[0], result: [[{ ...rows[0],
+      location_levels: levels.map(level => ({ ...level, available_quantity: 999 })) }], count] }, packet[1]))))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "receiptMismatch" } });
+    await Effect.runPromise(connected.stocking.run(connected.stocking.newRequestKey(), {
+      locations: [{ id: "shipping-local-level-fifth", name: "Fifth" }],
+      inventory_levels: [{ inventory_item_id: first, location_id: "shipping-local-level-fifth", stocked_quantity: 1 }],
+    }));
+    const beforeRefusal = await connected.fixture.snapshot();
+    expect(await Effect.runPromise(Effect.result(host.run(host.newRequestKey(), read, input))))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "limitExceeded" } });
+    const refused = await connected.fixture.snapshot();
+    expect(refused.rows).toEqual(beforeRefusal.rows); expect(refused.revisions).toEqual(beforeRefusal.revisions); expect(refused.events).toEqual(beforeRefusal.events);
   }, 180_000);
 });

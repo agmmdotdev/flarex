@@ -38,7 +38,7 @@ export const PromotionGraphRead = Schema.Struct({ filters: Schema.Struct({
   code: Schema.optionalKey(Schema.Union([Schema.String, Schema.Array(Schema.String).pipe(Schema.mutable).check(Schema.isMaxLength(256))])),
 }), config: Schema.Struct({ select: Schema.Array(Schema.String.check(Schema.isLengthBetween(1, 128),
   Schema.isPattern(/^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)?$/))).pipe(Schema.mutable).check(Schema.isMaxLength(256)),
-  relations: Schema.Array(Schema.Literal("application_method")).pipe(Schema.mutable).check(Schema.isMaxLength(1)), order: Schema.Struct({ id: Schema.Literal("ASC") }),
+  relations: Schema.Array(Schema.Literal("application_method")).pipe(Schema.mutable).check(Schema.isMaxLength(1)), order: Schema.optionalKey(Schema.Struct({ id: Schema.Literal("ASC") })),
   skip: Schema.optionalKey(Schema.Literal(0)), take: Schema.Number.check(Schema.isInt(), Schema.isBetween({ minimum: 0, maximum: 256 })) }) });
 export const decodePromotionGraphRead = commerceDecoder(PromotionGraphRead, "invalidInput");
 

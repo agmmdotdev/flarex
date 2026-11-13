@@ -1,3 +1,4 @@
+import { withNativeGraphMetadata } from "../../local-graph/native-metadata";
 import { Effect, Result } from "effect";
 import { Customer } from "@medusajs/customer/models";
 import { customerStaticResources } from "@medusajs/customer/static-manifest";
@@ -41,8 +42,8 @@ export const makeCustomerCartCreationCommands = Effect.fn("Customer.cartCreation
     const aliases = (yield* moduleAliases(joiner)).filter(alias => alias.model === "Customer"), commands = [...selection.commands, count];
     const paths = yield* relationPaths(prepared.catalog, prepared.customer.name, ["groups"], { nativeFields: true });
     const workflow = yield* defineWorkflowModule({ name: Modules.CUSTOMER, source: module.description, methods: selection.workflow.methods,
-      graph: { aliases, reads: [{ model: "Customer", command: count, table: prepared.table, paths,
-        selectedFieldsOnly: true, orderable: ["id"], uniqueOrder: ["id"], multipleOrder: false, decode: decodeGraphCount }] },
+      graph: yield* withNativeGraphMetadata({ aliases, reads: [{ model: "Customer", command: count, table: prepared.table, paths,
+        orderable: ["id"], uniqueOrder: ["id"], multipleOrder: false, decode: decodeGraphCount }] }, [joiner], metadata.frame.tables),
       logical: { ...policy, commands } });
     return { ...selection, workflow, commands, prepared, count, logicalEventPolicy: () => policy };
   }));

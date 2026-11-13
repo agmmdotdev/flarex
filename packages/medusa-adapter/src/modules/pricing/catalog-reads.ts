@@ -1,3 +1,4 @@
+import { withNativeGraphMetadata } from "../../local-graph/native-metadata";
 import { Effect, Result, Schema } from "effect";
 import { Price, PriceList, PriceListRule, PriceSet, PriceRule, PricePreference } from "@medusajs/pricing/models";
 import { PricingModuleService } from "@medusajs/pricing/services";
@@ -50,7 +51,7 @@ const Options = Schema.Struct({ fields: Schema.optionalKey(SelectedFields),
 const decodeListNative = commerceDecoder(Schema.Struct({ where: ListFilters, options: Options }), "unsupportedProfile");
 const decodePriceNative = commerceDecoder(Schema.Struct({ where: PriceFilters,
   options: Schema.Struct({ ...Options.fields, populate: Schema.Array(Schema.Never) }) }), "unsupportedProfile");
-const scalarProjection: ProjectionPolicy = { keys: "retain", storageKeys: "last", joinKeys: "storage",
+const scalarProjection: ProjectionPolicy = { keys: "retain", storageKeys: "last", joinKeys: "storage", ignoreUnknownScalarFields: true,
   selectableRelations: [], nested: new Map() };
 const listPaths = ["price_list_rules", "prices", "prices.price_rules"];
 const priceProjection: ProjectionPolicy = { ...scalarProjection, allowedPaths: ["price_rules"],
@@ -122,7 +123,8 @@ export function preparePricingCatalogReadContracts(metadata: Effect.Success<Retu
 /** Native Pricing DAL methods remain the producer of service results. Core
  * supplies protected reads; complete DML rows are authenticated before masking. */
 export const makePricingCatalogReads = Effect.fn("PricingAdapter.catalogReads")(function* () {
-  const contracts = yield* Effect.fromResult(preparePricingCatalogReadContracts((yield* capturePricingMetadata()).frame));
+  const metadata = yield* capturePricingMetadata();
+  const contracts = yield* Effect.fromResult(preparePricingCatalogReadContracts(metadata.frame));
   const numeric = contracts.price.columns.filter(column => column.type === "bigNumber");
   const bind = (root: CommerceCommandContext, owner: CommercePromiseOwner) => {
     const bridge = commerceRepositoryContext(root, owner);
@@ -192,12 +194,12 @@ export const makePricingCatalogReads = Effect.fn("PricingAdapter.catalogReads")(
     Reflect.apply(listAndCountPrices, undefined, [structuredClone(args.filters), structuredClone(args.config), context]));
   const joiner = pricingStaticResources.joinerConfig;
   if (joiner === undefined) return yield* commerceError("unsupportedProfile");
-  const graph: GraphModuleDefinition = { aliases: (yield* Effect.fromResult(moduleAliases(joiner))).filter(alias => ["PriceList", "Price"].includes(alias.model)),
+  const graph: GraphModuleDefinition = yield* Effect.fromResult(withNativeGraphMetadata({ aliases: (yield* Effect.fromResult(moduleAliases(joiner))).filter(alias => ["PriceList", "Price"].includes(alias.model)),
     reads: [
       { model: "PriceList", command: lists, table: yield* Effect.fromResult(contracts.catalog.table(contracts.list.name)), paths: contracts.listPaths,
         orderable: ["id"], uniqueOrder: ["id"], multipleOrder: false, decode: decodeGraphCount },
       { model: "Price", command: prices, table: yield* Effect.fromResult(contracts.catalog.table(contracts.price.name)), paths: [],
         orderable: ["id"], uniqueOrder: ["id"], multipleOrder: false, decode: decodeGraphCount },
-    ] };
+    ] }, [joiner], metadata.frame.tables));
   return { commands: [lists, prices], graph, contracts };
 });

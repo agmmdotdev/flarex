@@ -2,7 +2,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { Effect, Result } from "effect";
 import { commerceCommandIdentity } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { makeLocalInventoryCommands } from "../src/modules/inventory/service";
-import { InventoryVariantPriceCalculationItemRead, InventoryVariantPriceCalculationLevelRead } from "../src/modules/inventory/variant-price-calculation-read";
+import { InventoryVariantPriceCalculationItemRead, InventoryVariantPriceCalculationPopulatedItemRead, InventoryVariantPriceCalculationLevelRead } from "../src/modules/inventory/variant-price-calculation-read";
 import { commerceDecoder } from "../src/value/decoder";
 import { isGraphReadCommand } from "../src/local-graph/commands";
 import { workflowModuleDefinition } from "../src/workflow/module";
@@ -22,8 +22,8 @@ describe("Inventory reads for native Variant price calculation", () => {
     const definition = workflowModuleDefinition(inventory.workflow);
     expect(definition?.source).toEqual({ name: "flarex-inventory-local", profile: "inventory-variant-price-calculation" });
     expect(definition?.logical?.commands).toEqual(inventory.commands);
-    expect(inventory.graph.reads.map(read => [read.model, read.command, read.paths, read.selectedFieldsOnly]))
-      .toEqual([["InventoryItem", inventory.count, [], true], ["InventoryLevel", inventory.countLevels, [], true]]);
+    expect(inventory.graph.reads.map(read => [read.model, read.command, read.paths]))
+      .toEqual([["InventoryItem", inventory.count, []], ["InventoryLevel", inventory.countLevels, []]]);
     expect(inventory.graph.aliases.map(alias => alias.name)).toEqual(expect.arrayContaining(["inventory_level", "inventory_levels"]));
     const read = inventory.graph.reads.find(candidate => candidate.model === "InventoryLevel");
     expect(read?.table.companions).toMatchObject({ stocked_quantity: "raw_stocked_quantity", reserved_quantity: "raw_reserved_quantity" });
@@ -55,5 +55,16 @@ describe("Inventory reads for native Variant price calculation", () => {
     expect(ordinary.graph.reads.map(read => read.model)).toEqual(["InventoryItem"]);
     const second = await Effect.runPromise(prepare());
     for (const command of second.commands) expect(inventory.commands).not.toContain(command);
+  });
+
+  it("opts Shipping into only its existing local Level population without adding graph paths or methods", async () => {
+    const populated = await Effect.runPromise(makeLocalInventoryCommands("variant-price-calculation", "location-levels"));
+    const decode = commerceDecoder(InventoryVariantPriceCalculationPopulatedItemRead, "unsupportedProfile");
+    expect(Result.isSuccess(decode({ filters: { id: ["item"] }, config: { relations: ["location_levels"], take: 256, skip: 0 } }))).toBe(true);
+    for (const relations of [["reservations"], ["location_levels", "location_levels"], ["location_levels.stock_locations"], ["unknown"]])
+      expect(Result.isFailure(decode({ filters: { id: ["item"] }, config: { relations } }))).toBe(true);
+    expect(populated.workflow.methods).toEqual({});
+    expect(populated.commands).toHaveLength(2);
+    expect(populated.graph.reads.map(read => [read.model, read.paths])).toEqual(inventory.graph.reads.map(read => [read.model, read.paths]));
   });
 });

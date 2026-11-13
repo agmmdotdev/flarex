@@ -270,6 +270,9 @@ describe("PriceList deletion Pricing admission", () => {
     expect(() => verifyPricingWorkflowSelection(original, selected, repository, pricingCalculationSource, pricingShippingContextSource)).not.toThrow();
   });
   it.each([
+    ["native graph declaration", "[joiner], metadata.frame.tables", "[], metadata.frame.tables"],
+    ["native graph DML", "[joiner], metadata.frame.tables", "[joiner], []"],
+    ["native metadata owner", "withNativeGraphMetadata({ aliases:", "otherMetadata({ aliases:"],
     ["predicate", 'listDeletions = admission === "price-list-deletions"', 'listDeletions = true'],
     ["profile", 'listDeletions ? "pricing-price-list-deletions"', 'listDeletions ? "pricing-price-list-creations"'],
     ["read overgrant", 'listDeletions ? [listSoftDelete, listRestore]', 'listDeletions ? [listSoftDelete, listRestore, list]'],

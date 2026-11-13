@@ -19,6 +19,9 @@ export interface ProjectionPolicy {
   /** Pinned native DAL selections discard descendants of JSON scalar columns.
    * This opt-in never selects the parent column or traverses the JSON value. */
   readonly jsonScalarFields?: readonly string[];
+  /** Pinned Mikro processField ignores absent scalar properties. Selected
+   * native DAL profiles can retain that behavior; paths remain authenticated. */
+  readonly ignoreUnknownScalarFields?: true;
   readonly selectableRelations: readonly string[];
   readonly nested: ReadonlyMap<string, ProjectionPolicy>;
 }
@@ -82,6 +85,8 @@ export function compileProjection(
       if (field === "*" && policy.allowWildcard === true) scalar.push(...table.columns);
       else if (table.columns.includes(field)) scalar.push(field);
       else if (policy.allowBareRelations === true && policy.selectableRelations.includes(field) && policy.nested.has(field) && tree.has(field)) continue;
+      else if (policy.ignoreUnknownScalarFields === true && /^[a-z][a-z0-9_]*$/.test(field)
+        && !policy.selectableRelations.includes(field) && field !== "constructor" && field !== "prototype" && field !== "__proto__") continue;
       else {
         const dot = field.indexOf(".");
         const name = field.slice(0, dot), child = field.slice(dot + 1);

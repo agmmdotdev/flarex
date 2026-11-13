@@ -1,3 +1,4 @@
+import { withNativeGraphMetadata } from "../../local-graph/native-metadata";
 import { Effect, Result } from "effect";
 import { Store, StoreCurrency, StoreLocale } from "@medusajs/store/models";
 import { storeStaticResources } from "@medusajs/store/static-manifest";
@@ -49,8 +50,8 @@ export const makeStoreCartReadCommands = Effect.fn("StoreAdapter.cartReadCommand
       encode: ([filters, config]) => ({ ...(filters === undefined ? {} : { filters }), ...(config === undefined ? {} : { config }) }), output: decodeGraphCount });
     const joiner = storeStaticResources.joinerConfig;
     if (joiner === undefined) return yield* Result.fail(commerceError("unsupportedProfile"));
-    const graph = yield* scalarGraphDefinition(yield* moduleAliases({ ...joiner,
-      alias: (Array.isArray(joiner.alias) ? joiner.alias : []).filter(alias => alias.entity === "Store") }), "Store", count, prepared.table);
+    const graph = yield* withNativeGraphMetadata(yield* scalarGraphDefinition(yield* moduleAliases({ ...joiner,
+      alias: (Array.isArray(joiner.alias) ? joiner.alias : []).filter(alias => alias.entity === "Store") }), "Store", count, prepared.table), [joiner], metadata.frame.tables);
     const nativeGraph = { ...graph, services: [{ name: "nativeStore", model: "Store" }] };
     const admitted = [list, count];
     const workflow = yield* defineWorkflowModule({ name: Modules.STORE, source: module.description,

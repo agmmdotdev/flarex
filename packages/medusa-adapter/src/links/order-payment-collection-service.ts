@@ -1,3 +1,5 @@
+import { paymentStaticResources } from "@medusajs/payment/static-manifest";
+import { OrderModuleService } from "@medusajs/order/services";
 import { checkoutLinkReadPolicy } from "./checkout-link-read-receipt";
 import { Effect, Result, Schema } from "effect";
 import { commerceError, defaultCommerceResources, type Json, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
@@ -12,7 +14,7 @@ import { decodeGraphCount } from "../local-graph/query";
 import { defineWorkflowModule } from "../workflow/module";
 import { commerceDecoder } from "../value/decoder";
 import { ScalarId as Id } from "../repository/scalar-id-read";
-import { prepareLinkService } from "./service";
+import { prepareLinkService, withNativeLinkGraphMetadata } from "./service";
 import { linkLogicalEventPolicy } from "./events";
 import { captureOrderPaymentCollectionLinkMetadata } from "./order-payment-collection-schema";
 import { captureCommerceInput } from "../value/input";
@@ -75,8 +77,8 @@ export const prepareOrderPaymentCollectionLinkRead = Effect.fn("OrderPaymentColl
   const commands = [count];
   const workflow = yield* Effect.fromResult(defineWorkflowModule({ name: "order_payment_collection_links",
     source: { name: prepared.serviceName, profile: "order-payment-collection-read" }, methods: {},
-    graph: { aliases, services: yield* Effect.fromResult(nativeLinkGraphServices(prepared.joiner)),
+    graph: yield* Effect.fromResult(withNativeLinkGraphMetadata({ aliases, services: yield* Effect.fromResult(nativeLinkGraphServices(prepared.joiner)),
       reads: [{ model, command: count, table: prepared.prepared.table, paths: [], orderable: ["order_id"], uniqueOrder: [], multipleOrder: false, decode: decodeGraphCount }],
-      linkEndpoints: endpoints, remotePaths }, logical: { ...policy, commands } }));
+      linkEndpoints: endpoints, remotePaths }, [prepared.joiner], [metadata.frame], [OrderModuleService.prototype.__joinerConfig(), paymentStaticResources.joinerConfig])), logical: { ...policy, commands } }));
   return { metadata, prepared, workflow, count, commands, logicalEventPolicy: () => policy };
 });

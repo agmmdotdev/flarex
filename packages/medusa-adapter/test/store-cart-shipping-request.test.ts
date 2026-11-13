@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, expect, it, vi } from "vitest";
-import { Effect, Exit, Result, Schema } from "effect";
+import { Cause, Effect, Exit, Result, Schema } from "effect";
 import { asValue, createContainer } from "@medusajs/deps/awilix-portable";
 import { createStoreCartHttpHandler } from "@flarex/medusa-http/store-cart";
 import { ManualFulfillmentService } from "@medusajs/fulfillment-manual/services";
@@ -26,11 +26,19 @@ const standard = "so-http-shipping-standard", express = "so-http-shipping-expres
 let tested: Awaited<ReturnType<typeof prepareStoreCartRequestFixture>>;
 beforeAll(async () => { tested = await prepareStoreCartRequestFixture(driver, { additionalRows: storeCartShippingSeedRows }); }, 600_000);
 afterAll(async () => { await tested?.fixture.close(); }, 60_000);
+const requestDiagnostics = new WeakMap<object, string>();
+const explain = (response: { readonly status: number; readonly value: unknown }) => JSON.stringify(response) + (requestDiagnostics.get(response) ?? "");
 
 async function request(path: string, options: Readonly<{ value?: unknown; key?: string; method?: "GET" | "POST" }> = {}) {
   return tested.use(runtime => Effect.gen(function* () {
     const container = createContainer().register({ logger: asValue(storeCartLogger), configModule: asValue({ projectConfig: { http: {} } }) });
-    const scopes = yield* makeStoreCartRequestScopeFactory({ runtime, container });
+    const failures: string[] = [];
+    const observe = <A, E, R>(work: Effect.Effect<A, E, R>) => work.pipe(Effect.tapCause(cause => Effect.sync(() => {
+      failures.push(Cause.pretty(cause) + "\nCaptured failure: " + JSON.stringify(cause, (key, value) => key === "stack" ? undefined : value));
+    })));
+    const witnessed: typeof runtime = { ...runtime, runWorkflow: (name, value) => observe(runtime.runWorkflow(name, value)),
+      remoteQuery: value => observe(runtime.remoteQuery(value)), query: { graph: (value, options) => observe(runtime.query.graph(value, options)) } };
+    const scopes = yield* makeStoreCartRequestScopeFactory({ runtime: witnessed, container });
     const http = createStoreCartHttpHandler({ storeCors: "https://store.test", ...scopes,
       admitCartRefetchFields: runtime.admitCartRefetchFields, admitShippingOptionFields: runtime.admitShippingOptionFields });
     const response = yield* Effect.promise(() => http.handle(new Request(`https://store.test${path}`, {
@@ -38,7 +46,9 @@ async function request(path: string, options: Readonly<{ value?: unknown; key?: 
       headers: { "content-type": "application/json", "x-publishable-api-key": options.key ?? storeCartToken },
       ...(options.value === undefined ? {} : { body: JSON.stringify(options.value) }),
     })));
-    return { status: response.status, value: yield* Effect.promise(() => response.json()) };
+    const result = { status: response.status, value: yield* Effect.promise(() => response.json()) };
+    if (failures.length) requestDiagnostics.set(result, `\nRequest: ${JSON.stringify({ path, value: options.value })}\n${failures.join("\n")}`);
+    return result;
   }));
 }
 const shippingPath = (cart: string) => `/store/carts/${cart}/shipping-methods`;
@@ -73,7 +83,7 @@ it("lists native eligible flat options, keeps mandatory fields and observes retu
     const nativeOptions = rows(await Effect.runPromise(roots.listShippingOptions.run(roots.listShippingOptions.newRequestKey(), nativeInput)));
     expect(nativeOptions.map(option => option.id).sort()).toEqual([express, standard]);
     const listed = await request("/store/shipping-options?cart_id=cart-http-shipping&fields=id&limit=1&offset=9");
-    expect(listed.status, JSON.stringify(listed.value)).toBe(200);
+    expect(listed.status, explain(listed)).toBe(200);
     const options = optionBody(listed.value).shipping_options;
     expect(options.map(option => option.id).sort()).toEqual([express, standard]);
     expect(options).toEqual(expect.arrayContaining([
@@ -82,15 +92,15 @@ it("lists native eligible flat options, keeps mandatory fields and observes retu
       expect.objectContaining({ id: express, amount: 8, insufficient_inventory: false }),
     ]));
     const returned = await request("/store/shipping-options?cart_id=cart-http-shipping&is_return=true");
-    expect(returned.status, JSON.stringify(returned.value)).toBe(200);
+    expect(returned.status, explain(returned)).toBe(200);
     expect(optionBody(returned.value).shipping_options.map(option => option.id)).toEqual(["so-http-shipping-return"]);
     const scarce = await request("/store/shipping-options?cart_id=cart-http-shipping-inventory");
-    expect(scarce.status, JSON.stringify(scarce.value)).toBe(200);
+    expect(scarce.status, explain(scarce)).toBe(200);
     expect(optionBody(scarce.value).shipping_options).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: standard, insufficient_inventory: true }), expect.objectContaining({ id: express, insufficient_inventory: true }),
     ]));
     const completed = await request("/store/shipping-options?cart_id=cart-http-shipping-completed");
-    expect(completed.status, JSON.stringify(completed.value)).toBe(200);
+    expect(completed.status, explain(completed)).toBe(200);
     const input = Result.getOrThrow(roots.listShippingOptions.decodeInput({ cart_id: "cart-http-shipping", enabled_in_store: false }));
     const disabled = rows(await Effect.runPromise(roots.listShippingOptions.run(roots.listShippingOptions.newRequestKey(), input)));
     expect(disabled.map(option => option.id)).toEqual(["so-http-shipping-rule-mismatch"]);
@@ -114,7 +124,7 @@ it("adds, repeats and replaces actual Manual methods while atomically refreshing
       const oldChildren = previousMethod === undefined ? [] : before.rows.filter(row => row.value.shipping_method_id === previousMethod);
       const data = { delivery: option === express ? "express-door" : "standard-door" };
       const response = await request(shippingPath("cart-http-shipping"), { value: { option_id: option, data } });
-      expect(response.status, JSON.stringify(response.value)).toBe(200);
+      expect(response.status, explain(response)).toBe(200);
       const cart = cartBody(response.value).cart, current = methods(cart)[0];
       if (current === undefined) throw new Error("Native Shipping root omitted its new method");
       expect(cart).toMatchObject({ id: "cart-http-shipping", subtotal: 12.5 + amount, item_subtotal: 12.5, total,
@@ -182,7 +192,7 @@ it("rejects malformed, unsupported, missing and completed mutations without dura
     [shippingPath("cart-http-shipping-completed"), { option_id: standard }, storeCartToken],
   ] as const) {
     const response = await request(path, { value, key });
-    expect(response.status, JSON.stringify(response.value)).toBe(400);
+    expect(response.status, explain(response)).toBe(400);
     expect(await tested.fixture.snapshot()).toEqual(before);
   }
   for (const path of ["/store/shipping-options?cart_id=cart-http-shipping&fields=unsupported", "/store/shipping-options?cart_id=cart-http-shipping&is_return=invalid"]) {
@@ -200,7 +210,7 @@ it("rejects malformed, unsupported, missing and completed mutations without dura
         [`/store/carts/${cart}`, undefined], [shippingPath(cart), { option_id: standard }],
         [`/store/carts/${cart}`, { metadata: { requires_store_fallback: true } }]] as const) {
         const refused = await request(path, value === undefined ? {} : { value });
-        expect(refused.status, JSON.stringify(refused.value)).toBe(400);
+        expect(refused.status, explain(refused)).toBe(400);
         expect(await tested.fixture.snapshot()).toEqual(before);
       }
     }
@@ -213,8 +223,9 @@ it("rolls back provider rejection and a late failure after the genuine native me
   const log = vi.spyOn(storeCartLogger, "error").mockImplementation(() => undefined);
   const provider = vi.spyOn(ManualFulfillmentService.prototype, "validateFulfillmentData").mockRejectedValueOnce(new Error("native-manual-shipping-rejection"));
   try {
-    expect((await request(shippingPath("cart-http-shipping-failure"), { value: { option_id: standard } })).status).toBe(500);
-    expect(provider).toHaveBeenCalled(); expect(await tested.fixture.snapshot()).toEqual(before);
+    const response = await request(shippingPath("cart-http-shipping-failure"), { value: { option_id: standard } });
+    expect(response.status, explain(response)).toBe(500);
+    expect(provider, explain(response)).toHaveBeenCalled(); expect(await tested.fixture.snapshot()).toEqual(before);
   } finally { provider.mockRestore(); log.mockRestore(); }
   let added = false, late = false;
   const nativeAdd = CartModuleService.prototype.addShippingMethods;
@@ -246,7 +257,7 @@ it("preserves native calculated-option refusal by invoking the genuine Manual qu
     const nativeOptions = rows(await Effect.runPromise(roots.listShippingOptions.run(roots.listShippingOptions.newRequestKey(), input)));
     expect(nativeOptions).toEqual(expect.arrayContaining([expect.objectContaining({ id: "so-http-shipping-calculated", price_type: "calculated" })]));
     const listed = await request("/store/shipping-options?cart_id=cart-http-shipping-calculated");
-    expect(listed.status, JSON.stringify(listed.value)).toBe(200);
+    expect(listed.status, explain(listed)).toBe(200);
     expect(optionBody(listed.value).shipping_options).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: "so-http-shipping-calculated", price_type: "calculated" }),
     ]));
@@ -254,7 +265,7 @@ it("preserves native calculated-option refusal by invoking the genuine Manual qu
     const selected = await tested.fixture.snapshot();
     expect(businessRows(selected)).toEqual(businessRows(before));
     const refused = await request(shippingPath("cart-http-shipping-calculated"), { value: { option_id: "so-http-shipping-calculated" } });
-    expect(refused.status, JSON.stringify(refused.value)).toBe(500);
+    expect(refused.status, explain(refused)).toBe(500);
     expect(quote).toHaveBeenCalledTimes(1);
     expect(await tested.fixture.snapshot()).toEqual(selected);
   } finally {

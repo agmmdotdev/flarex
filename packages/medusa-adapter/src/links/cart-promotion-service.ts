@@ -1,3 +1,5 @@
+import { promotionStaticResources } from "@medusajs/promotion/static-manifest";
+import { cartStaticResources } from "@medusajs/cart/static-manifest";
 import { checkoutLinkReadPolicy } from "./checkout-link-read-receipt";
 import { Effect, Result, Schema } from "effect";
 import { commerceError, defaultCommerceResources, type Json, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
@@ -12,7 +14,7 @@ import { decodeGraphCount } from "../local-graph/query";
 import { defineWorkflowModule } from "../workflow/module";
 import { commerceDecoder } from "../value/decoder";
 import { ScalarId as Id } from "../repository/scalar-id-read";
-import { prepareLinkService } from "./service";
+import { prepareLinkService, withNativeLinkGraphMetadata } from "./service";
 import { linkLogicalEventPolicy } from "./events";
 import { captureCartPromotionLinkMetadata } from "./cart-promotion-schema";
 import { captureCartPromotionCreationLinkMetadata } from "./cart-promotion-creation-schema";
@@ -72,9 +74,9 @@ export const prepareCartPromotionLinkRead = Effect.fn("CartPromotionLink.prepare
         }) };
     })));
   const commands = [count];
-  const graph = { aliases, services: yield* Effect.fromResult(nativeLinkGraphServices(prepared.joiner)),
+  const graph = yield* Effect.fromResult(withNativeLinkGraphMetadata({ aliases, services: yield* Effect.fromResult(nativeLinkGraphServices(prepared.joiner)),
       reads: [{ model, command: count, table: prepared.prepared.table, paths: [], orderable: ["cart_id"], uniqueOrder: [], multipleOrder: false, decode: decodeGraphCount }],
-      linkEndpoints: endpoints, remotePaths };
+      linkEndpoints: endpoints, remotePaths }, [prepared.joiner], [metadata.frame], [cartStaticResources.joinerConfig, promotionStaticResources.joinerConfig]));
   const workflow = yield* Effect.fromResult(defineWorkflowModule({ name: "cart_promotion_links",
     source: { name: prepared.serviceName, profile: "cart-promotion-read" }, methods: {},
     graph, logical: { ...policy, commands } }));

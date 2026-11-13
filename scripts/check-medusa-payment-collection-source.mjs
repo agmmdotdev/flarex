@@ -51,12 +51,13 @@ export function verifyPaymentCollectionSource(source, target, targetPath) {
   if (file === "cart/workflows/create-payment-collection-for-cart.ts") expected =
     'import type { CreatePaymentCollectionForCartWorkflowInputDTO } from "@medusajs/types/cart/workflows"\n' + expected
       .replace("  CreatePaymentCollectionForCartWorkflowInputDTO,\n", "")
-      .replace('cart: CartDTO & { payment_collection?: any }', 'cart: Pick<CartDTO, "id"> & { payment_collection?: { id: string } | null }')
+      .replace('cart: CartDTO & { payment_collection?: any }', 'cart: Pick<CartDTO, "id"> & { payment_collection?: { id: string } | null | undefined }')
       .replaceAll("data.created[0].id", "data.created[0]!.id").replace("new WorkflowResponse(created[0])", "new WorkflowResponse(created[0]!)");
   if (file === "cart/workflows/refresh-payment-collection.ts") expected =
-    'import type { CartDTO } from "@medusajs/types"\nimport type { CartCollectionRefreshView } from "../../common/steps/payment-collection-query-views"\nimport type { WorkflowDefinition, Hook } from "@medusajs/workflows-sdk"\n' + expected
+    'import type { WorkflowDefinition, Hook } from "@medusajs/workflows-sdk"\n' + expected
       .replace('export const refreshPaymentCollectionForCartWorkflow = createWorkflow(', 'export const refreshPaymentCollectionForCartWorkflow: WorkflowDefinition<\n  RefreshPaymentCollectionForCartWorklowInput, undefined,\n  readonly [Hook<"validate", { input: RefreshPaymentCollectionForCartWorklowInput; cart: NonNullable<RefreshPaymentCollectionForCartWorklowInput["cart"]> }>]\n> = createWorkflow(')
-      .replace("cart?: any", "cart?: typeof CartCollectionRefreshView.Type | (CartDTO & { payment_collection?: undefined })").replace("return fetchCart ?? input.cart", "return (fetchCart ?? input.cart)!")
+      .replace("cart?: any", "// Preserve the pinned dynamic DSL ABI across shouldExecute/fetchCart/when.\n  // Runtime roots and Query views retain their checked supported profiles.\n  cart?: any")
+      .replace(".map((ps) => ps.id)", ".map((ps: { id: string }) => ps.id)").replace("return fetchCart ?? input.cart", "return (fetchCart ?? input.cart)!")
       .replace("filters: { id: cartId }", "filters: { id: cartId! }")
       .replace("return input.cart_id ?? input.cart?.id", "return (input.cart_id ?? input.cart?.id)!")
       .replace("selector: { id: cart.payment_collection.id }", "selector: { id: cart.payment_collection!.id }")

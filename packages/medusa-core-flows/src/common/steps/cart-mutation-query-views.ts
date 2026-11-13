@@ -40,15 +40,24 @@ export type CartMutationItemCartView = typeof CartMutationItemCartView.Type;
 const Collection = Schema.StructWithRest(Schema.Struct({ id: Schema.String, amount: Schema.Finite, raw_amount: Raw,
   currency_code: Schema.String, payment_sessions: Schema.Array(Row).pipe(Schema.mutable),
 }), [Json]);
-export const CartMutationRefreshView = Schema.StructWithRest(Schema.Struct({ ...itemCartFields,
-  completed_at: Text, raw_total: Raw, region: Schema.optionalKey(Schema.NullOr(Schema.StructWithRest(Schema.Struct({ id: Schema.String,
+const refreshFields = { ...itemCartFields,
+  // raw_total is computed but is not requested by cartFieldsForRefreshSteps.
+  completed_at: Text, raw_total: Schema.optionalKey(Raw), region: Schema.optionalKey(Schema.NullOr(Schema.StructWithRest(Schema.Struct({ id: Schema.String,
     currency_code: Schema.String,
   }), [Json]))),
   promotions: Schema.Array(Schema.StructWithRest(Schema.Struct({ id: Schema.String, code: Text }), [Json])).pipe(Schema.mutable),
   shipping_methods: Schema.Array(NativeCartShippingMethodView).pipe(Schema.mutable),
   payment_collection: Schema.optionalKey(Schema.NullOr(Collection)),
-}), [Json]);
+};
+export const CartMutationRefreshView = Schema.StructWithRest(Schema.Struct(refreshFields), [Json]);
 export type CartMutationRefreshView = typeof CartMutationRefreshView.Type;
+// Callable native Query retains own undefined for these absent remote references.
+export const NativeCartMutationRefreshView = Schema.StructWithRest(Schema.Struct({ ...refreshFields,
+  customer: Schema.optionalKey(Schema.UndefinedOr(refreshFields.customer.schema)),
+  region: Schema.optionalKey(Schema.UndefinedOr(refreshFields.region.schema)),
+  payment_collection: Schema.optionalKey(Schema.UndefinedOr(refreshFields.payment_collection.schema)),
+}), [Schema.Record(Schema.String, Schema.UndefinedOr(Schema.Json))]).check(Schema.makeFilter(value =>
+  Object.keys(value).every(key => key === "customer" || key === "region" || key === "payment_collection" || value[key] !== undefined)));
 const Variant = Schema.StructWithRest(Schema.Struct({ id: Schema.String,
   calculated_price: Schema.optionalKey(Schema.NullOr(Schema.StructWithRest(Schema.Struct({ calculated_amount: Schema.optionalKey(Schema.NullOr(Schema.Finite)),
     is_calculated_price_tax_inclusive: Schema.optionalKey(Schema.Boolean),

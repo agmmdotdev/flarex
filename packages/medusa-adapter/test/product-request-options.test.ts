@@ -11,6 +11,8 @@ const driver = process.env.FLAREX_TEST_DRIVER === "postgres" ? "postgres" : "pgl
 const option = Schema.Struct({ id: Schema.String, title: Schema.String, product_id: Schema.String,
   values: Schema.Array(Schema.Struct({ id: Schema.String, value: Schema.String, option_id: Schema.String })) });
 const decodeOption = Schema.decodeUnknownSync(option);
+const decodeRows = Schema.decodeUnknownSync(Schema.Array(Schema.JsonObject));
+const decodeRow = Schema.decodeUnknownSync(Schema.JsonObject);
 const fields = ["id", "title", "product_id", "values.id", "values.value", "values.option_id"];
 
 describe(`native Product Option HTTP operations (${driver})`, () => {
@@ -56,7 +58,7 @@ describe(`native Product Option HTTP operations (${driver})`, () => {
         const all = yield* operations.query.graph({ entity: "product_option", fields: ["id", "title"], filters: { product_id: selectedId },
           pagination: { take: 50, order: { id: "ASC" } } });
         expect(all.metadata).toEqual({ count: 2, skip: 0, take: 50 });
-        expect(all.data.every(row => Object.keys(row).sort().join(",") === "id,title")).toBe(true);
+        expect(decodeRows(all.data).every(row => Object.keys(row).sort().join(",") === "id,title")).toBe(true);
         const first = yield* operations.query.graph({ entity: "product_option", fields: ["id", "title"], filters: { product_id: selectedId },
           pagination: { take: 1, skip: 0, order: { id: "ASC" } } });
         const second = yield* operations.query.graph({ entity: "product_option", fields: ["id", "title"], filters: { product_id: selectedId },
@@ -102,8 +104,8 @@ describe(`native Product Option HTTP operations (${driver})`, () => {
         expect((yield* operations.query.graph(query)).data.map(row => decodeOption(row))).toEqual([{ ...replacement, values: [] }]);
         expect((yield* parent(unrelatedId)).data).toEqual(unrelated);
         const selected = (yield* parent(selectedId)).data;
-        expect(selected.map(({ options: _options, ...row }) => row)).toEqual(original.map(({ options: _options, ...row }) => row));
-        expect((yield* operations.query.graph({ entity: "product_option", fields, filters: { id: initialOptions.data[0]?.id, product_id: selectedId } })).data)
+        expect(decodeRows(selected).map(({ options: _options, ...row }) => row)).toEqual(decodeRows(original).map(({ options: _options, ...row }) => row));
+        expect((yield* operations.query.graph({ entity: "product_option", fields, filters: { id: decodeRow(initialOptions.data[0]).id, product_id: selectedId } })).data)
           .toEqual(initialOptions.data);
 
         const beforeRefusal = yield* Effect.promise(() => tested.fixture.snapshot());

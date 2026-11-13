@@ -38,7 +38,7 @@ export const currencyFixture = Effect.fn("MedusaComparison.currencyFixture")(
     });
     yield* Effect.promise(() => initialData({ container }));
     if (warnings.length !== 0) throw new Error(warnings.join("\n"));
-    return { service, internal, container };
+    return { service, internal, container, repository: repository.base };
   },
 );
 

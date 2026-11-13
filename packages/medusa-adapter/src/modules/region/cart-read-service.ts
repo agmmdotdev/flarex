@@ -1,3 +1,4 @@
+import { withNativeGraphMetadata } from "../../local-graph/native-metadata";
 import { Effect, Result, Schema } from "effect";
 import { Country, Region } from "@medusajs/region/models";
 import { regionStaticResources } from "@medusajs/region/static-manifest";
@@ -44,9 +45,9 @@ export const makeLocalRegionCartReadCommands = Effect.fn("RegionAdapter.cartRead
     const joiner = regionStaticResources.joinerConfig;
     if (joiner === undefined) return yield* Result.fail(commerceError("unsupportedProfile"));
     const aliases = yield* moduleAliases({ ...joiner, alias: (Array.isArray(joiner.alias) ? joiner.alias : []).filter(alias => alias.entity === "Region") });
-    const graph = { aliases, reads: [{ model: "Region", command: count, table: prepared.table,
+    const graph = yield* withNativeGraphMetadata({ aliases, reads: [{ model: "Region", command: count, table: prepared.table,
       paths: yield* relationPaths(prepared.catalog, prepared.table.name, ["countries"], { nativeFields: true }),
-      orderable: ["id"], uniqueOrder: ["id"], multipleOrder: false, decode: decodeGraphCount }] };
+      orderable: ["id"], uniqueOrder: ["id"], multipleOrder: false, decode: decodeGraphCount }] }, [joiner], metadata.frame.tables);
     const policy = regionCartReadPolicy(prepared), admitted = [list, count];
     const workflow = yield* defineWorkflowModule({ name: Modules.REGION, source: module.description, methods: { listRegions }, graph,
       logical: { ...policy, commands: admitted } });

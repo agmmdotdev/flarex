@@ -74,8 +74,8 @@ page. A missing Region detail returns 404.
 
 The Region read host binds the Store commands alongside the Cart command. A
 Store read selects Regions and populates their live, assigned Countries in one
-protected operation. Country identity is `iso_2`; the private projection maps
-the HTTP field `countries.id` to that key. Store clients use the Region
+protected operation. Country identity is `iso_2`; the native query retains that
+key without synthesizing a Country `id`. Store clients use the Region
 endpoints for this relation. Scalar or array filters on `id`, `name` and
 `currency_code`, bounded `$and` and `$or`, and free-text search across Region
 name and currency code are supported. The Store page limit is 256. The Cart
@@ -135,6 +135,20 @@ restrictive physical inverse remains distinct from atomic root rollback.
 The HTTP update and line-item roots consume the connected Shipping graph for
 subsequent refresh; standalone creation retains its eighteen-source profile.
 
+The [Store Payment HTTP profile](./preflight/store-payment-http.md) adds
+`POST /store/payment-collections` and
+`POST /store/payment-collections/:id/payment-sessions`. Collection creation reuses
+native stored Cart totals and the genuine Cart Link, while an existing collection
+returns through a read-only branch, including completed or nullable-channel Carts.
+Sessions retain the local System provider, optional verified Customer context,
+saved billing Addresses, account-holder creation/reuse and native replacement.
+The existing Customer–AccountHolder Link adds a twenty-first catalog source;
+each new workflow selects three sources under the same settlement owner. The
+combined HTTP host retains its existing 32-host and 8 MiB limits. Response fields
+are admitted before execution and refetched independently after settlement.
+Native creation can retain four authorized Sessions and add a fifth; the unchanged
+four-Session response read then refuses after the workflow has committed.
+
 The native default response preserves Cart/item totals, selected Product and
 taxonomy relations, Customer Groups, Region Countries, Addresses, Promotions,
 and Payment Collection/Sessions. Publishable-key validation, verified optional
@@ -191,8 +205,8 @@ facades. Every service read retains its independent Core operation; bootstrap
 owns source admission and initialization before serving HTTP.
 
 Native Pricing owns calculated-price selection and tax-inclusivity decisions.
-The graph lowers authenticated native Link aliases to one canonical Price Set
-expansion and projects its already-validated computed DTO. Native tagged pricing
+The actual native Query and RemoteJoiner resolve Link aliases, expand Price Sets
+and select the returned computed DTO fields. Native tagged pricing
 context carries Region/currency and complete bounded customer-group membership.
 The Store Product read retains authenticated remote join keys needed by native
 enrichment, including the Variant ID when only calculated prices were selected.

@@ -64,7 +64,8 @@ export function preparePromotionComputeRead(metadata: Metadata) {
     const campaignProjection: ProjectionPolicy = { ...leaf, selectableRelations: ["budget"], nested: new Map([["budget", leaf]]) };
     const promotionProjection: ProjectionPolicy = { ...leaf, allowedPaths: promotionComputePaths, selectableRelations: ["application_method", "rules", "campaign"],
       nested: new Map([["application_method", methodProjection], ["rules", ruleProjection], ["campaign", campaignProjection]]) };
-    const graphProjection: ProjectionPolicy = { ...promotionProjection, keys: "selected", joinKeys: "storage", storageKeys: "last" };
+    const graphProjection: ProjectionPolicy = { ...promotionProjection, keys: "selected", joinKeys: "storage", storageKeys: "last",
+      ignoreUnknownScalarFields: true };
     const rootScalar = yield* prepareScalarRepository(promotion.table, "Promotion", scalarIdWhere);
     const usageScalar = yield* prepareScalarRepository(usage.table, "CampaignBudgetUsage", scalarIdWhere);
     const admitSelection = (table: string, rows: readonly JsonObject[]) => prefilter.complete(table, rows).pipe(Result.map(() => undefined));

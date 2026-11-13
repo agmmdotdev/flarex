@@ -1,3 +1,4 @@
+import { withNativeGraphMetadata } from "../../local-graph/native-metadata";
 import { commerceModuleEventBus } from "../../module/events";
 import { Effect, Result, Schema } from "effect";
 import { SalesChannel } from "@medusajs/sales-channel/models";
@@ -113,7 +114,7 @@ export const makeLocalSalesChannelCommands = Effect.fn("SalesChannelAdapter.comm
     const retrieve = commands.read("salesChannelRetrieve", prepare(decodeRetrieve), ({ service, context }, args) => service.retrieveSalesChannel(args.id, args.config as FindConfig<SalesChannelDTO> | undefined, context));
     const joiner = salesChannelStaticResources.joinerConfig;
     if (joiner === undefined) return yield* Result.fail(commerceError("unsupportedProfile"));
-    const graph = yield* scalarGraphDefinition(yield* moduleAliases(joiner), "SalesChannel", count, table);
+    const graph = yield* withNativeGraphMetadata(yield* scalarGraphDefinition(yield* moduleAliases(joiner), "SalesChannel", count, table), [joiner], metadata.frame.tables);
     const workflowCommands = commerceServiceCommands(updateModule.use);
     // SAFETY: the native preimage config permits metadata.* paths that
     // FindConfig's DTO-key annotation cannot model. The workflow method

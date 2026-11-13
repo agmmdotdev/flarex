@@ -160,14 +160,14 @@ describe(`native Category and Collection HTTP on Core (${driver})`, () => {
         const tableNames = new Set(tested.catalog.productSource.definition.tables.filter(table => localNames.has(table.localName ?? table.name)).map(table => table.name));
         expect(tableNames.size).toBe(2);
         const references = yield* Effect.promise(() => tested.fixture.inventory());
-        const beforeDelete = (yield* graph(selectedId)).data[0];
+        const beforeDelete = decodeEnvelope((yield* graph(selectedId)).data[0]);
         expect(yield* request(categoryPath + "/" + category.id, "DELETE")).toEqual({ id: category.id, object: "product_category", deleted: true });
         expect(yield* request(collectionPath + "/" + collection.id, "DELETE")).toEqual({ id: collection.id, object: "collection", deleted: true });
         const after = yield* Effect.promise(() => tested.fixture.inventory());
         expect(after.rows.filter(row => tableNames.has(row.table))).toEqual(references.rows.filter(row => tableNames.has(row.table)));
         expect((yield* graph(selectedId)).data[0]).toEqual({ ...beforeDelete, collection: null, categories: [{ id: otherCategory.id }] });
         expect((yield* graph(unrelatedId)).data).toEqual(unrelated);
-        expect((yield* graph(selectedId)).data[0]?.variants).toEqual(before?.variants);
+        expect(decodeEnvelope((yield* graph(selectedId)).data[0]).variants).toEqual(decodeEnvelope(before).variants);
         expect(yield* request(collectionPath + "/missing", "DELETE")).toEqual({ id: "missing", object: "collection", deleted: true });
       }));
     } finally { await tested.fixture.close(); }

@@ -14,6 +14,9 @@ import { prepareWorkflowComposition, type InstalledWorkflowModule } from "../src
 import { prepareWorkflowResources } from "../src/workflow/resources";
 import { runEffect, runEffectFailure } from "../../persistence-postgres/test/support/effectTestRuntime";
 import { promiseFailureObserver } from "./support/promise-failure-observer";
+import { declaredNativeGraph, nativeGraphFixture } from "./support/declared-native-graph";
+import type { ModuleJoinerConfig } from "@medusajs/types";
+import { commerceDecoder } from "../src/value/decoder";
 
 const cart = defineAtomicCommerceParticipant("presentation-cart"), product = defineAtomicCommerceParticipant("presentation-product");
 const cartCommand = defineGraphReadCommand("presentationCart", () => Effect.succeed([[], 0]));
@@ -26,15 +29,40 @@ const totals = () => ({ columns: ["total", "raw_total"], companions: { total: "r
 const local = (): GraphRelationPath => ({ path: "items", table: itemTable, many: true, sourceFields: ["id"], presentation: totals() });
 const direct: GraphDirectPath = { root: "Cart", path: "items.variant", sourceModel: "LineItem", sourceKey: "variant_id",
   targetModel: "Variant", targetKey: "id", many: false, nativeFields: true, maximumSources: 4, maximumTargets: 4, maximumPerSource: 1 };
+// These are neutral presentation fixture services, with no Medusa Cart or
+// Product service implementation. Their native declarations are explicit.
+const cartConfig: ModuleJoinerConfig = { serviceName: "presentation_cart", primaryKeys: ["id"], alias: [
+  { name: "cart", entity: "Cart", args: { methodSuffix: "Carts" } },
+  { name: "line_item", entity: "LineItem", args: { methodSuffix: "LineItems" } },
+] };
+const variantConfig: ModuleJoinerConfig = { serviceName: "presentation_product", primaryKeys: ["id"],
+  alias: [{ name: "variant", entity: "Variant", args: { methodSuffix: "Variants" } }] };
+const variantLink: ModuleJoinerConfig = { isLink: true, isReadOnlyLink: true, extends: [{ serviceName: "presentation_cart", entity: "LineItem",
+  relationship: { serviceName: "presentation_product", entity: "Variant", primaryKey: "id", foreignKey: "variant_id", alias: "variant",
+    args: { methodSuffix: "Variants" } } }] };
+const targetLink: ModuleJoinerConfig = { isLink: true, isReadOnlyLink: true, extends: [{ serviceName: "presentation_cart", entity: "Cart",
+  relationship: { serviceName: "presentation_product", entity: "Variant", primaryKey: "id", foreignKey: "id", alias: "target",
+    args: { methodSuffix: "Variants" } } }] };
+const cartTables = [{ name: "cart", relationships: [{ name: "items", type: "hasMany" as const, targetModel: "LineItem", targetTable: "line_item",
+  nullable: false, cascadeDelete: false, cascadeDetach: false }] }, { name: "line_item", relationships: [] }];
+const cartNative = (graph: GraphParticipant["module"], extra: readonly ModuleJoinerConfig[] = [variantLink]) =>
+  declaredNativeGraph(graph, [cartConfig, ...extra], cartTables);
+const variantNative = (graph: GraphParticipant["module"]) => declaredNativeGraph(graph, [variantConfig], []);
+const Row = Schema.StructWithRest(Schema.Struct({ id: Schema.String }), [Schema.Record(Schema.String, Schema.Json)]);
+const CartRow = Schema.StructWithRest(Schema.Struct({ id: Schema.String, items: Schema.optionalKey(Schema.Array(Row)) }),
+  [Schema.Record(Schema.String, Schema.Json)]);
+const decodeRow = commerceDecoder(Row, "storedCorruption"), decodeCartRow = commerceDecoder(CartRow, "storedCorruption");
 function read(model: string, table: ReadTable, command: GraphReadDefinition["command"]): GraphReadDefinition {
-  return { model, table, command, paths: [], orderable: ["id"], uniqueOrder: ["id"], multipleOrder: false, decode: decodeGraphCount };
+  return { model, table, command, paths: [], orderable: ["id"], uniqueOrder: ["id"], multipleOrder: false,
+    decode: input => decodeGraphCount(input).pipe(Result.flatMap(([rows, count]) => Result.all(rows.map(row =>
+      model === "Cart" ? decodeCartRow(row) : decodeRow(row))).pipe(Result.map(decoded => [decoded, count] as const)))) };
 }
 function participants(path: GraphRelationPath = local(), edge: GraphDirectPath = direct): GraphParticipant[] {
-  return [{ participant: cart, module: { aliases: [{ name: "cart", model: "Cart" }, { name: "line_item", model: "LineItem" }],
-    reads: [{ ...read("Cart", cartTable, cartCommand), paths: [path], presentation: totals(), selectedFieldsOnly: true, nativeFields: true },
-      read("LineItem", itemTable, itemCommand)], directPaths: [edge] } },
-  { participant: product, module: { aliases: [{ name: "variant", model: "Variant" }], reads: [{ ...read("Variant", variantTable, variantCommand),
-    selectedFieldsOnly: true, presentation: { columns: ["display", "raw_display"], companions: { display: "raw_display" } } }] } }];
+  return [{ participant: cart, module: cartNative({ aliases: [{ name: "cart", model: "Cart" }, { name: "line_item", model: "LineItem" }],
+    reads: [{ ...read("Cart", cartTable, cartCommand), paths: [path], presentation: totals(), nativeFields: true },
+      read("LineItem", itemTable, itemCommand)], directPaths: [edge] }) },
+  { participant: product, module: variantNative({ aliases: [{ name: "variant", model: "Variant" }], reads: [{ ...read("Variant", variantTable, variantCommand),
+    presentation: { columns: ["display", "raw_display"], companions: { display: "raw_display" } } }] }) }];
 }
 type Call = { readonly participant: Parameters<AtomicCommerceContext["call"]>[0]; readonly command: Parameters<AtomicCommerceContext["call"]>[1]; readonly args: Json };
 function context(responses: readonly Json[], calls: Call[] = []): AtomicCommerceContext {
@@ -48,11 +76,11 @@ function context(responses: readonly Json[], calls: Call[] = []): AtomicCommerce
       return response === undefined ? Effect.fail(commerceError("storedCorruption")) : Effect.succeed(response);
     } };
 }
-const query = (fields: readonly string[], extra = {}) => ({ entity: "cart", fields, pagination: { take: 4 }, ...extra });
+const query = (fields: readonly string[], extra = {}) => ({ entity: "cart", fields, pagination: { take: 4, skip: 0 }, ...extra });
 const rows: Json = [[{ id: "c", total: 9, raw_total: { value: "9", precision: 20 }, secret: "private",
   items: [{ id: "i", cart_id: "c", variant_id: "v", total: 9, raw_total: { value: "9", precision: 20 }, secret: "private" }] }], 1];
 const variants: Json = [[{ id: "v", title: "Variant", display: 7, raw_display: { value: "7", precision: 20 }, secret: "private" }], 1];
-const prepared = (selected = participants()) => Result.getOrThrow(prepareLocalGraph(selected));
+const prepared = (selected = participants()) => nativeGraphFixture(Result.getOrThrow(prepareLocalGraph(selected)));
 
 describe("authenticated graph presentation fields", () => {
   it("omits exact native nested leaves without traversing bare remote relations and preserves real child selections", async () => {
@@ -69,22 +97,22 @@ describe("authenticated graph presentation fields", () => {
     const calls: Call[] = [];
     const fields = ["items.id", "items.variant"];
     expect(Result.isSuccess(graph.admitProjection("cart", fields))).toBe(true);
-    expect((await runEffect(graph.bind(context([rows], calls)).native(query(fields)))).data)
-      .toEqual([{ id: "c", items: [{ id: "i" }] }]);
+    expect((await runEffect(graph.bind(context([rows], calls)).nativeGraph(query(fields)))).data)
+      .toEqual([{ items: [{ id: "i" }] }]);
     expect(calls.map(call => call.command)).toEqual([cartCommand]);
-    expect(calls[0]?.args).toMatchObject({ config: { select: ["id"], relations: ["items"] } });
+    expect(calls[0]?.args).toMatchObject({ config: { select: ["items.id", "items.variant"], relations: ["items"] } });
     const expanded: Call[] = [];
-    expect((await runEffect(graph.bind(context([rows, variants], expanded)).graph(query([
+    expect((await runEffect(graph.bind(context([rows, variants], expanded)).nativeGraph(query([
       "items.variant", "items.variant.title",
     ])))).data).toEqual([{ items: [{ variant_id: "v", variant: { id: "v", title: "Variant" } }] }]);
     expect(expanded.map(call => call.command)).toEqual([cartCommand, variantCommand]);
     for (const field of ["items.secret", "items.variant.secret"]) {
       const refused: Call[] = [];
-      expect(await runEffectFailure(graph.bind(context([], refused)).graph(query([field]))))
+      expect(await runEffectFailure(graph.bind(context([], refused)).nativeGraph(query([field]))))
         .toMatchObject({ reason: "unsupportedProfile" });
       expect(refused).toEqual([]);
     }
-    expect(await runEffectFailure(graph.bind(context([[[{ id: "c", items: [{ variant_id: "v" }] }], 1]])).graph(query(fields))))
+    expect(await runEffectFailure(graph.bind(context([[[{ id: "c", items: [{ variant_id: "v" }] }], 1]])).nativeGraph(query(fields))))
       .toMatchObject({ reason: "storedCorruption" });
     const directOptional = ["variant"];
     const directGraph = prepared(participants({ ...local(), optionalFields: directOptional }));
@@ -111,47 +139,47 @@ describe("authenticated graph presentation fields", () => {
     const stored = { ...cartTable, columns: kind === "stored" ? ["id", "unselected", "total", "raw_total"] : ["id", "unselected"],
       companions: kind === "stored" ? { total: "raw_total" } : {} };
     const edge: GraphDirectPath = { ...direct, path: "target", sourceModel: "Cart", sourceKey: "id" };
-    const root = { ...read("Cart", stored, cartCommand), selectedFieldsOnly: true as const,
+    const root = { ...read("Cart", stored, cartCommand),
       ...(kind === "computed" ? { presentation: totals() } : {}) };
-    const graph = prepared([{ participant: cart, module: { aliases: [{ name: "cart", model: "Cart" }], reads: [root], directPaths: [edge] } },
-      { participant: product, module: { aliases: [{ name: "variant", model: "Variant" }], reads: [read("Variant", variantTable, variantCommand)] } }]);
+    const graph = prepared([{ participant: cart, module: cartNative({ aliases: [{ name: "cart", model: "Cart" }], reads: [root], directPaths: [edge] }, [targetLink]) },
+      { participant: product, module: variantNative({ aliases: [{ name: "variant", model: "Variant" }], reads: [read("Variant", variantTable, variantCommand)] }) }]);
     const response: Json = [[{ id: "c", total: 9, raw_total: { value: "9", precision: 20 }, unselected: "private" }], 1];
     const target: Json = [[{ id: "c", title: "unused" }], 1];
     const calls: Call[] = [];
-    expect((await runEffect(graph.bind(context([response, target], calls)).graph(query(["total", "target.id"])))).data)
-      .toEqual([{ total: 9, target: { id: "c" } }]);
-    expect(calls[0]?.args).toEqual({ filters: {}, config: { select: ["total", "raw_total", "id"], relations: [], order: { id: "ASC" }, skip: 0, take: 4 } });
+    expect((await runEffect(graph.bind(context([response, target], calls)).nativeGraph(query(["total", "target.id"])))).data)
+      .toEqual([{ id: "c", total: 9, target: { id: "c" } }]);
+    expect(calls[0]?.args).toEqual({ filters: {}, config: { select: ["total", "id"], relations: [], skip: 0, take: 4 } });
     const keyCalls: Call[] = [];
-    expect((await runEffect(graph.bind(context([response, target], keyCalls)).graph(query(["target.id"])))).data)
-      .toEqual([{ target: { id: "c" } }]);
+    expect((await runEffect(graph.bind(context([response, target], keyCalls)).nativeGraph(query(["target.id"])))).data)
+      .toEqual([{ id: "c", target: { id: "c" } }]);
     expect(keyCalls[0]?.args).toMatchObject({ config: { select: ["id"], relations: [] } });
   });
 
   it("selects computed local views while authenticating the real stored FK and counted source", async () => {
     const calls: Call[] = [];
     const graph = prepared();
-    const result = await runEffect(graph.bind(context([rows, variants], calls)).graph(query(["total", "items.total", "items.variant.display"])));
+    const result = await runEffect(graph.bind(context([rows, variants], calls)).nativeGraph(query(["total", "items.total", "items.variant.display"])));
     expect(result.data).toEqual([{ total: 9, items: [{ variant_id: "v", total: 9, variant: { id: "v", display: 7 } }] }]);
     expect(calls.map(call => call.command)).toEqual([cartCommand, variantCommand]);
     expect(calls.map(call => call.participant)).toEqual([cart, product]);
-    expect(calls[0]?.args).toMatchObject({ config: { select: ["id", "total", "raw_total"], relations: ["items"] } });
-    expect(calls[1]?.args).toMatchObject({ filters: { id: ["v"] }, config: { select: ["id", "display", "raw_display"] } });
+    expect(calls[0]?.args).toMatchObject({ config: { select: ["total", "items.total", "items.variant_id"], relations: ["items"] } });
+    expect(calls[1]?.args).toMatchObject({ filters: { id: ["v"] }, config: { select: ["display", "id"] } });
     expect(participants()[0]?.module.reads[1]?.table.columns).not.toContain("total");
     expect(participants()[0]?.module.reads[1]).not.toHaveProperty("presentation");
   });
 
   it("expands only declared stored and computed wildcard properties and refuses unlisted selections before calls", async () => {
     const graph = prepared(), calls: Call[] = [];
-    const result = await runEffect(graph.bind(context([rows], calls)).graph(query(["*", "items.*"])));
-    expect(result.data).toEqual([{ id: "c", total: 9, raw_total: { value: "9", precision: 20 }, items: [{
-      id: "i", cart_id: "c", variant_id: "v", total: 9, raw_total: { value: "9", precision: 20 },
+    const result = await runEffect(graph.bind(context([rows], calls)).nativeGraph(query(["*", "items.*"])));
+    expect(result.data).toEqual([{ id: "c", total: 9, raw_total: { value: "9", precision: 20 }, secret: "private", items: [{
+      id: "i", cart_id: "c", variant_id: "v", total: 9, raw_total: { value: "9", precision: 20 }, secret: "private",
     }] }]);
     for (const field of ["secret", "items.secret", "items.variant.secret"]) {
       const refused: Call[] = [];
-      expect(await runEffectFailure(graph.bind(context([], refused)).graph(query([field])))).toMatchObject({ reason: "unsupportedProfile" });
+      expect(await runEffectFailure(graph.bind(context([], refused)).nativeGraph(query([field])))).toMatchObject({ reason: "unsupportedProfile" });
       expect(refused).toEqual([]);
     }
-    expect(await runEffectFailure(graph.bind(context([[{ id: "c" }], 1])).graph(query(["total"]))))
+    expect(await runEffectFailure(graph.bind(context([[{ id: "c" }], 1])).nativeGraph(query(["total"]))))
       .toMatchObject({ reason: "storedCorruption" });
   });
 
@@ -171,7 +199,7 @@ describe("authenticated graph presentation fields", () => {
     ];
     for (const selected of cases) expect(Result.isFailure(prepareLocalGraph(selected))).toBe(true);
     const calls: Call[] = [];
-    expect(await runEffectFailure(prepared().bind(context([], calls)).graph(query(["total"], { pagination: { take: 4, order: { total: "ASC" } } }))))
+    expect(await runEffectFailure(prepared().bind(context([], calls)).nativeGraph(query(["total"], { pagination: { take: 4, order: { total: "ASC" } } }))))
       .toMatchObject({ reason: "unsupportedProfile" });
     expect(calls).toEqual([]);
   });
@@ -222,7 +250,7 @@ describe("authenticated graph presentation fields", () => {
     if (source === undefined) throw new Error("Missing Cart fixture");
     const module = { ...source.module, directPaths: [], reads: source.module.reads.map(definition => definition.model === "Cart"
       ? { ...definition, presentation: rootPresentation, paths: [{ ...local(), presentation: itemPresentation }] } : definition) };
-    const graph = Result.getOrThrow(prepareLocalGraph([{ ...source, module }]));
+    const graph = prepared([{ ...source, module }]);
     const workflow = Result.getOrThrow(defineWorkflowModule({ name: "capture", source: { name: "test", profile: "test" }, methods: {}, graph: module }));
     rootPresentation.columns.push("secret"); rootPresentation.companions.total = "secret";
     itemPresentation.columns.length = 0; itemPresentation.companions.total = "secret";
@@ -234,17 +262,17 @@ describe("authenticated graph presentation fields", () => {
       expect(Object.isFrozen(presentation?.columns)).toBe(true);
       expect(Object.isFrozen(presentation?.companions)).toBe(true);
     }
-    expect((await runEffect(graph.bind(context([rows])).graph(query(["total", "items.total"])))).data)
+    expect((await runEffect(graph.bind(context([rows])).nativeGraph(query(["total", "items.total"])))).data)
       .toEqual([{ total: 9, items: [{ total: 9 }] }]);
-    expect(await runEffectFailure(graph.bind(context([])).graph(query(["secret"])))).toMatchObject({ reason: "unsupportedProfile" });
+    expect(await runEffectFailure(graph.bind(context([])).nativeGraph(query(["secret"])))).toMatchObject({ reason: "unsupportedProfile" });
   });
 
   it("binds changed presentation declarations to actual workflow resource identity and omits absent extensions", async () => {
     const flow = Result.getOrThrow(createWorkflow("presentation-identity", () => new WorkflowResponse(null)).prepare());
     const identity = async (presentation?: { readonly columns: readonly string[]; readonly companions: Readonly<Record<string, string>> }) => {
       const module = Result.getOrThrow(defineWorkflowModule({ name: "identity", source: { name: "test", profile: "test" }, methods: {},
-        graph: { aliases: [{ name: "cart", model: "Cart" }], reads: [{ ...read("Cart", cartTable, cartCommand),
-          ...(presentation === undefined ? {} : { presentation }) }] } }));
+        graph: cartNative({ aliases: [{ name: "cart", model: "Cart" }], reads: [{ ...read("Cart", cartTable, cartCommand),
+          ...(presentation === undefined ? {} : { presentation }) }] }) }));
       const resources = Result.getOrThrow(prepareWorkflowResources({ cart: { module, graph: true, methods: [] } }, false));
       const modules: Record<string, InstalledWorkflowModule> = {};
       // Pure composition never authenticates storage or starts an execution.

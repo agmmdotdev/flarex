@@ -8,6 +8,7 @@ import { prepareInventoryStockingWorkflow } from "../src/workflows/inventory/sto
 import { prepareCreateReservationWorkflow } from "../src/workflows/inventory/adjust-and-reserve";
 
 const driver = process.env.FLAREX_TEST_DRIVER === "postgres" ? "postgres" : "pglite";
+const decodeRow = Schema.decodeUnknownSync(Schema.JsonObject);
 // Adapter-owned field contract. HTTP field remapping is covered at its owner.
 const variantFields = ["id", "title", "sku", "thumbnail", "barcode", "ean", "upc", "allow_backorder", "manage_inventory",
   "hs_code", "origin_country", "mid_code", "material", "weight", "length", "height", "width", "metadata", "variant_rank",
@@ -33,7 +34,7 @@ describe(`native Product Variant HTTP read graph (${driver})`, () => {
         if (first === undefined || second === undefined) return yield* Effect.die(new Error("Missing native Product IDs"));
         const fields = [...variantFields, "product.id", "product.title", "inventory_items.*", "inventory_items.inventory.*"];
         const all = yield* operations.query.graph({ entity: "variant", fields, filters: { product_id: first }, pagination: { order: { id: "ASC" } } });
-        expect(all.metadata.count).toBe(2);
+        expect(all.metadata).toBeUndefined();
         const variants = all.data.map(row => decodeVariant(row));
         expect(variants.map(variant => variant.title).sort()).toEqual(["First One", "First Two"]);
         for (const variant of variants) {
@@ -44,7 +45,7 @@ describe(`native Product Variant HTTP read graph (${driver})`, () => {
           expect(variant.inventory_items).toEqual([{ required_quantity: 1,
             inventory: { id: expect.any(String), sku: "variant-reads-0-" + ordinal } }]);
         }
-        expect(all.data.map(row => row.product)).toEqual([{ id: first, title: "First" }, { id: first, title: "First" }]);
+        expect(all.data.map(row => decodeRow(row).product)).toEqual([{ id: first, title: "First" }, { id: first, title: "First" }]);
         const id = variants[0]?.id;
         if (id === undefined) return yield* Effect.die(new Error("Missing native Variant ID"));
         expect((yield* operations.query.graph({ entity: "variant", fields: ["id", "product_id"], filters: { id, product_id: first } })).data)
@@ -56,7 +57,7 @@ describe(`native Product Variant HTTP read graph (${driver})`, () => {
           pagination: { take: 1, skip: 1, order: { id: "ASC" } } });
         expect(firstPage.metadata).toEqual({ count: 2, skip: 0, take: 1 });
         expect(secondPage.metadata).toEqual({ count: 2, skip: 1, take: 1 });
-        expect([...firstPage.data, ...secondPage.data]).toEqual(all.data.map(row => ({ id: row.id })));
+        expect([...firstPage.data, ...secondPage.data]).toEqual(all.data.map(row => ({ id: decodeRow(row).id })));
         expect((yield* operations.query.graph({ entity: "variant", fields: ["id", "product.*"], filters: { id } })).data)
           .toEqual([expect.objectContaining({ id, product: expect.objectContaining({ id: first, title: "First" }) })]);
       }));

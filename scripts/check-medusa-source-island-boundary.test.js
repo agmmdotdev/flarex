@@ -50,6 +50,7 @@ describe("Medusa source-island boundary checker", () => {
     const worker = "apps/executor/test/storeCartApplicationDO.workerd.worker.ts";
     const test = "apps/executor/test/storeCartApplicationDO.postgres.test.ts";
     const shippingTest = "apps/executor/test/storeCartShippingApplicationDO.postgres.test.ts";
+    const paymentTest = "apps/executor/test/storePaymentApplicationDO.postgres.test.ts";
     const root = "@flarex/medusa-adapter/internal/store-cart-request";
     const catalog = "@flarex/medusa-adapter/internal/system-test/store-cart-request-catalog";
     const fixture = "@flarex/medusa-adapter/internal/system-test/store-cart-request-fixture";
@@ -64,20 +65,22 @@ describe("Medusa source-island boundary checker", () => {
     expect(check(worker, workerImports)).toEqual([]);
     expect(check(test, testImports)).toEqual([]);
     expect(check(shippingTest, testImports)).toEqual([]);
+    expect(check(paymentTest, testImports)).toEqual([]);
     const writer = "apps/executor/test/adminProductApplicationDO.workerd.worker.ts";
     expect(check(writer, [catalog]).length).toBeGreaterThan(0);
     for (const specifier of [root, fixture, http]) expect(check(writer, [specifier]).length).toBeGreaterThan(0);
     expect(check(worker, [fixture]).length).toBeGreaterThan(0);
-    for (const importer of [test, shippingTest])
+    for (const importer of [test, shippingTest, paymentTest])
       for (const specifier of [root, http, awilix]) expect(check(importer, [specifier]).length).toBeGreaterThan(0);
     for (const importer of [worker.replace("storeCartApplicationDO", "adjacent"), test.replace("storeCartApplicationDO", "adjacent"),
       worker.replace("/test/", "/src/"), test.replace("/test/", "/src/"),
       worker.replace("storeCartApplicationDO", "storeCurrencyApplicationDO"), test.replace("storeCartApplicationDO", "storeCurrencyApplicationDO")])
       for (const specifier of [root, catalog, fixture, http]) expect(check(importer, [specifier]).length).toBeGreaterThan(0);
-    for (const importer of [shippingTest.replace("/test/", "/src/"), shippingTest.replace("storeCartShippingApplicationDO", "adjacent")])
+    for (const importer of [shippingTest.replace("/test/", "/src/"), shippingTest.replace("storeCartShippingApplicationDO", "adjacent"),
+      paymentTest.replace("/test/", "/src/"), paymentTest.replace("storePaymentApplicationDO", "adjacent")])
       for (const specifier of [root, catalog, fixture, http]) expect(check(importer, [specifier]).length).toBeGreaterThan(0);
     for (const { importer, specifiers } of [{ importer: worker, specifiers: workerImports }, { importer: test, specifiers: testImports },
-      { importer: shippingTest, specifiers: testImports }])
+      { importer: shippingTest, specifiers: testImports }, { importer: paymentTest, specifiers: testImports }])
       for (const specifier of specifiers) {
         expect(check(importer, [specifier + ".ts"]).length).toBeGreaterThan(0);
         expect(check(importer, [specifier.replace(/\/([^/]+)$/, "/./$1")]).length).toBeGreaterThan(0);
@@ -276,6 +279,7 @@ describe("Medusa source-island boundary checker", () => {
       "scripts/check-medusa-store-product-source.mjs", "scripts/check-medusa-store-product-source.test.js",
       "scripts/check-medusa-store-cart-source.mjs", "scripts/check-medusa-store-cart-source.test.js",
       "scripts/check-medusa-cart-mutation-source.mjs", "scripts/check-medusa-cart-mutation-source.test.js",
+      "scripts/check-medusa-remote-query-source.mjs", "scripts/check-medusa-remote-query-source.test.js",
       "scripts/check-medusa-awilix-portable-source.mjs", "scripts/check-medusa-awilix-portable-source.test.js",
       "scripts/check-medusa-delivery-source.mjs", "scripts/check-medusa-json-assignment-source.mjs", "scripts/medusa-json-assignment.test.js",
       "scripts/check-medusa-db-error-source.mjs",

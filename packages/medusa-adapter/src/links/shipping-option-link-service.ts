@@ -17,7 +17,7 @@ import { defineWorkflowModule } from "../workflow/module";
 import { compileLinkLifecycleReceipt } from "./lifecycle-receipt";
 import { linkLogicalEventPolicy } from "./events";
 import type { captureLinkMetadata } from "./schema";
-import { prepareLinkService } from "./service";
+import { prepareLinkService, withNativeLinkGraphMetadata } from "./service";
 import { prepareLinkWorkflowService, linkWorkflowServiceDefinition } from "./workflow-service";
 
 /** Issued native methods and their complete routing metadata must agree with
@@ -39,7 +39,7 @@ export function captureShippingOptionLinkService(service: unknown, expected: Mod
  * Native commands own all reads and transitions; this adds no router or DAL. */
 export const prepareShippingOptionLinkService = Effect.fn("ShippingOptionLinks.prepareService")(function* (
   metadata: Effect.Success<ReturnType<typeof captureLinkMetadata>>,
-  selection: { readonly name: string; readonly prefix: string; readonly remotePaths?: readonly GraphRemotePath[]; readonly linkEndpoints?: readonly GraphLinkEndpoint[] },
+  selection: { readonly name: string; readonly prefix: string; readonly endpointConfigs: readonly (ModuleJoinerConfig | undefined)[]; readonly remotePaths?: readonly GraphRemotePath[]; readonly linkEndpoints?: readonly GraphLinkEndpoint[] },
 ) {
   const prepared = yield* prepareLinkService(metadata, 8, true);
   const nativeService = yield* Effect.fromResult(prepareLinkWorkflowService(prepared, selection.prefix, "shipping-option-links"));
@@ -66,11 +66,11 @@ export const prepareShippingOptionLinkService = Effect.fn("ShippingOptionLinks.p
   const services = yield* Effect.fromResult(nativeLinkGraphServices(prepared.joiner));
   const model = aliases[0]?.model;
   if (model === undefined || aliases.some(alias => alias.model !== model)) return yield* Effect.fail(commerceError("unsupportedProfile"));
-  const graph: GraphModuleDefinition = { aliases, services, reads: [{ model, command: count, table: prepared.prepared.table,
+  const graph: GraphModuleDefinition = yield* Effect.fromResult(withNativeLinkGraphMetadata({ aliases, services, reads: [{ model, command: count, table: prepared.prepared.table,
     paths: [], orderable: [primary.foreignKey], uniqueOrder: [], multipleOrder: false, decode: decodeGraphCount }],
     ...(selection.remotePaths === undefined ? {} : { remotePaths: selection.remotePaths }),
     ...(selection.linkEndpoints === undefined ? {} : { linkEndpoints: selection.linkEndpoints }),
-  };
+  }, [prepared.joiner], [metadata.frame], selection.endpointConfigs));
   const validateLifecycle = yield* Effect.fromResult(compileLinkLifecycleReceipt({ table: metadata.frame,
     endpoints: [primary.foreignKey, foreign.foreignKey], returnLinkableKeys, maximumEndpoints: 8, maximumRows: 8,
     softDeleteCommand: softDeleteName, restoreCommand: restoreName, selectionPlan: prepared.prepared.lifecycleReadPlan }));

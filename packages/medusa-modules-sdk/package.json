@@ -3,6 +3,11 @@
   "version": "2.13.4",
   "private": true,
   "exports": {
+    "./remote-query": {
+      "types": "./dist/remote-query/index.d.ts",
+      "source": "./src/remote-query/index.ts",
+      "default": "./dist/remote-query/index.js"
+    },
     "./definitions": {
       "types": "./dist/definitions.d.ts",
       "source": "./src/definitions.ts",
@@ -21,6 +26,7 @@
   },
   "license": "MIT",
   "dependencies": {
+    "@medusajs/orchestration": "workspace:*",
     "@medusajs/types": "workspace:*",
     "@medusajs/utils": "workspace:*"
   },

@@ -46,6 +46,15 @@ describe("consumed native Cart Shipping graph projections", () => {
     item_total: 12.5, total: 12.5, shipping_address: { country_code: "us" } };
   const listed = { ...cart, email: null, items: [{ quantity: 1, variant: { manage_inventory: true,
     inventory_items: [{ inventory: { requires_shipping: true, location_levels: [{ location_id: "loc-shipping", available_quantity: 3 }] } }] } }] };
+  it("validates a Shipping JSON page while retaining the general step's JSON result contract", async () => {
+    const option = { id: "option-json", name: "Native JSON option", price_type: "calculated", provider_id: "manual_manual", data: null,
+      service_zone: { fulfillment_set_id: "fset-shipping", fulfillment_set: { type: "shipping", location: { id: "loc-shipping" } } } };
+    const input = { entry_point: "shipping_options", fields: ["id"], variables: { filters: { id: option.id } } };
+    const query: WorkflowGraphResource = { maxPageSize: 4, graph: async () => ({ data: [option], metadata: { count: 1, skip: 0, take: 4 } }) };
+    expect(await execute(query, input)).toEqual([option]);
+    await expect(execute({ ...query, graph: async () => ({ data: [{ ...option, name: 123 }], metadata: { count: 1, skip: 0, take: 4 } }) }, input))
+      .rejects.toMatchObject({ reason: "invalidDefinition", cause: { _tag: "SchemaError" } });
+  });
   const executeProjection = (profile: "list" | "priced", value: object) => {
     const input = { entity: "cart" as const, filters: { id: cart.id }, fields: profile === "list"
       ? [...cartFieldsForPricingContext, "items.*", "items.variant.manage_inventory", "items.variant.inventory_items.inventory_item_id",
@@ -70,14 +79,14 @@ describe("consumed native Cart Shipping graph projections", () => {
   it("accepts the actual native pricing selection without requiring an unselected email", async () => {
     const proof = executeProjection("priced", cart);
     expect(await proof.result).toMatchObject({ data: [cart] });
-    expect(proof.calls).toEqual([[{ entity: "cart", filters: proof.input.filters, fields: proof.input.fields, pagination: { take: 4 } },
+    expect(proof.calls).toEqual([[{ entity: "cart", filters: proof.input.filters, fields: proof.input.fields, pagination: { take: 4, skip: 0 } },
       { throwIfKeyNotFound: true }]]);
     expect(proof.input.fields).not.toContain("email");
   });
   it("retains the unpriced native Inventory graph without changing its field selection", async () => {
     const proof = executeProjection("list", listed);
     expect(await proof.result).toMatchObject({ data: [listed] });
-    expect(proof.calls).toEqual([[{ entity: "cart", filters: proof.input.filters, fields: proof.input.fields, pagination: { take: 4 } },
+    expect(proof.calls).toEqual([[{ entity: "cart", filters: proof.input.filters, fields: proof.input.fields, pagination: { take: 4, skip: 0 } },
       { throwIfKeyNotFound: true }]]);
   });
   it("refuses malformed consumed values and retains the original SchemaError", async () => {
@@ -198,7 +207,7 @@ describe("native Product remote query seam", () => {
       return { data: rows, metadata: { count: 1, skip: 0, take: 4 } };
     } };
     expect(await execute(query, supplied)).toEqual(rows);
-    expect(calls).toEqual([{ entity: "product", fields: ["variants.id"], filters: { id: ["p"] }, pagination: { take: 4 } }]);
+    expect(calls).toEqual([{ entity: "product", fields: ["variants.id"], filters: { id: ["p"] }, pagination: { take: 4, skip: 0 } }]);
     expect(supplied).toEqual({ entry_point: "product", fields: ["variants.id"], variables: { filters: { id: ["p"] } } });
   });
 

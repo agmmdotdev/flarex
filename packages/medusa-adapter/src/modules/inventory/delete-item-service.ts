@@ -1,3 +1,4 @@
+import { withNativeGraphMetadata } from "../../local-graph/native-metadata";
 import { Effect, Result, Schema } from "effect";
 import type { DAL, FindConfig, InventoryTypes } from "@medusajs/framework/types";
 import { InventoryItem, InventoryLevel, ReservationItem } from "@medusajs/inventory/models";
@@ -99,9 +100,9 @@ export const makeInventoryItemDeletionCommands = Effect.fn("InventoryAdapter.ite
         buildModuleResourceEventName({ prefix: Modules.INVENTORY, objectName, action: "restored" })) });
     const joiner = inventoryStaticResources.joinerConfig;
     if (joiner === undefined) return yield* Result.fail(commerceError("unsupportedProfile"));
-    const graph = yield* scalarGraphDefinition(yield* moduleAliases({ ...joiner,
+    const graph = yield* withNativeGraphMetadata(yield* scalarGraphDefinition(yield* moduleAliases({ ...joiner,
       alias: (Array.isArray(joiner.alias) ? joiner.alias : []).filter(alias => alias.entity === "InventoryItem") }),
-      "InventoryItem", count, inventoryDeletionReadTable(prepared.table));
+      "InventoryItem", count, inventoryDeletionReadTable(prepared.table)), [joiner], metadata.frame.tables);
     const admitted = [count, softDeleteForWorkflow, restoreForWorkflow];
     const workflow = yield* defineWorkflowModule({ name: Modules.INVENTORY, source: module.description,
       methods: { softDeleteInventoryItems, restoreInventoryItems }, graph,

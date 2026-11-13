@@ -8,6 +8,7 @@ import { currencyGraph } from "../src/modules/currency/service";
 import { defineGraphReadCommand } from "../src/local-graph/commands";
 import { prepareLocalGraph, decodeGraphCount, decodeGraphList } from "../src/local-graph/query";
 import { scalarGraphDefinition } from "../src/local-graph/module";
+import { withNativeGraphMetadata } from "../src/local-graph/native-metadata";
 import type { GraphModuleDefinition, PreparedLocalGraph } from "../src/local-graph/model";
 import { runEffect, runEffectFailure } from "../../persistence-postgres/test/support/effectTestRuntime";
 
@@ -51,16 +52,18 @@ describe("native local Graph Query contract", () => {
       table: { name: "variant", columns: ["id", "title"], primaryKeys: ["id"], foreignKeys: [], companions: {} },
       paths: [], orderable: ["id"], uniqueOrder: ["id"], multipleOrder: false,
       nativeFields: true as const, optionalFields, decode: decodeGraphCount };
-    const module = { aliases: [{ name: "variant", model: "Variant" }], reads: [read] };
+    const module = Result.getOrThrow(withNativeGraphMetadata({ aliases: [{ name: "variant", model: "Variant" }], reads: [read] },
+      [{ serviceName: "presentation_variant", primaryKeys: ["id"], alias: [{ name: "variant", entity: "Variant" }] }], [{ name: "variant", relationships: [] }]));
     const graph = Result.getOrThrow(prepareLocalGraph([{ participant, module }]));
     optionalFields.push("secret");
     const calls: Json[] = [];
     const request = query("variant", ["id", "title", "requires_shipping", "is_discountable", "variant_option_values"]);
     expect((await runEffect(graph.bind(context([[{ id: "v", title: "Variant", is_discountable: null, secret: "hidden" }], 1], calls)).graph(request))).data)
       .toEqual([{ id: "v", title: "Variant", is_discountable: null }]);
-    expect(calls[0]).toMatchObject({ config: { select: ["id", "title"] } });
-    expect(await runEffectFailure(graph.bind(context([[{ id: "v" }], 1])).graph(request)))
-      .toMatchObject({ reason: "storedCorruption" });
+    expect(calls[0]).toMatchObject({ config: { select: request.fields } });
+    // Native Query omits absent DTO fields. Persisted-row completeness belongs
+    // to the real module command, as the Payment presentation tests establish.
+    expect((await runEffect(graph.bind(context([[{ id: "v" }], 1])).graph(request))).data).toEqual([{ id: "v" }]);
     const refused: Json[] = [];
     expect(await runEffectFailure(graph.bind(context([[], 0], refused)).graph(query("variant", ["secret"]))))
       .toMatchObject({ reason: "unsupportedProfile" });
@@ -109,14 +112,14 @@ describe("native local Graph Query contract", () => {
     const value: Json = [[{ id: "p", title: "shirt", handle: "hidden", options: [{ id: "o", title: "size", values: [{ id: "v", value: "S", option_id: "o" }] }] }], 1];
     const result = await runEffect(prepared.bind(context(value, calls)).graph(query("product", ["title", "options.title", "options.values.value"])));
     expect(result.data).toEqual([{ title: "shirt", options: [{ title: "size", values: [{ value: "S" }] }] }]);
-    expect(calls[0]).toMatchObject({ config: { relations: ["options", "options.values"], select: expect.arrayContaining(["id", "title"]) } });
+    expect(calls[0]).toMatchObject({ config: { relations: ["options", "options.values"], select: ["title", "options.title", "options.values.value"] } });
     expect(value).toMatchObject([[{ handle: "hidden", options: [{ id: "o" }] }], 1]);
   });
 
-  it("preserves numeric companions and Category's native JSON absence", async () => {
+  it("keeps native numeric selection and Category's native JSON absence", async () => {
     const currency = await runEffect(prepared.bind(context([[{ code: "usd", rounding: 0.05, raw_rounding: { value: "0.05", precision: 20 } }], 1]))
       .graph(query("currency", ["rounding"])));
-    expect(currency.data).toEqual([{ rounding: 0.05, raw_rounding: { value: "0.05", precision: 20 } }]);
+    expect(currency.data).toEqual([{ rounding: 0.05 }]);
     const category = await runEffect(prepared.bind(context([{ payload: [{ id: "c", name: "root", category_children: [] }], omitted: [["0", "parent_category"]] }, 1]))
       .graph(query("product_category", ["name", "parent_category.id", "category_children.id"])));
     expect(category.data).toStrictEqual([{ name: "root", category_children: [] }]);
@@ -129,8 +132,8 @@ describe("native local Graph Query contract", () => {
     } }], 1];
     expect(await runEffect(prepared.bind(context(rows, calls)).graph(query(entity, [
       "title", "product.title", "product.type.id", "product.type.value", "product.collection.title",
-    ])))).toEqual({ data: [{ title: "Small", product: {
-      title: "Shirt", type: { id: "t", value: "Apparel" }, collection: { title: "Summer" },
+    ])))).toEqual({ data: [{ title: "Small", product_id: "p", product: {
+      id: "p", title: "Shirt", type: { id: "t", value: "Apparel" }, collection: { title: "Summer" },
     } }], metadata: { count: 1, skip: 0, take: 2 } });
     expect(calls).toHaveLength(1);
     expect(calls[0]).toMatchObject({ config: { relations: ["product", "product.type", "product.collection"] } });
@@ -192,8 +195,8 @@ describe("native local Graph Query contract", () => {
     expect(refusals).toBe(0);
   });
 
-  it("refuses malformed results and missing required fields or relationships", async () => {
-    for (const result of [null, [[], -1], [[], 257], [[], 1], [[{ id: "p" }], 0], [[{}], 1], [[{ id: "p", options: null }], 1]]) {
+  it("refuses malformed result tuples and incomplete pages", async () => {
+    for (const result of [null, [[], -1], [[], 257], [[], 1], [[{ id: "p" }], 0]]) {
       const fields = result === null || !Array.isArray(result) ? ["id"] : ["id", "options.id"];
       expect(await runEffectFailure(prepared.bind(context(result)).graph(query("product", fields))))
         .toMatchObject({ reason: "storedCorruption" });
@@ -203,11 +206,11 @@ describe("native local Graph Query contract", () => {
 
 describe("graph registration and metadata ownership", () => {
   const command = defineGraphReadCommand("graphUnitRead", () => Effect.succeed([[], 0]));
-  const definition = (): GraphModuleDefinition => ({ aliases: [{ name: "item", model: "Item" }], reads: [{
+  const definition = (): GraphModuleDefinition => Result.getOrThrow(withNativeGraphMetadata({ aliases: [{ name: "item", model: "Item" }], reads: [{
     model: "Item", command,
     table: { name: "item", columns: ["key", "name"], primaryKeys: ["key"], foreignKeys: [], companions: {} },
     paths: [], orderable: ["key"], uniqueOrder: ["key"], multipleOrder: false, decode: decodeGraphCount,
-  }] });
+  }] }, [{ serviceName: "ItemService", primaryKeys: ["key"], alias: [{ name: "item", entity: "Item" }] }], [{ name: "item", relationships: [] }]));
 
   it("keeps native list results count-free and refuses counted APIs before dispatch", async () => {
     const source = definition(), read = source.reads[0];
@@ -219,21 +222,21 @@ describe("graph registration and metadata ownership", () => {
       targetModel: "Item", targetKey: "key", maximumSources: 1, maximumTargets: 1 }] } }]))
       .toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedProfile" } });
     const calls: Json[] = [], bound = graph.bind(context([{ key: "i", name: "visible", hidden: true }], calls));
-    expect(await runEffect(bound.list({ entity: "item", fields: ["key", "name"], filters: { key: ["i"] } })))
+    expect(await runEffect(bound.remoteQuery({ entity: "item", fields: ["key", "name"], filters: { key: ["i"] } })))
       .toEqual([{ key: "i", name: "visible" }]);
-    expect(calls).toEqual([{ filters: { key: ["i"] }, config: { select: ["key", "name"], relations: [], order: { key: "ASC" } } }]);
-    for (const effect of [bound.graph(query("item", ["key"])), bound.native(query("item", ["key"])),
-      bound.service({ service: "ItemService", fields: ["key"], pagination: { take: 1 } })])
+    expect(calls).toEqual([{ filters: { key: ["i"] }, config: { select: ["key", "name"], relations: [] } }]);
+    for (const effect of [bound.graph(query("item", ["key"])), bound.nativeGraph({ ...query("item", ["key"]), pagination: { take: 2, skip: 0 } }),
+      bound.remoteQuery({ service: "ItemService", fields: ["key"], variables: { skip: 0, take: 1 } })])
       expect(await runEffectFailure(effect)).toMatchObject({ reason: "unsupportedProfile" });
     expect(calls).toHaveLength(1);
-    expect(await runEffectFailure(prepared.bind(context()).list({ entity: "currency", fields: ["code"], filters: {} })))
+    expect(await runEffectFailure(bound.remoteQuery({ entity: "missing", fields: ["key"], filters: {} })))
       .toMatchObject({ reason: "unsupportedProfile" });
-    for (const value of [null, [[], 0], [{}], Array.from({ length: 257 }, () => ({ key: "x" }))])
-      expect(await runEffectFailure(graph.bind(context(value)).list({ entity: "item", fields: ["key"], filters: {} })))
+    for (const value of [null, [[], 0], Array.from({ length: 257 }, () => ({ key: "x" }))])
+      expect(await runEffectFailure(graph.bind(context(value)).remoteQuery({ entity: "item", fields: ["key"], filters: {} })))
         .toMatchObject({ reason: "storedCorruption" });
-    for (const input of [{ entity: "item", fields: ["key"], filters: {}, pagination: { take: 1 } },
-      { entity: "item", fields: ["key"], filters: { key: { $in: ["i"] } } }, { entity: "item", fields: ["missing"], filters: {} }])
-      expect(await runEffectFailure(bound.list(input))).toMatchObject({ reason: "unsupportedProfile" });
+    for (const input of [{ entity: "item", fields: ["key"], filters: {}, pagination: { take: 1, skip: 0 } },
+      { entity: "item", fields: ["missing"], filters: {} }])
+      expect(await runEffectFailure(bound.remoteQuery(input))).toMatchObject({ reason: "unsupportedProfile" });
     expect(calls).toHaveLength(1);
   });
 
@@ -260,12 +263,13 @@ describe("graph registration and metadata ownership", () => {
   });
 
   it("binds unsuffixed neutral composite aliases without treating a key component or non-key ID as unique", async () => {
-    const module: GraphModuleDefinition = {
+    const module: GraphModuleDefinition = Result.getOrThrow(withNativeGraphMetadata({
       aliases: [{ name: "shelf_copy", model: "ShelfCopy" }, { name: "shelf_copies", model: "ShelfCopy" }],
       reads: [{ model: "ShelfCopy", command,
         table: { name: "shelf_copy", columns: ["shelf", "copy", "id"], primaryKeys: ["shelf", "copy"], foreignKeys: [], companions: {} },
         paths: [], orderable: ["shelf"], uniqueOrder: [], multipleOrder: false, decode: decodeGraphCount }],
-    };
+    }, [{ serviceName: "ShelfCopyService", primaryKeys: ["shelf", "copy"], alias: [{ name: ["shelf_copy", "shelf_copies"], entity: "ShelfCopy" }] }],
+    [{ name: "shelf_copy", relationships: [] }]));
     const graph = Result.getOrThrow(prepareLocalGraph([{ participant, module }]));
     const calls: Json[] = [];
     const result = await runEffect(graph.bind(context([[{ shelf: "a", copy: "2", id: "repeated" }], 3], calls)).graph({
@@ -284,24 +288,15 @@ describe("graph registration and metadata ownership", () => {
     }
   });
 
-  it("fetches numeric companions but masks them only for a captured selected-fields read", async () => {
+  it("lets native Query expose numeric companions only when selected", async () => {
     const source = definition(), read = source.reads[0];
     if (read === undefined) throw new Error("Missing fixture read");
     const table = { ...read.table, columns: ["key", "amount", "raw_amount"], companions: { amount: "raw_amount" } };
     const rows: Json = [[{ key: "a", amount: 1.25, raw_amount: { value: "1.2500000000000000000", precision: 20 } }], 1];
-    const withProjection = (selectedFieldsOnly?: true) => ({ ...source, reads: [{ ...read, table,
-      ...(selectedFieldsOnly === undefined ? {} : { selectedFieldsOnly }) }] });
-    const ordinary = Result.getOrThrow(prepareLocalGraph([{ participant, module: withProjection() }]));
-    expect((await runEffect(ordinary.bind(context(rows)).graph(query("item", ["amount"])))).data)
-      .toEqual([{ amount: 1.25, raw_amount: { value: "1.2500000000000000000", precision: 20 } }]);
-    const selected = withProjection(true), calls: Json[] = [];
+    const selected = { ...source, reads: [{ ...read, table }] }, calls: Json[] = [];
     const graph = Result.getOrThrow(prepareLocalGraph([{ participant, module: selected }]));
-    const captured = selected.reads[0];
-    if (captured === undefined) throw new Error("Missing selected read");
-    Reflect.set(captured, "selectedFieldsOnly", false);
-    expect(prepareLocalGraph([{ participant, module: selected }])).toMatchObject({ _tag: "Failure" });
     expect((await runEffect(graph.bind(context(rows, calls)).graph(query("item", ["amount"])))).data).toEqual([{ amount: 1.25 }]);
-    expect(calls[0]).toMatchObject({ config: { select: ["amount", "raw_amount"] } });
+    expect(calls[0]).toMatchObject({ config: { select: ["amount"] } });
     expect((await runEffect(graph.bind(context(rows)).graph(query("item", ["amount", "raw_amount"])))).data)
       .toEqual([{ amount: 1.25, raw_amount: { value: "1.2500000000000000000", precision: 20 } }]);
   });
@@ -316,7 +311,8 @@ describe("graph registration and metadata ownership", () => {
     columns.push("secret"); module.aliases = [{ name: "renamed", model: "Item" }];
     expect(graph.entities).toEqual(["item"]);
     expect((await runEffect(graph.bind(context([[{ key: "i", name: "item", secret: "hidden" }], 1])).graph(query("item", ["*"])))).data)
-      .toEqual([{ key: "i", name: "item" }]);
+      .toEqual([{ key: "i", name: "item", secret: "hidden" }]);
+    expect(Result.isFailure(graph.admitProjection("item", ["secret"]))).toBe(true);
   });
 
   it("rejects alias collisions, missing bindings, unknown read tokens and incomplete paths", () => {

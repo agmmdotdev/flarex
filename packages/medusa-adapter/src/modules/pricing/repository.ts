@@ -100,7 +100,8 @@ const childWhere: WherePolicy = { decode: commerceDecoder(Schema.Struct({ price_
   fields: new Map([["price_list_id", { column: "price_list_id", decode: commerceDecoder(Schema.Null, "unsupportedProfile") }]]),
 };
 const paths = ["prices", "prices.price_rules"];
-const scalarProjection: ProjectionPolicy = { keys: "selected", storageKeys: "last", joinKeys: "storage", selectableRelations: [], nested: new Map() };
+const scalarProjection: ProjectionPolicy = { keys: "selected", storageKeys: "last", joinKeys: "storage", ignoreUnknownScalarFields: true,
+  selectableRelations: [], nested: new Map() };
 const priceProjection: ProjectionPolicy = { ...scalarProjection, allowedPaths: ["price_rules"], selectableRelations: ["price_rules"], nested: new Map([["price_rules", scalarProjection]]) };
 const projectionPolicy: ProjectionPolicy = { ...scalarProjection, allowedPaths: paths, selectableRelations: ["prices"], nested: new Map([["prices", priceProjection]]) };
 

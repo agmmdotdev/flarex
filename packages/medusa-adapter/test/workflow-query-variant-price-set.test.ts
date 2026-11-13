@@ -4,9 +4,9 @@ import { Effect, Result } from "effect";
 import { defineAtomicCommerceParticipant, type AtomicCommerceContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError, commerceLimits, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
 import { prepareVariantPricingLink } from "../src/links/variant-pricing-service";
-import { defineGraphReadCommand } from "../src/local-graph/commands";
-import { prepareLocalGraph, decodeGraphCount } from "../src/local-graph/query";
+import { prepareLocalGraph } from "../src/local-graph/query";
 import type { GraphModuleDefinition } from "../src/local-graph/model";
+import { graphNativeConfiguration } from "../src/local-graph/native-metadata";
 import { makeCommercePromiseOwner } from "../src/module/promise-owner";
 import { bindWorkflowQuery } from "../src/workflow/query";
 
@@ -44,18 +44,16 @@ describe("native Variant–Price Set workflow Query ABI", () => {
         { variant_id: "first", price_set_id: "active-price-set" }]);
       expect(connected.calls).toEqual([{ participant, command: link.count,
         input: { filters: { variant_id: ["second", "first"] }, config: { select: ["variant_id", "price_set_id"],
-          relations: [], order: { variant_id: "ASC" }, skip: 0, take: commerceLimits.catalogRows } } }]);
+          relations: [], skip: 0, take: commerceLimits.catalogRows } } }]);
       expect(raw).toEqual(before);
     } finally { await Effect.runPromise(connected.owner.close); }
   });
 
-  it("keeps the required empty public call as a genuine graph read", async () => {
+  it("delegates the native empty-selector short circuit without a stored read", async () => {
     const connected = await bind();
     try {
       expect(await connected.query(input([]))).toEqual([]);
-      expect(connected.calls).toHaveLength(1);
-      expect(connected.calls[0]?.command).toBe(link.count);
-      expect(connected.calls[0]?.input).toMatchObject({ filters: { variant_id: [] } });
+      expect(connected.calls).toEqual([]);
     } finally { await Effect.runPromise(connected.owner.close); }
   });
 
@@ -104,27 +102,29 @@ describe("native Variant–Price Set workflow Query ABI", () => {
       await expect(absent.query(input(["v"]))).rejects.toMatchObject({ reason: "unsupportedProfile" });
       expect(absent.calls).toEqual([]);
     } finally { await Effect.runPromise(absent.owner.close); }
-    const corrupt = await bind([[{ variant_id: "v" }], 1]);
+    const corrupt = await bind([[{ variant_id: "v" }], 2]);
     try {
       await expect(corrupt.query(input(["v"]))).rejects.toMatchObject({ reason: "storedCorruption" });
       expect(corrupt.calls).toHaveLength(1);
     } finally { await Effect.runPromise(corrupt.owner.close); }
   });
 
-  it("preserves existing ID-entryPoint and service-filter contracts", async () => {
-    const read = defineGraphReadCommand("native-query-original-ABI", () => Effect.succeed([[], 0]));
-    const module: GraphModuleDefinition = { aliases: [{ name: "query_original", model: "Original" }],
-      services: [{ name: "QueryOriginalService", model: "Original" }], reads: [{ model: "Original", command: read,
-        table: { name: "query_original", columns: ["id"], primaryKeys: ["id"], foreignKeys: [], companions: {} },
-        paths: [], orderable: ["id"], uniqueOrder: ["id"], multipleOrder: false, decode: decodeGraphCount }] };
-    const connected = await bind([[], 0], module);
+  it("retains genuine endpoint declarations without granting endpoint reads", async () => {
+    if (link.graph.native === undefined) throw new Error("Missing actual native Link metadata");
+    const declared = Result.getOrThrow(graphNativeConfiguration(link.graph.native));
+    expect(declared.servicesConfig.map(config => config.serviceName)).toEqual(expect.arrayContaining(["product", "pricing"]));
+    const connected = await bind();
     try {
-      expect(await connected.query({ entryPoint: "query_original", fields: ["id"], variables: { id: ["v"] } })).toEqual([]);
-      expect(await connected.query({ service: "QueryOriginalService", fields: ["id"], variables: { filters: { id: ["v"] } } })).toEqual([]);
-      expect(connected.calls.map(call => call.command)).toEqual([read, read]);
-      expect(connected.calls.map(call => call.input)).toEqual(Array.from({ length: 2 }, () => ({ filters: { id: ["v"] },
-        config: { select: ["id"], relations: [], order: { id: "ASC" }, skip: 0, take: commerceLimits.catalogRows } })));
+      for (const entryPoint of ["product_variant", "price_set"])
+        await expect(connected.query({ entryPoint, fields: ["id"], variables: { id: ["v"] } })).rejects.toMatchObject({ reason: "unsupportedProfile" });
+      expect(connected.calls).toEqual([]);
     } finally { await Effect.runPromise(connected.owner.close); }
+  });
+
+  it("leaves absent selected properties to the native response owner", async () => {
+    const connected = await bind([[{ variant_id: "v" }], 1]);
+    try { expect(await connected.query(input(["v"]))).toEqual([{ variant_id: "v" }]); }
+    finally { await Effect.runPromise(connected.owner.close); }
   });
 
   it("revokes escaped native Query calls with the existing Promise owner", async () => {

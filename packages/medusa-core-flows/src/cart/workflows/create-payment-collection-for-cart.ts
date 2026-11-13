@@ -26,7 +26,7 @@ export type ValidateExistingPaymentCollectionStepInput = {
   /**
    * The cart to validate.
    */
-  cart: Pick<CartDTO, "id"> & { payment_collection?: { id: string } | null }
+  cart: Pick<CartDTO, "id"> & { payment_collection?: { id: string } | null | undefined }
 }
 
 /**

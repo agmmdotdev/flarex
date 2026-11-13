@@ -1,5 +1,3 @@
-import type { CartDTO } from "@medusajs/types"
-import type { CartCollectionRefreshView } from "../../common/steps/payment-collection-query-views"
 import type { WorkflowDefinition, Hook } from "@medusajs/workflows-sdk"
 import { MathBN, isPresent } from "@medusajs/framework/utils/portable"
 import {
@@ -29,7 +27,9 @@ export type RefreshPaymentCollectionForCartWorklowInput = {
   /**
    * The Cart reference.
    */
-  cart?: typeof CartCollectionRefreshView.Type | (CartDTO & { payment_collection?: undefined })
+  // Preserve the pinned dynamic DSL ABI across shouldExecute/fetchCart/when.
+  // Runtime roots and Query views retain their checked supported profiles.
+  cart?: any
 }
 
 export const refreshPaymentCollectionForCartWorkflowId =
@@ -150,7 +150,7 @@ export const refreshPaymentCollectionForCartWorkflow: WorkflowDefinition<
           return {
             ids:
               data.paymentCollection?.payment_sessions
-                ?.map((ps) => ps.id)
+                ?.map((ps: { id: string }) => ps.id)
                 ?.flat(1) || [],
           }
         }

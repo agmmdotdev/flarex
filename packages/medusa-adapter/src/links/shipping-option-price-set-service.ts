@@ -1,3 +1,5 @@
+import { pricingStaticResources } from "@medusajs/pricing/static-manifest";
+import { fulfillmentStaticResources } from "@medusajs/fulfillment/static-manifest";
 import { Effect, Result, Schema } from "effect";
 import { Link } from "@medusajs/modules-sdk/link";
 import { ShippingOptionPriceSet } from "@medusajs/link-modules";
@@ -44,7 +46,7 @@ export function prepareShippingOptionCreationLinkResource(services: { readonly l
 export const prepareShippingOptionPriceSetLink = Effect.fn("ShippingOptionPriceSetLink.prepare")(function* () {
   const metadata = yield* captureShippingOptionPriceSetLinkMetadata();
   const linkEndpoints = yield* Effect.fromResult(nativeLinkGraphEndpoints(metadata.joiner, [{ path: "price_set", maximumSources: 4, maximumTargets: 4 }]));
-  return yield* prepareShippingOptionLinkService(metadata, {
+  return yield* prepareShippingOptionLinkService(metadata, { endpointConfigs: [fulfillmentStaticResources.joinerConfig, pricingStaticResources.joinerConfig],
     name: "shipping_option_price_set_links", prefix: "shippingOptionPriceSetLink",
     linkEndpoints,
   });

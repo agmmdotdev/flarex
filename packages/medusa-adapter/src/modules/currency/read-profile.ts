@@ -14,5 +14,5 @@ export const currencyReadCatalog = readCurrencyMetadata(Currency).pipe(
   }], new Map())),
 );
 export const currencyReadProjection: ProjectionPolicy = {
-  keys: "selected", storageKeys: "selected", joinKeys: "storage", selectableRelations: [], nested: new Map(),
+  keys: "retain", storageKeys: "first", joinKeys: "storage", selectableRelations: [], nested: new Map(),
 };

@@ -1,3 +1,4 @@
+import { withNativeGraphMetadata } from "../../local-graph/native-metadata";
 import { Effect, Result } from "effect";
 import { Promotion, ApplicationMethod, Campaign, CampaignBudget, CampaignBudgetUsage, PromotionRule, PromotionRuleValue } from "@medusajs/promotion/models";
 import { PromotionModuleService } from "@medusajs/promotion/services";
@@ -53,7 +54,7 @@ export const makePromotionCheckoutReadCommands = Effect.fn("Promotion.checkoutRe
         args.config as FindConfig<PromotionDTO> | undefined, context));
     const joiner = promotionStaticResources.joinerConfig;
     if (joiner === undefined) return yield* Result.fail(commerceError("unsupportedProfile"));
-    const graph = yield* scalarGraphDefinition((yield* moduleAliases(joiner)).filter(alias => alias.model === "Promotion"), "Promotion", count, prepared.table);
+    const graph = yield* withNativeGraphMetadata(yield* scalarGraphDefinition((yield* moduleAliases(joiner)).filter(alias => alias.model === "Promotion"), "Promotion", count, prepared.table), [joiner], metadata.frame.tables);
     const workflow = yield* defineWorkflowModule({ name: Modules.PROMOTION, source: module.description, methods: {}, graph,
       logical: { ...prepared.policy, commands: [count] } });
     return { prepared, workflow, count, commands: [count], logicalEventPolicy: () => prepared.policy };

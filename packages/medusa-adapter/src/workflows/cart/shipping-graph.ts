@@ -1,4 +1,7 @@
 import { Effect, Result } from "effect";
+import { stockLocationStaticResources } from "@medusajs/stock-location/static-manifest";
+import { fulfillmentStaticResources } from "@medusajs/fulfillment/static-manifest";
+import { pricingStaticResources } from "@medusajs/pricing/static-manifest";
 import { LocationFulfillmentSet, ShippingOptionPriceSet, SalesChannelLocation } from "@medusajs/link-modules";
 import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { nativeLinkGraphPaths } from "../../local-graph/links";
@@ -20,9 +23,9 @@ export const cartShippingCoreDefinitions = Effect.fn("CartShipping.compileDefini
 });
 export const makeCartShippingLinkRuntimes = Effect.fn("CartShipping.makeLinkRuntimes")(function* () {
   return { location_fulfillment_set_links: (yield* prepareShippingOptionLinkService(yield* captureLocationFulfillmentSetLinkMetadata(),
-    { name: "location_fulfillment_set_links", prefix: "cartShippingLocationFulfillmentSetLink" })).workflow,
+    { name: "location_fulfillment_set_links", prefix: "cartShippingLocationFulfillmentSetLink", endpointConfigs: [stockLocationStaticResources.joinerConfig, fulfillmentStaticResources.joinerConfig] })).workflow,
   shipping_option_price_set_links: (yield* prepareShippingOptionLinkService(yield* captureShippingOptionPriceSetLinkMetadata(),
-    { name: "shipping_option_price_set_links", prefix: "cartShippingOptionPriceSetLink" })).workflow };
+    { name: "shipping_option_price_set_links", prefix: "cartShippingOptionPriceSetLink", endpointConfigs: [fulfillmentStaticResources.joinerConfig, pricingStaticResources.joinerConfig] })).workflow };
 });
 
 /** Existing Cart roots keep their eighteen-source graph. The HTTP Shipping

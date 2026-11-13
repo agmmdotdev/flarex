@@ -1,3 +1,4 @@
+import { withNativeGraphMetadata } from "../../local-graph/native-metadata";
 import { Effect, Result, Schema } from "effect";
 import { StockLocation, StockLocationAddress } from "@medusajs/stock-location/models";
 import { StockLocationModuleService } from "@medusajs/stock-location/services";
@@ -66,11 +67,11 @@ export const makeStockLocationUpdateCommands = Effect.fn("StockLocationAdapter.u
       encodeOptionalServiceResult(await service.updateStockLocations(args.selector as FilterableStockLocationProps, args.update as UpdateStockLocationInput, context)));
     const joiner = stockLocationStaticResources.joinerConfig;
     if (joiner === undefined) return yield* Result.fail(commerceError("unsupportedProfile"));
-    const graph: GraphModuleDefinition = { aliases: yield* moduleAliases({ ...joiner,
+    const graph: GraphModuleDefinition = yield* withNativeGraphMetadata({ aliases: yield* moduleAliases({ ...joiner,
       alias: (Array.isArray(joiner.alias) ? joiner.alias : []).filter(alias => alias.entity === "StockLocation") }),
       reads: [{ model: "StockLocation", command: count, table: prepared.table,
         paths: [{ path: "address", table: prepared.address, many: false, optional: true, sourceFields: [...prepared.reads.relation.join.foreignKeys] }],
-        orderable: ["id"], uniqueOrder: ["id"], multipleOrder: false, decode: decodeGraphCount }] };
+        orderable: ["id"], uniqueOrder: ["id"], multipleOrder: false, decode: decodeGraphCount }] }, [joiner], metadata.frame.tables);
     const read = graph.reads[0];
     if (read === undefined) return yield* Result.fail(commerceError("unsupportedProfile"));
     const addressRead = { ...read, table: prepared.address, paths: [] };

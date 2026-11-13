@@ -1,3 +1,6 @@
+import { pricingStaticResources } from "@medusajs/pricing/static-manifest";
+import { inventoryStaticResources } from "@medusajs/inventory/static-manifest";
+import { joinerConfig as productJoiner } from "@medusajs/product/joiner-config";
 import { Effect, Result, Schema } from "effect";
 import { Link } from "@medusajs/modules-sdk/link";
 import type { FindConfig } from "@medusajs/types";
@@ -5,7 +8,7 @@ import type { CommerceCommandContext } from "@flarex/persistence-postgres/intern
 import { commerceError, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
 import { captureVariantInventoryLinkMetadata } from "../composition/product-variant-inventory-schema";
 import { captureVariantPricingLinkMetadata } from "../composition/product-variant-pricing-schema";
-import { prepareLinkService } from "./service";
+import { prepareLinkService, withNativeLinkGraphMetadata } from "./service";
 import { selectedLinkLogicalEventPolicy } from "./events";
 import { withCommerceService } from "../module/service-bridge";
 import { commerceServiceCommands } from "../module/commands";
@@ -85,7 +88,7 @@ export const prepareLocalVariantLinks = Effect.fn("VariantLinks.prepare")(functi
     inventory.listAndCount(args.filters, args.config as FindConfig<unknown> | undefined, context));
   const countPricing = commands.read("variantPricingLinkCount", prepare(decodePricingRead), ({ pricing, context }, args) =>
     pricing.listAndCount(args.filters, args.config as FindConfig<unknown> | undefined, context));
-  const graph: GraphModuleDefinition = {
+  const graph: GraphModuleDefinition = yield* Effect.fromResult(withNativeLinkGraphMetadata({
     aliases: [...yield* Effect.fromResult(moduleAliases(inventory.joiner)), ...yield* Effect.fromResult(moduleAliases(pricing.joiner))],
     reads: [
       { model: inventory.entityName, command: countInventory, table: inventory.prepared.table, paths: [], orderable: ["variant_id"], uniqueOrder: [], multipleOrder: false, decode: decodeGraphCount },
@@ -95,7 +98,7 @@ export const prepareLocalVariantLinks = Effect.fn("VariantLinks.prepare")(functi
       { root: "ProductVariant", path: "inventory", maximumSources: 4, maximumLinks: 8, maximumTargets: 8, maximumPerSource: 2 },
       { root: "ProductVariant", path: "inventory.variants", maximumSources: 8, maximumLinks: 32, maximumTargets: 32, maximumPerSource: 4 },
     ])) } : {}),
-  };
+  }, [inventory.joiner, pricing.joiner], [inventory.metadata.frame, pricing.metadata.frame], [productJoiner, inventoryStaticResources.joinerConfig, pricingStaticResources.joinerConfig]));
   const logicalEventPolicy = () => selectedLinkLogicalEventPolicy([
     { tableName: "product_variant_inventory_item", serviceName: inventory.serviceName, entityName: inventory.entityName,
       endpoints: ["variant_id", "inventory_item_id"], createCommands: [inventoryNative.createName],

@@ -50,6 +50,7 @@
     "./product/batch-link-products-collection": "./src/product/workflows/batch-link-products-collection.ts",
     "./product/batch-variant-images": "./src/product/workflows/batch-variant-images.ts",
     "./common/use-query-graph": "./src/common/steps/use-query-graph.ts",
+    "./common/payment-collection-query-views": "./src/common/steps/payment-collection-query-views.ts",
     "./common/use-remote-query": "./src/common/steps/use-remote-query.ts",
     "./product/create-product-variants-step": "./src/product/steps/create-product-variants.ts",
     "./product/create-variant-pricing-link-step": "./src/product/steps/create-variant-pricing-link.ts",

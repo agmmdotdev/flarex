@@ -53,22 +53,19 @@ Independent challenges of current Core, accepted direction and pinned Convex
 change or divergence. Existing schemas and Link definitions supply the stored
 endpoints; no durable-data reset is selected.
 
-The shared `local-graph/links.ts` projection owner previously required a public
-canonical endpoint alias for suffixed Link fields. Expected: authentic
-ShippingOptionPriceSet `prices` and `calculated_price` aliases resolve with their
-native forwarded arguments. Actual: preparation refused because this native Link
-has no public `price_set` alias. The owner correction groups these suffixes by
-the authenticated native two-hop edge when no public alias exists, preserving
-ambiguous-alias refusal and endpoint/forward-argument checks. It does not expose
-an additional public projection. Neutral Link metadata, native Shipping metadata
-and existing Variant Pricing consumers retain separate regression witnesses.
+The actual native Query and RemoteJoiner own ShippingOptionPriceSet aliases,
+forwarded arguments, absent relations and output selection. The
+[Local Graph Query owner](../../workflow-foundations/06-local-graph-query.md)
+defines native execution and authenticated command/cohort admission. Shipping
+does not retain an adapter Link join or response projector.
 
-The shared Link projection owner also omitted every suffixed alias when a
-linked target was absent. Expected: native list aliases such as Shipping
-`prices` return an empty array. Actual: the missing list failed graph projection.
-The correction attaches an empty array only for authenticated list aliases;
-absent singleton aliases retain their native omission. Neutral and native
-metadata witnesses preserve this contract without synthetic target rows.
+The Shipping Inventory read profile admits native local `location_levels`
+population through the existing Inventory source and checked DML relationship.
+It reuses the module's quantity projection and exact receipt validation under
+the existing four-level bound. The ordinary Variant price-calculation profile
+retains its scalar-only restriction. Safe absent scalar join aids in Cart,
+Region and Fulfillment descriptors use their named native DAL projection
+policies; malformed paths and unsupported relations still refuse.
 
 The callable workflow query ABI delegates missing singleton Cart validation to
 the native RemoteJoiner key validator, retaining the Cart entity's 404 label

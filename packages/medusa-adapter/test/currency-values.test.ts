@@ -20,7 +20,7 @@ describe("Currency value decoding", () => {
     expect(rows).toEqual([{ code: "usd", rounding: "0.12500000000000000000", raw_rounding: { value: "0.12500000000000000000", precision: 20 } }]);
     expect(input).toEqual([{ code: "USD", rounding: "0.125", name: undefined }]);
     expect(await Effect.runPromise(serializeCurrency(rows))).toEqual([
-      { ...rows[0], rounding: 0.125 },
+      { ...rows[0], rounding: 0.125, raw_rounding: { value: "0.125", precision: 20 } },
     ]);
   });
 
@@ -54,6 +54,10 @@ describe("Currency value decoding", () => {
     expect(await run(serializeCurrency({ raw_rounding: null }))).toEqual({ value: { raw_rounding: null } });
     const raw = { value: "1.25", precision: 20, source: "preserved" };
     expect(await run(serializeCurrency({ rounding: "1.2500", raw_rounding: raw }))).toEqual({ value: { rounding: 1.25, raw_rounding: raw } });
+    expect(await run(serializeCurrency({ code: "chf", raw_rounding: { value: "0.050000000000000000000", precision: 20 } })))
+      .toEqual({ value: { code: "chf", raw_rounding: { value: "0.050000000000000000000", precision: 20 } } });
+    expect(await run(serializeCurrency({ rounding: "0.050000000000000000000", raw_rounding: { value: "0.050000000000000000000", precision: 20 } })))
+      .toEqual({ value: { rounding: 0.05, raw_rounding: { value: "0.05", precision: 20 } } });
   });
 
   it.each([

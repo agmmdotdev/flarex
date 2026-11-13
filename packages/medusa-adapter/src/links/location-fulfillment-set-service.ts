@@ -1,3 +1,5 @@
+import { fulfillmentStaticResources } from "@medusajs/fulfillment/static-manifest";
+import { stockLocationStaticResources } from "@medusajs/stock-location/static-manifest";
 import { Effect, Result, Schema } from "effect";
 import { Link } from "@medusajs/modules-sdk/link";
 import { LocationFulfillmentSet, LocationFulfillmentProvider, ShippingOptionPriceSet } from "@medusajs/link-modules";
@@ -21,7 +23,7 @@ export const prepareLocationFulfillmentSetLinkRead = Effect.fn("LocationFulfillm
   const remotePaths = yield* Effect.fromResult(nativeLinkGraphPaths(metadata.joiner, [{ root: "ServiceZone",
     path: "fulfillment_set.locations", maximumSources: 4, maximumLinks: 8, maximumTargets: 8, maximumPerSource: 8,
   }], "FulfillmentSet", [LocationFulfillmentSet, LocationFulfillmentProvider, ShippingOptionPriceSet]));
-  return yield* prepareShippingOptionLinkService(metadata, { name: "location_fulfillment_set_query_links", prefix: "shippingOptionLocationFulfillmentSetLink", remotePaths });
+  return yield* prepareShippingOptionLinkService(metadata, { endpointConfigs: [stockLocationStaticResources.joinerConfig, fulfillmentStaticResources.joinerConfig], name: "location_fulfillment_set_query_links", prefix: "shippingOptionLocationFulfillmentSetLink", remotePaths });
 });
 
 const Id = Schema.String.check(Schema.isLengthBetween(1, 256));

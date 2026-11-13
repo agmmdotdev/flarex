@@ -2,6 +2,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { Effect, Result } from "effect";
 import { decodeCurrencyQuery } from "../src/modules/currency/query";
 import { currencyColumns } from "../src/modules/currency/query-model";
+import { currencyReadPlan } from "../src/modules/currency/repository";
 import { decodeProductQuery } from "../src/modules/product/query-profile";
 import { captureProductSchema } from "../src/modules/product/schema";
 import { productRuntimeMetadata, type ProductRuntimeMetadata } from "../src/modules/product/runtime-metadata";
@@ -45,13 +46,35 @@ describe("Schema-decoded Medusa query profiles", () => {
       Object.isFrozen(value) && Object.isFrozen(value.fields) && value.predicate.kind === "and" && Object.isFrozen(value.predicate.children) })).toBe(true);
   });
 
+  it("ignores native nonmodel scalar selections while retaining only the actual Currency identity", () => {
+    for (const fields of [["name"], ["name", "id"], ["id"], ["bogus"], ["bogus", "id"], [...currencyColumns, "id"]]) {
+      const plan = Result.getOrThrow(currencyReadPlan({ options: { fields } }));
+      expect(plan.query.fields).toContain("code");
+      expect(plan.projection.node.fields.has("code")).toBe(true);
+      expect(plan.query.fields).not.toContain("id");
+      expect(plan.projection.node.fields.has("id")).toBe(false);
+      expect(plan.query.fields).not.toContain("bogus");
+    }
+    expect(outcome(decodeCurrencyQuery({ options: { fields: [...currencyColumns, "id", "id"] } })))
+      .toEqual({ reason: "invalidInput" });
+  });
+
   it.each([
     [{ extra: true }, "invalidInput"],
     [{ options: { extra: true } }, "unsupportedProfile"],
     [{ options: { fields: null } }, "invalidInput"],
     [{ options: { fields: [] } }, "invalidInput"],
     [{ options: { fields: ["code", "code"] } }, "unsupportedProfile"],
-    [{ options: { fields: ["unknown"] } }, "unsupportedProfile"],
+    [{ options: { fields: ["id", "id"] } }, "unsupportedProfile"],
+    [{ options: { fields: ["unknown.name"] } }, "unsupportedProfile"],
+    [{ options: { fields: ["*"] } }, "unsupportedProfile"],
+    [{ options: { fields: ["__proto__"] } }, "unsupportedProfile"],
+    [{ options: { fields: ["constructor"] } }, "unsupportedProfile"],
+    [{ options: { fields: ["prototype"] } }, "unsupportedProfile"],
+    [{ options: { fields: [""] } }, "unsupportedProfile"],
+    [{ options: { fields: ["x".repeat(257)] } }, "unsupportedProfile"],
+    [{ options: { fields: [1] } }, "unsupportedProfile"],
+    [{ options: { fields: [{ name: true }] } }, "unsupportedProfile"],
     [{ options: { fields: [], limit: -1 } }, "invalidInput"],
     [{ options: { populate: null } }, "unsupportedProfile"],
     [{ options: { limit: 257 } }, "limitExceeded"],

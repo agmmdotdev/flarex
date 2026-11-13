@@ -1,3 +1,4 @@
+import { withNativeGraphMetadata } from "../../local-graph/native-metadata";
 import { Effect, Result, Schema } from "effect";
 import { CustomerAddress } from "@medusajs/customer/models";
 import { customerStaticResources } from "@medusajs/customer/static-manifest";
@@ -32,10 +33,10 @@ const decodeListArguments = commerceDecoder(Schema.Union([Schema.Tuple([AddressF
 const decodeUpdateOutput = commerceDecoder(Schema.Union([Schema.JsonObject, Schema.Array(Schema.JsonObject)]), "storedCorruption");
 const decodeNull = commerceDecoder(Schema.Null, "storedCorruption");
 
-/** The genuine Customer service owns Address operations. Existing scalar
- * Customer reads are reused for the native account/session graph. */
+/** The genuine Customer service owns Address operations and local Address
+ * population for the native account/session graph. */
 export const makeCustomerAddressCommands = Effect.fn("Customer.addressCommands")(function* () {
-  const metadata = yield* captureCustomerMetadata(), customer = yield* makeCustomerCheckoutReadCommands();
+  const metadata = yield* captureCustomerMetadata(), customer = yield* makeCustomerCheckoutReadCommands("addresses");
   return yield* Effect.fromResult(Result.gen(function* () {
     const prepared = yield* prepareCustomerAddressRepository(metadata.frame), addressPolicy = customerAddressPolicy(prepared);
     const module = yield* defineCustomerPersistenceModule({ name: "flarex-customer-addresses", profile: "customer.address-management",
@@ -82,9 +83,9 @@ export const makeCustomerAddressCommands = Effect.fn("Customer.addressCommands")
     const admitted = [...customer.commands, create, update, remove, list, count];
     const workflow = yield* defineWorkflowModule({ name: Modules.CUSTOMER, source: module.description,
       methods: { createCustomerAddresses, updateCustomerAddresses, deleteCustomerAddresses, listCustomerAddresses },
-      graph: { aliases: (yield* moduleAliases(joiner)).filter(alias => ["Customer", "CustomerAddress"].includes(alias.model)),
+      graph: yield* withNativeGraphMetadata({ aliases: (yield* moduleAliases(joiner)).filter(alias => ["Customer", "CustomerAddress"].includes(alias.model)),
         reads: [...customerDefinition.graph.reads, { model: "CustomerAddress", command: count, table: prepared.readTable, paths: [],
-          selectedFieldsOnly: true, orderable: ["id"], uniqueOrder: ["id"], multipleOrder: false, decode: decodeGraphCount }], directPaths: [direct] },
+          orderable: ["id"], uniqueOrder: ["id"], multipleOrder: false, decode: decodeGraphCount }], directPaths: [direct] }, [joiner], metadata.frame.tables),
       logical: { ...policy, commands: admitted } });
     return { workflow, prepared, commands: admitted, create, update, remove, list, count, logicalEventPolicy: () => policy };
   }));

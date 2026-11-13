@@ -35,8 +35,12 @@ const Input = Schema.Struct({
 });
 export type QueryGraphInput = typeof Input.Type;
 type Row = typeof Schema.JsonObject.Type;
-type Metadata = { readonly count: number; readonly skip: number; readonly take: number };
-type GraphResult = { readonly data: readonly Row[]; readonly metadata: Metadata };
+const PageNumber = Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0));
+export const WorkflowGraphResult = Schema.Struct({ data: Schema.Array(Schema.JsonObject),
+  metadata: Schema.Struct({ count: PageNumber, skip: PageNumber, take: PageNumber }),
+});
+type GraphResult = typeof WorkflowGraphResult.Type;
+type Metadata = GraphResult["metadata"];
 export interface WorkflowGraphResource {
   readonly maxPageSize: number;
   readonly graph: (input: Omit<QueryGraphInput, "options" | "pagination"> & { readonly pagination: NonNullable<QueryGraphInput["pagination"]> },
@@ -55,7 +59,7 @@ export function prepareWorkflowGraphQuery(input: unknown, maxPageSize: number) {
     );
     const single = options?.isList === false;
     if (single && (pagination?.skip ?? 0) !== 0) return yield* Result.fail(refusal("A single graph result cannot skip rows"));
-    return { query: { ...queryInput, pagination: pagination ?? { take: maxPageSize } }, single,
+    return { query: { ...queryInput, pagination: { ...pagination, skip: pagination?.skip ?? 0, take: pagination?.take ?? maxPageSize } }, single,
       queryOptions: options?.throwIfKeyNotFound === true
         ? { throwIfKeyNotFound: true as const, ...(options.cache === undefined ? {} : { cache: options.cache }) }
         : options?.cache === undefined ? undefined : { cache: options.cache },

@@ -30,7 +30,8 @@ export function productDeletionWorkflowModule(source: CommerceModuleDescription,
     const softDeleteProductVariants = yield* defineWorkflowMethod({ command: commands.softDeleteVariants, arguments: variantDeleteArguments,
       encode: ([selection]) => selection, output, moduleEvents: [events.variant] });
     const inverse = commerceDecoder(Schema.Array(Schema.JsonObject).check(Schema.isMaxLength(32)), "unsupportedProfile");
-    const boundedGraph: GraphModuleDefinition = { aliases: graph.aliases.filter(alias => ["Product", "ProductVariant"].includes(alias.model)), reads: [
+    const boundedGraph: GraphModuleDefinition = { ...(graph.native === undefined ? {} : { native: graph.native }),
+      aliases: graph.aliases.filter(alias => ["Product", "ProductVariant"].includes(alias.model)), reads: [
       { ...products, decode: value => decodeGraphCount(value).pipe(Result.flatMap(([rows, count]) => preimages(rows).pipe(Result.map(rows => [rows, count] as const)))) },
       { ...variants, command: commands.countVariants, decode: value => decodeGraphCount(value).pipe(Result.flatMap(([rows, count]) => inverse(rows).pipe(Result.map(rows => [rows, count] as const)))) },
     ] };

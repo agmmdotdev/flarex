@@ -1,3 +1,4 @@
+import { withNativeGraphMetadata } from "../../local-graph/native-metadata";
 import { makeStockLocationDeletionCommands } from "./delete-service";
 import { makeStockLocationUpdateCommands } from "./update-service";
 import { deniedCommerceRepository } from "../../repository/denied";
@@ -65,7 +66,7 @@ const makeBasicStockLocationCommands = Effect.fn("StockLocationAdapter.commands"
     const decodeCreateArguments = commerceDecoder(Schema.Tuple([StockLocationsInput]), "invalidInput");
     const joiner = stockLocationStaticResources.joinerConfig;
     if (!joiner) return yield* Result.fail(commerceError("unsupportedProfile"));
-    const graph = yield* scalarGraphDefinition(yield* moduleAliases({ ...joiner, alias: (Array.isArray(joiner.alias) ? joiner.alias : []).filter(alias => alias.entity === "StockLocation") }), "StockLocation", count, prepared.table);
+    const graph = yield* withNativeGraphMetadata(yield* scalarGraphDefinition(yield* moduleAliases({ ...joiner, alias: (Array.isArray(joiner.alias) ? joiner.alias : []).filter(alias => alias.entity === "StockLocation") }), "StockLocation", count, prepared.table), [joiner], metadata.frame.tables);
     const validateLogicalCall = yield* compileStockLocationReadReceipt(table, prepared.query);
     const policy = yield* stockLocationCreateEventPolicy(table, address, validateLogicalCall);
     const createStockLocations = yield* defineWorkflowMethod({ command: create,

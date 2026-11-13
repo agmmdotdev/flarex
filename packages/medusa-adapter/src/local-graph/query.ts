@@ -5,14 +5,18 @@ import { checkedCommerceValue } from "../value/checked";
 import { QueryLimit, QueryOffset } from "../query/decoder";
 import { makeReadCatalog } from "../query/catalog";
 import { isGraphReadCommand } from "./commands";
-import { planGraphFields, type GraphFieldPlan } from "./fields";
+import { planGraphFields } from "./fields";
 import { captureGraphPresentation, graphSelectableColumns } from "./presentation";
 import type { GraphParticipant, GraphReadDefinition, GraphReadSelection, GraphRelationPath, LocalGraphQuery, PreparedLocalGraph } from "./model";
-import { populateGraphRemotePaths, prepareGraphRemotePaths, prepareGraphLinkEndpoints, validateGraphPathPrefixes } from "./remote-paths";
+import { prepareGraphRemotePaths, prepareGraphLinkEndpoints, validateGraphPathPrefixes } from "./remote-paths";
 import { prepareGraphDirectPaths } from "./direct-paths";
-import { prepareGraphKeyValidation, prepareGraphKeys, validateGraphPrimaryKey, validateGraphKeys } from "./key-validation";
-import { GraphQueryContexts, prepareGraphContexts } from "./context";
+import { GraphQueryContexts } from "./context";
 import { captureGraphComputedObjects } from "./computed";
+import { prepareNativeReadRegistry } from "./native-registry";
+import { prepareNativeCohorts } from "./native-cohorts";
+import { admitNativeQueryPaths, makeNativeQueryBridge } from "./native-bridge";
+import { decodeNativeGraphOptions, prepareNativeGraphInput } from "./native-input";
+import { captureCommerceInput } from "../value/input";
 
 const queryFields = {
   context: Schema.optionalKey(GraphQueryContexts),
@@ -23,9 +27,6 @@ const queryFields = {
   }),
 };
 const decodeInput = commerceDecoder(Schema.Struct({ entity: Schema.String.check(Schema.isLengthBetween(1, 256)), ...queryFields }), "unsupportedProfile");
-const decodeServiceInput = commerceDecoder(Schema.Struct({ service: Schema.String.check(Schema.isLengthBetween(1, 256), Schema.isPattern(/^[A-Za-z][A-Za-z0-9_]*$/)), ...queryFields }), "unsupportedProfile");
-const decodeListInput = commerceDecoder(Schema.Struct({ entity: Schema.String.check(Schema.isLengthBetween(1, 256)),
-  fields: queryFields.fields, filters: Schema.JsonObject }), "unsupportedProfile");
 export const decodeGraphList = commerceDecoder(Schema.Array(Schema.JsonObject).check(Schema.isMaxLength(commerceLimits.catalogRows)), "storedCorruption");
 export const decodeGraphCount = commerceDecoder(Schema.Tuple([
   Schema.Array(Schema.JsonObject).check(Schema.isMaxLength(commerceLimits.catalogRows)),
@@ -52,21 +53,15 @@ function graphOrder(read: GraphReadDefinition, supplied: Readonly<Record<string,
   return Result.succeed(order);
 }
 
-function planQuery(input: unknown, entries: ReadonlyMap<string, GraphReadSelection>, service: boolean, native: boolean) {
+function planQuery(input: unknown, entries: ReadonlyMap<string, GraphReadSelection>) {
   return Result.gen(function* () {
     const captured = yield* capturePrivateJsonData(input, commerceLimits.commandBytes, commerceError);
-    const args = yield* service ? decodeServiceInput(captured.value).pipe(Result.map(value => ({ ...value, entity: value.service }))) : decodeInput(captured.value);
+    const args = yield* decodeInput(captured.value);
     const entry = entries.get(args.entity);
     if (entry === undefined || entry.read.result === "list") return yield* Result.fail(commerceError("unsupportedProfile"));
     if (!nativeFilters(args.filters ?? {}, entry.read.allowOrFilters === true)) return yield* Result.fail(commerceError("unsupportedProfile"));
-    return { entry, args, fields: yield* planGraphFields(entry.read, args.fields, native), order: yield* graphOrder(entry.read, args.pagination.order) };
-  });
-}
-
-function graphResult(rows: readonly JsonObject[], count: number, fields: GraphFieldPlan, skip: number, take: number) {
-  return Result.gen(function* () {
-    if (rows.length > take || rows.length !== Math.min(take, Math.max(0, count - skip))) return yield* Result.fail(commerceError("storedCorruption"));
-    return { data: yield* fields.project(rows), metadata: { count, skip, take } };
+    yield* planGraphFields(entry.read, args.fields);
+    return { entry, args, order: yield* graphOrder(entry.read, args.pagination.order) };
   });
 }
 
@@ -77,13 +72,13 @@ export function prepareLocalGraph(participants: readonly GraphParticipant[]): Re
     const entries = new Map<string, GraphReadSelection>();
     const services = new Map<string, GraphReadSelection>();
     const allModels = new Map<string, GraphReadSelection[]>();
+    const capturedParticipants: GraphParticipant[] = [];
     for (const { participant, module } of participants) {
       const models = new Map<string, GraphReadDefinition>();
       for (const input of module.reads) {
         if (!input.model.trim() || models.has(input.model) || !isGraphReadCommand(input.command)
           || input.result !== undefined && input.result !== "count" && input.result !== "list"
           || input.allowOrFilters !== undefined && input.allowOrFilters !== true
-          || input.selectedFieldsOnly !== undefined && input.selectedFieldsOnly !== true
           || input.nativeFields !== undefined && input.nativeFields !== true
           || input.optionalFields !== undefined && (input.nativeFields !== true || input.optionalFields.length > 16 ||
             new Set(input.optionalFields).size !== input.optionalFields.length || input.optionalFields.some(field =>
@@ -163,6 +158,7 @@ export function prepareLocalGraph(participants: readonly GraphParticipant[]): Re
         services.set(service.name, { participant, read });
       }
       if (selected.size !== models.size) return yield* Result.fail(commerceError("unsupportedProfile"));
+      capturedParticipants.push({ participant, module: { ...module, reads: Object.freeze([...models.values()]) } });
     }
     if (entries.size === 0) return yield* Result.fail(commerceError("unsupportedProfile"));
     const remotePaths = yield* prepareGraphRemotePaths(participants, allModels);
@@ -213,66 +209,41 @@ export function prepareLocalGraph(participants: readonly GraphParticipant[]): Re
       }
       catalog.set(alias, { ...entry, read: Object.freeze({ ...entry.read, paths: Object.freeze(expanded) }) });
     }
+    const nativeRegistry = yield* prepareNativeReadRegistry(capturedParticipants);
+    const decodePage = commerceDecoder(Schema.Struct({ data: Schema.Array(Schema.JsonObject).check(Schema.isMaxLength(commerceLimits.catalogRows)),
+      metadata: Schema.Struct({ count: Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: commerceLimits.catalogRows })),
+        skip: QueryOffset, take: QueryLimit }) }), "storedCorruption");
     return Object.freeze({ entities: Object.freeze([...entries.keys()]),
       admitProjection: (entity: string, fields: readonly string[]) =>
-        planQuery({ entity, fields, pagination: { take: 1 } }, entries, false, false).pipe(Result.map(() => undefined)),
+        planQuery({ entity, fields, pagination: { take: 1 } }, entries).pipe(Result.map(() => undefined)),
       bind: (context): LocalGraphQuery => {
-      // Only newly originated planner/result failures enter refusal here. A
-      // participant call already owns its full failure Cause and must propagate.
-      const execute = Effect.fn("LocalGraph.query")(function* (input: unknown, service: boolean, native: boolean, options?: unknown) {
-        const { entry, args, fields, order } = yield* checkedCommerceValue(context, () => planQuery(input, service ? services : entries, service, native));
-        const read = entry.read;
-        if (read.result === "list") return yield* context.refuse(commerceError("unsupportedProfile"));
-        const keyPlan = yield* checkedCommerceValue(context, () => prepareGraphKeyValidation(read, args.filters, options));
-        if (keyPlan !== undefined) yield* validateGraphPrimaryKey(keyPlan);
-        const keys = keyPlan === undefined ? undefined : yield* checkedCommerceValue(context, () => prepareGraphKeys(keyPlan));
-        const skip = args.pagination.skip ?? 0, take = args.pagination.take;
-        if (keyPlan !== undefined && skip !== 0) return yield* context.refuse(commerceError("unsupportedProfile"));
-        const remote = remotePaths.get(entry.read.model);
-        const contexts = yield* checkedCommerceValue(context, () => prepareGraphContexts(args.context ?? {}, args.fields, remote ?? new Map()));
-        const endpoints = linkEndpoints.get(entry.read.model);
-        const direct = directPaths.get(entry.read.model);
-        const isRemote = (path: string) => [...remote?.keys() ?? [], ...direct?.keys() ?? [], ...endpoints?.keys() ?? []]
-          .some(prefix => path === prefix || path.startsWith(prefix + "."));
-        const selectedRemote = fields.relations.filter(isRemote);
-        const relations = fields.relations.filter(path => !isRemote(path));
-        const selected = selectedRemote.length !== 0 && relations.length === 0
-          ? [...new Set([...fields.scalarSelect, ...entry.read.table.primaryKeys,
-            ...selectedRemote.flatMap(path => remote?.get(path)?.sourceKey ?? direct?.get(path)?.sourceKey ?? endpoints?.get(path)?.sourceKey ?? [])])]
-            .filter(field => graphSelectableColumns(entry.read).includes(field)) : fields.select;
-        // The genuine key is fetched in this same DAL selection, then masked
-        // by the original graph projection after native completeness checks.
-        const select = keyPlan === undefined ? selected : [...new Set([...selected, keyPlan.pkField])];
-        const value = yield* context.call(entry.participant, entry.read.command, {
-          filters: args.filters ?? {}, config: { select, relations, order, skip, take },
-        });
-        const [rows, count] = yield* checkedCommerceValue(context, () => read.decode(value));
-        if (rows.length > take || rows.length !== Math.min(take, Math.max(0, count - skip)))
-          return yield* context.refuse(commerceError("storedCorruption"));
-        if (keyPlan !== undefined) {
-          if (rows.length !== count) return yield* context.refuse(commerceError("unsupportedProfile"));
-          yield* validateGraphKeys({ uniqueIds: keys, resData: rows, expand: { serviceConfig: keyPlan.serviceConfig },
-            pkField: keyPlan.pkField, options: keyPlan.options });
-        }
-        const populated = selectedRemote.length === 0 ? rows
-          : yield* populateGraphRemotePaths(context, rows, fields.node, remote ?? new Map(), endpoints, direct, contexts);
-        return yield* checkedCommerceValue(context, () => graphResult(populated, count, fields, skip, take));
-      });
-      const list = Effect.fn("LocalGraph.list")(function* (input: unknown) {
-        const { args, entry, fields, order } = yield* checkedCommerceValue(context, () => Result.gen(function* () {
-          const captured = yield* capturePrivateJsonData(input, commerceLimits.commandBytes, commerceError), args = yield* decodeListInput(captured.value), entry = entries.get(args.entity);
-          if (entry === undefined || entry.read.result !== "list" || remotePaths.has(entry.read.model) || linkEndpoints.has(entry.read.model) || directPaths.has(entry.read.model) ||
-            !nativeFilters(args.filters, entry.read.allowOrFilters === true)) return yield* Result.fail(commerceError("unsupportedProfile"));
-          return { args, entry, fields: yield* planGraphFields(entry.read, args.fields, false), order: yield* graphOrder(entry.read, undefined) };
+      const native = Effect.fn("LocalGraph.nativeQuery")(function* (method: "query" | "graph", input: unknown, options?: unknown) {
+        const registry = nativeRegistry;
+        const inspected = yield* checkedCommerceValue(context, () => prepareNativeGraphInput(input, registry.metadata, (name, service, fields) => {
+          const root = (service ? services : entries).get(name);
+          return root === undefined ? Result.fail(commerceError("unsupportedProfile"))
+            : fields === undefined ? Result.succeed(undefined) : planGraphFields(root.read, fields);
         }));
-        const read = entry.read;
-        if (read.result !== "list") return yield* context.refuse(commerceError("unsupportedProfile"));
-        const value = yield* context.call(entry.participant, entry.read.command, { filters: args.filters,
-          config: { select: fields.select, relations: fields.relations, order } });
-        const rows = yield* checkedCommerceValue(context, () => read.decode(value));
-        return yield* checkedCommerceValue(context, () => fields.project(rows));
+        const entry = (inspected.service ? services : entries).get(inspected.entity);
+        if (entry === undefined || method === "graph" && !("entity" in inspected.value))
+          return yield* context.refuse(commerceError("unsupportedProfile"));
+        yield* checkedCommerceValue(context, () => planGraphFields(entry.read, inspected.fields));
+        if (options !== undefined) yield* checkedCommerceValue(context, () => admitNativeQueryPaths(options).pipe(Result.flatMap(decodeNativeGraphOptions)));
+        const cohorts = yield* checkedCommerceValue(context, () => prepareNativeCohorts({ root: entry, fields: inspected.fields,
+          remote: remotePaths.get(entry.read.model) ?? new Map(), direct: directPaths.get(entry.read.model) ?? new Map(),
+          endpoints: linkEndpoints.get(entry.read.model) ?? new Map() }));
+        const bridge = makeNativeQueryBridge({ ...registry.metadata, read: registry.bind(context, cohorts.observe), recordFailure: context.recordFailure });
+        return yield* (method === "query" ? bridge.query(inspected.value, options) : bridge.graph(inspected.value, options));
       });
-      return Object.freeze({ graph: (input: unknown, options?: unknown) => execute(input, false, false, options), service: (input: unknown) => execute(input, true, true), native: (input: unknown) => execute(input, false, true), list });
+      const graph = Effect.fn("LocalGraph.graph")(function* (input: unknown, options?: unknown) {
+        const { args, order } = yield* checkedCommerceValue(context, () => planQuery(input, entries));
+        const result = yield* native("graph", { ...args, pagination: { ...args.pagination, skip: args.pagination.skip ?? 0, order } }, options);
+        return yield* checkedCommerceValue(context, () => captureCommerceInput(result).pipe(Result.flatMap(decodePage)));
+      });
+      return Object.freeze({ graph,
+        remoteQuery: (input: unknown, options?: unknown) => native("query", input, options),
+        nativeGraph: (input: unknown, options?: unknown) => native("graph", input, options),
+      });
     } } satisfies PreparedLocalGraph);
   });
 }

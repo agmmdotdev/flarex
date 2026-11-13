@@ -14,6 +14,10 @@ const decodeAssignments = commerceDecoder(Schema.Array(Schema.Struct({ variant_i
 
 export const scalarProjection: ProjectionPolicy = {
   keys: "selected", storageKeys: "last", joinKeys: "storage", selectableRelations: [], nested: new Map(),
+  // Native RemoteJoiner includes scalar hints such as Category.products_id.
+  // Mikro's processField ignores absent properties; relation admission remains
+  // explicit at every level of these Product DAL profiles.
+  ignoreUnknownScalarFields: true,
 };
 const retainedProjection: ProjectionPolicy = { ...scalarProjection, keys: "retain", storageKeys: "first" };
 const nestedProjection: ProjectionPolicy = { ...retainedProjection, joinKeys: "retain" };

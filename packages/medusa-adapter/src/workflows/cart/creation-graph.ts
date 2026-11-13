@@ -8,6 +8,7 @@ import { describeToManyRelation } from "@medusajs/drizzle/relation-query";
 import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
 import type { LogicalCommerceCallValidation } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { nativeLinkGraphDirectPaths, localGraphDirectPath } from "../../local-graph/direct-paths";
+import { extendNativeGraphMetadata } from "../../local-graph/native-metadata";
 import type { GraphModuleDefinition } from "../../local-graph/model";
 import { makeReadCatalog } from "../../query/catalog";
 import { capturePaymentMetadata } from "../../modules/payment/schema";
@@ -105,7 +106,8 @@ export const prepareCartCreationModules = Effect.fn("CartCreation.prepareModules
   });
   const modules = { ...installed, ...pricing, sales_channel: sales, inventory: confirmation.binding,
     ...(definitions.get("fulfillment")?.source.profile === "fulfillment.cart-shipping" ? { fulfillment: installed.fulfillment } : {}),
-    cart: yield* Effect.fromResult(clone("cart", { ...cart.graph, directPaths: [...cart.graph.directPaths ?? [], ...directPaths] }, installed.cart.module.methods)),
+    cart: yield* Effect.fromResult(clone("cart", { ...yield* Effect.fromResult(extendNativeGraphMetadata(cart.graph,
+      [CartProduct, CartCustomer, CartRegion, CartShippingOption])), directPaths: [...cart.graph.directPaths ?? [], ...directPaths] }, installed.cart.module.methods)),
     payment: yield* Effect.fromResult(clone("payment", { ...payment.graph, directPaths: [...payment.graph.directPaths ?? [], paymentSessions] }, installed.payment.module.methods)) };
   return { modules, inventory: confirmation.resource };
 });

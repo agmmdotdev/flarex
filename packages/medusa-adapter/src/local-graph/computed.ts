@@ -1,7 +1,5 @@
 import { Result, Schema } from "effect";
-import { toPopulateTree, type PopulateTree } from "@medusajs/drizzle/relation-query";
-import { commerceError, type CommerceTransactionError } from "@flarex/persistence-postgres/internal/commerce-values";
-import type { ProjectionNode } from "../query/projection";
+import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { commerceDecoder } from "../value/decoder";
 import { captureCommerceInput } from "../value/input";
 
@@ -21,23 +19,4 @@ export function captureGraphComputedObjects(input: unknown) {
     return Object.freeze(Object.fromEntries(Object.entries(objects).map(([name, object]) =>
       [name, Object.freeze({ fields: Object.freeze([...object.fields]) })])));
   });
-}
-
-export function computedObjectProjection(selection: PopulateTree, object: GraphComputedObject): Result.Result<ProjectionNode, CommerceTransactionError> {
-  const allowed = toPopulateTree(object.fields);
-  const visit = (selected: PopulateTree, permitted: PopulateTree): Result.Result<ProjectionNode, CommerceTransactionError> => Result.gen(function* () {
-    const fields = new Set<string>();
-    const children: Array<ProjectionNode["children"][number]> = [];
-    const entries = selected.has("*") ? new Map([...permitted, ...[...selected].filter(([name]) => name !== "*")]) : selected;
-    for (const [name, child] of entries) {
-      const accepted = permitted.get(name);
-      if (accepted === undefined) return yield* Result.fail(commerceError("unsupportedProfile"));
-      if (accepted.size === 0) {
-        if (child.size !== 0) return yield* Result.fail(commerceError("unsupportedProfile"));
-        fields.add(name);
-      } else children.push({ name, many: false, node: yield* visit(child.size === 0 ? accepted : child, accepted) });
-    }
-    return { fields, children, nullRelations: [], requireFields: true };
-  });
-  return visit(selection.size === 0 ? allowed : selection, allowed);
 }

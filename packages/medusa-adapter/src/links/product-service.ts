@@ -1,3 +1,6 @@
+import { fulfillmentStaticResources } from "@medusajs/fulfillment/static-manifest";
+import { salesChannelStaticResources } from "@medusajs/sales-channel/static-manifest";
+import { joinerConfig as productJoiner } from "@medusajs/product/joiner-config";
 import { Effect, Result, Schema } from "effect";
 import { Link } from "@medusajs/modules-sdk/link";
 import type { FindConfig } from "@medusajs/types";
@@ -5,7 +8,7 @@ import type { CommerceCommandContext } from "@flarex/persistence-postgres/intern
 import { commerceError, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
 import { captureProductSalesChannelLinkMetadata } from "./product-sales-channel-schema";
 import { captureProductShippingProfileLinkMetadata } from "./product-shipping-profile-schema";
-import { prepareLinkService } from "./service";
+import { prepareLinkService, withNativeLinkGraphMetadata } from "./service";
 import { selectedLinkLogicalEventPolicy } from "./events";
 import { withCommerceService } from "../module/service-bridge";
 import { commerceServiceCommands } from "../module/commands";
@@ -88,13 +91,13 @@ export const prepareLocalProductLinks = Effect.fn("ProductLinks.prepare")(functi
     sales.listAndCount(args.filters, args.config as FindConfig<unknown> | undefined, context));
   const countShipping = commands.read("productShippingProfileLinkCount", prepare(decodeShippingRead), ({ shipping, context }, args) =>
     shipping.listAndCount(args.filters, args.config as FindConfig<unknown> | undefined, context));
-  const graph: GraphModuleDefinition = {
+  const graph: GraphModuleDefinition = yield* Effect.fromResult(withNativeLinkGraphMetadata({
     aliases: [...yield* Effect.fromResult(moduleAliases(sales.joiner)), ...yield* Effect.fromResult(moduleAliases(shipping.joiner))],
     reads: [
       { model: sales.entityName, command: countSales, table: sales.prepared.table, paths: [], orderable: ["product_id"], uniqueOrder: [], multipleOrder: false, decode: decodeGraphCount },
       { model: shipping.entityName, command: countShipping, table: shipping.prepared.table, paths: [], orderable: ["product_id"], uniqueOrder: [], multipleOrder: false, decode: decodeGraphCount },
     ],
-  };
+  }, [sales.joiner, shipping.joiner], [sales.metadata.frame, shipping.metadata.frame], [productJoiner, salesChannelStaticResources.joinerConfig, fulfillmentStaticResources.joinerConfig]));
   const logicalEventPolicy = () => selectedLinkLogicalEventPolicy([
     { tableName: "product_sales_channel", serviceName: sales.serviceName, entityName: sales.entityName,
       endpoints: ["product_id", "sales_channel_id"], createCommands: [salesNative.createName],

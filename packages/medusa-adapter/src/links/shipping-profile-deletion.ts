@@ -1,3 +1,5 @@
+import { fulfillmentStaticResources } from "@medusajs/fulfillment/static-manifest";
+import { joinerConfig as productJoiner } from "@medusajs/product/joiner-config";
 import { Effect, Result, Schema } from "effect";
 import { Link } from "@medusajs/modules-sdk/link";
 import { ProductShippingProfile, getModuleService } from "@medusajs/link-modules";
@@ -20,7 +22,7 @@ import { QueryLimit } from "../query/decoder";
 import { defineComposedWorkflowResource } from "../workflow/composed-resource";
 import { defineWorkflowModule } from "../workflow/module";
 import { captureProductShippingProfileLinkMetadata } from "./product-shipping-profile-schema";
-import { prepareLinkService } from "./service";
+import { prepareLinkService, withNativeLinkGraphMetadata } from "./service";
 import { prepareLinkWorkflowService, linkWorkflowServiceDefinition } from "./workflow-service";
 import { linkLogicalEventPolicy } from "./events";
 import { compileLinkLifecycleReceipt } from "./lifecycle-receipt";
@@ -111,10 +113,10 @@ export const prepareShippingProfileDeletionLinks = Effect.fn("ShippingProfileDel
     if (total > 8 || rows.length !== total) return yield* ctx.refuse(commerceError("limitExceeded"));
     return yield* Effect.fromResult(decodeCount([rows, total])).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
   }));
-  const graph: GraphModuleDefinition = { aliases: yield* Effect.fromResult(moduleAliases(shipping.joiner)), reads: [{
+  const graph: GraphModuleDefinition = yield* Effect.fromResult(withNativeLinkGraphMetadata({ aliases: yield* Effect.fromResult(moduleAliases(shipping.joiner)), reads: [{
     model: shipping.entityName, command: count, table: shipping.prepared.table, paths: [], orderable: ["product_id"],
     uniqueOrder: [], multipleOrder: false, decode: decodeCount,
-  }] };
+  }] }, [shipping.joiner], [shipping.metadata.frame], [productJoiner, fulfillmentStaticResources.joinerConfig]));
   const complete = yield* Effect.fromResult(compileCompleteRow(metadata.frame));
   const validateLifecycle = yield* Effect.fromResult(compileLinkLifecycleReceipt({ table: metadata.frame,
     endpoints: ["product_id", "shipping_profile_id"], returnLinkableKeys, maximumEndpoints: 4, maximumRows: 8,

@@ -1,3 +1,4 @@
+import { withNativeGraphMetadata } from "../../local-graph/native-metadata";
 import { Effect, Result, Schema } from "effect";
 import { ShippingOption, ShippingOptionRule, ServiceZone, FulfillmentSet, FulfillmentProvider } from "@medusajs/fulfillment/models";
 import { fulfillmentStaticResources } from "@medusajs/fulfillment/static-manifest";
@@ -141,7 +142,7 @@ export const makeLocalShippingOptionUpdateCommands = Effect.fn("ShippingOptionAd
     const policy = shippingOptionUpdatePolicy(prepared, rulePrepared);
     const workflow = yield* defineWorkflowModule({ name: Modules.FULFILLMENT, source: module.description,
       methods: { upsertShippingOptions, validateShippingOptionsForPriceCalculation, listShippingOptions, listServiceZones, listFulfillmentSets, listFulfillmentProviders,
-        createShippingOptionRules, listShippingOptionRules, deleteShippingOptionRules }, graph: { aliases, reads },
+        createShippingOptionRules, listShippingOptionRules, deleteShippingOptionRules }, graph: yield* withNativeGraphMetadata({ aliases, reads }, [joiner], metadata.frame.tables),
       logical: { ...policy, commands: admitted, reconstitution: "advanceUpdatedAt" } });
     return { upsert, validate, optionList, zoneList, setList, providerList, optionCount, zoneCount, setCount, providerCount,
       ruleCreate, ruleList, ruleRemove, commands: admitted, workflow, withService: module.use, contracts: prepared.contracts, logicalEventPolicy: () => policy };

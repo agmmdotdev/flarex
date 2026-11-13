@@ -1,3 +1,4 @@
+import { withNativeGraphMetadata } from "../../local-graph/native-metadata";
 import { Effect, Result } from "effect";
 import { ShippingOption, ShippingOptionType } from "@medusajs/fulfillment/models";
 import { fulfillmentStaticResources } from "@medusajs/fulfillment/static-manifest";
@@ -51,10 +52,10 @@ export const makeShippingOptionTypeDeletionCommands = Effect.fn("ShippingOptionT
       output: prepared.contracts.decodeOutput, moduleEvents: moduleEvents("restored") });
     const joiner = fulfillmentStaticResources.joinerConfig;
     if (joiner === undefined) return yield* Result.fail(commerceError("unsupportedProfile"));
-    const graph: GraphModuleDefinition = { aliases: yield* moduleAliases({ ...joiner,
+    const graph: GraphModuleDefinition = yield* withNativeGraphMetadata({ aliases: yield* moduleAliases({ ...joiner,
       alias: (Array.isArray(joiner.alias) ? joiner.alias : joiner.alias === undefined ? [] : [joiner.alias]).filter(alias => alias.entity === "ShippingOption") }),
       reads: [{ model: "ShippingOption", command: countOptions, table: prepared.optionTable, paths: [],
-        orderable: ["id"], uniqueOrder: ["id"], multipleOrder: false, decode: decodeGraphCount }] };
+        orderable: ["id"], uniqueOrder: ["id"], multipleOrder: false, decode: decodeGraphCount }] }, [joiner], metadata.frame.tables);
     const admitted = [softDeleteForWorkflow, restoreForWorkflow, countOptions], policy = shippingOptionTypeDeletionPolicy(prepared);
     const workflow = yield* defineWorkflowModule({ name: Modules.FULFILLMENT, source: module.description,
       methods: { softDeleteShippingOptionTypes, restoreShippingOptionTypes }, graph, logical: { ...policy, commands: admitted } });

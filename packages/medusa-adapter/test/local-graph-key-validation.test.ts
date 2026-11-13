@@ -5,7 +5,8 @@ import { commerceError, type Json } from "@flarex/persistence-postgres/internal/
 import { MedusaError } from "@medusajs/utils/common/errors";
 import { currencyGraph } from "../src/modules/currency/service";
 import { prepareLocalGraph } from "../src/local-graph/query";
-import { validateGraphKeys } from "../src/local-graph/key-validation";
+import { validateNativeQueryKeys } from "@medusajs/orchestration/joiner-key-validation";
+import { makeCommercePromiseOwner } from "../src/module/promise-owner";
 import { promiseFailureObserver } from "./support/promise-failure-observer";
 import { runEffect, runEffectFailure } from "../../persistence-postgres/test/support/effectTestRuntime";
 
@@ -27,13 +28,13 @@ describe("bounded graph native root-key validation", () => {
     const calls: Json[] = [], rows = [[{ code: "usd", name: "US Dollar" }], 1];
     expect(await runEffect(bind(rows, calls).graph(request({ code: ["usd", "usd"] }), options)))
       .toEqual({ data: [{ name: "US Dollar" }], metadata: { count: 1, skip: 0, take: 4 } });
-    expect(calls).toEqual([{ filters: { code: ["usd", "usd"] },
-      config: { select: ["name", "code"], relations: [], order: { code: "ASC" }, skip: 0, take: 4 } }]);
+    expect(calls).toEqual([{ filters: { code: ["usd"] },
+      config: { select: ["name"], relations: [], order: { code: "ASC" }, skip: 0, take: 4 } }]);
     expect(rows).toEqual([[{ code: "usd", name: "US Dollar" }], 1]);
   });
   it("retains native primary-filter and partial-missing errors in requested key order", async () => {
     const cases = [
-      [request(), [], "Currency: Primary key(s) [code] not found in filters"],
+      [request(), [], "Currency: Primary key(s) [code, id] not found in filters"],
       [request({ code: null }), [], "Currency: Value for primary key code not found in filters"],
       [request({ code: ["missing-b", "usd", "missing-a", "missing-b"] }), [{ code: "usd", name: "US Dollar" }],
         "Currency code not found: missing-b, missing-a"],
@@ -47,7 +48,7 @@ describe("bounded graph native root-key validation", () => {
       .toEqual({ data: [], metadata: { count: 0, skip: 0, take: 4 } });
   });
   it("refuses unsupported flags, selectors and incomplete pages without changing ordinary reads", async () => {
-    for (const supplied of [{}, { throwIfKeyNotFound: false }, { throwIfKeyNotFound: true, throwIfRelationNotFound: true }]) {
+    for (const supplied of [{ throwIfKeyNotFound: true, throwIfRelationNotFound: true }, { unknown: true }]) {
       const calls: Json[] = [];
       expect(await runEffectFailure(bind([[], 0], calls).graph(request({ code: [] }), supplied)))
         .toMatchObject({ reason: "unsupportedProfile" });
@@ -58,20 +59,25 @@ describe("bounded graph native root-key validation", () => {
       .toMatchObject({ reason: "unsupportedProfile" });
     expect(calls).toEqual([]);
     expect(await runEffectFailure(bind([[{ code: "usd", name: "US Dollar" }], 2], []).graph(request({ code: ["usd", "eur"] }, { take: 1, skip: 0 }), options)))
-      .toMatchObject({ reason: "unsupportedProfile" });
+      .toMatchObject({ reason: "adapterFailure", cause: { message: "Currency code not found: eur" } });
+    expect(await runEffectFailure(bind([[], 2], []).graph(request({ code: ["usd", "eur"] }, { take: 1, skip: 0 }), options)))
+      .toMatchObject({ reason: "storedCorruption" });
+    for (const supplied of [{}, { throwIfKeyNotFound: false }])
+      expect(await runEffect(bind([[], 0], []).graph(request({ code: [] }), supplied)))
+        .toEqual({ data: [], metadata: { count: 0, skip: 0, take: 4 } });
     expect(await runEffect(bind([[], 0], []).graph(request({ code: "missing" }))))
       .toEqual({ data: [], metadata: { count: 0, skip: 0, take: 4 } });
   });
-  it("preserves unrelated native errors and foreign throws as the original defects", async () => {
+  it("preserves foreign throws as original defects through the actual Promise classification owner", async () => {
     for (const defect of [new Error("foreign graph defect"),
       new MedusaError(MedusaError.Types.INVALID_DATA, "unexpected native graph failure")]) {
-      const result = await runEffect(Effect.exit(validateGraphKeys({ uniqueIds: ["usd"],
-        resData: [{ get code() { throw defect; } }], expand: { serviceConfig: { serviceName: "Currency", primaryKeys: ["code"] } },
-        pkField: "code", options: { throwIfKeyNotFound: true } })));
+      const result = await runEffect(Effect.exit(makeCommercePromiseOwner().pipe(Effect.flatMap(owner => owner.withClose(owner.invoke(async () =>
+        validateNativeQueryKeys({ uniqueIds: ["usd"],
+          resData: [{ get code() { throw defect; } }], expand: { serviceConfig: { serviceName: "Currency", primaryKeys: ["code"] } },
+          pkField: "code", options: { throwIfKeyNotFound: true } })))))));
       if (Exit.isSuccess(result)) throw new Error("Expected original native graph defect");
-      const reason = result.cause.reasons.find(Cause.isDieReason);
-      if (reason === undefined || !Cause.isDieReason(reason)) throw new Error("Expected native graph die reason");
-      expect(reason.defect).toBe(defect);
+      expect(result.cause.reasons.filter(Cause.isDieReason).map(reason => reason.defect)).toContain(defect);
+      expect(result.cause.reasons.some(Cause.isFailReason)).toBe(false);
     }
   });
 });

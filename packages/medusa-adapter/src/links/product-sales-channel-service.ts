@@ -1,9 +1,11 @@
+import { salesChannelStaticResources } from "@medusajs/sales-channel/static-manifest";
+import { joinerConfig as productJoiner } from "@medusajs/product/joiner-config";
 import { Effect, Result, Schema } from "effect";
 import type { FindConfig } from "@medusajs/types";
 import type { CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
 import { captureProductSalesChannelLinkMetadata } from "./product-sales-channel-schema";
-import { prepareLinkService, type BoundLink } from "./service";
+import { prepareLinkService, withNativeLinkGraphMetadata, type BoundLink } from "./service";
 import { linkLogicalEventPolicy } from "./events";
 import { commerceServiceCommands } from "../module/commands";
 import { commerceDecoder } from "../value/decoder";
@@ -62,10 +64,10 @@ export const prepareProductSalesChannelLink = Effect.fn("ProductSalesChannelLink
   const list = commands.read("linkList", prepare(decodeRead), ({ service, context }, args) => service.list(args.filters, args.config as FindConfig<unknown> | undefined, context));
   const count = commands.read("linkCount", prepare(decodeRead), ({ service, context }, args) => service.listAndCount(args.filters, args.config as FindConfig<unknown> | undefined, context));
   const links = commands.read("linkListDefinitions", prepare(decodeLinks), ({ link, context }, data) => link.list(data, { asLinkDefinition: true }, context));
-  const graph: GraphModuleDefinition = { aliases: yield* Effect.fromResult(moduleAliases(joiner)), reads: [{
+  const graph: GraphModuleDefinition = yield* Effect.fromResult(withNativeLinkGraphMetadata({ aliases: yield* Effect.fromResult(moduleAliases(joiner)), reads: [{
     model: entityName, command: count, table: prepared.table, paths: [], orderable: ["product_id"],
     uniqueOrder: [], multipleOrder: false, decode: decodeGraphCount,
-  }] };
+  }] }, [joiner], [metadata.frame], [productJoiner, salesChannelStaticResources.joinerConfig]));
   const logicalEventPolicy = () => linkLogicalEventPolicy("product_sales_channel", serviceName, entityName,
     ["product_id", "sales_channel_id"]);
   const workflowCreate = yield* Effect.fromResult(defineWorkflowMethod({ command: create, arguments: decodeCreateArguments,

@@ -2,6 +2,7 @@ import { Cause, Effect, Exit, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import { asValue, createContainer } from "@medusajs/deps/awilix-portable";
 import { MedusaError } from "@medusajs/utils/common/errors";
+import { MedusaError as FrameworkMedusaError } from "@medusajs/framework/utils/portable";
 import { Modules } from "@medusajs/utils/modules-sdk/definition";
 import { makeProductRequestScopeFactory } from "../src/http/product-request";
 import { prepareProductRequestFixture } from "./support/product-request-fixture";
@@ -9,6 +10,7 @@ import { prepareSalesChannelCreationWorkflow } from "../src/workflows/sales-chan
 
 const driver = process.env.FLAREX_TEST_DRIVER === "postgres" ? "postgres" : "pglite";
 const fields = ["id", "title", "handle", "status", "options.id", "options.title", "options.values.id", "options.values.value"];
+const decodeProductLink = Schema.decodeUnknownSync(Schema.Struct({ product_id: Schema.String }));
 describe(`native Product HTTP data operations (${driver})`, () => {
   it("executes promoted createProductsWorkflow on Core, independently refetches native owned projections, and rejects unsupported refetch before creation", async () => {
     const tested = await prepareProductRequestFixture(driver);
@@ -318,7 +320,7 @@ describe(`native Product HTTP data operations (${driver})`, () => {
         const links = yield* operations.query.graph({ entity: "product_sales_channel", fields: ["product_id"], filters: { sales_channel_id: [channel.id] } });
         expect(links.data).toHaveLength(1);
         const inChannel = yield* operations.query.graph({ entity: "product", fields: ["id", "title"],
-          filters: { id: links.data.map(link => link.product_id) }, withDeleted: true });
+          filters: { id: links.data.map(link => decodeProductLink(link).product_id) }, withDeleted: true });
         expect(inChannel.data).toEqual([expect.objectContaining({ title: "Alpha product" })]);
         const expanded = yield* operations.query.graph({ entity: "product", fields: ["id", "variants.id", "variants.sku",
           "variants.price_set.prices.*", "variants.inventory_items.*", "variants.inventory_items.inventory.*"], filters: { handle: "alpha-read" } });
@@ -328,19 +330,22 @@ describe(`native Product HTTP data operations (${driver})`, () => {
         })] })]);
         const missing = yield* operations.query.graph({ entity: "product", fields: ["id"], filters: { id: "prod_missing" } });
         expect(missing.data).toEqual([]);
-        expect(missing.metadata.count).toBe(0);
+        expect(missing.metadata).toBeUndefined();
         const refusal = yield* Effect.exit(operations.query.graph({ entity: "product", fields: ["id"], filters: { id: "prod_missing" } }, { throwIfKeyNotFound: true }));
         expect(Exit.isFailure(refusal)).toBe(true);
         if (Exit.isFailure(refusal)) expect(refusal.cause.reasons.some(reason => Cause.isFailReason(reason) &&
-          reason.error.reason === "adapterFailure" && reason.error.cause instanceof MedusaError && reason.error.cause.type === MedusaError.Types.NOT_FOUND)).toBe(true);
+          reason.error.reason === "adapterFailure" && (reason.error.cause instanceof MedusaError || reason.error.cause instanceof FrameworkMedusaError)
+          && reason.error.cause.type === MedusaError.Types.NOT_FOUND)).toBe(true);
         const unsupported = yield* Effect.exit(operations.query.graph({ entity: "product", fields: ["id"], filters: { unsupported: "refuse" } }));
         expect(Exit.isFailure(unsupported)).toBe(true);
         if (Exit.isFailure(unsupported)) expect(unsupported.cause.reasons.some(reason => Cause.isFailReason(reason) &&
-          reason.error.reason === "adapterFailure" && reason.error.cause instanceof MedusaError && reason.error.cause.type === MedusaError.Types.INVALID_DATA)).toBe(true);
+          reason.error.reason === "adapterFailure" && (reason.error.cause instanceof MedusaError || reason.error.cause instanceof FrameworkMedusaError)
+          && reason.error.cause.type === MedusaError.Types.INVALID_DATA)).toBe(true);
         const priceList = yield* Effect.exit(operations.remoteQuery({ entryPoint: "price_list", fields: ["prices.price_set.variant.id"], variables: { id: ["plist_unadmitted"] } }));
         expect(Exit.isFailure(priceList)).toBe(true);
         if (Exit.isFailure(priceList)) expect(priceList.cause.reasons.some(reason => Cause.isFailReason(reason) &&
-          reason.error.reason === "adapterFailure" && reason.error.cause instanceof MedusaError && reason.error.cause.type === MedusaError.Types.INVALID_DATA)).toBe(true);
+          reason.error.reason === "adapterFailure" && (reason.error.cause instanceof MedusaError || reason.error.cause instanceof FrameworkMedusaError)
+          && reason.error.cause.type === MedusaError.Types.INVALID_DATA)).toBe(true);
         yield* sales.close;
       }));
     } finally { await tested.fixture.close(); }

@@ -1,3 +1,4 @@
+import { withNativeGraphMetadata } from "../../local-graph/native-metadata";
 import { Result, Schema } from "effect";
 import type { FulfillmentModuleService } from "@medusajs/fulfillment/services";
 import type { Context } from "@medusajs/framework/types";
@@ -56,7 +57,7 @@ export function prepareFulfillmentShipmentCommands<Service extends { readonly se
       }), encode: ([id, update]) => ({ id, update }), output: prepared.contracts.decodeOutput,
       moduleEvents: [event("fulfillment", "updated"), ...(["created", "updated", "deleted"] as const).map(action => event("fulfillment_label", action))] });
     const aliases = yield* moduleAliases(fulfillmentServiceRouting().__joinerConfig), table = yield* prepared.shipment.reads.catalog.table(prepared.contracts.fulfillment.table.name);
-    const graph: GraphModuleDefinition = { aliases: aliases.filter(alias => alias.model === "Fulfillment"), reads: [{
+    const graph: GraphModuleDefinition = yield* withNativeGraphMetadata({ aliases: aliases.filter(alias => alias.model === "Fulfillment"), reads: [{
       model: "Fulfillment", command: list, table, paths: [], orderable: ["id"], uniqueOrder: ["id"], multipleOrder: false, result: "list",
       decode: value => Result.gen(function* () {
         const rows = yield* decodeGraphList(value);
@@ -64,7 +65,7 @@ export function prepareFulfillmentShipmentCommands<Service extends { readonly se
         for (const row of rows) yield* prepared.shipment.values.decodePreimage(row);
         return rows;
       }),
-    }] };
+    }] }, [fulfillmentServiceRouting().__joinerConfig], prepared.catalog.tables);
     return { retrieve, update, list, graph, commands: [retrieve, update, list], methods: { retrieveFulfillment, updateFulfillment } };
   });
 }

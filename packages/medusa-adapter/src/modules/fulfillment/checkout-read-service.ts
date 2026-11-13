@@ -1,3 +1,4 @@
+import { withNativeGraphMetadata } from "../../local-graph/native-metadata";
 import { Effect, Result } from "effect";
 import { ShippingOption, ShippingProfile } from "@medusajs/fulfillment/models";
 import { fulfillmentStaticResources } from "@medusajs/fulfillment/static-manifest";
@@ -55,7 +56,7 @@ export const makeFulfillmentCheckoutReadCommands = Effect.fn("Fulfillment.checko
     }) };
     const admitted = [countOptions, countProfiles];
     const workflow = yield* defineWorkflowModule({ name: Modules.FULFILLMENT, source: module.description, methods: {},
-      graph: { aliases: [...options.aliases, ...profiles.aliases], reads: [...options.reads, ...profiles.reads] }, logical: { ...policy, commands: admitted } });
+      graph: yield* withNativeGraphMetadata({ aliases: [...options.aliases, ...profiles.aliases], reads: [...options.reads, ...profiles.reads] }, [joiner], metadata.frame.tables), logical: { ...policy, commands: admitted } });
     return { workflow, countOptions, countProfiles, commands: admitted, logicalEventPolicy: () => policy };
   }));
 });

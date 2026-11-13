@@ -1,3 +1,5 @@
+import { fulfillmentStaticResources } from "@medusajs/fulfillment/static-manifest";
+import { stockLocationStaticResources } from "@medusajs/stock-location/static-manifest";
 import { Effect } from "effect";
 import { LocationFulfillmentSet, LocationFulfillmentProvider, ShippingOptionPriceSet } from "@medusajs/link-modules";
 import { nativeLinkGraphPaths } from "../local-graph/links";
@@ -17,6 +19,6 @@ export const prepareLocationFulfillmentProviderLink = Effect.fn("LocationFulfill
   const locationFulfillmentSetRemotePaths = yield* Effect.fromResult(nativeLinkGraphPaths(LocationFulfillmentSet, [{ root: "ServiceZone",
     path: "fulfillment_set.locations", maximumSources: 4, maximumLinks: 8, maximumTargets: 8, maximumPerSource: 8,
   }], "FulfillmentSet", configuredLinks));
-  const service = yield* prepareShippingOptionLinkService(metadata, { name: "location_fulfillment_provider_links", prefix: "locationFulfillmentProviderLink", remotePaths });
+  const service = yield* prepareShippingOptionLinkService(metadata, { endpointConfigs: [stockLocationStaticResources.joinerConfig, fulfillmentStaticResources.joinerConfig], name: "location_fulfillment_provider_links", prefix: "locationFulfillmentProviderLink", remotePaths });
   return { ...service, locationFulfillmentSetRemotePaths };
 });

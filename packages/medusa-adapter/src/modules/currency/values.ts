@@ -1,13 +1,14 @@
 import { Effect, Schema } from "effect";
-import { capturePrivateJsonData, commerceError, commerceLimits, type Json, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
+import { capturePrivateJsonData, commerceError, commerceLimits, isJsonObject, type Json, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { commerceDecoder } from "../../value/decoder";
 import { currencyValueProfile } from "./value-profile";
-import { decodeExactNumeric, encodeExactNumeric } from "../../value/exact-numeric";
+import { decodeExactNumeric, encodeExactNumeric, ExactNumericRaw, projectExactNumericColumns } from "../../value/exact-numeric";
 
 export { captureCommerceInput as captureCurrencyInput } from "../../value/input";
 import { captureCommerceInput as captureCurrencyInput } from "../../value/input";
 
 const decodeWriteBatch = commerceDecoder(Schema.Array(Schema.Unknown).check(Schema.isMaxLength(commerceLimits.catalogRows)), "invalidInput");
+const decodeRawCompanion = commerceDecoder(ExactNumericRaw, "storedCorruption");
 
 export const currencyWriteRows = Effect.fn("CurrencyAdapter.writeRows")(function* (input: unknown) {
   const captured = yield* Effect.fromResult(captureCurrencyInput(input));
@@ -40,8 +41,16 @@ export const serializeCurrency = Effect.fn("CurrencyAdapter.serialize")(function
     if (decoded.rounding !== undefined) {
       // Ignore extra raw metadata for conversion, but retain it in the row.
       row.rounding = yield* decodeExactNumeric(decoded.rounding, decoded.raw_rounding);
+      const normalized = yield* projectExactNumericColumns(row, [{ name: "rounding" }], "nativeOrm");
+      if (!isJsonObject(normalized)) return yield* Effect.fail(commerceError("storedCorruption"));
+      output.push(normalized);
+    } else {
+      if (decoded.raw_rounding != null) {
+        const raw = yield* Effect.fromResult(decodeRawCompanion(decoded.raw_rounding));
+        yield* decodeExactNumeric(raw.value, raw);
+      }
+      output.push(row);
     }
-    output.push(row);
   }
   return array ? output : output[0] ?? null;
 });

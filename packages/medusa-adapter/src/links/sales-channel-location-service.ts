@@ -1,8 +1,10 @@
+import { stockLocationStaticResources } from "@medusajs/stock-location/static-manifest";
+import { salesChannelStaticResources } from "@medusajs/sales-channel/static-manifest";
 import { Effect, Schema } from "effect";
 import type { FindConfig } from "@medusajs/types";
 import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { captureSalesChannelLocationLinkMetadata } from "./sales-channel-location-schema";
-import { prepareLinkService } from "./service";
+import { prepareLinkService, withNativeLinkGraphMetadata } from "./service";
 import { linkLogicalEventPolicy } from "./events";
 import { commerceServiceCommands, commerceCommandPreparation } from "../module/commands";
 import { commerceDecoder } from "../value/decoder";
@@ -48,8 +50,8 @@ export const prepareSalesChannelLocationLink = Effect.fn("SalesChannelLocationLi
   if (queryModel === undefined || aliases.some(alias => alias.model !== queryModel))
     return yield* Effect.fail(commerceError("unsupportedProfile"));
   // Native query aliases and loader event entities are different for this Link.
-  const graph: GraphModuleDefinition = { aliases, reads: [{ model: queryModel, command: count, table: prepared.table,
-    paths: [], orderable: ["sales_channel_id"], uniqueOrder: [], multipleOrder: false, decode: decodeGraphCount }] };
+  const graph: GraphModuleDefinition = yield* Effect.fromResult(withNativeLinkGraphMetadata({ aliases, reads: [{ model: queryModel, command: count, table: prepared.table,
+    paths: [], orderable: ["sales_channel_id"], uniqueOrder: [], multipleOrder: false, decode: decodeGraphCount }] }, [joiner], [native.metadata.frame], [salesChannelStaticResources.joinerConfig, stockLocationStaticResources.joinerConfig]));
   const logicalEventPolicy = () => linkLogicalEventPolicy(prepared.table.name, serviceName, entityName,
     ["sales_channel_id", "stock_location_id"]);
   const workflowCreate = yield* Effect.fromResult(defineWorkflowMethod({ command: create, arguments: decodeArguments,

@@ -69,7 +69,7 @@ describe(`native catalog HTTP on Core (${driver})`, () => {
         }
         expect(yield* readTable(metadata.product.table.name)).toEqual(productRows);
         expect(yield* readTable(tagPivotTable)).toEqual(pivotRows);
-        expect((yield* operations.query.graph(graphQuery)).data[0]).toEqual({ ...beforeGraph.data[0], type: null, tags: [] });
+        expect((yield* operations.query.graph(graphQuery)).data[0]).toEqual({ ...decodeEnvelope(beforeGraph.data[0]), type: null, tags: [] });
       }));
       const after = await tested.fixture.snapshot();
       for (const contract of ["product-type.created", "product-tag.created", "product-type.updated", "product-tag.updated", "product-type.deleted", "product-tag.deleted"])

@@ -1,5 +1,6 @@
 import { Cause, Effect, Exit } from "effect";
 import { MedusaError } from "@medusajs/utils/common/errors";
+import { regionStaticResources } from "@medusajs/region/static-manifest";
 import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { describe, expect, it } from "vitest";
 import { makeStoreRegionRemoteQuery } from "../src/http/store-region-read";
@@ -7,11 +8,14 @@ import { defineGraphReadCommand } from "../src/local-graph/commands";
 
 const command = defineGraphReadCommand("regionBoundaryWitness", () => Effect.succeed([]));
 const query = { __value: { region: { fields: ["id"], isServiceAccess: false, __args: { filters: { id: "reg_witness" } } } } };
+const joiner = regionStaticResources.joinerConfig;
+if (joiner === undefined) throw new Error("Missing native Region Query metadata");
+const nativeConfiguration = { servicesConfig: [joiner], entitiesMap: new Map<string, unknown>(), entityRelations: new Map<string, ReadonlyMap<string, string>>() };
 
 describe("Store Region remote failure boundary", () => {
   it.each(["invalidInput", "unsupportedProfile", "limitExceeded"] as const)("presents %s as native invalid data", async reason => {
     const refusal = commerceError(reason);
-    const read = makeStoreRegionRemoteQuery({ commands: { list: command, count: command }, read: () => Effect.fail(refusal) });
+    const read = makeStoreRegionRemoteQuery({ commands: { count: command }, read: () => Effect.fail(refusal), native: nativeConfiguration });
     const result = await Effect.runPromiseExit(read(query));
     if (Exit.isSuccess(result)) throw new Error("Expected native invalid-data presentation");
     const failure = result.cause.reasons.find(Cause.isFailReason)?.error;
@@ -26,7 +30,7 @@ describe("Store Region remote failure boundary", () => {
     const resource = commerceError("resourceFailure"), corruption = commerceError("storedCorruption"), defect = new Error("Region defect");
     const original = Cause.combine(Cause.combine(Cause.fail(commerceError("unsupportedProfile")), Cause.fail(resource)),
       Cause.combine(Cause.fail(corruption), Cause.combine(Cause.die(defect), Cause.interrupt(731))));
-    const read = makeStoreRegionRemoteQuery({ commands: { list: command, count: command }, read: () => Effect.failCause(original) });
+    const read = makeStoreRegionRemoteQuery({ commands: { count: command }, read: () => Effect.failCause(original), native: nativeConfiguration });
     const result = await Effect.runPromiseExit(read(query));
     if (Exit.isSuccess(result)) throw new Error("Expected the complete mixed Cause");
     expect(result.cause.reasons.map(reason => reason._tag)).toEqual(original.reasons.map(reason => reason._tag));

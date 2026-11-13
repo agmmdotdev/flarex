@@ -70,6 +70,9 @@ const nativeStoreApplicationDOImports = new Map([
   ["apps/executor/test/storeCartShippingApplicationDO.postgres.test.ts", new Set([
     "@flarex/medusa-adapter/internal/system-test/store-cart-request-catalog", "@flarex/medusa-adapter/internal/system-test/store-cart-request-fixture",
   ])],
+  ["apps/executor/test/storePaymentApplicationDO.postgres.test.ts", new Set([
+    "@flarex/medusa-adapter/internal/system-test/store-cart-request-catalog", "@flarex/medusa-adapter/internal/system-test/store-cart-request-fixture",
+  ])],
   ["apps/executor/test/adminProductApplicationDO.workerd.worker.ts", new Set([
     "@flarex/medusa-adapter/internal/system-test/store-product-request-catalog",
   ])],
@@ -1032,6 +1035,8 @@ export function discoverRootToolSources(repoRoot) {
     "scripts/check-medusa-order-finance-source.test.js",
     "scripts/check-medusa-query-key-source.mjs",
     "scripts/check-medusa-query-key-source.test.js",
+    "scripts/check-medusa-remote-query-source.mjs",
+    "scripts/check-medusa-remote-query-source.test.js",
     "scripts/check-medusa-currency-portable.mjs",
     "scripts/check-medusa-source-island-boundary.mjs",
     "scripts/check-medusa-source-island-boundary.test.js",

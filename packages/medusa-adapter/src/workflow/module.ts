@@ -8,6 +8,7 @@ import { decodeGraphRemotePaths, decodeGraphLinkEndpoints } from "../local-graph
 import { decodeGraphDirectPaths } from "../local-graph/direct-paths";
 import { GraphPresentation, captureGraphPresentation } from "../local-graph/presentation";
 import { GraphComputedObjects, GraphComputedObject, captureGraphComputedObjects } from "../local-graph/computed";
+import { captureGraphNativeMetadata } from "../local-graph/native-metadata";
 import { defineAtomicCommerceParticipant } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { captureCommerceInput } from "../value/input";
 import { commerceDecoder } from "../value/decoder";
@@ -183,7 +184,7 @@ export function defineWorkflowModule<const Methods extends Readonly<Record<strin
     // Link endpoints are resolved against the complete host union.
     if (graph.aliases.length !== 0 || graph.reads.length !== 0) {
       yield* prepareLocalGraph([{ participant: defineAtomicCommerceParticipant(definition.name),
-        module: { aliases: graph.aliases, reads: graph.reads } }]);
+        module: { aliases: graph.aliases, reads: graph.reads, ...(graph.native === undefined ? {} : { native: graph.native }) } }]);
     } else if (graph.remotePaths !== undefined && graph.remotePaths.length !== 0 || graph.services !== undefined && graph.services.length !== 0 ||
       graph.linkEndpoints !== undefined && graph.linkEndpoints.length !== 0 || graph.directPaths !== undefined && graph.directPaths.length !== 0) {
       return yield* Result.fail(commerceError("unsupportedProfile"));
@@ -200,6 +201,7 @@ function captureGraphDefinition(input: GraphModuleDefinition) {
     const definition = yield* captureWorkflowRecord(input);
     // The graph owner validates columns and paths. Snapshot configuration here
     // before exposing it across host preparations, preserving command identity.
+    const native = definition.native === undefined ? undefined : yield* captureGraphNativeMetadata(definition.native);
     const aliases = yield* captureCommerceInput(definition.aliases).pipe(Result.flatMap(decodeAliases));
     const services = definition.services === undefined ? undefined : yield* captureCommerceInput(definition.services).pipe(Result.flatMap(decodeAliases));
     const reads = [];
@@ -214,7 +216,6 @@ function captureGraphDefinition(input: GraphModuleDefinition) {
       if (omittedPresentation) return yield* Result.fail(commerceError("unsupportedProfile"));
       if (typeof read.model !== "string" || typeof read.decode !== "function" || typeof read.multipleOrder !== "boolean" ||
         read.allowOrFilters !== undefined && read.allowOrFilters !== true ||
-        read.selectedFieldsOnly !== undefined && read.selectedFieldsOnly !== true ||
         read.nativeFields !== undefined && read.nativeFields !== true) return yield* Result.fail(commerceError("unsupportedProfile"));
       const presentation = metadata.presentation === undefined ? undefined : yield* captureGraphPresentation(metadata.presentation, metadata.table);
       const computedObjects = metadata.computedObjects === undefined ? undefined : yield* captureGraphComputedObjects(metadata.computedObjects);
@@ -236,6 +237,7 @@ function captureGraphDefinition(input: GraphModuleDefinition) {
     const linkEndpoints = definition.linkEndpoints === undefined ? undefined : yield* captureCommerceInput(definition.linkEndpoints).pipe(Result.flatMap(decodeGraphLinkEndpoints));
     const directPaths = definition.directPaths === undefined ? undefined : yield* captureCommerceInput(definition.directPaths).pipe(Result.flatMap(decodeGraphDirectPaths));
     return Object.freeze({ aliases, reads: Object.freeze(reads),
+      ...(native === undefined ? {} : { native }),
       ...(services === undefined ? {} : { services }),
       ...(remotePaths === undefined ? {} : { remotePaths: Object.freeze(remotePaths.map(path => Object.freeze(path))) }),
       ...(linkEndpoints === undefined ? {} : { linkEndpoints: Object.freeze(linkEndpoints.map(path => Object.freeze(path))) }),

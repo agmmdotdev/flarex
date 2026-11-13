@@ -17,6 +17,7 @@ import { moduleAliases, scalarGraphDefinition } from "../../local-graph/module";
 import type { CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import type { CommercePromiseOwner } from "../../module/promise-owner";
 import type { GraphModuleDefinition } from "../../local-graph/model";
+import { withNativeGraphMetadata } from "../../local-graph/native-metadata";
 
 import { captureInventoryMetadata } from "./schema";
 import { compileInventoryLevelContracts } from "./level-contracts";
@@ -60,7 +61,7 @@ export const makeInventoryLevelDeletionCommands = Effect.fn("InventoryAdapter.le
       },
     }).pipe(Result.mapError(cause => commerceError("unsupportedProfile", cause)));
     const { count, softDeleteForWorkflow, restoreForWorkflow, softDeleteInventoryLevels, restoreInventoryLevels, graph } =
-      yield* prepareInventoryLevelDeletionMethods(module.use, prepared.table);
+      yield* prepareInventoryLevelDeletionMethods(module.use, prepared.table, metadata.frame.tables);
     const admitted = [count, softDeleteForWorkflow, restoreForWorkflow];
     const workflow = yield* defineWorkflowModule({ name: Modules.INVENTORY, source: module.description,
       methods: { softDeleteInventoryLevels, restoreInventoryLevels }, graph,
@@ -73,6 +74,7 @@ export const makeInventoryLevelDeletionCommands = Effect.fn("InventoryAdapter.le
 /** Both supported roots share the genuine selected query and lifecycle ABI. */
 export function prepareInventoryLevelDeletionMethods<Service extends { readonly service: Pick<InventoryModuleService, "listAndCountInventoryLevels" | "softDeleteInventoryLevels" | "restoreInventoryLevels">; readonly context: Context }>(
   use: PreparedCommerceModule<Service>["use"], readTable: Parameters<typeof scalarGraphDefinition>[3],
+  tables: Parameters<typeof withNativeGraphMetadata>[2],
 ) {
   return Result.gen(function* () {
     const commands = commerceServiceCommands(use), prepare = commerceCommandPreparation("InventoryLevelDeletion.prepare");
@@ -92,7 +94,8 @@ export function prepareInventoryLevelDeletionMethods<Service extends { readonly 
     if (joiner === undefined) return yield* Result.fail(commerceError("unsupportedProfile"));
     const nativeGraph = yield* scalarGraphDefinition(yield* moduleAliases({ ...joiner,
       alias: (Array.isArray(joiner.alias) ? joiner.alias : []).filter(alias => alias.entity === "InventoryLevel") }), "InventoryLevel", count, readTable);
-    const graph: GraphModuleDefinition = { ...nativeGraph, reads: nativeGraph.reads.map(read => ({ ...read, allowOrFilters: true, selectedFieldsOnly: true })) };
+    const graph: GraphModuleDefinition = yield* withNativeGraphMetadata({ ...nativeGraph,
+      reads: nativeGraph.reads.map(read => ({ ...read, allowOrFilters: true })) }, [joiner], tables);
     return { count, softDeleteForWorkflow, restoreForWorkflow, softDeleteInventoryLevels, restoreInventoryLevels, graph };
   });
 }

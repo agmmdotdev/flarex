@@ -7,6 +7,8 @@ import { commerceCommandIdentity, defineAtomicCommerceParticipant, type AtomicCo
 import { commerceError, type CommerceTransactionError, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
 import type { GraphModuleDefinition, GraphReadContext } from "../local-graph/model";
 import { prepareLocalGraph } from "../local-graph/query";
+import { graphNativeConfiguration } from "../local-graph/native-metadata";
+import { decodeNativeQueryGraphResult } from "../local-graph/native-bridge";
 import { makeStoreCartReadCommands } from "../modules/store/cart-read-service";
 import { compileStoreCoreDefinition } from "../modules/store/schema";
 import { makeLocalRegionCartReadCommands } from "../modules/region/cart-read-service";
@@ -65,7 +67,7 @@ export const compileStoreProductContextReadCatalog = Effect.fn("StoreProductCont
     Object.freeze({ name, definition, initialization: Object.freeze({ ...initialization[name] }), commands: Object.freeze([...commands]), graph });
   const sources = Object.freeze({
     store: source("store", yield* compileStoreCoreDefinition(target), [store.count], store.graph),
-    region: source("region", yield* compileRegionCoreDefinition(target), [region.count, ...storeRegion.commands], region.graph),
+    region: source("region", yield* compileRegionCoreDefinition(target), [region.count, storeRegion.count], region.graph),
     cart: source("cart", yield* compileCartCoreDefinition(target), [cart.count], cartGraph),
     customer: source("customer", yield* compileCustomerCoreDefinition(target), customer.commands, customer.graph),
     salesChannelLocation: source("salesChannelLocation", yield* compileSalesChannelLocationLinkCoreDefinition(target),
@@ -76,7 +78,7 @@ export const compileStoreProductContextReadCatalog = Effect.fn("StoreProductCont
     participant: defineAtomicCommerceParticipant(`storeProductContext_${name}`), module: sources[name].graph, commands: sources[name].commands }));
   const graph = yield* Effect.fromResult(prepareLocalGraph(members.filter(member => member.source.name !== "tax")));
   return Object.freeze({ sources, members: Object.freeze(members), graph, taxCommand: tax.getTaxLines,
-    storeRegionCommands: { list: storeRegion.list, count: storeRegion.count } });
+    storeRegionCommands: { count: storeRegion.count } });
 });
 export type StoreProductContextReadCatalog = Effect.Success<ReturnType<typeof compileStoreProductContextReadCatalog>>;
 
@@ -124,7 +126,10 @@ export const makeStoreProductContextReads = Effect.fn("StoreProductContextReads.
   const taxHost = members.find(member => member.source.name === "tax");
   const regionHost = members.find(member => member.source.name === "region");
   if (taxHost === undefined || regionHost === undefined) return yield* commerceError("invalidAuthority");
-  const remoteQuery = makeStoreRegionRemoteQuery({ commands: input.catalog.storeRegionCommands, read: regionHost.read });
+  const regionMetadata = regionHost.module.native;
+  if (regionMetadata === undefined) return yield* commerceError("invalidAuthority");
+  const remoteQuery = makeStoreRegionRemoteQuery({ commands: input.catalog.storeRegionCommands, read: regionHost.read,
+    native: yield* Effect.fromResult(graphNativeConfiguration(regionMetadata)) });
   const getTaxLines = Effect.fn("StoreProductContextReads.getTaxLines")(function* (...args: readonly unknown[]) {
     const [items, context] = yield* Effect.fromResult(captureWorkflowInput(args, "preserveOwnUndefined").pipe(Result.flatMap(decodeTaxLinesArguments)));
     const envelope = yield* Effect.fromResult(captureWorkflowCommandInput({ items, context }));
@@ -146,10 +151,10 @@ export const makeStoreProductContextReads = Effect.fn("StoreProductContextReads.
       }),
     };
     // Cache hints remain advisory; all data is read through the protected host.
-    const result = yield* input.catalog.graph.bind(context).graph({ entity: query.entity, fields: [...query.fields],
+    const result = yield* Effect.fromResult(decodeNativeQueryGraphResult(yield* input.catalog.graph.bind(context).nativeGraph({ entity: query.entity, fields: [...query.fields],
       filters: query.filters ?? {}, pagination: { take: query.entity === "sales_channel_locations" ? 256 : 4, skip: 0 } },
-    checked?.throwIfKeyNotFound === true ? { throwIfKeyNotFound: true } : undefined);
-    if (result.data.length !== result.metadata.count) return yield* commerceError("limitExceeded");
+    checked)));
+    if (result.metadata === undefined || result.data.length !== result.metadata.count) return yield* commerceError("limitExceeded");
     return result;
   });
   return Object.freeze({ sources: input.catalog.sources, members: Object.freeze(members), query: Object.freeze({ graph }),

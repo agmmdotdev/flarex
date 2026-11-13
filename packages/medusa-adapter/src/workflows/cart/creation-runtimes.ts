@@ -81,7 +81,7 @@ export const makeCartCreationRuntimes = Effect.fn("CartCreation.makeRuntimes")(f
     tax: (yield* makeTaxLinesCommands(logger)).workflow, payment: payment.workflow,
     product: (yield* makeLocalProductCommands()).workflow,
     pricing: (yield* makeLocalPricingCommands(graphProfile === "cart-shipping" ? "cart-shipping" : pricingProfile)).workflow,
-    inventory: (yield* makeLocalInventoryCommands("variant-price-calculation")).workflow,
+    inventory: (yield* makeLocalInventoryCommands("variant-price-calculation", graphProfile === "cart-shipping" ? "location-levels" : "scalar")).workflow,
     stock_location: graphProfile === "cart-shipping" ? (yield* makeStockLocationCartShippingReadCommands()).workflow : (yield* makeStockLocationCommands()).workflow,
     sales_channel: sales.workflow, fulfillment: graphProfile === "cart-shipping" ? (yield* makeFulfillmentCartShippingCommands()).workflow : (yield* makeFulfillmentCheckoutReadCommands()).workflow,
     product_links: (yield* prepareLocalProductLinks()).workflow,

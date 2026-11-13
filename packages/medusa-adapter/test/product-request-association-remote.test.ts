@@ -7,7 +7,6 @@ import { commerceError, isJsonObject, type Json } from "@flarex/persistence-post
 import { compileProductRequestCatalog } from "../src/http/product-request";
 import { decodeProductAssociationRemoteQuery, prepareProductRequestReadGraph } from "../src/http/product-request-reads";
 import { prepareLocalGraph } from "../src/local-graph/query";
-import { planGraphFields } from "../src/local-graph/fields";
 import { makePricingCatalogReads } from "../src/modules/pricing/catalog-reads";
 import { compileWhere } from "../src/query/predicate";
 import { compileProjection } from "../src/query/projection";
@@ -25,7 +24,9 @@ beforeAll(async () => {
   variant = await Effect.runPromise(prepareProductRequestReadGraph(catalog, true));
   pricing = await Effect.runPromise(makePricingCatalogReads());
 });
-const admit = (entity: string, fields: readonly string[]) => (entity === "variant" ? variant : product).graph.admitProjection(entity, fields);
+const variantAlias = (entity: string) => catalog.runtimes.product.graph.aliases.some(alias =>
+  alias.name === entity && alias.model === catalog.runtimes.product.metadata.variant.model);
+const admit = (entity: string, fields: readonly string[]) => (variantAlias(entity) ? variant : product).graph.admitProjection(entity, fields);
 const producer = (entryPoint: string, filters: Record<string, unknown>, fields: string[]) =>
   remoteQueryObjectFromString({ entryPoint, variables: { filters }, fields });
 
@@ -47,7 +48,7 @@ describe("native batch and association RemoteQuery producers", () => {
     for (const [entry, filters, fields, entity] of [
       ["product", { id: ["p_created", "p_updated"] }, ["id", "title"], "product"],
       ["variant", { id: ["v_created", "v_updated"] }, ["id", "product_id"], "variant"],
-      ["variants", { product_id: ["p_one", "p_two"] }, ["price_set.id"], "variant"],
+      ["variants", { product_id: ["p_one", "p_two"] }, ["price_set.id"], "variants"],
       ["sales_channel", { id: "sc_one" }, ["id", "name", "metadata"], "sales_channel"],
       ["price_lists", { id: "pl_one" }, ["id", "title", "price_list_rules.attribute", "price_list_rules.value"], "price_lists"],
       ["prices", { price_set_id: ["ps_one", "ps_two"], price_list_id: "pl_one" }, ["id"], "prices"],
@@ -81,7 +82,7 @@ describe("Pricing-owned native catalog read plans", () => {
       ["prices", { price_set_id: [], price_list_id: "pl_expanded" }, ["id"]],
     ] as const) {
       const selected = Result.getOrThrow(decodeProductAssociationRemoteQuery(producer(entry, filters, [...fields]), admit));
-      const graph = selected.entity === "variant" ? variant : product;
+      const graph = variantAlias(selected.entity) ? variant : product;
       const output = await Effect.runPromise(graph.graph.bind({ refuse: error => Effect.fail(error), recordFailure: cause => Result.succeed(cause),
         call: (_participant, _command, args) => {
           calls.push(args);
@@ -121,15 +122,23 @@ describe("Pricing-owned native catalog read plans", () => {
     expect(calls).toHaveLength(1);
   });
 
-  it("uses checked DML native relations and complete scalar row selection before projection", () => {
+  it("uses checked DML native relations and compiles the actual native descriptor", async () => {
     const graph = Result.getOrThrow(prepareLocalGraph([{ participant: defineAtomicCommerceParticipant("pricing_catalog_test"), module: pricing.graph }]));
     expect(Result.isSuccess(graph.admitProjection("price_lists", ["id", "prices.amount", "prices.price_rules.value", "price_list_rules.attribute"]))).toBe(true);
     const read = pricing.graph.reads.find(read => read.model === "PriceList");
     if (read === undefined) throw new Error("Missing PriceList native read");
-    const fields = Result.getOrThrow(planGraphFields(read, ["id", "price_list_rules.value", "prices.amount", "prices.price_rules.attribute"]));
-    const plan = Result.getOrThrow(pricing.contracts.compile("PriceList", buildQuery({ id: "pl_one" }, {
-      select: [...fields.select], relations: [...fields.relations], order: { id: "ASC" }, take: 128, skip: 0,
-    })));
+    const plans: Result.Result.Success<ReturnType<typeof pricing.contracts.compile>>[] = [];
+    await Effect.runPromise(graph.bind({ refuse: Effect.fail, recordFailure: cause => Result.succeed(cause),
+      call: (_participant, _command, args) => Effect.gen(function* () {
+        if (!isJsonObject(args) || !isJsonObject(args.filters ?? null) || !isJsonObject(args.config ?? null))
+          return yield* Effect.fail(commerceError("unsupportedProfile"));
+        plans.push(yield* Effect.fromResult(pricing.contracts.compile("PriceList", Reflect.apply(buildQuery, undefined, [args.filters, args.config]))));
+        return [[], 0] satisfies Json;
+      }),
+    }).nativeGraph({ entity: "price_lists", fields: ["id", "price_list_rules.value", "prices.amount", "prices.price_rules.attribute"],
+      filters: { id: "pl_one" }, pagination: { order: { id: "ASC" }, take: 128, skip: 0 } }));
+    const plan = plans[0];
+    if (plan === undefined) throw new Error("Missing genuine native Pricing request");
     expect(plan.paths).toEqual(["price_list_rules", "prices", "prices.price_rules"]);
     expect(plan.query.fields).toEqual(pricing.contracts.list.columns.map(column => column.name));
     expect(plan.withDeleted).toBe(false);
@@ -150,6 +159,25 @@ describe("Pricing-owned native catalog read plans", () => {
     ] } }]);
     expect(plan.query.fields).toEqual(pricing.contracts.price.columns.map(column => column.name));
     expect(plan.projection.node.fields).toEqual(new Set(["id"]));
+  });
+
+  it("ignores native implicit scalar keys only in the selected DAL policy", () => {
+    const strict = { keys: "retain" as const, storageKeys: "last" as const, joinKeys: "storage" as const,
+      selectableRelations: [], nested: new Map() };
+    expect(Result.isFailure(compileProjection(pricing.contracts.catalog, pricing.contracts.list.name, ["prices_id"], [], strict))).toBe(true);
+    const native = Result.getOrThrow(pricing.contracts.compile("PriceList", buildQuery({ id: "pl_one" }, {
+      select: ["id", "prices_id", "prices.id", "prices.price_rules_id", "prices.price_rules.attribute"],
+      relations: ["prices", "prices.price_rules"], order: { id: "ASC" }, take: 128, skip: 0,
+    })));
+    expect(native.projection.node.fields.has("prices_id")).toBe(false);
+    expect(native.query.fields).not.toContain("prices_id");
+    expect(native.projection.node.children.find(child => child.name === "prices")?.node.fields.has("price_rules_id")).toBe(false);
+    for (const field of ["__proto__", "constructor", "prototype", "prices", "prices.price_rules", "prices.__proto__", "prices..id", "prices.unknown.path"])
+      expect(Result.isFailure(pricing.contracts.compile("PriceList", buildQuery({ id: "pl_one" }, {
+        select: ["id", field], relations: ["prices"], order: { id: "ASC" }, take: 128, skip: 0,
+      })))).toBe(true);
+    expect(Result.isFailure(admit("price_lists", ["prices_id"]))).toBe(true);
+    expect(Result.isFailure(admit("price_lists", ["prices.price_rules_id"]))).toBe(true);
   });
 
   it("refuses a ninth ID without truncation, arbitrary selectors and mutation-shaped normalized data", () => {

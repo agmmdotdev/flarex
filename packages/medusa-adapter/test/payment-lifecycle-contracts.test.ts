@@ -9,6 +9,8 @@ import { isJsonObject } from "@flarex/persistence-postgres/internal/commerce-val
 import { makePaymentLifecycleCommands } from "../src/modules/payment/lifecycle-service";
 import { workflowModuleDefinition } from "../src/workflow/module";
 import { planGraphFields } from "../src/local-graph/fields";
+import { graphNativeConfiguration } from "../src/local-graph/native-metadata";
+import { decodeNativeQueryGraphResult, makeNativeQueryBridge } from "../src/local-graph/native-bridge";
 import { captureCommerceInput } from "../src/value/input";
 
 describe("native Payment lifecycle prerequisites", () => {
@@ -26,18 +28,22 @@ describe("native Payment lifecycle prerequisites", () => {
       progress() {}, error() {}, failure() {}, success: () => ({}), silly() {}, debug() {}, verbose() {},
       http() {}, info() {}, warn() {}, log() {} };
     const runtime = await Effect.runPromise(makePaymentLifecycleCommands(logger));
-    const read = workflowModuleDefinition(runtime.workflow)?.graph.reads.find(read => read.model === "Payment");
-    if (read === undefined) throw new Error("Missing genuine Payment graph read");
+    const graph = workflowModuleDefinition(runtime.workflow)?.graph;
+    const read = graph?.reads.find(read => read.model === "Payment");
+    if (read === undefined || graph?.native === undefined) throw new Error("Missing genuine Payment graph read");
     const raw = { value: "15", precision: 20 }, refundRaw = { value: "3.125", precision: 20 };
     const input = { id: "pay-projection", currency_code: "usd", captures: [{ id: "capt-projection", amount: 15, raw_amount: raw }],
       refunds: [{ id: "ref-projection", amount: 3.125, raw_amount: refundRaw }] };
     const native = await Effect.runPromise(runtime.contracts.present(input, runtime.contracts.payment.name));
     if (!isJsonObject(native)) throw new Error("Missing native Payment DTO");
     const fields = ["id", "currency_code", "captures.id", "captures.amount", "refunds.id", "refunds.amount"];
-    const projected = Result.getOrThrow(Result.getOrThrow(planGraphFields(read, fields)).project([native]));
+    expect(Result.isSuccess(planGraphFields(read, fields))).toBe(true);
+    const bridge = makeNativeQueryBridge({ ...Result.getOrThrow(graphNativeConfiguration(graph.native)),
+      read: () => Effect.succeed({ data: structuredClone([native]) }) });
+    const projected = Result.getOrThrow(decodeNativeQueryGraphResult(await Effect.runPromise(bridge.graph({ entity: "payment", fields })))).data;
     expect(projected).toEqual([{ id: "pay-projection", currency_code: "usd", captures: [{ id: "capt-projection", amount: 15 }],
       refunds: [{ id: "ref-projection", amount: 3.125 }] }]);
-    expect(Result.getOrThrow(Result.getOrThrow(planGraphFields(read, [...fields, "captures.raw_amount", "refunds.raw_amount"])).project([native])))
+    expect(Result.getOrThrow(decodeNativeQueryGraphResult(await Effect.runPromise(bridge.graph({ entity: "payment", fields: [...fields, "captures.raw_amount", "refunds.raw_amount"] })))).data)
       .toMatchObject([{ captures: [{ raw_amount: raw }], refunds: [{ raw_amount: refundRaw }] }]);
     expect(await Effect.runPromise(Effect.result(runtime.contracts.present({ ...input,
       captures: [{ id: "capt-projection", amount: 15, raw_amount: { value: "16", precision: 20 } }] }, runtime.contracts.payment.name))))

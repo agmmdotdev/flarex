@@ -12,6 +12,11 @@ import { decodeGraphCount, prepareLocalGraph } from "../src/local-graph/query";
 import { makeReadCatalog, type ReadTable } from "../src/query/catalog";
 import { defineWorkflowModule, workflowModuleDefinition } from "../src/workflow/module";
 import { runEffect, runEffectFailure } from "../../persistence-postgres/test/support/effectTestRuntime";
+import { ProductModuleService } from "@medusajs/product/services";
+import { inventoryStaticResources } from "@medusajs/inventory/static-manifest";
+import { stockLocationStaticResources } from "@medusajs/stock-location/static-manifest";
+import type { ModuleJoinerConfig } from "@medusajs/types";
+import { declaredNativeGraph, nativeGraphFixture } from "./support/declared-native-graph";
 
 const product = defineAtomicCommerceParticipant("direct-graph-product");
 const links = defineAtomicCommerceParticipant("direct-graph-links");
@@ -34,9 +39,11 @@ const locations = table("stock_location", ["id", "name"]);
 const bounds = { maximumSources: 4, maximumTargets: 8, maximumPerSource: 2 };
 let paths: readonly GraphDirectPath[];
 let linkModel: string;
+let linkConfig: ModuleJoinerConfig;
 
 beforeAll(async () => {
   const metadata = await runEffect(captureVariantInventoryLinkMetadata());
+  linkConfig = metadata.joiner;
   const rich = Result.getOrThrow(nativeLinkGraphDirectPaths(metadata.joiner,
     [{ root: "ProductVariant", path: "inventory_items", ...bounds }], "ProductVariant"));
   const first = rich[0];
@@ -61,14 +68,20 @@ function read(model: string, command: GraphReadCommand, selected: ReadTable): Gr
   return { model, command, table: selected, paths: [], orderable: ["id"], uniqueOrder: ["id"], multipleOrder: false, decode: decodeGraphCount };
 }
 function participants(selected: readonly GraphDirectPath[] = paths): GraphParticipant[] {
+  const inventoryConfig = inventoryStaticResources.joinerConfig, locationConfig = stockLocationStaticResources.joinerConfig;
+  if (inventoryConfig === undefined || locationConfig === undefined) throw new Error("Missing genuine Inventory/StockLocation native metadata");
   return [
-    { participant: product, module: { aliases: [{ name: "variant", model: "ProductVariant" }], reads: [read("ProductVariant", variantRead, variants)] } },
-    { participant: links, module: { aliases: [{ name: "variant_inventory", model: linkModel }], reads: [read(linkModel, linkRead, edgeRows)],
-      directPaths: selected.filter(path => path.sourceModel === linkModel || path.targetModel === linkModel) } },
-    { participant: inventory, module: { aliases: [{ name: "inventory_item", model: "InventoryItem" }, { name: "inventory_level", model: "InventoryLevel" }],
-      reads: [read("InventoryItem", itemRead, items), read("InventoryLevel", levelRead, levels)],
-      directPaths: selected.filter(path => path.sourceModel === "InventoryItem" || path.sourceModel === "InventoryLevel") } },
-    { participant: location, module: { aliases: [{ name: "stock_location", model: "StockLocation" }], reads: [read("StockLocation", locationRead, locations)] } },
+    { participant: product, module: declaredNativeGraph({ aliases: [{ name: "variant", model: "ProductVariant" }], reads: [read("ProductVariant", variantRead, variants)] },
+      [ProductModuleService.prototype.__joinerConfig()], []) },
+    { participant: links, module: declaredNativeGraph({ aliases: [{ name: "variant_inventory", model: linkModel }], reads: [read(linkModel, linkRead, edgeRows)],
+      directPaths: selected.filter(path => path.sourceModel === linkModel || path.targetModel === linkModel) }, [linkConfig], []) },
+    { participant: inventory, module: declaredNativeGraph({ aliases: [{ name: "inventory_item", model: "InventoryItem" }, { name: "inventory_level", model: "InventoryLevel" }],
+      reads: [{ ...read("InventoryItem", itemRead, items), paths: [{ path: "location_levels", table: levels, many: true,
+        sourceFields: ["id"], targetFields: ["inventory_item_id"] }] }, read("InventoryLevel", levelRead, levels)],
+      directPaths: selected.filter(path => path.sourceModel === "InventoryItem" || path.sourceModel === "InventoryLevel") }, [inventoryConfig, InventoryLevelStockLocation],
+      [{ name: items.name, relationships: [{ name: "location_levels", type: "hasMany", targetModel: "InventoryLevel", targetTable: levels.name,
+        nullable: false, cascadeDelete: false, cascadeDetach: false }] }, { name: levels.name, relationships: [] }]) },
+    { participant: location, module: declaredNativeGraph({ aliases: [{ name: "stock_location", model: "StockLocation" }], reads: [read("StockLocation", locationRead, locations)] }, [locationConfig], []) },
   ];
 }
 type Call = { readonly participant: Parameters<AtomicCommerceContext["call"]>[0]; readonly command: Parameters<AtomicCommerceContext["call"]>[1]; readonly args: Json };
@@ -86,9 +99,9 @@ function context(responses: readonly Json[], calls: Call[] = []): AtomicCommerce
 }
 const query = (fields = ["title", "inventory_items.required_quantity", "inventory_items.inventory.title",
   "inventory_items.inventory.location_levels.stocked_quantity", "inventory_items.inventory.location_levels.stock_locations.name"]) => ({
-  entity: "variant", fields, filters: { id: ["v1", "v2"] }, pagination: { take: 4 },
+  entity: "variant", fields, filters: { id: ["v1", "v2"] }, pagination: { take: 4, skip: 0 },
 });
-const graph = (selected: readonly GraphDirectPath[] = paths) => Result.getOrThrow(prepareLocalGraph(participants(selected)));
+const graph = (selected: readonly GraphDirectPath[] = paths) => nativeGraphFixture(Result.getOrThrow(prepareLocalGraph(participants(selected))));
 
 describe("authenticated direct local graph paths", () => {
   it("derives rich rows, to-one endpoints, local levels and read-only arrays from their owners", () => {
@@ -110,27 +123,26 @@ describe("authenticated direct local graph paths", () => {
       [[{ id: "e2", variant_id: "v1", inventory_item_id: "i2", required_quantity: 3 },
         { id: "e1", variant_id: "v1", inventory_item_id: "i1", required_quantity: 2 },
         { id: "e3", variant_id: "v2", inventory_item_id: "i1", required_quantity: 1 }], 3],
-      [[{ id: "i1", title: "one" }, { id: "i2", title: "two" }], 2],
-      [[{ id: "l1", inventory_item_id: "i1", location_id: "s1", stocked_quantity: 7 },
-        { id: "l2", inventory_item_id: "i2", location_id: "s1", stocked_quantity: 4 }], 2],
+      [[{ id: "i1", title: "one", location_levels: [{ id: "l1", inventory_item_id: "i1", location_id: "s1", stocked_quantity: 7 }] },
+        { id: "i2", title: "two", location_levels: [{ id: "l2", inventory_item_id: "i2", location_id: "s1", stocked_quantity: 4 }] }], 2],
       [[{ id: "s1", name: "Shared" }], 1],
     ];
     const original = structuredClone(responses);
-    const result = await runEffect(graph().bind(context(responses, calls)).graph(query()));
-    const one = { title: "one", location_levels: [{ stocked_quantity: 7, stock_locations: [{ name: "Shared" }] }] };
-    const two = { title: "two", location_levels: [{ stocked_quantity: 4, stock_locations: [{ name: "Shared" }] }] };
+    const result = await runEffect(graph().bind(context(responses, calls)).nativeGraph(query()));
+    const one = { id: "i1", title: "one", location_levels: [{ location_id: "s1", stocked_quantity: 7, stock_locations: [{ id: "s1", name: "Shared" }] }] };
+    const two = { id: "i2", title: "two", location_levels: [{ location_id: "s1", stocked_quantity: 4, stock_locations: [{ id: "s1", name: "Shared" }] }] };
     expect(result).toEqual({ data: [
-      { title: "first", inventory_items: [{ required_quantity: 3, inventory: two }, { required_quantity: 2, inventory: one }] },
-      { title: "second", inventory_items: [{ required_quantity: 1, inventory: one }] },
+      { id: "v1", title: "first", inventory_items: [{ variant_id: "v1", inventory_item_id: "i2", required_quantity: 3, inventory: two },
+        { variant_id: "v1", inventory_item_id: "i1", required_quantity: 2, inventory: one }] },
+      { id: "v2", title: "second", inventory_items: [{ variant_id: "v2", inventory_item_id: "i1", required_quantity: 1, inventory: one }] },
     ], metadata: { count: 2, skip: 0, take: 4 } });
-    expect(calls.map(call => call.command)).toEqual([variantRead, linkRead, itemRead, levelRead, locationRead]);
-    expect(calls.map(call => call.participant)).toEqual([product, links, inventory, inventory, location]);
+    expect(calls.map(call => call.command)).toEqual([variantRead, linkRead, itemRead, locationRead]);
+    expect(calls.map(call => call.participant)).toEqual([product, links, inventory, location]);
     expect(calls.map(call => call.args)).toEqual([
-      { filters: { id: ["v1", "v2"] }, config: { select: ["title", "id"], relations: [], order: { id: "ASC" }, skip: 0, take: 4 } },
-      { filters: { variant_id: ["v1", "v2"] }, config: { select: ["required_quantity", "inventory_item_id", "variant_id"], relations: [], order: { id: "ASC" }, skip: 0, take: 8 } },
-      { filters: { id: ["i2", "i1"] }, config: { select: ["title", "id"], relations: [], order: { id: "ASC" }, skip: 0, take: 8 } },
-      { filters: { inventory_item_id: ["i1", "i2"] }, config: { select: ["stocked_quantity", "location_id", "inventory_item_id"], relations: [], order: { id: "ASC" }, skip: 0, take: 16 } },
-      { filters: { id: ["s1"] }, config: { select: ["name", "id"], relations: [], order: { id: "ASC" }, skip: 0, take: 4 } },
+      { filters: { id: ["v1", "v2"] }, config: { select: ["title", "id"], relations: [], skip: 0, take: 4 } },
+      { filters: { variant_id: ["v1", "v2"] }, config: { select: ["required_quantity", "variant_id", "inventory_item_id"], relations: [], skip: 0, take: 256 } },
+      { filters: { id: ["i2", "i1"] }, config: { select: ["title", "id", "location_levels.stocked_quantity", "location_levels.location_id"], relations: ["location_levels"], skip: 0, take: 256 } },
+      { filters: { id: ["s1"] }, config: { select: ["name", "id"], relations: [], skip: 0, take: 256 } },
     ]);
     expect(responses).toEqual(original);
   });
@@ -140,8 +152,8 @@ describe("authenticated direct local graph paths", () => {
     const result = await runEffect(graph().bind(context([
       [[{ id: "v1", title: "Variant" }], 1],
       [[{ variant_id: "v1", inventory_item_id: "deleted", required_quantity: 2 }], 1], [[], 0],
-    ], calls)).graph(query(["title", "inventory_items.required_quantity", "inventory_items.inventory.title"])));
-    expect(result.data).toEqual([{ title: "Variant", inventory_items: [{ required_quantity: 2 }] }]);
+    ], calls)).nativeGraph(query(["title", "inventory_items.required_quantity", "inventory_items.inventory.title"])));
+    expect(result.data).toEqual([{ id: "v1", title: "Variant", inventory_items: [{ variant_id: "v1", inventory_item_id: "deleted", required_quantity: 2, inventory: undefined }] }]);
     expect(calls).toHaveLength(3);
     expect(calls[2]?.command).toBe(itemRead);
   });
@@ -150,30 +162,31 @@ describe("authenticated direct local graph paths", () => {
     const selected = participants().map(entry => entry.participant === product
       ? { ...entry, module: { ...entry.module, reads: entry.module.reads.map(definition => ({ ...definition, nativeFields: true as const })) } }
       : entry);
-    const prepared = Result.getOrThrow(prepareLocalGraph(selected));
+    const prepared = nativeGraphFixture(Result.getOrThrow(prepareLocalGraph(selected)));
     const result = await runEffect(prepared.bind(context([
       [[{ id: "v1" }], 1], [[{ id: "private-link-id", variant_id: "v1", inventory_item_id: "i1", required_quantity: 2 }], 1],
       [[{ id: "i1", title: "Item" }], 1],
-    ])).graph(query(["inventory_items.required_quantity", "inventory_items.inventory.title"])));
+    ])).nativeGraph(query(["inventory_items.required_quantity", "inventory_items.inventory.title"])));
     expect(result.data).toEqual([{ id: "v1", inventory_items: [{ variant_id: "v1", inventory_item_id: "i1", required_quantity: 2,
       inventory: { id: "i1", title: "Item" } }] }]);
   });
 
   it("keeps a missing read-only scalar-FK endpoint as an empty array", async () => {
     const result = await runEffect(graph().bind(context([
-      [[{ id: "v1" }], 1], [[{ variant_id: "v1", inventory_item_id: "i1" }], 1], [[{ id: "i1" }], 1],
-      [[{ inventory_item_id: "i1", location_id: "deleted" }], 1], [[], 0],
-    ])).graph(query(["inventory_items.inventory.location_levels.stock_locations.name"])));
-    expect(result.data).toEqual([{ inventory_items: [{ inventory: { location_levels: [{ stock_locations: [] }] } }] }]);
+      [[{ id: "v1" }], 1], [[{ variant_id: "v1", inventory_item_id: "i1" }], 1],
+      [[{ id: "i1", location_levels: [{ id: "l1", inventory_item_id: "i1", location_id: "deleted" }] }], 1], [[], 0],
+    ])).nativeGraph(query(["inventory_items.inventory.location_levels.stock_locations.name"])));
+    expect(result.data).toEqual([{ id: "v1", inventory_items: [{ variant_id: "v1", inventory_item_id: "i1",
+      inventory: { id: "i1", location_levels: [{ location_id: "deleted", stock_locations: [] }] } }] }]);
   });
 
   it("skips empty cohorts without borrowing unrelated commands", async () => {
     for (const entry of [
       { responses: [[[], 0]], expected: [], calls: 1 },
-      { responses: [[[{ id: "v1" }], 1], [[], 0]], expected: [{ inventory_items: [] }], calls: 2 },
+      { responses: [[[{ id: "v1" }], 1], [[], 0]], expected: [{ id: "v1", inventory_items: [] }], calls: 2 },
     ] satisfies Array<{ responses: Json[]; expected: Json; calls: number }>) {
       const calls: Call[] = [];
-      expect((await runEffect(graph().bind(context(entry.responses, calls)).graph(query(["inventory_items.inventory.title"])))).data).toEqual(entry.expected);
+      expect((await runEffect(graph().bind(context(entry.responses, calls)).nativeGraph(query(["inventory_items.inventory.title"])))).data).toEqual(entry.expected);
       expect(calls).toHaveLength(entry.calls);
     }
   });
@@ -185,7 +198,7 @@ describe("authenticated direct local graph paths", () => {
       [[{ id: "v1" }, { id: "v2" }], 2],
       [[{ variant_id: "v1", inventory_item_id: "i1" }, { variant_id: "v1", inventory_item_id: "i2" },
         { variant_id: "v2", inventory_item_id: "i3" }], 3],
-    ], calls)).graph(query(["inventory_items.inventory.title"])))).toMatchObject({ reason: "unsupportedProfile" });
+    ], calls)).nativeGraph(query(["inventory_items.inventory.title"])))).toMatchObject({ reason: "unsupportedProfile" });
     expect(calls.map(call => call.command)).toEqual([variantRead, linkRead]);
   });
 
@@ -202,7 +215,7 @@ describe("authenticated direct local graph paths", () => {
       [root, edge, [[{ title: "missing key" }], 1]],
     ];
     for (const responses of cases) expect(await runEffectFailure(graph().bind(context(responses))
-      .graph(query(["inventory_items.inventory.title"])))).toMatchObject({ reason: "storedCorruption" });
+      .nativeGraph(query(["inventory_items.inventory.title"])))).toMatchObject({ reason: "storedCorruption" });
   });
 
   it("refuses target, per-source and one-cardinality overruns", async () => {
@@ -214,7 +227,7 @@ describe("authenticated direct local graph paths", () => {
       [root, edge, [[{ id: "i1", title: "one" }, { id: "i1", title: "duplicate" }], 2]],
     ];
     for (const responses of cases) expect(await runEffectFailure(graph().bind(context(responses))
-      .graph(query(["inventory_items.inventory.title"])))).toMatchObject({ reason: "unsupportedProfile" });
+      .nativeGraph(query(["inventory_items.inventory.title"])))).toMatchObject({ reason: "unsupportedProfile" });
   });
 
   it("authenticates declarers, endpoint bindings and every path prefix before dispatch", () => {
@@ -253,11 +266,11 @@ describe("authenticated direct local graph paths", () => {
     expect((await runEffect(prepared.bind(context([
       [[{ id: "v1" }], 1], [[{ variant_id: "v1", inventory_item_id: "i1", required_quantity: 2 },
         { variant_id: "v1", inventory_item_id: "i2", required_quantity: 3 }], 2],
-    ], calls)).graph(query(["inventory_items.required_quantity"])))).data)
-      .toEqual([{ inventory_items: [{ required_quantity: 2 }, { required_quantity: 3 }] }]);
-    expect(calls[1]?.args).toMatchObject({ config: { take: 8 } });
+    ], calls)).nativeGraph(query(["inventory_items.required_quantity"])))).data)
+      .toEqual([{ id: "v1", inventory_items: [{ variant_id: "v1", required_quantity: 2 }, { variant_id: "v1", required_quantity: 3 }] }]);
+    expect(calls[1]?.args).toMatchObject({ config: { take: 256 } });
     const refused: Call[] = [];
-    expect(await runEffectFailure(prepared.bind(context([], refused)).graph(query(["inventory_items.secret"])))).toMatchObject({ reason: "unsupportedProfile" });
+    expect(await runEffectFailure(prepared.bind(context([], refused)).nativeGraph(query(["inventory_items.secret"])))).toMatchObject({ reason: "unsupportedProfile" });
     expect(refused).toEqual([]);
   });
 });

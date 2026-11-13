@@ -9,7 +9,7 @@ export const CartCollectionCreateQuery = Schema.Struct({ entry_point: Schema.Lit
     Schema.Literal("total"), Schema.Literal("raw_total"), Schema.Literal("payment_collection.id")]),
   variables: Schema.Struct({ id: Schema.String }), throw_if_key_not_found: Schema.Literal(true), list: Schema.Literal(false) });
 export const CartCollectionCreateView = Schema.Struct({ id: Schema.String, completed_at: Schema.NullOr(Schema.String),
-  currency_code: Schema.String, total: Schema.Finite, raw_total: RawAmount, payment_collection: Schema.optionalKey(Schema.NullOr(Reference)) });
+  currency_code: Schema.String, total: Schema.Finite, raw_total: RawAmount, payment_collection: Schema.optionalKey(Schema.UndefinedOr(Schema.NullOr(Reference))) });
 export const CartCollectionRefreshQuery = Schema.Struct({ entity: Schema.Literal("cart"),
   fields: Schema.Tuple([Schema.Literal("id"), Schema.Literal("region_id"), Schema.Literal("currency_code"), Schema.Literal("total"),
     Schema.Literal("raw_total"), Schema.Literal("payment_collection.id"), Schema.Literal("payment_collection.raw_amount"),

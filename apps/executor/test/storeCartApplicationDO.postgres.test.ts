@@ -3,7 +3,7 @@ import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import { createCorePostgresFixture } from "@flarex/persistence-postgres/internal/system-test/core-persistence-fixture";
 import { prepareStoreCartRequestFixture, observeStoreCartRequestFixture } from "@flarex/medusa-adapter/internal/system-test/store-cart-request-fixture";
-import { storeCartRequestTarget, storeCartToken, storeCartMultiToken, storeCartRevokedToken, storeCartShippingProofSeedRows } from "@flarex/medusa-adapter/internal/system-test/store-cart-request-catalog";
+import { storeCartRequestTarget, storeCartToken, storeCartMultiToken, storeCartRevokedToken, storePaymentHttpProofSeedRows } from "@flarex/medusa-adapter/internal/system-test/store-cart-request-catalog";
 import { executorApplicationProfileFixture } from "./support/executorApplicationConfiguration";
 import { createMedusaDOTestSuite } from "./support/medusaDOTestRunner";
 
@@ -28,7 +28,7 @@ describe.runIf(endpoints !== undefined)("native Store Cart HTTP in the actual ap
     let phase = "bootstrap";
     const primary: unknown[] = [];
     try {
-      prepared = await prepareStoreCartRequestFixture("postgres", { physical: { ...physical, close: async () => {} }, additionalRows: storeCartShippingProofSeedRows });
+      prepared = await prepareStoreCartRequestFixture("postgres", { physical: { ...physical, close: async () => {} }, additionalRows: storePaymentHttpProofSeedRows });
       await prepared.fixture.close();
       const baseline = await observeStoreCartRequestFixture({ physical, catalog: prepared.catalog });
       const profile = { ...executorApplicationProfileFixture(), ...storeCartRequestTarget,

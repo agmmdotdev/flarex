@@ -1,10 +1,50 @@
 import { expect, it } from "vitest";
-import { Effect, Result } from "effect";
+import { Cause, Effect, Exit, Result } from "effect";
+import { buildQuery } from "@medusajs/utils/modules-sdk/build-query";
+import { defineAtomicCommerceParticipant } from "@flarex/persistence-postgres/internal/commerce-adapter";
+import { type Json } from "@flarex/persistence-postgres/internal/commerce-values";
 import { BigNumber } from "@medusajs/framework/utils/portable";
 import { capturePromotionMetadata } from "../src/modules/promotion/schema";
 import { preparePromotionComputeRead } from "../src/modules/promotion/compute-read";
 import { capturePromotionComputeQuery, preparePromotionComputeQuery, promotionComputePaths } from "../src/modules/promotion/compute-query";
-import { capturePromotionComputedActions, decodePromotionComputeInput } from "../src/modules/promotion/compute-input";
+import { capturePromotionComputedActions, decodePromotionComputeInput, decodePromotionGraphRead } from "../src/modules/promotion/compute-input";
+import { makePromotionComputeCommands } from "../src/modules/promotion/compute-service";
+import { prepareLocalGraph } from "../src/local-graph/query";
+import { workflowModuleDefinition } from "../src/workflow/module";
+import { captureCommerceInput } from "../src/value/input";
+
+it.each([{ fields: ["id", "code"] }, { fields: ["id", "code", "application_method.value"] }, { fields: ["id", "code", "application_method.*"] }])("admits the actual native Promotion graph's unordered descriptor through its command and DAL owners: %j", async ({ fields }) => {
+  const commands = await Effect.runPromise(makePromotionComputeCommands());
+  const definition = workflowModuleDefinition(commands.workflow);
+  if (definition === undefined) throw new Error("Missing genuine Promotion graph");
+  const graph = Result.getOrThrow(prepareLocalGraph([{ participant: defineAtomicCommerceParticipant("nativePromotionOrder"), module: definition.graph }]));
+  const calls: Json[] = [], descriptors: unknown[] = [];
+  const exit = await Effect.runPromiseExit(graph.bind({ refuse: Effect.fail, recordFailure: cause => Result.succeed(cause),
+    call: (_participant, _command, args) => Effect.gen(function* () {
+      calls.push(args);
+      const input = yield* Effect.fromResult(decodePromotionGraphRead(args));
+      const descriptor = yield* Effect.fromResult(captureCommerceInput(buildQuery(input.filters, input.config)));
+      descriptors.push(descriptor);
+      const result = yield* commands.prepared.read(() => Effect.succeed([]), "promotion", descriptor);
+      expect(result.parsed.graph).toBe(true);
+      return [result.rows, result.count] satisfies Json;
+    }),
+  }).remoteQuery({ entryPoint: "promotion", fields, variables: { id: ["promotion-native-order"] } }));
+  expect(Exit.isSuccess(exit), Exit.isFailure(exit) ? Cause.pretty(exit.cause) + JSON.stringify({ calls, descriptors }) : undefined).toBe(true);
+  expect(calls).toHaveLength(1);
+  expect(calls[0]).toMatchObject({ filters: { id: ["promotion-native-order"] }, config: { take: 256 } });
+  expect(calls[0]).not.toHaveProperty("config.order");
+  expect(descriptors[0]).not.toHaveProperty("options.orderBy");
+  for (const field of ["application_method_id", "application_method.unknown", "__proto__", "application_method.constructor"])
+    expect(Result.isFailure(graph.admitProjection("promotion", ["id", field])), field).toBe(true);
+  for (const orderBy of [{}, { id: "DESC" }, { code: "ASC" }, { application_method: { value: "DESC" } }])
+    expect(Result.isFailure(preparePromotionComputeQuery("promotion", { where: { id: ["promotion-native-order"] },
+      options: { fields: ["id", "code"], populate: [], limit: 256, offset: 0, orderBy } }))).toBe(true);
+  expect(Result.isFailure(preparePromotionComputeQuery("promotion", { where: { id: ["promotion-native-order"] },
+    options: { fields: ["id", "code"], populate: [] } }))).toBe(true);
+  expect(Result.isFailure(preparePromotionComputeQuery("promotion_campaign_budget_usage", { where: { budget_id: "budget", attribute_value: "customer" },
+    options: { populate: [] } }))).toBe(true);
+});
 
 it("prepares the genuine seven-model and three-pivot calculation read graph", async () => {
   const metadata = await Effect.runPromise(capturePromotionMetadata());

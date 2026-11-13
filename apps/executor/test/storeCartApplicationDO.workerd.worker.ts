@@ -2,7 +2,7 @@ import { Cause, Clock, Effect, Result, Schema } from "effect";
 import { asValue, createContainer } from "@medusajs/deps/awilix-portable";
 import { makePreparedHostRuntime } from "@flarex/persistence-postgres/internal/prepared-host-runtime";
 import { makeStoreCartRequestRuntime, makeStoreCartRequestScopeFactory } from "@flarex/medusa-adapter/internal/store-cart-request";
-import { compileStoreCartRequestFixtureCatalog, storeCartLogger, storeCartShippingProofSeedRows, installStoreCartShippingTaxFailure } from "@flarex/medusa-adapter/internal/system-test/store-cart-request-catalog";
+import { compileStoreCartRequestFixtureCatalog, storeCartLogger, storePaymentHttpProofSeedRows, installStoreCartShippingTaxFailure, installStorePaymentFailure } from "@flarex/medusa-adapter/internal/system-test/store-cart-request-catalog";
 import { makeStoreCartEffectHttpHandler } from "@flarex/medusa-http/store-cart-effect";
 import { makeExecutorApplicationCredentials, executorApplicationSha256 } from "../src/applicationComposition";
 import { executorApplicationObjectConfiguration, readExecutorApplicationProfiles, type ExecutorApplicationEnv } from "../src/applicationConfiguration";
@@ -11,11 +11,12 @@ import { admitExecutorRequest } from "../src/requestLifecycle";
 import { executorApplicationProfileFixture } from "./support/executorApplicationConfiguration";
 
 interface Env extends ExecutorApplicationEnv { readonly APPLICATIONS: DurableObjectNamespace<NativeStoreCartApplicationFixture> }
-const { catalog } = await Effect.runPromise(compileStoreCartRequestFixtureCatalog(undefined, storeCartShippingProofSeedRows));
+const { catalog } = await Effect.runPromise(compileStoreCartRequestFixtureCatalog(undefined, storePaymentHttpProofSeedRows));
 const workload = executorApplicationProfileFixture().workload;
 const failsCartUpdate = Schema.is(Schema.Struct({ additional_data: Schema.Struct({ fail_cart_hook: Schema.Literal(true) }) }));
 
 installStoreCartShippingTaxFailure();
+installStorePaymentFailure();
 type Failure = Effect.Error<ReturnType<typeof makeExecutorApplicationCredentials>>
   | Effect.Error<ReturnType<typeof makePreparedHostRuntime>> | Effect.Error<ReturnType<typeof makeStoreCartRequestRuntime>>;
 const NativeOwner = makeApplicationDurableObject<ExecutorApplicationEnv, Failure>({
@@ -37,6 +38,7 @@ const NativeOwner = makeApplicationDurableObject<ExecutorApplicationEnv, Failure
     const http = yield* makeStoreCartEffectHttpHandler({ storeCors: "https://store.test", ...scopes,
       admitCartRefetchFields: runtime.admitCartRefetchFields,
       admitShippingOptionFields: runtime.admitShippingOptionFields,
+      admitPaymentCollectionFields: runtime.admitPaymentCollectionFields,
       // A fixed test credential stands in for the trusted verifier. Arbitrary
       // actor headers never become a native customer principal.
       resolveCustomerPrincipal: request => request.headers.get("x-proof-customer-credential") === "store-cart-verified-secret"

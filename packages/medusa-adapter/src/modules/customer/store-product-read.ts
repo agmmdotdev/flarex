@@ -1,3 +1,4 @@
+import { withNativeGraphMetadata } from "../../local-graph/native-metadata";
 import { Effect, Result, Schema } from "effect";
 import { CustomerGroup } from "@medusajs/customer/models";
 import { customerStaticResources } from "@medusajs/customer/static-manifest";
@@ -142,6 +143,6 @@ export const makeCustomerStoreProductReadCommands = Effect.fn("Customer.storePro
   if (joiner === undefined) return yield* commerceError("unsupportedProfile");
   const aliases = (yield* Effect.fromResult(moduleAliases(joiner))).filter(alias => alias.model === "CustomerGroup");
   return { source: module.description, count, commands: [count], prepared,
-    graph: { aliases, reads: [{ model: "CustomerGroup", command: count, table: prepared.table, paths: [],
-      selectedFieldsOnly: true, orderable: ["id"], uniqueOrder: ["id"], multipleOrder: false, decode: decodeGraphCount }] } satisfies GraphModuleDefinition };
+    graph: (yield* Effect.fromResult(withNativeGraphMetadata({ aliases, reads: [{ model: "CustomerGroup", command: count, table: prepared.table, paths: [],
+      orderable: ["id"], uniqueOrder: ["id"], multipleOrder: false, decode: decodeGraphCount }] }, [joiner], metadata.frame.tables))) satisfies GraphModuleDefinition };
 });

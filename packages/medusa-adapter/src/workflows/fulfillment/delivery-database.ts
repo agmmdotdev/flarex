@@ -41,8 +41,8 @@ export const prepareFulfillmentDeliveryDatabase = Effect.fn("FulfillmentDelivery
     switch (value.kind) {
       case "query": {
         const query = context.container.resolve<ReturnType<typeof bindWorkflowQuery>>("query");
-        return new StepResponse(await query({ entryPoint: "fulfillment", fields: ["id", "delivered_at", "canceled_at"],
-          variables: { id: value.id } }, { throwIfKeyNotFound: true, throwIfRelationNotFound: undefined }));
+        return new StepResponse(Schema.decodeUnknownSync(Schema.Json)(await query({ entryPoint: "fulfillment", fields: ["id", "delivered_at", "canceled_at"],
+          variables: { id: value.id } }, { throwIfKeyNotFound: true, throwIfRelationNotFound: undefined })));
       }
       case "retrieve": return new StepResponse(await context.resources.fulfillment.retrieveFulfillment(value.id, value.config));
       case "update": return new StepResponse(await context.resources.fulfillment.updateFulfillment(value.id, value.data));

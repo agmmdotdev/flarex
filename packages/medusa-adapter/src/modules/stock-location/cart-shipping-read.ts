@@ -1,3 +1,4 @@
+import { withNativeGraphMetadata } from "../../local-graph/native-metadata";
 import { Effect, Result } from "effect";
 import { StockLocation, StockLocationAddress } from "@medusajs/stock-location/models";
 import { StockLocationModuleService } from "@medusajs/stock-location/services";
@@ -44,10 +45,10 @@ export const makeStockLocationCartShippingReadCommands = Effect.fn("StockLocatio
       ({ service, context }, input) => service(input.filters, input.config as FindConfig<StockLocationTypes.StockLocationDTO> | undefined, context));
     const joiner = stockLocationStaticResources.joinerConfig;
     if (joiner === undefined) return yield* Result.fail(commerceError("unsupportedProfile"));
-    const graph = { aliases: (yield* moduleAliases(joiner)).filter(alias => alias.model === "StockLocation"),
+    const graph = yield* withNativeGraphMetadata({ aliases: (yield* moduleAliases(joiner)).filter(alias => alias.model === "StockLocation"),
       reads: [{ model: "StockLocation", command: count, table: prepared.table,
         paths: [{ path: "address", table: prepared.address, many: false, optional: true, sourceFields: ["address_id"] }],
-        orderable: ["id"], uniqueOrder: ["id"], multipleOrder: false, decode: decodeGraphCount }] };
+        orderable: ["id"], uniqueOrder: ["id"], multipleOrder: false, decode: decodeGraphCount }] }, [joiner], metadata.frame.tables);
     const workflow = yield* defineWorkflowModule({ name: Modules.STOCK_LOCATION, source: module.description, methods: {}, graph,
       logical: { capture: () => Effect.fail(commerceError("unadmittedEvent")), validateLogicalCall, commands: [count] } });
     return { workflow, graph, count, commands: [count] };

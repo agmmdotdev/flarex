@@ -96,7 +96,7 @@ export function prepareCartPaymentRead(metadata: Effect.Success<ReturnType<typeo
     const descriptorsByModel = new Map([...relations].map(([table, members]) => [table, new Map([...members].map(([name, relation]) =>
       [name, { relationship: { targetModel: relation.targetTable } }] as const))]));
     const leaf: ProjectionPolicy = { keys: "retain", storageKeys: "last", joinKeys: "retain", incomingKeys: true,
-      allowWildcard: true, allowBareRelations: true, selectableRelations: [], nested: new Map() };
+      allowWildcard: true, allowBareRelations: true, ignoreUnknownScalarFields: true, selectableRelations: [], nested: new Map() };
     const jsonFields = (table: string) => byName.get(table)?.table.columns.filter(column => column.type === "json").map(column => column.name) ?? [];
     const scalarProjection = (table: string): ProjectionPolicy => ({ ...leaf, jsonScalarFields: jsonFields(table) });
     const children = (table: string, tax: string, adjustment: string): ProjectionPolicy => ({ ...scalarProjection(table),

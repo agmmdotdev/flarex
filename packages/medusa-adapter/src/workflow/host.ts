@@ -276,6 +276,12 @@ export const prepareWorkflowComposition = Effect.fn("Workflow.prepareComposition
     identities.push({ name: member.name, module: member.module.name, profile: definition.source.profile, methods: methodIdentities,
       ...(member.expose === false ? { expose: false } : {}),
       graph: member.graph ? { aliases: definition.graph.aliases, reads: graphIdentities,
+        // Bind the complete native metadata through the existing bounded
+        // canonical digest. Repeating endpoint declarations in every Link's
+        // outer resource frame must not consume its whole 64 KiB budget.
+        ...(definition.graph.native === undefined ? {} : { native: {
+          digest: yield* captureWorkflowResourceDigest(definition.graph.native.identity),
+        } }),
         ...(definition.graph.remotePaths === undefined ? {} : { remotePaths: definition.graph.remotePaths }),
         ...(definition.graph.linkEndpoints === undefined ? {} : { linkEndpoints: definition.graph.linkEndpoints }),
         ...(definition.graph.directPaths === undefined ? {} : { directPaths: definition.graph.directPaths }),

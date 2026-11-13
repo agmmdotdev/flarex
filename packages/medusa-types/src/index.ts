@@ -12,6 +12,7 @@ export { EntityIndex } from "./dml/index";
 export * as EventBusTypes from "./event-bus/index";
 export { ExtractEntityRelations } from "./dml/index";
 export { FilterQuery } from "./dal/utils";
+export type { OperatorMap } from "./dal/utils";
 export { FindConfig } from "./common/common";
 export { FindOptions } from "./dal/index";
 export { IBigNumber } from "./totals/big-number";
@@ -69,6 +70,8 @@ export { BatchWorkflowInput, BatchWorkflowOutput, LinkWorkflowInput } from "./co
 export * as ProductCategoryWorkflow from "./workflow/product-category";
 export { ILinkModule } from "./link-modules/service";
 export { JoinerRelationship } from "./joiner/index";
+export type { ComputedJoinerRelationship, ExecutionStage, InternalJoinerServiceConfig, JoinerArgument, JoinerServiceConfig,
+  RemoteExpandProperty, RemoteJoinerOptions, RemoteJoinerQuery, RemoteNestedExpands } from "./joiner/index";
 export { LoadedModule, LinkDefinition, ModuleJoinerRelationship } from "./modules-sdk/index";
 export * as PricingTypes from "./pricing/index";
 export * from "./pricing/index";
@@ -97,6 +100,9 @@ export * as RegionTypes from "./region/index";
 export * from "./region/index";
 export * from "./fulfillment/index";
 export { RemoteQueryFunction } from "./modules-sdk/remote-query";
+export type { GraphResultSet, RemoteQueryFunctionReturnPagination } from "./modules-sdk/remote-query";
+export type { RemoteQueryGraph, RemoteQueryInput } from "./modules-sdk/remote-query-object-from-string";
+export type { RemoteQueryFilters } from "./modules-sdk/to-remote-query";
 export type { RemoteQueryObjectConfig, RemoteQueryObjectFromStringResult } from "./modules-sdk/remote-query-object-from-string";
 
 export type { CartDTO, CartLineItemDTO, LineItemAdjustmentDTO, LineItemTaxLineDTO } from "./cart/common";

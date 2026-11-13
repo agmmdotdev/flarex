@@ -20,7 +20,6 @@ it("derives real owning Address paths and every selected native total", async ()
   const cart = graph?.reads.find(read => read.model === "Cart");
   expect(cart?.paths.map(path => path.path)).toEqual(expect.arrayContaining(["shipping_address", "billing_address", "items", "credit_lines"]));
   expect(cart?.table.columns).toEqual(expect.arrayContaining(cartTotalsFields().flatMap(field => [field, "raw_" + field])));
-  expect(cart?.selectedFieldsOnly).toBeUndefined();
   expect(cart?.nativeFields).toBe(true);
   expect(graph?.reads.some(read => read.model === "LineItem" && read.table.name === "cart_line_item")).toBe(true);
   const config = { select: ["total", "raw_total", "subtotal", "raw_subtotal", "shipping_address.id", "billing_address.id"],

@@ -8,6 +8,7 @@ export type { GraphPresentation } from "./presentation";
 import type { GraphReadCommand } from "./commands";
 import type { GraphRemotePath, GraphLinkEndpoint } from "./links";
 import type { GraphDirectPath } from "./direct-paths";
+import type { NativeGraphMetadata } from "./native-metadata";
 export type { GraphRemotePath, GraphRemotePathSelection } from "./links";
 
 export interface GraphRelationPath {
@@ -46,9 +47,6 @@ interface GraphReadMetadata {
   /** Explicit module-owned OR grammar; the read command still decodes its
    * admitted selector shape and bounds. Other operators remain unavailable. */
   readonly allowOrFilters?: true;
-  /** Fetch and authenticate numeric companions, then return exactly the native
-   * requested fields. Existing profiles retain companion projection. */
-  readonly selectedFieldsOnly?: true;
   /** Selected native Query profiles retain their actual hydration join keys. */
   readonly nativeFields?: true;
   /** Explicit nonpersistent presentation names. Missing values stay omitted;
@@ -66,6 +64,7 @@ export type GraphReadDefinition = GraphReadMetadata & ({
 });
 
 export interface GraphModuleDefinition {
+  readonly native?: NativeGraphMetadata;
   readonly aliases: readonly { readonly name: string; readonly model: string }[];
   /** Native Link service identities are distinct from public entity aliases. */
   readonly services?: readonly { readonly name: string; readonly model: string }[];
@@ -82,12 +81,9 @@ export type LocalGraphResult = {
 
 /** Explicit per-transaction instance; several module sets can coexist. */
 export interface LocalGraphQuery {
+  readonly remoteQuery: (input: unknown, options?: unknown) => Effect.Effect<unknown, CommerceTransactionError>;
+  readonly nativeGraph: (input: unknown, options?: unknown) => Effect.Effect<unknown, CommerceTransactionError>;
   readonly graph: (input: unknown, options?: unknown) => Effect.Effect<LocalGraphResult, CommerceTransactionError>;
-  readonly service: (input: unknown) => Effect.Effect<LocalGraphResult, CommerceTransactionError>;
-  /** Callable RemoteQuery retains the native join fields used by its plan. */
-  readonly native: (input: unknown) => Effect.Effect<LocalGraphResult, CommerceTransactionError>;
-  /** Count-free selected native list ABI; pagination and remote joins refuse. */
-  readonly list: (input: unknown) => Effect.Effect<readonly JsonObject[], CommerceTransactionError>;
 }
 export interface PreparedLocalGraph {
   readonly entities: readonly string[];

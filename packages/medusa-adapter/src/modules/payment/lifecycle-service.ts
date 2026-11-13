@@ -1,3 +1,4 @@
+import { withNativeGraphMetadata } from "../../local-graph/native-metadata";
 import { Effect, Result, Schema } from "effect";
 import type { Logger } from "@medusajs/framework/types";
 import { AccountHolder, Capture, Payment, PaymentCollection, PaymentSession, Refund, RefundReason } from "@medusajs/payment/models";
@@ -151,23 +152,23 @@ export const makePaymentLifecycleCommands = Effect.fn("PaymentAdapter.lifecycleC
       ["PaymentCollection", prepared.contracts.collection, collectionCount, ["payment_sessions", "payments", "payments.captures", "payments.refunds"]],
       ["RefundReason", prepared.contracts.reason, reasonCount, []],
       ["AccountHolder", prepared.contracts.holder, holderCount, []],
-    ] as const) graphReads.push({ model, command, table: yield* prepared.catalog.table(table.name), paths: yield* relationPaths(prepared.catalog, table.name, paths),
-      selectedFieldsOnly: true, orderable: ["id"], uniqueOrder: ["id"], multipleOrder: false, decode: decodeGraphCount });
+    ] as const) graphReads.push({ model, command, table: yield* prepared.catalog.table(table.name), paths: yield* relationPaths(prepared.catalog, table.name, paths, { nativeFields: true }),
+      orderable: ["id"], uniqueOrder: ["id"], multipleOrder: false, decode: decodeGraphCount });
     const admitted = [authorize, capture, refund, cancel, retrieve, session, count, sessionCount, collectionCount, reasonCount,
       creates, updates, upserts, deletes, collections, sessionCreate, sessionDelete, sessions, holderCreate, holderDelete, holderCount];
     const workflow = yield* defineWorkflowModule({ name: Modules.PAYMENT, source: module.description,
       methods: { authorizePaymentSession, capturePayment, refundPayment, cancelPayment, retrievePayment, retrievePaymentSession,
         createPaymentCollections, updatePaymentCollections, upsertPaymentCollections, deletePaymentCollections, listPaymentCollections,
         createPaymentSession, deletePaymentSession, listPaymentSessions, createAccountHolder, deleteAccountHolder },
-      graph: { aliases: aliases.filter(alias => graphReads.some(read => read.model === alias.model)), reads: graphReads }, logical: { ...policy, commands: admitted } });
+      graph: yield* withNativeGraphMetadata({ aliases: aliases.filter(alias => graphReads.some(read => read.model === alias.model)), reads: graphReads }, [PaymentModuleService.prototype.__joinerConfig()], metadata.frame.tables), logical: { ...policy, commands: admitted } });
     const cartCollectionWorkflow = yield* defineWorkflowModule({ name: Modules.PAYMENT,
       source: { ...module.description, profile: "payment.cart-collection-lifecycle" },
       methods: { createPaymentCollections, updatePaymentCollections, upsertPaymentCollections, deletePaymentCollections, listPaymentCollections,
         createPaymentSession, deletePaymentSession, listPaymentSessions },
-      graph: { aliases: aliases.filter(alias => graphReads.some(read => read.model !== "AccountHolder" && read.model === alias.model)), reads: graphReads.filter(read => read.model !== "AccountHolder"),
+      graph: yield* withNativeGraphMetadata({ aliases: aliases.filter(alias => graphReads.some(read => read.model !== "AccountHolder" && read.model === alias.model)), reads: graphReads.filter(read => read.model !== "AccountHolder"),
         directPaths: [yield* localGraphDirectPath(prepared.catalog, prepared.contracts.collection.name, "PaymentCollection", "PaymentSession", "payment_sessions", {
           root: "Cart", path: "payment_collection.payment_sessions", maximumSources: 4, maximumTargets: 4, maximumPerSource: 4,
-        })] }, logical: { ...policy, commands: admitted.filter(command => command !== holderCreate && command !== holderDelete && command !== holderCount) } });
+        })] }, [PaymentModuleService.prototype.__joinerConfig()], metadata.frame.tables), logical: { ...policy, commands: admitted.filter(command => command !== holderCreate && command !== holderDelete && command !== holderCount) } });
     return { cartCollectionWorkflow, authorize, capture, refund, cancel, retrieve, session, count, sessionCount, collectionCount, reasonCount,
       creates, updates, upserts, deletes, collections, sessionCreate, sessionDelete, sessions, commands: admitted,
       workflow, loggerResource: yield* paymentWorkflowLogger(logger), withService: module.use, contracts: prepared.contracts, prepared, logicalEventPolicy: () => policy };

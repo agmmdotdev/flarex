@@ -94,7 +94,7 @@ export function prepareCartShippingRead(metadata: Metadata) {
     const catalog = yield* makeReadCatalog(entities.map(({ table }) => ({ name: table.name, columns: table.columns.map(column => column.name),
       primaryKeys: ["id"], foreignKeys: table.foreignKeys.flatMap(key => key.columns), nullableColumns: table.columns.filter(column => column.nullable).map(column => column.name), companions: {} })), relations);
     const leaf: ProjectionPolicy = { keys: "selected", storageKeys: "last", joinKeys: "storage", allowWildcard: true,
-      allowBareRelations: true, selectableRelations: [], nested: new Map() };
+      allowBareRelations: true, ignoreUnknownScalarFields: true, selectableRelations: [], nested: new Map() };
     const policy = (table: string, allowed: readonly string[]): ProjectionPolicy => {
       const names = [...new Set(allowed.map(path => path.split(".")[0]!))];
       return { ...leaf, allowedPaths: allowed, selectableRelations: names, nested: new Map(names.map(name => [name,

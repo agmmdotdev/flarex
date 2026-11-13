@@ -27,7 +27,7 @@ describe("shared workflow graph step", () => {
     const query: WorkflowGraphResource = { maxPageSize: 256, graph };
     const supplied = { ...input, options: { isList: false as const } };
     expect(await execute(query, supplied)).toEqual({ data: { id: "v", thumbnail: null }, metadata: result.metadata });
-    expect(graph.mock.calls).toEqual([[{ ...input, pagination: { take: 256 } }]]);
+    expect(graph.mock.calls).toEqual([[{ ...input, pagination: { take: 256, skip: 0 } }]]);
     expect(supplied).toEqual({ ...input, options: { isList: false } });
     expect(result.data).toEqual([{ id: "v", thumbnail: null }]);
     expect(await execute(query, input)).toEqual(result);
@@ -52,24 +52,22 @@ describe("shared workflow graph step", () => {
     const supplied = { ...input, options: { cache: { enable: true as const } } }, before = structuredClone(supplied);
     expect(await execute(query, supplied)).toEqual(result);
     expect(await execute(query, supplied)).toEqual(result);
-    expect(graph.mock.calls).toEqual(Array.from({ length: 2 }, () => [{ ...input, pagination: { take: 256 } }, { cache: { enable: true } }]));
+    expect(graph.mock.calls).toEqual(Array.from({ length: 2 }, () => [{ ...input, pagination: { take: 256, skip: 0 } }, { cache: { enable: true } }]));
     expect(supplied).toEqual(before);
     expect(await execute(query, { ...supplied, options: { ...supplied.options, isList: false } })).toEqual({
       data: result.data[0], metadata: result.metadata,
     });
-    expect(graph.mock.calls[2]).toEqual([{ ...input, pagination: { take: 256 } }, { cache: { enable: true } }]);
+    expect(graph.mock.calls[2]).toEqual([{ ...input, pagination: { take: 256, skip: 0 } }, { cache: { enable: true } }]);
     expect(await execute(query, input)).toEqual(result);
-    expect(graph.mock.calls[3]).toEqual([{ ...input, pagination: { take: 256 } }]);
+    expect(graph.mock.calls[3]).toEqual([{ ...input, pagination: { take: 256, skip: 0 } }]);
   });
 
   it("refuses extra graph options before query dispatch", async () => {
     let calls = 0;
     const query: WorkflowGraphResource = { maxPageSize: 256, graph: async () => { calls++; throw new Error("Unexpected dispatch"); } };
-    for (const config of [{ ...input, options: { isList: false, throwIfKeyNotFound: true } },
-      { ...input, context: {} }, { ...input, options: { cache: true } },
+    for (const config of [{ ...input, options: { cache: true } },
       { ...input, options: { cache: { enable: false } } }, { ...input, options: { cache: {} } },
       { ...input, options: { cache: { enable: true, ttl: 10 } } },
-      { ...input, options: { cache: { enable: true }, throwIfKeyNotFound: true } },
       { ...input, pagination: { take: 1, cursor: "x" } }]) {
       // @ts-expect-error Malformed foreign options deliberately exercise runtime rejection.
       await expect(execute(query, config)).rejects.toThrow();

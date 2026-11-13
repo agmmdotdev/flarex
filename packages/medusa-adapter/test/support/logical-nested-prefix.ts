@@ -1,6 +1,9 @@
 import { Effect, Result, Schema } from "effect";
 import { expect } from "vitest";
 import { CartProduct, ProductShippingProfile } from "@medusajs/link-modules";
+import { cartStaticResources } from "@medusajs/cart/static-manifest";
+import { FulfillmentModuleService } from "@medusajs/fulfillment/services";
+import { joinerConfig as productJoiner } from "@medusajs/product/joiner-config";
 import { captureLogicalSchemaSource } from "@flarex/analysis/internal/logical-schema-candidate";
 import { normalizeRelationalSchema } from "flarex-protocol/internal/relational-schema";
 import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant, type AtomicCommerceParticipantInput } from "@flarex/persistence-postgres/internal/commerce-adapter";
@@ -13,12 +16,15 @@ import { nativeLinkGraphDirectPaths } from "../../src/local-graph/direct-paths";
 import { nativeLinkGraphPaths } from "../../src/local-graph/links";
 import { defineGraphReadCommand, type GraphReadCommand } from "../../src/local-graph/commands";
 import { prepareLocalGraph, decodeGraphCount } from "../../src/local-graph/query";
-import { planGraphFields } from "../../src/local-graph/fields";
+import { withNativeGraphMetadata } from "../../src/local-graph/native-metadata";
 import type { GraphParticipant, GraphReadDefinition } from "../../src/local-graph/model";
 import { lowerDmlSchema } from "../../src/schema/lower";
 import type { SchemaTable } from "../../src/schema/model";
 import { makeReadCatalog, type ReadTable } from "../../src/query/catalog";
 import { executeRead, type ReadPlan } from "../../src/query/read";
+import { compileProjection, type ProjectionPolicy } from "../../src/query/projection";
+import { compileWhere } from "../../src/query/predicate";
+import { commerceDecoder } from "../../src/value/decoder";
 import type { CommerceRelations } from "../../src/query/relations";
 
 const bounds = { maximumSources: 4, maximumTargets: 4, maximumPerSource: 1 };
@@ -51,7 +57,7 @@ const readTable = (table: SchemaTable): ReadTable => ({ name: table.name, column
   nullableColumns: table.columns.filter(column => column.nullable).map(column => column.name), companions: {} });
 const request = Schema.decodeUnknownEffect(Schema.Struct({ filters: Schema.Record(Schema.String, Schema.Array(Schema.String)),
   config: Schema.Struct({ select: Schema.Array(Schema.String), relations: Schema.Array(Schema.String),
-    order: Schema.Record(Schema.String, Schema.Literal("ASC")), skip: Schema.Literal(0), take: Schema.Number }) }));
+    order: Schema.optionalKey(Schema.Record(Schema.String, Schema.Literal("ASC"))), skip: Schema.Literal(0), take: Schema.Number }) }));
 
 /** Neutral read commands use the actual shared query/population owner over
  * real source storage. The test supplies no row attachment or SQL substitute. */
@@ -75,12 +81,20 @@ export function nestedPrefixModules() {
       const command: GraphReadCommand = defineGraphReadCommand("nestedRead" + model, (ctx, input) => Effect.gen(function* () {
         activity.reads++;
         const value = yield* request(input).pipe(Effect.mapError(cause => commerceError("invalidInput", cause)));
-        const selected = yield* Effect.fromResult(planGraphFields({ ...metadata, command }, [...value.config.select,
-          ...value.config.relations.map(path => path + ".*")]));
+        const leaf: ProjectionPolicy = { keys: "retain", storageKeys: "last", joinKeys: "retain", allowWildcard: true,
+          selectableRelations: [], nested: new Map() };
+        const local = paths.map(path => path.path);
+        const projection = yield* Effect.fromResult(compileProjection(catalog, table.name, value.config.select, value.config.relations,
+          { ...leaf, allowedPaths: local, selectableRelations: local, nested: new Map(local.map(path => [path, leaf])) }));
+        const predicate = yield* Effect.fromResult(compileWhere(value.filters, {
+          decode: commerceDecoder(Schema.Record(Schema.String, Schema.Array(Schema.String)), "unsupportedProfile"),
+          fields: new Map(table.columns.map(column => [column.name, { column: column.name,
+            decode: commerceDecoder(Schema.Array(Schema.String), "unsupportedProfile") }])),
+        }));
         const plan: ReadPlan = { table: table.name, query: { skip: 0, take: value.config.take,
+          fields: projection.storageFields,
           order: { column: "id", direction: "asc" }, predicate: { kind: "and", children: [
-            ...Object.entries(value.filters).map(([column, values]) => ({ kind: "in", column, values })), { kind: "isNull", column: "deleted_at" }] } },
-          projection: { storageFields: table.columns.map(column => column.name), node: selected.node },
+            predicate, { kind: "isNull", column: "deleted_at" }] } }, projection,
           paths: value.config.relations, withDeleted: false, relationFilters: [], ordering: new Map(), window: { kind: "database", countAt: "beforePopulation" } };
         const result = yield* executeRead(ctx, catalog, plan, true);
         if (result.count === undefined) return yield* ctx.refuse(commerceError("storedCorruption"));
@@ -88,8 +102,17 @@ export function nestedPrefixModules() {
       }));
       return { ...metadata, command };
     });
-    return { ...group, participant, activity, graph: { aliases: reads.map(read => ({ name: read.table.name, model: read.model })), reads,
-      ...(group.name === "cart" ? { directPaths: nativeVariant } : {}), ...(group.name === "link" ? { remotePaths: nativeShipping } : {}) } };
+    const cartJoiner = cartStaticResources.joinerConfig;
+    if (cartJoiner === undefined) throw new Error("Missing genuine Cart joiner configuration");
+    const configs = group.name === "cart" ? [cartJoiner, CartProduct]
+      : group.name === "product" ? [productJoiner] : group.name === "fulfillment" ? [FulfillmentModuleService.prototype.__joinerConfig()] : [ProductShippingProfile];
+    const relationships = group.tables.map(table => ({ name: table.name, relationships: table === cart
+      ? [{ name: "items", type: "hasMany" as const, targetModel: "LineItem", targetTable: item.name, nullable: false, cascadeDelete: false, cascadeDetach: false }]
+      : table === variant ? [{ name: "product", type: "belongsTo" as const, targetModel: "Product", targetTable: product.name,
+        nullable: false, cascadeDelete: false, cascadeDetach: false, foreignKeyNames: ["product_id"] }] : [] }));
+    const graph = Result.getOrThrow(withNativeGraphMetadata({ aliases: reads.map(read => ({ name: read.table.name, model: read.model })), reads,
+      ...(group.name === "cart" ? { directPaths: nativeVariant } : {}), ...(group.name === "link" ? { remotePaths: nativeShipping } : {}) }, configs, relationships));
+    return { ...group, participant, activity, graph };
   });
 }
 

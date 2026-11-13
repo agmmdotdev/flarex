@@ -20,7 +20,7 @@ import { decodeGraphCount } from "../local-graph/query";
 import { prepareScalarRepository } from "./scalar";
 import { ScalarIdRead, scalarIdWhere } from "./scalar-id-read";
 import { deniedCommerceRepository } from "./denied";
-import { projectNativeRow } from "./result";
+import { orderNativeIdRows, projectNativeRow } from "./result";
 import type { LogicalCallReceiptValidation } from "./call-receipt";
 
 const decodeInput = commerceDecoder(ScalarIdRead, "invalidInput");
@@ -34,20 +34,27 @@ const decodeQuery = commerceDecoder(Schema.Struct({ where: Schema.JsonObject, op
  * Existing query/population owners perform the reads. Receipts use the same
  * plans and complete observed rows; no database or settlement capability escapes. */
 export function prepareIdReadRepository(root: SchemaTable, model: string, tables: readonly SchemaTable[],
-  relations: CommerceRelations, defaultRelations: readonly string[], commandName: string) {
+  relations: CommerceRelations, defaultRelations: readonly string[], commandName: string,
+  nativePopulation?: { readonly hasManyPaths: readonly string[]; readonly decodeRead: typeof decodeInput;
+    readonly ignoreUnknownScalarFields?: true;
+    readonly presentRow?: (row: JsonObject, table: string) => Effect.Effect<Json, CommerceTransactionError> }) {
   return Result.gen(function* () {
     const entities = yield* Result.all(tables.map(table => compileCompleteRow(table).pipe(Result.map(complete => ({ table, complete })))));
     const byName = new Map(entities.map(entity => [entity.table.name, entity]));
     const members = relations.get(root.name) ?? new Map();
+    const hasMany = nativePopulation?.hasManyPaths ?? [];
     if (!byName.has(root.name) || defaultRelations.some(name => !members.has(name)) ||
-      [...members.values()].some(relation => relation.join.type !== "hasOne" || !byName.has(relation.targetTable)))
+      new Set(hasMany).size !== hasMany.length || hasMany.some(name => members.get(name)?.join.type !== "hasMany") ||
+      [...members.values()].some(relation => (relation.join.type !== "hasOne" &&
+        !(relation.join.type === "hasMany" && hasMany.includes(relation.name))) || !byName.has(relation.targetTable)))
       return yield* Result.fail(commerceError("unsupportedProfile"));
     const catalog = yield* makeReadCatalog(tables.map(table => ({ name: table.name,
       columns: table.columns.map(column => column.name), primaryKeys: ["id"],
       foreignKeys: table.foreignKeys.flatMap(key => key.columns),
       nullableColumns: table.columns.filter(column => column.nullable).map(column => column.name),
       companions: Object.fromEntries(table.columns.filter(column => column.type === "bigNumber").map(column => [column.name, "raw_" + column.name])) })), relations);
-    const leaf: ProjectionPolicy = { keys: "selected", storageKeys: "last", joinKeys: "storage", selectableRelations: [], nested: new Map() };
+    const leaf: ProjectionPolicy = { keys: "selected", storageKeys: "last", joinKeys: "storage", selectableRelations: [], nested: new Map(),
+      ...(nativePopulation?.ignoreUnknownScalarFields === true ? { ignoreUnknownScalarFields: true } : {}) };
     const projection = { ...leaf, selectableRelations: [...members.keys()], nested: new Map([...members.keys()].map(name => [name, leaf])) };
     const query = (input: unknown) => Result.gen(function* () {
       const value = yield* decodeQuery(input), paths = value.options.populate;
@@ -71,7 +78,9 @@ export function prepareIdReadRepository(root: SchemaTable, model: string, tables
           if (child === undefined) return yield* Effect.fail(commerceError("storedCorruption"));
           nested[relation.name] = child === null ? null : yield* present(child, relation.targetTable);
         }
-        const projected = yield* projectExactNumericColumns(row, entity.table.columns.filter(column => column.type === "bigNumber"), "reserialize");
+        const projected = yield* nativePopulation?.presentRow === undefined
+          ? projectExactNumericColumns(row, entity.table.columns.filter(column => column.type === "bigNumber"), "reserialize")
+          : nativePopulation.presentRow(row, table);
         if (!isJsonObject(projected)) return yield* Effect.fail(commerceError("storedCorruption"));
         rows.push({ ...projected, ...nested });
       }
@@ -104,33 +113,38 @@ export function prepareIdReadRepository(root: SchemaTable, model: string, tables
       const mismatch = () => commerceError("receiptMismatch");
       if (call.commandName !== commandName || call.mode !== "read" || call.events.length || activity.mutations.length ||
         activity.lifecycle.length || activity.setNull.length || activity.referenceReplacements.length) return yield* Effect.fail(mismatch());
-      const input = yield* Effect.fromResult(decodeInput(call.input));
+      const input = yield* Effect.fromResult((nativePopulation?.decodeRead ?? decodeInput)(call.input));
       const { select, ...configuration } = input.config ?? {};
-      const config = { ...configuration, ...(select === undefined ? {} : { select: [...select] }), relations: [...defaultRelations] };
+      const config = { ...configuration, ...(select === undefined ? {} : { select: [...select] }),
+        relations: [...(nativePopulation === undefined ? defaultRelations : input.config?.relations ?? defaultRelations)] };
       const plan = yield* Effect.fromResult(captureCommerceInput(buildQuery(input.filters, config)).pipe(Result.flatMap(query)));
-      const state = new Map<string, JsonObject[]>();
+      const state = new Map<string, Array<JsonObject & { id: string }>>();
       for (const observation of activity.observedRows) {
         const entity = byName.get(observation.table);
         if (entity === undefined) return yield* Effect.fail(mismatch());
         const row = yield* Effect.fromResult(entity.complete(projectNativeRow(observation.row)));
+        if (typeof row.id !== "string") return yield* Effect.fail(mismatch());
         const rows = state.get(observation.table) ?? [];
         if (rows.some(prior => prior.id === row.id)) return yield* Effect.fail(mismatch());
-        rows.push(row); state.set(observation.table, rows);
+        rows.push({ ...row, id: row.id }); state.set(observation.table, rows);
       }
       const ids = input.filters?.id, requested = typeof ids === "string" ? [ids] : ids;
-      const roots = orderedCatalog("asc")((state.get(root.name) ?? []).filter(row => row.deleted_at === null &&
-        (requested === undefined || typeof row.id === "string" && requested.includes(row.id)))).rows;
+      // Observations retain dependency encounter order. The actual complete-set
+      // reads above order by ID, including each populated has-many selection.
+      const roots = orderNativeIdRows((state.get(root.name) ?? []).filter(row => row.deleted_at === null &&
+        (requested === undefined || requested.includes(row.id))), {});
       if (roots.length > 4) return yield* Effect.fail(mismatch());
       const selected = new Map<string, readonly JsonObject[]>([[root.name, roots]]);
       const reads = [{ table: root.name, query: commerceRelationReadQuery(defaultCommerceResources, plan.query.predicate), total: roots.length, returned: roots.length }];
       for (const name of plan.paths) {
         const relation = members.get(name);
-        if (relation === undefined || relation.join.type !== "hasOne") return yield* Effect.fail(mismatch());
+        if (relation === undefined || (relation.join.type !== "hasOne" &&
+          !(relation.join.type === "hasMany" && hasMany.includes(name)))) return yield* Effect.fail(mismatch());
         const population = yield* Effect.fromResult(prepareCommerceRelationPopulation(relation.join.foreignKeys, roots, relation.sourcePrimaryKeys, true, false));
-        const rows = Option.isNone(population) ? [] : orderedCatalog("asc")((state.get(relation.targetTable) ?? []).filter(row => {
+        const rows = Option.isNone(population) ? [] : orderNativeIdRows((state.get(relation.targetTable) ?? []).filter(row => {
           const value = row[population.value.column];
           return row.deleted_at === null && typeof value === "string" && population.value.values.includes(value);
-        })).rows;
+        }), {});
         if (rows.length > 4) return yield* Effect.fail(mismatch());
         if (Option.isSome(population)) reads.push({ table: relation.targetTable,
           query: commerceRelationReadQuery(defaultCommerceResources, population.value.predicate), total: rows.length, returned: rows.length });

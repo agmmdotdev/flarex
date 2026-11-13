@@ -4,6 +4,20 @@ import { storeCartHttpSourcePairs, verifyStoreCartHttpSelection, verifyStoreCart
 import { admitsCurrencyImport } from "./check-medusa-currency-promotion.mjs";
 
 describe("native Store Cart HTTP source preservation", () => {
+  it("confines the Category native list ABI proof to its authenticated producer", () => {
+    const file = "packages/medusa-adapter/test/product-request-category-reads.test.ts";
+    const specifier = "../../medusa-framework/src/http/utils/get-query-config";
+    const target = "packages/medusa-framework/src/http/utils/get-query-config.ts";
+    const source = "third_party/medusa/upstream/packages/core/framework/src/http/utils/get-query-config.ts";
+    const promotion = { sourceCommit: "test", files: [{ target: file, classification: "authored", targetSha256: "test" },
+      { target, source, classification: "frameworkHttpFork", targetSha256: "test", sourceSha256: "test" }],
+      packages: [], buildFiles: [], testAliases: [] };
+    expect(admitsCurrencyImport(promotion, file, specifier)).toBe(true);
+    expect(admitsCurrencyImport(promotion, file.replace("category-reads", "category-adjacent"), specifier)).toBe(false);
+    expect(admitsCurrencyImport(promotion, file, specifier + "/adjacent")).toBe(false);
+    expect(admitsCurrencyImport({ ...promotion, files: promotion.files.filter(entry => entry.target !== target) }, file, specifier)).toBe(false);
+    expect(admitsCurrencyImport({ ...promotion, files: promotion.files.map(entry => entry.target === target ? { ...entry, source: source + ".adjacent" } : entry) }, file, specifier)).toBe(false);
+  });
   it("confines the default-projection preflight to its two authenticated native references", () => {
     const file = "packages/medusa-adapter/test/store-cart-projection.test.ts";
     const references = [
@@ -57,6 +71,16 @@ describe("native Store Cart HTTP source preservation", () => {
       ["store/shipping-options/route.ts", "is_return: !!is_return", "is_return: false"],
       ["store/shipping-options/query-config.ts", "defaultLimit: 20", "defaultLimit: 200"],
       ["store/shipping-options/validators.ts", "cart_id: z.string()", "cart_id: z.string().optional()"],
+      ["store/payment-collections/route.ts", "if (!paymentCollection)", "if (paymentCollection)"],
+      ["store/payment-collections/route.ts", '"create-payment-collection-for-cart"', '"refresh-payment-collection-for-cart"'],
+      ["store/payment-collections/route.ts", "`payment_collection.${f}`", "`${f}`"],
+      ["store/payment-collections/[id]/payment-sessions/route.ts", '"create-payment-sessions"', '"delete-payment-sessions"'],
+      ["store/payment-collections/[id]/payment-sessions/route.ts", "customer_id: req.auth_context?.actor_id", "customer_id: req.body.customer_id"],
+      ["store/payment-collections/[id]/payment-sessions/route.ts", "await workflowEngine.run(createPaymentSessionsWorkflowId, {", "await createPaymentSessionsWorkflow(req.scope).run({"],
+      ["store/payment-collections/helpers.ts", 'entity: "payment_collection"', 'entity: "cart"'],
+      ["store/payment-collections/query-config.ts", '"*payment_sessions"', '"payment_sessions.id"'],
+      ["store/payment-collections/middlewares.ts", "validateAndTransformBody(StoreCreatePaymentSession)", "validateAndTransformBody(StoreCreatePaymentCollection)"],
+      ["store/payment-collections/validators.ts", ".strict()", ".passthrough()"],
       ["store/carts/query-config.ts", '"item_total"', '"unsupported_total"'],
       ["store/carts/validators.ts", ".gt(0)", ".gte(0)"],
       ["store/carts/validators.ts", ".gte(0)", ".gt(0)"],

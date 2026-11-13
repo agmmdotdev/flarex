@@ -1,13 +1,13 @@
 import { Cause, Effect, Schema } from "effect";
 import { asValue, createContainer } from "@medusajs/deps/awilix-portable";
 import { createStoreProductHttpHandler, type StoreProductHttpOptions } from "@flarex/medusa-http/store-product";
-import { describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { PricingModuleService } from "@medusajs/pricing/services";
 import { VariantItemPricingCalculationOutput } from "../src/modules/pricing/calculation";
 import { ExactNumericRaw } from "../src/value/exact-numeric";
 import { shareCoreNativeWorkflowPhysical } from "./support/core-native-workflow-fixture";
 import { makeStoreProductRequestScopeFactory, type StoreProductRequestReads } from "../src/http/store-product-request";
-import { prepareStoreProductRequestFixture, seedStoreProductRequestFixture } from "./support/store-product-request-fixture";
+import { prepareStoreProductRequestFixture, seedStoreProductRequestFixture, type StoreProductRequestFixture } from "./support/store-product-request-fixture";
 import { storeProductToken, storeProductMultiToken, storeProductEmptyToken, storeProductLogger } from "./support/store-product-request-catalog";
 import { storeRequestReadRevokedToken, storeRequestReadSecretToken } from "./support/store-request-read-catalog";
 
@@ -41,10 +41,16 @@ const calculated = (product: Schema.Schema.Type<typeof Schema.JsonObject>) => ob
 const pricingFields = "id,title,variants.id,variants.manage_inventory,variants.calculated_price,variants.price_set.id,variants.prices.id,variants.prices.amount";
 
 describe(`native Store Product HTTP (${driver})`, () => {
-  it("serves complete native defaults, published channel scope, categories, pagination and key refusals without durable writes", async () => {
-    const tested = await prepareStoreProductRequestFixture(driver);
-    try {
-      await seedStoreProductRequestFixture(tested);
+  describe("native default projection and scoped reads", () => {
+    let prepared: StoreProductRequestFixture | undefined;
+    beforeAll(async () => {
+      prepared = await prepareStoreProductRequestFixture(driver);
+      await seedStoreProductRequestFixture(prepared);
+    }, 600_000);
+    afterAll(async () => { await prepared?.fixture.close(); }, 60_000);
+    it("serves complete native defaults, published channel scope, categories, pagination and key refusals without durable writes", async () => {
+      const tested = prepared;
+      if (tested === undefined) throw new Error("Missing prepared Store Product fixture");
       const before = await tested.fixture.inventory();
       await tested.use(reads => Effect.gen(function* () {
         const http = yield* makeHttp(reads);
@@ -89,7 +95,7 @@ describe(`native Store Product HTTP (${driver})`, () => {
         });
       }));
       expect(await tested.fixture.inventory()).toEqual(before);
-    } finally { await tested.fixture.close(); }
+    });
   });
 
   it("calculates native base, sale, override, null, customer, tax and channel inventory contexts with complete read-only evidence", async () => {

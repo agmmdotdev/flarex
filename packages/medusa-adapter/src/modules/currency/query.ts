@@ -16,10 +16,15 @@ const decodeOptions = commerceDecoder(Schema.Struct({
   filters: Schema.optionalKey(Schema.Unknown),
 }), "unsupportedProfile");
 const decodePopulate = commerceDecoder(Schema.Tuple([]), "unsupportedProfile");
+// Native MikroORM ignores simple selection names absent from the model,
+// including Query's implicit `id`; only checked Currency columns reach storage.
+const ScalarField = Schema.String.check(Schema.isLengthBetween(1, 256), Schema.isPattern(/^[A-Za-z_][A-Za-z0-9_]*$/),
+  Schema.makeFilter(value => value !== "__proto__" && value !== "constructor" && value !== "prototype"));
 const decodeFieldArray = commerceDecoder(Schema.Array(Schema.Unknown).check(
-  Schema.isLengthBetween(1, currencyColumns.length),
+  Schema.isLengthBetween(1, currencyColumns.length + 1),
 ), "invalidInput");
-const decodeFields = commerceDecoder(Schema.Array(Schema.Literals(currencyColumns)).check(Schema.isUnique()), "unsupportedProfile");
+const decodeFields = commerceDecoder(Schema.Array(ScalarField).check(Schema.isUnique()), "unsupportedProfile");
+const isCurrencyColumn = Schema.is(Schema.Literals(currencyColumns));
 const decodeOffset = commerceDecoder(QueryOffset, "limitExceeded");
 const decodeLimit = commerceDecoder(QueryLimit, "limitExceeded");
 const orderColumns = ["code", "name", "symbol", "symbol_native", "decimal_digits", "rounding", "created_at", "updated_at", "deleted_at"] as const;
@@ -61,7 +66,7 @@ export function decodeCurrencyQuery(input: unknown): Result.Result<CurrencyQuery
     if (options.populate !== undefined) yield* decodePopulate(options.populate);
     const fields = options.fields === undefined
       ? [...currencyColumns]
-      : [...yield* decodeFields(yield* decodeFieldArray(options.fields))];
+      : (yield* decodeFields(yield* decodeFieldArray(options.fields))).filter(isCurrencyColumn);
     // Medusa's numeric projection includes its exact raw companion.
     if (fields.includes("rounding") && !fields.includes("raw_rounding")) fields.push("raw_rounding");
     const skip = yield* decodeOffset(options.offset ?? 0);

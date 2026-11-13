@@ -9,6 +9,11 @@
       "source": "./src/index.ts",
       "default": "./dist/index.js"
     },
+    "./joiner": {
+      "types": "./dist/joiner/index.d.ts",
+      "source": "./src/joiner/index.ts",
+      "default": "./dist/joiner/index.js"
+    },
     "./transaction": {
       "types": "./dist/transaction/index.d.ts",
       "source": "./src/transaction/index.ts",

@@ -28,7 +28,7 @@ describe("native Variant refetch RemoteQuery admission", () => {
         "inventory_items.required_quantity", "inventory_items.inventory.id",
         "inventory_items.inventory.location_levels.available_quantity", "product.collection.title"]]) {
       const selected = Result.getOrThrow(decodeProductVariantRemoteQuery(producer(fields), admit));
-      expect(selected.entity).toBe("variant");
+      expect(selected.entity).toBe("product_variant");
       expect(selected.args).toEqual({ filters: { id: "variant_remote" } });
       expect(new Set(selected.fields)).toEqual(new Set(fields));
     }
@@ -55,7 +55,7 @@ describe("native Variant refetch RemoteQuery admission", () => {
     expect(query).toEqual({ __value: { product_variant: { fields: ["id"], isServiceAccess: false,
       __args: { filters: { id: "variant_remote" } }, price_set: { prices: { fields: ["id", "id"] } } } } });
     expect(Result.isSuccess(admit(fields))).toBe(true);
-    expect(Result.getOrThrow(decodeProductVariantRemoteQuery(query, admit))).toEqual({ entity: "variant",
+    expect(Result.getOrThrow(decodeProductVariantRemoteQuery(query, admit))).toEqual({ entity: "product_variant",
       args: { filters: { id: "variant_remote" } }, fields });
   });
 

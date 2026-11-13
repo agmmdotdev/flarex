@@ -3,6 +3,11 @@
   "version": "2.13.4",
   "private": true,
   "exports": {
+    "./common/filter-operator-map": {
+      "types": "./dist/common/filter-operator-map.d.ts",
+      "source": "./src/common/filter-operator-map.ts",
+      "default": "./dist/common/filter-operator-map.js"
+    },
     "./common/is-email": {
       "types": "./dist/common/is-email.d.ts",
       "source": "./src/common/is-email.ts",

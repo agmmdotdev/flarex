@@ -10,6 +10,9 @@ const names = ["store/carts/route.ts", "store/carts/[id]/route.ts", "store/carts
   "store/carts/[id]/promotions/route.ts", "store/carts/[id]/taxes/route.ts",
   "store/carts/[id]/shipping-methods/route.ts", "store/shipping-options/route.ts", "store/shipping-options/validators.ts",
   "store/shipping-options/middlewares.ts", "store/shipping-options/query-config.ts",
+  "store/payment-collections/route.ts", "store/payment-collections/[id]/payment-sessions/route.ts",
+  "store/payment-collections/helpers.ts", "store/payment-collections/middlewares.ts",
+  "store/payment-collections/validators.ts", "store/payment-collections/query-config.ts",
   "store/carts/validators.ts", "store/carts/middlewares.ts", "utils/middlewares/common/ensure-pub-key-sales-channel-match.ts",
   "utils/middlewares/common/maybe-attach-pub-key-scopes.ts"];
 export const storeCartHttpSourcePairs = names.map(name => ({ source: sourceRoot + name, target: targetRoot + name,
@@ -43,7 +46,8 @@ const runtime = text => {
   return JSON.stringify([imports.map(canonical), body.map(canonical)]);
 };
 
-/** Selected native algorithms permit only type and import relocation.
+/** Selected native algorithms permit type/import relocation and the exact
+ * top-level Session workflow-engine invocation in place of a callback factory.
  * @param {string} native @param {string} promoted @param {string} target */
 export function verifyStoreCartHttpSource(native, promoted, target) {
   if (!storeCartHttpSourcePairs.some(pair => pair.target === target)) throw new Error("Unselected Store Cart source");
@@ -84,6 +88,19 @@ export function verifyStoreCartHttpSource(native, promoted, target) {
     if (declaration?.initializer === undefined || !ts.isArrayLiteralExpression(declaration.initializer)) throw new Error("Missing native Shipping Option middleware");
     expected = 'import { validateAndTransformQuery } from "@medusajs/framework/http"\nimport { listTransformQueryConfig } from "./query-config"\nimport { StoreGetShippingOptions } from "./validators"\n'
       + 'export const storeShippingOptionRoutesMiddlewares = [' + declaration.initializer.elements[0].getText(file) + ']';
+  } else if (name === "store/payment-collections/route.ts") {
+    expected = expected.replace('import { createPaymentCollectionForCartWorkflowId } from "@medusajs/core-flows"', "")
+      .replace(/import \{\s*ContainerRegistrationKeys,\s*remoteQueryObjectFromString,\s*\} from "@medusajs\/framework\/utils"/,
+        'import { ContainerRegistrationKeys } from "@medusajs/utils/common/container"\nimport { remoteQueryObjectFromString } from "@medusajs/utils/common/remote-query-object-from-string"')
+      .replace('from "@medusajs/utils"', 'from "@medusajs/utils/modules-sdk/definition"')
+      .replace("export const POST", 'const createPaymentCollectionForCartWorkflowId = "create-payment-collection-for-cart"\n\nexport const POST');
+  } else if (name === "store/payment-collections/[id]/payment-sessions/route.ts") {
+    expected = expected.replace('import { createPaymentSessionsWorkflow } from "@medusajs/core-flows"',
+      'import { Modules } from "@medusajs/utils/modules-sdk/definition"')
+      .replace("export const POST", 'const createPaymentSessionsWorkflowId = "create-payment-sessions"\n\nexport const POST')
+      .replace("  await createPaymentSessionsWorkflow(req.scope).run({", '  const workflowEngine = req.scope.resolve(Modules.WORKFLOW_ENGINE)\n  await workflowEngine.run(createPaymentSessionsWorkflowId, {');
+  } else if (name === "store/payment-collections/middlewares.ts") {
+    expected = expected.replace('from "@medusajs/framework"', 'from "@medusajs/framework/http"');
   }
   if (runtime(expected) !== runtime(promoted)) throw new Error("Changed native Store Cart behavior: " + target);
 }

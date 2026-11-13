@@ -1,5 +1,5 @@
 import { commerceModuleEventBus } from "../module/events";
-import { Effect, Schema } from "effect";
+import { Effect, Result, Schema } from "effect";
 import { LinkService, LinkOperationStore, getModuleService } from "@medusajs/link-modules";
 import { Link, type DeleteEntityInput } from "@medusajs/modules-sdk/link";
 import { Modules } from "@medusajs/framework/utils/portable";
@@ -17,6 +17,18 @@ import { captureCommerceInput } from "../value/input";
 import type { captureLinkOperationMetadata } from "./operation-schema";
 import { prepareLinkOperationRepository } from "./operation-repository";
 import { prepareLinkPreimageStorage } from "./preimage-storage";
+import { withNativeGraphMetadata } from "../local-graph/native-metadata";
+import type { ModuleJoinerConfig } from "@medusajs/types";
+
+/** A native Link constructor needs endpoint declarations even for an isolated
+ * Link-row query. These declarations add metadata, never endpoint read grants. */
+export function withNativeLinkGraphMetadata(
+  graph: Parameters<typeof withNativeGraphMetadata>[0], links: Parameters<typeof withNativeGraphMetadata>[1],
+  tables: Parameters<typeof withNativeGraphMetadata>[2], endpoints: readonly (ModuleJoinerConfig | undefined)[],
+) {
+  if (!endpoints.every((config): config is ModuleJoinerConfig => config !== undefined)) return Result.fail(commerceError("unsupportedProfile"));
+  return withNativeGraphMetadata(graph, [...links, ...endpoints], tables);
+}
 
 const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
 const Ids = Schema.Union([Id, Schema.Array(Id).pipe(Schema.mutable).check(Schema.isMaxLength(256))]);
@@ -145,7 +157,7 @@ export const prepareLinkService = Effect.fn("LinkAdapter.prepareService")(functi
   const useService = (ctx: CommerceCommandContext, work: (service: Pick<BoundLink, "service" | "context">) => Promise<unknown>) =>
     withCommerceService(ctx, owner => ({ service: bind(ctx, owner).service,
       context: { manager: ctx.manager, transactionManager: ctx.manager } }), work);
-  const result = Object.freeze({ use, useService, bind, prepared, joiner, serviceName, entityName, routing, lifecycle });
+  const result = Object.freeze({ use, useService, bind, prepared, joiner, serviceName, entityName, routing, lifecycle, metadata });
   preparedLinkLifecycles.set(result, lifecycle);
   return result;
 });

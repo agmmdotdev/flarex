@@ -1,3 +1,4 @@
+import { withNativeGraphMetadata } from "../../local-graph/native-metadata";
 import { Result } from "effect";
 import { ProductModuleService } from "@medusajs/product/services";
 import { commerceError, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
@@ -46,6 +47,6 @@ export function productGraphDefinition(metadata: ProductRuntimeMetadata, command
         multipleOrder: entity === metadata.category || entity === metadata.product || entity === metadata.collection, decode: entity === metadata.category ? decodeCategoryCount : decodeGraphCount });
     }
     // The retained method is pure static metadata and does not use its receiver.
-    return { aliases: yield* moduleAliases(ProductModuleService.prototype.__joinerConfig()), reads };
+    return yield* withNativeGraphMetadata({ aliases: yield* moduleAliases(ProductModuleService.prototype.__joinerConfig()), reads }, [ProductModuleService.prototype.__joinerConfig()], metadata.tables);
   });
 }

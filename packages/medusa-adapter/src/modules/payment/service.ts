@@ -1,3 +1,4 @@
+import { withNativeGraphMetadata } from "../../local-graph/native-metadata";
 import { Effect, Result, Schema } from "effect";
 import { PaymentCollection, PaymentSession } from "@medusajs/payment/models";
 import { PaymentModuleService } from "@medusajs/payment/services";
@@ -63,9 +64,9 @@ export const makePaymentSessionCommands = Effect.fn("PaymentAdapter.sessionComma
       encode: ([filters, config]) => ({ ...(filters === undefined ? {} : { filters }), ...(config === undefined ? {} : { config }) }), output: decodeGraphList });
     const table = yield* prepared.catalog.table(prepared.contracts.collection.name);
     const joiner = PaymentModuleService.prototype.__joinerConfig();
-    const graph = { aliases: (yield* moduleAliases(joiner)).filter(alias => alias.model === "PaymentCollection"),
+    const graph = yield* withNativeGraphMetadata({ aliases: (yield* moduleAliases(joiner)).filter(alias => alias.model === "PaymentCollection"),
       reads: [{ model: "PaymentCollection", command: count, table, paths: yield* relationPaths(prepared.catalog, table.name, ["payment_sessions"]),
-        orderable: ["id"], uniqueOrder: ["id"], multipleOrder: false, decode: decodeGraphCount }] };
+        orderable: ["id"], uniqueOrder: ["id"], multipleOrder: false, decode: decodeGraphCount }] }, [joiner], metadata.frame.tables);
     const admitted = [createCollection, create, remove, list, count];
     const workflow = yield* defineWorkflowModule({ name: Modules.PAYMENT, source: module.description,
       methods: { createPaymentCollections, createPaymentSession, deletePaymentSession, listPaymentSessions }, graph, logical: { ...policy, commands: admitted } });

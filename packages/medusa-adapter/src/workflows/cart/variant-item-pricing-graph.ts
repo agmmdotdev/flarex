@@ -6,6 +6,7 @@ import { describeToManyRelation } from "@medusajs/drizzle/relation-query";
 import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { nativeLinkGraphDirectPaths, localGraphDirectPath } from "../../local-graph/direct-paths";
 import { nativeLinkGraphPaths } from "../../local-graph/links";
+import { extendNativeGraphMetadata } from "../../local-graph/native-metadata";
 import { relationPaths } from "../../local-graph/module";
 import type { GraphModuleDefinition, GraphReadDefinition } from "../../local-graph/model";
 import { captureInventoryMetadata } from "../../modules/inventory/schema";
@@ -129,7 +130,7 @@ export const prepareVariantItemPricingModules = Effect.fn("MedusaWorkflow.prepar
     product: yield* Effect.fromResult(clone("product", { ...product.graph, reads: productReads,
       aliases: product.graph.aliases.filter(alias => productReads.some(read => read.model === alias.model)) }, {})),
     pricing: yield* Effect.fromResult(clone("pricing", pricing.graph, { calculatePrices })),
-    inventory: yield* Effect.fromResult(clone("inventory", { ...inventory.graph,
+    inventory: yield* Effect.fromResult(clone("inventory", { ...yield* Effect.fromResult(extendNativeGraphMetadata(inventory.graph, [InventoryLevelStockLocation])),
       directPaths: [...inventory.graph.directPaths ?? [], inventoryLevels, ...stockLocations] }, {})),
     stock_location: yield* Effect.fromResult(unchanged("stock_location")),
     sales_channel: yield* Effect.fromResult(unchanged("sales_channel")),

@@ -7,6 +7,8 @@ import { finishOrderFixture } from "./support/core-order-fixture";
 import { expectWorkflowTypedFailures } from "./support/workflow-failure-assertions";
 import * as addressReceipts from "../src/modules/customer/address-receipt";
 import * as accountReceipts from "../src/modules/payment/account-receipt";
+import * as customerCheckout from "../src/modules/customer/checkout-read-service";
+import { decodeGraphCount } from "../src/local-graph/query";
 import type { LogicalCallReceiptValidation } from "../src/repository/call-receipt";
 
 const driver = Schema.decodeUnknownSync(Schema.Literals(["pglite", "postgres"]))(process.env.FLAREX_TEST_DRIVER ?? "pglite");
@@ -16,12 +18,21 @@ const object = Schema.decodeUnknownSync(Schema.JsonObject);
 const sessionInput = { customer_id: accountCustomer, payment_collection_id: accountCollection, provider_id: "pp_system_default" as const };
 const packets: Array<{ call: Parameters<LogicalCallReceiptValidation>[0]; activity: Parameters<LogicalCallReceiptValidation>[1] }> = [];
 const originalAddressPolicy = addressReceipts.customerAddressPolicy, originalAccountPolicy = accountReceipts.paymentAccountPolicy;
+const originalCustomerCheckout = customerCheckout.makeCustomerCheckoutReadCommands;
 async function success<A, E>(effect: Effect.Effect<A, E>) {
   const exit = await Effect.runPromiseExit(effect);
   if (Exit.isFailure(exit)) throw new Error(Cause.pretty(exit.cause) + "\nCaptured failure: " + JSON.stringify(exit.cause, (key, value) => key === "stack" ? undefined : value));
   return exit.value;
 }
 beforeAll(async () => {
+  vi.spyOn(customerCheckout, "makeCustomerCheckoutReadCommands").mockImplementation(population => originalCustomerCheckout(population).pipe(Effect.map(runtime => {
+    const policy = runtime.logicalEventPolicy();
+    return { ...runtime, logicalEventPolicy: () => ({ ...policy,
+      validateLogicalCall: Effect.fn("Customer.captureActualPopulatedReceipt")(function* (call, activity) {
+        yield* policy.validateLogicalCall(call, activity); packets.push(structuredClone({ call, activity }));
+      }),
+    }) };
+  })));
   vi.spyOn(addressReceipts, "customerAddressPolicy").mockImplementation(prepared => {
     const policy = originalAddressPolicy(prepared);
     return { ...policy, validateLogicalCall: Effect.fn("CustomerAddress.captureActualReceipt")(function* (call, activity) {
@@ -100,6 +111,24 @@ it("reuses the linked account on replacement and does not call provider account 
     expect((await local.read()).filter(row => row.account_holder_id === account?.id)).toHaveLength(1);
   } finally { create.mockRestore(); }
 }, 180_000);
+
+it("authenticates native Customer local Address population order, references and read receipts", async () => {
+  const packet = packets.find(value => value.call.commandName === "customerCountForCheckout" && value.activity.observedRows.length === 3);
+  if (packet === undefined) throw new Error("Missing actual populated Customer receipt");
+  const validate = local.customer.logicalEventPolicy().validateLogicalCall;
+  await success(validate(packet.call, packet.activity));
+  const [rows, count] = await success(Effect.fromResult(decodeGraphCount(packet.call.result)));
+  const customer = object(rows[0]), addresses = Schema.decodeUnknownSync(Schema.Array(Schema.JsonObject))(customer.addresses);
+  expect(addresses.map(row => row.id)).toEqual(["cuaddr-account-current", "cuaddr-account-old"]);
+  const refused = async (call: typeof packet.call, activity: typeof packet.activity) =>
+    expect(await Effect.runPromise(Effect.result(validate(call, activity))))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "receiptMismatch" } });
+  await refused({ ...packet.call, result: [[{ ...customer, addresses: [...addresses].reverse() }], count] }, packet.activity);
+  await refused(packet.call, { ...packet.activity, relationalReads: packet.activity.relationalReads.slice(0, 1) });
+  await refused(packet.call, { ...packet.activity, observedRows: packet.activity.observedRows.map(observed =>
+    observed.table === "customer_address" ? { ...observed, row: { ...observed.row, customer_id: "cus-forged" } } : observed) });
+  await refused(packet.call, { ...packet.activity, observedRows: [...packet.activity.observedRows, packet.activity.observedRows[0]!] });
+});
 
 it("rolls back a new account, Link and Session after a late native-parent failure", async () => {
   const host = await local.lateSession(), before = await local.fixture.inventory(), key = host.newRequestKey();

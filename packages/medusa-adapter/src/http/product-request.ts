@@ -1,6 +1,7 @@
 import { Cause, Effect, Exit, Result, Scope } from "effect";
 import { asValue, type AwilixContainer } from "@medusajs/deps/awilix-portable";
 import { MedusaError } from "@medusajs/utils/common/errors";
+import { MedusaError as FrameworkMedusaError } from "@medusajs/framework/utils/portable";
 import { Modules } from "@medusajs/utils/modules-sdk/definition";
 import type { MedusaRequest } from "@medusajs/framework/http";
 import { makeCoreSchemaBundle, type CoreDatabase, type CoreNativeDefinition } from "@flarex/persistence-postgres/internal/core";
@@ -451,7 +452,11 @@ export async function runProductRequestPromise<A, E>(work: Effect.Effect<A, E>):
   const expected = exit.cause.reasons.every(reason => {
     if (!Cause.isFailReason(reason) || !(reason.error instanceof CommerceTransactionError)) return false;
     if (reason.error.reason === "rollbackOnly") return true;
-    if (reason.error.reason !== "adapterFailure" || !(reason.error.cause instanceof MedusaError)) return false;
+    // Native CommonJS services and ESM adapter leaves can load distinct actual
+    // constructors through these promoted entry points. Accept those classes,
+    // never a structural marker or an arbitrary wrapped foreign value.
+    if (reason.error.reason !== "adapterFailure" || !(reason.error.cause instanceof MedusaError)
+      && !(reason.error.cause instanceof FrameworkMedusaError)) return false;
     presentations.push(reason.error.cause); return true;
   });
   const native = presentations[0];

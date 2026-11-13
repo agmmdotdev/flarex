@@ -6,6 +6,7 @@ import { matchesAtomicCommerceNativeSource } from "@flarex/persistence-postgres/
 import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { nativeLinkGraphDirectPaths, localGraphDirectPath } from "../../local-graph/direct-paths";
 import { nativeLinkGraphPaths } from "../../local-graph/links";
+import { extendNativeGraphMetadata } from "../../local-graph/native-metadata";
 import { relationPaths } from "../../local-graph/module";
 import type { GraphModuleDefinition, GraphReadDefinition } from "../../local-graph/model";
 import { captureInventoryMetadata } from "../../modules/inventory/schema";
@@ -137,11 +138,13 @@ const prepareGraphs = Effect.fn("Checkout.prepareGraphs")(function* (input: Read
   const cart = yield* Effect.fromResult(definition("cart")), variantLinks = yield* Effect.fromResult(definition("variant_links")),
     productLinks = yield* Effect.fromResult(definition("product_links")), channelLinks = yield* Effect.fromResult(definition("sales_channel_locations"));
   return { ...installed,
-    cart: yield* Effect.fromResult(clone("cart", { ...cart.graph, directPaths: [...cart.graph.directPaths ?? [], ...variant, ...customer, ...region] })),
+    cart: yield* Effect.fromResult(clone("cart", { ...yield* Effect.fromResult(extendNativeGraphMetadata(cart.graph, [CartProduct, CartCustomer, CartRegion])),
+      directPaths: [...cart.graph.directPaths ?? [], ...variant, ...customer, ...region] })),
     payment: yield* Effect.fromResult(clone("payment", { ...payment.graph, directPaths: [...payment.graph.directPaths ?? [], paymentSessions] })),
     product: yield* Effect.fromResult(clone("product", { ...product.graph, reads: productReads,
       aliases: product.graph.aliases.filter(alias => productReads.some(read => read.model === alias.model)) })),
-    inventory: yield* Effect.fromResult(clone("inventory", { ...inventory.graph, directPaths: [...inventory.graph.directPaths ?? [], inventoryLevels, ...stock] })),
+    inventory: yield* Effect.fromResult(clone("inventory", { ...yield* Effect.fromResult(extendNativeGraphMetadata(inventory.graph, [InventoryLevelStockLocation])),
+      directPaths: [...inventory.graph.directPaths ?? [], inventoryLevels, ...stock] })),
     variant_links: yield* Effect.fromResult(clone("variant_links", { ...variantLinks.graph,
       remotePaths: [], directPaths: [...rich, ...richInventory],
       reads: variantLinks.graph.reads.filter(read => read.model === richModel), aliases: variantLinks.graph.aliases.filter(alias => alias.model === richModel) })),

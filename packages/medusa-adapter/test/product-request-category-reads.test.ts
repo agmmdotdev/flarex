@@ -1,4 +1,4 @@
-import { Cause, Effect, Exit, Result } from "effect";
+import { Cause, Effect, Exit, Result, Schema } from "effect";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { ProductCategoryService } from "@medusajs/product/services";
 import { defaultCommerceResources, commerceError, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
@@ -10,6 +10,11 @@ import { makeLocalProductCommands } from "../src/modules/product/service";
 import { compileCategoryReadProjection } from "../src/modules/product/category-repository";
 import type { ProductRuntimeMetadata } from "../src/modules/product/runtime-metadata";
 import type { GraphReadContext } from "../src/local-graph/model";
+import { compileCompleteRow } from "../src/value/complete-row";
+import { refetchEntities } from "@medusajs/framework/http";
+import { asValue, createContainer } from "@medusajs/deps/awilix-portable";
+import { ContainerRegistrationKeys } from "@medusajs/utils/common/container";
+import { prepareListQuery } from "../../medusa-framework/src/http/utils/get-query-config";
 
 const root = { id: "root", name: "Root", handle: "root", description: "Root description", parent_category_id: null,
   mpath: "root", rank: 0, is_active: true, is_internal: false, metadata: { root: true },
@@ -41,8 +46,11 @@ function nativeRead(selected: typeof root | typeof child, complete = [root, chil
     refuse: Effect.fail, recordFailure: Result.succeed,
     call: (_participant, _command, args) => Effect.gen(function* () {
       calls.push(args);
-      const filters = Object.getOwnPropertyDescriptor(args, "filters")?.value;
-      const config = Object.getOwnPropertyDescriptor(args, "config")?.value;
+      // Real command preparation detaches captured inputs before invoking the
+      // mutating native service; this fixed repository port does the same.
+      const detached = structuredClone(args);
+      const filters = Object.getOwnPropertyDescriptor(detached, "filters")?.value;
+      const config = Object.getOwnPropertyDescriptor(detached, "config")?.value;
       const value: unknown = yield* Effect.promise(async () =>
         Reflect.apply(ProductCategoryService.prototype.listAndCount, service, [filters, config]));
       if (!Array.isArray(value)) return yield* Effect.die(new Error("Native Category did not return a tuple"));
@@ -54,6 +62,21 @@ function nativeRead(selected: typeof root | typeof child, complete = [root, chil
 }
 
 describe("native Category HTTP read presentation", () => {
+  it("accepts the actual refetch helper's own undefined context and withDeleted members", async () => {
+    const fixture = nativeRead(root);
+    const scope = createContainer().register({ [ContainerRegistrationKeys.QUERY]: asValue({
+      graph: (input: unknown, options?: unknown) => Effect.runPromise(reads.execute(fixture.context, input, options)),
+    }) });
+    expect(await refetchEntities({ entity: "product_category", idOrFilter: { id: "root" }, scope,
+      fields: ["id"], pagination: {} })).toEqual({ data: [{ id: "root" }], metadata: {} });
+  });
+  it("accepts the actual native list-query producer's own undefined pagination order", async () => {
+    const fixture = nativeRead(root);
+    const { remoteQueryConfig } = await prepareListQuery({}, { defaults: ["id"], entity: "product_category", isList: true });
+    expect(remoteQueryConfig.pagination).toEqual({ skip: 0, take: 50, order: undefined });
+    expect(await Effect.runPromise(reads.execute(fixture.context, { ...remoteQueryConfig, filters: { id: "root" } })))
+      .toEqual({ data: [{ id: "root" }], metadata: { count: 1, skip: 0, take: 50 } });
+  });
   it("keeps native default recursive trees and the service's projected fields", async () => {
     const fixture = nativeRead(root);
     const fields = ["id", "name", "description", "handle", "is_active", "is_internal", "rank", "parent_category_id",
@@ -64,11 +87,12 @@ describe("native Category HTTP read presentation", () => {
     expect(result.data).toMatchObject([{ id: "root", parent_category: null,
       category_children: [{ id: "child", category_children: [{ id: "leaf", category_children: [] }] }] }]);
     expect(result.data[0]).not.toHaveProperty("mpath");
-    const children = result.data[0]?.category_children;
+    const children = Schema.decodeUnknownSync(Schema.Struct({ category_children: Schema.Array(Schema.Unknown) }))(result.data[0]).category_children;
     expect(children).toEqual([expect.objectContaining({ name: "Child", mpath: "root.child", parent_category_id: "root" })]);
     expect(result.metadata).toEqual({ count: 1, skip: 0, take: 50 });
     expect(fixture.calls).toHaveLength(1);
-    expect(fixture.calls[0]).toEqual({ filters: { id: "root" }, config: { select: fields,
+    expect(fixture.calls[0]).toEqual({ filters: { id: ["root"] }, config: { select: ["id", "name", "description", "handle", "is_active", "is_internal", "rank", "parent_category_id",
+      "created_at", "updated_at", "metadata"],
       relations: ["parent_category", "category_children"], skip: 0, take: 50 } });
     expect(fixture.nativeQueries).toHaveLength(2);
   });
@@ -77,7 +101,7 @@ describe("native Category HTTP read presentation", () => {
     const fixture = nativeRead(child);
     expect(await Effect.runPromise(reads.execute(fixture.context, { entity: "product_category",
       fields: ["parent_category_id"], filters: { id: "child" }, pagination: { take: 1 } })))
-      .toEqual({ data: [{ parent_category_id: "root" }], metadata: { count: 1, skip: 0, take: 1 } });
+      .toEqual({ data: [{ parent_category_id: "root" }], metadata: undefined });
     expect(fixture.nativeQueries).toHaveLength(2);
   });
 
@@ -144,7 +168,8 @@ describe("native Category HTTP read presentation", () => {
     expect(result.data).toEqual([{ id: "child", name: "Child", parent_category: { name: "Root" }, category_children: [{ name: "Leaf" }] }]);
     const omitted = await Effect.runPromise(reads.execute(fixture.context, { entity: "product_category",
       fields: ["id", "parent_category.name", "category_children.name"], filters: { id: "child" } }));
-    expect(omitted.data).toEqual([{ id: "child", category_children: [null] }]);
+    expect(omitted.data).toEqual([{ id: "child", category_children: [undefined] }]);
+    expect(JSON.parse(JSON.stringify(omitted.data))).toEqual([{ id: "child", category_children: [null] }]);
     expect(fixture.calls[0]).toMatchObject({ config: { select: ["id", "name", "parent_category.name", "category_children.name"],
       relations: ["parent_category", "category_children"] } });
     const wildcard = await Effect.runPromise(reads.execute(nativeRead(child).context, { entity: "product_category",
@@ -158,12 +183,12 @@ describe("native Category HTTP read presentation", () => {
     expect((await Effect.runPromise(reads.execute(nativeRead(selected).context, { entity: "product_category",
       fields: ["id", "products.*"] }))).data).toEqual([{ id: "root", products: [product] }]);
     expect((await Effect.runPromise(reads.execute(nativeRead(selected).context, { entity: "product_category",
-      fields: ["id", "products.title", "products.handle"] }))).data).toEqual([{ id: "root", products: [{ title: "Product", handle: "product" }] }]);
+      fields: ["id", "products.title", "products.handle"] }))).data).toEqual([{ id: "root", products: [{ id: "product", title: "Product", handle: "product" }] }]);
     const { metadata: _metadata, ...unwrappedProduct } = product;
     expect((await Effect.runPromise(reads.execute(nativeRead(selected).context, { entity: "product_category",
       fields: ["id", "parent_category_id", "products.*"] }))).data).toEqual([{ id: "root", parent_category_id: null, products: [unwrappedProduct] }]);
     expect((await Effect.runPromise(reads.execute(nativeRead(selected).context, { entity: "product_category",
-      fields: ["id", "parent_category_id", "products.metadata"] }))).data).toEqual([{ id: "root", parent_category_id: null, products: [null] }]);
+      fields: ["id", "parent_category_id", "products.metadata"] }))).data).toEqual([{ id: "root", parent_category_id: null, products: [{ id: "product" }] }]);
   });
 
   it("validates tree paths before keeping them out of the actual DAL storage projection", () => {
@@ -173,23 +198,34 @@ describe("native Category HTTP read presentation", () => {
     expect(projection.storageFields).toEqual(["id", "name"]);
     expect(projection.node.children[0]?.node.fields.has("title")).toBe(true);
     expect(projection.node.children[0]?.node.fields.has("metadata")).toBe(true);
-    for (const invalid of ["parent_category.unknown", "category_children.rank.invalid", "products.unknown"])
+    for (const invalid of ["parent_category.unknown", "category_children.rank.invalid", "products.unknown.child"])
       expect(Result.isFailure(compileCategoryReadProjection(metadata, ["id", invalid], ["products"]))).toBe(true);
+    expect(Result.isFailure(reads.admitProjection(["id", "products.unknown"]))).toBe(true);
   });
 
-  it("keeps unrelated missing Product scalars and root-selected tree scalars as corruption", async () => {
+  it("compiles the exact native Products expansion descriptor without selecting its absent scalar join hint", () => {
+    const fields = ["id", "parent_category_id", "products_id", "products.metadata", "products.id"];
+    const projection = Result.getOrThrow(compileCategoryReadProjection(metadata, fields, ["products"]));
+    expect(projection.storageFields).toEqual(["id", "parent_category_id"]);
+    expect(projection.node.fields.has("products_id")).toBe(false);
+    expect(projection.node.children[0]?.node.fields.has("metadata")).toBe(true);
+    expect(projection.node.children[0]?.node.fields.has("id")).toBe(true);
+  });
+
+  it("preserves native DTO omission and checks persisted corruption at the row owner", async () => {
     const selected = { ...root, products: [{ id: "product" }] };
     for (const fields of [["id", "products.title"], ["id", "parent_category_id", "products.title"]]) {
-      const result = await Effect.runPromiseExit(reads.execute(nativeRead(selected).context, { entity: "product_category", fields }));
-      if (Exit.isSuccess(result)) throw new Error("Missing genuine Product title must fail");
-      expect(result.cause.reasons.some(reason => Cause.isFailReason(reason) && reason.error.reason === "storedCorruption")).toBe(true);
+      const result = await Effect.runPromise(reads.execute(nativeRead(selected).context, { entity: "product_category", fields }));
+      expect(result.data).toEqual([{ id: "root", ...(fields.includes("parent_category_id") ? { parent_category_id: null } : {}), products: [{ id: "product" }] }]);
     }
     const corruptedParent = { ...root };
     Reflect.deleteProperty(corruptedParent, "name");
-    const result = await Effect.runPromiseExit(reads.execute(nativeRead(child, [corruptedParent, child]).context,
+    const result = await Effect.runPromise(reads.execute(nativeRead(child, [corruptedParent, child]).context,
       { entity: "product_category", fields: ["id", "name", "parent_category.name"] }));
-    if (Exit.isSuccess(result)) throw new Error("Missing selected Category name must fail");
-    expect(result.cause.reasons.some(reason => Cause.isFailReason(reason) && reason.error.reason === "storedCorruption")).toBe(true);
+    expect(result.data).toEqual([{ id: "child", name: "Child" }]);
+    const complete = Result.getOrThrow(compileCompleteRow(metadata.category.table));
+    expect(Result.isSuccess(complete(root))).toBe(true);
+    expect(complete(corruptedParent)).toMatchObject({ _tag: "Failure", failure: { reason: "storedCorruption" } });
   });
 });
 

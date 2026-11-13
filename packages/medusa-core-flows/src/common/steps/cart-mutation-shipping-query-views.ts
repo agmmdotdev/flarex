@@ -18,18 +18,23 @@ const optionFields = { id: Schema.String,
       location: Schema.StructWithRest(Schema.Struct({ id: Schema.String, address: Schema.optionalKey(Schema.NullOr(Schema.JsonObject)) }), Rest),
     }), Rest),
   }), Rest),
-  calculated_price: Schema.optionalKey(Schema.NullOr(CalculatedPrice)),
+  calculated_price: Schema.optionalKey(Schema.UndefinedOr(Schema.NullOr(CalculatedPrice))),
 };
-export const NativeShippingOptionView = Schema.StructWithRest(Schema.Struct(optionFields), Rest);
+// Native Query retains own undefined when the optional Price Set Link is absent.
+// Every other declared or extra field still follows its existing JSON contract.
+export const NativeShippingOptionView = Schema.StructWithRest(Schema.Struct(optionFields),
+  [Schema.Record(Schema.String, Schema.UndefinedOr(Schema.Json))]).check(Schema.makeFilter(value =>
+    Object.keys(value).every(key => key === "calculated_price" || value[key] !== undefined)));
 export type NativeShippingOptionView = typeof NativeShippingOptionView.Type;
 // The native unpriced transform owns amount: undefined for an unquoted option.
 // Index signatures also check declared fields, so admit that single native
-// intermediate presence while requiring JSON values for every other member.
+// intermediate presence and Query's optional calculated_price absence while
+// requiring JSON values for every other member.
 export const NativePricedShippingOptionView = Schema.StructWithRest(Schema.Struct({ ...optionFields,
   amount: Schema.optionalKey(Schema.NullOr(Schema.UndefinedOr(Schema.Finite))), is_tax_inclusive: Schema.optionalKey(Schema.Boolean),
   stock_location: Schema.optionalKey(Schema.JsonObject),
 }), [Schema.Record(Schema.String, Schema.UndefinedOr(Schema.Json))]).check(Schema.makeFilter(value =>
-  Object.keys(value).every(key => key === "amount" || value[key] !== undefined)));
+  Object.keys(value).every(key => key === "amount" || key === "calculated_price" || value[key] !== undefined)));
 const decodeOptions = Schema.decodeUnknownResult(Schema.Array(NativeShippingOptionView).pipe(Schema.mutable));
 const decodePrices = Schema.decodeUnknownResult(Schema.Array(Price).pipe(Schema.mutable));
 const decodePriced = Schema.decodeUnknownResult(Schema.Array(NativePricedShippingOptionView).pipe(Schema.mutable));

@@ -1,6 +1,7 @@
 // @ts-check
 import { storeCartHttpSourcePairs, verifyStoreCartHttpSelection, verifyStoreCartHttpSource, verifyStoreCartHttpSharedSources } from "./check-medusa-store-cart-source.mjs";
 import { cartMutationSourcePairs, verifyCartMutationSourceSelection, verifyCartMutationSource, verifyCartMutationOperationSelection } from "./check-medusa-cart-mutation-source.mjs";
+import { remoteQuerySourcePairs, remoteQueryTestSourcePairs, verifyRemoteQuerySelection, verifyRemoteQuerySource, verifyRemoteQueryTestSource } from "./check-medusa-remote-query-source.mjs";
 import { verifyNativeRelationPopulateFields } from "./check-medusa-test-port.mjs";
 import { storeProductSourcePairs, verifyStoreProductSelection, verifyStoreProductSource } from "./check-medusa-store-product-source.mjs";
 import { apiKeySourcePairs, verifyApiKeySelection, verifyApiKeySource } from "./check-medusa-api-key-source.mjs";
@@ -1158,6 +1159,7 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
   verifyStoreProductSelection(supplied.files);
   verifyStoreCartHttpSelection(supplied.files);
   verifyCartMutationSourceSelection(supplied.files);
+  verifyRemoteQuerySelection(supplied.files);
   verifyCartMutationOperationSelection(readFileSync(path.join(root, "packages/medusa-adapter/src/workflows/cart/mutations.ts"), "utf8"),
     readFileSync(path.join(root, "packages/medusa-adapter/src/workflows/cart/create-owned.ts"), "utf8"));
   verifyStoreCartHttpSharedSources(root);
@@ -1797,7 +1799,7 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
       (file.source !== pinnedHttpSource(file.target) ||
         file.classification !== (currencyHandlers.has(file.target) ? "importRelocation" : "unchanged")))
       throw new Error("Store Currency routes and middleware must retain their pinned provenance");
-    if (!["unchanged", "preserved", "unchangedTest", "importRelocation", "selectedExportFacade", "storeHttpFork", "testHarnessPort", "testPort", "testFixturePort", "workflowFork", "linkFork", "productServiceFork", "inventoryServiceFork", "promotionServiceFork", "notificationServiceFork", "lockingServiceFork", "salesChannelTypeFork", "stockLocationTypeFork", "regionServiceFork", "pricingServiceFork", "nativeRepositoryFork", "storeTypeFork", "storeCreationTypeFork", "priceListCreationTypeFork", "shippingProfileWorkflowTypeFork", "csvNormalizerFork", "schemaCompilerFork", "variantItemPricingFork", "paymentJoinerFork", "workflowCacheFork", "customerSelectionFork", "cartContextReadFork", "inventoryConfirmationFork", "taxLinesFork", "taxRateCreationFork", "taxRegionCreationFork", "nativeDatabaseConstraintFork", "taxRuleCreationFork", "taxRuleDeletionFork", "taxRateDeletionFork", "taxRuleReplacementFork", "taxRateUpdateFork", "updateMetadataFork", "taxRuleCreatorTypeFork", "orderArchiveFork", "orderArchiveCompensationFork", "orderSummaryPrecisionFork", "orderCompleteFork", "orderChangeUpdateFork", "orderChangeCancellationFork", "orderChangeDeclineFork", "orderChangeDeletionFork", "orderChangeCancellationRestoreFork", "paymentSessionTypeFork", "paymentLifecycleFork", "paymentAccountingFork", "orderRefundValidationFork", "apiKeyFork", "nativeBigNumberTypeFork", "parentQualifiedVariantDeletionFork", "parentQualifiedOptionDeletionFork", "parentQualifiedProductDeletionTypeFork", "parentQualifiedImageAssociationFork", "parentQualifiedImageAssociationTypeFork", "parentQualifiedVariantInventoryHttpFork", "parentQualifiedVariantBatchHttpFork", "parentQualifiedVariantBatchWorkflowFork", "productBatchAuthorizationHttpFork", "paymentCollectionWorkflowFork", "cartPaymentTotalsFork", "customerAddressUpdateFork", "cartCreationWorkflowFork", "cartMutationFork", "authored"].includes(file.classification)) {
+    if (!["remoteQueryFork", "remoteQueryTestPort", "unchanged", "preserved", "unchangedTest", "importRelocation", "selectedExportFacade", "storeHttpFork", "testHarnessPort", "testPort", "testFixturePort", "workflowFork", "linkFork", "productServiceFork", "inventoryServiceFork", "promotionServiceFork", "notificationServiceFork", "lockingServiceFork", "salesChannelTypeFork", "stockLocationTypeFork", "regionServiceFork", "pricingServiceFork", "nativeRepositoryFork", "storeTypeFork", "storeCreationTypeFork", "priceListCreationTypeFork", "shippingProfileWorkflowTypeFork", "csvNormalizerFork", "schemaCompilerFork", "variantItemPricingFork", "paymentJoinerFork", "workflowCacheFork", "customerSelectionFork", "cartContextReadFork", "inventoryConfirmationFork", "taxLinesFork", "taxRateCreationFork", "taxRegionCreationFork", "nativeDatabaseConstraintFork", "taxRuleCreationFork", "taxRuleDeletionFork", "taxRateDeletionFork", "taxRuleReplacementFork", "taxRateUpdateFork", "updateMetadataFork", "taxRuleCreatorTypeFork", "orderArchiveFork", "orderArchiveCompensationFork", "orderSummaryPrecisionFork", "orderCompleteFork", "orderChangeUpdateFork", "orderChangeCancellationFork", "orderChangeDeclineFork", "orderChangeDeletionFork", "orderChangeCancellationRestoreFork", "paymentSessionTypeFork", "paymentLifecycleFork", "paymentAccountingFork", "orderRefundValidationFork", "apiKeyFork", "nativeBigNumberTypeFork", "parentQualifiedVariantDeletionFork", "parentQualifiedOptionDeletionFork", "parentQualifiedProductDeletionTypeFork", "parentQualifiedImageAssociationFork", "parentQualifiedImageAssociationTypeFork", "parentQualifiedVariantInventoryHttpFork", "parentQualifiedVariantBatchHttpFork", "parentQualifiedVariantBatchWorkflowFork", "productBatchAuthorizationHttpFork", "paymentCollectionWorkflowFork", "cartPaymentTotalsFork", "customerAddressUpdateFork", "cartCreationWorkflowFork", "cartMutationFork", "authored"].includes(file.classification)) {
       throw new Error(`Unadmitted source transformation: ${file.target}`);
     }
     if (file.target === "packages/medusa-pricing/src/services/pricing-module.ts" || file.classification === "pricingServiceFork") {
@@ -1900,6 +1902,10 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
     noSymlinks(root, file.target);
     if (sha256(readFileSync(path.join(root, file.target))) !== file.targetSha256) throw new Error(`Changed promotion target: ${file.target}`);
     if (file.source !== undefined) {
+      if (remoteQuerySourcePairs.some(pair => pair.target === file.target))
+        verifyRemoteQuerySource(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"), file.target);
+      if (remoteQueryTestSourcePairs.some(pair => pair.target === file.target))
+        verifyRemoteQueryTestSource(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"), file.target);
       if (storeCartHttpSourcePairs.some(pair => pair.target === file.target))
         verifyStoreCartHttpSource(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"), file.target);
       if (checkoutSourcePairs.some(pair => pair.target === file.target))
@@ -2149,6 +2155,11 @@ export function admitsCurrencyImport(promotion, file, specifier) {
     const reference = references.get(specifier);
     if (reference !== undefined && promotion.files.some(entry => entry.target === reference.target && entry.source === reference.source)) return true;
   }
+  // The Category contract checks the native list producer's own-undefined ABI.
+  if (file === "packages/medusa-adapter/test/product-request-category-reads.test.ts"
+    && specifier === "../../medusa-framework/src/http/utils/get-query-config"
+    && promotion.files.some(entry => entry.target === "packages/medusa-framework/src/http/utils/get-query-config.ts"
+      && entry.source === "third_party/medusa/upstream/packages/core/framework/src/http/utils/get-query-config.ts")) return true;
   if (promotion.testAliases.some((alias) => alias.importer === file && alias.specifier === specifier)) return true;
   // Exact verified wrappers register complete pinned files in their fixture.
   // This is not a runtime export or a general cross-package edge.

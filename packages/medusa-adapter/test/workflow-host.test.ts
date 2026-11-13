@@ -6,6 +6,7 @@ import type { AtomicCommerceContext, LogicalCommerceCallValidation, LogicalComme
 import { commerceError, defaultCommerceResources } from "@flarex/persistence-postgres/internal/commerce-values";
 import { defineGraphReadCommand } from "../src/local-graph/commands";
 import type { GraphModuleDefinition } from "../src/local-graph/model";
+import { withNativeGraphMetadata } from "../src/local-graph/native-metadata";
 import { commerceDecoder } from "../src/value/decoder";
 import { defineWorkflowMethod, defineWorkflowModule, workflowModuleDefinition, workflowMethodDefinition, type WorkflowLogicalPolicy } from "../src/workflow/module";
 import { prepareWorkflowResources, workflowResourceSelections, workflowAbsentResources } from "../src/workflow/resources";
@@ -18,10 +19,11 @@ import { captureWorkflowValue } from "../src/workflow/value";
 
 const source = { name: "sample-module", profile: "sample", models: [], extensions: [], capabilities: [] };
 const command = defineGraphReadCommand("sampleRead", () => Effect.succeed([[], 0]));
-const graphDefinition = (): GraphModuleDefinition => ({ aliases: [{ name: "sample", model: "Sample" }], reads: [{
+const graphDefinition = (): GraphModuleDefinition => Result.getOrThrow(withNativeGraphMetadata({ aliases: [{ name: "sample", model: "Sample" }], reads: [{
   command, model: "Sample", table: { name: "sample", columns: ["id"], primaryKeys: ["id"], foreignKeys: [], companions: {} },
   paths: [], orderable: ["id"], uniqueOrder: ["id"], multipleOrder: false, decode: commerceDecoder(Schema.Tuple([Schema.Array(Schema.JsonObject), Schema.Number]), "storedCorruption"),
-}] });
+}] }, [{ serviceName: "sample_module", primaryKeys: ["id"], alias: [{ name: "sample", entity: "Sample" }] }],
+[{ name: "sample", relationships: [] }]));
 const methodInput = { command, arguments: commerceDecoder(Schema.Tuple([Schema.String]), "invalidInput"),
   encode: ([value]: readonly [string]) => value, output: commerceDecoder(Schema.String, "storedCorruption") };
 const method = Result.getOrThrow(defineWorkflowMethod(methodInput));
@@ -110,8 +112,9 @@ describe("workflow registration and scoped resource composition", () => {
   it("binds direct Link endpoint presence, join keys, paths and bounds to durable workflow identity", async () => {
     const logical = { commands: [command], capture: (value: unknown) => Effect.fromResult(decodeJson(value)), validateLogicalCall: () => Effect.void };
     const endpoint = Result.getOrThrow(defineWorkflowModule({ name: "child", source, methods: {}, logical,
-      graph: { aliases: [{ name: "child", model: "Child" }], reads: graphDefinition().reads.map(read => ({ ...read, model: "Child",
-        table: { ...read.table, name: "child" } })) } }));
+      graph: Result.getOrThrow(withNativeGraphMetadata({ aliases: [{ name: "child", model: "Child" }], reads: graphDefinition().reads.map(read => ({ ...read, model: "Child",
+        table: { ...read.table, name: "child" } })) }, [{ serviceName: "child_module", primaryKeys: ["id"], alias: [{ name: "child", entity: "Child" }] }],
+      [{ name: "child", relationships: [] }])) }));
     const descriptor = { root: "Sample", path: "child", sourceKey: "target_id", targetModel: "Child", targetKey: "id", maximumSources: 4, maximumTargets: 4 };
     const flow = createWorkflow("link-endpoint-identity-unit", () => new WorkflowResponse(null));
     const prepared = Result.getOrThrow(flow.prepare()), identities: unknown[] = [];

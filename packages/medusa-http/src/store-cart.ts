@@ -14,6 +14,8 @@ export type StoreCartHttpOptions = {
   admitCartRefetchFields(fields: readonly string[]): void
   /** Cart-only hosts omit this capability and Shipping option reads refuse. */
   admitShippingOptionFields?(fields: readonly string[]): void
+  /** Payment reads and mutations require their authenticated graph capability. */
+  admitPaymentCollectionFields?(fields: readonly string[]): void
 }
 
 export function createStoreCartHttpHandler(options: StoreCartHttpOptions): FetchHttpStaticHandler {
@@ -26,6 +28,13 @@ export function createStoreCartHttpHandler(options: StoreCartHttpOptions): Fetch
       throw new MedusaError(MedusaError.Types.NOT_ALLOWED, "Shipping option reads are outside the admitted Store Cart profile")
     }
     options.admitShippingOptionFields(request.queryConfig.fields)
+    next()
+  }
+  const admitPaymentCollection: MiddlewareFunction = (request, _response, next) => {
+    if (options.admitPaymentCollectionFields === undefined) {
+      throw new MedusaError(MedusaError.Types.NOT_ALLOWED, "Payment Collections are outside the admitted Store Cart profile")
+    }
+    options.admitPaymentCollectionFields(request.queryConfig.fields)
     next()
   }
   const native = createFetchHttpStaticHandler({
@@ -56,6 +65,8 @@ export function createStoreCartHttpHandler(options: StoreCartHttpOptions): Fetch
           { method: ["POST"], matcher: "/store/carts/:id/taxes", middlewares: [admitProjection] },
           { method: ["POST"], matcher: "/store/carts/:id/shipping-methods", middlewares: [admitProjection] },
           { method: ["GET"], matcher: "/store/shipping-options", middlewares: [admitShippingOptions] },
+          { method: ["POST"], matcher: "/store/payment-collections", middlewares: [admitPaymentCollection] },
+          { method: ["POST"], matcher: "/store/payment-collections/:id/payment-sessions", middlewares: [admitPaymentCollection] },
         ] } } },
       ],
     },

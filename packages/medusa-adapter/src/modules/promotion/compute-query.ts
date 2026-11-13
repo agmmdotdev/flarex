@@ -39,7 +39,7 @@ const decodeEnvelope = commerceDecoder(Schema.Struct({ where: Schema.JsonObject,
   fields: Schema.optionalKey(Schema.Array(Schema.String)), populate: Schema.Array(Schema.String),
   limit: Schema.optionalKey(Schema.Number.check(Schema.isInt(), Schema.isBetween({ minimum: 0, maximum: 256 }))),
   offset: Schema.optionalKey(Schema.Literal(0)),
-  orderBy: Schema.Union([Schema.Struct({ id: Schema.Literal("ASC") }), Schema.Struct({ application_method: Schema.Struct({ value: Schema.Literal("DESC") }) })]),
+  orderBy: Schema.optionalKey(Schema.Union([Schema.Struct({ id: Schema.Literal("ASC") }), Schema.Struct({ application_method: Schema.Struct({ value: Schema.Literal("DESC") }) })])),
 }) }), "unsupportedProfile");
 
 /** Only the genuine active query's two Date leaves accept native Date values.
@@ -78,17 +78,17 @@ export function preparePromotionComputeQuery(table: "promotion" | "promotion_cam
     if (!graph && (value.options.limit !== undefined || value.options.offset !== undefined))
       return yield* Result.fail(commerceError("unsupportedProfile"));
     if (graph) {
-      if (!("id" in value.options.orderBy) || value.options.populate.some(path => path !== "application_method") ||
+      if (value.options.orderBy !== undefined && !("id" in value.options.orderBy) || value.options.populate.some(path => path !== "application_method") ||
         !value.options.fields?.length || value.options.fields.length > 256)
         return yield* Result.fail(commerceError("unsupportedProfile"));
       return { value, active: false as const, graph: true as const, predicate: yield* compileWhere(value.where, rootWhere) };
     }
     if (table === "promotion_campaign_budget_usage") {
-      if (value.options.fields !== undefined || value.options.populate.length || !("id" in value.options.orderBy))
+      if (value.options.fields !== undefined || value.options.populate.length || value.options.orderBy === undefined || !("id" in value.options.orderBy))
         return yield* Result.fail(commerceError("unsupportedProfile"));
       return { value, active: false as const, graph: false as const, predicate: yield* compileWhere(value.where, usageWhere) };
     }
-    if ("application_method" in value.options.orderBy) {
+    if (value.options.orderBy !== undefined && "application_method" in value.options.orderBy) {
       if (value.options.fields !== undefined || value.options.populate.length !== promotionComputePaths.length ||
         value.options.populate.some((path, index) => path !== promotionComputePaths[index]))
         return yield* Result.fail(commerceError("unsupportedProfile"));
@@ -104,7 +104,7 @@ export function preparePromotionComputeQuery(table: "promotion" | "promotion_cam
       ] };
       return { value, active: true as const, graph: false as const, candidateA: left, candidateB: right, campaignPredicate, nativeNow: start };
     }
-    if (value.options.populate.length || value.options.fields?.join("\0") !== "id\0code")
+    if (value.options.orderBy === undefined || !("id" in value.options.orderBy) || value.options.populate.length || value.options.fields?.join("\0") !== "id\0code")
       return yield* Result.fail(commerceError("unsupportedProfile"));
     return { value, active: false as const, graph: false as const, predicate: yield* compileWhere(value.where, rootWhere) };
   });
@@ -115,7 +115,7 @@ export function preparePromotionComputeQuery(table: "promotion" | "promotion_cam
 export function replayPromotionComputeQueryClock(input: unknown, retained: string) {
   return Result.gen(function* () {
     const value = yield* captureCommerceInput(input).pipe(Result.flatMap(decodeEnvelope));
-    if (!("application_method" in value.options.orderBy)) return value;
+    if (value.options.orderBy === undefined || !("application_method" in value.options.orderBy)) return value;
     const filters = yield* decodeActive(value.where), [absent, present] = filters.$or;
     const { campaign, ...candidate } = present;
     return { ...value, where: { ...filters, $or: [absent, { ...candidate, campaign: { ...campaign, $and: [

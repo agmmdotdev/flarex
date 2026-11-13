@@ -1292,6 +1292,9 @@ importers:
 
   packages/medusa-modules-sdk:
     dependencies:
+      '@medusajs/orchestration':
+        specifier: workspace:*
+        version: link:../medusa-orchestration
       '@medusajs/types':
         specifier: workspace:*
         version: link:../medusa-types

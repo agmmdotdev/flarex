@@ -1,3 +1,4 @@
+import { withNativeGraphMetadata } from "../../local-graph/native-metadata";
 import { Effect, Result } from "effect";
 import { Promotion, ApplicationMethod, Campaign, CampaignBudget, CampaignBudgetUsage, PromotionRule, PromotionRuleValue } from "@medusajs/promotion/models";
 import { PromotionModuleService } from "@medusajs/promotion/services";
@@ -50,10 +51,10 @@ export const makePromotionComputeCommands = Effect.fn("Promotion.computeCommands
       ({ service, context }, input) => Reflect.apply(service.listAndCountPromotions, service, [input.filters, input.config, context]));
     const commands = [compute, read], joiner = promotionStaticResources.joinerConfig;
     if (joiner === undefined) return yield* Result.fail(commerceError("unsupportedProfile"));
-    const graph = { aliases: (yield* moduleAliases(joiner)).filter(alias => alias.model === "Promotion"),
+    const graph = yield* withNativeGraphMetadata({ aliases: (yield* moduleAliases(joiner)).filter(alias => alias.model === "Promotion"),
       reads: [{ model: "Promotion", command: read, table: prepared.table,
         paths: yield* relationPaths(prepared.catalog, "promotion", ["application_method"], { nativeFields: true }), orderable: ["id"], uniqueOrder: ["id"],
-        multipleOrder: false, decode: decodeGraphCount }] };
+        multipleOrder: false, decode: decodeGraphCount }] }, [joiner], metadata.frame.tables);
     const workflow = yield* defineWorkflowModule({ name: Modules.PROMOTION, source: module.description, methods: { computeActions },
       graph, logical: { ...policy, commands } });
     return { compute, read, commands, workflow, prepared, withService: module.use, description: module.description, logicalEventPolicy: () => policy };

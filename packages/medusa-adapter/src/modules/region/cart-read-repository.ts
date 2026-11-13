@@ -25,7 +25,8 @@ const decodeOptions = commerceDecoder(Schema.Struct({ fields: Schema.optionalKey
 export function prepareRegionCartReadRepository(metadata: Effect.Success<ReturnType<typeof captureRegionMetadata>>["frame"]) {
   return Result.gen(function* () {
     const prepared = yield* prepareRegionCountryReadRepository(metadata, where), { contracts, catalog } = prepared;
-    const leaf: ProjectionPolicy = { keys: "retain", storageKeys: "last", joinKeys: "storage", allowWildcard: true, selectableRelations: [], nested: new Map() };
+    const leaf: ProjectionPolicy = { keys: "retain", storageKeys: "last", joinKeys: "storage", allowWildcard: true,
+      ignoreUnknownScalarFields: true, selectableRelations: [], nested: new Map() };
     const query = (input: unknown) => Result.gen(function* () {
       const envelope = yield* decodeEnvelope(input), filters = yield* decodeFilters(envelope.where ?? {}), options = yield* decodeOptions(envelope.options ?? {}), paths = options.populate ?? [];
       const projection = yield* compileProjection(catalog, contracts.table.name, options.fields, paths, { ...leaf, allowedPaths: ["countries"],

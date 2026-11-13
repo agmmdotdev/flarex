@@ -1,12 +1,16 @@
 import { Effect, Schema } from "effect";
+import { apiKeyStaticResources } from "@medusajs/api-key/static-manifest";
+import { currencyStaticResources } from "@medusajs/currency/static-manifest";
+import { salesChannelStaticResources } from "@medusajs/sales-channel/static-manifest";
+import { PublishableApiKeySalesChannel } from "@medusajs/link-modules";
+import { executeCountedRemoteFetchRequest, executeRemoteFetchServiceRequest, hasRemoteFetchPagination } from "@medusajs/modules-sdk/remote-query";
 import type { CoreDatabase, CoreNativeDefinition } from "@flarex/persistence-postgres/internal/core";
 import type { PreparedHostRuntime } from "@flarex/persistence-postgres/internal/prepared-host-runtime";
 import { commerceNativeRegistrations, makeCommerceNativeReadHost, type CommerceInitialization } from "@flarex/persistence-postgres/internal/commerce-native";
 import { defineCommerceCommand, type CommerceCommand } from "@flarex/persistence-postgres/internal/commerce-adapter";
-import { commerceError, type Json, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
+import { commerceError, commerceLimits, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
 import { compileCurrencyCoreDefinition } from "../modules/currency/schema";
 import { currencyCommands } from "../modules/currency/service";
-import { currencyColumns } from "../modules/currency/query-model";
 import { currencyValueProfile } from "../modules/currency/value-profile";
 import { captureApiKeyMetadata, compileApiKeyCoreDefinition } from "../modules/api-key/schema";
 import { captureApiKeySalesChannelLinkMetadata, compileApiKeySalesChannelLinkCoreDefinition } from "../links/api-key-sales-channel-schema";
@@ -18,10 +22,13 @@ import { commerceDecoder } from "../value/decoder";
 import { captureCommerceInput } from "../value/input";
 import type { WherePolicy } from "../query/predicate";
 import { makeReadCatalog } from "../query/catalog";
-import { projectExactNumericColumns } from "../value/exact-numeric";
+import { NativeQueryGraphResultSchema, makeNativeQueryBridge, type NativeQueryRead } from "../local-graph/native-bridge";
 
 const Token = Schema.String.check(Schema.isMaxLength(4096));
 const decodeToken = commerceDecoder(Schema.Struct({ token: Token, type: Schema.Literal("publishable") }), "unsupportedProfile");
+const decodeNativeKeyFilter = commerceDecoder(Schema.Struct({ token: Token,
+  type: Schema.optionalKey(Schema.Literal("publishable")) }), "unsupportedProfile");
+const decodeNativeLinkFilter = commerceDecoder(Schema.Struct({ publishable_key_id: Schema.Unknown }), "unsupportedProfile");
 const decodeIds = commerceDecoder(Schema.Array(Schema.String.check(Schema.isLengthBetween(1, 256))).check(Schema.isMaxLength(256)), "unsupportedProfile");
 const tokenWhere: WherePolicy = { decode: decodeToken, fields: new Map([
   ["token", { column: "token", decode: commerceDecoder(Token, "unsupportedProfile") }],
@@ -52,6 +59,8 @@ const decodeKeys = commerceDecoder(Schema.Array(Schema.Struct({ id: Schema.Strin
   revoked_at: Schema.NullOr(Schema.String) })), "storedCorruption");
 const decodeLinks = commerceDecoder(Schema.Array(Schema.Struct({ publishable_key_id: Schema.String,
   sales_channel_id: Schema.String })), "storedCorruption");
+const decodeKeyGraphResult = commerceDecoder(Schema.Struct({ ...NativeQueryGraphResultSchema.fields,
+  data: Schema.Array(Schema.JsonObject) }), "storedCorruption");
 
 interface StoreReadSource {
   readonly definition: CoreNativeDefinition;
@@ -94,7 +103,7 @@ export const compileStoreRequestReadCatalog = Effect.fn("StoreRequestReads.compi
   }));
   return Object.freeze({
     currency: Object.freeze({ definition: yield* compileCurrencyCoreDefinition(target), initialization: Object.freeze({ ...initialization.currency }),
-      commands: Object.freeze([currencyCommands.list, currencyCommands.count]) }),
+      commands: Object.freeze([currencyCommands.count]) }),
     apiKey: Object.freeze({ definition: yield* compileApiKeyCoreDefinition(target), initialization: Object.freeze({ ...initialization.apiKey }), commands: Object.freeze([keys]) }),
     apiKeySalesChannel: Object.freeze({ definition: yield* compileApiKeySalesChannelLinkCoreDefinition(target),
       initialization: Object.freeze({ ...initialization.apiKeySalesChannel }), commands: Object.freeze([associations]) }),
@@ -105,6 +114,7 @@ export const compileStoreRequestReadCatalog = Effect.fn("StoreRequestReads.compi
  * No schema installation, data seeding, initializer or write capability escapes. */
 export const makeStoreRequestReads = Effect.fn("StoreRequestReads.make")(function* (input: Readonly<{
   database: CoreDatabase; hostRuntime: PreparedHostRuntime; catalog: StoreRequestReadCatalog; identityAndAccessPolicy: Json;
+  readSalesChannels?: NativeQueryRead;
 }>) {
   const bind = Effect.fn("StoreRequestReads.bind")(function* (source: StoreReadSource) {
     const commands = [...source.commands];
@@ -118,62 +128,60 @@ export const makeStoreRequestReads = Effect.fn("StoreRequestReads.make")(functio
   const keyCommand = input.catalog.apiKey.commands[0], linkCommand = input.catalog.apiKeySalesChannel.commands[0];
   if (keyCommand === undefined || linkCommand === undefined) return yield* commerceError("invalidAuthority");
   const values = yield* Effect.fromResult(currencyValueProfile);
-  const readKeyChannels = Effect.fn("StoreRequestReads.keyChannels")(function* (filters: { token: string; type: "publishable" }) {
-    const keys = yield* Effect.fromResult(decodeKeys(yield* apiKey.read(keyCommand, filters)));
-    const channels = keys.length === 0 ? [] : yield* Effect.fromResult(decodeLinks(yield* links.read(linkCommand, keys.map(key => key.id))));
-    return { keys, channels };
+  const currencyJoiner = currencyStaticResources.joinerConfig, apiKeyJoiner = apiKeyStaticResources.joinerConfig,
+    salesChannelJoiner = salesChannelStaticResources.joinerConfig;
+  if (currencyJoiner === undefined || apiKeyJoiner === undefined || salesChannelJoiner === undefined)
+    return yield* commerceError("unsupportedProfile");
+  const native = makeNativeQueryBridge({ servicesConfig: [currencyJoiner, apiKeyJoiner, PublishableApiKeySalesChannel, salesChannelJoiner],
+    entitiesMap: new Map(), entityRelations: new Map(),
+    read: (request, owner) => {
+      if (request.serviceName === salesChannelJoiner.serviceName)
+        return input.readSalesChannels === undefined ? Effect.fail(commerceError("unsupportedProfile")) : input.readSalesChannels(request, owner);
+      if (request.serviceName === currencyJoiner.serviceName)
+        return owner.invoke(() => executeCountedRemoteFetchRequest(request, (filters, options) => owner.run(Effect.gen(function* () {
+          const complete = !hasRemoteFetchPagination(options);
+          const config = { ...options, ...(options.take === null || options.take === undefined ? { take: commerceLimits.catalogRows } : {}) };
+          const args = yield* Effect.fromResult(captureCommerceInput({ filters, config }));
+          const result = yield* Effect.fromResult(values.decodeCountResult(yield* currency.read(currencyCommands.count, args)));
+          if (complete && result[0].length !== result[1]) return yield* commerceError("limitExceeded");
+          return structuredClone(result);
+        }))));
+      if (request.serviceName === apiKeyJoiner.serviceName)
+        return owner.invoke(() => executeRemoteFetchServiceRequest({ ...request, service: {
+          listApiKeys: (filters: unknown) => owner.run(Effect.gen(function* () {
+            const captured = yield* Effect.fromResult(captureCommerceInput(filters));
+            const query = yield* Effect.fromResult(decodeNativeKeyFilter(captured));
+            return structuredClone(yield* Effect.fromResult(decodeKeys(yield* apiKey.read(keyCommand, { ...query, type: "publishable" }))));
+          })),
+        } }));
+      if (request.serviceName === PublishableApiKeySalesChannel.serviceName)
+        return owner.invoke(() => executeRemoteFetchServiceRequest({ ...request, service: {
+          list: (filters: unknown) => owner.run(Effect.gen(function* () {
+            const query = yield* Effect.fromResult(decodeNativeLinkFilter(filters));
+            const ids = yield* Effect.fromResult(decodeIds(query.publishable_key_id));
+            // The existing Link command counts the complete bounded cohort and
+            // refuses truncation, admitting native unpaged ID-array fetching.
+            return structuredClone(yield* Effect.fromResult(decodeLinks(yield* links.read(linkCommand, ids))));
+          })),
+        } }));
+      return Effect.fail(commerceError("invalidAuthority"));
+    },
   });
   const remoteQuery = Effect.fn("StoreRequestReads.remoteQuery")(function* (inputQuery: unknown) {
     const captured = yield* Effect.fromResult(captureCommerceInput(inputQuery));
     const envelope = yield* Effect.fromResult(decodeRemoteEntity(captured));
     if (envelope.__value.api_key !== undefined) {
-      const query = (yield* Effect.fromResult(decodeKeyRemote(captured))).__value.api_key;
-      const { keys, channels } = yield* readKeyChannels({ ...query.__args.filters, type: "publishable" });
-      return keys.map(key => ({ sales_channels: channels.filter(link => link.publishable_key_id === key.id)
-        .map(link => ({ id: link.sales_channel_id })) }));
+      yield* Effect.fromResult(decodeKeyRemote(captured));
+    } else {
+      yield* Effect.fromResult(decodeRemote(captured));
     }
-    const { fields: requestedFields, __args: args } = (yield* Effect.fromResult(decodeRemote(captured))).__value.currency;
-    // Native MikroORM discards the HTTP FieldParser's implicit nonmodel id,
-    // and always hydrates/serializes the actual DML primary key, code.
-    const fields = [...new Set(["code" as const, ...currencyColumns.filter(field => requestedFields.includes(field))])];
-    // Native numeric serialization exposes both authenticated companion fields
-    // when either side is selected, including the ordinary Store defaults.
-    if (fields.includes("rounding") && !fields.includes("raw_rounding")) fields.push("raw_rounding");
-    if (fields.includes("raw_rounding") && !fields.includes("rounding")) fields.push("rounding");
-    const counted = args.take !== undefined;
-    const config: JsonObject = { select: [...fields], ...(args.take === undefined ? {} : { take: args.take }),
-      ...(args.skip === undefined ? {} : { skip: args.skip }), ...(args.order === undefined ? {} : { order: args.order }) };
-    const result = yield* currency.read(counted ? currencyCommands.count : currencyCommands.list, { filters: args.filters ?? {}, config });
-    const [rows, count] = counted ? yield* Effect.fromResult(values.decodeCountResult(result))
-      : [yield* Effect.fromResult(values.decodeProjections(result)), 0] as const;
-    const projected: JsonObject[] = [];
-    for (const row of rows) {
-      const presented = yield* Effect.fromResult(values.decodeProjection(yield* projectExactNumericColumns(row, [{ name: "rounding" }], "nativeOrm")));
-      const entries: [string, Json][] = [];
-      for (const field of fields) {
-        const value = presented[field];
-        if (value === undefined) return yield* commerceError("storedCorruption");
-        entries.push([field, value]);
-      }
-      projected.push(Object.fromEntries(entries));
-    }
-    return counted ? { rows: projected, metadata: { count, skip: args.skip ?? 0, take: args.take ?? 256 } } : projected;
+    return yield* native.query(captured);
   });
   const graph = Effect.fn("StoreRequestReads.graph")(function* (inputQuery: unknown, options?: unknown) {
     const captured = yield* Effect.fromResult(captureCommerceInput(inputQuery));
-    const query = yield* Effect.fromResult(decodeGraph(captured));
+    yield* Effect.fromResult(decodeGraph(captured));
     if (options !== undefined) yield* Effect.fromResult(decodeGraphOptions(yield* Effect.fromResult(captureCommerceInput(options))));
-    const { keys, channels } = yield* readKeyChannels(query.filters);
-    if (keys.length === 0) return { data: [] };
-    // Pinned RemoteJoiner.query fetches its root before handleExpands; each
-    // remote-fetch-data service call receives filters/options and no shared
-    // Context. Preserve those independent native read groups. The Link lookup
-    // uses the captured key identity, never a second token lookup. This graph
-    // does not promise a snapshot shared across key and Link service calls.
-    // third_party/medusa/upstream/packages/core/orchestration/src/joiner/remote-joiner.ts
-    // third_party/medusa/upstream/packages/core/modules-sdk/src/remote-query/remote-fetch-data.ts
-    return { data: keys.map(key => ({ ...key, sales_channels_link: channels.filter(link => link.publishable_key_id === key.id)
-      .map(link => ({ sales_channel_id: link.sales_channel_id })) })) };
+    return yield* Effect.fromResult(decodeKeyGraphResult(yield* native.graph(captured, options)));
   });
   return Object.freeze({ remoteQuery, query: Object.freeze({ graph }),
     close: currency.close.pipe(Effect.andThen(apiKey.close), Effect.andThen(links.close)) });

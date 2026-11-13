@@ -1,3 +1,4 @@
+import { withNativeGraphMetadata } from "../../local-graph/native-metadata";
 import { Effect, Result, Schema } from "effect";
 import { OrderModuleService } from "@medusajs/order/services";
 import type { CreateOrderChangeDTO } from "@medusajs/order/types";
@@ -164,13 +165,13 @@ const makeOrderCommands = Effect.fn("Order.commands")(function* (profile: "finan
     const financeMethods = { listOrderTransactions, addOrderTransactions, deleteOrderTransactions,
       createOrderChange, addOrderAction, deleteOrderChanges, deleteOrderChangeActions, confirmOrderChange, undoLastChange };
     const definition = { name: Modules.ORDER, source: module.description,
-      graph: { aliases: aliases.filter(alias => alias.model === "Order" || alias.model === "OrderChange"), reads: [
+      graph: yield* withNativeGraphMetadata({ aliases: aliases.filter(alias => alias.model === "Order" || alias.model === "OrderChange"), reads: [
         { model: "Order", command: orders, table: yield* presentation.table("order"), paths: [],
           orderable: ["id"], uniqueOrder: ["id"], multipleOrder: false, decode: decodeGraphCount },
         { model: "OrderChange", command: changes, table: yield* prepared.contracts.catalog.table("order_change"),
           paths: yield* relationPaths(prepared.contracts.catalog, "order_change", ["actions"]),
           orderable: ["id"], uniqueOrder: ["id"], multipleOrder: false, decode: decodeGraphCount },
-      ] }, logical: { ...policy, commands: admitted, allowPreservingDeletionUpsert: "preserveTimestamps" as const } };
+      ] }, [OrderModuleService.prototype.__joinerConfig()], metadata.frame.tables), logical: { ...policy, commands: admitted, allowPreservingDeletionUpsert: "preserveTimestamps" as const } };
     const withWorkflow = <const Methods extends Readonly<Record<string, WorkflowMethod>>>(methods: Methods) => defineWorkflowModule({ ...definition, methods });
     return { orders, changes, transactions, add, remove, createChange, addActions, deleteChanges, deleteActions, confirmChanges, undoChanges,
       create, deleteCreated, commands: admitted, withWorkflow, financeMethods, creationMethods: { createOrders, deleteOrders }, prepared,

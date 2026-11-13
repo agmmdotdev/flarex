@@ -1,3 +1,4 @@
+import { withNativeGraphMetadata } from "../../local-graph/native-metadata";
 import { Effect, Result, Schema } from "effect";
 import { ShippingOption, ServiceZone, FulfillmentSet, FulfillmentProvider } from "@medusajs/fulfillment/models";
 import { fulfillmentStaticResources } from "@medusajs/fulfillment/static-manifest";
@@ -149,7 +150,7 @@ export function prepareShippingOptionCreationCommands<Service extends { readonly
       policy = shippingOptionCreationPolicy(prepared);
     const workflow = yield* defineWorkflowModule({ name: Modules.FULFILLMENT, source: module.description,
       methods: { upsertShippingOptions, deleteShippingOptions, validateShippingOptionsForPriceCalculation,
-        listShippingOptions, listServiceZones, listFulfillmentSets, listFulfillmentProviders }, graph: { aliases, reads }, logical: { ...policy, commands: admitted, ...(prepared.contracts.referenceDetachments.length ? { detachDeletedReferences: true as const } : {}) } });
+        listShippingOptions, listServiceZones, listFulfillmentSets, listFulfillmentProviders }, graph: yield* withNativeGraphMetadata({ aliases, reads }, [joiner], prepared.graph.catalog.tables), logical: { ...policy, commands: admitted, ...(prepared.contracts.referenceDetachments.length ? { detachDeletedReferences: true as const } : {}) } });
     return { upsert, remove, validate, optionList, zoneList, setList, providerList, optionCount, zoneCount, setCount, providerCount,
       commands: admitted, workflow, withService: module.use, contracts: prepared.contracts, logicalEventPolicy: () => policy };
   });

@@ -12,6 +12,11 @@ import { prepareLocalGraph, decodeGraphCount } from "../src/local-graph/query";
 import type { GraphModuleDefinition, GraphParticipant, GraphRemotePath } from "../src/local-graph/model";
 import { defineWorkflowModule, workflowModuleDefinition } from "../src/workflow/module";
 import { runEffect, runEffectFailure } from "../../persistence-postgres/test/support/effectTestRuntime";
+import { ProductModuleService } from "@medusajs/product/services";
+import { inventoryStaticResources } from "@medusajs/inventory/static-manifest";
+import { fulfillmentStaticResources } from "@medusajs/fulfillment/static-manifest";
+import { pricingStaticResources } from "@medusajs/pricing/static-manifest";
+import { declaredNativeGraph, nativeGraphFixture } from "./support/declared-native-graph";
 
 const productParticipant = defineAtomicCommerceParticipant("graph-link-product");
 const inventoryParticipant = defineAtomicCommerceParticipant("graph-link-inventory");
@@ -30,21 +35,24 @@ beforeAll(async () => {
 });
 
 function participants(remotePaths: readonly GraphRemotePath[] = paths): GraphParticipant[] {
-  const endpoint = (model: string, alias: string, command: typeof variantRead): GraphModuleDefinition => ({
+  const endpoint = (model: string, alias: string, command: typeof variantRead, config: ModuleJoinerConfig | undefined): GraphModuleDefinition => {
+    if (config === undefined) throw new Error("Missing actual endpoint native metadata");
+    return declaredNativeGraph({
     aliases: [{ name: alias, model }], reads: [{ model, command,
       table: { name: alias, columns: ["id", "title"], primaryKeys: ["id"], foreignKeys: [], companions: {} },
       paths: [], orderable: ["id"], uniqueOrder: ["id"], multipleOrder: false, decode: decodeGraphCount }],
-  });
+    }, [config], []);
+  };
   const link = paths[0];
   if (link === undefined) throw new Error("Missing native Link path");
   return [
-    { participant: productParticipant, module: endpoint("ProductVariant", "variant", variantRead) },
-    { participant: inventoryParticipant, module: endpoint("InventoryItem", "inventory_item", inventoryRead) },
-    { participant: linkParticipant, module: { aliases: [{ name: "variant_inventory_link", model: link.linkModel }],
+    { participant: productParticipant, module: endpoint("ProductVariant", "variant", variantRead, ProductModuleService.prototype.__joinerConfig()) },
+    { participant: inventoryParticipant, module: endpoint("InventoryItem", "inventory_item", inventoryRead, inventoryStaticResources.joinerConfig) },
+    { participant: linkParticipant, module: declaredNativeGraph({ aliases: [{ name: "variant_inventory_link", model: link.linkModel }],
       reads: [{ model: link.linkModel, command: linkRead,
         table: { name: metadata.frame.name, columns: metadata.frame.columns.map(column => column.name),
           primaryKeys: metadata.frame.columns.filter(column => column.primaryKey).map(column => column.name), foreignKeys: [], companions: {} },
-        paths: [], orderable: [link.sourceColumn], uniqueOrder: [], multipleOrder: false, decode: decodeGraphCount }], remotePaths } },
+        paths: [], orderable: [link.sourceColumn], uniqueOrder: [], multipleOrder: false, decode: decodeGraphCount }], remotePaths }, [metadata.joiner], [metadata.frame]) },
   ];
 }
 type Call = { readonly participant: Parameters<AtomicCommerceContext["call"]>[0]; readonly command: Parameters<AtomicCommerceContext["call"]>[1]; readonly args: Json };
@@ -61,8 +69,8 @@ function context(responses: readonly Json[], calls: Call[] = []): AtomicCommerce
   };
 }
 const query = (fields: string[] = ["id", "inventory.id", "inventory.variants.id"]) => ({ entity: "variant", fields,
-  filters: { id: ["v1", "v2"] }, pagination: { take: 4 } });
-const graph = (remotePaths: readonly GraphRemotePath[] = paths) => Result.getOrThrow(prepareLocalGraph(participants(remotePaths)));
+  filters: { id: ["v1", "v2"] }, pagination: { take: 4, skip: 0 } });
+const graph = (remotePaths: readonly GraphRemotePath[] = paths) => nativeGraphFixture(Result.getOrThrow(prepareLocalGraph(participants(remotePaths))));
 
 describe("native Link-derived local graph paths", () => {
   it("groups authenticated suffix aliases without requiring a synthetic public endpoint alias", () => {
@@ -106,33 +114,41 @@ describe("native Link-derived local graph paths", () => {
     }))));
     const first = selected[0];
     if (first === undefined) throw new Error("Missing authenticated suffix path");
+    const sourceConfig = kind === "shipping" ? fulfillmentStaticResources.joinerConfig
+      : { serviceName: "left", primaryKeys: ["id"], alias: [{ name: "source", entity: "Left", args: { methodSuffix: "Lefts" } }] };
+    const targetConfig = kind === "shipping" ? pricingStaticResources.joinerConfig
+      : { serviceName: "right", primaryKeys: ["id"], alias: [{ name: "target", entity: "Right", args: { methodSuffix: "Rights" } }] };
+    if (sourceConfig === undefined || targetConfig === undefined) throw new Error("Missing genuine suffix endpoint metadata");
+    const sourceAlias = kind === "shipping" ? "shipping_option" : "source";
     const scalar = (name: string) => ({ name, columns: ["id"], primaryKeys: ["id"], foreignKeys: [], companions: {} });
     const read = (model: string, command: typeof variantRead, table = scalar(model.toLowerCase())) => ({ model, command, table,
       paths: [], orderable: [table.primaryKeys[0]!], uniqueOrder: table.primaryKeys.length === 1 ? table.primaryKeys : [], multipleOrder: false, decode: decodeGraphCount });
     const modules: GraphParticipant[] = [
-      { participant: productParticipant, module: { aliases: [{ name: "source", model: first.sourceModel }], reads: [read(first.sourceModel, variantRead)] } },
-      { participant: inventoryParticipant, module: { aliases: [{ name: "target", model: first.targetModel }], reads: [{ ...read(first.targetModel, inventoryRead),
+      { participant: productParticipant, module: declaredNativeGraph({ aliases: [{ name: sourceAlias, model: first.sourceModel }], reads: [read(first.sourceModel, variantRead)] }, [sourceConfig], []) },
+      { participant: inventoryParticipant, module: declaredNativeGraph({ aliases: [{ name: "target", model: first.targetModel }], reads: [{ ...read(first.targetModel, inventoryRead),
         paths: [{ path: names[0], table: scalar("detail"), many: true, sourceFields: ["id"] },
-          { path: names[1], table: scalar("calculation"), many: false, optional: true, sourceFields: ["id"] }] }] } },
-      { participant: linkParticipant, module: { aliases: [{ name: "pairs", model: first.linkModel }], remotePaths: selected,
+          { path: names[1], table: scalar("calculation"), many: false, optional: true, sourceFields: ["id"] }] }] }, [targetConfig],
+        [{ name: first.targetModel.toLowerCase(), relationships: [] }]) },
+      { participant: linkParticipant, module: declaredNativeGraph({ aliases: [{ name: "pairs", model: first.linkModel }], remotePaths: selected,
         reads: [read(first.linkModel, linkRead, { name: "pairs", columns: [first.sourceColumn, first.targetColumn],
-          primaryKeys: [first.sourceColumn, first.targetColumn], foreignKeys: [], companions: {} })] } },
+          primaryKeys: [first.sourceColumn, first.targetColumn], foreignKeys: [], companions: {} })] }, [kind === "shipping" ? ShippingOptionPriceSet : neutral], []) },
     ];
-    const graph = Result.getOrThrow(prepareLocalGraph(modules));
-    const input = { entity: "source", fields: ["id", `${names[0]}.id`, `${names[1]}.id`], pagination: { take: 4 } };
+    const graph = nativeGraphFixture(Result.getOrThrow(prepareLocalGraph(modules)));
+    const input = { entity: sourceAlias, fields: ["id", `${names[0]}.id`, `${names[1]}.id`], pagination: { take: 4, skip: 0 } };
     const roots = [[{ id: "linked" }, { id: "unlinked" }], 2] satisfies Json;
     const links = [[{ [first.sourceColumn]: "linked", [first.targetColumn]: "target" }], 1] satisfies Json;
     const target = { id: "target", [names[0]]: [{ id: "detail" }], [names[1]]: { id: "calculation" } };
     const calls: Call[] = [];
-    expect((await runEffect(graph.bind(context([roots, links, [[target], 1]], calls)).native(input))).data)
+    expect((await runEffect(graph.bind(context([roots, links, [[target], 1]], calls)).nativeGraph(input))).data)
       .toEqual([{ id: "linked", [names[0]]: [{ id: "detail" }], [names[1]]: { id: "calculation" } }, { id: "unlinked", [names[0]]: [] }]);
     expect(calls.map(call => call.command)).toEqual([variantRead, linkRead, inventoryRead]);
-    expect((await runEffect(graph.bind(context([roots, [[], 0]])).native(input))).data)
+    expect((await runEffect(graph.bind(context([roots, [[], 0]])).nativeGraph(input))).data)
       .toEqual([{ id: "linked", [names[0]]: [] }, { id: "unlinked", [names[0]]: [] }]);
-    expect((await runEffect(graph.bind(context([roots, links, [[], 0]])).native(input))).data)
+    expect((await runEffect(graph.bind(context([roots, links, [[], 0]])).nativeGraph(input))).data)
       .toEqual([{ id: "linked", [names[0]]: [] }, { id: "unlinked", [names[0]]: [] }]);
-    expect(await runEffectFailure(graph.bind(context([roots, links, [[{ ...target, [names[0]]: null }], 1]])).native(input)))
-      .toHaveProperty("reason", "storedCorruption");
+    const nativeNull = await runEffect(graph.bind(context([roots, links, [[{ ...target, [names[0]]: null }], 1]])).nativeGraph(input));
+    expect(nativeNull.data).toEqual([{ id: "linked", [names[0]]: [null], [names[1]]: { id: "calculation" } },
+      { id: "unlinked", [names[0]]: [], [names[1]]: undefined }]);
   });
   it("captures workflow module paths before composition and keeps ordinary modules unchanged", () => {
     const selected = participants(), endpoint = selected[0], link = selected[2];
@@ -172,39 +188,39 @@ describe("native Link-derived local graph paths", () => {
       [[{ id: "v1", title: "first" }, { id: "v2", title: "second" }], 2],
     ];
     const original = structuredClone(results);
-    expect(await runEffect(graph().bind(context(results, calls)).graph(query(["title", "inventory.title", "inventory.variants.title"])))).toEqual({
-      data: [{ title: "first", inventory: [{ title: "two", variants: [{ title: "first" }] },
-        { title: "one", variants: [{ title: "second" }, { title: "first" }] }] },
-      { title: "second", inventory: [{ title: "one", variants: [{ title: "second" }, { title: "first" }] }] }],
+    expect(await runEffect(graph().bind(context(results, calls)).nativeGraph(query(["title", "inventory.title", "inventory.variants.title"])))).toEqual({
+      data: [{ id: "v1", title: "first", inventory: [{ id: "i2", title: "two", variants: [{ id: "v1", title: "first" }] },
+        { id: "i1", title: "one", variants: [{ id: "v2", title: "second" }, { id: "v1", title: "first" }] }] },
+      { id: "v2", title: "second", inventory: [{ id: "i1", title: "one", variants: [{ id: "v2", title: "second" }, { id: "v1", title: "first" }] }] }],
       metadata: { count: 2, skip: 0, take: 4 },
     });
     expect(calls.map(call => call.command)).toEqual([variantRead, linkRead, inventoryRead, linkRead, variantRead]);
     expect(calls.map(call => call.participant)).toEqual([productParticipant, linkParticipant, inventoryParticipant, linkParticipant, productParticipant]);
     expect(calls.map(call => call.args)).toEqual([
-      { filters: { id: ["v1", "v2"] }, config: { select: ["title", "id"], relations: [], order: { id: "ASC" }, skip: 0, take: 4 } },
-      { filters: { variant_id: ["v1", "v2"] }, config: { select: ["variant_id", "inventory_item_id"], relations: [], order: { variant_id: "ASC" }, skip: 0, take: 8 } },
-      { filters: { id: ["i2", "i1"] }, config: { select: ["title", "id"], relations: [], order: { id: "ASC" }, skip: 0, take: 8 } },
-      { filters: { inventory_item_id: ["i1", "i2"] }, config: { select: ["inventory_item_id", "variant_id"], relations: [], order: { variant_id: "ASC" }, skip: 0, take: 32 } },
-      { filters: { id: ["v2", "v1"] }, config: { select: ["title", "id"], relations: [], order: { id: "ASC" }, skip: 0, take: 32 } },
+      { filters: { id: ["v1", "v2"] }, config: { select: ["title", "id"], relations: [], skip: 0, take: 4 } },
+      { filters: { variant_id: ["v1", "v2"] }, config: { select: ["variant_id", "inventory_item_id"], relations: [], skip: 0, take: 256 } },
+      { filters: { id: ["i2", "i1"] }, config: { select: ["title", "id"], relations: [], skip: 0, take: 256 } },
+      { filters: { inventory_item_id: ["i2", "i1"] }, config: { select: ["inventory_item_id", "variant_id"], relations: [], skip: 0, take: 256 } },
+      { filters: { id: ["v1", "v2"] }, config: { select: ["title", "id"], relations: [], skip: 0, take: 256 } },
     ]);
     expect(results).toEqual(original);
   });
 
   it("preserves empty and missing endpoint grouping without inventing related rows", async () => {
     const emptyCalls: Call[] = [];
-    expect((await runEffect(graph().bind(context([[[], 0]], emptyCalls)).graph(query()))).data).toEqual([]);
+    expect((await runEffect(graph().bind(context([[[], 0]], emptyCalls)).nativeGraph(query()))).data).toEqual([]);
     expect(emptyCalls).toHaveLength(1);
     const absentCalls: Call[] = [];
     const absent: Json[] = [[[ { id: "v1" } ], 1], [[], 0]];
-    expect((await runEffect(graph().bind(context(absent, absentCalls)).graph(query()))).data).toEqual([{ id: "v1", inventory: [] }]);
+    expect((await runEffect(graph().bind(context(absent, absentCalls)).nativeGraph(query()))).data).toEqual([{ id: "v1", inventory: [] }]);
     expect(absentCalls).toHaveLength(2);
     const missing: Json[] = [[[ { id: "v1" } ], 1], [[{ variant_id: "v1", inventory_item_id: "gone" }], 1], [[], 0]];
-    expect((await runEffect(graph().bind(context(missing)).graph(query()))).data).toEqual([{ id: "v1", inventory: [] }]);
+    expect((await runEffect(graph().bind(context(missing)).nativeGraph(query()))).data).toEqual([{ id: "v1", inventory: [undefined] }]);
   });
 
   it("keeps scalar queries local when remote paths are not selected", async () => {
     const calls: Call[] = [];
-    expect((await runEffect(graph().bind(context([[[{ id: "v1", title: "first" }], 1]], calls)).graph(query(["title"])))).data)
+    expect((await runEffect(graph().bind(context([[[{ id: "v1", title: "first" }], 1]], calls)).nativeGraph(query(["title"])))).data)
       .toEqual([{ title: "first" }]);
     expect(calls).toHaveLength(1);
     expect(calls[0]?.args).toMatchObject({ config: { select: ["title"], relations: [] } });
@@ -222,13 +238,13 @@ describe("native Link-derived local graph paths", () => {
     expect(targets).toHaveLength(28);
     const calls: Call[] = [];
     const result = await runEffect(graph().bind(context([[roots, 4], [direct, 8], [items, 8], [inverse, 32], [targets, 28]], calls))
-      .graph({ ...query(), filters: { id: roots.map(root => root.id) } }));
+      .nativeGraph({ ...query(), filters: { id: roots.map(root => root.id) } }));
     expect(result.data).toEqual(roots.map(root => ({ id: root.id, inventory: direct.filter(edge => edge.variant_id === root.id).map(edge => ({
       id: edge.inventory_item_id, variants: inverse.filter(owner => owner.inventory_item_id === edge.inventory_item_id).map(owner => ({ id: owner.variant_id })),
     })) })));
     expect(calls).toHaveLength(5);
-    expect(calls[3]?.args).toMatchObject({ config: { take: 32 } });
-    expect(calls[4]?.args).toMatchObject({ filters: { id: targets.map(target => target.id) }, config: { take: 32 } });
+    expect(calls[3]?.args).toMatchObject({ config: { take: 256 } });
+    expect(calls[4]?.args).toMatchObject({ filters: { id: targets.map(target => target.id) }, config: { take: 256 } });
   });
 
   it("refuses source, link, target and per-source maxima before incomplete attachment", async () => {
@@ -244,7 +260,7 @@ describe("native Link-derived local graph paths", () => {
     ];
     for (const entry of cases) {
       const input = entry.take === undefined ? query() : { ...query(), pagination: { take: entry.take } };
-      expect(await runEffectFailure(graph(entry.paths).bind(context(entry.results)).graph(input))).toMatchObject({ reason: entry.reason });
+      expect(await runEffectFailure(graph(entry.paths).bind(context(entry.results)).nativeGraph(input))).toMatchObject({ reason: entry.reason });
     }
   });
 
@@ -261,7 +277,7 @@ describe("native Link-derived local graph paths", () => {
       [root, links, [[{ id: "outside" }], 1]],
       [root, links, [[{ id: "i1" }, { id: "i1" }], 2]],
     ];
-    for (const results of cases) expect(await runEffectFailure(graph().bind(context(results)).graph(query())))
+    for (const results of cases) expect(await runEffectFailure(graph().bind(context(results)).nativeGraph(query())))
       .toMatchObject({ reason: "storedCorruption" });
   });
 
@@ -291,8 +307,8 @@ describe("native Link-derived local graph paths", () => {
     mutable.length = 0;
     const responses: Json[] = [[[{ id: "v1" }], 1], [[{ variant_id: "v1", inventory_item_id: "i1" }, { variant_id: "v1", inventory_item_id: "i2" }], 2],
       [[{ id: "i1", title: "one" }, { id: "i2", title: "two" }], 2]];
-    expect((await runEffect(prepared.bind(context(responses)).graph(query(["inventory.title"])))).data)
-      .toEqual([{ inventory: [{ title: "one" }, { title: "two" }] }]);
-    expect(await runEffectFailure(prepared.bind(context([])).graph(query(["inventory.secret"])))).toHaveProperty("reason", "unsupportedProfile");
+    expect((await runEffect(prepared.bind(context(responses)).nativeGraph(query(["inventory.title"])))).data)
+      .toEqual([{ id: "v1", inventory: [{ id: "i1", title: "one" }, { id: "i2", title: "two" }] }]);
+    expect(await runEffectFailure(prepared.bind(context([])).nativeGraph(query(["inventory.secret"])))).toHaveProperty("reason", "unsupportedProfile");
   });
 });

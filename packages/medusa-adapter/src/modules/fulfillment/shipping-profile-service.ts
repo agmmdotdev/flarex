@@ -1,3 +1,4 @@
+import { withNativeGraphMetadata } from "../../local-graph/native-metadata";
 import { deniedCommerceRepository } from "../../repository/denied";
 import { commerceModuleEventBus } from "../../module/events";
 import { Effect, Result, Schema } from "effect";
@@ -83,7 +84,7 @@ export const makeLocalShippingProfileCommands = Effect.fn("ShippingProfileAdapte
     const retrieve = commands.read("shippingProfileRetrieve", prepare(decodeRetrieve), ({ service, context }, args) => service.retrieveShippingProfile(args.id, args.config as FindConfig<ShippingProfileDTO> | undefined, context));
     const joiner = fulfillmentStaticResources.joinerConfig;
     if (joiner === undefined) return yield* Result.fail(commerceError("unsupportedProfile"));
-    const graph = yield* scalarGraphDefinition(yield* moduleAliases({ ...joiner, alias: (Array.isArray(joiner.alias) ? joiner.alias : joiner.alias === undefined ? [] : [joiner.alias]).filter(alias => alias.entity === "ShippingProfile") }), "ShippingProfile", count, table);
+    const graph = yield* withNativeGraphMetadata(yield* scalarGraphDefinition(yield* moduleAliases({ ...joiner, alias: (Array.isArray(joiner.alias) ? joiner.alias : joiner.alias === undefined ? [] : [joiner.alias]).filter(alias => alias.entity === "ShippingProfile") }), "ShippingProfile", count, table), [joiner], metadata.frame.tables);
     const createShippingProfiles = yield* defineWorkflowMethod({ command: create, arguments: decodeCreateArguments,
       encode: ([profiles]) => profiles, output: creation.decodeRows,
       moduleEvents: [buildModuleResourceEventName({ prefix: Modules.FULFILLMENT, objectName: "shipping_profile", action: "created" })] });

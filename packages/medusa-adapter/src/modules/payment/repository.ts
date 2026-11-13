@@ -37,7 +37,8 @@ const decodeCollectionPatch = commerceDecoder(Schema.Union([
   CollectionStoredPatch,
   NativeCollectionAccountingPatch,
 ]), "unsupportedProfile");
-const scalarProjection: ProjectionPolicy = { keys: "retain", storageKeys: "last", joinKeys: "storage", selectableRelations: [], nested: new Map() };
+const scalarProjection: ProjectionPolicy = { keys: "retain", storageKeys: "last", joinKeys: "storage", ignoreUnknownScalarFields: true,
+  selectableRelations: [], nested: new Map() };
 const sessionCollectionWhere = { ...scalarIdWhere, fields: new Map([...scalarIdWhere.fields,
   ["payment_collection_id", { column: "payment_collection_id", decode: commerceDecoder(Schema.Union([PaymentId, PaymentSessionIds]), "unsupportedProfile") }] as const]) };
 

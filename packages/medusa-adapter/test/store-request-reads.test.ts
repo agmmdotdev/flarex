@@ -19,14 +19,13 @@ describe(`Core Store request reads (${driver})`, () => {
     try {
       const before = await tested.fixture.snapshot();
       await tested.use(reads => Effect.gen(function* () {
-        expect(yield* reads.remoteQuery(query({}, 1, 1))).toEqual({ rows: [{ code: "eur", name: "Euro", symbol: "€", symbol_native: "€", decimal_digits: 2, rounding: 0,
-          raw_rounding: { value: "0", precision: 20 } }],
+        expect(yield* reads.remoteQuery(query({}, 1, 1))).toEqual({ rows: [{ code: "eur", name: "Euro", symbol: "€", symbol_native: "€", decimal_digits: 2, rounding: 0 }],
           metadata: { count: 3, skip: 1, take: 1 } });
         expect(yield* reads.remoteQuery(query({ code: "USD" }, undefined, undefined, ["code", "name"]))).toEqual([{ code: "usd", name: "United States Dollar" }]);
-        expect(yield* reads.remoteQuery(query({ code: "USD" }, undefined, undefined, ["name", "id"]))).toEqual([{ code: "usd", name: "United States Dollar" }]);
-        expect(yield* reads.remoteQuery(query({ code: "USD" }, undefined, undefined, ["id"]))).toEqual([{ code: "usd" }]);
+        expect(yield* reads.remoteQuery(query({ code: "USD" }, undefined, undefined, ["name", "id"]))).toEqual([{ name: "United States Dollar" }]);
+        expect(yield* reads.remoteQuery(query({ code: "USD" }, undefined, undefined, ["id"]))).toEqual([undefined]);
         expect(yield* reads.remoteQuery(query({ code: "CHF" }, undefined, undefined, ["raw_rounding", "id"])))
-          .toEqual([{ code: "chf", rounding: 0.05, raw_rounding: { value: "0.05", precision: 20 } }]);
+          .toEqual([{ raw_rounding: { value: "0.050000000000000000000", precision: 20 } }]);
         expect(yield* reads.remoteQuery(query({ code: "absent" }))).toEqual([]);
         expect(yield* reads.remoteQuery(query({ q: "FRANÇAIS" }, 50, 0, ["code"]))).toEqual({ rows: [{ code: "chf" }], metadata: { count: 1, skip: 0, take: 50 } });
         expect(yield* reads.remoteQuery(query({ $or: [{ code: "USD" }, { code: ["EUR"] }] }, 50, 0, ["code"]))).toEqual({ rows: [{ code: "eur" }, { code: "usd" }],
@@ -41,7 +40,7 @@ describe(`Core Store request reads (${driver})`, () => {
     try {
       await tested.use(reads => Effect.gen(function* () {
         expect(yield* reads.query.graph(graphQuery(token), { cache: { enable: true } })).toEqual({ data: [{ id: "apk_active", token, revoked_at: null,
-          sales_channels_link: [{ sales_channel_id: "sc_active" }] }] });
+          sales_channels_link: [{ publishable_key_id: "apk_active", sales_channel_id: "sc_active" }] }] });
         expect(yield* reads.query.graph(graphQuery(revoked))).toEqual({ data: [{ id: "apk_revoked", token: revoked, revoked_at: "2020-01-01T00:00:00.000Z", sales_channels_link: [] }] });
         expect(yield* reads.query.graph(graphQuery(secret))).toEqual({ data: [] });
         expect(yield* reads.query.graph(graphQuery("missing"))).toEqual({ data: [] });
@@ -68,8 +67,7 @@ describe(`Core Store request reads (${driver})`, () => {
           { headers: selected === undefined ? {} : { "x-publishable-api-key": selected } }));
         const list = await request("/store/currencies?limit=1&offset=1");
         expect(list.status).toBe(200);
-        expect(await list.json()).toEqual({ currencies: [{ code: "eur", name: "Euro", symbol: "€", symbol_native: "€", decimal_digits: 2, rounding: 0,
-          raw_rounding: { value: "0", precision: 20 } }],
+        expect(await list.json()).toEqual({ currencies: [{ code: "eur", name: "Euro", symbol: "€", symbol_native: "€", decimal_digits: 2, rounding: 0 }],
           count: 3, offset: 1, limit: 1 });
         const retrieve = await request("/store/currencies/USD");
         expect(retrieve.status).toBe(200);
@@ -87,11 +85,9 @@ describe(`Core Store request reads (${driver})`, () => {
         expect(selected.status).toBe(200);
         expect(await selected.json()).toEqual({ currencies: [{ code: "usd", name: "United States Dollar" }], count: 1, offset: 0, limit: 50 });
         const identityOnly = await request("/store/currencies/USD?fields=id");
-        expect(identityOnly.status).toBe(200);
-        expect(await identityOnly.json()).toEqual({ currency: { code: "usd" } });
+        expect(identityOnly.status).toBe(404);
         const unknownFields = await request("/store/currencies/USD?fields=bogus");
-        expect(unknownFields.status).toBe(200);
-        expect(await unknownFields.json()).toEqual({ currency: { code: "usd" } });
+        expect(unknownFields.status).toBe(404);
         // The native Currency route forwards pagination only; its separately
         // prepared withDeleted flag is not a RemoteQuery variable.
         const deleted = await request("/store/currencies?with_deleted=true&fields=code");
