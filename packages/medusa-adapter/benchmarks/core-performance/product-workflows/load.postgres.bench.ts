@@ -31,7 +31,9 @@ beforeAll(async () => {
   const levels = await prepareCoreInventoryLevelUpdate("postgres", close), levelHost = await levels.prepare();
   const [hot] = (await levels.seed("hot")).pairs;
   if (hot === undefined) throw new Error("Missing seeded hot Inventory Level");
-  const distinct = (await levels.seed("distinct", 4)).pairs;
+  // The fixture seeds at most four pairs per call; the native lane uses 64 distinct levels.
+  const distinct: Awaited<ReturnType<typeof levels.seed>>["pairs"][number][] = [];
+  for (let batch = 0; batch < 16; batch++) distinct.push(...(await levels.seed(`distinct-${batch}`, 4)).pairs);
   const catalogId = (index: number) => `cat-${index % catalogSize}-product`;
   cases = {
     "read-retrieve": () => index => run(reads.read(runtime.commands.retrieve, readInputs.retrieve(catalogId(index * 7)))),
