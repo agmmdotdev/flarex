@@ -2,6 +2,15 @@
 
 ## Current Priority
 
+The owner has selected bounded
+[Core AOT request hot-path optimization](../../experiments/core/engine/slices/core-aot-hot-paths.md)
+and complete current mixed Application/Product request comparison in Node and
+Bun AOT. This resumes measurement and optimization for that scope. Keep the
+existing request, capture, budget, transaction and publication guarantees;
+isolated PostgreSQL uses an ordinary serving role with durability enabled.
+The broader runtime redesign and native-relative/host/scale acceptance gates
+remain separate and unproven.
+
 The owner has also selected [static Schema AOT decoding](./schema-aot.md) for
 core contracts and the benchmarked Medusa Product adapter profiles. This parsing
 optimization and its Node/Bun AOT comparison do not reopen the broader runtime

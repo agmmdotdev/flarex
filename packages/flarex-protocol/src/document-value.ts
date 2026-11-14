@@ -101,7 +101,13 @@ function capture(value: unknown, profile: FlarexValueProfileV1): Result.Result<C
 
 /** UTF-8 internal JSON for the complete document; no private outer envelope. */
 export function encodeDocumentValue(value: unknown): Result.Result<Uint8Array, DocumentValueError> {
-  return captureDocumentValue(value).pipe(Result.map(captured => utf8.encode(JSON.stringify(toJson(captured)))));
+  return captureDocumentValue(value).pipe(Result.map(encodeCapturedDocumentValue));
+}
+
+/** Internal established-value path: use immediately after capture, before the
+ * value or its mutable binary leaves can escape to caller code. */
+export function encodeCapturedDocumentValue(value: DocumentValue): Uint8Array {
+  return utf8.encode(JSON.stringify(toJson(value)));
 }
 
 export function decodeDocumentValue(bytes: Uint8Array): Result.Result<DocumentValue, DocumentValueError> {

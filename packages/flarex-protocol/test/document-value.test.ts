@@ -3,24 +3,41 @@ import { describe, expect, it } from "vitest";
 import {
   captureDocumentObject, captureDocumentPatch, captureDocumentValue,
   captureDocumentObjectWithSize, captureDocumentValueWithSize,
-  decodeDocumentValue, encodeDocumentValue,
+  decodeDocumentValue, encodeCapturedDocumentValue, encodeDocumentValue,
 } from "../src/document-value";
 
 const text = (value: unknown) => new TextDecoder().decode(Result.getOrThrow(encodeDocumentValue(value)));
 const decode = (value: string) => decodeDocumentValue(new TextEncoder().encode(value));
 
 describe("Convex internal document JSON", () => {
-  it("uses the pinned scalar tags and a full document without the old envelope", () => {
-    expect(text({ _id: "document", _creationTime: 2, nul: "a\0b", removed: undefined })).toBe(
+  it.each(["unknown", "captured"] as const)("uses the pinned scalar tags and full document for %s values", mode => {
+    const encode = (value: unknown) => mode === "unknown" ? text(value)
+      : new TextDecoder().decode(encodeCapturedDocumentValue(Result.getOrThrow(captureDocumentValue(value))));
+    expect(encode({ _id: "document", _creationTime: 2, nul: "a\0b", removed: undefined })).toBe(
       '{"_creationTime":2,"_id":"document","nul":"a\\u0000b"}',
     );
-    expect(text(1n)).toBe('{"$integer":"AQAAAAAAAAA="}');
-    expect(text(-1n)).toBe('{"$integer":"//////////8="}');
-    expect(text(new Uint8Array([0, 255, 1]).buffer)).toBe('{"$bytes":"AP8B"}');
-    expect(text(-0)).toBe('{"$float":"AAAAAAAAAIA="}');
-    expect(text(Infinity)).toBe('{"$float":"AAAAAAAA8H8="}');
-    expect(text(-Infinity)).toBe('{"$float":"AAAAAAAA8P8="}');
-    expect(text(NaN)).toBe('{"$float":"AAAAAAAA+H8="}');
+    expect(encode(1n)).toBe('{"$integer":"AQAAAAAAAAA="}');
+    expect(encode(-1n)).toBe('{"$integer":"//////////8="}');
+    expect(encode(-(1n << 63n))).toBe('{"$integer":"AAAAAAAAAIA="}');
+    expect(encode((1n << 63n) - 1n)).toBe('{"$integer":"/////////38="}');
+    expect(encode(new Uint8Array([0, 255, 1]).buffer)).toBe('{"$bytes":"AP8B"}');
+    expect(encode(-0)).toBe('{"$float":"AAAAAAAAAIA="}');
+    expect(encode(Infinity)).toBe('{"$float":"AAAAAAAA8H8="}');
+    expect(encode(-Infinity)).toBe('{"$float":"AAAAAAAA8P8="}');
+    expect(encode(NaN)).toBe('{"$float":"AAAAAAAA+H8="}');
+    expect(encode(JSON.parse('{"z":1,"__proto__":null,"nested":{"omitted":null,"a":true}}')))
+      .toBe('{"__proto__":null,"nested":{"a":true,"omitted":null},"z":1}');
+  });
+
+  it("serializes detached captured containers and binary leaves without retaining encoded output", () => {
+    const bytes = Uint8Array.of(0, 1, 255), nested = { value: "before", omitted: undefined };
+    const captured = Result.getOrThrow(captureDocumentValue({ nested, bytes: bytes.buffer }));
+    bytes.fill(9); nested.value = "after";
+    const expected = new TextEncoder().encode('{"bytes":{"$bytes":"AAH/"},"nested":{"value":"before"}}');
+    const first = encodeCapturedDocumentValue(captured);
+    expect(first).toEqual(expected);
+    first.fill(0);
+    expect(encodeCapturedDocumentValue(captured)).toEqual(expected);
   });
 
   it("round trips special numbers, signed integer limits, binary leaves and nested omission", () => {
@@ -69,6 +86,7 @@ describe("Convex internal document JSON", () => {
     let reads = 0;
     const accessor = Object.defineProperty({}, "x", { enumerable: true, get() { reads += 1; return 1; } });
     expect(Result.isFailure(captureDocumentValue(accessor))).toBe(true);
+    expect(Result.isFailure(encodeDocumentValue(accessor))).toBe(true);
     expect(Result.isFailure(captureDocumentPatch(accessor))).toBe(true);
     expect(reads).toBe(0);
     expect(Result.isFailure(captureDocumentPatch({ $invalid: undefined }))).toBe(true);
@@ -86,8 +104,10 @@ describe("Convex internal document JSON", () => {
 
   it("enforces the pinned value and document shapes instead of silently coercing", () => {
     const cycle: { self?: unknown } = {}; cycle.self = cycle;
-    for (const value of [undefined, 1n << 63n, new Set(), new Map(), new Date(), Uint8Array.of(1), [undefined], [,], cycle, { "$x": 1 }, { "non\0ascii": 1 }])
+    for (const value of [undefined, 1n << 63n, new Set(), new Map(), new Date(), Uint8Array.of(1), [undefined], [,], cycle, { "$x": 1 }, { "non\0ascii": 1 }]) {
       expect(Result.isFailure(captureDocumentValue(value)), String(typeof value)).toBe(true);
+      expect(Result.isFailure(encodeDocumentValue(value)), String(typeof value)).toBe(true);
+    }
     for (const value of [null, [], "x", 1]) expect(Result.isFailure(captureDocumentObject(value))).toBe(true);
     expect(Result.isFailure(captureDocumentObject({ long: "x".repeat(1 << 20) }))).toBe(true);
     let nested: unknown = 1;
@@ -96,5 +116,6 @@ describe("Convex internal document JSON", () => {
     const defect = new Error("unexpected proxy failure");
     const foreign = new Proxy({}, { ownKeys() { throw defect; } });
     expect(() => captureDocumentValue(foreign)).toThrow(defect);
+    expect(() => encodeDocumentValue(foreign)).toThrow(defect);
   });
 });

@@ -9,6 +9,10 @@ const TYPED_ARRAY_TAG_GETTER = Object.getOwnPropertyDescriptor(
   TYPED_ARRAY_PROTOTYPE,
   Symbol.toStringTag,
 )?.get;
+const LOWERCASE_HEX_BYTES = Object.freeze(Array.from(
+  { length: 256 },
+  (_, byte) => byte.toString(16).padStart(2, "0"),
+));
 
 /** Returns an owned byte array that does not share storage with the input. */
 export function copyBytes(value: Uint8Array): Uint8Array {
@@ -69,7 +73,7 @@ export function uint8ArrayByteLength(value: unknown): number | undefined {
 export function encodeBytesToLowercaseHex(value: Uint8Array): string {
   let encoded = "";
   for (const byte of Uint8Array.prototype.values.call(value)) {
-    encoded += byte.toString(16).padStart(2, "0");
+    encoded += LOWERCASE_HEX_BYTES[byte];
   }
   return encoded;
 }

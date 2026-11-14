@@ -1,0 +1,2903 @@
+{
+  "baselineRevision": "2d30e605623a15ec67fc95388b64913a9b52ee92",
+  "cpu": "AMD Ryzen 5 2600 Six-Core Processor            ",
+  "platform": "win32",
+  "arch": "x64",
+  "node": "v26.13.0",
+  "bun": "1.4.5",
+  "server": {
+    "version": "18.7",
+    "database": "flarex_core_aot",
+    "role": "flarex_aot_runtime",
+    "fsync": "on",
+    "fullPageWrites": "on",
+    "synchronousCommit": "on",
+    "superuser": false,
+    "bypassRls": false,
+    "createDb": false,
+    "createRole": false,
+    "replication": false
+  },
+  "method": {
+    "order": [
+      "control-a",
+      "optimized-a",
+      "optimized-b",
+      "control-b"
+    ],
+    "measuredRequests": 480,
+    "warmupRequests": 80,
+    "processWorkers": 16,
+    "perWorker": {
+      "warmups": 5,
+      "measured": 30
+    },
+    "perConfiguration": {
+      "processes": 2,
+      "measured": 60
+    },
+    "sourceComparison": "Original/optimized/optimized/original process cohorts; generated and interpreter controls in Node and Bun AOT.",
+    "cpu": "Process user+system CPU inside complete sample.run; includes runtime background work in that interval, excludes PostgreSQL server CPU.",
+    "latency": "Complete sample.run through durable publication; seeding, committed verification and cleanup excluded.",
+    "percentiles": "Nearest rank; no outliers removed.",
+    "nativeRelativeAcceptance": false,
+    "hostedOrScaleAcceptance": false
+  },
+  "summaries": [
+    {
+      "mode": "generated",
+      "runtime": "node",
+      "variant": "control",
+      "count": 60,
+      "meanCpuMs": 112,
+      "medianCpuMs": 94,
+      "p95CpuMs": 173,
+      "medianWallMs": 101.12489999999889,
+      "meanWallMs": 102.37762666666653,
+      "p95WallMs": 125.7387000000017,
+      "minWallMs": 81.77139999999781,
+      "maxWallMs": 147.09709999999905,
+      "cohorts": [
+        {
+          "name": "control-a",
+          "count": 30,
+          "meanCpuMs": 117.73333333333333,
+          "medianCpuMs": 109,
+          "p95CpuMs": 251,
+          "medianWallMs": 105.77850000000035,
+          "meanWallMs": 108.53744333333337,
+          "p95WallMs": 137.9271000000008,
+          "minWallMs": 83.99439999999959,
+          "maxWallMs": 147.09709999999905
+        },
+        {
+          "name": "control-b",
+          "count": 30,
+          "meanCpuMs": 106.26666666666667,
+          "medianCpuMs": 94,
+          "p95CpuMs": 172,
+          "medianWallMs": 97.5086999999985,
+          "meanWallMs": 96.21780999999967,
+          "p95WallMs": 113.35020000000077,
+          "minWallMs": 81.77139999999781,
+          "maxWallMs": 118.26310000000012
+        }
+      ]
+    },
+    {
+      "mode": "generated",
+      "runtime": "node",
+      "variant": "optimized",
+      "count": 60,
+      "meanCpuMs": 97.9,
+      "medianCpuMs": 93,
+      "p95CpuMs": 157,
+      "medianWallMs": 91.79650000000038,
+      "meanWallMs": 93.89479166666666,
+      "p95WallMs": 108.80400000000009,
+      "minWallMs": 78.97110000000066,
+      "maxWallMs": 143.65400000000045,
+      "cohorts": [
+        {
+          "name": "optimized-a",
+          "count": 30,
+          "meanCpuMs": 102.1,
+          "medianCpuMs": 94,
+          "p95CpuMs": 172,
+          "medianWallMs": 98.00379999999859,
+          "meanWallMs": 100.24993333333326,
+          "p95WallMs": 112.54000000000087,
+          "minWallMs": 88.13960000000043,
+          "maxWallMs": 125.49309999999969
+        },
+        {
+          "name": "optimized-b",
+          "count": 30,
+          "meanCpuMs": 93.7,
+          "medianCpuMs": 78,
+          "p95CpuMs": 156,
+          "medianWallMs": 84.92799999999988,
+          "meanWallMs": 87.53965000000008,
+          "p95WallMs": 93.97539999999935,
+          "minWallMs": 78.97110000000066,
+          "maxWallMs": 143.65400000000045
+        }
+      ]
+    },
+    {
+      "mode": "generated",
+      "runtime": "bun-aot",
+      "variant": "control",
+      "count": 60,
+      "meanCpuMs": 92.51666666666667,
+      "medianCpuMs": 94,
+      "p95CpuMs": 125,
+      "medianWallMs": 95.50560000000041,
+      "meanWallMs": 102.62958666666661,
+      "p95WallMs": 136.60269999999946,
+      "minWallMs": 87.70400000000063,
+      "maxWallMs": 174.21120000000155,
+      "cohorts": [
+        {
+          "name": "control-a",
+          "count": 30,
+          "meanCpuMs": 91.76666666666667,
+          "medianCpuMs": 94,
+          "p95CpuMs": 110,
+          "medianWallMs": 95.82819999999992,
+          "meanWallMs": 102.72942333333322,
+          "p95WallMs": 136.60269999999946,
+          "minWallMs": 89.55729999999676,
+          "maxWallMs": 174.21120000000155
+        },
+        {
+          "name": "control-b",
+          "count": 30,
+          "meanCpuMs": 93.26666666666667,
+          "medianCpuMs": 94,
+          "p95CpuMs": 141,
+          "medianWallMs": 95.49539999999979,
+          "meanWallMs": 102.52974999999999,
+          "p95WallMs": 141.66699999999946,
+          "minWallMs": 87.70400000000063,
+          "maxWallMs": 163.90499999999884
+        }
+      ]
+    },
+    {
+      "mode": "generated",
+      "runtime": "bun-aot",
+      "variant": "optimized",
+      "count": 60,
+      "meanCpuMs": 86.01666666666667,
+      "medianCpuMs": 78,
+      "p95CpuMs": 125,
+      "medianWallMs": 93.35630000000128,
+      "meanWallMs": 97.03207500000002,
+      "p95WallMs": 116.44410000000062,
+      "minWallMs": 86.67069999999876,
+      "maxWallMs": 124.47649999999885,
+      "cohorts": [
+        {
+          "name": "optimized-a",
+          "count": 30,
+          "meanCpuMs": 86.6,
+          "medianCpuMs": 79,
+          "p95CpuMs": 125,
+          "medianWallMs": 93.35630000000128,
+          "meanWallMs": 99.02148333333335,
+          "p95WallMs": 120.62930000000051,
+          "minWallMs": 86.67069999999876,
+          "maxWallMs": 124.47649999999885
+        },
+        {
+          "name": "optimized-b",
+          "count": 30,
+          "meanCpuMs": 85.43333333333334,
+          "medianCpuMs": 78,
+          "p95CpuMs": 125,
+          "medianWallMs": 93.1848000000009,
+          "meanWallMs": 95.04266666666669,
+          "p95WallMs": 105.1276999999991,
+          "minWallMs": 88.82359999999971,
+          "maxWallMs": 116.44410000000062
+        }
+      ]
+    },
+    {
+      "mode": "interpreter",
+      "runtime": "node",
+      "variant": "control",
+      "count": 60,
+      "meanCpuMs": 108.11666666666666,
+      "medianCpuMs": 94,
+      "p95CpuMs": 188,
+      "medianWallMs": 101.56070000000182,
+      "meanWallMs": 106.08273999999986,
+      "p95WallMs": 140.43799999999828,
+      "minWallMs": 82.4364999999998,
+      "maxWallMs": 187.42109999999957,
+      "cohorts": [
+        {
+          "name": "control-a",
+          "count": 30,
+          "meanCpuMs": 112.03333333333333,
+          "medianCpuMs": 94,
+          "p95CpuMs": 188,
+          "medianWallMs": 105.26209999999992,
+          "meanWallMs": 113.30815999999965,
+          "p95WallMs": 159.19790000000103,
+          "minWallMs": 87.98799999999756,
+          "maxWallMs": 176.77349999999933
+        },
+        {
+          "name": "control-b",
+          "count": 30,
+          "meanCpuMs": 104.2,
+          "medianCpuMs": 93,
+          "p95CpuMs": 250,
+          "medianWallMs": 90.6182000000008,
+          "meanWallMs": 98.85732000000007,
+          "p95WallMs": 117.90499999999884,
+          "minWallMs": 82.4364999999998,
+          "maxWallMs": 187.42109999999957
+        }
+      ]
+    },
+    {
+      "mode": "interpreter",
+      "runtime": "node",
+      "variant": "optimized",
+      "count": 60,
+      "meanCpuMs": 92.51666666666667,
+      "medianCpuMs": 78,
+      "p95CpuMs": 141,
+      "medianWallMs": 85.8706000000002,
+      "meanWallMs": 88.72079000000012,
+      "p95WallMs": 107.26569999999992,
+      "minWallMs": 80.97779999999875,
+      "maxWallMs": 115.57020000000011,
+      "cohorts": [
+        {
+          "name": "optimized-a",
+          "count": 30,
+          "meanCpuMs": 97.03333333333333,
+          "medianCpuMs": 78,
+          "p95CpuMs": 142,
+          "medianWallMs": 85.96620000000075,
+          "meanWallMs": 90.00752333333337,
+          "p95WallMs": 109.31940000000031,
+          "minWallMs": 82.26120000000083,
+          "maxWallMs": 112.15459999999985
+        },
+        {
+          "name": "optimized-b",
+          "count": 30,
+          "meanCpuMs": 88,
+          "medianCpuMs": 78,
+          "p95CpuMs": 141,
+          "medianWallMs": 85.63429999999971,
+          "meanWallMs": 87.43405666666689,
+          "p95WallMs": 100.64019999999982,
+          "minWallMs": 80.97779999999875,
+          "maxWallMs": 115.57020000000011
+        }
+      ]
+    },
+    {
+      "mode": "interpreter",
+      "runtime": "bun-aot",
+      "variant": "control",
+      "count": 60,
+      "meanCpuMs": 92.91666666666667,
+      "medianCpuMs": 93,
+      "p95CpuMs": 141,
+      "medianWallMs": 93.80079999999907,
+      "meanWallMs": 104.25526499999965,
+      "p95WallMs": 138.78120000000126,
+      "minWallMs": 86.51369999999952,
+      "maxWallMs": 164.23979999999938,
+      "cohorts": [
+        {
+          "name": "control-a",
+          "count": 30,
+          "meanCpuMs": 106.76666666666667,
+          "medianCpuMs": 94,
+          "p95CpuMs": 172,
+          "medianWallMs": 114.5609999999997,
+          "meanWallMs": 116.75234333333302,
+          "p95WallMs": 154.79989999999998,
+          "minWallMs": 87.06039999999939,
+          "maxWallMs": 164.23979999999938
+        },
+        {
+          "name": "control-b",
+          "count": 30,
+          "meanCpuMs": 79.06666666666666,
+          "medianCpuMs": 78,
+          "p95CpuMs": 109,
+          "medianWallMs": 90.46190000000024,
+          "meanWallMs": 91.7581866666663,
+          "p95WallMs": 102.70460000000094,
+          "minWallMs": 86.51369999999952,
+          "maxWallMs": 108.10299999999916
+        }
+      ]
+    },
+    {
+      "mode": "interpreter",
+      "runtime": "bun-aot",
+      "variant": "optimized",
+      "count": 60,
+      "meanCpuMs": 88.23333333333333,
+      "medianCpuMs": 93,
+      "p95CpuMs": 125,
+      "medianWallMs": 95.53620000000046,
+      "meanWallMs": 99.26337666666662,
+      "p95WallMs": 115.4359999999997,
+      "minWallMs": 87.90279999999984,
+      "maxWallMs": 145.3212999999996,
+      "cohorts": [
+        {
+          "name": "optimized-a",
+          "count": 30,
+          "meanCpuMs": 90.53333333333333,
+          "medianCpuMs": 93,
+          "p95CpuMs": 156,
+          "medianWallMs": 103.03729999999996,
+          "meanWallMs": 102.25255333333322,
+          "p95WallMs": 115.58059999999932,
+          "minWallMs": 88.04789999999775,
+          "maxWallMs": 120.67729999999938
+        },
+        {
+          "name": "optimized-b",
+          "count": 30,
+          "meanCpuMs": 85.93333333333334,
+          "medianCpuMs": 79,
+          "p95CpuMs": 125,
+          "medianWallMs": 92.0104999999985,
+          "meanWallMs": 96.27420000000002,
+          "p95WallMs": 110.80529999999999,
+          "minWallMs": 87.90279999999984,
+          "maxWallMs": 145.3212999999996
+        }
+      ]
+    }
+  ],
+  "comparisons": [
+    {
+      "mode": "generated",
+      "runtime": "node",
+      "meanCpuReductionPercent": 12.589285714285714,
+      "medianWallReductionPercent": 9.22463211335548,
+      "p95WallReductionPercent": 13.46816851136634
+    },
+    {
+      "mode": "generated",
+      "runtime": "bun-aot",
+      "meanCpuReductionPercent": 7.025761124121777,
+      "medianWallReductionPercent": 2.2504439530238285,
+      "p95WallReductionPercent": 14.757102165622582
+    },
+    {
+      "mode": "interpreter",
+      "runtime": "node",
+      "meanCpuReductionPercent": 14.428857715430855,
+      "medianWallReductionPercent": 15.448987649751666,
+      "p95WallReductionPercent": 23.620601261765884
+    },
+    {
+      "mode": "interpreter",
+      "runtime": "bun-aot",
+      "meanCpuReductionPercent": 5.040358744394624,
+      "medianWallReductionPercent": -1.8500908307833352,
+      "p95WallReductionPercent": 16.821586785531007
+    }
+  ],
+  "manifests": {
+    "original": {
+      "sourceRevision": "2d30e605623a15ec67fc95388b64913a9b52ee92",
+      "gitStatus": " M packages/flarex-protocol/src/document-value.ts\n M packages/flarex-protocol/test/document-value.test.ts\n M packages/medusa-adapter/test/support/core-product-fixture.ts\n M packages/persistence-postgres/src/core/query.ts\n M packages/persistence-postgres/test/core/queryScenarios.ts\n M packages/persistence-postgres/test/support/postgresHelpers.ts\n M packages/utils/src/bytes.ts\n M packages/utils/test/bytes.test.ts\n M pnpm-workspace.yaml\n M roadmaps/flarexdb-framework-integration/preflight/medusa-currency-promotion.json\n?? experiments/core/engine/slices/core-aot-hot-paths.md\n?? packages/executor/benchmarks/core-aot/\n?? packages/persistence-postgres/test/support/postgresConfig.ts\n?? scripts/core-aot-postgres-tool.mjs\n?? scripts/core-aot-postgres-tool.test.mjs\n?? scripts/core-aot-postgres.README.md\n?? scripts/core-aot-postgres.ps1\n",
+      "nodeVersion": "v26.13.0",
+      "bunVersion": "1.4.5",
+      "builds": [
+        {
+          "mode": "generated",
+          "runtime": "node",
+          "artifact": "mixed-product-generated.mjs",
+          "sha256": "b468203898b505587d83f1d64d4ec361f8030d3ff81debdb54f19a53b67adf93",
+          "bundleSha256": "b468203898b505587d83f1d64d4ec361f8030d3ff81debdb54f19a53b67adf93",
+          "sourceMapSha256": "c4baab431351b80e68d7cdbf9c1016ad3adb9e72439d2774ed9b6ab0b69ad7ed",
+          "bytes": 10212155
+        },
+        {
+          "mode": "generated",
+          "runtime": "bun-aot",
+          "artifact": "mixed-product-generated-aot.exe",
+          "sha256": "5a7398739f68679c5f119b68c46e318a628cb3446d6e39dc9266a40cbe987fc2",
+          "bundleSha256": "b468203898b505587d83f1d64d4ec361f8030d3ff81debdb54f19a53b67adf93",
+          "sourceMapSha256": "c4baab431351b80e68d7cdbf9c1016ad3adb9e72439d2774ed9b6ab0b69ad7ed",
+          "bytes": 140002304
+        },
+        {
+          "mode": "interpreter",
+          "runtime": "node",
+          "artifact": "mixed-product-interpreter.mjs",
+          "sha256": "ec00792fd3c993cb0f9e76e80014a0d8f1dbf6dc72697c145c76e058e67f31a9",
+          "bundleSha256": "ec00792fd3c993cb0f9e76e80014a0d8f1dbf6dc72697c145c76e058e67f31a9",
+          "sourceMapSha256": "d259f489c8e7a099d8a6c492a81bfebc9f7ae0e4e4007e844a0924edce44eae1",
+          "bytes": 9816037
+        },
+        {
+          "mode": "interpreter",
+          "runtime": "bun-aot",
+          "artifact": "mixed-product-interpreter-aot.exe",
+          "sha256": "5d04951dec9a64635d35b67f4c70aaab4a1c3551837e4f47b85d5857229c56d0",
+          "bundleSha256": "ec00792fd3c993cb0f9e76e80014a0d8f1dbf6dc72697c145c76e058e67f31a9",
+          "sourceMapSha256": "d259f489c8e7a099d8a6c492a81bfebc9f7ae0e4e4007e844a0924edce44eae1",
+          "bytes": 139215872
+        }
+      ],
+      "runtimeSource": {
+        "revision": "2d30e605623a15ec67fc95388b64913a9b52ee92",
+        "files": [
+          {
+            "path": "packages/utils/src/bytes.ts",
+            "sha256": "09d39de909913200a3a06ecdbd9feace8d0eada9d6f640b02f42116a1ceac1c6"
+          },
+          {
+            "path": "packages/flarex-protocol/src/document-value.ts",
+            "sha256": "2713b189c53919c384809c1b5421a7e7cb658d0a4328c42d53d81f7c9bfd720e"
+          },
+          {
+            "path": "packages/persistence-postgres/src/core/query.ts",
+            "sha256": "c3157809828f91c5fb91a7e94d4abd01cc85903a4732c87bcf6f53ae2592e12d"
+          }
+        ]
+      }
+    },
+    "optimized": {
+      "sourceRevision": "2d30e605623a15ec67fc95388b64913a9b52ee92",
+      "gitStatus": " M packages/flarex-protocol/src/document-value.ts\n M packages/flarex-protocol/test/document-value.test.ts\n M packages/medusa-adapter/test/support/core-product-fixture.ts\n M packages/persistence-postgres/src/core/query.ts\n M packages/persistence-postgres/test/core/queryScenarios.ts\n M packages/persistence-postgres/test/support/postgresHelpers.ts\n M packages/utils/src/bytes.ts\n M packages/utils/test/bytes.test.ts\n M pnpm-workspace.yaml\n M roadmaps/flarexdb-framework-integration/preflight/medusa-currency-promotion.json\n?? experiments/core/engine/slices/core-aot-hot-paths.md\n?? packages/executor/benchmarks/core-aot/\n?? packages/persistence-postgres/test/support/postgresConfig.ts\n?? scripts/core-aot-postgres-tool.mjs\n?? scripts/core-aot-postgres-tool.test.mjs\n?? scripts/core-aot-postgres.README.md\n?? scripts/core-aot-postgres.ps1\n",
+      "nodeVersion": "v26.13.0",
+      "bunVersion": "1.4.5",
+      "builds": [
+        {
+          "mode": "generated",
+          "runtime": "node",
+          "artifact": "mixed-product-generated.mjs",
+          "sha256": "47851c6774585d0097b380ba3b28a776caf9ebaa1a9c40ce239699ad7ee352b2",
+          "bundleSha256": "47851c6774585d0097b380ba3b28a776caf9ebaa1a9c40ce239699ad7ee352b2",
+          "sourceMapSha256": "a5bf976364880410e192909988012deed858b993f50ebe36fced44074950e589",
+          "bytes": 10212302
+        },
+        {
+          "mode": "generated",
+          "runtime": "bun-aot",
+          "artifact": "mixed-product-generated-aot.exe",
+          "sha256": "0fe1208d2cff815a3d9c7a0a3c5c48ce271d3684260379cca3d0df6c5c9a1b30",
+          "bundleSha256": "47851c6774585d0097b380ba3b28a776caf9ebaa1a9c40ce239699ad7ee352b2",
+          "sourceMapSha256": "a5bf976364880410e192909988012deed858b993f50ebe36fced44074950e589",
+          "bytes": 140002304
+        },
+        {
+          "mode": "interpreter",
+          "runtime": "node",
+          "artifact": "mixed-product-interpreter.mjs",
+          "sha256": "f90e15cfd349af2383621878e08331b0c6e56652816b83cb0d5a6b079ec33c07",
+          "bundleSha256": "f90e15cfd349af2383621878e08331b0c6e56652816b83cb0d5a6b079ec33c07",
+          "sourceMapSha256": "8c53bca9e2cb4380dc81f31973dbc2be0a2f5a0246cb8c4000d81073a0819474",
+          "bytes": 9816184
+        },
+        {
+          "mode": "interpreter",
+          "runtime": "bun-aot",
+          "artifact": "mixed-product-interpreter-aot.exe",
+          "sha256": "98c0b16a7bb50ce3d8dee8a427ec1bcebff1cfc33f953d1810f90988c9d4ccf8",
+          "bundleSha256": "f90e15cfd349af2383621878e08331b0c6e56652816b83cb0d5a6b079ec33c07",
+          "sourceMapSha256": "8c53bca9e2cb4380dc81f31973dbc2be0a2f5a0246cb8c4000d81073a0819474",
+          "bytes": 139215872
+        }
+      ]
+    },
+    "query-only": {
+      "sourceRevision": "2d30e605623a15ec67fc95388b64913a9b52ee92",
+      "gitStatus": " M packages/flarex-protocol/src/document-value.ts\n M packages/flarex-protocol/test/document-value.test.ts\n M packages/medusa-adapter/test/support/core-product-fixture.ts\n M packages/persistence-postgres/src/core/query.ts\n M packages/persistence-postgres/test/core/queryScenarios.ts\n M packages/persistence-postgres/test/support/postgresHelpers.ts\n M pnpm-workspace.yaml\n M roadmaps/flarexdb-framework-integration/preflight/medusa-currency-promotion.json\n?? experiments/core/engine/slices/core-aot-hot-paths.md\n?? packages/executor/benchmarks/core-aot/\n?? packages/persistence-postgres/test/support/postgresConfig.ts\n?? scripts/core-aot-postgres-tool.mjs\n?? scripts/core-aot-postgres-tool.test.mjs\n?? scripts/core-aot-postgres.README.md\n?? scripts/core-aot-postgres.ps1\n",
+      "nodeVersion": "v26.13.0",
+      "bunVersion": "1.4.5",
+      "builds": [
+        {
+          "mode": "generated",
+          "runtime": "node",
+          "artifact": "mixed-product-generated.mjs",
+          "sha256": "baf40a48594723967a77104e3b2b095ff41c940af9eaa6b399423434b5bb68fe",
+          "bundleSha256": "baf40a48594723967a77104e3b2b095ff41c940af9eaa6b399423434b5bb68fe",
+          "sourceMapSha256": "f794bc9b343a943b1ce4ca5c806120d6a4ddce4b37560fc054bc337012e2b131",
+          "bytes": 10212192
+        },
+        {
+          "mode": "generated",
+          "runtime": "bun-aot",
+          "artifact": "mixed-product-generated-aot.exe",
+          "sha256": "f8ff3b6835b971b2d813d2cdf8a1b056e1530a40f1f971308f6ec392e0e27e4c",
+          "bundleSha256": "baf40a48594723967a77104e3b2b095ff41c940af9eaa6b399423434b5bb68fe",
+          "sourceMapSha256": "f794bc9b343a943b1ce4ca5c806120d6a4ddce4b37560fc054bc337012e2b131",
+          "bytes": 140002304
+        },
+        {
+          "mode": "interpreter",
+          "runtime": "node",
+          "artifact": "mixed-product-interpreter.mjs",
+          "sha256": "30849bb6e52c2fefd7ff35b733aaf20a4a6de5978b5e1e7cf9e32b53da7e2049",
+          "bundleSha256": "30849bb6e52c2fefd7ff35b733aaf20a4a6de5978b5e1e7cf9e32b53da7e2049",
+          "sourceMapSha256": "9ec10243fa66b9c8672f8ca26f6ba0b3a657cf4422714e8870220dcb575a9ab6",
+          "bytes": 9816074
+        },
+        {
+          "mode": "interpreter",
+          "runtime": "bun-aot",
+          "artifact": "mixed-product-interpreter-aot.exe",
+          "sha256": "839571365224cb34b76429c13bd940674bb8dad30235f41d0bc11015b833f7d2",
+          "bundleSha256": "30849bb6e52c2fefd7ff35b733aaf20a4a6de5978b5e1e7cf9e32b53da7e2049",
+          "sourceMapSha256": "9ec10243fa66b9c8672f8ca26f6ba0b3a657cf4422714e8870220dcb575a9ab6",
+          "bytes": 139215872
+        }
+      ]
+    }
+  },
+  "runtimeSourceFiles": [
+    {
+      "path": "packages/utils/src/bytes.ts",
+      "sha256": "9c62c5e3912cb88ebbf67bcb3f2fb3d28dcce57fa101eb0b420e584c82606a4b"
+    },
+    {
+      "path": "packages/flarex-protocol/src/document-value.ts",
+      "sha256": "627c0ce26707df336a3c6481de0d1781eed78c940d7824bb10305b52a4b70bc2"
+    },
+    {
+      "path": "packages/persistence-postgres/src/core/query.ts",
+      "sha256": "a3b2529809dedde12dd9332d5e1f46a81578a9d2f9a49adcfc1a3501d38866c6"
+    }
+  ],
+  "artifacts": [
+    {
+      "path": "evidence/requests.windows-x64.json.gz",
+      "sha256": "9d3df7c04d3d7eaf31c6942ff5e0c0d82c245239ef18a70cd749760c48e96a61",
+      "originalSha256": "0b8735d47b327ca40a492eda23e165044dc5819b6cf9e67464ce90d086bd48d8",
+      "originalBytes": 146728
+    },
+    {
+      "path": "evidence/baseline-request-2.cpuprofile.gz",
+      "sha256": "de0c899138c6128b9727a7a11ab9f30b06f40784bf332c7d2c4b3b4aebf7b85a",
+      "originalSha256": "8cc1fdfd46e7a279b7143ef6eb0035fa2cd690956ece81faf2687f8517849eb1",
+      "originalBytes": 290838
+    },
+    {
+      "path": "evidence/baseline-request-3.cpuprofile.gz",
+      "sha256": "ac3b7caaae64ba2bc09a9fb14f56e443ee76e55ab83b2d09781c47f45d0db2a8",
+      "originalSha256": "61c6e28405dd15ca37b87b0271cdb6bcb3b9961ac6b613c3c5787afd8ce5b593",
+      "originalBytes": 250923
+    },
+    {
+      "path": "evidence/baseline-request-4.cpuprofile.gz",
+      "sha256": "53d88fdd9e2c349ba21e497ea01249ba2835872953dd1b76e7f2ce69211291d8",
+      "originalSha256": "24d4bb88986d0f0ba3f3c8ba055e47aac610a4cab50e797134d21415db1e0f8d",
+      "originalBytes": 287569
+    },
+    {
+      "path": "evidence/optimized-request-2.cpuprofile.gz",
+      "sha256": "27fb4cb7aaa1058336c8e7fa9546e8bf9f9d3d3dabde2a36d1391b80bea6a648",
+      "originalSha256": "e074e28822fd9d3270aa6f503383b302259eb20ee98bdf7be59cb251bdc77815",
+      "originalBytes": 343205
+    },
+    {
+      "path": "evidence/optimized-request-3.cpuprofile.gz",
+      "sha256": "d4593642e0aebc93af0d1272383bb032647f50225295aecbb8ad329a358161cd",
+      "originalSha256": "e18ae27978527abcee15cae0daa8e2201f683536fa9adfa120a585e7c8688509",
+      "originalBytes": 276305
+    },
+    {
+      "path": "evidence/optimized-request-4.cpuprofile.gz",
+      "sha256": "69ff0a24817eb1ce034e639efad77509bc7a389b45ee53b4ffeb806877196aeb",
+      "originalSha256": "ae5b098c5fb6d212932625cf5c01712d10a9e4bf55ad4b80f61bc09b94161d01",
+      "originalBytes": 298464
+    }
+  ],
+  "profiles": [
+    {
+      "variant": "baseline",
+      "samples": 562,
+      "frames": [
+        {
+          "frame": "(idle) :0",
+          "count": 76,
+          "sampledUs": 46454
+        },
+        {
+          "frame": "(garbage collector) :0",
+          "count": 31,
+          "sampledUs": 17345
+        },
+        {
+          "frame": "gen file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:27465",
+          "count": 22,
+          "sampledUs": 12269
+        },
+        {
+          "frame": "makePrimitiveProto file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:28904",
+          "count": 19,
+          "sampledUs": 11059
+        },
+        {
+          "frame": "encodeBytesToLowercaseHex file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:35736",
+          "count": 19,
+          "sampledUs": 11200
+        },
+        {
+          "frame": "nativeIndexSpecificationKey file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:72784",
+          "count": 14,
+          "sampledUs": 8211
+        },
+        {
+          "frame": "writev :0",
+          "count": 14,
+          "sampledUs": 8798
+        },
+        {
+          "frame": "visit file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:71082",
+          "count": 11,
+          "sampledUs": 7216
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:28837",
+          "count": 10,
+          "sampledUs": 6280
+        },
+        {
+          "frame": "defineFrozenProperty file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:36310",
+          "count": 9,
+          "sampledUs": 4934
+        },
+        {
+          "frame": "decodeCanonicalDocumentIdParts file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:37323",
+          "count": 9,
+          "sampledUs": 5274
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:56055",
+          "count": 8,
+          "sampledUs": 4691
+        },
+        {
+          "frame": "add file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:69678",
+          "count": 8,
+          "sampledUs": 4603
+        },
+        {
+          "frame": "#encode node:internal/encoding:344",
+          "count": 8,
+          "sampledUs": 4152
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:72743",
+          "count": 7,
+          "sampledUs": 4076
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:25822",
+          "count": 7,
+          "sampledUs": 4049
+        },
+        {
+          "frame": "checkCoreTableAccess file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:72663",
+          "count": 5,
+          "sampledUs": 2985
+        },
+        {
+          "frame": "defaultComparator file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:4979",
+          "count": 5,
+          "sampledUs": 2968
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:72677",
+          "count": 5,
+          "sampledUs": 2916
+        },
+        {
+          "frame": "lookup file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:27258",
+          "count": 5,
+          "sampledUs": 2960
+        },
+        {
+          "frame": "parseChecks file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:33769",
+          "count": 4,
+          "sampledUs": 1959
+        },
+        {
+          "frame": "encodeCanonicalJson file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:37557",
+          "count": 4,
+          "sampledUs": 2520
+        },
+        {
+          "frame": "withAncestor file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:36286",
+          "count": 4,
+          "sampledUs": 2356
+        },
+        {
+          "frame": "normalizeRuntimeNode file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:36085",
+          "count": 4,
+          "sampledUs": 2610
+        },
+        {
+          "frame": "coreQualifiedTableKey file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:62555",
+          "count": 4,
+          "sampledUs": 2448
+        },
+        {
+          "frame": "encodeCanonicalDocumentId file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:37292",
+          "count": 4,
+          "sampledUs": 2295
+        },
+        {
+          "frame": "decodeCanonicalParts file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:52194",
+          "count": 4,
+          "sampledUs": 2319
+        },
+        {
+          "frame": "inspectCanonicalIsoInstant file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:44553",
+          "count": 4,
+          "sampledUs": 2425
+        },
+        {
+          "frame": "evaluate file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:28387",
+          "count": 4,
+          "sampledUs": 2349
+        },
+        {
+          "frame": "getCont file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:28488",
+          "count": 4,
+          "sampledUs": 2872
+        },
+        {
+          "frame": "toJson2 file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:53199",
+          "count": 4,
+          "sampledUs": 2267
+        },
+        {
+          "frame": "post node:inspector:115",
+          "count": 3,
+          "sampledUs": 805773
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:50480",
+          "count": 3,
+          "sampledUs": 1803
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:52130",
+          "count": 3,
+          "sampledUs": 1751
+        },
+        {
+          "frame": "copyBytes file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:35708",
+          "count": 3,
+          "sampledUs": 1755
+        },
+        {
+          "frame": "withSpan2.captureStackTrace file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:84951",
+          "count": 3,
+          "sampledUs": 1676
+        },
+        {
+          "frame": "prepareValue file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:1041",
+          "count": 3,
+          "sampledUs": 1811
+        },
+        {
+          "frame": "makePrimitive file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:28660",
+          "count": 3,
+          "sampledUs": 1754
+        },
+        {
+          "frame": "effectIsExit file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:29024",
+          "count": 3,
+          "sampledUs": 2846
+        },
+        {
+          "frame": "writeBuffer :0",
+          "count": 3,
+          "sampledUs": 1805
+        },
+        {
+          "frame": "dispatch :0",
+          "count": 3,
+          "sampledUs": 1822
+        },
+        {
+          "frame": "encodeUtf8String :0",
+          "count": 3,
+          "sampledUs": 1749
+        },
+        {
+          "frame": "assertWellFormedUnicode file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:36231",
+          "count": 2,
+          "sampledUs": 718
+        },
+        {
+          "frame": "onStreamRead node:internal/stream_base_commons:171",
+          "count": 2,
+          "sampledUs": 1120
+        },
+        {
+          "frame": "encodeCapturedIndexValue file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:56047",
+          "count": 2,
+          "sampledUs": 1218
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:31780",
+          "count": 2,
+          "sampledUs": 1229
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:29064",
+          "count": 2,
+          "sampledUs": 1150
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:75997",
+          "count": 2,
+          "sampledUs": 1163
+        },
+        {
+          "frame": "normalizeFlarexRuntimeValueWithLimitsV1 file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:36052",
+          "count": 2,
+          "sampledUs": 1701
+        },
+        {
+          "frame": "isReference file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:27314",
+          "count": 2,
+          "sampledUs": 1749
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:53227",
+          "count": 2,
+          "sampledUs": 1103
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:73720",
+          "count": 2,
+          "sampledUs": 2247
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:52137",
+          "count": 2,
+          "sampledUs": 1158
+        },
+        {
+          "frame": "collectIssues file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:33570",
+          "count": 2,
+          "sampledUs": 1148
+        },
+        {
+          "frame": "writeEscaped file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:56134",
+          "count": 2,
+          "sampledUs": 1131
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:28784",
+          "count": 2,
+          "sampledUs": 1137
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:33130",
+          "count": 2,
+          "sampledUs": 1115
+        },
+        {
+          "frame": "enumerableDataProperties file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:36176",
+          "count": 2,
+          "sampledUs": 1164
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:188016",
+          "count": 2,
+          "sampledUs": 1675
+        },
+        {
+          "frame": "addUnsafe file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:27319",
+          "count": 2,
+          "sampledUs": 1120
+        },
+        {
+          "frame": "BNode.insertInLeaf file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:5607",
+          "count": 2,
+          "sampledUs": 1115
+        },
+        {
+          "frame": "incrementIndexKeyPrefix file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:56286",
+          "count": 2,
+          "sampledUs": 1150
+        },
+        {
+          "frame": "addFields file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:1927",
+          "count": 2,
+          "sampledUs": 1102
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:25813",
+          "count": 2,
+          "sampledUs": 1096
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:55772",
+          "count": 2,
+          "sampledUs": 1239
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:62874",
+          "count": 2,
+          "sampledUs": 1133
+        },
+        {
+          "frame": "checkNativeTableIndexes file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:72734",
+          "count": 2,
+          "sampledUs": 1112
+        },
+        {
+          "frame": "copyTableDefinition file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:188013",
+          "count": 2,
+          "sampledUs": 1165
+        },
+        {
+          "frame": " :0",
+          "count": 2,
+          "sampledUs": 1115
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:70554",
+          "count": 2,
+          "sampledUs": 1118
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:36157",
+          "count": 2,
+          "sampledUs": 1125
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:74095",
+          "count": 2,
+          "sampledUs": 1130
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:195291",
+          "count": 2,
+          "sampledUs": 1231
+        },
+        {
+          "frame": "checkedCanonicalByteAdd file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:37814",
+          "count": 2,
+          "sampledUs": 1169
+        },
+        {
+          "frame": "processTicksAndRejections node:internal/process/task_queues:72",
+          "count": 1,
+          "sampledUs": 679
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:50399",
+          "count": 1,
+          "sampledUs": 600
+        },
+        {
+          "frame": "canonicalizeNormalizedValue file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:38064",
+          "count": 1,
+          "sampledUs": 579
+        },
+        {
+          "frame": "compileOwnedCanonicalBinaryProjection file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:35980",
+          "count": 1,
+          "sampledUs": 572
+        },
+        {
+          "frame": "decode3 file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:31047",
+          "count": 1,
+          "sampledUs": 606
+        },
+        {
+          "frame": "encode node:internal/encoding:360",
+          "count": 1,
+          "sampledUs": 560
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:188809",
+          "count": 1,
+          "sampledUs": 564
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:188907",
+          "count": 1,
+          "sampledUs": 584
+        },
+        {
+          "frame": "fn file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:28808",
+          "count": 1,
+          "sampledUs": 601
+        },
+        {
+          "frame": "ref file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:3176",
+          "count": 1,
+          "sampledUs": 1110
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:29401",
+          "count": 1,
+          "sampledUs": 580
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:29781",
+          "count": 1,
+          "sampledUs": 564
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:186205",
+          "count": 1,
+          "sampledUs": 551
+        },
+        {
+          "frame": "setContext file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:28538",
+          "count": 1,
+          "sampledUs": 559
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:62940",
+          "count": 1,
+          "sampledUs": 609
+        },
+        {
+          "frame": "addObserver file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:28344",
+          "count": 1,
+          "sampledUs": 594
+        },
+        {
+          "frame": "cacheKey file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:185229",
+          "count": 1,
+          "sampledUs": 566
+        },
+        {
+          "frame": "runSequential file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:29575",
+          "count": 1,
+          "sampledUs": 602
+        },
+        {
+          "frame": "writeU_Int32BE node:internal/buffer:808",
+          "count": 1,
+          "sampledUs": 599
+        },
+        {
+          "frame": "promisify file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:4118",
+          "count": 1,
+          "sampledUs": 607
+        },
+        {
+          "frame": "measureCanonicalJsonString file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:37773",
+          "count": 1,
+          "sampledUs": 1138
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:75961",
+          "count": 1,
+          "sampledUs": 563
+        },
+        {
+          "frame": "insert file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:185022",
+          "count": 1,
+          "sampledUs": 552
+        },
+        {
+          "frame": "withPermits file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:30877",
+          "count": 1,
+          "sampledUs": 565
+        },
+        {
+          "frame": "isBoundedUniquePoints file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:73357",
+          "count": 1,
+          "sampledUs": 563
+        },
+        {
+          "frame": "_acquireClient file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:4356",
+          "count": 1,
+          "sampledUs": 612
+        },
+        {
+          "frame": "isNonNegativeSafeInteger file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:35936",
+          "count": 1,
+          "sampledUs": 615
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:182923",
+          "count": 1,
+          "sampledUs": 607
+        },
+        {
+          "frame": "fn file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:28794",
+          "count": 1,
+          "sampledUs": 567
+        },
+        {
+          "frame": "matches file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:73421",
+          "count": 1,
+          "sampledUs": 624
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:75251",
+          "count": 1,
+          "sampledUs": 575
+        },
+        {
+          "frame": "end file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:28124",
+          "count": 1,
+          "sampledUs": 621
+        },
+        {
+          "frame": "_pulseQueryQueue file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:3957",
+          "count": 1,
+          "sampledUs": 549
+        },
+        {
+          "frame": "compareStarts file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:69714",
+          "count": 1,
+          "sampledUs": 579
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:78324",
+          "count": 1,
+          "sampledUs": 610
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:5255",
+          "count": 1,
+          "sampledUs": 554
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:3123",
+          "count": 1,
+          "sampledUs": 544
+        },
+        {
+          "frame": "appendKeys file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:69852",
+          "count": 1,
+          "sampledUs": 568
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:34044",
+          "count": 1,
+          "sampledUs": 840
+        },
+        {
+          "frame": "nodeVisit file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:37102",
+          "count": 1,
+          "sampledUs": 136
+        },
+        {
+          "frame": "result3 file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:38529",
+          "count": 1,
+          "sampledUs": 137
+        },
+        {
+          "frame": "snapshotTarget file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:50541",
+          "count": 1,
+          "sampledUs": 566
+        },
+        {
+          "frame": "(program) :0",
+          "count": 1,
+          "sampledUs": 632
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:51078",
+          "count": 1,
+          "sampledUs": 554
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:28838",
+          "count": 1,
+          "sampledUs": 585
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:29751",
+          "count": 1,
+          "sampledUs": 559
+        },
+        {
+          "frame": "checksum file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:37283",
+          "count": 1,
+          "sampledUs": 559
+        },
+        {
+          "frame": "coreNativeSchemaIncludes file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:72796",
+          "count": 1,
+          "sampledUs": 586
+        },
+        {
+          "frame": "nativePolicyMatches file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:72587",
+          "count": 1,
+          "sampledUs": 588
+        },
+        {
+          "frame": "onItem file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:32602",
+          "count": 1,
+          "sampledUs": 624
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:175671",
+          "count": 1,
+          "sampledUs": 636
+        },
+        {
+          "frame": "index file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:32847",
+          "count": 1,
+          "sampledUs": 600
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:70111",
+          "count": 1,
+          "sampledUs": 631
+        },
+        {
+          "frame": "utf8Slice :0",
+          "count": 1,
+          "sampledUs": 551
+        },
+        {
+          "frame": "isJson2 file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:37824",
+          "count": 1,
+          "sampledUs": 609
+        },
+        {
+          "frame": "structuredClone node:internal/worker/js_transferable:101",
+          "count": 1,
+          "sampledUs": 563
+        },
+        {
+          "frame": "coreNativeConstraintNullsDistinct file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:62464",
+          "count": 1,
+          "sampledUs": 571
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:32399",
+          "count": 1,
+          "sampledUs": 663
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:29988",
+          "count": 1,
+          "sampledUs": 626
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:183711",
+          "count": 1,
+          "sampledUs": 571
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:27427",
+          "count": 1,
+          "sampledUs": 1124
+        },
+        {
+          "frame": "encodeIndexValue file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:56042",
+          "count": 1,
+          "sampledUs": 554
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:74260",
+          "count": 1,
+          "sampledUs": 581
+        },
+        {
+          "frame": "planCoreNativeQuery file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:74452",
+          "count": 1,
+          "sampledUs": 571
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:34083",
+          "count": 1,
+          "sampledUs": 542
+        },
+        {
+          "frame": "project file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:183055",
+          "count": 1,
+          "sampledUs": 564
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:29786",
+          "count": 1,
+          "sampledUs": 563
+        },
+        {
+          "frame": "AbstractModuleService_ file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:16215",
+          "count": 1,
+          "sampledUs": 590
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:195323",
+          "count": 1,
+          "sampledUs": 665
+        },
+        {
+          "frame": "matchesCoreNativeEventPolicy file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:88908",
+          "count": 1,
+          "sampledUs": 559
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:53174",
+          "count": 1,
+          "sampledUs": 560
+        },
+        {
+          "frame": "connect file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:4251",
+          "count": 1,
+          "sampledUs": 597
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:76680",
+          "count": 1,
+          "sampledUs": 549
+        },
+        {
+          "frame": "round file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:184893",
+          "count": 1,
+          "sampledUs": 567
+        },
+        {
+          "frame": "copyInterval file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:69662",
+          "count": 1,
+          "sampledUs": 540
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:76925",
+          "count": 1,
+          "sampledUs": 541
+        },
+        {
+          "frame": "annotate file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:26702",
+          "count": 1,
+          "sampledUs": 617
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:5145",
+          "count": 1,
+          "sampledUs": 548
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:27428",
+          "count": 1,
+          "sampledUs": 553
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:84946",
+          "count": 1,
+          "sampledUs": 549
+        },
+        {
+          "frame": "resumeSequential file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:29574",
+          "count": 1,
+          "sampledUs": 598
+        },
+        {
+          "frame": "applicationManifestWireV1 file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:44731",
+          "count": 1,
+          "sampledUs": 631
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:50325",
+          "count": 1,
+          "sampledUs": 590
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:27499",
+          "count": 1,
+          "sampledUs": 656
+        },
+        {
+          "frame": "makeExit file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:26876",
+          "count": 1,
+          "sampledUs": 594
+        },
+        {
+          "frame": "try file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:62898",
+          "count": 1,
+          "sampledUs": 551
+        },
+        {
+          "frame": "HashJob :0",
+          "count": 1,
+          "sampledUs": 577
+        },
+        {
+          "frame": "try file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:51061",
+          "count": 1,
+          "sampledUs": 600
+        },
+        {
+          "frame": "fnUntraced file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:28790",
+          "count": 1,
+          "sampledUs": 579
+        },
+        {
+          "frame": "compareBytesLexicographically file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:35743",
+          "count": 1,
+          "sampledUs": 726
+        },
+        {
+          "frame": "canTake file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:30664",
+          "count": 1,
+          "sampledUs": 616
+        },
+        {
+          "frame": "snapshot file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:69837",
+          "count": 1,
+          "sampledUs": 552
+        },
+        {
+          "frame": "writeValue file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:56081",
+          "count": 1,
+          "sampledUs": 610
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:29899",
+          "count": 1,
+          "sampledUs": 575
+        },
+        {
+          "frame": "CoreSchemaModel file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:69462",
+          "count": 1,
+          "sampledUs": 562
+        },
+        {
+          "frame": "exitIsFailure file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:29038",
+          "count": 1,
+          "sampledUs": 613
+        },
+        {
+          "frame": "AbstractService_ file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:16565",
+          "count": 1,
+          "sampledUs": 605
+        },
+        {
+          "frame": "increment file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:184952",
+          "count": 1,
+          "sampledUs": 561
+        },
+        {
+          "frame": "indexDocuments file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:70509",
+          "count": 1,
+          "sampledUs": 575
+        },
+        {
+          "frame": "validateRelationalRowColumns file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:48987",
+          "count": 1,
+          "sampledUs": 616
+        },
+        {
+          "frame": "SingleShotGen file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:26521",
+          "count": 1,
+          "sampledUs": 578
+        },
+        {
+          "frame": "_release file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:4393",
+          "count": 1,
+          "sampledUs": 551
+        },
+        {
+          "frame": "onExitUnsafe file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:29396",
+          "count": 1,
+          "sampledUs": 551
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:25826",
+          "count": 1,
+          "sampledUs": 547
+        },
+        {
+          "frame": "coreSchemaBundleNative file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:71803",
+          "count": 1,
+          "sampledUs": 586
+        },
+        {
+          "frame": "reserve file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:74228",
+          "count": 1,
+          "sampledUs": 556
+        },
+        {
+          "frame": "select file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:73404",
+          "count": 1,
+          "sampledUs": 663
+        },
+        {
+          "frame": "BTree.set file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:5069",
+          "count": 1,
+          "sampledUs": 629
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:182878",
+          "count": 1,
+          "sampledUs": 628
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:183651",
+          "count": 1,
+          "sampledUs": 1109
+        },
+        {
+          "frame": "addCommandComplete file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:1881",
+          "count": 1,
+          "sampledUs": 553
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:76063",
+          "count": 1,
+          "sampledUs": 561
+        },
+        {
+          "frame": "keys file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:183691",
+          "count": 1,
+          "sampledUs": 608
+        },
+        {
+          "frame": "get node:internal/bootstrap/node:97",
+          "count": 1,
+          "sampledUs": 564
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:28795",
+          "count": 1,
+          "sampledUs": 596
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:53308",
+          "count": 1,
+          "sampledUs": 566
+        },
+        {
+          "frame": "_AbstractService__dispatchPerformedActions file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:16797",
+          "count": 1,
+          "sampledUs": 563
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:182479",
+          "count": 1,
+          "sampledUs": 585
+        },
+        {
+          "frame": "pipeArguments file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:25768",
+          "count": 1,
+          "sampledUs": 579
+        },
+        {
+          "frame": "digestImpl node:internal/crypto/webcrypto:153",
+          "count": 1,
+          "sampledUs": 559
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:76275",
+          "count": 1,
+          "sampledUs": 552
+        },
+        {
+          "frame": "rotate file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:184883",
+          "count": 1,
+          "sampledUs": 576
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:185424",
+          "count": 1,
+          "sampledUs": 561
+        },
+        {
+          "frame": "peek file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:185019",
+          "count": 1,
+          "sampledUs": 614
+        },
+        {
+          "frame": "overlap file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:69720",
+          "count": 1,
+          "sampledUs": 569
+        },
+        {
+          "frame": "indexKeysFromWrites file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:69756",
+          "count": 1,
+          "sampledUs": 561
+        },
+        {
+          "frame": "setImmediate2 file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:27851",
+          "count": 1,
+          "sampledUs": 547
+        },
+        {
+          "frame": "runLoop file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:28437",
+          "count": 1,
+          "sampledUs": 606
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-harness-cli-smoke/mixed-product-generated.mjs:84909",
+          "count": 1,
+          "sampledUs": 555
+        }
+      ]
+    },
+    {
+      "variant": "optimized",
+      "samples": 631,
+      "frames": [
+        {
+          "frame": "(idle) :0",
+          "count": 90,
+          "sampledUs": 52988
+        },
+        {
+          "frame": "gen file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:27465",
+          "count": 40,
+          "sampledUs": 23260
+        },
+        {
+          "frame": "(garbage collector) :0",
+          "count": 28,
+          "sampledUs": 15999
+        },
+        {
+          "frame": "nativeIndexSpecificationKey file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:72788",
+          "count": 19,
+          "sampledUs": 10636
+        },
+        {
+          "frame": "makePrimitiveProto file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:28904",
+          "count": 15,
+          "sampledUs": 7890
+        },
+        {
+          "frame": "writev :0",
+          "count": 14,
+          "sampledUs": 8602
+        },
+        {
+          "frame": "#encode node:internal/encoding:344",
+          "count": 14,
+          "sampledUs": 8073
+        },
+        {
+          "frame": "runLoop file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:28437",
+          "count": 13,
+          "sampledUs": 7327
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:28837",
+          "count": 11,
+          "sampledUs": 6248
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:72747",
+          "count": 11,
+          "sampledUs": 7062
+        },
+        {
+          "frame": "encodeBytesToLowercaseHex file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:35737",
+          "count": 9,
+          "sampledUs": 5720
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:56059",
+          "count": 8,
+          "sampledUs": 4767
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:72681",
+          "count": 8,
+          "sampledUs": 5163
+        },
+        {
+          "frame": "decodeCanonicalDocumentIdParts file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:37324",
+          "count": 7,
+          "sampledUs": 4308
+        },
+        {
+          "frame": "add file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:69682",
+          "count": 7,
+          "sampledUs": 4099
+        },
+        {
+          "frame": "visit file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:71086",
+          "count": 7,
+          "sampledUs": 4139
+        },
+        {
+          "frame": "defaultComparator file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:4979",
+          "count": 6,
+          "sampledUs": 4099
+        },
+        {
+          "frame": "encodeCapturedIndexValue file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:56051",
+          "count": 6,
+          "sampledUs": 4562
+        },
+        {
+          "frame": "defineFrozenProperty file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:36311",
+          "count": 5,
+          "sampledUs": 2984
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:36158",
+          "count": 5,
+          "sampledUs": 2879
+        },
+        {
+          "frame": "withAncestor file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:36287",
+          "count": 5,
+          "sampledUs": 3732
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:34083",
+          "count": 4,
+          "sampledUs": 2379
+        },
+        {
+          "frame": "lookup file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:27258",
+          "count": 4,
+          "sampledUs": 1891
+        },
+        {
+          "frame": "encodeCanonicalDocumentId file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:37293",
+          "count": 4,
+          "sampledUs": 2329
+        },
+        {
+          "frame": "writeBuffer :0",
+          "count": 4,
+          "sampledUs": 2413
+        },
+        {
+          "frame": "post node:inspector:115",
+          "count": 3,
+          "sampledUs": 579672
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:29988",
+          "count": 3,
+          "sampledUs": 1381
+        },
+        {
+          "frame": "onItem file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:32602",
+          "count": 3,
+          "sampledUs": 1742
+        },
+        {
+          "frame": "snapshotDecodedProtocolPlainData file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:43065",
+          "count": 3,
+          "sampledUs": 1315
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:72956",
+          "count": 3,
+          "sampledUs": 1760
+        },
+        {
+          "frame": "parseChecks file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:33769",
+          "count": 3,
+          "sampledUs": 1805
+        },
+        {
+          "frame": "copyBytes file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:35709",
+          "count": 3,
+          "sampledUs": 1738
+        },
+        {
+          "frame": "normalizeRuntimeNode file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:36086",
+          "count": 3,
+          "sampledUs": 2003
+        },
+        {
+          "frame": "addFields file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:1927",
+          "count": 3,
+          "sampledUs": 1678
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:52138",
+          "count": 3,
+          "sampledUs": 1706
+        },
+        {
+          "frame": "prepareValue file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:1041",
+          "count": 3,
+          "sampledUs": 1740
+        },
+        {
+          "frame": "checkedCanonicalByteAdd file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:37815",
+          "count": 3,
+          "sampledUs": 1741
+        },
+        {
+          "frame": "checkCoreTableAccess file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:72667",
+          "count": 3,
+          "sampledUs": 1714
+        },
+        {
+          "frame": "(program) :0",
+          "count": 3,
+          "sampledUs": 1689
+        },
+        {
+          "frame": "dispatch :0",
+          "count": 3,
+          "sampledUs": 1713
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:183439",
+          "count": 3,
+          "sampledUs": 1686
+        },
+        {
+          "frame": "ExitPrimitive file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:26865",
+          "count": 3,
+          "sampledUs": 1842
+        },
+        {
+          "frame": "copyBytesToArrayBuffer file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:35712",
+          "count": 2,
+          "sampledUs": 1158
+        },
+        {
+          "frame": "normalizeJsonNode file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:38079",
+          "count": 2,
+          "sampledUs": 1153
+        },
+        {
+          "frame": "BNode.get file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:5540",
+          "count": 2,
+          "sampledUs": 1285
+        },
+        {
+          "frame": "compareBytesLexicographically file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:35744",
+          "count": 2,
+          "sampledUs": 1209
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:76001",
+          "count": 2,
+          "sampledUs": 1176
+        },
+        {
+          "frame": "overlap file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:69724",
+          "count": 2,
+          "sampledUs": 1183
+        },
+        {
+          "frame": "decodeCanonicalParts file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:52195",
+          "count": 2,
+          "sampledUs": 1178
+        },
+        {
+          "frame": "encodeUtf8String :0",
+          "count": 2,
+          "sampledUs": 1147
+        },
+        {
+          "frame": "try_ file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:27409",
+          "count": 2,
+          "sampledUs": 1124
+        },
+        {
+          "frame": "propertyPath file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:36308",
+          "count": 2,
+          "sampledUs": 1164
+        },
+        {
+          "frame": "indexDocuments file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:70513",
+          "count": 2,
+          "sampledUs": 695
+        },
+        {
+          "frame": "BNode.insertInLeaf file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:5607",
+          "count": 2,
+          "sampledUs": 1184
+        },
+        {
+          "frame": "PrimitiveImpl file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:26832",
+          "count": 2,
+          "sampledUs": 1121
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:183749",
+          "count": 2,
+          "sampledUs": 1295
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:189217",
+          "count": 2,
+          "sampledUs": 1182
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:183655",
+          "count": 2,
+          "sampledUs": 1279
+        },
+        {
+          "frame": "BNode.indexOf file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:5494",
+          "count": 2,
+          "sampledUs": 1184
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:53231",
+          "count": 2,
+          "sampledUs": 1150
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:32923",
+          "count": 2,
+          "sampledUs": 703
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:188020",
+          "count": 2,
+          "sampledUs": 1260
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:28784",
+          "count": 2,
+          "sampledUs": 1198
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:186209",
+          "count": 2,
+          "sampledUs": 1113
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:32399",
+          "count": 2,
+          "sampledUs": 268
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:73391",
+          "count": 2,
+          "sampledUs": 740
+        },
+        {
+          "frame": "makePrimitiveProto file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:28727",
+          "count": 2,
+          "sampledUs": 1187
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:75787",
+          "count": 2,
+          "sampledUs": 1137
+        },
+        {
+          "frame": "bind file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:184781",
+          "count": 2,
+          "sampledUs": 1138
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:195295",
+          "count": 2,
+          "sampledUs": 1242
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:185361",
+          "count": 2,
+          "sampledUs": 1146
+        },
+        {
+          "frame": "effectIsExit file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:29024",
+          "count": 2,
+          "sampledUs": 1157
+        },
+        {
+          "frame": "processTicksAndRejections node:internal/process/task_queues:72",
+          "count": 1,
+          "sampledUs": 710
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:27340",
+          "count": 1,
+          "sampledUs": 162
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:44753",
+          "count": 1,
+          "sampledUs": 593
+        },
+        {
+          "frame": "put file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:38539",
+          "count": 1,
+          "sampledUs": 128
+        },
+        {
+          "frame": "snapshotApplicationManifestV1 file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:45236",
+          "count": 1,
+          "sampledUs": 617
+        },
+        {
+          "frame": "processValidatorJsonDataV1 file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:36546",
+          "count": 1,
+          "sampledUs": 559
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:28716",
+          "count": 1,
+          "sampledUs": 568
+        },
+        {
+          "frame": "makePrimitive file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:28660",
+          "count": 1,
+          "sampledUs": 559
+        },
+        {
+          "frame": "Hash node:internal/crypto/hash:105",
+          "count": 1,
+          "sampledUs": 611
+        },
+        {
+          "frame": "ownValidatorDataProperty file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:36789",
+          "count": 1,
+          "sampledUs": 573
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:188315",
+          "count": 1,
+          "sampledUs": 638
+        },
+        {
+          "frame": "defineFrozenProperty2 file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:38460",
+          "count": 1,
+          "sampledUs": 549
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:89013",
+          "count": 1,
+          "sampledUs": 536
+        },
+        {
+          "frame": "round file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:184897",
+          "count": 1,
+          "sampledUs": 544
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:69842",
+          "count": 1,
+          "sampledUs": 569
+        },
+        {
+          "frame": "setContext file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:28538",
+          "count": 1,
+          "sampledUs": 133
+        },
+        {
+          "frame": "inspectCanonicalIsoInstant file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:44554",
+          "count": 1,
+          "sampledUs": 572
+        },
+        {
+          "frame": "encodeCanonicalJson file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:37558",
+          "count": 1,
+          "sampledUs": 620
+        },
+        {
+          "frame": "requireCoreNativeDefinition file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:72564",
+          "count": 1,
+          "sampledUs": 563
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:28860",
+          "count": 1,
+          "sampledUs": 561
+        },
+        {
+          "frame": "fn file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:28794",
+          "count": 1,
+          "sampledUs": 572
+        },
+        {
+          "frame": "createCoreTransaction file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:75529",
+          "count": 1,
+          "sampledUs": 569
+        },
+        {
+          "frame": "BTree.findPath file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:5234",
+          "count": 1,
+          "sampledUs": 591
+        },
+        {
+          "frame": "BNodeInternal.set file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:5801",
+          "count": 1,
+          "sampledUs": 579
+        },
+        {
+          "frame": "addUnsafe file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:27319",
+          "count": 1,
+          "sampledUs": 562
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:28820",
+          "count": 1,
+          "sampledUs": 561
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:70115",
+          "count": 1,
+          "sampledUs": 562
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:76748",
+          "count": 1,
+          "sampledUs": 576
+        },
+        {
+          "frame": "operation file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:85768",
+          "count": 1,
+          "sampledUs": 574
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:16590",
+          "count": 1,
+          "sampledUs": 625
+        },
+        {
+          "frame": "close file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:85401",
+          "count": 1,
+          "sampledUs": 553
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:29789",
+          "count": 1,
+          "sampledUs": 612
+        },
+        {
+          "frame": "scan file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:78509",
+          "count": 1,
+          "sampledUs": 582
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:182867",
+          "count": 1,
+          "sampledUs": 592
+        },
+        {
+          "frame": "limitsFor file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:74226",
+          "count": 1,
+          "sampledUs": 593
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:56221",
+          "count": 1,
+          "sampledUs": 565
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:74111",
+          "count": 1,
+          "sampledUs": 555
+        },
+        {
+          "frame": "updateProducts_ file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:22125",
+          "count": 1,
+          "sampledUs": 566
+        },
+        {
+          "frame": "select file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:73408",
+          "count": 1,
+          "sampledUs": 555
+        },
+        {
+          "frame": "makeFiberContextCache file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:28555",
+          "count": 1,
+          "sampledUs": 1140
+        },
+        {
+          "frame": "insert node:internal/timers:426",
+          "count": 1,
+          "sampledUs": 546
+        },
+        {
+          "frame": "getCont file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:28488",
+          "count": 1,
+          "sampledUs": 569
+        },
+        {
+          "frame": "getFallback file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:32819",
+          "count": 1,
+          "sampledUs": 579
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:74457",
+          "count": 1,
+          "sampledUs": 647
+        },
+        {
+          "frame": "remember file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:74255",
+          "count": 1,
+          "sampledUs": 547
+        },
+        {
+          "frame": "measureCanonicalJsonValue file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:37638",
+          "count": 1,
+          "sampledUs": 535
+        },
+        {
+          "frame": "normalizeFilterOutput file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:31337",
+          "count": 1,
+          "sampledUs": 563
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:75681",
+          "count": 1,
+          "sampledUs": 594
+        },
+        {
+          "frame": "addCString file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:2347",
+          "count": 1,
+          "sampledUs": 562
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:183687",
+          "count": 1,
+          "sampledUs": 579
+        },
+        {
+          "frame": "emit node:events:489",
+          "count": 1,
+          "sampledUs": 561
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:183065",
+          "count": 1,
+          "sampledUs": 578
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:85956",
+          "count": 1,
+          "sampledUs": 136
+        },
+        {
+          "frame": "descriptor.value file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:15940",
+          "count": 1,
+          "sampledUs": 556
+        },
+        {
+          "frame": " node:internal/webidl:756",
+          "count": 1,
+          "sampledUs": 576
+        },
+        {
+          "frame": "snapshot file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:69711",
+          "count": 1,
+          "sampledUs": 595
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:27426",
+          "count": 1,
+          "sampledUs": 168
+        },
+        {
+          "frame": "runMicrotasks :0",
+          "count": 1,
+          "sampledUs": 578
+        },
+        {
+          "frame": "andThenCont file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:28972",
+          "count": 1,
+          "sampledUs": 584
+        },
+        {
+          "frame": "getOrUndefinedUnsafe file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:27336",
+          "count": 1,
+          "sampledUs": 554
+        },
+        {
+          "frame": "utf8Slice :0",
+          "count": 1,
+          "sampledUs": 544
+        },
+        {
+          "frame": "addReads file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:74328",
+          "count": 1,
+          "sampledUs": 549
+        },
+        {
+          "frame": "next file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:26525",
+          "count": 1,
+          "sampledUs": 567
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:75506",
+          "count": 1,
+          "sampledUs": 585
+        },
+        {
+          "frame": "isCoreSystemTable file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:70229",
+          "count": 1,
+          "sampledUs": 1093
+        },
+        {
+          "frame": "enumerableDataProperties file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:36177",
+          "count": 1,
+          "sampledUs": 555
+        },
+        {
+          "frame": " :0",
+          "count": 1,
+          "sampledUs": 589
+        },
+        {
+          "frame": "cacheKey file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:185233",
+          "count": 1,
+          "sampledUs": 612
+        },
+        {
+          "frame": "conflict file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:69927",
+          "count": 1,
+          "sampledUs": 591
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:70154",
+          "count": 1,
+          "sampledUs": 599
+        },
+        {
+          "frame": "prepare file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:2100",
+          "count": 1,
+          "sampledUs": 576
+        },
+        {
+          "frame": "pop file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:69953",
+          "count": 1,
+          "sampledUs": 551
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:33827",
+          "count": 1,
+          "sampledUs": 649
+        },
+        {
+          "frame": "measureCanonicalJsonObject file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:37725",
+          "count": 1,
+          "sampledUs": 627
+        },
+        {
+          "frame": "defineArrayItem file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:37012",
+          "count": 1,
+          "sampledUs": 1200
+        },
+        {
+          "frame": "makePrimitive file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:28669",
+          "count": 1,
+          "sampledUs": 551
+        },
+        {
+          "frame": "canonicalFlarexRuntimeValueToJsonV1 file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:36066",
+          "count": 1,
+          "sampledUs": 555
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:50575",
+          "count": 1,
+          "sampledUs": 554
+        },
+        {
+          "frame": "asyncDigest node:internal/crypto/hash:253",
+          "count": 1,
+          "sampledUs": 577
+        },
+        {
+          "frame": "encodeUnknownEffect2 file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:34535",
+          "count": 1,
+          "sampledUs": 567
+        },
+        {
+          "frame": "freezeOwnedProtocolProjection file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:49675",
+          "count": 1,
+          "sampledUs": 562
+        },
+        {
+          "frame": "get parser file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:33879",
+          "count": 1,
+          "sampledUs": 588
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:25822",
+          "count": 1,
+          "sampledUs": 592
+        },
+        {
+          "frame": "pointInterval file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:69670",
+          "count": 1,
+          "sampledUs": 571
+        },
+        {
+          "frame": "onStreamRead node:internal/stream_base_commons:171",
+          "count": 1,
+          "sampledUs": 646
+        },
+        {
+          "frame": "hasSameCache file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:27312",
+          "count": 1,
+          "sampledUs": 563
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:189261",
+          "count": 1,
+          "sampledUs": 619
+        },
+        {
+          "frame": "normalizeFlarexRuntimeValueWithLimitsV1 file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:36053",
+          "count": 1,
+          "sampledUs": 614
+        },
+        {
+          "frame": "normalizeFlarexRuntimeValueV1 file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:36050",
+          "count": 1,
+          "sampledUs": 568
+        },
+        {
+          "frame": "BNode.takeFromRight file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:5621",
+          "count": 1,
+          "sampledUs": 598
+        },
+        {
+          "frame": "normalizeRuntimeObject file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:36152",
+          "count": 1,
+          "sampledUs": 565
+        },
+        {
+          "frame": "callback file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:178552",
+          "count": 1,
+          "sampledUs": 569
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:87949",
+          "count": 1,
+          "sampledUs": 592
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:70558",
+          "count": 1,
+          "sampledUs": 571
+        },
+        {
+          "frame": "field2 file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:70473",
+          "count": 1,
+          "sampledUs": 552
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:73343",
+          "count": 1,
+          "sampledUs": 545
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:33130",
+          "count": 1,
+          "sampledUs": 556
+        },
+        {
+          "frame": "step file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:33033",
+          "count": 1,
+          "sampledUs": 636
+        },
+        {
+          "frame": "_addListener node:events:545",
+          "count": 1,
+          "sampledUs": 548
+        },
+        {
+          "frame": "table file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:62605",
+          "count": 1,
+          "sampledUs": 617
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:183715",
+          "count": 1,
+          "sampledUs": 560
+        },
+        {
+          "frame": "index file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:32847",
+          "count": 1,
+          "sampledUs": 597
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:33438",
+          "count": 1,
+          "sampledUs": 610
+        },
+        {
+          "frame": "makePrimitiveProto file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:29360",
+          "count": 1,
+          "sampledUs": 554
+        },
+        {
+          "frame": "remembered file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:74262",
+          "count": 1,
+          "sampledUs": 556
+        },
+        {
+          "frame": "tupleKey file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:23689",
+          "count": 1,
+          "sampledUs": 603
+        },
+        {
+          "frame": "slice node:buffer:1348",
+          "count": 1,
+          "sampledUs": 564
+        },
+        {
+          "frame": "project file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:183059",
+          "count": 1,
+          "sampledUs": 1088
+        },
+        {
+          "frame": "isTree file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:33607",
+          "count": 1,
+          "sampledUs": 563
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:72784",
+          "count": 1,
+          "sampledUs": 561
+        },
+        {
+          "frame": "getSchemaIssue file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:31475",
+          "count": 1,
+          "sampledUs": 555
+        },
+        {
+          "frame": "removeEventListener node:internal/event_target:737",
+          "count": 1,
+          "sampledUs": 555
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:76782",
+          "count": 1,
+          "sampledUs": 553
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:28838",
+          "count": 1,
+          "sampledUs": 558
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:34518",
+          "count": 1,
+          "sampledUs": 584
+        },
+        {
+          "frame": "conflict file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:69808",
+          "count": 1,
+          "sampledUs": 554
+        },
+        {
+          "frame": "applyOverlays file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:27237",
+          "count": 1,
+          "sampledUs": 613
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:185428",
+          "count": 1,
+          "sampledUs": 560
+        },
+        {
+          "frame": "push file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:69910",
+          "count": 1,
+          "sampledUs": 575
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:29903",
+          "count": 1,
+          "sampledUs": 574
+        },
+        {
+          "frame": "decodeApplicationManifestV1 file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:45011",
+          "count": 1,
+          "sampledUs": 134
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:25826",
+          "count": 1,
+          "sampledUs": 564
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:50481",
+          "count": 1,
+          "sampledUs": 671
+        },
+        {
+          "frame": "iterator file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:5459",
+          "count": 1,
+          "sampledUs": 628
+        },
+        {
+          "frame": "isNonNegativeSafeInteger file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:35937",
+          "count": 1,
+          "sampledUs": 577
+        },
+        {
+          "frame": "cb file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:4124",
+          "count": 1,
+          "sampledUs": 606
+        },
+        {
+          "frame": "BTreeEx.clone file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:7253",
+          "count": 1,
+          "sampledUs": 551
+        },
+        {
+          "frame": "run :0",
+          "count": 1,
+          "sampledUs": 564
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:27148",
+          "count": 1,
+          "sampledUs": 582
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:85797",
+          "count": 1,
+          "sampledUs": 584
+        },
+        {
+          "frame": "copyInterval file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:69666",
+          "count": 1,
+          "sampledUs": 615
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:27428",
+          "count": 1,
+          "sampledUs": 556
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:53309",
+          "count": 1,
+          "sampledUs": 548
+        },
+        {
+          "frame": "fn file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:28808",
+          "count": 1,
+          "sampledUs": 613
+        },
+        {
+          "frame": "emitDestroy node:async_hooks:234",
+          "count": 1,
+          "sampledUs": 611
+        },
+        {
+          "frame": "hashCoreIndexPageKey file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:184890",
+          "count": 1,
+          "sampledUs": 545
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:72703",
+          "count": 1,
+          "sampledUs": 590
+        },
+        {
+          "frame": "set locks :0",
+          "count": 1,
+          "sampledUs": 585
+        },
+        {
+          "frame": "index file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:32822",
+          "count": 1,
+          "sampledUs": 570
+        },
+        {
+          "frame": "relationalText file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:48961",
+          "count": 1,
+          "sampledUs": 137
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:87931",
+          "count": 1,
+          "sampledUs": 569
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:182914",
+          "count": 1,
+          "sampledUs": 636
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:29064",
+          "count": 1,
+          "sampledUs": 575
+        },
+        {
+          "frame": "useSpan file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:29896",
+          "count": 1,
+          "sampledUs": 587
+        },
+        {
+          "frame": "getStackTraceLimit file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:26512",
+          "count": 1,
+          "sampledUs": 586
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:31543",
+          "count": 1,
+          "sampledUs": 566
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:27443",
+          "count": 1,
+          "sampledUs": 634
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:5145",
+          "count": 1,
+          "sampledUs": 618
+        },
+        {
+          "frame": "pipe file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:26602",
+          "count": 1,
+          "sampledUs": 563
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:85944",
+          "count": 1,
+          "sampledUs": 568
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:53140",
+          "count": 1,
+          "sampledUs": 593
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:75705",
+          "count": 1,
+          "sampledUs": 627
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:28828",
+          "count": 1,
+          "sampledUs": 556
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:29555",
+          "count": 1,
+          "sampledUs": 567
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:76967",
+          "count": 1,
+          "sampledUs": 572
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:56257",
+          "count": 1,
+          "sampledUs": 562
+        },
+        {
+          "frame": "coreSchemaBundleNative file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:71807",
+          "count": 1,
+          "sampledUs": 563
+        },
+        {
+          "frame": "validateRelationalRowColumns file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:48988",
+          "count": 1,
+          "sampledUs": 576
+        },
+        {
+          "frame": "admitSelection file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:183016",
+          "count": 1,
+          "sampledUs": 577
+        },
+        {
+          "frame": "mapCont file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:28968",
+          "count": 1,
+          "sampledUs": 637
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:62742",
+          "count": 1,
+          "sampledUs": 586
+        },
+        {
+          "frame": "evaluate file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:28387",
+          "count": 1,
+          "sampledUs": 575
+        },
+        {
+          "frame": "nativeRememberedCandidates file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:76135",
+          "count": 1,
+          "sampledUs": 653
+        },
+        {
+          "frame": "validateRelationalRowValues file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:49003",
+          "count": 1,
+          "sampledUs": 127
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:182928",
+          "count": 1,
+          "sampledUs": 572
+        },
+        {
+          "frame": "get file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:15972",
+          "count": 1,
+          "sampledUs": 592
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:28861",
+          "count": 1,
+          "sampledUs": 576
+        },
+        {
+          "frame": "nativeResult file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:87925",
+          "count": 1,
+          "sampledUs": 168
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:75724",
+          "count": 1,
+          "sampledUs": 575
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:88784",
+          "count": 1,
+          "sampledUs": 609
+        },
+        {
+          "frame": "copyTableDefinition file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:188017",
+          "count": 1,
+          "sampledUs": 574
+        },
+        {
+          "frame": "isReference file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:27314",
+          "count": 1,
+          "sampledUs": 549
+        },
+        {
+          "frame": "query file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:3978",
+          "count": 1,
+          "sampledUs": 591
+        },
+        {
+          "frame": "validateObjectField file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:36218",
+          "count": 1,
+          "sampledUs": 573
+        },
+        {
+          "frame": "captureCoreDocument file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:53311",
+          "count": 1,
+          "sampledUs": 551
+        },
+        {
+          "frame": "makeExit file:///C:/Users/User/Documents/GitHub/flarex/work/validation/core-aot-optimized-assets/mixed-product-generated.mjs:26876",
+          "count": 1,
+          "sampledUs": 561
+        }
+      ]
+    }
+  ],
+  "validation": {
+    "protocolTests": 12,
+    "queryPGliteTests": 22,
+    "queryOrdinaryPostgresTests": 22,
+    "byteTests": 33,
+    "mixedPGliteTests": 5,
+    "mixedOrdinaryPostgresTests": 5,
+    "indexSnapshotTests": 15,
+    "harnessNodeTests": 4,
+    "controllerNodeTests": 3,
+    "checker": "tsrs@0.20.1-ts7.1.0-beta --fast",
+    "schemaGeneratedCheck": "60 targets in 8 modules",
+    "effectBoundaryGuard": "passed",
+    "lintCore": "passed",
+    "lintDiff": "passed",
+    "controllerIdentityRegression": "passed: two additional owned clusters, stale same-binary PID refused for Stop and Start, target ordinary query survived, both test clusters stopped"
+  },
+  "limitations": [
+    "One bounded current mixed Application/Product graph; no native-framework baseline, Cloudflare deployment or scale proof.",
+    "Only two independent processes per source/mode/runtime; serial requests share process/fixture state. No population confidence interval is inferred.",
+    "Windows CPU counters are coarse; mean CPU is reported alongside raw rows, medians and separate cohort summaries.",
+    "Interpreter Bun AOT latency did not improve; cohort variation is retained.",
+    "The fixture's authored handler uses new Function; whether Bun precompiled that constant-derived string is not established.",
+    "Request-only Node profiles are diagnostic, have different sample counts and cannot establish exclusive causal savings.",
+    "pg8.22 reports an existing queued-query deprecation warning; no request or cleanup failed.",
+    "An initial overlapping Vitest startup hit shared-cache EPERM; sequential database lanes passed. The retained witness does not disprove other Windows contributors."
+  ]
+}

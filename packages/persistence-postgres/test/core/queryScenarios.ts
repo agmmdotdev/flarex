@@ -209,6 +209,48 @@ describe(name, () => {
     }))); } finally { await fixture.close(); }
   }, 30_000);
 
+  it("accounts tagged document bytes at the exact page boundary before charging a row", async () => {
+    const fixture = await createFixture();
+    try { await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+      const database = yield* openCoreDatabase(fixture.persistence, options);
+      const table = schema.tables[0];
+      if (table === undefined || table.documentType?.type !== "object") throw new Error("Missing object table fixture");
+      yield* activateCoreSchema(database, { schemaValidation: true, tables: [{ ...table, documentType: { ...table.documentType,
+        value: { ...table.documentType.value, payload: { fieldType: { type: "any" }, optional: false } },
+      } }] });
+      const bytes = Uint8Array.of(0, 1, 255), nested = { text: "a\0b", omitted: undefined };
+      const writer = yield* database.begin();
+      yield* writer.insert("items", { value: 0, payload: { bytes: bytes.buffer, integer: (1n << 63n) - 1n, negativeZero: -0, nested } });
+      bytes.fill(9); nested.text = "changed";
+      yield* database.commit(yield* writer.finalize());
+      const sampleTransaction = yield* database.begin();
+      const sample = yield* sampleTransaction.scan("items", "by_value", { limit: 1 });
+      yield* sampleTransaction.abort();
+      const document = sample[0];
+      if (document === undefined) throw new Error("Missing tagged document");
+      expect(document.payload).toEqual({ bytes: Uint8Array.of(0, 1, 255).buffer,
+        integer: (1n << 63n) - 1n, negativeZero: -0, nested: { text: "a\0b" } });
+      const encoded = Result.getOrThrow(encodeDocumentValue(document)).byteLength;
+      const semantic = Result.getOrThrow(captureDocumentValueWithSize(document)).semanticSizeBytes;
+      expect(encoded).toBeGreaterThan(semantic);
+      for (const offset of [-1, 0] as const) {
+        const transaction = yield* database.begin();
+        const query = yield* transaction.startQuery({ query: logical() });
+        const page = yield* Effect.result(next(query, 1, encoded + 2 + offset));
+        if (offset === -1) {
+          expect(Result.isFailure(page) && page.failure).toMatchObject({ reason: "capacity", cause: {
+            budget: "queryPageBytes", actual: encoded + 2, limit: encoded + 1,
+          } });
+          expect((yield* transaction.usage).user.documentsRead).toBe(0);
+        } else {
+          expect(Result.isSuccess(page) && page.success.documents).toEqual([document]);
+          expect((yield* transaction.usage).user.documentsRead).toBe(1);
+        }
+        yield* transaction.abort();
+      }
+    }))); } finally { await fixture.close(); }
+  }, 30_000);
+
   it("checks envelope-only limits and single-document semantic overflow before charging or observing the row", async () => {
     const fixture = await createFixture();
     try { await Effect.runPromise(Effect.scoped(Effect.gen(function* () {

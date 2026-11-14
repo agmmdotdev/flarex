@@ -6,7 +6,7 @@
 import { BTreeEx as BTree } from "sorted-btree/extended/index.js";
 import { Effect, Option, Result } from "effect";
 import { compareBytesLexicographically } from "@flarex/utils/bytes";
-import { encodeDocumentValue, type DocumentObject } from "flarex-protocol/document-value";
+import { encodeCapturedDocumentValue, type DocumentObject } from "flarex-protocol/document-value";
 import { indexRangeIsEmpty, splitIndexRangeAfter } from "flarex-protocol/index-range";
 import { CoreTransactionError, type CoreError, type CoreIndexDefinition, type CoreQuery,
   type CoreQueryPage, type CoreTableDefinition } from "./api";
@@ -165,7 +165,7 @@ export function createCoreQuery(input: Readonly<{
         continue;
       }
       const measured = yield* Effect.fromResult(Result.mapError(captureCoreDocument(selected.document, isCoreSystemTable(input.table)), invalid));
-      const encoded = yield* Effect.fromResult(Result.mapError(encodeDocumentValue(measured.value), invalid));
+      const encoded = encodeCapturedDocumentValue(measured.value);
       const nextPosition: CoreIndexCursor = Object.freeze({ kind: "after", key: selected.key.slice() });
       const nextBytes = bytes + encoded.byteLength + (documents.length === 0 ? 0 : 1);
       const nextSemanticBytes = semanticBytes + measured.semanticSizeBytes;

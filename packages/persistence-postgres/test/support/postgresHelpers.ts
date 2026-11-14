@@ -29,9 +29,8 @@ import type { FlarexMetadataDatabase } from "../../src/application/deployments";
 import { configureInstallationRuntimePermissions, withInstallationMaintenance,
   publishVerifiedInstallation, publishFullProofInstallation, type InstallationMigrationJournal } from "../../src/database/postgresInstallationMaintenance";
 
-export const postgresUrl = trimToNonBlankOrNull(
-  process.env.FLAREX_POSTGRES_DATABASE_URL,
-);
+import { postgresUrl } from "./postgresConfig";
+export { postgresUrl } from "./postgresConfig";
 
 /** Explicit private fixture endpoints; diagnostics must not redirect process
  * environment or a module-captured default while another fixture is alive. */

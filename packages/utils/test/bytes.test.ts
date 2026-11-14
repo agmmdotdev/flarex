@@ -195,6 +195,29 @@ describe("uint8ArrayByteLength", () => {
 });
 
 describe("encodeBytesToLowercaseHex", () => {
+  it("uses the exact two-character lowercase spelling for every byte", () => {
+    const bytes = Uint8Array.from({ length: 256 }, (_, byte) => byte);
+
+    expect(encodeBytesToLowercaseHex(bytes)).toBe(
+      "000102030405060708090a0b0c0d0e0f" +
+      "101112131415161718191a1b1c1d1e1f" +
+      "202122232425262728292a2b2c2d2e2f" +
+      "303132333435363738393a3b3c3d3e3f" +
+      "404142434445464748494a4b4c4d4e4f" +
+      "505152535455565758595a5b5c5d5e5f" +
+      "606162636465666768696a6b6c6d6e6f" +
+      "707172737475767778797a7b7c7d7e7f" +
+      "808182838485868788898a8b8c8d8e8f" +
+      "909192939495969798999a9b9c9d9e9f" +
+      "a0a1a2a3a4a5a6a7a8a9aaabacadaeaf" +
+      "b0b1b2b3b4b5b6b7b8b9babbbcbdbebf" +
+      "c0c1c2c3c4c5c6c7c8c9cacbcccdcecf" +
+      "d0d1d2d3d4d5d6d7d8d9dadbdcdddedf" +
+      "e0e1e2e3e4e5e6e7e8e9eaebecedeeef" +
+      "f0f1f2f3f4f5f6f7f8f9fafbfcfdfeff",
+    );
+  });
+
   it("encodes only the visible byte range with lowercase spelling", () => {
     const backing = new Uint8Array([255, 0, 1, 15, 16, 171, 254]);
 
@@ -204,9 +227,9 @@ describe("encodeBytesToLowercaseHex", () => {
     expect(encodeBytesToLowercaseHex(new Uint8Array())).toBe("");
   });
 
-  it("rejects a detached view instead of encoding it as empty", () => {
+  it.each([0, 2])("rejects a detached view with original visible length %s", length => {
     const buffer = new ArrayBuffer(2);
-    const bytes = new Uint8Array(buffer);
+    const bytes = new Uint8Array(buffer, 0, length);
     structuredClone(buffer, { transfer: [buffer] });
 
     expect(() => encodeBytesToLowercaseHex(bytes)).toThrow(TypeError);
@@ -220,6 +243,32 @@ describe("encodeBytesToLowercaseHex", () => {
 
     expect([...bytes]).toEqual([255]);
     expect(encodeBytesToLowercaseHex(bytes)).toBe("00");
+  });
+
+  it("ignores a subclass's own iterator, values and byteLength properties", () => {
+    class Bytes extends Uint8Array {}
+    const bytes = new Bytes([0, 15, 16, 171, 255]);
+    let reads = 0;
+    const poisoned = () => {
+      reads += 1;
+      throw new Error("Caller property must not be read");
+    };
+    Object.defineProperties(bytes, {
+      [Symbol.iterator]: { get: poisoned },
+      values: { get: poisoned },
+      byteLength: { get: poisoned },
+    });
+
+    expect(encodeBytesToLowercaseHex(bytes)).toBe("000f10abff");
+    expect(reads).toBe(0);
+  });
+
+  it("preserves intrinsic refusal of forwarding proxies and prototype impostors", () => {
+    const proxy = new Proxy(new Uint8Array([1]), {});
+    const impostor = Object.create(Uint8Array.prototype);
+
+    expect(() => encodeBytesToLowercaseHex(proxy)).toThrow(TypeError);
+    expect(() => encodeBytesToLowercaseHex(impostor)).toThrow(TypeError);
   });
 });
 

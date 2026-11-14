@@ -10,7 +10,7 @@ import type { PreparedLogicalSchemaCandidate } from "@flarex/analysis/internal/l
 import { createCorePGliteFixture, createCorePostgresFixture, type CorePersistenceFixture } from "../../../persistence-postgres/test/core/fixture";
 import { CORE_SCHEMA_WORKER_TEST_OPTIONS } from "../../../persistence-postgres/test/core/schemaFixture";
 import { readCoreNativeFixtureInventory } from "../../../persistence-postgres/test/core/nativeFixtureInventory";
-import { postgresUrl } from "../../../persistence-postgres/test/support/postgresHelpers";
+import { postgresUrl } from "../../../persistence-postgres/test/support/postgresConfig";
 import { makePreparedHostRuntime, type PreparedHostRuntime } from "../../../persistence-postgres/src/execution/preparation/preparedHostRuntime";
 import { commerceNativeRegistrations, makeCommerceNativeHost } from "../../../persistence-postgres/src/frameworks/commerceTransaction/nativeHost";
 import { getCommerceCommand, type CommerceCommand, type CommerceHost } from "../../../persistence-postgres/src/frameworks/commerceTransaction/commands";
