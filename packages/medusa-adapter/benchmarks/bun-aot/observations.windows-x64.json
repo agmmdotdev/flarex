@@ -1,0 +1,3380 @@
+{
+  "revision": "48549de32290eefe71f875be390a923e610bf745",
+  "dirty": true,
+  "status": " M pnpm-workspace.yaml\n M roadmaps/flarexdb-framework-integration/preflight/medusa-currency-promotion.json\n?? packages/medusa-adapter/benchmarks/bun-aot/\n",
+  "nodeVersion": "v26.13.0",
+  "bunVersion": "1.4.5",
+  "cpu": "AMD Ryzen 5 2600 Six-Core Processor            ",
+  "logicalCpus": 12,
+  "platform": "win32",
+  "arch": "x64",
+  "rounds": 7,
+  "iterations": 100000,
+  "mechanismIterations": 20000000,
+  "parityMatch": true,
+  "checksumMatch": true,
+  "builds": [
+    {
+      "entry": "decoders",
+      "mode": "interpreter",
+      "kind": "bytecode",
+      "args": [
+        "build",
+        "--compile",
+        "--bytecode",
+        "--format=esm",
+        "--no-compile-autoload-dotenv",
+        "--no-compile-autoload-bunfig",
+        "--conditions=source",
+        "C:\\Users\\User\\Documents\\GitHub\\flarex\\work\\validation\\bun-aot-cpu\\measured\\decoders-interpreter.mjs",
+        "--outfile",
+        "C:\\Users\\User\\Documents\\GitHub\\flarex\\work\\validation\\bun-aot-cpu\\measured\\decoders-interpreter-bytecode.exe"
+      ],
+      "elapsedMs": 2688.6107999999995,
+      "bytes": 168073216,
+      "artifactSha256": "7fc9834794dcefb2ab4ca86f8e796c4d8d646ecb964dedc64326e74cdb9c1207",
+      "bundleSha256": "3ad597d5cf366e579d33130f660fa9bc62882cb49c1b91f8a3505a610803a47b"
+    },
+    {
+      "entry": "decoders",
+      "mode": "interpreter",
+      "kind": "aot",
+      "args": [
+        "build",
+        "--compile",
+        "--aot",
+        "--explain=json",
+        "--no-compile-autoload-dotenv",
+        "--no-compile-autoload-bunfig",
+        "--conditions=source",
+        "C:\\Users\\User\\Documents\\GitHub\\flarex\\work\\validation\\bun-aot-cpu\\measured\\decoders-interpreter.mjs",
+        "--outfile",
+        "C:\\Users\\User\\Documents\\GitHub\\flarex\\work\\validation\\bun-aot-cpu\\measured\\decoders-interpreter-aot.exe"
+      ],
+      "elapsedMs": 3842.450399999999,
+      "bytes": 90731520,
+      "artifactSha256": "03518d87a4dd0baa6ae1a78def44c9f967f4a4ea7ad2a6a05a4f432584aedb46",
+      "bundleSha256": "3ad597d5cf366e579d33130f660fa9bc62882cb49c1b91f8a3505a610803a47b"
+    },
+    {
+      "entry": "decoders",
+      "mode": "generated",
+      "kind": "bytecode",
+      "args": [
+        "build",
+        "--compile",
+        "--bytecode",
+        "--format=esm",
+        "--no-compile-autoload-dotenv",
+        "--no-compile-autoload-bunfig",
+        "--conditions=source",
+        "C:\\Users\\User\\Documents\\GitHub\\flarex\\work\\validation\\bun-aot-cpu\\measured\\decoders-generated.mjs",
+        "--outfile",
+        "C:\\Users\\User\\Documents\\GitHub\\flarex\\work\\validation\\bun-aot-cpu\\measured\\decoders-generated-bytecode.exe"
+      ],
+      "elapsedMs": 1959.8068999999996,
+      "bytes": 168761344,
+      "artifactSha256": "ce6ac7a85b20343881d8738e34e512e584402cb0d87462f8d67e25597c22f2fa",
+      "bundleSha256": "b328f86b274a014965df2779ee75e50dcbaa1d63ffc7b8188b7ef8c75f5fd887"
+    },
+    {
+      "entry": "decoders",
+      "mode": "generated",
+      "kind": "aot",
+      "args": [
+        "build",
+        "--compile",
+        "--aot",
+        "--explain=json",
+        "--no-compile-autoload-dotenv",
+        "--no-compile-autoload-bunfig",
+        "--conditions=source",
+        "C:\\Users\\User\\Documents\\GitHub\\flarex\\work\\validation\\bun-aot-cpu\\measured\\decoders-generated.mjs",
+        "--outfile",
+        "C:\\Users\\User\\Documents\\GitHub\\flarex\\work\\validation\\bun-aot-cpu\\measured\\decoders-generated-aot.exe"
+      ],
+      "elapsedMs": 3826.8711999999996,
+      "bytes": 91403264,
+      "artifactSha256": "085be907e86154868222823ea5e929491e6cd8d7ea2529dcd004ddc6bc884854",
+      "bundleSha256": "b328f86b274a014965df2779ee75e50dcbaa1d63ffc7b8188b7ef8c75f5fd887"
+    },
+    {
+      "entry": "decoders",
+      "mode": "generated",
+      "kind": "typed-aot",
+      "args": [
+        "build",
+        "--compile",
+        "--aot",
+        "--explain=json",
+        "--no-compile-autoload-dotenv",
+        "--no-compile-autoload-bunfig",
+        "--conditions=source",
+        "C:\\Users\\User\\Documents\\GitHub\\flarex\\packages\\medusa-adapter\\benchmarks\\bun-aot\\decoders.ts",
+        "--outfile",
+        "C:\\Users\\User\\Documents\\GitHub\\flarex\\work\\validation\\bun-aot-cpu\\measured\\decoders-generated-typed-aot.exe"
+      ],
+      "elapsedMs": 6426.203600000001,
+      "bytes": 97051648,
+      "artifactSha256": "89f4cdbc2ae4e9cc0bb7b6c325cd82b21cee8a1ba5e7971c329f49ea8bc21270",
+      "bundleSha256": "b328f86b274a014965df2779ee75e50dcbaa1d63ffc7b8188b7ef8c75f5fd887"
+    },
+    {
+      "entry": "decoders",
+      "mode": "generated",
+      "kind": "typed-aot-static",
+      "args": [
+        "build",
+        "--compile",
+        "--aot",
+        "--explain=json",
+        "--no-compile-autoload-dotenv",
+        "--no-compile-autoload-bunfig",
+        "--disallow-code-generation-from-strings=strict",
+        "--conditions=source",
+        "C:\\Users\\User\\Documents\\GitHub\\flarex\\packages\\medusa-adapter\\benchmarks\\bun-aot\\decoders.ts",
+        "--outfile",
+        "C:\\Users\\User\\Documents\\GitHub\\flarex\\work\\validation\\bun-aot-cpu\\measured\\decoders-generated-typed-aot-static.exe"
+      ],
+      "elapsedMs": 6606.3246,
+      "bytes": 97051648,
+      "artifactSha256": "a8bb045d2010353b4eca151cb129cda7f960e539d045af332f1e10f1b28d3825",
+      "bundleSha256": "b328f86b274a014965df2779ee75e50dcbaa1d63ffc7b8188b7ef8c75f5fd887"
+    },
+    {
+      "entry": "mechanisms",
+      "mode": "generated",
+      "kind": "bytecode",
+      "args": [
+        "build",
+        "--compile",
+        "--bytecode",
+        "--format=esm",
+        "--no-compile-autoload-dotenv",
+        "--no-compile-autoload-bunfig",
+        "--conditions=source",
+        "C:\\Users\\User\\Documents\\GitHub\\flarex\\work\\validation\\bun-aot-cpu\\measured\\mechanisms-generated.mjs",
+        "--outfile",
+        "C:\\Users\\User\\Documents\\GitHub\\flarex\\work\\validation\\bun-aot-cpu\\measured\\mechanisms-generated-bytecode.exe"
+      ],
+      "elapsedMs": 1762.8561000000045,
+      "bytes": 166091264,
+      "artifactSha256": "c2400195ddfb7b514a8ddd839423ae60b92012b1e1f26f367aa5a834a10cfd5e",
+      "bundleSha256": "6f606a8132edf80a0868eb52f0bd3455d63345e6a860d3e9094d03634c9acd6f"
+    },
+    {
+      "entry": "mechanisms",
+      "mode": "generated",
+      "kind": "aot",
+      "args": [
+        "build",
+        "--compile",
+        "--aot",
+        "--explain=json",
+        "--no-compile-autoload-dotenv",
+        "--no-compile-autoload-bunfig",
+        "--conditions=source",
+        "C:\\Users\\User\\Documents\\GitHub\\flarex\\work\\validation\\bun-aot-cpu\\measured\\mechanisms-generated.mjs",
+        "--outfile",
+        "C:\\Users\\User\\Documents\\GitHub\\flarex\\work\\validation\\bun-aot-cpu\\measured\\mechanisms-generated-aot.exe"
+      ],
+      "elapsedMs": 2464.0026999999973,
+      "bytes": 87536640,
+      "artifactSha256": "13f94d2e72a78cc9f07c325a8b8380b085c81e0a702ccf276d679efae0ecd09a",
+      "bundleSha256": "6f606a8132edf80a0868eb52f0bd3455d63345e6a860d3e9094d03634c9acd6f"
+    },
+    {
+      "entry": "mechanisms",
+      "mode": "generated",
+      "kind": "typed-aot",
+      "args": [
+        "build",
+        "--compile",
+        "--aot",
+        "--explain=json",
+        "--no-compile-autoload-dotenv",
+        "--no-compile-autoload-bunfig",
+        "--conditions=source",
+        "C:\\Users\\User\\Documents\\GitHub\\flarex\\packages\\medusa-adapter\\benchmarks\\bun-aot\\mechanisms.ts",
+        "--outfile",
+        "C:\\Users\\User\\Documents\\GitHub\\flarex\\work\\validation\\bun-aot-cpu\\measured\\mechanisms-generated-typed-aot.exe"
+      ],
+      "elapsedMs": 2265.0593999999983,
+      "bytes": 87536640,
+      "artifactSha256": "53b872cdd9b6de91de5997282a25e238541cd6449e72ee3d0c7458d5f4b9df2f",
+      "bundleSha256": "6f606a8132edf80a0868eb52f0bd3455d63345e6a860d3e9094d03634c9acd6f"
+    }
+  ],
+  "summary": [
+    {
+      "entry": "decoders",
+      "mode": "interpreter",
+      "runtime": "node-jit",
+      "medianProcessWallMs": 4572.855099999986,
+      "rows": [
+        {
+          "name": "iterator-budget/default/valid",
+          "iterations": 100000,
+          "wallMs": 114.4258,
+          "cpuMs": 156,
+          "minWallMs": 105.11019999999999,
+          "maxWallMs": 179.1865
+        },
+        {
+          "name": "iterator-budget/default/invalid",
+          "iterations": 10000,
+          "wallMs": 28.059799999999996,
+          "cpuMs": 47,
+          "minWallMs": 18.461799999999982,
+          "maxWallMs": 37.27659999999997
+        },
+        {
+          "name": "iterator-budget/strict/valid",
+          "iterations": 100000,
+          "wallMs": 272.77369999999996,
+          "cpuMs": 266,
+          "minWallMs": 163.32219999999998,
+          "maxWallMs": 388.9848
+        },
+        {
+          "name": "iterator-budget/strict/invalid",
+          "iterations": 10000,
+          "wallMs": 28.969299999999976,
+          "cpuMs": 47,
+          "minWallMs": 25.59929999999997,
+          "maxWallMs": 61.11310000000003
+        },
+        {
+          "name": "index-metadata/default/valid",
+          "iterations": 100000,
+          "wallMs": 276.29779999999994,
+          "cpuMs": 344,
+          "minWallMs": 248.48929999999996,
+          "maxWallMs": 477.31529999999987
+        },
+        {
+          "name": "index-metadata/default/invalid",
+          "iterations": 10000,
+          "wallMs": 31.56140000000005,
+          "cpuMs": 32,
+          "minWallMs": 25.816900000000032,
+          "maxWallMs": 59.93489999999997
+        },
+        {
+          "name": "index-metadata/strict/valid",
+          "iterations": 100000,
+          "wallMs": 496.8348,
+          "cpuMs": 548,
+          "minWallMs": 399.8954000000001,
+          "maxWallMs": 1170.4189000000001
+        },
+        {
+          "name": "index-metadata/strict/invalid",
+          "iterations": 10000,
+          "wallMs": 44.25500000000011,
+          "cpuMs": 47,
+          "minWallMs": 34.46409999999992,
+          "maxWallMs": 74.2213999999999
+        },
+        {
+          "name": "native-foreign-key/default/valid",
+          "iterations": 100000,
+          "wallMs": 312.0499,
+          "cpuMs": 343,
+          "minWallMs": 227.36070000000018,
+          "maxWallMs": 591.3577
+        },
+        {
+          "name": "native-foreign-key/default/invalid",
+          "iterations": 10000,
+          "wallMs": 29.971199999999953,
+          "cpuMs": 31,
+          "minWallMs": 24.264799999999923,
+          "maxWallMs": 53.127300000000105
+        },
+        {
+          "name": "native-foreign-key/strict/valid",
+          "iterations": 100000,
+          "wallMs": 493.6115999999997,
+          "cpuMs": 516,
+          "minWallMs": 298.63530000000014,
+          "maxWallMs": 946.5254
+        },
+        {
+          "name": "native-foreign-key/strict/invalid",
+          "iterations": 10000,
+          "wallMs": 49.46030000000019,
+          "cpuMs": 32,
+          "minWallMs": 28.305000000000064,
+          "maxWallMs": 187.3665000000001
+        },
+        {
+          "name": "schema-metadata-defaults/default/valid",
+          "iterations": 100000,
+          "wallMs": 252.0353,
+          "cpuMs": 297,
+          "minWallMs": 159.5795999999998,
+          "maxWallMs": 309.23219999999947
+        },
+        {
+          "name": "schema-metadata-defaults/default/invalid",
+          "iterations": 10000,
+          "wallMs": 32.315599999999904,
+          "cpuMs": 31,
+          "minWallMs": 18.980199999999968,
+          "maxWallMs": 60.98530000000028
+        },
+        {
+          "name": "schema-metadata-defaults/strict/valid",
+          "iterations": 100000,
+          "wallMs": 408.0293999999999,
+          "cpuMs": 469,
+          "minWallMs": 256.7876000000001,
+          "maxWallMs": 562.6116999999995
+        },
+        {
+          "name": "schema-metadata-defaults/strict/invalid",
+          "iterations": 10000,
+          "wallMs": 40.84490000000005,
+          "cpuMs": 47,
+          "minWallMs": 24.26800000000003,
+          "maxWallMs": 73.52129999999943
+        },
+        {
+          "name": "product-read/default/valid",
+          "iterations": 100000,
+          "wallMs": 120.27800000000025,
+          "cpuMs": 125,
+          "minWallMs": 79.3421999999996,
+          "maxWallMs": 172.51479999999992
+        },
+        {
+          "name": "product-read/default/invalid",
+          "iterations": 10000,
+          "wallMs": 22.978099999999813,
+          "cpuMs": 32,
+          "minWallMs": 13.465099999999893,
+          "maxWallMs": 40.99709999999959
+        },
+        {
+          "name": "product-read/strict/valid",
+          "iterations": 100000,
+          "wallMs": 185.39470000000028,
+          "cpuMs": 172,
+          "minWallMs": 114.47450000000026,
+          "maxWallMs": 226.67419999999947
+        },
+        {
+          "name": "product-read/strict/invalid",
+          "iterations": 10000,
+          "wallMs": 27.713800000000447,
+          "cpuMs": 31,
+          "minWallMs": 17.908899999999903,
+          "maxWallMs": 44.08460000000014
+        },
+        {
+          "name": "product-find-config/default/valid",
+          "iterations": 100000,
+          "wallMs": 155.21190000000024,
+          "cpuMs": 156,
+          "minWallMs": 98.20490000000018,
+          "maxWallMs": 177.4363000000003
+        },
+        {
+          "name": "product-find-config/default/invalid",
+          "iterations": 10000,
+          "wallMs": 26.54989999999998,
+          "cpuMs": 31,
+          "minWallMs": 16.331500000000233,
+          "maxWallMs": 31.109199999999873
+        },
+        {
+          "name": "product-find-config/strict/valid",
+          "iterations": 100000,
+          "wallMs": 231.30989999999974,
+          "cpuMs": 219,
+          "minWallMs": 133.42120000000023,
+          "maxWallMs": 278.20520000000033
+        },
+        {
+          "name": "product-find-config/strict/invalid",
+          "iterations": 10000,
+          "wallMs": 33.77220000000034,
+          "cpuMs": 31,
+          "minWallMs": 20.040400000000318,
+          "maxWallMs": 37.61699999999928
+        }
+      ],
+      "medianMeasuredWallMs": 3970.068000000002,
+      "medianMeasuredCpuMs": 3956
+    },
+    {
+      "entry": "decoders",
+      "mode": "interpreter",
+      "runtime": "bun-jit",
+      "medianProcessWallMs": 5453.078899999964,
+      "rows": [
+        {
+          "name": "iterator-budget/default/valid",
+          "iterations": 100000,
+          "wallMs": 149.2418,
+          "cpuMs": 250,
+          "minWallMs": 95.09270000000001,
+          "maxWallMs": 654.893
+        },
+        {
+          "name": "iterator-budget/default/invalid",
+          "iterations": 10000,
+          "wallMs": 34.053300000000036,
+          "cpuMs": 93,
+          "minWallMs": 21.140500000000003,
+          "maxWallMs": 88.17320000000001
+        },
+        {
+          "name": "iterator-budget/strict/valid",
+          "iterations": 100000,
+          "wallMs": 245.17699999999996,
+          "cpuMs": 358,
+          "minWallMs": 131.9047,
+          "maxWallMs": 561.8271
+        },
+        {
+          "name": "iterator-budget/strict/invalid",
+          "iterations": 10000,
+          "wallMs": 54.0249,
+          "cpuMs": 94,
+          "minWallMs": 33.19580000000002,
+          "maxWallMs": 85.27269999999999
+        },
+        {
+          "name": "index-metadata/default/valid",
+          "iterations": 100000,
+          "wallMs": 393.84810000000004,
+          "cpuMs": 641,
+          "minWallMs": 224.10760000000005,
+          "maxWallMs": 571.6409000000001
+        },
+        {
+          "name": "index-metadata/default/invalid",
+          "iterations": 10000,
+          "wallMs": 37.04019999999991,
+          "cpuMs": 63,
+          "minWallMs": 21.59559999999999,
+          "maxWallMs": 70.20769999999993
+        },
+        {
+          "name": "index-metadata/strict/valid",
+          "iterations": 100000,
+          "wallMs": 518.7076000000002,
+          "cpuMs": 609,
+          "minWallMs": 351.1212999999999,
+          "maxWallMs": 1182.4467
+        },
+        {
+          "name": "index-metadata/strict/invalid",
+          "iterations": 10000,
+          "wallMs": 43.47419999999988,
+          "cpuMs": 47,
+          "minWallMs": 28.298099999999977,
+          "maxWallMs": 79.20099999999957
+        },
+        {
+          "name": "native-foreign-key/default/valid",
+          "iterations": 100000,
+          "wallMs": 359.57310000000007,
+          "cpuMs": 406,
+          "minWallMs": 232.89099999999985,
+          "maxWallMs": 628.9439000000002
+        },
+        {
+          "name": "native-foreign-key/default/invalid",
+          "iterations": 10000,
+          "wallMs": 39.958500000000186,
+          "cpuMs": 31,
+          "minWallMs": 23.979199999999764,
+          "maxWallMs": 53.79300000000012
+        },
+        {
+          "name": "native-foreign-key/strict/valid",
+          "iterations": 100000,
+          "wallMs": 495.8481999999999,
+          "cpuMs": 594,
+          "minWallMs": 331.1503,
+          "maxWallMs": 627.3300999999997
+        },
+        {
+          "name": "native-foreign-key/strict/invalid",
+          "iterations": 10000,
+          "wallMs": 40.601900000000114,
+          "cpuMs": 46,
+          "minWallMs": 24.549699999999802,
+          "maxWallMs": 46.17540000000008
+        },
+        {
+          "name": "schema-metadata-defaults/default/valid",
+          "iterations": 100000,
+          "wallMs": 290.60609999999997,
+          "cpuMs": 484,
+          "minWallMs": 179.34429999999998,
+          "maxWallMs": 403.6185999999998
+        },
+        {
+          "name": "schema-metadata-defaults/default/invalid",
+          "iterations": 10000,
+          "wallMs": 30.060100000000602,
+          "cpuMs": 47,
+          "minWallMs": 17.920100000000275,
+          "maxWallMs": 40.771200000000135
+        },
+        {
+          "name": "schema-metadata-defaults/strict/valid",
+          "iterations": 100000,
+          "wallMs": 419.31849999999986,
+          "cpuMs": 515,
+          "minWallMs": 266.2801999999997,
+          "maxWallMs": 553.0092999999997
+        },
+        {
+          "name": "schema-metadata-defaults/strict/invalid",
+          "iterations": 10000,
+          "wallMs": 39.25759999999991,
+          "cpuMs": 46,
+          "minWallMs": 23.336500000000342,
+          "maxWallMs": 45.352499999999964
+        },
+        {
+          "name": "product-read/default/valid",
+          "iterations": 100000,
+          "wallMs": 92.60200000000032,
+          "cpuMs": 94,
+          "minWallMs": 59.76819999999998,
+          "maxWallMs": 135.60209999999915
+        },
+        {
+          "name": "product-read/default/invalid",
+          "iterations": 10000,
+          "wallMs": 18.667900000000373,
+          "cpuMs": 16,
+          "minWallMs": 10.382700000000114,
+          "maxWallMs": 19.528599999999642
+        },
+        {
+          "name": "product-read/strict/valid",
+          "iterations": 100000,
+          "wallMs": 167.3114999999998,
+          "cpuMs": 203,
+          "minWallMs": 104.4355999999998,
+          "maxWallMs": 258.90290000000005
+        },
+        {
+          "name": "product-read/strict/invalid",
+          "iterations": 10000,
+          "wallMs": 24.67619999999988,
+          "cpuMs": 31,
+          "minWallMs": 14.940800000000309,
+          "maxWallMs": 84.33309999999983
+        },
+        {
+          "name": "product-find-config/default/valid",
+          "iterations": 100000,
+          "wallMs": 130.97639999999956,
+          "cpuMs": 140,
+          "minWallMs": 90.46720000000005,
+          "maxWallMs": 143.97370000000046
+        },
+        {
+          "name": "product-find-config/default/invalid",
+          "iterations": 10000,
+          "wallMs": 23.406600000000253,
+          "cpuMs": 16,
+          "minWallMs": 13.494700000000194,
+          "maxWallMs": 27.119699999999284
+        },
+        {
+          "name": "product-find-config/strict/valid",
+          "iterations": 100000,
+          "wallMs": 209.20859999999993,
+          "cpuMs": 297,
+          "minWallMs": 126.94589999999971,
+          "maxWallMs": 230.73400000000038
+        },
+        {
+          "name": "product-find-config/strict/invalid",
+          "iterations": 10000,
+          "wallMs": 26.217599999999948,
+          "cpuMs": 31,
+          "minWallMs": 20.33100000000013,
+          "maxWallMs": 35.764100000000326
+        }
+      ],
+      "medianMeasuredWallMs": 3981.8081000000006,
+      "medianMeasuredCpuMs": 5216
+    },
+    {
+      "entry": "decoders",
+      "mode": "interpreter",
+      "runtime": "bun-bytecode",
+      "medianProcessWallMs": 5226.115099999995,
+      "rows": [
+        {
+          "name": "iterator-budget/default/valid",
+          "iterations": 100000,
+          "wallMs": 131.685,
+          "cpuMs": 250,
+          "minWallMs": 82.8734,
+          "maxWallMs": 170.08209999999997
+        },
+        {
+          "name": "iterator-budget/default/invalid",
+          "iterations": 10000,
+          "wallMs": 29.78789999999998,
+          "cpuMs": 78,
+          "minWallMs": 16.763199999999983,
+          "maxWallMs": 35.60640000000001
+        },
+        {
+          "name": "iterator-budget/strict/valid",
+          "iterations": 100000,
+          "wallMs": 200.5192,
+          "cpuMs": 344,
+          "minWallMs": 139.2573,
+          "maxWallMs": 239.48929999999996
+        },
+        {
+          "name": "iterator-budget/strict/invalid",
+          "iterations": 10000,
+          "wallMs": 41.38880000000006,
+          "cpuMs": 125,
+          "minWallMs": 21.680300000000045,
+          "maxWallMs": 91.47179999999992
+        },
+        {
+          "name": "index-metadata/default/valid",
+          "iterations": 100000,
+          "wallMs": 377.3827000000001,
+          "cpuMs": 579,
+          "minWallMs": 226.84049999999996,
+          "maxWallMs": 614.3184000000001
+        },
+        {
+          "name": "index-metadata/default/invalid",
+          "iterations": 10000,
+          "wallMs": 38.211500000000115,
+          "cpuMs": 63,
+          "minWallMs": 24.12850000000003,
+          "maxWallMs": 53.62350000000015
+        },
+        {
+          "name": "index-metadata/strict/valid",
+          "iterations": 100000,
+          "wallMs": 568.3576999999998,
+          "cpuMs": 702,
+          "minWallMs": 338.9036,
+          "maxWallMs": 738.7231999999999
+        },
+        {
+          "name": "index-metadata/strict/invalid",
+          "iterations": 10000,
+          "wallMs": 45.672399999999925,
+          "cpuMs": 47,
+          "minWallMs": 26.702999999999975,
+          "maxWallMs": 49.97869999999989
+        },
+        {
+          "name": "native-foreign-key/default/valid",
+          "iterations": 100000,
+          "wallMs": 345.6027999999999,
+          "cpuMs": 391,
+          "minWallMs": 221.60969999999998,
+          "maxWallMs": 376.2846000000002
+        },
+        {
+          "name": "native-foreign-key/default/invalid",
+          "iterations": 10000,
+          "wallMs": 35.89890000000014,
+          "cpuMs": 32,
+          "minWallMs": 22.420100000000048,
+          "maxWallMs": 40.81600000000026
+        },
+        {
+          "name": "native-foreign-key/strict/valid",
+          "iterations": 100000,
+          "wallMs": 454.3624,
+          "cpuMs": 500,
+          "minWallMs": 288.38840000000005,
+          "maxWallMs": 546.8647999999998
+        },
+        {
+          "name": "native-foreign-key/strict/invalid",
+          "iterations": 10000,
+          "wallMs": 39.69770000000017,
+          "cpuMs": 31,
+          "minWallMs": 27.23609999999985,
+          "maxWallMs": 46.028899999999794
+        },
+        {
+          "name": "schema-metadata-defaults/default/valid",
+          "iterations": 100000,
+          "wallMs": 279.3125,
+          "cpuMs": 374,
+          "minWallMs": 177.27819999999997,
+          "maxWallMs": 333.19039999999995
+        },
+        {
+          "name": "schema-metadata-defaults/default/invalid",
+          "iterations": 10000,
+          "wallMs": 26.177299999999832,
+          "cpuMs": 16,
+          "minWallMs": 16.154199999999946,
+          "maxWallMs": 32.821100000000115
+        },
+        {
+          "name": "schema-metadata-defaults/strict/valid",
+          "iterations": 100000,
+          "wallMs": 365.2003999999997,
+          "cpuMs": 531,
+          "minWallMs": 262.2948000000001,
+          "maxWallMs": 469.41169999999966
+        },
+        {
+          "name": "schema-metadata-defaults/strict/invalid",
+          "iterations": 10000,
+          "wallMs": 35.404799999999796,
+          "cpuMs": 32,
+          "minWallMs": 22.807600000000093,
+          "maxWallMs": 43.30450000000019
+        },
+        {
+          "name": "product-read/default/valid",
+          "iterations": 100000,
+          "wallMs": 81.79860000000008,
+          "cpuMs": 109,
+          "minWallMs": 56.04460000000017,
+          "maxWallMs": 92.38520000000017
+        },
+        {
+          "name": "product-read/default/invalid",
+          "iterations": 10000,
+          "wallMs": 18.089600000000246,
+          "cpuMs": 16,
+          "minWallMs": 10.447999999999865,
+          "maxWallMs": 20.677700000000186
+        },
+        {
+          "name": "product-read/strict/valid",
+          "iterations": 100000,
+          "wallMs": 146.87919999999986,
+          "cpuMs": 172,
+          "minWallMs": 95.2775999999999,
+          "maxWallMs": 179.58780000000024
+        },
+        {
+          "name": "product-read/strict/invalid",
+          "iterations": 10000,
+          "wallMs": 21.40009999999984,
+          "cpuMs": 31,
+          "minWallMs": 13.985900000000129,
+          "maxWallMs": 26.20259999999962
+        },
+        {
+          "name": "product-find-config/default/valid",
+          "iterations": 100000,
+          "wallMs": 118.73709999999983,
+          "cpuMs": 141,
+          "minWallMs": 81.12379999999985,
+          "maxWallMs": 138.10679999999957
+        },
+        {
+          "name": "product-find-config/default/invalid",
+          "iterations": 10000,
+          "wallMs": 16.388100000000122,
+          "cpuMs": 16,
+          "minWallMs": 13.686400000000049,
+          "maxWallMs": 24.841199999999844
+        },
+        {
+          "name": "product-find-config/strict/valid",
+          "iterations": 100000,
+          "wallMs": 190.90070000000014,
+          "cpuMs": 265,
+          "minWallMs": 129.0239999999999,
+          "maxWallMs": 225.53500000000076
+        },
+        {
+          "name": "product-find-config/strict/invalid",
+          "iterations": 10000,
+          "wallMs": 25.645300000000134,
+          "cpuMs": 31,
+          "minWallMs": 19.091699999999946,
+          "maxWallMs": 30.207500000000437
+        }
+      ],
+      "medianMeasuredWallMs": 3753.5235,
+      "medianMeasuredCpuMs": 4937
+    },
+    {
+      "entry": "decoders",
+      "mode": "interpreter",
+      "runtime": "bun-aot",
+      "medianProcessWallMs": 5039.845299999986,
+      "rows": [
+        {
+          "name": "iterator-budget/default/valid",
+          "iterations": 100000,
+          "wallMs": 119.9123,
+          "cpuMs": 109,
+          "minWallMs": 87.8928,
+          "maxWallMs": 156.172
+        },
+        {
+          "name": "iterator-budget/default/invalid",
+          "iterations": 10000,
+          "wallMs": 26.506500000000017,
+          "cpuMs": 31,
+          "minWallMs": 18.02449999999999,
+          "maxWallMs": 33.769000000000005
+        },
+        {
+          "name": "iterator-budget/strict/valid",
+          "iterations": 100000,
+          "wallMs": 213.3185,
+          "cpuMs": 188,
+          "minWallMs": 140.80360000000002,
+          "maxWallMs": 229.78
+        },
+        {
+          "name": "iterator-budget/strict/invalid",
+          "iterations": 10000,
+          "wallMs": 39.42659999999995,
+          "cpuMs": 31,
+          "minWallMs": 25.58820000000003,
+          "maxWallMs": 43.26420000000002
+        },
+        {
+          "name": "index-metadata/default/valid",
+          "iterations": 100000,
+          "wallMs": 367.5679,
+          "cpuMs": 360,
+          "minWallMs": 255.6341,
+          "maxWallMs": 443.0884
+        },
+        {
+          "name": "index-metadata/default/invalid",
+          "iterations": 10000,
+          "wallMs": 42.94939999999997,
+          "cpuMs": 31,
+          "minWallMs": 29.027399999999943,
+          "maxWallMs": 55.859300000000076
+        },
+        {
+          "name": "index-metadata/strict/valid",
+          "iterations": 100000,
+          "wallMs": 673.5306999999999,
+          "cpuMs": 657,
+          "minWallMs": 422.99289999999996,
+          "maxWallMs": 1099.9741000000001
+        },
+        {
+          "name": "index-metadata/strict/invalid",
+          "iterations": 10000,
+          "wallMs": 65.68170000000009,
+          "cpuMs": 63,
+          "minWallMs": 45.03490000000011,
+          "maxWallMs": 89.71039999999994
+        },
+        {
+          "name": "native-foreign-key/default/valid",
+          "iterations": 100000,
+          "wallMs": 327.82259999999997,
+          "cpuMs": 328,
+          "minWallMs": 234.4659999999999,
+          "maxWallMs": 386.5624
+        },
+        {
+          "name": "native-foreign-key/default/invalid",
+          "iterations": 10000,
+          "wallMs": 35.71510000000012,
+          "cpuMs": 47,
+          "minWallMs": 26.130499999999984,
+          "maxWallMs": 49.45100000000002
+        },
+        {
+          "name": "native-foreign-key/strict/valid",
+          "iterations": 100000,
+          "wallMs": 508.7240999999999,
+          "cpuMs": 500,
+          "minWallMs": 326.7473,
+          "maxWallMs": 588.7694999999999
+        },
+        {
+          "name": "native-foreign-key/strict/invalid",
+          "iterations": 10000,
+          "wallMs": 57.48739999999998,
+          "cpuMs": 47,
+          "minWallMs": 35.28530000000001,
+          "maxWallMs": 63.888800000000174
+        },
+        {
+          "name": "schema-metadata-defaults/default/valid",
+          "iterations": 100000,
+          "wallMs": 282.48730000000023,
+          "cpuMs": 266,
+          "minWallMs": 183.50639999999999,
+          "maxWallMs": 296.89660000000003
+        },
+        {
+          "name": "schema-metadata-defaults/default/invalid",
+          "iterations": 10000,
+          "wallMs": 32.74589999999989,
+          "cpuMs": 31,
+          "minWallMs": 20.291799999999967,
+          "maxWallMs": 37.51729999999998
+        },
+        {
+          "name": "schema-metadata-defaults/strict/valid",
+          "iterations": 100000,
+          "wallMs": 490.3094000000001,
+          "cpuMs": 437,
+          "minWallMs": 291.87260000000015,
+          "maxWallMs": 832.8891000000003
+        },
+        {
+          "name": "schema-metadata-defaults/strict/invalid",
+          "iterations": 10000,
+          "wallMs": 50.111799999999675,
+          "cpuMs": 47,
+          "minWallMs": 32.86779999999999,
+          "maxWallMs": 200.33560000000034
+        },
+        {
+          "name": "product-read/default/valid",
+          "iterations": 100000,
+          "wallMs": 99.45799999999963,
+          "cpuMs": 94,
+          "minWallMs": 62.84220000000005,
+          "maxWallMs": 367.5110999999997
+        },
+        {
+          "name": "product-read/default/invalid",
+          "iterations": 10000,
+          "wallMs": 22.897699999999986,
+          "cpuMs": 16,
+          "minWallMs": 14.747799999999643,
+          "maxWallMs": 66.75550000000021
+        },
+        {
+          "name": "product-read/strict/valid",
+          "iterations": 100000,
+          "wallMs": 169.97899999999981,
+          "cpuMs": 172,
+          "minWallMs": 107.52689999999984,
+          "maxWallMs": 623.2698999999993
+        },
+        {
+          "name": "product-read/strict/invalid",
+          "iterations": 10000,
+          "wallMs": 32.358000000000175,
+          "cpuMs": 32,
+          "minWallMs": 21.09770000000026,
+          "maxWallMs": 105.26050000000032
+        },
+        {
+          "name": "product-find-config/default/valid",
+          "iterations": 100000,
+          "wallMs": 122.31320000000005,
+          "cpuMs": 125,
+          "minWallMs": 79.1560999999997,
+          "maxWallMs": 289.2622000000001
+        },
+        {
+          "name": "product-find-config/default/invalid",
+          "iterations": 10000,
+          "wallMs": 23.94930000000022,
+          "cpuMs": 16,
+          "minWallMs": 17.42509999999993,
+          "maxWallMs": 82.49099999999999
+        },
+        {
+          "name": "product-find-config/strict/valid",
+          "iterations": 100000,
+          "wallMs": 203.03399999999965,
+          "cpuMs": 188,
+          "minWallMs": 129.50350000000026,
+          "maxWallMs": 600.5723000000007
+        },
+        {
+          "name": "product-find-config/strict/invalid",
+          "iterations": 10000,
+          "wallMs": 37.55670000000009,
+          "cpuMs": 32,
+          "minWallMs": 24.724299999999857,
+          "maxWallMs": 116.5012999999999
+        }
+      ],
+      "medianMeasuredWallMs": 4127.808799999997,
+      "medianMeasuredCpuMs": 4078
+    },
+    {
+      "entry": "decoders",
+      "mode": "generated",
+      "runtime": "node-jit",
+      "medianProcessWallMs": 3405.20140000002,
+      "rows": [
+        {
+          "name": "iterator-budget/default/valid",
+          "iterations": 100000,
+          "wallMs": 149.89260000000002,
+          "cpuMs": 172,
+          "minWallMs": 94.53529999999999,
+          "maxWallMs": 159.36649999999997
+        },
+        {
+          "name": "iterator-budget/default/invalid",
+          "iterations": 10000,
+          "wallMs": 31.46289999999999,
+          "cpuMs": 46,
+          "minWallMs": 19.01060000000001,
+          "maxWallMs": 34.87439999999998
+        },
+        {
+          "name": "iterator-budget/strict/valid",
+          "iterations": 100000,
+          "wallMs": 247.70079999999996,
+          "cpuMs": 265,
+          "minWallMs": 150.35479999999998,
+          "maxWallMs": 275.65080000000006
+        },
+        {
+          "name": "iterator-budget/strict/invalid",
+          "iterations": 10000,
+          "wallMs": 44.18180000000007,
+          "cpuMs": 47,
+          "minWallMs": 23.89440000000002,
+          "maxWallMs": 47.736099999999965
+        },
+        {
+          "name": "index-metadata/default/valid",
+          "iterations": 100000,
+          "wallMs": 160.91960000000006,
+          "cpuMs": 188,
+          "minWallMs": 105.52369999999996,
+          "maxWallMs": 193.40520000000004
+        },
+        {
+          "name": "index-metadata/default/invalid",
+          "iterations": 10000,
+          "wallMs": 42.84699999999998,
+          "cpuMs": 78,
+          "minWallMs": 32.209299999999985,
+          "maxWallMs": 71.27539999999999
+        },
+        {
+          "name": "index-metadata/strict/valid",
+          "iterations": 100000,
+          "wallMs": 252.4133999999999,
+          "cpuMs": 281,
+          "minWallMs": 197.50509999999997,
+          "maxWallMs": 405.0277000000001
+        },
+        {
+          "name": "index-metadata/strict/invalid",
+          "iterations": 10000,
+          "wallMs": 65.04520000000002,
+          "cpuMs": 124,
+          "minWallMs": 52.93790000000001,
+          "maxWallMs": 129.2976000000001
+        },
+        {
+          "name": "native-foreign-key/default/valid",
+          "iterations": 100000,
+          "wallMs": 101.2616999999999,
+          "cpuMs": 110,
+          "minWallMs": 83.80199999999991,
+          "maxWallMs": 148.3121000000001
+        },
+        {
+          "name": "native-foreign-key/default/invalid",
+          "iterations": 10000,
+          "wallMs": 35.99059999999986,
+          "cpuMs": 31,
+          "minWallMs": 27.173599999999965,
+          "maxWallMs": 75.3485999999998
+        },
+        {
+          "name": "native-foreign-key/strict/valid",
+          "iterations": 100000,
+          "wallMs": 205.38580000000002,
+          "cpuMs": 218,
+          "minWallMs": 158.1645000000001,
+          "maxWallMs": 300.7158000000002
+        },
+        {
+          "name": "native-foreign-key/strict/invalid",
+          "iterations": 10000,
+          "wallMs": 63.749500000000126,
+          "cpuMs": 78,
+          "minWallMs": 45.72260000000006,
+          "maxWallMs": 108.01620000000003
+        },
+        {
+          "name": "schema-metadata-defaults/default/valid",
+          "iterations": 100000,
+          "wallMs": 172.92049999999995,
+          "cpuMs": 251,
+          "minWallMs": 128.33580000000006,
+          "maxWallMs": 214.36069999999972
+        },
+        {
+          "name": "schema-metadata-defaults/default/invalid",
+          "iterations": 10000,
+          "wallMs": 22.575900000000047,
+          "cpuMs": 31,
+          "minWallMs": 19.85239999999999,
+          "maxWallMs": 34.35470000000032
+        },
+        {
+          "name": "schema-metadata-defaults/strict/valid",
+          "iterations": 100000,
+          "wallMs": 411.9067000000002,
+          "cpuMs": 500,
+          "minWallMs": 270.4229,
+          "maxWallMs": 538.5216
+        },
+        {
+          "name": "schema-metadata-defaults/strict/invalid",
+          "iterations": 10000,
+          "wallMs": 46.01499999999987,
+          "cpuMs": 47,
+          "minWallMs": 25.454400000000078,
+          "maxWallMs": 51.7199999999998
+        },
+        {
+          "name": "product-read/default/valid",
+          "iterations": 100000,
+          "wallMs": 95.50289999999995,
+          "cpuMs": 110,
+          "minWallMs": 55.6884,
+          "maxWallMs": 101.28830000000016
+        },
+        {
+          "name": "product-read/default/invalid",
+          "iterations": 10000,
+          "wallMs": 23.366599999999835,
+          "cpuMs": 30,
+          "minWallMs": 13.0467000000001,
+          "maxWallMs": 25.670000000000073
+        },
+        {
+          "name": "product-read/strict/valid",
+          "iterations": 100000,
+          "wallMs": 202.221,
+          "cpuMs": 219,
+          "minWallMs": 121.7772,
+          "maxWallMs": 219.04910000000018
+        },
+        {
+          "name": "product-read/strict/invalid",
+          "iterations": 10000,
+          "wallMs": 24.520300000000134,
+          "cpuMs": 31,
+          "minWallMs": 17.151800000000094,
+          "maxWallMs": 35.29100000000017
+        },
+        {
+          "name": "product-find-config/default/valid",
+          "iterations": 100000,
+          "wallMs": 96.86499999999978,
+          "cpuMs": 110,
+          "minWallMs": 66.38959999999997,
+          "maxWallMs": 118.22749999999996
+        },
+        {
+          "name": "product-find-config/default/invalid",
+          "iterations": 10000,
+          "wallMs": 24.898799999999937,
+          "cpuMs": 31,
+          "minWallMs": 16.18269999999984,
+          "maxWallMs": 31.351400000000012
+        },
+        {
+          "name": "product-find-config/strict/valid",
+          "iterations": 100000,
+          "wallMs": 197.43499999999995,
+          "cpuMs": 203,
+          "minWallMs": 143.4110999999998,
+          "maxWallMs": 254.15570000000025
+        },
+        {
+          "name": "product-find-config/strict/invalid",
+          "iterations": 10000,
+          "wallMs": 32.76000000000022,
+          "cpuMs": 31,
+          "minWallMs": 20.76160000000027,
+          "maxWallMs": 39.802799999999934
+        }
+      ],
+      "medianMeasuredWallMs": 2730.384999999999,
+      "medianMeasuredCpuMs": 3249
+    },
+    {
+      "entry": "decoders",
+      "mode": "generated",
+      "runtime": "bun-jit",
+      "medianProcessWallMs": 4267.431099999987,
+      "rows": [
+        {
+          "name": "iterator-budget/default/valid",
+          "iterations": 100000,
+          "wallMs": 116.79160000000002,
+          "cpuMs": 218,
+          "minWallMs": 71.8534,
+          "maxWallMs": 153.97340000000003
+        },
+        {
+          "name": "iterator-budget/default/invalid",
+          "iterations": 10000,
+          "wallMs": 31.51819999999998,
+          "cpuMs": 78,
+          "minWallMs": 21.645100000000014,
+          "maxWallMs": 61.18270000000001
+        },
+        {
+          "name": "iterator-budget/strict/valid",
+          "iterations": 100000,
+          "wallMs": 179.13549999999998,
+          "cpuMs": 328,
+          "minWallMs": 118.48079999999999,
+          "maxWallMs": 242.16159999999996
+        },
+        {
+          "name": "iterator-budget/strict/invalid",
+          "iterations": 10000,
+          "wallMs": 40.664300000000026,
+          "cpuMs": 93,
+          "minWallMs": 34.96180000000004,
+          "maxWallMs": 83.92809999999997
+        },
+        {
+          "name": "index-metadata/default/valid",
+          "iterations": 100000,
+          "wallMs": 167.6015,
+          "cpuMs": 266,
+          "minWallMs": 102.88980000000004,
+          "maxWallMs": 212.67700000000013
+        },
+        {
+          "name": "index-metadata/default/invalid",
+          "iterations": 10000,
+          "wallMs": 54.99339999999995,
+          "cpuMs": 78,
+          "minWallMs": 30.651200000000017,
+          "maxWallMs": 124.26999999999998
+        },
+        {
+          "name": "index-metadata/strict/valid",
+          "iterations": 100000,
+          "wallMs": 329.7682,
+          "cpuMs": 422,
+          "minWallMs": 196.09619999999995,
+          "maxWallMs": 702.8988999999999
+        },
+        {
+          "name": "index-metadata/strict/invalid",
+          "iterations": 10000,
+          "wallMs": 83.24299999999994,
+          "cpuMs": 157,
+          "minWallMs": 50.52719999999999,
+          "maxWallMs": 189.10910000000013
+        },
+        {
+          "name": "native-foreign-key/default/valid",
+          "iterations": 100000,
+          "wallMs": 144.4022,
+          "cpuMs": 203,
+          "minWallMs": 102.07119999999998,
+          "maxWallMs": 272.94410000000016
+        },
+        {
+          "name": "native-foreign-key/default/invalid",
+          "iterations": 10000,
+          "wallMs": 41.298899999999776,
+          "cpuMs": 32,
+          "minWallMs": 30.683599999999956,
+          "maxWallMs": 88.38720000000012
+        },
+        {
+          "name": "native-foreign-key/strict/valid",
+          "iterations": 100000,
+          "wallMs": 233.68489999999997,
+          "cpuMs": 344,
+          "minWallMs": 183.67330000000015,
+          "maxWallMs": 741.8725
+        },
+        {
+          "name": "native-foreign-key/strict/invalid",
+          "iterations": 10000,
+          "wallMs": 59.17730000000029,
+          "cpuMs": 78,
+          "minWallMs": 43.37760000000003,
+          "maxWallMs": 101.07879999999977
+        },
+        {
+          "name": "schema-metadata-defaults/default/valid",
+          "iterations": 100000,
+          "wallMs": 237.84750000000008,
+          "cpuMs": 485,
+          "minWallMs": 164.54559999999992,
+          "maxWallMs": 414.5918999999999
+        },
+        {
+          "name": "schema-metadata-defaults/default/invalid",
+          "iterations": 10000,
+          "wallMs": 22.8737000000001,
+          "cpuMs": 16,
+          "minWallMs": 16.730299999999943,
+          "maxWallMs": 39.10599999999977
+        },
+        {
+          "name": "schema-metadata-defaults/strict/valid",
+          "iterations": 100000,
+          "wallMs": 448.56550000000016,
+          "cpuMs": 610,
+          "minWallMs": 294.8571000000002,
+          "maxWallMs": 606.2501000000002
+        },
+        {
+          "name": "schema-metadata-defaults/strict/invalid",
+          "iterations": 10000,
+          "wallMs": 44.33860000000004,
+          "cpuMs": 47,
+          "minWallMs": 25.484800000000178,
+          "maxWallMs": 56.62540000000081
+        },
+        {
+          "name": "product-read/default/valid",
+          "iterations": 100000,
+          "wallMs": 86.86860000000024,
+          "cpuMs": 110,
+          "minWallMs": 54.958700000000135,
+          "maxWallMs": 133.20490000000063
+        },
+        {
+          "name": "product-read/default/invalid",
+          "iterations": 10000,
+          "wallMs": 17.25960000000032,
+          "cpuMs": 16,
+          "minWallMs": 10.776699999999892,
+          "maxWallMs": 19.923099999999977
+        },
+        {
+          "name": "product-read/strict/valid",
+          "iterations": 100000,
+          "wallMs": 178.0105999999996,
+          "cpuMs": 234,
+          "minWallMs": 107.62469999999985,
+          "maxWallMs": 269.65459999999985
+        },
+        {
+          "name": "product-read/strict/invalid",
+          "iterations": 10000,
+          "wallMs": 23.635600000000068,
+          "cpuMs": 31,
+          "minWallMs": 14.384199999999964,
+          "maxWallMs": 34.16070000000036
+        },
+        {
+          "name": "product-find-config/default/valid",
+          "iterations": 100000,
+          "wallMs": 115.56269999999995,
+          "cpuMs": 172,
+          "minWallMs": 68.35730000000012,
+          "maxWallMs": 162.55140000000029
+        },
+        {
+          "name": "product-find-config/default/invalid",
+          "iterations": 10000,
+          "wallMs": 22.74519999999984,
+          "cpuMs": 31,
+          "minWallMs": 13.408100000000104,
+          "maxWallMs": 32.354699999999866
+        },
+        {
+          "name": "product-find-config/strict/valid",
+          "iterations": 100000,
+          "wallMs": 219.4009000000001,
+          "cpuMs": 282,
+          "minWallMs": 127.7525999999998,
+          "maxWallMs": 295.90670000000046
+        },
+        {
+          "name": "product-find-config/strict/invalid",
+          "iterations": 10000,
+          "wallMs": 30.431800000000294,
+          "cpuMs": 31,
+          "minWallMs": 18.41449999999986,
+          "maxWallMs": 35.604499999999916
+        }
+      ],
+      "medianMeasuredWallMs": 2849.225299999999,
+      "medianMeasuredCpuMs": 4236
+    },
+    {
+      "entry": "decoders",
+      "mode": "generated",
+      "runtime": "bun-bytecode",
+      "medianProcessWallMs": 4117.295600000012,
+      "rows": [
+        {
+          "name": "iterator-budget/default/valid",
+          "iterations": 100000,
+          "wallMs": 111.1071,
+          "cpuMs": 219,
+          "minWallMs": 74.5863,
+          "maxWallMs": 187.71179999999998
+        },
+        {
+          "name": "iterator-budget/default/invalid",
+          "iterations": 10000,
+          "wallMs": 34.1609,
+          "cpuMs": 124,
+          "minWallMs": 23.6062,
+          "maxWallMs": 61.33269999999999
+        },
+        {
+          "name": "iterator-budget/strict/valid",
+          "iterations": 100000,
+          "wallMs": 165.7909,
+          "cpuMs": 297,
+          "minWallMs": 115.2689,
+          "maxWallMs": 256.84560000000005
+        },
+        {
+          "name": "iterator-budget/strict/invalid",
+          "iterations": 10000,
+          "wallMs": 41.42500000000001,
+          "cpuMs": 109,
+          "minWallMs": 23.10119999999995,
+          "maxWallMs": 71.87610000000006
+        },
+        {
+          "name": "index-metadata/default/valid",
+          "iterations": 100000,
+          "wallMs": 190.3034,
+          "cpuMs": 343,
+          "minWallMs": 109.10749999999996,
+          "maxWallMs": 338.58119999999985
+        },
+        {
+          "name": "index-metadata/default/invalid",
+          "iterations": 10000,
+          "wallMs": 57.80110000000002,
+          "cpuMs": 63,
+          "minWallMs": 32.30060000000003,
+          "maxWallMs": 64.67039999999997
+        },
+        {
+          "name": "index-metadata/strict/valid",
+          "iterations": 100000,
+          "wallMs": 300.9077,
+          "cpuMs": 468,
+          "minWallMs": 206.17719999999997,
+          "maxWallMs": 391.92280000000005
+        },
+        {
+          "name": "index-metadata/strict/invalid",
+          "iterations": 10000,
+          "wallMs": 82.01750000000015,
+          "cpuMs": 187,
+          "minWallMs": 53.108600000000024,
+          "maxWallMs": 174.91949999999997
+        },
+        {
+          "name": "native-foreign-key/default/valid",
+          "iterations": 100000,
+          "wallMs": 121.19240000000013,
+          "cpuMs": 203,
+          "minWallMs": 96.39080000000001,
+          "maxWallMs": 213.89419999999973
+        },
+        {
+          "name": "native-foreign-key/default/invalid",
+          "iterations": 10000,
+          "wallMs": 37.1348999999999,
+          "cpuMs": 47,
+          "minWallMs": 29.478500000000054,
+          "maxWallMs": 64.36900000000014
+        },
+        {
+          "name": "native-foreign-key/strict/valid",
+          "iterations": 100000,
+          "wallMs": 213.61930000000007,
+          "cpuMs": 266,
+          "minWallMs": 176.62210000000005,
+          "maxWallMs": 514.1159000000002
+        },
+        {
+          "name": "native-foreign-key/strict/invalid",
+          "iterations": 10000,
+          "wallMs": 50.25260000000003,
+          "cpuMs": 62,
+          "minWallMs": 44.42329999999993,
+          "maxWallMs": 123.57540000000017
+        },
+        {
+          "name": "schema-metadata-defaults/default/valid",
+          "iterations": 100000,
+          "wallMs": 264.30060000000003,
+          "cpuMs": 484,
+          "minWallMs": 158.69870000000014,
+          "maxWallMs": 442.69720000000007
+        },
+        {
+          "name": "schema-metadata-defaults/default/invalid",
+          "iterations": 10000,
+          "wallMs": 23.720800000000054,
+          "cpuMs": 16,
+          "minWallMs": 16.943700000000263,
+          "maxWallMs": 31.38859999999977
+        },
+        {
+          "name": "schema-metadata-defaults/strict/valid",
+          "iterations": 100000,
+          "wallMs": 459.69540000000006,
+          "cpuMs": 657,
+          "minWallMs": 277.0600999999999,
+          "maxWallMs": 596.2194
+        },
+        {
+          "name": "schema-metadata-defaults/strict/invalid",
+          "iterations": 10000,
+          "wallMs": 39.51940000000013,
+          "cpuMs": 47,
+          "minWallMs": 24.99109999999996,
+          "maxWallMs": 68.85189999999966
+        },
+        {
+          "name": "product-read/default/valid",
+          "iterations": 100000,
+          "wallMs": 91.55180000000018,
+          "cpuMs": 141,
+          "minWallMs": 53.92729999999983,
+          "maxWallMs": 135.0532000000003
+        },
+        {
+          "name": "product-read/default/invalid",
+          "iterations": 10000,
+          "wallMs": 18.940300000000207,
+          "cpuMs": 16,
+          "minWallMs": 11.046699999999873,
+          "maxWallMs": 28.504799999999705
+        },
+        {
+          "name": "product-read/strict/valid",
+          "iterations": 100000,
+          "wallMs": 174.98390000000018,
+          "cpuMs": 250,
+          "minWallMs": 101.6219000000001,
+          "maxWallMs": 230.35229999999956
+        },
+        {
+          "name": "product-read/strict/invalid",
+          "iterations": 10000,
+          "wallMs": 23.781400000000303,
+          "cpuMs": 31,
+          "minWallMs": 14.60109999999986,
+          "maxWallMs": 31.16099999999915
+        },
+        {
+          "name": "product-find-config/default/valid",
+          "iterations": 100000,
+          "wallMs": 111.44399999999996,
+          "cpuMs": 156,
+          "minWallMs": 70.56540000000041,
+          "maxWallMs": 152.92399999999998
+        },
+        {
+          "name": "product-find-config/default/invalid",
+          "iterations": 10000,
+          "wallMs": 17.873799999999846,
+          "cpuMs": 16,
+          "minWallMs": 13.433199999999943,
+          "maxWallMs": 27.179299999999785
+        },
+        {
+          "name": "product-find-config/strict/valid",
+          "iterations": 100000,
+          "wallMs": 202.04269999999997,
+          "cpuMs": 312,
+          "minWallMs": 132.4625000000001,
+          "maxWallMs": 293.15050000000065
+        },
+        {
+          "name": "product-find-config/strict/invalid",
+          "iterations": 10000,
+          "wallMs": 29.167999999999665,
+          "cpuMs": 31,
+          "minWallMs": 18.107100000000173,
+          "maxWallMs": 36.639000000000124
+        }
+      ],
+      "medianMeasuredWallMs": 2779.213000000001,
+      "medianMeasuredCpuMs": 4435
+    },
+    {
+      "entry": "decoders",
+      "mode": "generated",
+      "runtime": "bun-aot",
+      "medianProcessWallMs": 4010.5462999999872,
+      "rows": [
+        {
+          "name": "iterator-budget/default/valid",
+          "iterations": 100000,
+          "wallMs": 118.90729999999999,
+          "cpuMs": 110,
+          "minWallMs": 93.4219,
+          "maxWallMs": 265.9897
+        },
+        {
+          "name": "iterator-budget/default/invalid",
+          "iterations": 10000,
+          "wallMs": 22.237299999999976,
+          "cpuMs": 31,
+          "minWallMs": 19.7693,
+          "maxWallMs": 91.1284
+        },
+        {
+          "name": "iterator-budget/strict/valid",
+          "iterations": 100000,
+          "wallMs": 168.9366,
+          "cpuMs": 172,
+          "minWallMs": 139.1059,
+          "maxWallMs": 239.22979999999998
+        },
+        {
+          "name": "iterator-budget/strict/invalid",
+          "iterations": 10000,
+          "wallMs": 32.8417,
+          "cpuMs": 32,
+          "minWallMs": 26.718399999999974,
+          "maxWallMs": 43.4511
+        },
+        {
+          "name": "index-metadata/default/valid",
+          "iterations": 100000,
+          "wallMs": 140.47069999999997,
+          "cpuMs": 141,
+          "minWallMs": 114.27359999999999,
+          "maxWallMs": 171.95710000000003
+        },
+        {
+          "name": "index-metadata/default/invalid",
+          "iterations": 10000,
+          "wallMs": 57.113200000000006,
+          "cpuMs": 47,
+          "minWallMs": 37.60079999999999,
+          "maxWallMs": 337.20400000000006
+        },
+        {
+          "name": "index-metadata/strict/valid",
+          "iterations": 100000,
+          "wallMs": 231.97400000000005,
+          "cpuMs": 234,
+          "minWallMs": 174.67880000000002,
+          "maxWallMs": 276.6237
+        },
+        {
+          "name": "index-metadata/strict/invalid",
+          "iterations": 10000,
+          "wallMs": 62.88720000000012,
+          "cpuMs": 63,
+          "minWallMs": 57.06920000000002,
+          "maxWallMs": 100.28920000000016
+        },
+        {
+          "name": "native-foreign-key/default/valid",
+          "iterations": 100000,
+          "wallMs": 107.64710000000014,
+          "cpuMs": 94,
+          "minWallMs": 92.99330000000009,
+          "maxWallMs": 146.90239999999994
+        },
+        {
+          "name": "native-foreign-key/default/invalid",
+          "iterations": 10000,
+          "wallMs": 34.28610000000003,
+          "cpuMs": 32,
+          "minWallMs": 33.47040000000004,
+          "maxWallMs": 55.965999999999894
+        },
+        {
+          "name": "native-foreign-key/strict/valid",
+          "iterations": 100000,
+          "wallMs": 163.87979999999993,
+          "cpuMs": 156,
+          "minWallMs": 141.4145000000001,
+          "maxWallMs": 228.56089999999995
+        },
+        {
+          "name": "native-foreign-key/strict/invalid",
+          "iterations": 10000,
+          "wallMs": 58.620099999999866,
+          "cpuMs": 62,
+          "minWallMs": 47.465400000000045,
+          "maxWallMs": 83.86349999999993
+        },
+        {
+          "name": "schema-metadata-defaults/default/valid",
+          "iterations": 100000,
+          "wallMs": 205.1672000000001,
+          "cpuMs": 218,
+          "minWallMs": 170.39640000000009,
+          "maxWallMs": 248.37709999999993
+        },
+        {
+          "name": "schema-metadata-defaults/default/invalid",
+          "iterations": 10000,
+          "wallMs": 20.676600000000008,
+          "cpuMs": 32,
+          "minWallMs": 20.353799999999865,
+          "maxWallMs": 34.0155000000002
+        },
+        {
+          "name": "schema-metadata-defaults/strict/valid",
+          "iterations": 100000,
+          "wallMs": 354.48609999999985,
+          "cpuMs": 344,
+          "minWallMs": 303.7741000000001,
+          "maxWallMs": 479.5122000000001
+        },
+        {
+          "name": "schema-metadata-defaults/strict/invalid",
+          "iterations": 10000,
+          "wallMs": 34.54650000000038,
+          "cpuMs": 46,
+          "minWallMs": 31.525100000000066,
+          "maxWallMs": 52.01459999999997
+        },
+        {
+          "name": "product-read/default/valid",
+          "iterations": 100000,
+          "wallMs": 89.86599999999999,
+          "cpuMs": 94,
+          "minWallMs": 76.21710000000007,
+          "maxWallMs": 126.9384
+        },
+        {
+          "name": "product-read/default/invalid",
+          "iterations": 10000,
+          "wallMs": 16.69309999999996,
+          "cpuMs": 16,
+          "minWallMs": 15.520599999999831,
+          "maxWallMs": 22.458399999999983
+        },
+        {
+          "name": "product-read/strict/valid",
+          "iterations": 100000,
+          "wallMs": 116.11450000000013,
+          "cpuMs": 110,
+          "minWallMs": 105.15329999999994,
+          "maxWallMs": 173.49119999999994
+        },
+        {
+          "name": "product-read/strict/invalid",
+          "iterations": 10000,
+          "wallMs": 23.351300000000037,
+          "cpuMs": 31,
+          "minWallMs": 20.845000000000255,
+          "maxWallMs": 32.5274000000004
+        },
+        {
+          "name": "product-find-config/default/valid",
+          "iterations": 100000,
+          "wallMs": 110.99729999999977,
+          "cpuMs": 110,
+          "minWallMs": 106.2159999999999,
+          "maxWallMs": 172.3699999999999
+        },
+        {
+          "name": "product-find-config/default/invalid",
+          "iterations": 10000,
+          "wallMs": 20.85219999999981,
+          "cpuMs": 16,
+          "minWallMs": 19.461399999999685,
+          "maxWallMs": 31.475200000000314
+        },
+        {
+          "name": "product-find-config/strict/valid",
+          "iterations": 100000,
+          "wallMs": 133.38949999999977,
+          "cpuMs": 141,
+          "minWallMs": 128.44140000000016,
+          "maxWallMs": 204.74630000000025
+        },
+        {
+          "name": "product-find-config/strict/invalid",
+          "iterations": 10000,
+          "wallMs": 26.62639999999965,
+          "cpuMs": 31,
+          "minWallMs": 23.726800000000367,
+          "maxWallMs": 40.73669999999993
+        }
+      ],
+      "medianMeasuredWallMs": 2455.5978,
+      "medianMeasuredCpuMs": 2422
+    },
+    {
+      "entry": "decoders",
+      "mode": "generated",
+      "runtime": "bun-typed-aot",
+      "medianProcessWallMs": 4102.842700000037,
+      "rows": [
+        {
+          "name": "iterator-budget/default/valid",
+          "iterations": 100000,
+          "wallMs": 100.0103,
+          "cpuMs": 109,
+          "minWallMs": 86.0825,
+          "maxWallMs": 136.9408
+        },
+        {
+          "name": "iterator-budget/default/invalid",
+          "iterations": 10000,
+          "wallMs": 29.724099999999993,
+          "cpuMs": 31,
+          "minWallMs": 19.925300000000007,
+          "maxWallMs": 34.0506
+        },
+        {
+          "name": "iterator-budget/strict/valid",
+          "iterations": 100000,
+          "wallMs": 193.81109999999998,
+          "cpuMs": 188,
+          "minWallMs": 144.1666,
+          "maxWallMs": 222.19559999999998
+        },
+        {
+          "name": "iterator-budget/strict/invalid",
+          "iterations": 10000,
+          "wallMs": 29.3193,
+          "cpuMs": 31,
+          "minWallMs": 26.70980000000003,
+          "maxWallMs": 41.095800000000054
+        },
+        {
+          "name": "index-metadata/default/valid",
+          "iterations": 100000,
+          "wallMs": 117.73310000000004,
+          "cpuMs": 125,
+          "minWallMs": 96.51889999999997,
+          "maxWallMs": 160.36950000000007
+        },
+        {
+          "name": "index-metadata/default/invalid",
+          "iterations": 10000,
+          "wallMs": 41.202999999999975,
+          "cpuMs": 47,
+          "minWallMs": 37.6893,
+          "maxWallMs": 76.65139999999997
+        },
+        {
+          "name": "index-metadata/strict/valid",
+          "iterations": 100000,
+          "wallMs": 179.28520000000003,
+          "cpuMs": 172,
+          "minWallMs": 165.48830000000004,
+          "maxWallMs": 269.73169999999993
+        },
+        {
+          "name": "index-metadata/strict/invalid",
+          "iterations": 10000,
+          "wallMs": 69.28419999999994,
+          "cpuMs": 63,
+          "minWallMs": 57.67199999999991,
+          "maxWallMs": 96.63800000000015
+        },
+        {
+          "name": "native-foreign-key/default/valid",
+          "iterations": 100000,
+          "wallMs": 87.7349999999999,
+          "cpuMs": 93,
+          "minWallMs": 85.6603,
+          "maxWallMs": 139.25549999999998
+        },
+        {
+          "name": "native-foreign-key/default/invalid",
+          "iterations": 10000,
+          "wallMs": 42.92530000000011,
+          "cpuMs": 32,
+          "minWallMs": 34.77539999999999,
+          "maxWallMs": 58.49459999999999
+        },
+        {
+          "name": "native-foreign-key/strict/valid",
+          "iterations": 100000,
+          "wallMs": 156.6087,
+          "cpuMs": 157,
+          "minWallMs": 134.06349999999998,
+          "maxWallMs": 257.67920000000004
+        },
+        {
+          "name": "native-foreign-key/strict/invalid",
+          "iterations": 10000,
+          "wallMs": 63.07269999999994,
+          "cpuMs": 62,
+          "minWallMs": 47.33889999999997,
+          "maxWallMs": 83.3886
+        },
+        {
+          "name": "schema-metadata-defaults/default/valid",
+          "iterations": 100000,
+          "wallMs": 260.6784,
+          "cpuMs": 219,
+          "minWallMs": 181.5547999999999,
+          "maxWallMs": 331.17790000000014
+        },
+        {
+          "name": "schema-metadata-defaults/default/invalid",
+          "iterations": 10000,
+          "wallMs": 25.08309999999983,
+          "cpuMs": 31,
+          "minWallMs": 21.271499999999833,
+          "maxWallMs": 33.33580000000006
+        },
+        {
+          "name": "schema-metadata-defaults/strict/valid",
+          "iterations": 100000,
+          "wallMs": 387.07719999999995,
+          "cpuMs": 391,
+          "minWallMs": 291.0050000000001,
+          "maxWallMs": 605.0321000000001
+        },
+        {
+          "name": "schema-metadata-defaults/strict/invalid",
+          "iterations": 10000,
+          "wallMs": 35.591599999999744,
+          "cpuMs": 31,
+          "minWallMs": 33.025499999999965,
+          "maxWallMs": 54.9686999999999
+        },
+        {
+          "name": "product-read/default/valid",
+          "iterations": 100000,
+          "wallMs": 94.94919999999956,
+          "cpuMs": 109,
+          "minWallMs": 83.51019999999994,
+          "maxWallMs": 145.24479999999994
+        },
+        {
+          "name": "product-read/default/invalid",
+          "iterations": 10000,
+          "wallMs": 17.59389999999985,
+          "cpuMs": 16,
+          "minWallMs": 15.84680000000003,
+          "maxWallMs": 31.13500000000022
+        },
+        {
+          "name": "product-read/strict/valid",
+          "iterations": 100000,
+          "wallMs": 141.62329999999974,
+          "cpuMs": 141,
+          "minWallMs": 109.02520000000004,
+          "maxWallMs": 282.93110000000024
+        },
+        {
+          "name": "product-read/strict/invalid",
+          "iterations": 10000,
+          "wallMs": 21.3266000000001,
+          "cpuMs": 16,
+          "minWallMs": 20.83420000000001,
+          "maxWallMs": 41.85830000000033
+        },
+        {
+          "name": "product-find-config/default/valid",
+          "iterations": 100000,
+          "wallMs": 125.13009999999986,
+          "cpuMs": 125,
+          "minWallMs": 117.5766000000001,
+          "maxWallMs": 210.4432999999999
+        },
+        {
+          "name": "product-find-config/default/invalid",
+          "iterations": 10000,
+          "wallMs": 24.38299999999981,
+          "cpuMs": 31,
+          "minWallMs": 21.11700000000019,
+          "maxWallMs": 43.69410000000016
+        },
+        {
+          "name": "product-find-config/strict/valid",
+          "iterations": 100000,
+          "wallMs": 137.4731999999999,
+          "cpuMs": 141,
+          "minWallMs": 132.13900000000012,
+          "maxWallMs": 237.1214
+        },
+        {
+          "name": "product-find-config/strict/invalid",
+          "iterations": 10000,
+          "wallMs": 31.04320000000007,
+          "cpuMs": 32,
+          "minWallMs": 24.855399999999918,
+          "maxWallMs": 50.76999999999998
+        }
+      ],
+      "medianMeasuredWallMs": 2610.0066999999976,
+      "medianMeasuredCpuMs": 2517
+    },
+    {
+      "entry": "decoders",
+      "mode": "generated",
+      "runtime": "bun-typed-aot-static",
+      "medianProcessWallMs": 4139.230099999986,
+      "rows": [
+        {
+          "name": "iterator-budget/default/valid",
+          "iterations": 100000,
+          "wallMs": 123.2634,
+          "cpuMs": 124,
+          "minWallMs": 87.18130000000001,
+          "maxWallMs": 136.11
+        },
+        {
+          "name": "iterator-budget/default/invalid",
+          "iterations": 10000,
+          "wallMs": 28.3562,
+          "cpuMs": 16,
+          "minWallMs": 19.88969999999999,
+          "maxWallMs": 30.78649999999999
+        },
+        {
+          "name": "iterator-budget/strict/valid",
+          "iterations": 100000,
+          "wallMs": 207.08169999999998,
+          "cpuMs": 203,
+          "minWallMs": 142.56719999999999,
+          "maxWallMs": 225.47779999999997
+        },
+        {
+          "name": "iterator-budget/strict/invalid",
+          "iterations": 10000,
+          "wallMs": 41.14820000000003,
+          "cpuMs": 31,
+          "minWallMs": 27.168499999999995,
+          "maxWallMs": 43.56710000000004
+        },
+        {
+          "name": "index-metadata/default/valid",
+          "iterations": 100000,
+          "wallMs": 147.01100000000002,
+          "cpuMs": 141,
+          "minWallMs": 98.99019999999996,
+          "maxWallMs": 168.57269999999994
+        },
+        {
+          "name": "index-metadata/default/invalid",
+          "iterations": 10000,
+          "wallMs": 61.813800000000015,
+          "cpuMs": 62,
+          "minWallMs": 37.625699999999995,
+          "maxWallMs": 67.67380000000003
+        },
+        {
+          "name": "index-metadata/strict/valid",
+          "iterations": 100000,
+          "wallMs": 273.4199,
+          "cpuMs": 266,
+          "minWallMs": 168.52570000000003,
+          "maxWallMs": 311.8290999999999
+        },
+        {
+          "name": "index-metadata/strict/invalid",
+          "iterations": 10000,
+          "wallMs": 88.09090000000015,
+          "cpuMs": 94,
+          "minWallMs": 57.671299999999974,
+          "maxWallMs": 127.57600000000002
+        },
+        {
+          "name": "native-foreign-key/default/valid",
+          "iterations": 100000,
+          "wallMs": 134.23800000000006,
+          "cpuMs": 109,
+          "minWallMs": 86.41549999999995,
+          "maxWallMs": 176.1658
+        },
+        {
+          "name": "native-foreign-key/default/invalid",
+          "iterations": 10000,
+          "wallMs": 45.34269999999992,
+          "cpuMs": 47,
+          "minWallMs": 35.70099999999991,
+          "maxWallMs": 75.17229999999995
+        },
+        {
+          "name": "native-foreign-key/strict/valid",
+          "iterations": 100000,
+          "wallMs": 218.53719999999998,
+          "cpuMs": 219,
+          "minWallMs": 134.39470000000006,
+          "maxWallMs": 240.1190999999999
+        },
+        {
+          "name": "native-foreign-key/strict/invalid",
+          "iterations": 10000,
+          "wallMs": 80.71479999999997,
+          "cpuMs": 78,
+          "minWallMs": 48.231399999999894,
+          "maxWallMs": 88.70269999999982
+        },
+        {
+          "name": "schema-metadata-defaults/default/valid",
+          "iterations": 100000,
+          "wallMs": 263.9063000000001,
+          "cpuMs": 250,
+          "minWallMs": 178.43239999999992,
+          "maxWallMs": 292.7810999999999
+        },
+        {
+          "name": "schema-metadata-defaults/default/invalid",
+          "iterations": 10000,
+          "wallMs": 31.541400000000067,
+          "cpuMs": 31,
+          "minWallMs": 21.504400000000032,
+          "maxWallMs": 39.37039999999979
+        },
+        {
+          "name": "schema-metadata-defaults/strict/valid",
+          "iterations": 100000,
+          "wallMs": 500.3247000000001,
+          "cpuMs": 500,
+          "minWallMs": 290.9242999999999,
+          "maxWallMs": 594.9663
+        },
+        {
+          "name": "schema-metadata-defaults/strict/invalid",
+          "iterations": 10000,
+          "wallMs": 48.95340000000033,
+          "cpuMs": 47,
+          "minWallMs": 31.917599999999993,
+          "maxWallMs": 59.09490000000005
+        },
+        {
+          "name": "product-read/default/valid",
+          "iterations": 100000,
+          "wallMs": 129.50540000000024,
+          "cpuMs": 125,
+          "minWallMs": 84.64970000000017,
+          "maxWallMs": 144.14210000000003
+        },
+        {
+          "name": "product-read/default/invalid",
+          "iterations": 10000,
+          "wallMs": 24.563900000000103,
+          "cpuMs": 16,
+          "minWallMs": 16.017699999999877,
+          "maxWallMs": 25.418399999999565
+        },
+        {
+          "name": "product-read/strict/valid",
+          "iterations": 100000,
+          "wallMs": 164.68880000000036,
+          "cpuMs": 156,
+          "minWallMs": 110.52359999999999,
+          "maxWallMs": 203.4958999999999
+        },
+        {
+          "name": "product-read/strict/invalid",
+          "iterations": 10000,
+          "wallMs": 33.517599999999675,
+          "cpuMs": 31,
+          "minWallMs": 21.063300000000027,
+          "maxWallMs": 45.854499999999916
+        },
+        {
+          "name": "product-find-config/default/valid",
+          "iterations": 100000,
+          "wallMs": 176.7201,
+          "cpuMs": 171,
+          "minWallMs": 123.84130000000005,
+          "maxWallMs": 231.02869999999984
+        },
+        {
+          "name": "product-find-config/default/invalid",
+          "iterations": 10000,
+          "wallMs": 32.34389999999985,
+          "cpuMs": 31,
+          "minWallMs": 20.958300000000236,
+          "maxWallMs": 57.358999999999924
+        },
+        {
+          "name": "product-find-config/strict/valid",
+          "iterations": 100000,
+          "wallMs": 200.66620000000012,
+          "cpuMs": 188,
+          "minWallMs": 132.9332999999997,
+          "maxWallMs": 297.8305999999998
+        },
+        {
+          "name": "product-find-config/strict/invalid",
+          "iterations": 10000,
+          "wallMs": 36.06280000000015,
+          "cpuMs": 31,
+          "minWallMs": 24.824099999999817,
+          "maxWallMs": 46.442999999999756
+        }
+      ],
+      "medianMeasuredWallMs": 3165.9869000000012,
+      "medianMeasuredCpuMs": 3139
+    },
+    {
+      "entry": "mechanisms",
+      "mode": "generated",
+      "runtime": "node-jit",
+      "medianProcessWallMs": 1108.4649000000209,
+      "rows": [
+        {
+          "name": "json-properties",
+          "iterations": 20000000,
+          "wallMs": 102.7237,
+          "cpuMs": 94,
+          "minWallMs": 97.8765,
+          "maxWallMs": 122.6824
+        },
+        {
+          "name": "owned-class-properties",
+          "iterations": 20000000,
+          "wallMs": 104.4923,
+          "cpuMs": 109,
+          "minWallMs": 96.1369,
+          "maxWallMs": 121.91310000000001
+        },
+        {
+          "name": "owned-plain-properties",
+          "iterations": 20000000,
+          "wallMs": 102.24600000000001,
+          "cpuMs": 110,
+          "minWallMs": 97.4348,
+          "maxWallMs": 121.45909999999998
+        },
+        {
+          "name": "projection-plus-one-pass",
+          "iterations": 20000000,
+          "wallMs": 371.9151,
+          "cpuMs": 390,
+          "minWallMs": 250.02119999999996,
+          "maxWallMs": 558.0963999999999
+        },
+        {
+          "name": "static-function",
+          "iterations": 20000000,
+          "wallMs": 107.30600000000004,
+          "cpuMs": 109,
+          "minWallMs": 99.80060000000003,
+          "maxWallMs": 124.65559999999994
+        },
+        {
+          "name": "runtime-generated-function",
+          "iterations": 20000000,
+          "wallMs": 108.04589999999996,
+          "cpuMs": 109,
+          "minWallMs": 99.65969999999993,
+          "maxWallMs": 159.07279999999992
+        }
+      ],
+      "medianMeasuredWallMs": 915.9276000000002,
+      "medianMeasuredCpuMs": 922
+    },
+    {
+      "entry": "mechanisms",
+      "mode": "generated",
+      "runtime": "bun-jit",
+      "medianProcessWallMs": 1667.6595000000088,
+      "rows": [
+        {
+          "name": "json-properties",
+          "iterations": 20000000,
+          "wallMs": 71.2747,
+          "cpuMs": 63,
+          "minWallMs": 41.397400000000005,
+          "maxWallMs": 114.85719999999999
+        },
+        {
+          "name": "owned-class-properties",
+          "iterations": 20000000,
+          "wallMs": 69.58720000000001,
+          "cpuMs": 78,
+          "minWallMs": 40.3146,
+          "maxWallMs": 81.50989999999999
+        },
+        {
+          "name": "owned-plain-properties",
+          "iterations": 20000000,
+          "wallMs": 66.52629999999999,
+          "cpuMs": 78,
+          "minWallMs": 40.369,
+          "maxWallMs": 78.6087
+        },
+        {
+          "name": "projection-plus-one-pass",
+          "iterations": 20000000,
+          "wallMs": 436.3279,
+          "cpuMs": 547,
+          "minWallMs": 273.3709,
+          "maxWallMs": 4560.6807
+        },
+        {
+          "name": "static-function",
+          "iterations": 20000000,
+          "wallMs": 85.30679999999995,
+          "cpuMs": 78,
+          "minWallMs": 54.4982,
+          "maxWallMs": 159.9435000000003
+        },
+        {
+          "name": "runtime-generated-function",
+          "iterations": 20000000,
+          "wallMs": 88.01280000000008,
+          "cpuMs": 93,
+          "minWallMs": 54.45889999999997,
+          "maxWallMs": 123.9926000000005
+        }
+      ],
+      "medianMeasuredWallMs": 841.9150000000001,
+      "medianMeasuredCpuMs": 954
+    },
+    {
+      "entry": "mechanisms",
+      "mode": "generated",
+      "runtime": "bun-bytecode",
+      "medianProcessWallMs": 1607.6937000000034,
+      "rows": [
+        {
+          "name": "json-properties",
+          "iterations": 20000000,
+          "wallMs": 79.3323,
+          "cpuMs": 78,
+          "minWallMs": 50.7999,
+          "maxWallMs": 82.5967
+        },
+        {
+          "name": "owned-class-properties",
+          "iterations": 20000000,
+          "wallMs": 77.4815,
+          "cpuMs": 78,
+          "minWallMs": 49.96639999999999,
+          "maxWallMs": 81.7233
+        },
+        {
+          "name": "owned-plain-properties",
+          "iterations": 20000000,
+          "wallMs": 77.58630000000002,
+          "cpuMs": 62,
+          "minWallMs": 50.26089999999999,
+          "maxWallMs": 81.87809999999999
+        },
+        {
+          "name": "projection-plus-one-pass",
+          "iterations": 20000000,
+          "wallMs": 391.5651,
+          "cpuMs": 531,
+          "minWallMs": 271.4195,
+          "maxWallMs": 421.00139999999993
+        },
+        {
+          "name": "static-function",
+          "iterations": 20000000,
+          "wallMs": 76.26959999999997,
+          "cpuMs": 94,
+          "minWallMs": 54.53399999999999,
+          "maxWallMs": 88.54360000000008
+        },
+        {
+          "name": "runtime-generated-function",
+          "iterations": 20000000,
+          "wallMs": 74.22709999999995,
+          "cpuMs": 78,
+          "minWallMs": 53.70399999999995,
+          "maxWallMs": 91.40159999999992
+        }
+      ],
+      "medianMeasuredWallMs": 793.5600999999999,
+      "medianMeasuredCpuMs": 953
+    },
+    {
+      "entry": "mechanisms",
+      "mode": "generated",
+      "runtime": "bun-aot",
+      "medianProcessWallMs": 1725.5670999999857,
+      "rows": [
+        {
+          "name": "json-properties",
+          "iterations": 20000000,
+          "wallMs": 94.4877,
+          "cpuMs": 93,
+          "minWallMs": 55.135200000000005,
+          "maxWallMs": 104.9465
+        },
+        {
+          "name": "owned-class-properties",
+          "iterations": 20000000,
+          "wallMs": 44.444500000000005,
+          "cpuMs": 47,
+          "minWallMs": 30.119,
+          "maxWallMs": 47.0697
+        },
+        {
+          "name": "owned-plain-properties",
+          "iterations": 20000000,
+          "wallMs": 51.1609,
+          "cpuMs": 47,
+          "minWallMs": 30.22439999999999,
+          "maxWallMs": 53.88720000000001
+        },
+        {
+          "name": "projection-plus-one-pass",
+          "iterations": 20000000,
+          "wallMs": 334.5376,
+          "cpuMs": 391,
+          "minWallMs": 279.178,
+          "maxWallMs": 430.9385
+        },
+        {
+          "name": "static-function",
+          "iterations": 20000000,
+          "wallMs": 23.476699999999994,
+          "cpuMs": 31,
+          "minWallMs": 19.50980000000004,
+          "maxWallMs": 29.445400000000063
+        },
+        {
+          "name": "runtime-generated-function",
+          "iterations": 20000000,
+          "wallMs": 592.1679,
+          "cpuMs": 578,
+          "minWallMs": 493.32130000000006,
+          "maxWallMs": 739.2239999999999
+        }
+      ],
+      "medianMeasuredWallMs": 1152.0517,
+      "medianMeasuredCpuMs": 1187
+    },
+    {
+      "entry": "mechanisms",
+      "mode": "generated",
+      "runtime": "bun-typed-aot",
+      "medianProcessWallMs": 1696.7492000000202,
+      "rows": [
+        {
+          "name": "json-properties",
+          "iterations": 20000000,
+          "wallMs": 37.498900000000006,
+          "cpuMs": 31,
+          "minWallMs": 26.7093,
+          "maxWallMs": 43.0112
+        },
+        {
+          "name": "owned-class-properties",
+          "iterations": 20000000,
+          "wallMs": 22.81190000000001,
+          "cpuMs": 16,
+          "minWallMs": 19.136899999999997,
+          "maxWallMs": 35.270500000000006
+        },
+        {
+          "name": "owned-plain-properties",
+          "iterations": 20000000,
+          "wallMs": 34.6537,
+          "cpuMs": 47,
+          "minWallMs": 25.7256,
+          "maxWallMs": 43.1168
+        },
+        {
+          "name": "projection-plus-one-pass",
+          "iterations": 20000000,
+          "wallMs": 262.5204,
+          "cpuMs": 265,
+          "minWallMs": 214.6444,
+          "maxWallMs": 1065.2858
+        },
+        {
+          "name": "static-function",
+          "iterations": 20000000,
+          "wallMs": 23.30450000000002,
+          "cpuMs": 31,
+          "minWallMs": 19.28359999999998,
+          "maxWallMs": 33.636799999999994
+        },
+        {
+          "name": "runtime-generated-function",
+          "iterations": 20000000,
+          "wallMs": 515.2471,
+          "cpuMs": 515,
+          "minWallMs": 462.15299999999996,
+          "maxWallMs": 954.3442
+        }
+      ],
+      "medianMeasuredWallMs": 884.3774000000001,
+      "medianMeasuredCpuMs": 906
+    }
+  ],
+  "limitations": [
+    "Decoder and mechanism microbenchmarks; no request, transaction, Postgres or Cloudflare acceptance claim.",
+    "Compiler explain counts are static reachability counts, not measured exclusive hot CPU.",
+    "Windows process CPU counters are coarse; short individual rows can report zero CPU.",
+    "Typed AOT builds start from original TypeScript; other modes share each frozen JavaScript bundle.",
+    "Process wall time includes module initialization, warmup, parity, measurements and shutdown; it is not startup time.",
+    "Projection setup is excluded except in the explicitly named projection-plus-one-pass row."
+  ],
+  "workerSources": [
+    {
+      "path": "decoders.ts",
+      "sha256": "f84c218715627f34ec450c3d73110f3a9d196dc2f4fe2d8ff7d26532a672fe4f"
+    },
+    {
+      "path": "mechanisms.ts",
+      "sha256": "0a685bfe848286da8b8012c529da6f5867149cc641d7db66dd5f31e171cb54b5"
+    },
+    {
+      "path": "../schema-aot/cases.ts",
+      "sha256": "955b59c832fca578fbe2fc3bbd2f2146ac05cc5c9b84412ad839e697f9734ea3"
+    }
+  ],
+  "artifacts": [
+    {
+      "path": "evidence/runs.windows-x64.json.gz",
+      "originalSha256": "6b965bd7f1f56648b6adb021f3ead111fc89af978f5222297832161b03e4b0de",
+      "gzipSha256": "209e4df3f63ac7a39bdf6029f55c72c339e78598605321fb523a7c2bcaf651cd",
+      "originalBytes": 3013383
+    },
+    {
+      "path": "evidence/node.windows-x64.cpuprofile.gz",
+      "originalSha256": "79198149aa77aa1b7f315a22dfb9a30842aa07006b4d17b14ea294f98f1a1376",
+      "gzipSha256": "105b4644c6b4eb2182b0bfc9b8fcb95e135ee3acdc20d34f6a24bd77bbd140cc",
+      "originalBytes": 231123
+    },
+    {
+      "path": "evidence/bun-aot.windows-x64.cpuprofile.gz",
+      "originalSha256": "60ffbc9024044955fe9df6ca2f580601ebb12f11ca5b0246c3664be90613ba83",
+      "gzipSha256": "c1f6af33e54d2e8080f1a032cbbb6d79d35044542201832fd88577939a162d2f",
+      "originalBytes": 93630
+    }
+  ],
+  "compiler": [
+    {
+      "entry": "decoders",
+      "mode": "interpreter",
+      "kind": "aot",
+      "counts": {
+        "accesses": {
+          "byName": 4517,
+          "tested": 1342,
+          "free": 1727,
+          "testedSlotOnly": 78,
+          "provenWithoutAnyTest": 1079
+        },
+        "dependencyAccesses": {
+          "byName": 0,
+          "tested": 0,
+          "free": 0,
+          "testedSlotOnly": 0,
+          "provenWithoutAnyTest": 0
+        },
+        "calls": {
+          "unknown": 3658,
+          "guarded": 0,
+          "proven": 2369
+        },
+        "causes": 2192
+      },
+      "topCauses": [
+        {
+          "rank": 1,
+          "reason": "unknown-object",
+          "file": "work/validation/bun-aot-cpu/measured/decoders-interpreter.mjs",
+          "line": 3758,
+          "why": "changed-shape",
+          "accesses": 147,
+          "dependencyAccesses": 0,
+          "calls": 0,
+          "operators": 1,
+          "inLoops": 40
+        },
+        {
+          "rank": 2,
+          "reason": "unknown-object",
+          "file": "work/validation/bun-aot-cpu/measured/decoders-interpreter.mjs",
+          "line": 9810,
+          "why": "property-read",
+          "accesses": 11,
+          "dependencyAccesses": 0,
+          "calls": 5,
+          "operators": 12,
+          "inLoops": 25
+        },
+        {
+          "rank": 3,
+          "reason": "unknown-object",
+          "file": "work/validation/bun-aot-cpu/measured/decoders-interpreter.mjs",
+          "line": 8767,
+          "why": "exposed-object",
+          "accesses": 34,
+          "dependencyAccesses": 0,
+          "calls": 0,
+          "operators": 0,
+          "inLoops": 24
+        },
+        {
+          "rank": 4,
+          "reason": "unknown-object",
+          "file": "work/validation/bun-aot-cpu/measured/decoders-interpreter.mjs",
+          "line": 14590,
+          "why": "exposed-object",
+          "accesses": 16,
+          "dependencyAccesses": 0,
+          "calls": 0,
+          "operators": 0,
+          "inLoops": 15
+        },
+        {
+          "rank": 5,
+          "reason": "unknown-object",
+          "file": "work/validation/bun-aot-cpu/measured/decoders-interpreter.mjs",
+          "line": 8538,
+          "why": "builtin-result",
+          "accesses": 9,
+          "dependencyAccesses": 0,
+          "calls": 0,
+          "operators": 6,
+          "inLoops": 11
+        }
+      ]
+    },
+    {
+      "entry": "decoders",
+      "mode": "generated",
+      "kind": "aot",
+      "counts": {
+        "accesses": {
+          "byName": 8624,
+          "tested": 2981,
+          "free": 3515,
+          "testedSlotOnly": 78,
+          "provenWithoutAnyTest": 2836
+        },
+        "dependencyAccesses": {
+          "byName": 0,
+          "tested": 0,
+          "free": 0,
+          "testedSlotOnly": 0,
+          "provenWithoutAnyTest": 0
+        },
+        "calls": {
+          "unknown": 4760,
+          "guarded": 0,
+          "proven": 2922
+        },
+        "causes": 3964
+      },
+      "topCauses": [
+        {
+          "rank": 1,
+          "reason": "unknown-object",
+          "file": "work/validation/bun-aot-cpu/measured/decoders-generated.mjs",
+          "line": 3758,
+          "why": "changed-shape",
+          "accesses": 144,
+          "dependencyAccesses": 0,
+          "calls": 0,
+          "operators": 1,
+          "inLoops": 41
+        },
+        {
+          "rank": 2,
+          "reason": "unknown-object",
+          "file": "work/validation/bun-aot-cpu/measured/decoders-generated.mjs",
+          "line": 10834,
+          "why": "property-read",
+          "accesses": 11,
+          "dependencyAccesses": 0,
+          "calls": 5,
+          "operators": 12,
+          "inLoops": 25
+        },
+        {
+          "rank": 3,
+          "reason": "unknown-object",
+          "file": "work/validation/bun-aot-cpu/measured/decoders-generated.mjs",
+          "line": 9791,
+          "why": "exposed-object",
+          "accesses": 34,
+          "dependencyAccesses": 0,
+          "calls": 0,
+          "operators": 0,
+          "inLoops": 24
+        },
+        {
+          "rank": 4,
+          "reason": "unknown-object",
+          "file": "work/validation/bun-aot-cpu/measured/decoders-generated.mjs",
+          "line": 23713,
+          "why": "exposed-object",
+          "accesses": 16,
+          "dependencyAccesses": 0,
+          "calls": 0,
+          "operators": 0,
+          "inLoops": 15
+        },
+        {
+          "rank": 5,
+          "reason": "unknown-object",
+          "file": "work/validation/bun-aot-cpu/measured/decoders-generated.mjs",
+          "line": 9562,
+          "why": "builtin-result",
+          "accesses": 9,
+          "dependencyAccesses": 0,
+          "calls": 0,
+          "operators": 6,
+          "inLoops": 11
+        }
+      ]
+    },
+    {
+      "entry": "decoders",
+      "mode": "generated",
+      "kind": "typed-aot",
+      "counts": {
+        "accesses": {
+          "byName": 7194,
+          "tested": 1733,
+          "free": 2592,
+          "testedSlotOnly": 59,
+          "provenWithoutAnyTest": 2053
+        },
+        "dependencyAccesses": {
+          "byName": 9222,
+          "tested": 3888,
+          "free": 3993,
+          "testedSlotOnly": 313,
+          "provenWithoutAnyTest": 1920
+        },
+        "calls": {
+          "unknown": 2455,
+          "guarded": 0,
+          "proven": 2565
+        },
+        "causes": 11047
+      },
+      "topCauses": [
+        {
+          "rank": 1,
+          "reason": "unknown-object",
+          "file": "packages/flarex-protocol/src/validator-json-core.ts",
+          "line": 525,
+          "why": "exposed-object",
+          "accesses": 32,
+          "dependencyAccesses": 0,
+          "calls": 0,
+          "operators": 0,
+          "inLoops": 22
+        },
+        {
+          "rank": 2,
+          "reason": "unknown-object",
+          "file": "packages/flarex-protocol/src/validator-source-serialization.ts",
+          "line": 103,
+          "why": "property-read",
+          "accesses": 11,
+          "dependencyAccesses": 0,
+          "calls": 5,
+          "operators": 5,
+          "inLoops": 18
+        },
+        {
+          "rank": 3,
+          "reason": "unknown-object",
+          "file": "node_modules/.pnpm/effect@4.1.4_patch_hash=085_af1e78f7f999b49da69623cb4e35277e/node_modules/effect/dist/internal/record.js",
+          "line": 20,
+          "why": "changed-shape",
+          "accesses": 71,
+          "dependencyAccesses": 133,
+          "calls": 0,
+          "operators": 8,
+          "inLoops": 30
+        },
+        {
+          "rank": 4,
+          "reason": "unknown-object",
+          "file": "node_modules/.pnpm/effect@4.1.4_patch_hash=085_af1e78f7f999b49da69623cb4e35277e/node_modules/effect/dist/internal/effect.js",
+          "line": 2409,
+          "why": "exposed-object",
+          "accesses": 14,
+          "dependencyAccesses": 20,
+          "calls": 0,
+          "operators": 0,
+          "inLoops": 20
+        },
+        {
+          "rank": 5,
+          "reason": "unknown-object",
+          "file": "packages/flarex-protocol/src/commit-protocol.ts",
+          "line": 611,
+          "why": "exposed-object",
+          "accesses": 16,
+          "dependencyAccesses": 0,
+          "calls": 0,
+          "operators": 0,
+          "inLoops": 15
+        }
+      ]
+    },
+    {
+      "entry": "decoders",
+      "mode": "generated",
+      "kind": "typed-aot-static",
+      "counts": {
+        "accesses": {
+          "byName": 7194,
+          "tested": 1733,
+          "free": 2592,
+          "testedSlotOnly": 59,
+          "provenWithoutAnyTest": 2053
+        },
+        "dependencyAccesses": {
+          "byName": 9222,
+          "tested": 3888,
+          "free": 3993,
+          "testedSlotOnly": 313,
+          "provenWithoutAnyTest": 1920
+        },
+        "calls": {
+          "unknown": 2455,
+          "guarded": 0,
+          "proven": 2565
+        },
+        "causes": 11046
+      },
+      "topCauses": [
+        {
+          "rank": 1,
+          "reason": "unknown-object",
+          "file": "packages/flarex-protocol/src/validator-json-core.ts",
+          "line": 525,
+          "why": "exposed-object",
+          "accesses": 32,
+          "dependencyAccesses": 0,
+          "calls": 0,
+          "operators": 0,
+          "inLoops": 22
+        },
+        {
+          "rank": 2,
+          "reason": "unknown-object",
+          "file": "packages/flarex-protocol/src/validator-source-serialization.ts",
+          "line": 103,
+          "why": "property-read",
+          "accesses": 11,
+          "dependencyAccesses": 0,
+          "calls": 5,
+          "operators": 5,
+          "inLoops": 18
+        },
+        {
+          "rank": 3,
+          "reason": "unknown-object",
+          "file": "node_modules/.pnpm/effect@4.1.4_patch_hash=085_af1e78f7f999b49da69623cb4e35277e/node_modules/effect/dist/internal/record.js",
+          "line": 20,
+          "why": "changed-shape",
+          "accesses": 71,
+          "dependencyAccesses": 133,
+          "calls": 0,
+          "operators": 8,
+          "inLoops": 30
+        },
+        {
+          "rank": 4,
+          "reason": "unknown-object",
+          "file": "node_modules/.pnpm/effect@4.1.4_patch_hash=085_af1e78f7f999b49da69623cb4e35277e/node_modules/effect/dist/internal/effect.js",
+          "line": 2409,
+          "why": "exposed-object",
+          "accesses": 14,
+          "dependencyAccesses": 20,
+          "calls": 0,
+          "operators": 0,
+          "inLoops": 20
+        },
+        {
+          "rank": 5,
+          "reason": "unknown-object",
+          "file": "packages/flarex-protocol/src/commit-protocol.ts",
+          "line": 611,
+          "why": "exposed-object",
+          "accesses": 16,
+          "dependencyAccesses": 0,
+          "calls": 0,
+          "operators": 0,
+          "inLoops": 15
+        }
+      ]
+    },
+    {
+      "entry": "mechanisms",
+      "mode": "generated",
+      "kind": "aot",
+      "counts": {
+        "accesses": {
+          "byName": 14,
+          "tested": 7,
+          "free": 30,
+          "testedSlotOnly": 0,
+          "provenWithoutAnyTest": 19
+        },
+        "dependencyAccesses": {
+          "byName": 0,
+          "tested": 0,
+          "free": 0,
+          "testedSlotOnly": 0,
+          "provenWithoutAnyTest": 0
+        },
+        "calls": {
+          "unknown": 15,
+          "guarded": 0,
+          "proven": 3
+        },
+        "causes": 24
+      },
+      "topCauses": [
+        {
+          "rank": 1,
+          "reason": "unknown-object",
+          "file": "work/validation/bun-aot-cpu/measured/mechanisms-generated.mjs",
+          "line": 16,
+          "why": "builtin-result",
+          "accesses": 8,
+          "dependencyAccesses": 0,
+          "calls": 3,
+          "operators": 0,
+          "inLoops": 7
+        },
+        {
+          "rank": 2,
+          "reason": "unknown-object",
+          "file": "work/validation/bun-aot-cpu/measured/mechanisms-generated.mjs",
+          "line": 85,
+          "why": "builtin-result",
+          "accesses": 2,
+          "dependencyAccesses": 0,
+          "calls": 0,
+          "operators": 1,
+          "inLoops": 3
+        },
+        {
+          "rank": 3,
+          "reason": "unknown-callee",
+          "file": "work/validation/bun-aot-cpu/measured/mechanisms-generated.mjs",
+          "line": 57,
+          "why": "builtin-result",
+          "accesses": 0,
+          "dependencyAccesses": 0,
+          "calls": 1,
+          "operators": 1,
+          "inLoops": 2
+        },
+        {
+          "rank": 4,
+          "reason": "unknown-object",
+          "file": "work/validation/bun-aot-cpu/measured/mechanisms-generated.mjs",
+          "line": 82,
+          "why": "exposed-object",
+          "accesses": 1,
+          "dependencyAccesses": 0,
+          "calls": 0,
+          "operators": 0,
+          "inLoops": 1
+        },
+        {
+          "rank": 5,
+          "reason": "unknown-object",
+          "file": "work/validation/bun-aot-cpu/measured/mechanisms-generated.mjs",
+          "line": 84,
+          "why": "exposed-object",
+          "accesses": 1,
+          "dependencyAccesses": 0,
+          "calls": 0,
+          "operators": 0,
+          "inLoops": 1
+        }
+      ]
+    },
+    {
+      "entry": "mechanisms",
+      "mode": "generated",
+      "kind": "typed-aot",
+      "counts": {
+        "accesses": {
+          "byName": 13,
+          "tested": 12,
+          "free": 37,
+          "testedSlotOnly": 6,
+          "provenWithoutAnyTest": 29
+        },
+        "dependencyAccesses": {
+          "byName": 0,
+          "tested": 0,
+          "free": 0,
+          "testedSlotOnly": 0,
+          "provenWithoutAnyTest": 0
+        },
+        "calls": {
+          "unknown": 15,
+          "guarded": 0,
+          "proven": 5
+        },
+        "causes": 25
+      },
+      "topCauses": [
+        {
+          "rank": 1,
+          "reason": "unknown-object",
+          "file": "packages/medusa-adapter/benchmarks/bun-aot/mechanisms.ts",
+          "line": 14,
+          "why": "builtin-result",
+          "accesses": 8,
+          "dependencyAccesses": 0,
+          "calls": 2,
+          "operators": 0,
+          "inLoops": 6
+        },
+        {
+          "rank": 2,
+          "reason": "unknown-object",
+          "file": "packages/medusa-adapter/benchmarks/bun-aot/mechanisms.ts",
+          "line": 64,
+          "why": "builtin-result",
+          "accesses": 2,
+          "dependencyAccesses": 0,
+          "calls": 0,
+          "operators": 1,
+          "inLoops": 3
+        },
+        {
+          "rank": 3,
+          "reason": "unknown-object",
+          "file": "packages/medusa-adapter/benchmarks/bun-aot/mechanisms.ts",
+          "line": 35,
+          "why": "outside-caller",
+          "accesses": 2,
+          "dependencyAccesses": 0,
+          "calls": 0,
+          "operators": 0,
+          "inLoops": 2
+        },
+        {
+          "rank": 4,
+          "reason": "unknown-callee",
+          "file": "packages/medusa-adapter/benchmarks/bun-aot/mechanisms.ts",
+          "line": 44,
+          "why": "builtin-result",
+          "accesses": 0,
+          "dependencyAccesses": 0,
+          "calls": 1,
+          "operators": 1,
+          "inLoops": 2
+        },
+        {
+          "rank": 5,
+          "reason": "unknown-object",
+          "file": "packages/medusa-adapter/benchmarks/bun-aot/mechanisms.ts",
+          "line": 61,
+          "why": "exposed-object",
+          "accesses": 1,
+          "dependencyAccesses": 0,
+          "calls": 0,
+          "operators": 0,
+          "inLoops": 1
+        }
+      ]
+    }
+  ],
+  "profiles": [
+    {
+      "name": "node",
+      "samples": 1557,
+      "totalSampledUs": 2377198,
+      "limitations": "Whole-process diagnostic including initialization, checks and warmup. Self sampled wall time, not exclusive CPU or quiet measurements.",
+      "top": [
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/bun-aot-cpu/measured/decoders-generated.mjs:4727",
+          "samples": 136,
+          "sampledUs": 207829
+        },
+        {
+          "frame": "hasExcessProperties file:///C:/Users/User/Documents/GitHub/flarex/work/validation/bun-aot-cpu/measured/decoders-generated.mjs:7176",
+          "samples": 117,
+          "sampledUs": 182426
+        },
+        {
+          "frame": "(garbage collector) :0",
+          "samples": 61,
+          "sampledUs": 99191
+        },
+        {
+          "frame": "stepProperty file:///C:/Users/User/Documents/GitHub/flarex/work/validation/bun-aot-cpu/measured/decoders-generated.mjs:4904",
+          "samples": 67,
+          "sampledUs": 97570
+        },
+        {
+          "frame": "collectIssues file:///C:/Users/User/Documents/GitHub/flarex/work/validation/bun-aot-cpu/measured/decoders-generated.mjs:5787",
+          "samples": 61,
+          "sampledUs": 97361
+        },
+        {
+          "frame": "onItem file:///C:/Users/User/Documents/GitHub/flarex/work/validation/bun-aot-cpu/measured/decoders-generated.mjs:4930",
+          "samples": 61,
+          "sampledUs": 95692
+        },
+        {
+          "frame": "Base file:///C:/Users/User/Documents/GitHub/flarex/work/validation/bun-aot-cpu/measured/decoders-generated.mjs:1094",
+          "samples": 59,
+          "sampledUs": 92397
+        },
+        {
+          "frame": "index file:///C:/Users/User/Documents/GitHub/flarex/work/validation/bun-aot-cpu/measured/decoders-generated.mjs:5169",
+          "samples": 55,
+          "sampledUs": 89977
+        },
+        {
+          "frame": "evaluate :0",
+          "samples": 52,
+          "sampledUs": 86299
+        },
+        {
+          "frame": "fromIteratorEagerUnsafe file:///C:/Users/User/Documents/GitHub/flarex/work/validation/bun-aot-cpu/measured/decoders-generated.mjs:2745",
+          "samples": 41,
+          "sampledUs": 63424
+        },
+        {
+          "frame": "assignProperty file:///C:/Users/User/Documents/GitHub/flarex/work/validation/bun-aot-cpu/measured/decoders-generated.mjs:713",
+          "samples": 35,
+          "sampledUs": 53949
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/bun-aot-cpu/measured/decoders-generated.mjs:4836",
+          "samples": 34,
+          "sampledUs": 50711
+        },
+        {
+          "frame": "runSequential file:///C:/Users/User/Documents/GitHub/flarex/work/validation/bun-aot-cpu/measured/decoders-generated.mjs:3019",
+          "samples": 34,
+          "sampledUs": 46612
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/bun-aot-cpu/measured/decoders-generated.mjs:6294",
+          "samples": 29,
+          "sampledUs": 44935
+        },
+        {
+          "frame": "getCheckIssues file:///C:/Users/User/Documents/GitHub/flarex/work/validation/bun-aot-cpu/measured/decoders-generated.mjs:7168",
+          "samples": 29,
+          "sampledUs": 43751
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/bun-aot-cpu/measured/decoders-generated.mjs:1",
+          "samples": 25,
+          "sampledUs": 40982
+        },
+        {
+          "frame": "isTree file:///C:/Users/User/Documents/GitHub/flarex/work/validation/bun-aot-cpu/measured/decoders-generated.mjs:5823",
+          "samples": 26,
+          "sampledUs": 40648
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/bun-aot-cpu/measured/decoders-generated.mjs:6148",
+          "samples": 29,
+          "sampledUs": 40201
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/bun-aot-cpu/measured/decoders-generated.mjs:2736",
+          "samples": 26,
+          "sampledUs": 38672
+        },
+        {
+          "frame": "effectIsExit file:///C:/Users/User/Documents/GitHub/flarex/work/validation/bun-aot-cpu/measured/decoders-generated.mjs:2849",
+          "samples": 22,
+          "sampledUs": 34527
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/bun-aot-cpu/measured/decoders-generated.mjs:7794",
+          "samples": 19,
+          "sampledUs": 31325
+        },
+        {
+          "frame": "IssueNodeImpl file:///C:/Users/User/Documents/GitHub/flarex/work/validation/bun-aot-cpu/measured/decoders-generated.mjs:3775",
+          "samples": 19,
+          "sampledUs": 30166
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/bun-aot-cpu/measured/decoders-generated.mjs:6167",
+          "samples": 25,
+          "sampledUs": 30136
+        },
+        {
+          "frame": "isValidSchemaManifestAppIdentifier file:///C:/Users/User/Documents/GitHub/flarex/work/validation/bun-aot-cpu/measured/decoders-generated.mjs:11399",
+          "samples": 19,
+          "sampledUs": 29802
+        },
+        {
+          "frame": " file:///C:/Users/User/Documents/GitHub/flarex/work/validation/bun-aot-cpu/measured/decoders-generated.mjs:14701",
+          "samples": 17,
+          "sampledUs": 29181
+        }
+      ]
+    },
+    {
+      "name": "bun-aot",
+      "samples": 266,
+      "totalSampledUs": 2441984,
+      "limitations": "Whole-process diagnostic including initialization, checks and warmup. Self sampled wall time, not exclusive CPU or quiet measurements.",
+      "top": [
+        {
+          "frame": " file:///B:/%7EBUN/_.._/_.._/node_modules/.pnpm/effect@4.1.4_patch_hash=085_af1e78f7f999b49da69623cb4e35277e/node_modules/effect/dist/SchemaAST.js:1537",
+          "samples": 17,
+          "sampledUs": 106531
+        },
+        {
+          "frame": "onItem file:///B:/%7EBUN/_.._/_.._/node_modules/.pnpm/effect@4.1.4_patch_hash=085_af1e78f7f999b49da69623cb4e35277e/node_modules/effect/dist/SchemaAST.js:1746",
+          "samples": 9,
+          "sampledUs": 91803
+        },
+        {
+          "frame": "(unknown) :0",
+          "samples": 10,
+          "sampledUs": 77729
+        },
+        {
+          "frame": "assign :0",
+          "samples": 6,
+          "sampledUs": 76283
+        },
+        {
+          "frame": " file:///B:/%7EBUN/_.._/_.._/node_modules/.pnpm/effect@4.1.4_patch_hash=085_af1e78f7f999b49da69623cb4e35277e/node_modules/effect/dist/SchemaAST.js:1656",
+          "samples": 5,
+          "sampledUs": 75305
+        },
+        {
+          "frame": "collectIssues file:///B:/%7EBUN/_.._/_.._/node_modules/.pnpm/effect@4.1.4_patch_hash=085_af1e78f7f999b49da69623cb4e35277e/node_modules/effect/dist/SchemaAST.js:3001",
+          "samples": 8,
+          "sampledUs": 74998
+        },
+        {
+          "frame": "ReasonBase file:///B:/%7EBUN/_.._/_.._/node_modules/.pnpm/effect@4.1.4_patch_hash=085_af1e78f7f999b49da69623cb4e35277e/node_modules/effect/dist/internal/core.js:135",
+          "samples": 8,
+          "sampledUs": 73106
+        },
+        {
+          "frame": "effectIsExit file:///B:/%7EBUN/_.._/_.._/node_modules/.pnpm/effect@4.1.4_patch_hash=085_af1e78f7f999b49da69623cb4e35277e/node_modules/effect/dist/internal/effect.js:1235",
+          "samples": 7,
+          "sampledUs": 68008
+        },
+        {
+          "frame": " file:///B:/%7EBUN/_.._/_.._/_.._/persistence-postgres/src/core/nativePolicyTypes.schema-aot.generated.mjs:41",
+          "samples": 7,
+          "sampledUs": 67216
+        },
+        {
+          "frame": "stepProperty file:///B:/%7EBUN/_.._/_.._/node_modules/.pnpm/effect@4.1.4_patch_hash=085_af1e78f7f999b49da69623cb4e35277e/node_modules/effect/dist/SchemaAST.js:1724",
+          "samples": 9,
+          "sampledUs": 66836
+        },
+        {
+          "frame": "fromIteratorEagerUnsafe file:///B:/%7EBUN/_.._/_.._/node_modules/.pnpm/effect@4.1.4_patch_hash=085_af1e78f7f999b49da69623cb4e35277e/node_modules/effect/dist/internal/effect.js:1001",
+          "samples": 5,
+          "sampledUs": 64792
+        },
+        {
+          "frame": " file:///B:/%7EBUN/_.._/_.._/_.._/_.._/src/modules/product/service-schemas.schema-aot.generated.mjs:24",
+          "samples": 5,
+          "sampledUs": 64775
+        },
+        {
+          "frame": " file:///B:/%7EBUN/_.._/_.._/_.._/persistence-postgres/src/core/schemaTypes.schema-aot.generated.mjs:11",
+          "samples": 6,
+          "sampledUs": 62670
+        },
+        {
+          "frame": " file:///B:/%7EBUN/_.._/_.._/node_modules/.pnpm/effect@4.1.4_patch_hash=085_af1e78f7f999b49da69623cb4e35277e/node_modules/effect/dist/internal/effect.js:991",
+          "samples": 6,
+          "sampledUs": 50578
+        },
+        {
+          "frame": "index file:///B:/%7EBUN/_.._/_.._/node_modules/.pnpm/effect@4.1.4_patch_hash=085_af1e78f7f999b49da69623cb4e35277e/node_modules/effect/dist/SchemaAST.js:2012",
+          "samples": 7,
+          "sampledUs": 48548
+        },
+        {
+          "frame": "isOptional file:///B:/%7EBUN/_.._/_.._/node_modules/.pnpm/effect@4.1.4_patch_hash=085_af1e78f7f999b49da69623cb4e35277e/node_modules/effect/dist/SchemaAST.js:2679",
+          "samples": 3,
+          "sampledUs": 47429
+        },
+        {
+          "frame": "isValidSchemaManifestAppIdentifier file:///B:/%7EBUN/_.._/_.._/_.._/flarex-protocol/src/schema-manifest.ts:941",
+          "samples": 2,
+          "sampledUs": 46978
+        },
+        {
+          "frame": " file:///B:/%7EBUN/_.._/_.._/node_modules/.pnpm/effect@4.1.4_patch_hash=085_af1e78f7f999b49da69623cb4e35277e/node_modules/effect/dist/SchemaAST.js:2330",
+          "samples": 3,
+          "sampledUs": 46593
+        },
+        {
+          "frame": "exitIsSuccess file:///B:/%7EBUN/_.._/_.._/node_modules/.pnpm/effect@4.1.4_patch_hash=085_af1e78f7f999b49da69623cb4e35277e/node_modules/effect/dist/internal/effect.js:1272",
+          "samples": 2,
+          "sampledUs": 46439
+        },
+        {
+          "frame": "WeakMap :0",
+          "samples": 4,
+          "sampledUs": 45232
+        },
+        {
+          "frame": "ExitPrimitive file:///B:/%7EBUN/_.._/_.._/node_modules/.pnpm/effect@4.1.4_patch_hash=085_af1e78f7f999b49da69623cb4e35277e/node_modules/effect/dist/internal/core.js:329",
+          "samples": 5,
+          "sampledUs": 43788
+        },
+        {
+          "frame": " file:///B:/%7EBUN/_.._/_.._/node_modules/.pnpm/effect@4.1.4_patch_hash=085_af1e78f7f999b49da69623cb4e35277e/node_modules/effect/dist/Schema.js:5172",
+          "samples": 2,
+          "sampledUs": 43734
+        },
+        {
+          "frame": "hasExcessProperties file:///B:/%7EBUN/_.._/_.._/node_modules/.pnpm/effect@4.1.4_patch_hash=085_af1e78f7f999b49da69623cb4e35277e/node_modules/effect/dist/schema/SchemaCompiler/runtime.js:131",
+          "samples": 3,
+          "sampledUs": 43726
+        },
+        {
+          "frame": "makeSingle file:///B:/%7EBUN/_.._/_.._/node_modules/.pnpm/effect@4.1.4_patch_hash=085_af1e78f7f999b49da69623cb4e35277e/node_modules/effect/dist/SchemaIssue.js:488",
+          "samples": 3,
+          "sampledUs": 38839
+        },
+        {
+          "frame": "isSameExit file:///B:/%7EBUN/_.._/_.._/node_modules/.pnpm/effect@4.1.4_patch_hash=085_af1e78f7f999b49da69623cb4e35277e/node_modules/effect/dist/internal/schema/parser.js:20",
+          "samples": 6,
+          "sampledUs": 37370
+        }
+      ]
+    }
+  ],
+  "validation": {
+    "longCohortWorkers": 105,
+    "finalSourceSmokeWorkers": 30,
+    "finalSourceSmokeParity": true,
+    "finalSourceSmokeChecksums": true,
+    "nonemptyOutputRefusedWithoutWrites": true,
+    "failedBuildLogsRetainedWithoutSuccessReport": true,
+    "focusedTypecheck": "passed",
+    "syntaxChecks": "passed",
+    "lintCore": "passed",
+    "lintDiff": "passed (no scoped src changes)",
+    "generatedSchemaCheck": "60 decode targets, 8 modules, Effect 4.1.4",
+    "measurementNote": "The long cohort preceded driver-only Schema result/row-contract checks, empty-output refusal and portable file-URL decoding. Timing workers and build-mode controls were unchanged. Final-source bounded smoke validated the final driver; its tiny timings are not performance evidence."
+  }
+}

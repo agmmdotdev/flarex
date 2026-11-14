@@ -39,3 +39,7 @@ The measured worker has no observation proxies.
 This remains a decoder microbenchmark: it does not measure transactions or
 establish request-level improvements. Unsupported operations retain Effect's
 interpreter. No dynamic function construction is needed by the generated module.
+
+The separate [Bun AOT CPU experiment](../bun-aot/README.md) compares Node JIT,
+Bun JIT, bytecode and machine-code AOT using these suites and the actual owner
+installers, with independent object-layout and runtime-code-generation controls.
