@@ -5,7 +5,7 @@ import { CommerceTransactionError } from "@flarex/persistence-postgres/internal/
 import { CoreNativeUniqueConflict } from "../../persistence-postgres/src/core/api";
 import { Cause, Exit, Deferred, Effect, Fiber, Schema } from "effect";
 import { InventoryModuleService } from "@medusajs/inventory/services";
-import { StockLocationModuleService } from "@medusajs/stock-location/services";
+import { Query } from "@medusajs/modules-sdk/remote-query";
 import { PricingModuleService } from "@medusajs/pricing/services";
 import { ExecutionDiagnostics } from "@flarex/persistence-postgres/internal/execution-diagnostics";
 import { prepareProductCreationWorkflow, type ProductCreationHooks } from "../src/workflows/product/creation";
@@ -13,6 +13,7 @@ import { productCreationResources } from "../src/workflow/policy";
 import { makeCoreProductCreationFixture, productCreationOptions, productCreationExecution,
   seedCreationEndpoints, seedCreationReferences, type CoreProductCreationFixture } from "./support/core-product-creation-fixture";
 import { prepareCoreInventoryCreateHost } from "./support/core-product-creation-fixture";
+import { productCreationInput as input } from "./support/core-product-creation-input";
 
 const driver = process.env.FLAREX_TEST_DRIVER ?? "pglite";
 if (driver !== "pglite" && driver !== "postgres") throw new Error("Invalid Product creation driver");
@@ -22,18 +23,6 @@ const snapshot = () => selected.fixture.snapshot();
 const events = async () => (await snapshot()).events;
 const prepare = (hooks: ProductCreationHooks = {}, fixture = selected, execution = productCreationExecution(fixture)) =>
   Effect.runPromise(prepareProductCreationWorkflow({ ...productCreationOptions(fixture), execution, hooks }));
-const input = (prefix: string, count = 4) => ({ additional_data: { external_reference: prefix },
-  products: Array.from({ length: count }, (_, index) => ({ id: prefix + "-product-" + index, title: prefix + " " + index,
-    handle: prefix + "-handle-" + index, status: "published", description: "Native root description", metadata: { index },
-    type_id: "root-type", collection_id: "root-collection", discountable: false,
-    tag_ids: Array.from({ length: 4 }, (_, i) => "root-tag-" + i), category_ids: Array.from({ length: 4 }, (_, i) => "root-category-" + i),
-    images: [{ url: "https://example.test/first.png" }, { url: "https://example.test/second.png" }],
-    options: [{ title: "Size", values: ["0", "1", "2", "3"] }],
-    sales_channels: [{ id: "root-channel-0" }, { id: "root-channel-1" }], shipping_profile_id: "root-profile-0",
-    variants: [{ id: prefix + "-variant-" + index, title: prefix + " variant " + index, sku: prefix + "-sku-" + index,
-      options: { Size: "0" }, prices: [{ currency_code: "USD", amount: "123.4567890123456789", rules: { region_id: "r1" } },
-        { currency_code: "EUR", amount: 200, rules: { region_id: "r2" } }] }],
-  })) });
 const simple = (prefix: string) => ({ products: [{ id: prefix, title: prefix, options: [{ title: "Size", values: ["0"] }] }] });
 function nativeFailure(outcome: Exit.Exit<unknown, unknown>): MedusaError {
   if (Exit.isSuccess(outcome)) throw new Error("Expected the native workflow to fail");
@@ -67,8 +56,25 @@ describe("complete native Product creation on shared Core storage", () => {
 
   it.each(["events", "calls"] as const)("refuses the maximum graph under the smaller %s allowance with no publication", async budget => {
     const execution = productCreationExecution(selected);
+    let callLimit = productCreationResources.calls;
+    if (budget === "calls") {
+      // Calls are a ceiling on real owner-charged work, not a minimum work
+      // requirement. This case omits the extra Link-reading hook below. Derive
+      // its boundary from the owner's existing diagnostic rather than the old
+      // 256 assumption or the cost of a different hook-enabled graph.
+      const witness = await prepare();
+      let observedCalls = 1; // The bounded root starts with one charged call.
+      try {
+        await Effect.runPromise(witness.run(witness.newRequestKey(), input("call-limit-witness")).pipe(Effect.provideService(ExecutionDiagnostics, {
+          observe: (name, work) => Effect.sync(() => { if (name === "BoundedRequest.enter") observedCalls++; }).pipe(Effect.andThen(work)),
+        })));
+      } finally { await Effect.runPromise(witness.close); }
+      expect(observedCalls).toBeGreaterThan(1);
+      expect(observedCalls).toBeLessThanOrEqual(productCreationResources.calls);
+      callLimit = observedCalls - 1;
+    }
     const host = await prepare({}, selected, { ...execution,
-      prepare: composition => execution.prepare({ ...composition, ...(budget === "events" ? { requestEventLimit: 64 } : { requestCallLimit: 256 }) }),
+      prepare: composition => execution.prepare({ ...composition, ...(budget === "events" ? { requestEventLimit: 64 } : { requestCallLimit: callLimit }) }),
     });
     try {
       const beforeState = await snapshot(), beforeEvents = await events();
@@ -136,14 +142,17 @@ describe("complete native Product creation on shared Core storage", () => {
 
   it("retains authentic empty children for a Product without variants or external associations", async () => {
     const items = vi.spyOn(InventoryModuleService.prototype, "createInventoryItems"), levels = vi.spyOn(InventoryModuleService.prototype, "createInventoryLevels");
-    const stock = vi.spyOn(StockLocationModuleService.prototype, "listAndCountStockLocations"), pricing = vi.spyOn(PricingModuleService.prototype, "createPriceSets");
+    const stock = vi.spyOn(Query.prototype, "graph"), pricing = vi.spyOn(PricingModuleService.prototype, "createPriceSets");
     const host = await prepare();
     try {
       const beforeEvents = await events();
       const result = await Effect.runPromise(host.run(host.newRequestKey(), simple("empty-variants")));
       expect(result).toMatchObject([{ id: "empty-variants", variants: [] }]);
       expect(items.mock.calls.map(call => call[0])).toEqual([[]]); expect(levels.mock.calls.map(call => call[0])).toEqual([[]]);
-      expect(stock.mock.calls.map(call => call[0])).toEqual([{ id: [] }]); expect(pricing.mock.calls.map(call => call[0])).toEqual([[]]);
+      const locationQueries = stock.mock.calls.filter(([query]) => query.entity === "stock_location");
+      expect(locationQueries).toHaveLength(1);
+      expect(locationQueries[0]?.[0]).toMatchObject({ entity: "stock_location", filters: { id: [] }, fields: ["id"] });
+      expect(pricing.mock.calls.map(call => call[0])).toEqual([[]]);
       expect((await events()).slice(beforeEvents.length).filter(event => ["product-variant.created", "product.created"].includes(event.envelope.contract)).map(event => event.envelope.contract)).toEqual(["product.created"]);
     } finally { items.mockRestore(); levels.mockRestore(); stock.mockRestore(); pricing.mockRestore(); await Effect.runPromise(host.close); }
   });

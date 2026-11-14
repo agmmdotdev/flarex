@@ -1,0 +1,1795 @@
+{
+  "platform": "win32",
+  "arch": "x64",
+  "cpu": "AMD Ryzen 5 2600 Six-Core Processor            ",
+  "nodeVersion": "v26.13.0",
+  "bunVersion": "1.4.5",
+  "scenario": "createProductsWorkflow",
+  "series": [
+    {
+      "products": 1,
+      "summary": [
+        {
+          "variant": "node-js",
+          "runtime": "node",
+          "processes": 2,
+          "requests": 60,
+          "meanCpuMs": 566.65,
+          "medianWallMs": 566.6468999999997,
+          "p95WallMs": 1386.5017999999982,
+          "workerMeanCpuMs": [
+            662.4666666666667,
+            470.8333333333333
+          ]
+        },
+        {
+          "variant": "aot-js",
+          "runtime": "bun-aot",
+          "processes": 2,
+          "requests": 60,
+          "meanCpuMs": 598.0666666666667,
+          "medianWallMs": 608.8253000000004,
+          "p95WallMs": 1676.8194000000076,
+          "workerMeanCpuMs": [
+            740.4333333333333,
+            455.7
+          ]
+        },
+        {
+          "variant": "aot-core",
+          "runtime": "bun-aot",
+          "processes": 2,
+          "requests": 60,
+          "meanCpuMs": 498.8833333333333,
+          "medianWallMs": 647.2822000000015,
+          "p95WallMs": 698.2070000000022,
+          "workerMeanCpuMs": [
+            501.46666666666664,
+            496.3
+          ]
+        },
+        {
+          "variant": "aot-medusa",
+          "runtime": "bun-aot",
+          "processes": 2,
+          "requests": 60,
+          "meanCpuMs": 443.98333333333335,
+          "medianWallMs": 573.3150000000023,
+          "p95WallMs": 686.1068999999989,
+          "workerMeanCpuMs": [
+            475.93333333333334,
+            412.03333333333336
+          ]
+        }
+      ],
+      "workload": {
+        "flow": "createProductsWorkflow",
+        "cardinality": {
+          "products": 1,
+          "variants": 1,
+          "images": 2,
+          "optionValues": 4,
+          "prices": 2,
+          "salesChannelLinks": 2,
+          "shippingLinks": 1,
+          "inventoryLinks": 1,
+          "pricingLinks": 1,
+          "tagMemberships": 4,
+          "categoryMemberships": 4
+        },
+        "limitations": [
+          "Actual admitted native workflow; HTTP ingress and external hook effects are excluded."
+        ]
+      },
+      "processes": 8,
+      "measured": 240,
+      "warmups": 40,
+      "preparationTimings": [
+        {
+          "variant": "node-js",
+          "round": 0,
+          "provisionAndPrepareMs": 23321.3636,
+          "initialSeedMs": 798.4091000000008,
+          "runtimeConstructionMs": 17.738000000001193,
+          "processWallMs": 77797.8776
+        },
+        {
+          "variant": "aot-js",
+          "round": 0,
+          "provisionAndPrepareMs": 58618.5919,
+          "initialSeedMs": 1216.5826000000015,
+          "runtimeConstructionMs": 38.066899999997986,
+          "processWallMs": 145228.391
+        },
+        {
+          "variant": "aot-core",
+          "round": 0,
+          "provisionAndPrepareMs": 28627.5439,
+          "initialSeedMs": 807.0980999999992,
+          "runtimeConstructionMs": 16.9220000000023,
+          "processWallMs": 82546.56239999997
+        },
+        {
+          "variant": "aot-medusa",
+          "round": 0,
+          "provisionAndPrepareMs": 18496.5637,
+          "initialSeedMs": 755.8962000000029,
+          "runtimeConstructionMs": 16.54609999999957,
+          "processWallMs": 67452.21860000002
+        },
+        {
+          "variant": "aot-medusa",
+          "round": 1,
+          "provisionAndPrepareMs": 21395.1199,
+          "initialSeedMs": 677.7672999999995,
+          "runtimeConstructionMs": 12.051699999999983,
+          "processWallMs": 75999.59910000005
+        },
+        {
+          "variant": "aot-core",
+          "round": 1,
+          "provisionAndPrepareMs": 26802.487100000002,
+          "initialSeedMs": 872.0256999999983,
+          "runtimeConstructionMs": 26.14050000000134,
+          "processWallMs": 80006.21110000007
+        },
+        {
+          "variant": "aot-js",
+          "round": 1,
+          "provisionAndPrepareMs": 18888.293400000002,
+          "initialSeedMs": 604.9547999999995,
+          "runtimeConstructionMs": 15.419099999999162,
+          "processWallMs": 63779.95029999991
+        },
+        {
+          "variant": "node-js",
+          "round": 1,
+          "provisionAndPrepareMs": 20987.0821,
+          "initialSeedMs": 790.1984000000011,
+          "runtimeConstructionMs": 24.543399999998655,
+          "processWallMs": 47647.36419999995
+        }
+      ]
+    },
+    {
+      "products": 4,
+      "summary": [
+        {
+          "variant": "node-js",
+          "runtime": "node",
+          "processes": 2,
+          "requests": 60,
+          "meanCpuMs": 1072.1166666666666,
+          "medianWallMs": 1204.7969999999987,
+          "p95WallMs": 1668.8044999999984,
+          "workerMeanCpuMs": [
+            1245.2666666666667,
+            898.9666666666667
+          ]
+        },
+        {
+          "variant": "aot-js",
+          "runtime": "bun-aot",
+          "processes": 2,
+          "requests": 60,
+          "meanCpuMs": 1243.2833333333333,
+          "medianWallMs": 1665.7370999999985,
+          "p95WallMs": 1859.4679000000033,
+          "workerMeanCpuMs": [
+            1440.6666666666667,
+            1045.9
+          ]
+        },
+        {
+          "variant": "aot-core",
+          "runtime": "bun-aot",
+          "processes": 2,
+          "requests": 60,
+          "meanCpuMs": 1209.4166666666667,
+          "medianWallMs": 1541.0933000000005,
+          "p95WallMs": 2155.7151999999987,
+          "workerMeanCpuMs": [
+            1252.6,
+            1166.2333333333333
+          ]
+        },
+        {
+          "variant": "aot-medusa",
+          "runtime": "bun-aot",
+          "processes": 2,
+          "requests": 60,
+          "meanCpuMs": 1069.7333333333333,
+          "medianWallMs": 1423.5332999999955,
+          "p95WallMs": 1568.2225000000035,
+          "workerMeanCpuMs": [
+            1195.7,
+            943.7666666666667
+          ]
+        }
+      ],
+      "workload": {
+        "flow": "createProductsWorkflow",
+        "cardinality": {
+          "products": 4,
+          "variants": 4,
+          "images": 8,
+          "optionValues": 16,
+          "prices": 8,
+          "salesChannelLinks": 8,
+          "shippingLinks": 4,
+          "inventoryLinks": 4,
+          "pricingLinks": 4,
+          "tagMemberships": 16,
+          "categoryMemberships": 16
+        },
+        "limitations": [
+          "Actual admitted native workflow; HTTP ingress and external hook effects are excluded."
+        ]
+      },
+      "processes": 8,
+      "measured": 240,
+      "warmups": 40,
+      "preparationTimings": [
+        {
+          "variant": "node-js",
+          "round": 0,
+          "provisionAndPrepareMs": 23953.329,
+          "initialSeedMs": 866.416699999998,
+          "runtimeConstructionMs": 25.56040000000212,
+          "processWallMs": 90460.84569999999
+        },
+        {
+          "variant": "aot-js",
+          "round": 0,
+          "provisionAndPrepareMs": 16158.184599999999,
+          "initialSeedMs": 726.774300000001,
+          "runtimeConstructionMs": 17.574499999998807,
+          "processWallMs": 115537.71979999999
+        },
+        {
+          "variant": "aot-core",
+          "round": 0,
+          "provisionAndPrepareMs": 18027.0076,
+          "initialSeedMs": 700.2178999999996,
+          "runtimeConstructionMs": 15.686799999999494,
+          "processWallMs": 109571.01280000003
+        },
+        {
+          "variant": "aot-medusa",
+          "round": 0,
+          "provisionAndPrepareMs": 17353.5733,
+          "initialSeedMs": 746.5516000000025,
+          "runtimeConstructionMs": 18.67699999999968,
+          "processWallMs": 107753.62229999999
+        },
+        {
+          "variant": "aot-medusa",
+          "round": 1,
+          "provisionAndPrepareMs": 14532.652199999999,
+          "initialSeedMs": 507.3050999999996,
+          "runtimeConstructionMs": 17.639100000000326,
+          "processWallMs": 91247.02120000002
+        },
+        {
+          "variant": "aot-core",
+          "round": 1,
+          "provisionAndPrepareMs": 16527.8469,
+          "initialSeedMs": 633.5012999999999,
+          "runtimeConstructionMs": 10.849999999998545,
+          "processWallMs": 115663.30570000003
+        },
+        {
+          "variant": "aot-js",
+          "round": 1,
+          "provisionAndPrepareMs": 14447.7973,
+          "initialSeedMs": 485.54189999999835,
+          "runtimeConstructionMs": 11.56880000000092,
+          "processWallMs": 91769.22850000008
+        },
+        {
+          "variant": "node-js",
+          "round": 1,
+          "provisionAndPrepareMs": 20550.0311,
+          "initialSeedMs": 752.8829000000005,
+          "runtimeConstructionMs": 21.763299999998708,
+          "processWallMs": 72156.60489999992
+        }
+      ]
+    }
+  ],
+  "compiler": [
+    {
+      "variant": "node-js",
+      "sha256": "74539671ac48a455900d64e590c91d7ccab2720041268a650928b21d0031b510",
+      "bytes": 12178933,
+      "explain": null
+    },
+    {
+      "variant": "aot-js",
+      "sha256": "bf90f36ddf69f6dbacc101c2edab0afd3365e5825a887372cfbb075dab0d7cc6",
+      "bytes": 149308416,
+      "explain": {
+        "accesses": {
+          "byName": 155864,
+          "tested": 28627,
+          "free": 34648,
+          "testedSlotOnly": 1443,
+          "provenWithoutAnyTest": 21177
+        },
+        "dependencyAccesses": {
+          "byName": 0,
+          "tested": 0,
+          "free": 0,
+          "testedSlotOnly": 0,
+          "provenWithoutAnyTest": 0
+        },
+        "calls": {
+          "unknown": 145648,
+          "guarded": 0,
+          "proven": 15611
+        },
+        "causes": 36554
+      }
+    },
+    {
+      "variant": "aot-core",
+      "sha256": "49f601ca1668f4e3280179c4a1c9cb11db7a72f0f75cdb40d97ca71f8159423c",
+      "bytes": 207423488,
+      "explain": {
+        "accesses": {
+          "byName": 88567,
+          "tested": 46656,
+          "free": 34864,
+          "testedSlotOnly": 3017,
+          "provenWithoutAnyTest": 25556
+        },
+        "dependencyAccesses": {
+          "byName": 47115,
+          "tested": 12051,
+          "free": 13457,
+          "testedSlotOnly": 844,
+          "provenWithoutAnyTest": 6698
+        },
+        "calls": {
+          "unknown": 60732,
+          "guarded": 0,
+          "proven": 40343
+        },
+        "causes": 39135
+      }
+    },
+    {
+      "variant": "aot-medusa",
+      "sha256": "1dfd7759b1bf170cfcc05cca1f88ca347b90f026582646f1ac6c7974b647ddf8",
+      "bytes": 205342720,
+      "explain": {
+        "accesses": {
+          "byName": 87435,
+          "tested": 47032,
+          "free": 35242,
+          "testedSlotOnly": 3001,
+          "provenWithoutAnyTest": 25711
+        },
+        "dependencyAccesses": {
+          "byName": 35578,
+          "tested": 11045,
+          "free": 13946,
+          "testedSlotOnly": 811,
+          "provenWithoutAnyTest": 7641
+        },
+        "calls": {
+          "unknown": 60385,
+          "guarded": 0,
+          "proven": 40639
+        },
+        "causes": 52959
+      }
+    }
+  ],
+  "diagnostic": {
+    "profiles": [
+      {
+        "index": 2,
+        "path": "evidence/workflow-request-2.cpuprofile.gz",
+        "sha256": "af5fffc741386daba0050a3146aeb0ef6bc236950d8aa39a9a0d22e3651a28f2",
+        "rawSha256": "88fd2bc00da4479293cb2970e5dc211445d32a8e14f6c4f4cf67599e6e9c09f1",
+        "samples": 4033,
+        "spanUs": 2838201,
+        "actualTimeDeltasMicroseconds": {
+          "first": 404336,
+          "min": 125,
+          "max": 404336,
+          "median": 542,
+          "sum": 2837976
+        }
+      },
+      {
+        "index": 3,
+        "path": "evidence/workflow-request-3.cpuprofile.gz",
+        "sha256": "5e0792e32215b3f781d8ce8cb88318bd99b8f66b6780753c18ab593519c59e73",
+        "rawSha256": "4968b624a007d17ea55d23d6619aff3627395a904d1756f1193300643b8d5312",
+        "samples": 4280,
+        "spanUs": 2967954,
+        "actualTimeDeltasMicroseconds": {
+          "first": 455477,
+          "min": 118,
+          "max": 455477,
+          "median": 554,
+          "sum": 2967698
+        }
+      },
+      {
+        "index": 4,
+        "path": "evidence/workflow-request-4.cpuprofile.gz",
+        "sha256": "510af2d55efa58e025c033a906a53f7327246759a1ec8f7571cae76e62435525",
+        "rawSha256": "de024c788fa3c12225d0320a1a03d180956f93caca13913a7e2b917f446a0470",
+        "samples": 3678,
+        "spanUs": 2583144,
+        "actualTimeDeltasMicroseconds": {
+          "first": 517576,
+          "min": 122,
+          "max": 517576,
+          "median": 529,
+          "sum": 2582918
+        }
+      }
+    ],
+    "sourceMapSha256": "31ef072031160e359d361bae7640c1577bf5c3a87aa5403e1c035d950de0cae6",
+    "samples": 11991,
+    "selfSamplesByOwner": [
+      [
+        "Effect",
+        2987
+      ],
+      [
+        "(idle)",
+        2972
+      ],
+      [
+        "Persistence/Core",
+        2385
+      ],
+      [
+        "Protocol",
+        1287
+      ],
+      [
+        "Byte/utilities",
+        468
+      ],
+      [
+        "writev",
+        285
+      ],
+      [
+        "node_modules/.pnpm/sorted-btree@2.1.0/node_modules/sorted-btree/b+tree.js",
+        271
+      ],
+      [
+        "pg client",
+        254
+      ],
+      [
+        "(garbage collector)",
+        227
+      ],
+      [
+        "node:internal/encoding",
+        183
+      ],
+      [
+        "Native Medusa",
+        86
+      ],
+      [
+        "Medusa adapter",
+        76
+      ],
+      [
+        "encodeUtf8String",
+        60
+      ],
+      [
+        "node:internal/worker/js_transferable",
+        55
+      ],
+      [
+        "hrtimeBigInt",
+        35
+      ],
+      [
+        "(program)",
+        32
+      ],
+      [
+        "",
+        26
+      ],
+      [
+        "node:events",
+        23
+      ],
+      [
+        "node:internal/timers",
+        21
+      ],
+      [
+        "runMicrotasks",
+        20
+      ],
+      [
+        "node:buffer",
+        20
+      ],
+      [
+        "node:internal/stream_base_commons",
+        19
+      ],
+      [
+        "node:internal/streams/readable",
+        19
+      ],
+      [
+        "node:internal/buffer",
+        17
+      ],
+      [
+        "packages/time/src/iso-instant.ts",
+        13
+      ],
+      [
+        "node_modules/.pnpm/@noble+hashes@2.4.0/node_modules/@noble/hashes/utils.js",
+        13
+      ],
+      [
+        "node:internal/streams/writable",
+        12
+      ],
+      [
+        "node_modules/.pnpm/@noble+hashes@2.4.0/node_modules/@noble/hashes/sha2.js",
+        12
+      ],
+      [
+        "node:net",
+        11
+      ],
+      [
+        "node:internal/process/task_queues",
+        11
+      ],
+      [
+        "node:timers",
+        10
+      ],
+      [
+        "set MIMEParams",
+        6
+      ],
+      [
+        "structuredClone",
+        6
+      ],
+      [
+        "node:internal/async_hooks",
+        5
+      ],
+      [
+        "node_modules/.pnpm/bignumber.js@9.3.1/node_modules/bignumber.js/bignumber.js",
+        5
+      ],
+      [
+        "node_modules/.pnpm/@noble+hashes@2.4.0/node_modules/@noble/hashes/_md.js",
+        5
+      ],
+      [
+        "utf8Slice",
+        4
+      ],
+      [
+        "node:internal/event_target",
+        4
+      ],
+      [
+        "node:async_hooks",
+        4
+      ],
+      [
+        "node:internal/fixed_queue",
+        4
+      ],
+      [
+        "node:inspector",
+        3
+      ],
+      [
+        "node:internal/priority_queue",
+        3
+      ],
+      [
+        "dispatch",
+        3
+      ],
+      [
+        "node:internal/validators",
+        3
+      ],
+      [
+        "toggleTimerRef",
+        3
+      ],
+      [
+        "set Storage",
+        3
+      ],
+      [
+        "randomFillSync",
+        2
+      ],
+      [
+        "node_modules/.pnpm/sorted-btree@2.1.0/node_modules/sorted-btree/extended/index.js",
+        2
+      ],
+      [
+        "node:internal/per_context/domexception",
+        2
+      ],
+      [
+        "node:internal/bootstrap/node",
+        2
+      ],
+      [
+        "decodeUTF8",
+        1
+      ],
+      [
+        "ref",
+        1
+      ],
+      [
+        "node:internal/abort_controller",
+        1
+      ],
+      [
+        "getLibuvNow",
+        1
+      ],
+      [
+        "node:internal/per_context/primordials",
+        1
+      ],
+      [
+        "node:internal/async_context_frame",
+        1
+      ],
+      [
+        "node:internal/process/per_thread",
+        1
+      ],
+      [
+        "node:internal/crypto/random",
+        1
+      ],
+      [
+        "node:internal/linkedlist",
+        1
+      ],
+      [
+        "packages/analysis/src/privateSha256V1.ts",
+        1
+      ],
+      [
+        "node:internal/errors",
+        1
+      ],
+      [
+        "node:internal/util",
+        1
+      ]
+    ],
+    "selfSamplesBySource": [
+      [
+        "(idle)",
+        2972
+      ],
+      [
+        "node_modules/.pnpm/effect@4.1.4_patch_hash=085_af1e78f7f999b49da69623cb4e35277e/node_modules/effect/dist/internal/effect.js",
+        1550
+      ],
+      [
+        "node_modules/.pnpm/effect@4.1.4_patch_hash=085_af1e78f7f999b49da69623cb4e35277e/node_modules/effect/dist/Result.js",
+        483
+      ],
+      [
+        "packages/utils/src/bytes.ts",
+        443
+      ],
+      [
+        "packages/persistence-postgres/src/core/transaction.ts",
+        400
+      ],
+      [
+        "packages/flarex-protocol/src/value-runtime-core.ts",
+        331
+      ],
+      [
+        "writev",
+        285
+      ],
+      [
+        "packages/persistence-postgres/src/values/privateJsonData.ts",
+        277
+      ],
+      [
+        "node_modules/.pnpm/sorted-btree@2.1.0/node_modules/sorted-btree/b+tree.js",
+        271
+      ],
+      [
+        "node_modules/.pnpm/effect@4.1.4_patch_hash=085_af1e78f7f999b49da69623cb4e35277e/node_modules/effect/dist/Context.js",
+        264
+      ],
+      [
+        "node_modules/.pnpm/effect@4.1.4_patch_hash=085_af1e78f7f999b49da69623cb4e35277e/node_modules/effect/dist/SchemaAST.js",
+        239
+      ],
+      [
+        "(garbage collector)",
+        227
+      ],
+      [
+        "packages/flarex-protocol/src/index-key.ts",
+        211
+      ],
+      [
+        "packages/flarex-protocol/src/document-id-core.ts",
+        210
+      ],
+      [
+        "packages/persistence-postgres/src/core/writeLog.ts",
+        193
+      ],
+      [
+        "packages/flarex-protocol/src/json.ts",
+        185
+      ],
+      [
+        "node:internal/encoding",
+        183
+      ],
+      [
+        "packages/persistence-postgres/src/core/nativePolicy.ts",
+        163
+      ],
+      [
+        "node_modules/.pnpm/effect@4.1.4_patch_hash=085_af1e78f7f999b49da69623cb4e35277e/node_modules/effect/dist/internal/core.js",
+        140
+      ],
+      [
+        "packages/persistence-postgres/src/core/indexCacheSketch.ts",
+        138
+      ],
+      [
+        "packages/persistence-postgres/src/core/indexCache.ts",
+        123
+      ],
+      [
+        "packages/persistence-postgres/src/core/nativeObservations.ts",
+        111
+      ],
+      [
+        "packages/persistence-postgres/src/database/corePersistence/persistence.ts",
+        105
+      ],
+      [
+        "packages/persistence-postgres/src/core/nativeValidation.ts",
+        105
+      ],
+      [
+        "packages/flarex-protocol/src/document-value.ts",
+        102
+      ],
+      [
+        "packages/flarex-protocol/src/document-id.ts",
+        101
+      ],
+      [
+        "node_modules/.pnpm/effect@4.1.4_patch_hash=085_af1e78f7f999b49da69623cb4e35277e/node_modules/effect/dist/Function.js",
+        70
+      ],
+      [
+        "packages/flarex-protocol/src/index-range.ts",
+        70
+      ],
+      [
+        "packages/persistence-postgres/src/core/committer.ts",
+        68
+      ],
+      [
+        "packages/persistence-postgres/src/core/indexSnapshot.ts",
+        61
+      ],
+      [
+        "encodeUtf8String",
+        60
+      ],
+      [
+        "node_modules/.pnpm/pg@8.22.0/node_modules/pg/lib/result.js",
+        58
+      ],
+      [
+        "packages/persistence-postgres/src/core/protectedNativeAuthority.ts",
+        58
+      ],
+      [
+        "packages/persistence-postgres/src/core/nativeQuery.ts",
+        58
+      ],
+      [
+        "node_modules/.pnpm/pg@8.22.0/node_modules/pg/lib/utils.js",
+        56
+      ],
+      [
+        "node:internal/worker/js_transferable",
+        55
+      ],
+      [
+        "packages/persistence-postgres/src/core/registry.ts",
+        50
+      ],
+      [
+        "packages/persistence-postgres/src/core/dependencies.ts",
+        48
+      ],
+      [
+        "node_modules/.pnpm/pg-pool@3.14.0_pg@8.22.0/node_modules/pg-pool/index.js",
+        48
+      ],
+      [
+        "node_modules/.pnpm/effect@4.1.4_patch_hash=085_af1e78f7f999b49da69623cb4e35277e/node_modules/effect/dist/SchemaParser.js",
+        46
+      ],
+      [
+        "packages/flarex-protocol/src/relational-schema/values.ts",
+        46
+      ],
+      [
+        "packages/persistence-postgres/src/core/database.ts",
+        38
+      ],
+      [
+        "packages/persistence-postgres/src/values/relationalRows.ts",
+        38
+      ],
+      [
+        "hrtimeBigInt",
+        35
+      ],
+      [
+        "packages/persistence-postgres/src/core/nativeForeignKeys.ts",
+        35
+      ],
+      [
+        "node_modules/.pnpm/effect@4.1.4_patch_hash=085_af1e78f7f999b49da69623cb4e35277e/node_modules/effect/dist/Schema.js",
+        32
+      ],
+      [
+        "(program)",
+        32
+      ],
+      [
+        "node_modules/.pnpm/effect@4.1.4_patch_hash=085_af1e78f7f999b49da69623cb4e35277e/node_modules/effect/dist/Predicate.js",
+        27
+      ],
+      [
+        "packages/persistence-postgres/src/database/corePersistence/driver.ts",
+        26
+      ],
+      [
+        "node_modules/.pnpm/effect@4.1.4_patch_hash=085_af1e78f7f999b49da69623cb4e35277e/node_modules/effect/dist/internal/record.js",
+        26
+      ],
+      [
+        "",
+        26
+      ],
+      [
+        "packages/persistence-postgres/src/core/document.ts",
+        25
+      ],
+      [
+        "packages/medusa-workflows-sdk/src/resolution.ts",
+        25
+      ],
+      [
+        "packages/persistence-postgres/src/core/documentIndex.ts",
+        24
+      ],
+      [
+        "packages/utils/src/numbers.ts",
+        23
+      ],
+      [
+        "node_modules/.pnpm/pg@8.22.0/node_modules/pg/lib/client.js",
+        23
+      ],
+      [
+        "node:events",
+        23
+      ],
+      [
+        "packages/persistence-postgres/src/core/schemaModel.ts",
+        23
+      ],
+      [
+        "packages/persistence-postgres/src/values/relationalQuery.ts",
+        22
+      ],
+      [
+        "node:internal/timers",
+        21
+      ],
+      [
+        "node_modules/.pnpm/effect@4.1.4_patch_hash=085_af1e78f7f999b49da69623cb4e35277e/node_modules/effect/dist/Pipeable.js",
+        21
+      ],
+      [
+        "runMicrotasks",
+        20
+      ],
+      [
+        "node:buffer",
+        20
+      ],
+      [
+        "node:internal/stream_base_commons",
+        19
+      ],
+      [
+        "node:internal/streams/readable",
+        19
+      ],
+      [
+        "node_modules/.pnpm/effect@4.1.4_patch_hash=085_af1e78f7f999b49da69623cb4e35277e/node_modules/effect/dist/internal/schema/interpreter.js",
+        18
+      ],
+      [
+        "packages/persistence-postgres/src/core/schemaRegistry.ts",
+        17
+      ],
+      [
+        "node_modules/.pnpm/pg@8.22.0/node_modules/pg/lib/query.js",
+        17
+      ],
+      [
+        "node:internal/buffer",
+        17
+      ],
+      [
+        "node_modules/.pnpm/effect@4.1.4_patch_hash=085_af1e78f7f999b49da69623cb4e35277e/node_modules/effect/dist/Utils.js",
+        16
+      ],
+      [
+        "packages/medusa-orchestration/dist/joiner/helpers.js",
+        16
+      ],
+      [
+        "packages/persistence-postgres/src/core/indexCacheIntervals.ts",
+        15
+      ],
+      [
+        "packages/flarex-protocol/src/validator-engine-core.ts",
+        15
+      ],
+      [
+        "packages/persistence-postgres/src/core/nativeKeyProbe.ts",
+        15
+      ],
+      [
+        "packages/flarex-protocol/src/decoded-protocol-snapshot.ts",
+        14
+      ],
+      [
+        "node_modules/.pnpm/pg-protocol@1.15.0/node_modules/pg-protocol/dist/buffer-writer.js",
+        13
+      ],
+      [
+        "packages/persistence-postgres/src/execution/preparation/boundedRequestLifetime.ts",
+        13
+      ],
+      [
+        "packages/time/src/iso-instant.ts",
+        13
+      ],
+      [
+        "node_modules/.pnpm/@noble+hashes@2.4.0/node_modules/@noble/hashes/utils.js",
+        13
+      ],
+      [
+        "packages/persistence-postgres/src/core/nativeActivity.ts",
+        12
+      ],
+      [
+        "node:internal/streams/writable",
+        12
+      ],
+      [
+        "node_modules/.pnpm/@noble+hashes@2.4.0/node_modules/@noble/hashes/sha2.js",
+        12
+      ],
+      [
+        "packages/persistence-postgres/src/core/schemaBundle.ts",
+        11
+      ],
+      [
+        "node:net",
+        11
+      ],
+      [
+        "node_modules/.pnpm/pg-protocol@1.15.0/node_modules/pg-protocol/dist/serializer.js",
+        11
+      ],
+      [
+        "node:internal/process/task_queues",
+        11
+      ],
+      [
+        "node_modules/.pnpm/pg-protocol@1.15.0/node_modules/pg-protocol/dist/parser.js",
+        11
+      ],
+      [
+        "node:timers",
+        10
+      ],
+      [
+        "packages/medusa-adapter/src/module/promise-owner.ts",
+        10
+      ],
+      [
+        "packages/persistence-postgres/src/core/indexCachePolicy.ts",
+        10
+      ],
+      [
+        "node_modules/.pnpm/pg-protocol@1.15.0/node_modules/pg-protocol/dist/index.js",
+        9
+      ],
+      [
+        "packages/medusa-adapter/src/query/relations.ts",
+        9
+      ],
+      [
+        "packages/persistence-postgres/src/frameworks/commerceTransaction/nativeActivity.ts",
+        9
+      ],
+      [
+        "packages/persistence-postgres/src/core/nativeRelationalQuery.ts",
+        8
+      ],
+      [
+        "node_modules/.pnpm/effect@4.1.4_patch_hash=085_af1e78f7f999b49da69623cb4e35277e/node_modules/effect/dist/Order.js",
+        8
+      ],
+      [
+        "packages/medusa-adapter/src/write/replace.ts",
+        8
+      ],
+      [
+        "packages/persistence-postgres/src/frameworks/atomicCommerce/nativeExecution.ts",
+        7
+      ],
+      [
+        "node_modules/.pnpm/effect@4.1.4_patch_hash=085_af1e78f7f999b49da69623cb4e35277e/node_modules/effect/dist/internal/schema/compilerRegistry.js",
+        7
+      ],
+      [
+        "packages/medusa-orchestration/dist/joiner/remote-joiner.js",
+        7
+      ],
+      [
+        "packages/persistence-postgres/src/database/postgresClientLifetime.ts",
+        7
+      ],
+      [
+        "node_modules/.pnpm/effect@4.1.4_patch_hash=085_af1e78f7f999b49da69623cb4e35277e/node_modules/effect/dist/internal/result.js",
+        7
+      ],
+      [
+        "packages/medusa-workflows-sdk/src/runtime.ts",
+        7
+      ],
+      [
+        "packages/persistence-postgres/src/core/tableCounts.ts",
+        6
+      ],
+      [
+        "set MIMEParams",
+        6
+      ],
+      [
+        "node_modules/.pnpm/effect@4.1.4_patch_hash=085_af1e78f7f999b49da69623cb4e35277e/node_modules/effect/dist/internal/schema/parser.js",
+        6
+      ],
+      [
+        "packages/persistence-postgres/src/frameworks/commerceTransaction/nativeStore.ts",
+        6
+      ],
+      [
+        "structuredClone",
+        6
+      ],
+      [
+        "packages/persistence-postgres/src/commit/events/coreStore.ts",
+        6
+      ],
+      [
+        "node:internal/async_hooks",
+        5
+      ],
+      [
+        "packages/persistence-postgres/src/core/query.ts",
+        5
+      ],
+      [
+        "packages/medusa-utils/dist/event-bus/message-aggregator.js",
+        5
+      ],
+      [
+        "packages/persistence-postgres/src/core/residentIndex.ts",
+        5
+      ],
+      [
+        "packages/persistence-postgres/src/frameworks/atomicCommerce/events.ts",
+        5
+      ],
+      [
+        "packages/medusa-adapter/src/query/projection.ts",
+        5
+      ],
+      [
+        "node_modules/.pnpm/bignumber.js@9.3.1/node_modules/bignumber.js/bignumber.js",
+        5
+      ],
+      [
+        "packages/persistence-postgres/src/commit/events/digest.ts",
+        5
+      ],
+      [
+        "packages/persistence-postgres/src/core/retention.ts",
+        5
+      ],
+      [
+        "node_modules/.pnpm/effect@4.1.4_patch_hash=085_af1e78f7f999b49da69623cb4e35277e/node_modules/effect/dist/Queue.js",
+        5
+      ],
+      [
+        "node_modules/.pnpm/@noble+hashes@2.4.0/node_modules/@noble/hashes/_md.js",
+        5
+      ],
+      [
+        "utf8Slice",
+        4
+      ],
+      [
+        "packages/medusa-adapter/src/write/create.ts",
+        4
+      ],
+      [
+        "node_modules/.pnpm/effect@4.1.4_patch_hash=085_af1e78f7f999b49da69623cb4e35277e/node_modules/effect/dist/Tracer.js",
+        4
+      ],
+      [
+        "node:internal/event_target",
+        4
+      ],
+      [
+        "packages/medusa-adapter/src/workflow/binding.ts",
+        4
+      ],
+      [
+        "packages/medusa-adapter/src/workflow/value.ts",
+        4
+      ],
+      [
+        "node:async_hooks",
+        4
+      ],
+      [
+        "node:internal/fixed_queue",
+        4
+      ],
+      [
+        "node_modules/.pnpm/pg@8.22.0/node_modules/pg/lib/connection.js",
+        4
+      ],
+      [
+        "node:inspector",
+        3
+      ],
+      [
+        "packages/medusa-drizzle/dist/mutation-events.js",
+        3
+      ],
+      [
+        "node:internal/priority_queue",
+        3
+      ],
+      [
+        "packages/persistence-postgres/src/frameworks/commerceTransaction/context.ts",
+        3
+      ],
+      [
+        "packages/persistence-postgres/src/frameworks/atomicCommerce/nativeHost.ts",
+        3
+      ],
+      [
+        "node_modules/.pnpm/pg-protocol@1.15.0/node_modules/pg-protocol/dist/buffer-reader.js",
+        3
+      ],
+      [
+        "packages/persistence-postgres/src/core/nativeIntegrityBudget.ts",
+        3
+      ],
+      [
+        "dispatch",
+        3
+      ],
+      [
+        "node_modules/.pnpm/effect@4.1.4_patch_hash=085_af1e78f7f999b49da69623cb4e35277e/node_modules/effect/dist/Semaphore.js",
+        3
+      ],
+      [
+        "node:internal/validators",
+        3
+      ],
+      [
+        "node_modules/.pnpm/effect@4.1.4_patch_hash=085_af1e78f7f999b49da69623cb4e35277e/node_modules/effect/dist/internal/stackTraceLimit.js",
+        3
+      ],
+      [
+        "toggleTimerRef",
+        3
+      ],
+      [
+        "set Storage",
+        3
+      ],
+      [
+        "packages/medusa-drizzle/dist/relation-query.js",
+        2
+      ],
+      [
+        "packages/medusa-adapter/src/modules/product/value-profile.ts",
+        2
+      ],
+      [
+        "randomFillSync",
+        2
+      ],
+      [
+        "packages/persistence-postgres/src/core/chacha12.ts",
+        2
+      ],
+      [
+        "packages/medusa-modules-sdk/dist/link.js",
+        2
+      ],
+      [
+        "packages/medusa-link-modules/dist/services/link-module-service.js",
+        2
+      ],
+      [
+        "packages/medusa-product/dist/services/product-module-service.js",
+        2
+      ],
+      [
+        "packages/medusa-adapter/src/modules/product/service.ts",
+        2
+      ],
+      [
+        "packages/medusa-adapter/src/module/definition.ts",
+        2
+      ],
+      [
+        "node_modules/.pnpm/sorted-btree@2.1.0/node_modules/sorted-btree/extended/index.js",
+        2
+      ],
+      [
+        "packages/persistence-postgres/src/execution/diagnostics/operation.ts",
+        2
+      ],
+      [
+        "packages/medusa-adapter/src/value/input.ts",
+        2
+      ],
+      [
+        "node_modules/.pnpm/effect@4.1.4_patch_hash=085_af1e78f7f999b49da69623cb4e35277e/node_modules/effect/dist/Scheduler.js",
+        2
+      ],
+      [
+        "packages/persistence-postgres/src/core/transactionIdGenerator.ts",
+        2
+      ],
+      [
+        "packages/persistence-postgres/src/core/nativeTableAccess.ts",
+        2
+      ],
+      [
+        "node_modules/.pnpm/effect@4.1.4_patch_hash=085_af1e78f7f999b49da69623cb4e35277e/node_modules/effect/dist/SchemaIssue.js",
+        2
+      ],
+      [
+        "packages/medusa-utils/dist/modules-sdk/medusa-internal-service.js",
+        2
+      ],
+      [
+        "packages/medusa-utils/dist/common/generate-entity-id.js",
+        2
+      ],
+      [
+        "node:internal/per_context/domexception",
+        2
+      ],
+      [
+        "packages/medusa-adapter/src/module/service-bridge.ts",
+        2
+      ],
+      [
+        "packages/medusa-adapter/src/query/predicate.ts",
+        2
+      ],
+      [
+        "node_modules/.pnpm/effect@4.1.4_patch_hash=085_af1e78f7f999b49da69623cb4e35277e/node_modules/effect/dist/internal/schema/cause.js",
+        2
+      ],
+      [
+        "packages/medusa-utils/dist/modules-sdk/decorators/inject-manager.js",
+        2
+      ],
+      [
+        "node:internal/bootstrap/node",
+        2
+      ],
+      [
+        "node_modules/.pnpm/effect@4.1.4_patch_hash=085_af1e78f7f999b49da69623cb4e35277e/node_modules/effect/dist/internal/option.js",
+        2
+      ],
+      [
+        "packages/persistence-postgres/src/core/accounting.ts",
+        2
+      ],
+      [
+        "packages/medusa-adapter/src/modules/product/graph-profile.ts",
+        2
+      ],
+      [
+        "decodeUTF8",
+        1
+      ],
+      [
+        "packages/persistence-postgres/src/installation/frameworkSchema/privateCanonicalValue.ts",
+        1
+      ],
+      [
+        "packages/medusa-adapter/src/links/product-resource.ts",
+        1
+      ],
+      [
+        "ref",
+        1
+      ],
+      [
+        "packages/persistence-postgres/src/database/corePersistence/physicalLayout.ts",
+        1
+      ],
+      [
+        "packages/persistence-postgres/src/core/indexRegistry.ts",
+        1
+      ],
+      [
+        "packages/medusa-utils/dist/modules-sdk/medusa-service.js",
+        1
+      ],
+      [
+        "packages/medusa-adapter/src/links/workflow-service.ts",
+        1
+      ],
+      [
+        "node:internal/abort_controller",
+        1
+      ],
+      [
+        "packages/medusa-adapter/src/modules/product/repository.ts",
+        1
+      ],
+      [
+        "packages/medusa-adapter/src/local-graph/native-registry.ts",
+        1
+      ],
+      [
+        "packages/medusa-adapter/src/repository/scalar.ts",
+        1
+      ],
+      [
+        "packages/medusa-adapter/src/repository/scalar-create-receipt.ts",
+        1
+      ],
+      [
+        "packages/medusa-adapter/src/value/checked.ts",
+        1
+      ],
+      [
+        "packages/medusa-adapter/src/modules/inventory/service.ts",
+        1
+      ],
+      [
+        "packages/medusa-adapter/src/links/service.ts",
+        1
+      ],
+      [
+        "packages/persistence-postgres/src/values/jsonOutcome.ts",
+        1
+      ],
+      [
+        "getLibuvNow",
+        1
+      ],
+      [
+        "node_modules/.pnpm/effect@4.1.4_patch_hash=085_af1e78f7f999b49da69623cb4e35277e/node_modules/effect/dist/Option.js",
+        1
+      ],
+      [
+        "packages/flarex-protocol/src/postgres-bigint.ts",
+        1
+      ],
+      [
+        "node_modules/.pnpm/effect@4.1.4_patch_hash=085_af1e78f7f999b49da69623cb4e35277e/node_modules/effect/dist/internal/tracer.js",
+        1
+      ],
+      [
+        "packages/persistence-postgres/src/core/nativePolicyTypes.ts",
+        1
+      ],
+      [
+        "node_modules/.pnpm/effect@4.1.4_patch_hash=085_af1e78f7f999b49da69623cb4e35277e/node_modules/effect/dist/Channel.js",
+        1
+      ],
+      [
+        "packages/persistence-postgres/src/core/nativeProtectedReferences.ts",
+        1
+      ],
+      [
+        "packages/medusa-utils/dist/modules-sdk/build-query.js",
+        1
+      ],
+      [
+        "node_modules/.pnpm/effect@4.1.4_patch_hash=085_af1e78f7f999b49da69623cb4e35277e/node_modules/effect/dist/schema/SchemaCompiler/runtime.js",
+        1
+      ],
+      [
+        "node_modules/.pnpm/pg-types@2.2.0/node_modules/pg-types/index.js",
+        1
+      ],
+      [
+        "packages/medusa-utils/dist/common/to-kebab-case.js",
+        1
+      ],
+      [
+        "packages/medusa-adapter/src/modules/product/events/product.ts",
+        1
+      ],
+      [
+        "packages/medusa-adapter/src/modules/product/events/capture.ts",
+        1
+      ],
+      [
+        "packages/medusa-core-flows/src/common/steps/create-remote-links.ts",
+        1
+      ],
+      [
+        "packages/medusa-adapter/src/query/read.ts",
+        1
+      ],
+      [
+        "packages/medusa-adapter/src/modules/inventory/events.ts",
+        1
+      ],
+      [
+        "node:internal/per_context/primordials",
+        1
+      ],
+      [
+        "packages/flarex-protocol/src/exact-decimal.ts",
+        1
+      ],
+      [
+        "packages/medusa-utils/dist/totals/big-number.js",
+        1
+      ],
+      [
+        "packages/medusa-adapter/src/workflow/runtime.ts",
+        1
+      ],
+      [
+        "packages/persistence-postgres/src/core/schemaTypes.ts",
+        1
+      ],
+      [
+        "node:internal/async_context_frame",
+        1
+      ],
+      [
+        "packages/medusa-utils/dist/modules-sdk/build-models-name-to-linkable-keys-map.js",
+        1
+      ],
+      [
+        "node:internal/process/per_thread",
+        1
+      ],
+      [
+        "packages/persistence-postgres/src/core/document.schema-aot.generated.mjs",
+        1
+      ],
+      [
+        "packages/utils/src/records.ts",
+        1
+      ],
+      [
+        "packages/persistence-postgres/src/core/indexState.ts",
+        1
+      ],
+      [
+        "node:internal/crypto/random",
+        1
+      ],
+      [
+        "packages/medusa-adapter/src/links/events.ts",
+        1
+      ],
+      [
+        "packages/medusa-adapter/src/modules/product/value-schemas.schema-aot.generated.mjs",
+        1
+      ],
+      [
+        "packages/medusa-product/dist/services/product-category.js",
+        1
+      ],
+      [
+        "packages/medusa-core-flows/src/inventory/steps/validate-inventory-items.ts",
+        1
+      ],
+      [
+        "packages/medusa-adapter/src/workflow/host.ts",
+        1
+      ],
+      [
+        "packages/medusa-core-flows/src/inventory/steps/validate-inventory-locations.ts",
+        1
+      ],
+      [
+        "node:internal/linkedlist",
+        1
+      ],
+      [
+        "packages/medusa-adapter/src/repository/context.ts",
+        1
+      ],
+      [
+        "packages/persistence-postgres/src/core/schemaTableName.ts",
+        1
+      ],
+      [
+        "packages/analysis/src/privateSha256V1.ts",
+        1
+      ],
+      [
+        "node:internal/errors",
+        1
+      ],
+      [
+        "packages/utils/src/strings.ts",
+        1
+      ],
+      [
+        "node:internal/util",
+        1
+      ]
+    ],
+    "topProjectSelfFrames": [
+      {
+        "source": "packages/persistence-postgres/src/values/privateJsonData.ts",
+        "name": "visit",
+        "line": 128,
+        "samples": 234
+      },
+      {
+        "source": "packages/utils/src/bytes.ts",
+        "name": "encodeBytesToLowercaseHex",
+        "line": 73,
+        "samples": 218
+      },
+      {
+        "source": "packages/flarex-protocol/src/document-id-core.ts",
+        "name": "decodeCanonicalDocumentIdParts",
+        "line": 58,
+        "samples": 156
+      },
+      {
+        "source": "packages/utils/src/bytes.ts",
+        "name": "compareBytesLexicographically",
+        "line": 85,
+        "samples": 106
+      },
+      {
+        "source": "packages/persistence-postgres/src/core/writeLog.ts",
+        "name": "add",
+        "line": 50,
+        "samples": 90
+      },
+      {
+        "source": "packages/persistence-postgres/src/core/nativeValidation.ts",
+        "name": "",
+        "line": 67,
+        "samples": 89
+      },
+      {
+        "source": "packages/flarex-protocol/src/index-key.ts",
+        "name": "",
+        "line": 42,
+        "samples": 88
+      },
+      {
+        "source": "packages/flarex-protocol/src/value-runtime-core.ts",
+        "name": "defineFrozenProperty",
+        "line": 583,
+        "samples": 73
+      },
+      {
+        "source": "packages/persistence-postgres/src/database/corePersistence/persistence.ts",
+        "name": "withSpan2.captureStackTrace",
+        "line": 244,
+        "samples": 63
+      },
+      {
+        "source": "packages/flarex-protocol/src/index-key.ts",
+        "name": "encodeCapturedIndexValue",
+        "line": 30,
+        "samples": 63
+      },
+      {
+        "source": "packages/persistence-postgres/src/core/transaction.ts",
+        "name": "",
+        "line": 766,
+        "samples": 59
+      },
+      {
+        "source": "packages/utils/src/bytes.ts",
+        "name": "bytesEqual",
+        "line": 98,
+        "samples": 58
+      },
+      {
+        "source": "packages/utils/src/bytes.ts",
+        "name": "copyBytes",
+        "line": 18,
+        "samples": 55
+      },
+      {
+        "source": "packages/persistence-postgres/src/core/indexCacheSketch.ts",
+        "name": "rotate",
+        "line": 16,
+        "samples": 54
+      },
+      {
+        "source": "packages/flarex-protocol/src/json.ts",
+        "name": "measureCanonicalJsonUtf8Bytes",
+        "line": 198,
+        "samples": 53
+      },
+      {
+        "source": "packages/persistence-postgres/src/core/nativePolicy.ts",
+        "name": "nativeIndexSpecificationKey",
+        "line": 639,
+        "samples": 52
+      },
+      {
+        "source": "packages/flarex-protocol/src/document-id-core.ts",
+        "name": "encodeCanonicalDocumentId",
+        "line": 26,
+        "samples": 50
+      },
+      {
+        "source": "packages/flarex-protocol/src/value-runtime-core.ts",
+        "name": "",
+        "line": 370,
+        "samples": 46
+      },
+      {
+        "source": "packages/flarex-protocol/src/index-range.ts",
+        "name": "",
+        "line": 109,
+        "samples": 46
+      },
+      {
+        "source": "packages/persistence-postgres/src/core/indexCacheSketch.ts",
+        "name": "hashCoreIndexPageKey",
+        "line": 21,
+        "samples": 46
+      },
+      {
+        "source": "packages/persistence-postgres/src/core/indexCache.ts",
+        "name": "",
+        "line": 142,
+        "samples": 45
+      },
+      {
+        "source": "packages/flarex-protocol/src/value-runtime-core.ts",
+        "name": "enumerableDataProperties",
+        "line": 400,
+        "samples": 45
+      },
+      {
+        "source": "packages/persistence-postgres/src/core/nativePolicy.ts",
+        "name": "",
+        "line": 545,
+        "samples": 39
+      },
+      {
+        "source": "packages/flarex-protocol/src/value-runtime-core.ts",
+        "name": "assertWellFormedUnicode",
+        "line": 473,
+        "samples": 37
+      },
+      {
+        "source": "packages/flarex-protocol/src/json.ts",
+        "name": "measureCanonicalJsonString",
+        "line": 399,
+        "samples": 36
+      },
+      {
+        "source": "packages/persistence-postgres/src/core/transaction.ts",
+        "name": "",
+        "line": 2878,
+        "samples": 36
+      },
+      {
+        "source": "packages/persistence-postgres/src/core/indexCacheSketch.ts",
+        "name": "round",
+        "line": 28,
+        "samples": 35
+      },
+      {
+        "source": "packages/persistence-postgres/src/core/registry.ts",
+        "name": "coreQualifiedTableKey",
+        "line": 64,
+        "samples": 34
+      },
+      {
+        "source": "packages/flarex-protocol/src/document-value.ts",
+        "name": "toJson2",
+        "line": 135,
+        "samples": 33
+      },
+      {
+        "source": "packages/persistence-postgres/src/core/nativePolicy.ts",
+        "name": "",
+        "line": 602,
+        "samples": 31
+      }
+    ],
+    "limitations": [
+      "Node-only request diagnostics, collected separately from quiet cohorts.",
+      "Self counts are samples, not exclusive CPU durations. Profile starts before the request timer; large initial deltas include profiler startup.",
+      "Actual sampling intervals differ from the requested 100 us; no SQL-wait subtraction or Bun CPU attribution."
+    ]
+  },
+  "evidence": {
+    "path": "evidence/product-workflow.windows-x64.json.gz",
+    "sha256": "a55d329c2362600f74e70f6a98657f23899241e0070e64997159aad13b428a0d",
+    "uncompressedSha256": "f55c4a02d2a2a5088abbab239d2ede54a66ac306142cfd4635ad53713eaa6e20",
+    "bytes": 447408
+  },
+  "limits": [
+    "Two independent workers and 60 measured requests per route and graph; all rows retained.",
+    "Client CPU excludes PostgreSQL server CPU; host-wide idle/frequency telemetry was not collected.",
+    "Bun source versus JS changes transforms/module boundaries as well as type information.",
+    "Full four-Product CPU is essentially level with Node; Bun median latency is higher. No production/native-relative/scale acceptance."
+  ]
+}

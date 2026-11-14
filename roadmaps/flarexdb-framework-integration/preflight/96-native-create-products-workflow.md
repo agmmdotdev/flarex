@@ -6,7 +6,9 @@ Status: approved and implemented bounded private admission. The user approved
 the complete root and separately approved its 128-event allowance after the
 maximum graph exceeded 64 events. The admitted outcome executes the pinned native
 `createProductsWorkflow`, including its complete variant child, through one
-existing trusted settlement owner. Performance optimization remains paused.
+existing trusted settlement owner. The current bounded
+[Product workflow CPU experiment](../../../packages/executor/benchmarks/core-aot/PRODUCT-WORKFLOW.md)
+measures this admitted root; broader performance acceptance remains separate.
 
 This admits a bounded complete business graph, not arbitrary Medusa DTOs,
 administrative APIs, hosted activation or the rest of Fulfillment/Inventory.
@@ -161,12 +163,18 @@ requires its own witness/disposition before dependent work continues.
   Validate the full native result before any public projection; preserve Product
   order, empty variant arrays and returned variant prices/defaults.
 
-The complete default-Inventory maximum graph, including four pending Link-family
-hook reads, consumes 282 bounded calls. Its named `productCreationResources`
+The complete default-Inventory maximum graph includes four pending Link-family
+hook reads in its conformance witness. Its named `productCreationResources`
 selects 512 calls and the separately approved 128 events through the existing
-trusted identity-bound APIs. Smaller 256-call and 64-event allowances retain
-whole-root rollback witnesses. Existing profiles and all other byte/row/fact/time
-limits remain intact. This is capacity admission, not performance tuning.
+trusted identity-bound APIs. Calls cap actual owner-charged work; an earlier
+282-call observation is not a minimum work requirement. The no-hook budget case
+measures its charged work through the existing owner diagnostic and checks
+whole-root rollback one call below that boundary. The smaller 64-event witness
+also retains whole-root rollback. Existing profiles and all other byte/row/fact/time
+limits remain intact. Empty Stock Location validation is observed at the native
+`Query.graph` boundary with `id: []`, matching the executing fork and its required
+installed graph participant; it need not invoke a public Stock Location service
+method. This is capacity admission, not performance tuning.
 
 The existing shared publisher uses three bounded acceptance/materialization
 packet pairs for this 116-row graph, under one settlement, commit and durable

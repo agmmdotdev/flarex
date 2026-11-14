@@ -6,11 +6,12 @@ import { parseArgs } from "node:util";
 import { readRuntimeSources } from "./runtime-sources.mjs";
 
 const { values, positionals } = parseArgs({ allowPositionals: true,
-  options: { "runtime-source-revision": { type: "string" } } });
+  options: { "runtime-source-revision": { type: "string" }, scenario: { type: "string", default: "mixed-product" } } });
 const [mode, output] = positionals;
 assert.equal(positionals.length, 2);
 assert(mode === "interpreter" || mode === "generated");
 assert(output !== undefined);
+assert(["mixed-product", "product-workflow"].includes(values.scenario));
 await mkdir(resolve(output), { recursive: true });
 const bypass = { name: "schema-interpreter-control", setup(build) {
   build.onLoad({ filter: /\.schema-aot\.generated\.mjs$/ }, () => ({ contents: "export function install() {}", loader: "js" }));
@@ -25,11 +26,11 @@ const override = { name: "fixed-runtime-source-control", setup(build) {
     if (contents !== undefined) return { contents, loader: "ts", resolveDir: dirname(args.path) };
   });
 } };
-const built = await Bun.build({ entrypoints: [fileURLToPath(new URL("./worker.ts", import.meta.url))],
+const built = await Bun.build({ entrypoints: [fileURLToPath(new URL(values.scenario === "mixed-product" ? "./worker.ts" : "./workflow-worker.ts", import.meta.url))],
   // Native Medusa entrypoints use their existing built legacy-decorator output,
   // as the direct performance harness does. The Core imports remain real source.
   target: "node", format: "esm", outdir: resolve(output),
-  naming: `mixed-product-${mode}.mjs`, sourcemap: "external",
+  naming: `${values.scenario}-${mode}.mjs`, sourcemap: "external",
   plugins: [...(source === undefined ? [] : [override]), ...(mode === "interpreter" ? [bypass] : [])] });
 assert(built.success, built.logs.join("\n"));
 console.log(JSON.stringify({ mode, ...(source === undefined ? {} : {

@@ -16,6 +16,7 @@ const { values } = parseArgs({ options: {
   rounds: { type: "string", default: "2" }, samples: { type: "string", default: "30" },
   warmups: { type: "string", default: "5" }, "build-only": { type: "boolean", default: false },
   profile: { type: "boolean", default: false },
+  scenario: { type: "string", default: "mixed-product" }, products: { type: "string" },
   "runtime-source-revision": { type: "string" },
 } });
 const rounds = Number(values.rounds), samples = Number(values.samples), warmups = Number(values.warmups);
@@ -23,6 +24,10 @@ assert(Number.isSafeInteger(rounds) && rounds > 0 && rounds <= 20);
 assert(Number.isSafeInteger(samples) && samples > 0 && Number.isSafeInteger(warmups) && warmups >= 0 && samples + warmups <= 105);
 assert(["both", "generated", "interpreter"].includes(values.mode));
 assert(["both", "node", "bun-aot"].includes(values.runtime));
+assert(["mixed-product", "product-workflow"].includes(values.scenario));
+const products = Number(values.products ?? "1");
+assert(products === 1 || products === 4);
+assert(values.products === undefined || values.scenario === "product-workflow", "--products requires --scenario product-workflow");
 assert(!values.profile || values.runtime === "node", "--profile requires --runtime node and is diagnostic only");
 assert(values.assets === undefined || values["runtime-source-revision"] === undefined,
   "--assets already fixes runtime sources; --runtime-source-revision applies only to a new build");
@@ -50,6 +55,7 @@ function assertChild(child, name) {
 // Keep this build-only metadata out of the worker module graph: the historical
 // worker contract and frozen request bytes remain unchanged by this control.
 const decodeManifest = Schema.decodeUnknownSync(Schema.Struct({ ...RequestBuildManifest.fields,
+  scenario: Schema.optionalKey(Schema.Literal("product-workflow")),
   runtimeSource: Schema.optionalKey(Schema.Struct({ revision: Schema.String,
     files: Schema.Array(Schema.Struct({ path: Schema.String, sha256: Schema.String })) })),
 }));
@@ -61,18 +67,20 @@ if (values.assets !== undefined) {
   manifest = { sourceRevision: execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim(),
     gitStatus: execFileSync("git", ["status", "--porcelain"], { cwd: root, encoding: "utf8" }),
     nodeVersion: process.version, bunVersion: execFileSync(values.bun, ["--version"], { encoding: "utf8", windowsHide: true }).trim(), builds: [],
+    ...(values.scenario === "product-workflow" ? { scenario: values.scenario } : {}),
     ...(source === undefined ? {} : { runtimeSource: { revision: source.revision,
       files: source.files.map(({ path, sha256 }) => ({ path, sha256 })) } }) };
   for (const mode of modes) {
     const bundled = execute(values.bun, [resolve(directory, "build.mjs"), mode, assets,
+      "--scenario", values.scenario,
       ...(source === undefined ? [] : ["--runtime-source-revision", source.revision])], `build-${mode}-bundle`);
     assertChild(bundled.child, `build-${mode}-bundle`);
-    const bundleName = `mixed-product-${mode}.mjs`, bundle = resolve(assets, bundleName);
+    const bundleName = `${values.scenario}-${mode}.mjs`, bundle = resolve(assets, bundleName);
     const bundleSha256 = hash(bundle), sourceMapSha256 = hash(`${bundle}.map`);
     manifest.builds.push({ mode, runtime: "node", artifact: bundleName, sha256: bundleSha256,
       bundleSha256, sourceMapSha256, bytes: statSync(bundle).size });
     if (runtimes.includes("bun-aot")) {
-      const executableName = `mixed-product-${mode}-aot${process.platform === "win32" ? ".exe" : ""}`;
+      const executableName = `${values.scenario}-${mode}-aot${process.platform === "win32" ? ".exe" : ""}`;
       const target = resolve(assets, executableName);
       const flags = ["build", "--compile", "--aot", "--explain=json", "--no-compile-autoload-dotenv",
         "--no-compile-autoload-bunfig", bundle, "--outfile", target];
@@ -85,6 +93,7 @@ if (values.assets !== undefined) {
     console.log(`Built ${mode} frozen graph`);
   }
 }
+assert.equal(manifest.scenario ?? "mixed-product", values.scenario, "Frozen assets belong to a different scenario");
 if (manifest.runtimeSource !== undefined) {
   assert.deepEqual(manifest.runtimeSource.files.map(file => file.path), runtimeSourcePaths,
     "Runtime source overrides must be the fixed owned edit set");
@@ -96,8 +105,8 @@ for (const mode of modes) for (const runtime of runtimes) {
   assert.equal(build.artifact, basename(build.artifact), "Build artifact must be a local filename");
   const artifact = resolve(assets, build.artifact);
   assert.equal(hash(artifact), build.sha256, "Frozen artifact hash changed");
-  assert.equal(hash(resolve(assets, `mixed-product-${mode}.mjs`)), build.bundleSha256, "Frozen bundle hash changed");
-  assert.equal(hash(resolve(assets, `mixed-product-${mode}.mjs.map`)), build.sourceMapSha256, "Frozen source map hash changed");
+  assert.equal(hash(resolve(assets, `${values.scenario}-${mode}.mjs`)), build.bundleSha256, "Frozen bundle hash changed");
+  assert.equal(hash(resolve(assets, `${values.scenario}-${mode}.mjs.map`)), build.sourceMapSha256, "Frozen source map hash changed");
   jobs.push({ mode, runtime, artifact, artifactSha256: build.sha256, bundleSha256: build.bundleSha256 });
 }
 writeFileSync(resolve(output, "builds.json"), JSON.stringify(manifest, null, 2));
@@ -107,7 +116,8 @@ if (values["build-only"]) {
 }
 assert(process.env.FLAREX_POSTGRES_DATABASE_URL && process.env.FLAREX_POSTGRES_PROVISIONING_DATABASE_URL,
   "Both ordinary and provisioning PostgreSQL endpoints are required");
-const decodeWorker = Schema.decodeUnknownSync(RequestWorkerResult);
+const decodeWorker = Schema.decodeUnknownSync(values.scenario === "mixed-product" ? RequestWorkerResult
+  : (await import("./workflow-contract.ts")).WorkflowWorkerResult);
 const runs = [];
 let serverReference;
 for (let round = 0; round < rounds; round++) {
@@ -115,7 +125,8 @@ for (let round = 0; round < rounds; round++) {
   for (const job of ordered) {
     const name = `${job.mode}-${job.runtime}-${round}`;
     const profileArgs = values.profile ? ["--profile-dir", resolve(output, `profiles-${name}`)] : [];
-    const args = ["--samples", String(samples), "--warmups", String(warmups), ...profileArgs];
+    const args = ["--samples", String(samples), "--warmups", String(warmups),
+      ...(values.scenario === "product-workflow" ? ["--products", String(products)] : []), ...profileArgs];
     const executed = job.runtime === "node" ? execute(process.execPath, [job.artifact, ...args], name) : execute(job.artifact, args, name);
     // Retain failed/partial raw output before checking child completion or its contract.
     assertChild(executed.child, name);
@@ -123,6 +134,7 @@ for (let round = 0; round < rounds; round++) {
     assert.equal(result.status, "passed"); assert.equal(result.disposed, true);
     assert.equal(result.samples, samples); assert.equal(result.warmups, warmups);
     assert.equal(result.measurementMode, values.profile ? "cpu-diagnostic" : "quiet");
+    if (values.scenario === "product-workflow") { assert.equal(result.productsPerRequest, products); assert.equal(result.publicationVerified, true); }
     assert.equal(result.measurements.length, samples + warmups);
     for (let index = 0; index < result.measurements.length; index++) {
       const row = result.measurements[index];
@@ -151,13 +163,15 @@ const summary = jobs.map(job => {
     minWallMs: Math.min(...wall), maxWallMs: Math.max(...wall) };
 });
 const report = { manifest, rounds, samples, warmups, cpu: cpus()[0]?.model, platform: process.platform, arch: process.arch,
+  scenario: values.scenario, ...(values.scenario === "product-workflow" ? { productsPerRequest: products } : {}),
   measurementMode: values.profile ? "cpu-diagnostic" : "quiet", server: serverReference, summary,
   quietSamplingEligible: !values.profile && samples >= 30 && warmups >= 5,
   completeNativeRelativeAcceptance: false,
-  limitations: ["Actual current mixed Application/Product request, including ordinary-role PostgreSQL settlement; not a native-business baseline comparison.",
+  limitations: [values.scenario === "mixed-product" ? "Actual current mixed Application/Product request, including ordinary-role PostgreSQL settlement; not a native-business baseline comparison."
+    : "Actual complete pinned createProductsWorkflow through all eight installed modules; HTTP ingress and external hook effects are excluded.",
     "CPU is client process user+system CPU only; PostgreSQL server CPU is excluded.",
     "The same frozen JS graph runs in Node and machine-code Bun AOT. Native Medusa uses existing built decorator output.",
-    "The fixture evaluates its authored Application handler with new Function; build-time specialization of that string is not established.",
+    ...(values.scenario === "mixed-product" ? ["The fixture evaluates its authored Application handler with new Function; build-time specialization of that string is not established."] : []),
     "Preparation, seeding, committed-result verification and cleanup are outside the request timer.",
     "Windows CPU accounting is coarse. Diagnostic profiles are separate from quiet performance evidence."] };
 writeFileSync(resolve(output, "results.json"), JSON.stringify(report, null, 2));

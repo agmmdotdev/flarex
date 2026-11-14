@@ -1,0 +1,27 @@
+{
+  "kind": "Structured receipt of observed conformance failures",
+  "runtimeRevision": "3d165f5fc7282a08dd3a4d197f4e4df0462bcfe1",
+  "originalTest": "packages/medusa-adapter/test/logical-product-creation-workflow.test.ts",
+  "initialHarnessChanges": ["Mechanically extract the unchanged canonical input", "Import the same postgresUrl from its Vitest-free configuration leaf"],
+  "pglite": { "tests": 15, "passed": 13, "failed": 2 },
+  "ordinaryPostgres": { "selected": 3, "passed": 1, "failed": 2 },
+  "failures": [
+    {
+      "case": "refuses the maximum graph under the smaller calls allowance with no publication",
+      "expected": "The no-hook graph fails at a fixed 256-call allowance",
+      "actual": "The workflow succeeds within that allowance",
+      "owner": "packages/persistence-postgres/src/execution/preparation/boundedRequestLifetime.ts",
+      "disposition": "The root starts at one call and charges every BoundedRequest.enter. Compare the exact tested graph against one below its owner-observed work; the separate hook-enabled graph has additional query work. Preserve rollback, actual metering and the existing production cap."
+    },
+    {
+      "case": "retains authentic empty children for a Product without variants or external associations",
+      "expected": "A public StockLocationModuleService spy observes one call with id:[]",
+      "actual": "The spy observes zero calls",
+      "owner": "packages/medusa-core-flows/src/inventory/steps/validate-inventory-locations.ts",
+      "disposition": "Observe the executing native Query.graph boundary with entity stock_location, fields id and filters.id:[], as required by the accepted admission; retain the Inventory empty child calls."
+    }
+  ],
+  "admission": "roadmaps/flarexdb-framework-integration/preflight/96-native-create-products-workflow.md",
+  "queryAdmission": "roadmaps/flarexdb-framework-integration/preflight/120-native-inventory-item-create-workflow.md",
+  "limits": "This is a structured receipt from validation output, not a raw-log artifact. One initial PostgreSQL attempt lacked endpoints and failed setup; it is excluded from the reproduced-failure counts above."
+}

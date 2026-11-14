@@ -57,3 +57,14 @@ test("refuses an unknown runtime source revision before building", t => {
   assert.match(result.stderr, /Invalid --runtime-source-revision/);
   assert.equal(readdirSync(output).length, 0);
 });
+
+test("refuses assets from a different request scenario", t => {
+  const base = temporary(t), assets = join(base, "assets"), output = join(base, "run");
+  mkdirSync(assets);
+  writeFileSync(join(assets, "builds.json"), JSON.stringify({ sourceRevision: "test", gitStatus: "", nodeVersion: process.version,
+    bunVersion: "test", builds: [] }));
+  const result = run(["--out", output, "--assets", assets, "--scenario", "product-workflow", "--build-only"]);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /Frozen assets belong to a different scenario/);
+  assert.deepEqual(readdirSync(output), []);
+});

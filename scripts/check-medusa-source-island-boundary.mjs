@@ -214,6 +214,15 @@ const preparedTargetMetadataTestImports = new Map([
 /** @typedef {{ specifier: string, target: string, classification?: "cartCreationWorkflowFork", source?: string }} SelectedTestImport */
 /** @type {Map<string, SelectedTestImport[]>} */
 const finiteContractTestImports = new Map([
+  // Only this measured workflow composition may reuse its three admitted
+  // Medusa owners; adjacent benchmarks and production receive no permission.
+  ["packages/executor/benchmarks/core-aot/workflow-scenario.ts", [{
+    specifier: "../../../medusa-adapter/test/support/core-product-creation-fixture", target: "packages/medusa-adapter/test/support/core-product-creation-fixture.ts",
+  }, {
+    specifier: "../../../medusa-adapter/test/support/core-product-creation-input", target: "packages/medusa-adapter/test/support/core-product-creation-input.ts",
+  }, {
+    specifier: "../../../medusa-adapter/src/workflows/product/creation", target: "packages/medusa-adapter/src/workflows/product/creation.ts",
+  }]],
   ["packages/executor/test/performance/support/coreMixedProductFixture.ts", [{
     specifier: "../../../../medusa-adapter/src/modules/product/attempt", target: "packages/medusa-adapter/src/modules/product/attempt.ts",
   }, {

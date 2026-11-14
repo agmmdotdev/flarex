@@ -8,6 +8,9 @@ and complete current mixed Application/Product request comparison in Node and
 Bun AOT. This resumes measurement and optimization for that scope. Keep the
 existing request, capture, budget, transaction and publication guarantees;
 isolated PostgreSQL uses an ordinary serving role with durability enabled.
+The selected [complete Product workflow comparison](../../packages/executor/benchmarks/core-aot/PRODUCT-WORKFLOW.md)
+also measures the pinned native creation composer and all eight module paths,
+with one-Product and four-Product conformance graphs.
 The broader runtime redesign and native-relative/host/scale acceptance gates
 remain separate and unproven.
 

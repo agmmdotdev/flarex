@@ -24,7 +24,7 @@ import { CommitEventError, eventError, type CommittedEvent } from "../../../pers
 import { createCorePGliteFixture, createCorePostgresFixture, type CorePersistenceFixture } from "../../../persistence-postgres/test/core/fixture";
 import { readCoreNativeFixtureInventory } from "../../../persistence-postgres/test/core/nativeFixtureInventory";
 import { CORE_SCHEMA_WORKER_TEST_OPTIONS } from "../../../persistence-postgres/test/core/schemaFixture";
-import { postgresUrl } from "../../../persistence-postgres/test/support/postgresHelpers";
+import { postgresUrl } from "../../../persistence-postgres/test/support/postgresConfig";
 import type { AtomicWorkflowExecution } from "../../src/workflow/host";
 
 type WorkflowFailure = CoreError | CommerceTransactionError;

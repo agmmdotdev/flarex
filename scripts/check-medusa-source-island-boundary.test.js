@@ -656,6 +656,10 @@ describe("Medusa source-island boundary checker", () => {
 
   it("admits only the named connected proof edges and exact authored targets", () => {
     const edges = [
+      ...["test/support/core-product-creation-fixture", "test/support/core-product-creation-input", "src/workflows/product/creation"].map(target => ({
+        importer: "packages/executor/benchmarks/core-aot/workflow-scenario.ts",
+        specifier: "../../../medusa-adapter/" + target, target: "packages/medusa-adapter/" + target + ".ts",
+      })),
       { importer: "packages/flarex-backend/test/support/privatePayloadReverseReadCommands.ts",
         specifier: "@flarex/medusa-adapter/internal/product-attempt", target: "packages/medusa-adapter/src/modules/product/attempt.ts" },
       ...[{
@@ -701,7 +705,8 @@ describe("Medusa source-island boundary checker", () => {
       for (const relativePath of ["packages/flarex-backend/test/privatePayloadSaveCompositionPreflight.test.ts",
         "packages/flarex-backend/test/adjacent.test.ts", "packages/flarex-backend/src/runtime.ts",
         "packages/persistence-postgres/test/adjacent.test.ts", "packages/persistence-postgres/src/runtime.ts",
-        "packages/executor/test/performance/support/adjacentFlows.ts", "packages/executor/src/productFlows.ts"]) {
+        "packages/executor/test/performance/support/adjacentFlows.ts", "packages/executor/src/productFlows.ts",
+        "packages/executor/benchmarks/core-aot/adjacent-scenario.ts", "packages/executor/src/workflow-scenario.ts"]) {
         const specifier = posix.relative(posix.dirname(relativePath), edge.target).replace(/\.ts$/u, "");
         expect(analyzeMedusaSourceIslandBoundary({ ...emptyInput, currencyPromotion: promotion,
           rootSources: [{ relativePath, text: `import { operation } from ${JSON.stringify(specifier)};` }] }).errors

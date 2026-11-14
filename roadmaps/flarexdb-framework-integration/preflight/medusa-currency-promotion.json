@@ -15,6 +15,61 @@
       "targetSha256": "3d1a267939f39348db12f3a680981ef1708be9249978cbd1f364acc8316dd324"
     },
     {
+      "target": "packages/medusa-adapter/benchmarks/bun-aot/README.md",
+      "classification": "authored",
+      "targetSha256": "59d6ca7352d7566af7132a5a7424cae9bcf2cfd945e1322fe5103fd1a3012b7b"
+    },
+    {
+      "target": "packages/medusa-adapter/benchmarks/bun-aot/RESULTS.md",
+      "classification": "authored",
+      "targetSha256": "332e82ee87e3e8488382f197270b554c1e343dbab81fe0417ac02202bb859fdc"
+    },
+    {
+      "target": "packages/medusa-adapter/benchmarks/bun-aot/build.mjs",
+      "classification": "authored",
+      "targetSha256": "73be715664a2b6e41a4e7faac7fc41b32133cc78b795f61a979fc7d3a8497cc8"
+    },
+    {
+      "target": "packages/medusa-adapter/benchmarks/bun-aot/decoders.ts",
+      "classification": "authored",
+      "targetSha256": "f84c218715627f34ec450c3d73110f3a9d196dc2f4fe2d8ff7d26532a672fe4f"
+    },
+    {
+      "target": "packages/medusa-adapter/benchmarks/bun-aot/evidence/bun-aot.windows-x64.cpuprofile.gz",
+      "classification": "authored",
+      "targetSha256": "c1f6af33e54d2e8080f1a032cbbb6d79d35044542201832fd88577939a162d2f"
+    },
+    {
+      "target": "packages/medusa-adapter/benchmarks/bun-aot/evidence/node.windows-x64.cpuprofile.gz",
+      "classification": "authored",
+      "targetSha256": "105b4644c6b4eb2182b0bfc9b8fcb95e135ee3acdc20d34f6a24bd77bbd140cc"
+    },
+    {
+      "target": "packages/medusa-adapter/benchmarks/bun-aot/evidence/runs.windows-x64.json.gz",
+      "classification": "authored",
+      "targetSha256": "209e4df3f63ac7a39bdf6029f55c72c339e78598605321fb523a7c2bcaf651cd"
+    },
+    {
+      "target": "packages/medusa-adapter/benchmarks/bun-aot/mechanisms.ts",
+      "classification": "authored",
+      "targetSha256": "0a685bfe848286da8b8012c529da6f5867149cc641d7db66dd5f31e171cb54b5"
+    },
+    {
+      "target": "packages/medusa-adapter/benchmarks/bun-aot/observations.windows-x64.json",
+      "classification": "authored",
+      "targetSha256": "089697aa03c36cf4668877a0db48289acf398ab0a73414f79569d4f0837ce075"
+    },
+    {
+      "target": "packages/medusa-adapter/benchmarks/bun-aot/run.mjs",
+      "classification": "authored",
+      "targetSha256": "eefca5d0e7919415fe51f31fdc9aecfe8fa7a422185d8337ad02329d5d4921f5"
+    },
+    {
+      "target": "packages/medusa-adapter/benchmarks/bun-aot/tsconfig.json",
+      "classification": "authored",
+      "targetSha256": "d242d0c4b0be55d2546f568a8c710dec92b90839cd5781fc49f2c346b22dbdd5"
+    },
+    {
       "target": "packages/medusa-adapter/benchmarks/core-performance/mixed-native-read/README.md",
       "classification": "authored",
       "targetSha256": "54d8f753eb174ce6e406672e3a2947f2632acb96720c8dfbaff34607e4b90a21"
@@ -6169,7 +6224,7 @@
     {
       "target": "packages/medusa-adapter/test/logical-product-creation-workflow.test.ts",
       "classification": "authored",
-      "targetSha256": "dfaba222fadacf2e5249a48168099aa6e4f76e3814a76901639ffd153f9b1747"
+      "targetSha256": "a0720a2cb6980220cb7ee8b58bfda301f868cc1962aeadc0f8b5c6c090963614"
     },
     {
       "target": "packages/medusa-adapter/test/logical-product-deletion-boundaries.test.ts",
@@ -8241,7 +8296,7 @@
     {
       "target": "packages/medusa-adapter/test/support/core-native-workflow-fixture.ts",
       "classification": "authored",
-      "targetSha256": "52c9de8b6976b8966ecb97d943ced23a1a996754df7d3f5a1a7b0c5b0cf008e4"
+      "targetSha256": "079af7d44beb0daabf5ca0c0848961adcc18c5e9f4e40929d0312082888ca526"
     },
     {
       "target": "packages/medusa-adapter/test/support/core-order-archive-fixture.ts",
@@ -8399,6 +8454,11 @@
       "targetSha256": "ecaa8998315a7f764a52243031e08ad684a670987c08ca2c203700de588c70c2"
     },
     {
+      "target": "packages/medusa-adapter/test/support/core-product-creation-input.ts",
+      "classification": "authored",
+      "targetSha256": "93339b8b03a198328d2c79d27f696aa868faf5888b98d90fee2c236bb435ec4f"
+    },
+    {
       "target": "packages/medusa-adapter/test/support/core-product-deletion-fixture.ts",
       "classification": "authored",
       "targetSha256": "fe26a276d19d76ed9a4aece7e4bb0d46843d3423c238a18ae745b5bb722342a2"
@@ -8406,7 +8466,7 @@
     {
       "target": "packages/medusa-adapter/test/support/core-product-fixture.ts",
       "classification": "authored",
-      "targetSha256": "0c7294d25c9eb94ffb147bc2df378bba9b6a37963f2d75dc3c01a6d09f9e012b"
+      "targetSha256": "3cc7c22d72c1f77b76b184aad3436819dfdc10a2ec091ddcd7008ec4c2271831"
     },
     {
       "target": "packages/medusa-adapter/test/support/core-product-managed-read-scenarios.ts",
@@ -20969,7 +21029,7 @@
     {
       "target": "packages/medusa-adapter/benchmarks/schema-aot/README.md",
       "classification": "authored",
-      "targetSha256": "5e2650f2251323a32e5bc178575ee8df133c16a305e7c6072c2521d696bb5d50"
+      "targetSha256": "47ea262f9182f4a00eb28c0ce6ccce2bdfa26623f1e0697c3b6c403c64b70a09"
     },
     {
       "target": "packages/medusa-adapter/benchmarks/schema-aot/cases.ts",

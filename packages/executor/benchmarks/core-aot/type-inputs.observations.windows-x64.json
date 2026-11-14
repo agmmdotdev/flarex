@@ -1,0 +1,341 @@
+{
+  "platform": "win32",
+  "arch": "x64",
+  "cpu": "AMD Ryzen 5 2600 Six-Core Processor            ",
+  "nodeVersion": "v26.13.0",
+  "bunVersion": "1.4.5",
+  "scenario": "mixed-product",
+  "series": [
+    {
+      "name": "core-aot-type-inputs-measured",
+      "summary": [
+        {
+          "variant": "node-js",
+          "runtime": "node",
+          "processes": 4,
+          "requests": 120,
+          "meanCpuMs": 114.90833333333333,
+          "medianWallMs": 108.8927999999978,
+          "p95WallMs": 177.95809999999983,
+          "workerMeanCpuMs": [
+            98.53333333333333,
+            105.1,
+            132.93333333333334,
+            123.06666666666666
+          ]
+        },
+        {
+          "variant": "aot-js",
+          "runtime": "bun-aot",
+          "processes": 4,
+          "requests": 120,
+          "meanCpuMs": 97.125,
+          "medianWallMs": 111.86399999999958,
+          "p95WallMs": 142.32290000000285,
+          "workerMeanCpuMs": [
+            93.76666666666667,
+            84.9,
+            104.06666666666666,
+            105.76666666666667
+          ]
+        },
+        {
+          "variant": "aot-core",
+          "runtime": "bun-aot",
+          "processes": 4,
+          "requests": 120,
+          "meanCpuMs": 81.71666666666667,
+          "medianWallMs": 92.10159999999996,
+          "p95WallMs": 113.50590000000011,
+          "workerMeanCpuMs": [
+            79.7,
+            71.73333333333333,
+            81.8,
+            93.63333333333334
+          ]
+        },
+        {
+          "variant": "aot-core-uniform",
+          "runtime": "bun-aot",
+          "processes": 4,
+          "requests": 120,
+          "meanCpuMs": 83.575,
+          "medianWallMs": 95.66280000000006,
+          "p95WallMs": 116.44830000000002,
+          "workerMeanCpuMs": [
+            86.43333333333334,
+            73.36666666666666,
+            75.7,
+            98.8
+          ]
+        },
+        {
+          "variant": "aot-medusa",
+          "runtime": "bun-aot",
+          "processes": 4,
+          "requests": 120,
+          "meanCpuMs": 82.025,
+          "medianWallMs": 93.5023000000001,
+          "p95WallMs": 115.31710000000021,
+          "workerMeanCpuMs": [
+            75.96666666666667,
+            82.3,
+            79.6,
+            90.23333333333333
+          ]
+        },
+        {
+          "variant": "aot-medusa-uniform",
+          "runtime": "bun-aot",
+          "processes": 4,
+          "requests": 120,
+          "meanCpuMs": 89.49166666666666,
+          "medianWallMs": 102.2554999999993,
+          "p95WallMs": 160.60149999999885,
+          "workerMeanCpuMs": [
+            74.06666666666666,
+            69.36666666666666,
+            120.8,
+            93.73333333333333
+          ]
+        }
+      ],
+      "processes": 24,
+      "measured": 720,
+      "warmups": 120
+    },
+    {
+      "name": "core-aot-type-inputs-balanced",
+      "summary": [
+        {
+          "variant": "aot-js",
+          "runtime": "bun-aot",
+          "processes": 6,
+          "requests": 180,
+          "meanCpuMs": 145.23333333333332,
+          "medianWallMs": 168.82770000000164,
+          "p95WallMs": 304.6116000000002,
+          "workerMeanCpuMs": [
+            176.13333333333333,
+            171.3,
+            131.8,
+            153.6,
+            110.86666666666666,
+            127.7
+          ]
+        },
+        {
+          "variant": "aot-core",
+          "runtime": "bun-aot",
+          "processes": 6,
+          "requests": 180,
+          "meanCpuMs": 113.9888888888889,
+          "medianWallMs": 132.09779999999955,
+          "p95WallMs": 240.45839999999953,
+          "workerMeanCpuMs": [
+            120.23333333333333,
+            107.4,
+            115.66666666666667,
+            127.6,
+            106.1,
+            106.93333333333334
+          ]
+        },
+        {
+          "variant": "aot-medusa",
+          "runtime": "bun-aot",
+          "processes": 6,
+          "requests": 180,
+          "meanCpuMs": 122.26666666666667,
+          "medianWallMs": 140.83429999999862,
+          "p95WallMs": 271.51470000000154,
+          "workerMeanCpuMs": [
+            146.36666666666667,
+            116.63333333333334,
+            135.4,
+            112.1,
+            103.63333333333334,
+            119.46666666666667
+          ]
+        }
+      ],
+      "processes": 18,
+      "measured": 540,
+      "warmups": 90
+    }
+  ],
+  "configurationDigests": [
+    {
+      "path": "tsconfig.base.json",
+      "sha256": "1bac305f91f5967d0f1ea4c464a8b3bc5cc5b5b40a2024aec149cd348f811a90"
+    },
+    {
+      "path": "tools/medusa/tsconfig.fork.json",
+      "sha256": "813ea05628b446f78c2bcf52b34da4938134be2813aea3c4bc9b3205f2ccf392"
+    },
+    {
+      "path": "packages/executor/benchmarks/core-aot/types.tsconfig.json",
+      "sha256": "6895d13a4119c6e08a20cf0075a0cd4a5d8c9ec09e5e0ec637ca0fac68a36595"
+    }
+  ],
+  "compiler": [
+    {
+      "variant": "node-js",
+      "sha256": "47851c6774585d0097b380ba3b28a776caf9ebaa1a9c40ce239699ad7ee352b2",
+      "bytes": 10212302,
+      "explain": null
+    },
+    {
+      "variant": "aot-js",
+      "sha256": "173d2e9829d9ef2e54ca61d8d0a57865b333a97efd5abe998e2e32c761873cb1",
+      "bytes": 140002304,
+      "explain": {
+        "accesses": {
+          "byName": 126358,
+          "tested": 26130,
+          "free": 31415,
+          "testedSlotOnly": 1416,
+          "provenWithoutAnyTest": 18457
+        },
+        "dependencyAccesses": {
+          "byName": 0,
+          "tested": 0,
+          "free": 0,
+          "testedSlotOnly": 0,
+          "provenWithoutAnyTest": 0
+        },
+        "calls": {
+          "unknown": 118672,
+          "guarded": 0,
+          "proven": 12485
+        },
+        "causes": 30909
+      }
+    },
+    {
+      "variant": "aot-core",
+      "sha256": "36c3e9dec49b1c818e1dd493e17f564fabc517238a69de6518c0b6e9d88efe5a",
+      "bytes": 196920320,
+      "explain": {
+        "accesses": {
+          "byName": 73787,
+          "tested": 41381,
+          "free": 30520,
+          "testedSlotOnly": 2907,
+          "provenWithoutAnyTest": 21991
+        },
+        "dependencyAccesses": {
+          "byName": 34869,
+          "tested": 9536,
+          "free": 10991,
+          "testedSlotOnly": 765,
+          "provenWithoutAnyTest": 5371
+        },
+        "calls": {
+          "unknown": 50815,
+          "guarded": 0,
+          "proven": 33471
+        },
+        "causes": 32903
+      }
+    },
+    {
+      "variant": "aot-core-uniform",
+      "sha256": "b31870abcec718621087b844201443c74093549e8bf328ccf11600d64424ceae",
+      "bytes": 196854784,
+      "explain": {
+        "accesses": {
+          "byName": 62492,
+          "tested": 35736,
+          "free": 25467,
+          "testedSlotOnly": 2646,
+          "provenWithoutAnyTest": 18086
+        },
+        "dependencyAccesses": {
+          "byName": 46061,
+          "tested": 15367,
+          "free": 15387,
+          "testedSlotOnly": 1027,
+          "provenWithoutAnyTest": 8681
+        },
+        "calls": {
+          "unknown": 43684,
+          "guarded": 0,
+          "proven": 26660
+        },
+        "causes": 61333
+      }
+    },
+    {
+      "variant": "aot-medusa",
+      "sha256": "daa875ee117d63bfe61a155f1535e9825c500ac13f5941b0dc3fd4fef4cee592",
+      "bytes": 196494848,
+      "explain": {
+        "accesses": {
+          "byName": 73569,
+          "tested": 41486,
+          "free": 30607,
+          "testedSlotOnly": 2906,
+          "provenWithoutAnyTest": 22034
+        },
+        "dependencyAccesses": {
+          "byName": 31667,
+          "tested": 9478,
+          "free": 11540,
+          "testedSlotOnly": 772,
+          "provenWithoutAnyTest": 5945
+        },
+        "calls": {
+          "unknown": 50729,
+          "guarded": 0,
+          "proven": 33528
+        },
+        "causes": 33090
+      }
+    },
+    {
+      "variant": "aot-medusa-uniform",
+      "sha256": "62da0c24c3d89bedd54f0f1bd5a12b6b68af380ce9b84e5ea4cd174d86892a54",
+      "bytes": 196462080,
+      "explain": {
+        "accesses": {
+          "byName": 62267,
+          "tested": 35848,
+          "free": 25556,
+          "testedSlotOnly": 2646,
+          "provenWithoutAnyTest": 18131
+        },
+        "dependencyAccesses": {
+          "byName": 42585,
+          "tested": 15534,
+          "free": 15690,
+          "testedSlotOnly": 1037,
+          "provenWithoutAnyTest": 8966
+        },
+        "calls": {
+          "unknown": 43598,
+          "guarded": 0,
+          "proven": 26712
+        },
+        "causes": 60884
+      }
+    }
+  ],
+  "emitter": {
+    "sourceSha256": "9d376ccd8f4104aff1f3d3d1917b798c4d103230f3ff3f6e36883445aa4931c1",
+    "emittedSha256": "17a9ea9a9b95104b6f6758b524d6ef5d58d3bab46b26c8b1013a0c116ca7aa9a",
+    "diagnostic": "5 |   let captured: { readonly value: Effect.Success<typeof (> } | undefined;\r\n                                                            ^\r\nerror: Expected identifier but found \"(\"\r\n    at C:\\Users\\User\\Documents\\GitHub\\flarex\\work\\validation\\core-aot-type-emitter-witness\\type-emitter-witness.aot.ts:5:57\r\n"
+  },
+  "evidence": {
+    "path": "evidence/type-inputs.windows-x64.json.gz",
+    "sha256": "a3c92735db7a95d5f1577bcf52a7d010ea86c6378c295b776ba53d307df058dc",
+    "uncompressedSha256": "9b190afd40d85fed9eaa16c5fc20e01e1eade5bd8fa1a201b9914b5daf19bb4c",
+    "bytes": 601938
+  },
+  "interpretation": [
+    "Build-route comparison; direct TypeScript changes module boundaries and transforms as well as available types.",
+    "No samples were discarded. Host-wide idle/frequency telemetry is absent; observed cohort drift has no established cause.",
+    "Medusa source added no consistent CPU advantage over original Core/adapter TypeScript with existing Medusa dist.",
+    "Static compiler counts are not weighted by hot-path execution; no production or native-relative acceptance."
+  ]
+}

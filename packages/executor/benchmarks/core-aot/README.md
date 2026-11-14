@@ -2,6 +2,11 @@
 
 See the [measured full-request findings](./RESULTS.md) and
 [retained observations](./observations.windows-x64.json).
+The separate [type-preserving input experiment](./TYPE-INPUTS.md) compares this
+JavaScript route with original Core/adapter and native Medusa TypeScript.
+The [complete Product workflow benchmark](./PRODUCT-WORKFLOW.md) measures the
+pinned eight-module creation composer with one or four Products; select it with
+`--scenario product-workflow --products 1|4`.
 
 This command measures the actual current `mixed-product` request through
 `prepareCoreMixedProductScenario`: Application insert/patch, native Product
@@ -29,8 +34,10 @@ decoders or a build-only installer bypass; default is both.
 `--runtime node|bun-aot|both` selects Node JIT or a true `--compile --aot`
 executable; default is both. Each mode's exact frozen JavaScript graph runs in
 both runtimes. Native Medusa uses its existing built legacy-decorator output,
-matching the direct performance harness's native dependency boundary. Global
-`source` export conditions would incorrectly re-transpile native decorators.
+matching the direct performance harness's native dependency boundary. The
+initial JavaScript-bundling source-condition probe failed Medusa's decorator
+checks; direct AOT source compilation with an explicit legacy-decorator config
+is covered separately by the type-input experiment.
 Core imports still execute current source. All dependencies are bundled; no
 `--aot-allow-code-from-disk` is enabled.
 
