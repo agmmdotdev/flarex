@@ -19,7 +19,13 @@ export async function jointApplicationRelationsScenario(driver: "pglite" | "post
   const batches: CoreWriteBatch[] = [];
   const tested = await jointApplicationRelationsFixture(driver, {
     observeWrite: batch => batches.push(batch),
-    wrapRuntimeDriver: original => ({ ...original, transaction: work => original.transaction(connection => work({ ...connection,
+    // A small joint batch commits as one fenced statement: refusing it is the
+    // definite non-commit that a failed insert inside the old transaction was.
+    wrapRuntimeDriver: original => ({ ...original, write: (statement, parameters) => Effect.suspend(() => {
+      if (failAt === undefined || !statement.includes("INSERT INTO ") || !statement.includes(`."${failAt}"`)) return original.write(statement, parameters);
+      failAt = undefined; faults++;
+      return Effect.fail(new CorePersistenceError({ reason: "unavailable", cause: "joint physical write refused before SQL commit" }));
+    }), transaction: work => original.transaction(connection => work({ ...connection,
       query: (statement, parameters) => connection.query(statement, parameters).pipe(Effect.tap(() => {
         if (failAt === undefined || !statement.toLowerCase().startsWith("insert into ") || !statement.includes(`."${failAt}"`)) return Effect.void;
         failAt = undefined; faults++;

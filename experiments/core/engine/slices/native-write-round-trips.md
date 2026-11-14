@@ -33,3 +33,44 @@ rounds against a clean baseline clone, 128 operations each.
 CPU per request and throughput did not change measurably. The benefit scales with
 network distance. Merging the claim and root commits is a separate design that needs
 its own challenge and an owner decision.
+
+## Commit in one round trip
+
+Baseline `9d2eae6ff`. A one-row native write cost 17 round trips, eight of them the two
+commits (BEGIN, fenced insert, share lock, COMMIT).
+
+One read-only challenger inspected current Core, physical maintenance and pinned Convex.
+
+| Proposal | Outcome |
+| --- | --- |
+| One statement: inserts, then the lease share lock, aborting when the lease is gone | Selected. Same order as `Lease::transact`. |
+| A PL/pgSQL function installed with the schema | Not built. It adds a durable object to the generated five-table baseline and needs an approved migration. |
+| `BEGIN; ...; COMMIT` through the simple protocol | Rejected. It takes no parameters. |
+| Share lock first | Rejected as before: it inverts the lock order of physical maintenance. |
+| Reuse the ordinary query method | Rejected. It reports every failure as unavailable, which would hide a possibly committed write; the driver gained `write`. |
+| Drop the re-read of the just-committed claim | Sound through the write log; not built in this slice. |
+| Fold or skip the generated-ID check | Rejected. It is a per-transaction refusal before acceptance. |
+| Merge the claim commit into the root commit | Not compatible without an owner decision: the claim is the in-progress record that stops a retry replaying effects after a crash. |
+
+Round trips per call on ordinary-role PostgreSQL, single caller. Native Medusa in the
+last column.
+
+| Workflow | Before | After | Native |
+| --- | --- | --- | --- |
+| Sales channel create | 17 | 11 | 3 |
+| Shipping profile create | 17 | 11 | 3 |
+| Inventory item create | 17 | 11 | 5 |
+| Inventory level update | 19 | 13 | 6 |
+| Price list create | 20 | 14 | 5 |
+| Variant update | 24 | 18 | 8 |
+| Product update | 43 | 37 | 42 |
+| Product create | 47 | 41 | 40 |
+| Product delete | 59 | 53 | 53 |
+
+Each write saves three round trips per commit and makes two commits. On one host the
+latency change is within noise; the saving is six network flights per write when the
+database is remote. CPU per request did not change measurably.
+
+Review found and this slice fixed a fault-injection test under
+`test/frameworks/crossDomainCommand` that the earlier fenced-insert statement had left
+unable to inject, because it sat outside the lanes then run.

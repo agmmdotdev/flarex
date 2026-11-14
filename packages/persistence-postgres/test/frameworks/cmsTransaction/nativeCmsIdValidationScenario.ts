@@ -17,6 +17,7 @@ export async function nativeCmsIdValidationScenario(driver: "pglite" | "postgres
   const record = (connection: CoreSqlConnection): CoreSqlConnection => ({ query: (sql, parameters) =>
     Effect.sync(() => { if (recording) statements++; }).pipe(Effect.andThen(connection.query(sql, parameters))) });
   const wrapRuntimeDriver = (original: CoreSqlDriver): CoreSqlDriver => ({ query: record(original).query,
+    write: (sql, parameters) => Effect.sync(() => { if (recording) statements++; }).pipe(Effect.andThen(original.write(sql, parameters))),
     withConnection: work => original.withConnection(connection => work(record(connection))),
     transaction: work => original.transaction(connection => work(record(connection))),
   });

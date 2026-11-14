@@ -151,7 +151,7 @@ it("retains the callback cause if the foreign transaction replaces it with a set
 it("rolls back interrupted physical installation and refuses to adopt an already installed namespace", async () => {
   const database = new PGlite();
   const driver = makeCorePGliteDriver(database);
-  const interrupted: CoreSqlDriver = { query: driver.query, withConnection: driver.withConnection,
+  const interrupted: CoreSqlDriver = { query: driver.query, write: driver.write, withConnection: driver.withConnection,
     transaction: run => driver.transaction(connection => run({
       query: (statement, parameters) => statement.includes('CREATE TABLE "core_install"."indexes"')
         ? Effect.fail(new CorePersistenceError({ reason: "unavailable" })) : connection.query(statement, parameters),
@@ -167,4 +167,25 @@ it("rolls back interrupted physical installation and refuses to adopt an already
     expect(await Effect.runPromise(Effect.result(installCorePersistence(driver, "core_install"))))
       .toMatchObject({ _tag: "Failure", failure: { reason: "invalidTarget" } });
   } finally { await database.close(); }
+});
+
+it("settles one autocommit write as committed, proven refused, or uncertain", async () => {
+  const database = new PGlite();
+  await database.exec("CREATE TABLE written (id integer PRIMARY KEY)");
+  const driver = makeCorePGliteDriver(database);
+  expect(await Effect.runPromise(driver.write("INSERT INTO written VALUES ($1) RETURNING id", [1])))
+    .toEqual({ kind: "committed", rows: [{ id: 1 }] });
+  // A server refusal keeps its SQLSTATE and leaves nothing behind.
+  expect(await Effect.runPromise(driver.write("WITH w AS (INSERT INTO written VALUES (2) RETURNING 1) SELECT 1 / (SELECT count(*) - 1 FROM w)")))
+    .toMatchObject({ kind: "refused", code: "22012" });
+  expect(await Effect.runPromise(driver.write("INSERT INTO written VALUES (1)"))).toMatchObject({ kind: "refused", code: "23505" });
+  expect((await database.query("SELECT id FROM written ORDER BY id")).rows).toEqual([{ id: 1 }]);
+  // Without a server SQLSTATE, or with connection loss or shutdown, the write may have committed.
+  for (const cause of [new Error("socket closed"), Object.assign(new Error("lost"), { code: "08006", severity: "FATAL" }),
+    Object.assign(new Error("shutdown"), { code: "57P01", severity: "FATAL" }), Object.assign(new Error("reset"), { code: "ECONNRESET" }),
+    Object.assign(new Error("pipe"), { code: "EPIPE" }), Object.assign(new Error("unmarked"), { code: "23505" })]) {
+    const failing = makeCorePGliteDriver({ transaction: run => database.transaction(run), query: () => Promise.reject(cause) });
+    expect(await Effect.runPromiseExit(failing.write("SELECT 1")).then(exit => Exit.isFailure(exit) && exit.cause.reasons))
+      .toMatchObject([{ _tag: "Fail", error: { reason: "uncertainWrite", cause } }]);
+  }
 });

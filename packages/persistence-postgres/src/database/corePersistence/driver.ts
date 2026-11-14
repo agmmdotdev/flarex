@@ -12,8 +12,18 @@ export interface CoreSqlConnection {
   ) => Effect.Effect<readonly unknown[], CorePersistenceError>;
 }
 
+/** A server refusal carries its SQLSTATE and proves the statement did not commit. */
+export type CoreSqlWriteOutcome =
+  | Readonly<{ kind: "committed"; rows: readonly unknown[] }>
+  | Readonly<{ kind: "refused"; code: string; cause: unknown }>;
+
 /** Physical transport only. No global installation/session protocol is entered. */
 export interface CoreSqlDriver extends CoreSqlConnection {
+  /** One writing statement in its own implicit transaction. Once it was sent,
+   * only a server refusal proves non-commit; every other failure is an
+   * uncertain write for the logical outcome owner to reconcile. */
+  readonly write: (statement: string, parameters?: readonly CoreSqlParameter[])
+    => Effect.Effect<CoreSqlWriteOutcome, CorePersistenceError>;
   readonly withConnection: <A, E>(run: (connection: CoreSqlConnection) => Effect.Effect<A, E>)
     => Effect.Effect<A, E | CorePersistenceError>;
   readonly transaction: <A, E>(
@@ -32,6 +42,31 @@ export function classifyCoreQueryFailure(cause: unknown): CorePersistenceError {
     && "code" in cause && cause.code === "57014" && "message" in cause
     && cause.message === "canceling statement due to statement timeout" ? "timeout" : "unavailable", cause });
 }
+
+/** Only an error PostgreSQL itself reported, with a severity and a SQLSTATE,
+ * proves non-commit. Connection loss (class 08) and server shutdown (57P..)
+ * can follow a commit that was never acknowledged, and a transport error has
+ * no severity, so none of those is a refusal. */
+function writeRefusal(cause: unknown): CoreSqlWriteOutcome | undefined {
+  if (typeof cause !== "object" || cause === null || !("code" in cause) || !("severity" in cause)) return undefined;
+  const { code, severity } = cause;
+  return typeof code === "string" && typeof severity === "string" && /^[0-9A-Z]{5}$/.test(code)
+    && !code.startsWith("08") && !code.startsWith("57P")
+    ? Object.freeze({ kind: "refused" as const, code, cause }) : undefined;
+}
+
+/** Settles one autocommit write: committed rows, a proven refusal, or uncertain. */
+const settleWrite = (send: () => Promise<{ readonly rows: readonly unknown[] }>) =>
+  Effect.tryPromise({
+    try: () => send().then(
+      (result): CoreSqlWriteOutcome => Object.freeze({ kind: "committed" as const, rows: result.rows }),
+      (cause: unknown) => {
+        const refusal = writeRefusal(cause);
+        if (refusal === undefined) throw cause;
+        return refusal;
+      }),
+    catch: (cause: unknown) => new CorePersistenceError({ reason: "uncertainWrite", cause }),
+  });
 
 export interface CorePostgresClient extends Pick<ClientBase, "on" | "removeListener"> {
   readonly query: <Row extends Record<string, unknown> = Record<string, unknown>>(
@@ -93,6 +128,19 @@ export function makeCorePostgresDriver(pool: CorePostgresPool): CoreSqlDriver {
         if (failure !== undefined) return yield* Effect.fail(unavailable(failure));
         return rows;
       }), releasePostgresCheckout),
+    // Masked through its return, as a transaction's COMMIT is: a settled write
+    // is never reported as an interruption. An uncertain checkout is discarded.
+    write: (statement: string, parameters: readonly CoreSqlParameter[] = []) =>
+      Effect.acquireUseRelease(acquire, owned => Effect.uninterruptible(Effect.gen(function* () {
+        const settled = yield* Effect.exit(settleWrite(() => owned.client.query<Record<string, unknown>>(statement, [...parameters])));
+        if (Exit.isFailure(settled)) {
+          owned.quarantine = true;
+          return yield* Effect.failCause(settled.cause);
+        }
+        const failure = owned.errors.failure();
+        if (failure !== undefined) return yield* Effect.fail(new CorePersistenceError({ reason: "uncertainWrite", cause: failure }));
+        return settled.value;
+      })), releasePostgresCheckout),
     transaction: <A, E>(run: (connection: CoreSqlConnection) => Effect.Effect<A, E>) =>
       Effect.acquireUseRelease(acquire, owned => Effect.uninterruptibleMask(restore => Effect.gen(function* () {
         const connection = pgConnection(owned.client);
@@ -157,6 +205,8 @@ function pgliteConnection(client: CorePGliteConnection): CoreSqlConnection {
 export function makeCorePGliteDriver(client: CorePGliteClient): CoreSqlDriver {
   return Object.freeze({
     ...pgliteConnection(client),
+    write: (statement: string, parameters: readonly CoreSqlParameter[] = []) =>
+      Effect.uninterruptible(settleWrite(() => client.query(statement, [...parameters]))),
     withConnection: <A, E>(run: (connection: CoreSqlConnection) => Effect.Effect<A, E>) =>
       Effect.suspend(() => run(pgliteConnection(client))),
     transaction: <A, E>(run: (connection: CoreSqlConnection) => Effect.Effect<A, E>): Effect.Effect<A, E | CorePersistenceError> =>

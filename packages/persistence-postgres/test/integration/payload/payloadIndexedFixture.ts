@@ -79,6 +79,8 @@ export const makeIndexedPayloadFixture: (
     Effect.sync(() => { if (recording) plans.push({ sql, params: params.map(value => value instanceof Uint8Array ? value.slice() : value) }); })
       .pipe(Effect.andThen(connection.query(sql, params))) });
   const wrapRuntimeDriver = (driver: CoreSqlDriver): CoreSqlDriver => ({ query: record(driver).query,
+    write: (sql, params = []) => Effect.sync(() => { if (recording) plans.push({ sql, params: params.map(value => value instanceof Uint8Array ? value.slice() : value) }); })
+      .pipe(Effect.andThen(driver.write(sql, params))),
     withConnection: run => driver.withConnection(connection => run(record(connection))),
     transaction: run => driver.transaction(connection => run(record(connection))),
   });

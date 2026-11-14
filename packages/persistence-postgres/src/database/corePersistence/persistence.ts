@@ -21,7 +21,7 @@ import {
   type CoreRetentionValidator,
   type CoreWriteBatch,
 } from "../../core/contracts";
-import type { CoreSqlConnection, CoreSqlParameter } from "./driver";
+import { classifyCoreQueryFailure, type CoreSqlConnection, type CoreSqlParameter } from "./driver";
 import { PgDialect } from "drizzle-orm/pg-core";
 import { inspectIssuedPostgresRelationalBatch, type PostgresRelationalPredicateFailure } from "../../values/postgresRelationalPredicate";
 import { buildPostgresRelationalPredicateBody } from "../postgresRelationalPredicate";
@@ -136,6 +136,8 @@ const preloadKey = (request: CoreIndexScan, pageSize: number) => JSON.stringify(
 const SQL_HASH_MINIMUM = new Uint8Array(32);
 const SQL_HASH_MAXIMUM = new Uint8Array(32).fill(255);
 const INSERTS_PER_STATEMENT = 1024;
+/** division_by_zero, raised only by the fenced write when the lease row is not held. */
+const LEASE_NOT_HELD = "22012";
 const documentColumns = [["instance_name", "text"], ["id", "bytea"], ["ts", "bigint"], ["table_id", "bytea"], ["json_value", "bytea"],
   ["deleted", "boolean"], ["prev_ts", "bigint"]] as const;
 const indexColumns = [["instance_name", "text"], ["index_id", "bytea"], ["ts", "bigint"], ["key_prefix", "bytea"], ["key_suffix", "bytea"],
@@ -204,20 +206,19 @@ export const createCorePersistence = Effect.fn("CorePersistence.create")(
         }
       },
     );
-    const closingFenced = <A, E>(lease: CorePersistenceLease, run: (connection: CoreSqlConnection) => Effect.Effect<A, E>) =>
+    /** Lease::transact for the multi-statement path: the advisory opening fence,
+     * the body, then the blocking share lock immediately before COMMIT. */
+    const fenced = <A, E>(lease: CorePersistenceLease, run: (connection: CoreSqlConnection) => Effect.Effect<A, E>) =>
       Effect.suspend(() => {
         if (!issuedLeases.has(lease)) return Effect.fail(new CorePersistenceError({ reason: "invalidTarget" }));
         if (lostLeases.has(lease)) return Effect.fail(new CorePersistenceError({ reason: "leaseLost" }));
         return driver.transaction(connection => Effect.gen(function* () {
+          yield* fence(connection, lease, false);
           const value = yield* run(connection);
-          // Match Lease::transact: acquire the blocking share lock only after
-          // materialization, immediately before the driver's COMMIT.
           yield* fence(connection, lease, true);
           return value;
         }));
       });
-    const fenced = <A, E>(lease: CorePersistenceLease, run: (connection: CoreSqlConnection) => Effect.Effect<A, E>) =>
-      closingFenced(lease, connection => Effect.andThen(fence(connection, lease, false), run(connection)));
 
     const insertRows = Effect.fn("CorePersistence.insertRows")(
       function* (connection: CoreSqlConnection, name: string, columns: readonly string[],
@@ -239,11 +240,18 @@ export const createCorePersistence = Effect.fn("CorePersistence.create")(
         }
       },
     );
-    /** The advisory opening fence and both inserts in one statement: a stale owner
-     * inserts nothing and reports leaseLost before any constraint can fail. */
-    const insertFencedBatch = Effect.fn("CorePersistence.insertFencedBatch")(
-      function* (connection: CoreSqlConnection, lease: CorePersistenceLease,
+    /** Lease::transact in one implicit transaction, because pg cannot pipeline:
+     * the advisory opening fence gates both inserts, then the lease row is
+     * share-locked, then the statement commits. `held` reads both insert counts,
+     * so its row lock follows the inserts, and it is the last table reference,
+     * so `indexes` is locked before `leases` ROW SHARE as physical maintenance
+     * requires. A lease that is gone at either point divides by zero: the
+     * statement aborts and nothing is inserted. The statement must stay unnamed. */
+    const writeFencedBatch = Effect.fn("CorePersistence.writeFencedBatch")(
+      function* (lease: CorePersistenceLease,
         documentRows: readonly (readonly CoreSqlParameter[])[], indexRows: readonly (readonly CoreSqlParameter[])[]) {
+        if (!issuedLeases.has(lease)) return yield* Effect.fail(new CorePersistenceError({ reason: "invalidTarget" }));
+        if (lostLeases.has(lease)) return yield* Effect.fail(new CorePersistenceError({ reason: "leaseLost" }));
         const parameters: CoreSqlParameter[] = [instance, lease.token];
         const insert = (alias: string, name: string, columns: readonly (readonly [string, string])[], rows: readonly (readonly CoreSqlParameter[])[]) => {
           const tuples = rows.map(row => `(${row.map((value, position) => {
@@ -252,19 +260,23 @@ export const createCorePersistence = Effect.fn("CorePersistence.create")(
           }).join(", ")})`);
           const names = columns.map(([column]) => column).join(", ");
           return `${alias} AS (INSERT INTO ${table(name)} (${names}) SELECT ${names} FROM (VALUES ${tuples.join(", ")}) AS row(${names})
-            WHERE EXISTS (SELECT 1 FROM fence))`;
+            WHERE EXISTS (SELECT 1 FROM fence) RETURNING 1)`;
         };
         const inserts = [
-          ...(documentRows.length === 0 ? [] : [insert("inserted_documents", "documents", documentColumns, documentRows)]),
-          ...(indexRows.length === 0 ? [] : [insert("inserted_indexes", "indexes", indexColumns, indexRows)]),
+          ...(documentRows.length === 0 ? [] : [{ alias: "inserted_documents", text: insert("inserted_documents", "documents", documentColumns, documentRows) }]),
+          ...(indexRows.length === 0 ? [] : [{ alias: "inserted_indexes", text: insert("inserted_indexes", "indexes", indexColumns, indexRows) }]),
         ];
-        const rows = yield* connection.query(`WITH fence AS (SELECT 1 FROM ${table("leases")} WHERE instance_name = $1 AND ts = $2),
-          ${inserts.join(",\n          ")}
-          SELECT 1 FROM fence`, parameters);
-        if (rows.length !== 1) {
+        const outcome = yield* driver.write(`WITH fence AS (SELECT 1 FROM ${table("leases")} WHERE instance_name = $1 AND ts = $2),
+          ${inserts.map(entry => entry.text).join(",\n          ")},
+          held AS MATERIALIZED (SELECT 1 FROM ${table("leases")} WHERE instance_name = $1 AND ts = $2
+            AND ${inserts.map(entry => `(SELECT count(*) FROM ${entry.alias})`).join(" + ")} >= 0 FOR SHARE)
+          SELECT 1 / (SELECT count(*) FROM held) AS held`, parameters);
+        if (outcome.kind === "committed") return;
+        if (outcome.code === LEASE_NOT_HELD) {
           lostLeases.add(lease);
           return yield* Effect.fail(new CorePersistenceError({ reason: "leaseLost" }));
         }
+        return yield* Effect.fail(classifyCoreQueryFailure(outcome.cause));
       },
     );
     const writeBatch = Effect.fn("CorePersistence.writeBatch")(
@@ -282,7 +294,7 @@ export const createCorePersistence = Effect.fn("CorePersistence.create")(
         });
         if (!overwriteIndexes && documentRows.length + indexRows.length > 0
           && documentRows.length <= INSERTS_PER_STATEMENT && indexRows.length <= INSERTS_PER_STATEMENT) {
-          yield* closingFenced(lease, connection => insertFencedBatch(connection, lease, documentRows, indexRows));
+          yield* writeFencedBatch(lease, documentRows, indexRows);
           return;
         }
         yield* fenced(lease, connection => Effect.gen(function* () {

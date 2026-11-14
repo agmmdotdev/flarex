@@ -308,6 +308,7 @@ export function registerCorePersistenceScenarios(
       const fixture = await create({ wrapRuntimeDriver: driver => ({
         withConnection: driver.withConnection,
         transaction: driver.transaction,
+        write: driver.write,
         query: (statement, parameters) => driver.query(statement, parameters).pipe(Effect.tap(rows => {
           const matches = kind === "point"
             ? statement.startsWith("SELECT ts::text AS ts, table_id, id, json_value")
