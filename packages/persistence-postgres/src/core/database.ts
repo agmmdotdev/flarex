@@ -29,7 +29,7 @@ import { CoreFinalizationVault, createCoreTransaction, prepareCoreTransactionIdG
 import { CORE_TRANSACTION_REFERENCE_LIMITS, CoreAccounting } from "./accounting";
 import { captureCoreDocument, captureCoreObject } from "./document";
 import { addTableWriteDependencies } from "./dependencies";
-import { CoreReadSetBuilder } from "./writeLog";
+import { CoreReadSetBuilder, type CoreWriteLogSnapshot } from "./writeLog";
 import { captureCoreTableNamespace, coreNamespaceKey,type CoreTableNamespace } from "./namespace";
 import { CoreSchemaModel } from "./schemaModel";
 import { captureCoreSchema, checkCoreSchemaIndexReferences, CoreSchemaError } from "./schemaTypes";
@@ -466,8 +466,25 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
     return found === undefined ? undefined : yield* Effect.fromResult(requestRecord(found.entry, found.table, identity));
   });
   const requireClaimRevision = Effect.fn("CoreDatabase.requireClaimRevision")(function* (
-    selected: Effect.Success<ReturnType<typeof start>>, data: ClaimData, context: CoreTransactionInternals,
+    selected: Effect.Success<ReturnType<typeof start>> & Readonly<{ writeLog?: CoreWriteLogSnapshot }>,
+    data: ClaimData, context: CoreTransactionInternals,
   ) {
+    // This owner committed the claim at its revision timestamp. When the write
+    // log selected with this snapshot shows no later write to the request key,
+    // the row at this snapshot is that exact revision and is not fetched again.
+    // The read witness is registered either way; lost history takes the read.
+    const table = selected.registry.table(REQUESTS)?.definition;
+    const index = table?.indexes.find(value => value.name === "by_key");
+    if (index !== undefined && selected.writeLog !== undefined && data.record.state === "claimed"
+      && selected.timestamp >= data.record.revision.ts) {
+      const interval = equalityInterval(yield* Effect.fromResult(Result.mapError(encodeIndexValue(data.identity.key), invalid)));
+      const unchanged = Result.match(selected.writeLog.conflict([{ indexId: index.ref.id, intervals: [interval] }], data.record.revision.ts),
+        { onFailure: () => false, onSuccess: later => later === undefined });
+      if (unchanged) {
+        context.addIndexRead(index.ref.id, interval);
+        return data.record;
+      }
+    }
     const record = yield* findRequest(selected, data.identity, context);
     if (record === undefined || record.state !== "claimed" || !bytesEqual(record.id, data.record.id)
       || record.revision.ts !== data.record.revision.ts || record.leaseToken !== data.record.leaseToken)

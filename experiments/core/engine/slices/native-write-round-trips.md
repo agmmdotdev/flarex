@@ -48,7 +48,7 @@ One read-only challenger inspected current Core, physical maintenance and pinned
 | `BEGIN; ...; COMMIT` through the simple protocol | Rejected. It takes no parameters. |
 | Share lock first | Rejected as before: it inverts the lock order of physical maintenance. |
 | Reuse the ordinary query method | Rejected. It reports every failure as unavailable, which would hide a possibly committed write; the driver gained `write`. |
-| Drop the re-read of the just-committed claim | Sound through the write log; not built in this slice. |
+| Drop the re-read of the just-committed claim | Sound through the write log; built next, below. |
 | Fold or skip the generated-ID check | Rejected. It is a per-transaction refusal before acceptance. |
 | Merge the claim commit into the root commit | Not compatible without an owner decision: the claim is the in-progress record that stops a retry replaying effects after a crash. |
 
@@ -74,3 +74,23 @@ database is remote. CPU per request did not change measurably.
 Review found and this slice fixed a fault-injection test under
 `test/frameworks/crossDomainCommand` that the earlier fenced-insert statement had left
 unable to inject, because it sat outside the lanes then run.
+
+## Claim revision without a read
+
+Baseline `f60bfe207`. A native root re-read its own request claim at the root snapshot
+to prove it was still the exact revision it had just committed.
+
+The snapshot is selected together with the write log. When that log shows no write to
+the request key after the claim's revision timestamp, the row at the snapshot is that
+revision, so it is not fetched. The by-key read witness is registered either way, and
+commit still conflicts on it. A later write to the key, a claim that is not in the
+claimed state, a snapshot older than the claim or lost log history all take the read as
+before. There is no Convex counterpart: the claim record is Flarex's own.
+
+Round trips per call fall by one more: a one-row write 11 → 10, Variant update 18 → 17,
+Product delete 53 → 52.
+
+Only native roots pass a write log; ordinary begin and abort keep the read. A stale
+claim that is still active can arise only in another process, whose writes this log
+never holds, and that owner's commit then fails on the lease fence as before. The
+round-trip counts above are the witness for the shortcut; no unit test isolates it.
