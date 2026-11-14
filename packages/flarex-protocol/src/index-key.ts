@@ -61,8 +61,16 @@ export function encodeDocumentIndexKey(
     : encodeIndexKey(indexedValues, developerId);
 }
 
-const decodeKeyId = (developerId: string) =>
-  decodeDocumentId(developerId).pipe(Result.mapError(() => new IndexKeyError({ reason: "invalidDocumentId" })));
+/** One document's keys are encoded together, index after index. Canonical
+ * decoding is a pure fact about the string, so the last proven ID is kept. */
+let lastKeyId: Readonly<{ id: string }> | undefined;
+const decodeKeyId = (developerId: string): Result.Result<Readonly<{ id: string }>, IndexKeyError> => {
+  if (lastKeyId?.id === developerId) return Result.succeed(lastKeyId);
+  return decodeDocumentId(developerId).pipe(
+    Result.mapError(() => new IndexKeyError({ reason: "invalidDocumentId" })),
+    Result.map(decoded => lastKeyId = Object.freeze({ id: decoded.id })),
+  );
+};
 
 /** Missing values encode as 1; the developer-ID tie breaker always ends the key. */
 function writeIndexKey(capturedValues: readonly (DocumentValue | undefined)[], id: Readonly<{ id: string }>): Uint8Array {

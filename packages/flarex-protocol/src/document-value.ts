@@ -40,8 +40,8 @@ const utf8 = new TextEncoder();
 const utf8Decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
 
 /** Returns detached, frozen containers and copied binary leaves. Once the codec
- * has walked a root this module issued, with scalar leaves only, later captures
- * of that root return that walk's output without another walk. */
+ * has walked a root this module issued or decoded, with scalar leaves only,
+ * later captures of that root return that walk's output without another walk. */
 export function captureDocumentValue(value: unknown): Result.Result<DocumentValue, DocumentValueError> {
   return captureDocumentValueWithSize(value).pipe(Result.map(captured => captured.value));
 }
@@ -91,9 +91,12 @@ export function captureDocumentPatch(value: unknown): Result.Result<
 
 /** Container roots issued by capture: their complete trees are normalized and
  * frozen by the authoritative codec. Binary leaves stay owned by that tree.
- * `proven` is the codec's own output for a later walk of that root whose input
- * held scalar leaves only; `false` records that the root can never be proven. */
+ * `proven` is the codec's own output for a walk whose input held scalar leaves
+ * only: a later walk of that root, or the walk of a tree this module decoded.
+ * `false` records that the root can never be proven. */
 interface IssuedRoot {
+  /** Size the codec measured at issuance; a genuine tree has no more nodes. */
+  readonly semanticSizeBytes: number;
   proven: CapturedDocumentValue | false | undefined;
 }
 const capturedRoots = new WeakMap<object, IssuedRoot>();
@@ -106,7 +109,8 @@ export function isCapturedDocumentRoot(value: DocumentValue): boolean {
  * and the codec copies nothing foreign out of them. A binary leaf can be
  * written, transferred or detached by any holder, and the codec copies it
  * through the input's own method, so a tree with one is never proven.
- * Every genuine node costs at least one semantic byte, which bounds the walk. */
+ * Every genuine node costs at least one semantic byte, so the size measured at
+ * issuance bounds the walk. */
 function isImmutableScalarTree(value: unknown, depth: number, budget: { nodes: number }): boolean {
   if (--budget.nodes < 0) return false;
   if (value === null) return true;
@@ -128,7 +132,8 @@ function isImmutableScalarTree(value: unknown, depth: number, budget: { nodes: n
   return true;
 }
 
-function capture(value: unknown, profile: FlarexValueProfileV1): Result.Result<CapturedDocumentValue, DocumentValueError> {
+function capture(value: unknown, profile: FlarexValueProfileV1,
+  ownScalarTree = false): Result.Result<CapturedDocumentValue, DocumentValueError> {
   const issued = typeof value === "object" && value !== null ? capturedRoots.get(value) : undefined;
   const proven = issued?.proven;
   // The codec produced these facts for this content from scalar-only input,
@@ -137,15 +142,17 @@ function capture(value: unknown, profile: FlarexValueProfileV1): Result.Result<C
     proven.nestingDepth <= limitNesting(profile) && !(profile === "appDocument" && Array.isArray(proven.value)))
     return Result.succeed(proven);
   // Shape is pinned before the codec walks it, so both inspect the same tree.
-  const proving = issued !== undefined && proven === undefined &&
-    isImmutableScalarTree(value, 0, { nodes: limitBytes(profile) });
+  // `ownScalarTree` is this module's own fresh tree without a binary leaf: the
+  // codec copies nothing foreign out of it, so its output needs no second walk.
+  const proving = ownScalarTree || (issued !== undefined && proven === undefined &&
+    isImmutableScalarTree(value, 0, { nodes: issued.semanticSizeBytes }));
   if (issued !== undefined && proven === undefined && !proving) issued.proven = false;
   return Result.try({
     try: () => {
       const { value: captured, semanticSizeBytes, nestingDepth } = normalizeFlarexRuntimeValueV1(value, profile);
       const result = Object.freeze({ value: captured, semanticSizeBytes, nestingDepth });
       if (typeof captured === "object" && captured !== null && !(captured instanceof ArrayBuffer))
-        capturedRoots.set(captured, { proven: proving ? result : undefined });
+        capturedRoots.set(captured, { semanticSizeBytes, proven: proving ? result : undefined });
       // Later captures of either root return this output, never the first tree.
       if (proving && issued !== undefined) issued.proven = result;
       return result;
@@ -185,8 +192,15 @@ export function decodeDocumentValue(bytes: Uint8Array): Result.Result<DocumentVa
       },
     });
     const json = yield* decodeJson(parsed).pipe(Result.mapError(() => new DocumentValueError({ reason: "invalidJson" })));
-    const value = yield* fromJson(json);
-    return yield* captureDocumentValue(value);
+    const built = { binary: false };
+    const value = yield* Result.try({
+      try: () => fromJson(json, 0, built),
+      catch: (cause: unknown) => {
+        if (cause instanceof DocumentValueError) return cause;
+        throw cause;
+      },
+    });
+    return (yield* capture(value, "generalValue", !built.binary)).value;
   });
 }
 
@@ -213,40 +227,38 @@ function toJson(value: DocumentValue): Json {
   return object;
 }
 
-function fromJson(value: Json, parentNesting = 0): Result.Result<DocumentValue, DocumentValueError> {
-  return Result.gen(function* () {
-    if (value === null || typeof value === "string" || typeof value === "boolean" || typeof value === "number") return value;
-    if (isJsonArray(value)) {
-      if (parentNesting >= MAX_FLAREX_VALUE_NESTING_V1)
-        return yield* Result.fail(new DocumentValueError({ reason: "invalidValue" }));
-      const array: DocumentValue[] = [];
-      for (const child of value) array.push(yield* fromJson(child, parentNesting + 1));
-      return array;
-    }
-    if (!isJsonObject(value)) return yield* invalidTag();
-    const entries = Object.entries(value);
-    const entry = entries.length === 1 ? entries[0] : undefined;
-    if (entry !== undefined && entry[0].startsWith("$")) {
-      const [tag, encoded] = entry;
-      if ((tag !== "$bytes" && tag !== "$integer" && tag !== "$float") || typeof encoded !== "string")
-        return yield* invalidTag();
-      const decoded = yield* Encoding.decodeBase64(encoded).pipe(Result.mapError(() => new DocumentValueError({ reason: "invalidTag" })));
-      if (tag === "$bytes") return decoded.slice().buffer;
-      if (decoded.byteLength !== 8) return yield* invalidTag();
-      const view = new DataView(decoded.buffer, decoded.byteOffset, decoded.byteLength);
-      if (tag === "$integer") return view.getBigInt64(0, true);
-      const float = view.getFloat64(0, true);
-      if (!isSpecialFloat(float)) return yield* invalidTag();
-      return float;
-    }
-    if (parentNesting >= MAX_FLAREX_VALUE_NESTING_V1)
-      return yield* Result.fail(new DocumentValueError({ reason: "invalidValue" }));
-    const object: Record<string, DocumentValue> = {};
-    for (const [key, child] of entries) Object.defineProperty(object, key, {
-      enumerable: true, value: yield* fromJson(child, parentNesting + 1),
-    });
-    return object;
+/** Builds this module's own fresh tree; refusals are thrown to the decode
+ * boundary because a Result per node would allocate without adding one. */
+function fromJson(value: Json, parentNesting: number, built: { binary: boolean }): DocumentValue {
+  if (value === null || typeof value === "string" || typeof value === "boolean" || typeof value === "number") return value;
+  if (isJsonArray(value)) {
+    if (parentNesting >= MAX_FLAREX_VALUE_NESTING_V1) throw new DocumentValueError({ reason: "invalidValue" });
+    const array: DocumentValue[] = [];
+    for (const child of value) array.push(fromJson(child, parentNesting + 1, built));
+    return array;
+  }
+  if (!isJsonObject(value)) throw new DocumentValueError({ reason: "invalidTag" });
+  const entries = Object.entries(value);
+  const entry = entries.length === 1 ? entries[0] : undefined;
+  if (entry !== undefined && entry[0].startsWith("$")) {
+    const [tag, encoded] = entry;
+    if ((tag !== "$bytes" && tag !== "$integer" && tag !== "$float") || typeof encoded !== "string")
+      throw new DocumentValueError({ reason: "invalidTag" });
+    const decoded = Result.getOrThrowWith(Encoding.decodeBase64(encoded), () => new DocumentValueError({ reason: "invalidTag" }));
+    if (tag === "$bytes") { built.binary = true; return decoded.slice().buffer; }
+    if (decoded.byteLength !== 8) throw new DocumentValueError({ reason: "invalidTag" });
+    const view = new DataView(decoded.buffer, decoded.byteOffset, decoded.byteLength);
+    if (tag === "$integer") return view.getBigInt64(0, true);
+    const float = view.getFloat64(0, true);
+    if (!isSpecialFloat(float)) throw new DocumentValueError({ reason: "invalidTag" });
+    return float;
+  }
+  if (parentNesting >= MAX_FLAREX_VALUE_NESTING_V1) throw new DocumentValueError({ reason: "invalidValue" });
+  const object: Record<string, DocumentValue> = {};
+  for (const [key, child] of entries) Object.defineProperty(object, key, {
+    enumerable: true, value: fromJson(child, parentNesting + 1, built),
   });
+  return object;
 }
 
 export function isDocumentArray(value: DocumentValue): value is readonly DocumentValue[] {
@@ -255,8 +267,4 @@ export function isDocumentArray(value: DocumentValue): value is readonly Documen
 
 function isSpecialFloat(value: number): boolean {
   return !Number.isFinite(value) || Object.is(value, -0);
-}
-
-function invalidTag(): Result.Result<never, DocumentValueError> {
-  return Result.fail(new DocumentValueError({ reason: "invalidTag" }));
 }

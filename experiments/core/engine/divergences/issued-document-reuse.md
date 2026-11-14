@@ -30,6 +30,9 @@ Measurement status: **Required gates unmet**; local load only.
   profile takes the full walk, which selects the refusal.
 - The returned tree is always the codec's own output, never the tree first handed in.
 - A root that fails the shape check or the proving walk is never reused.
+- A stored document is proven when it is decoded. Decoding builds this module's own
+  fresh tree from parsed JSON, and when that tree holds no binary leaf the codec's
+  walk of it copies nothing foreign, so its output needs no second walk.
 - JavaScript cannot freeze an `ArrayBuffer`: any holder can write, transfer or detach
   it. A tree with a binary leaf is therefore walked and copied on every capture, where
   Convex reuses it.
@@ -37,7 +40,8 @@ Measurement status: **Required gates unmet**; local load only.
   input's own `slice`, so a forged subclass can plant an unvalidated leaf, a Proxy or a
   shared subtree in an issued tree. That codec is embedded in generated runtimes and
   stays unchanged here. The shape check runs before the walk, frozen state first, so a
-  Proxy cannot differ between the two, and it is bounded by a node budget.
+  Proxy cannot differ between the two. It visits at most as many nodes as the size the
+  codec measured when it issued the root; every genuine node costs at least one byte.
 
 ## Why
 

@@ -868,8 +868,27 @@ function schemaAuthorityMetadataReads(registry: CoreRegistry, authority: Readonl
   });
 }
 
+/** One immutable registry and one frozen authority always select the same
+ * metadata reads, so a successful selection is kept for that pair and table.
+ * A selective authority also depends on the registry's separately recorded
+ * schema proof and is selected again on every call. */
+const metadataReads = new WeakMap<CoreRegistry, WeakMap<CoreNativeAuthority, Map<string | undefined, CoreReadSet>>>();
 export function coreNativeMetadataReads(registry: CoreRegistry, authority: CoreNativeAuthority, tableName?: string): Result.Result<CoreReadSet, CoreError> {
   if (authority.selectiveMetadata === true) return coreProtectedNativeMetadataReads(registry, authority, tableName);
+  const kept = metadataReads.get(registry)?.get(authority)?.get(tableName);
+  if (kept !== undefined) return Result.succeed(kept);
+  const selected = selectCoreNativeMetadataReads(registry, authority, tableName);
+  if (Result.isSuccess(selected) && immutableDefinitions.has(authority.definition)
+    && Object.isFrozen(authority) && Object.isFrozen(authority.tables) && authority.tables.every(table => Object.isFrozen(table))) {
+    let byAuthority = metadataReads.get(registry);
+    if (byAuthority === undefined) metadataReads.set(registry, byAuthority = new WeakMap());
+    let byTable = byAuthority.get(authority);
+    if (byTable === undefined) byAuthority.set(authority, byTable = new Map());
+    byTable.set(tableName, selected.success);
+  }
+  return selected;
+}
+function selectCoreNativeMetadataReads(registry: CoreRegistry, authority: CoreNativeAuthority, tableName?: string): Result.Result<CoreReadSet, CoreError> {
   return Result.gen(function* () {
     yield* checkCoreNativeAuthority(registry, authority, tableName);
     const privateTables: CoreTableDefinition[] = [];

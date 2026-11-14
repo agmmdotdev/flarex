@@ -184,6 +184,24 @@ describe("Convex internal document JSON", () => {
     }
   });
 
+  it("proves a decoded scalar document at once and still copies a decoded binary one", () => {
+    const scalar = Result.getOrThrow(decode('{"a":[1,{"$integer":"AQAAAAAAAAA="}],"b":"x"}'));
+    expect(scalar).toEqual({ a: [1, 1n], b: "x" });
+    expect(Result.getOrThrow(captureDocumentValue(scalar))).toBe(scalar);
+    expect(Result.getOrThrow(captureDocumentObject(scalar))).toBe(scalar);
+    expect(Result.getOrThrow(captureDocumentValueWithSize(scalar)))
+      .toEqual(Result.getOrThrow(captureDocumentValueWithSize({ a: [1, 1n], b: "x" })));
+    const binary = Result.getOrThrow(decode('{"bytes":{"$bytes":"AP8B"}}')) as { bytes: ArrayBuffer };
+    for (let repeat = 0; repeat < 3; repeat++) {
+      const copied = Result.getOrThrow(captureDocumentValue(binary)) as { bytes: ArrayBuffer };
+      expect(copied).not.toBe(binary);
+      expect(copied.bytes).not.toBe(binary.bytes);
+    }
+    // Refusals keep their reason and order through the plain decoder.
+    expect(decode('{"a":{"$bytes":"?"},"b":{"$unknown":1}}')).toMatchObject({ _tag: "Failure", failure: { reason: "invalidTag" } });
+    expect(decode("[".repeat(65) + "]".repeat(65))).toMatchObject({ _tag: "Failure", failure: { reason: "invalidValue" } });
+  });
+
   it("selects the same refusal for a proven root outside the requested profile", () => {
     const prove = (input: unknown) => Result.getOrThrow(captureDocumentValue(Result.getOrThrow(captureDocumentValue(input))));
     let deep: unknown = 1;

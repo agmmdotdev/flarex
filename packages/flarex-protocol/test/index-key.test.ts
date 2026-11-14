@@ -86,5 +86,13 @@ describe("captured document index keys", () => {
     for (const root of [document, copy])
       expect(encodeDocumentIndexKey(root, [], "not-an-id")).toMatchObject({ _tag: "Failure", failure: { reason: "invalidDocumentId" } });
     expect(encodeIndexKey([], "not-an-id")).toMatchObject({ _tag: "Failure", failure: { reason: "invalidDocumentId" } });
+    // The last proven ID is kept; a refusal is never kept and never displaces it wrongly.
+    const valid = Result.getOrThrow(encodeDocumentId(1, new Uint8Array(16).fill(7)));
+    const key = Result.getOrThrow(encodeIndexKey([1], valid));
+    for (let repeat = 0; repeat < 2; repeat++) {
+      expect(Result.getOrThrow(encodeIndexKey([1], valid))).toEqual(key);
+      expect(encodeIndexKey([1], `${valid}x`)).toMatchObject({ _tag: "Failure", failure: { reason: "invalidDocumentId" } });
+      expect(encodeIndexKey([1], "not-an-id")).toMatchObject({ _tag: "Failure", failure: { reason: "invalidDocumentId" } });
+    }
   });
 });

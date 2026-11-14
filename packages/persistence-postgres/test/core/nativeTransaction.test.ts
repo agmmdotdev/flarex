@@ -6,7 +6,7 @@ import { compilePayloadCollections } from "../../../payload-adapter/src/collecti
 import type { CoreTableDefinition } from "../../src/core/api";
 import { CorePersistenceError, type CoreDocumentLogEntry, type CoreIndexScan, type CorePersistenceSnapshot } from "../../src/core/contracts";
 import { documentIndexKey } from "../../src/core/documentIndex";
-import { checkCoreNativeAuthority, makeCoreNativeDefinition, type CoreNativeAuthority } from "../../src/core/nativePolicy";
+import { checkCoreNativeAuthority, coreNativeMetadataReads, makeCoreNativeDefinition, type CoreNativeAuthority } from "../../src/core/nativePolicy";
 import { initialRegistry, publicDocumentId, readDocumentObject, type CoreRegistry } from "../../src/core/registry";
 import { serializeCoreSchema } from "../../src/core/schemaJson";
 import { CoreFinalizationVault, createCoreTransaction } from "../../src/core/transaction";
@@ -188,6 +188,31 @@ describe("native transaction observations over the source transaction", () => {
     expect(Result.isSuccess(checkCoreNativeAuthority(tested.registry, mutable))).toBe(true);
     mutable.tables = [{ ...tested.table, number: tested.table.number + 1 }];
     expect(checkCoreNativeAuthority(tested.registry, mutable)).toMatchObject({ _tag: "Failure", failure: { reason: "authorityRevoked" } });
+    await Effect.runPromise(tested.context.transaction.abort());
+  });
+
+  it("keeps one metadata read selection per immutable registry, frozen authority and table", async () => {
+    const tested = await fixture();
+    const frozen: CoreNativeAuthority = Object.freeze({ ...tested.authority,
+      tables: Object.freeze(tested.authority.tables.map(table => Object.freeze({ ...table }))) });
+    const complete = Result.getOrThrow(coreNativeMetadataReads(tested.registry, frozen));
+    const single = Result.getOrThrow(coreNativeMetadataReads(tested.registry, frozen, tested.table.name));
+    expect(Result.getOrThrow(coreNativeMetadataReads(tested.registry, frozen))).toBe(complete);
+    expect(Result.getOrThrow(coreNativeMetadataReads(tested.registry, frozen, tested.table.name))).toBe(single);
+    // A refused table is never kept, and another registry never reuses a kept selection.
+    for (let repeat = 0; repeat < 2; repeat++) expect(coreNativeMetadataReads(tested.registry, frozen, "not-bound"))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "authorityRevoked" } });
+    const revoked = tested.registry.withAuthority({ epoch: 1n, id: bytes(61), ts: 2n });
+    expect(coreNativeMetadataReads(revoked, frozen)).toMatchObject({ _tag: "Failure", failure: { reason: "authorityRevoked" } });
+    expect(coreNativeMetadataReads(revoked, frozen, tested.table.name)).toMatchObject({ _tag: "Failure", failure: { reason: "authorityRevoked" } });
+    // A mutable authority is selected again on every call with equal content.
+    const mutable = { ...tested.authority, tables: [...tested.authority.tables] };
+    const first = Result.getOrThrow(coreNativeMetadataReads(tested.registry, mutable));
+    expect(first).not.toBe(complete);
+    expect(first).toEqual(complete);
+    expect(Result.getOrThrow(coreNativeMetadataReads(tested.registry, mutable))).not.toBe(first);
+    mutable.tables = [{ ...tested.table, number: tested.table.number + 1 }];
+    expect(coreNativeMetadataReads(tested.registry, mutable)).toMatchObject({ _tag: "Failure", failure: { reason: "authorityRevoked" } });
     await Effect.runPromise(tested.context.transaction.abort());
   });
 
