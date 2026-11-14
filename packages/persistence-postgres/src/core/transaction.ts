@@ -28,7 +28,7 @@ import { CORE_TRANSACTION_REFERENCE_LIMITS, CoreAccounting } from "./accounting"
 import { captureCoreDocument, captureCoreObject, incrementCoreCreationTime } from "./document";
 import { addIndexMetadataDependency, addTableSemanticDependency, addTableWriteDependencies, coreMetadataReadSet } from "./dependencies";
 import { captureCoreIndexRange, CORE_INDEX_CAPTURE_PAGE_SIZE, createCoreEmptyQuery, createCoreQuery } from "./query";
-import { createCoreIndexSnapshot, type CoreIndexRangeBatchOptions } from "./indexSnapshot";
+import { CoreDecodedDocumentHandoff, createCoreIndexSnapshot, type CoreIndexRangeBatchOptions } from "./indexSnapshot";
 import type { CoreTableCounts } from "./tableCounts";
 import { documentIndexKey } from "./documentIndex";
 import { authenticateCoreNativeRegistry, assertCoreHistoricalNativeTable, checkCoreNativeAuthority, checkCoreTableAccess, coreNativeMetadataReads,
@@ -359,7 +359,8 @@ export function createCoreTransaction(input: Readonly<{
   const { snapshot, idGenerator } = input;
   let registry = input.registry;
   const namespace = input.namespace ?? null;
-  const indexSnapshot = createCoreIndexSnapshot({ snapshot, registry,
+  const decodedDocuments = new CoreDecodedDocumentHandoff(input.operationCacheMaxBytes);
+  const indexSnapshot = createCoreIndexSnapshot({ snapshot, registry, decoded: decodedDocuments,
     ...(input.residentReader === undefined ? {} : { resident: input.residentReader }),
     ...(input.operationCacheMaxBytes === undefined ? {} : { maxBytes: input.operationCacheMaxBytes }) });
   const reads = new CoreReadSetBuilder();
@@ -518,7 +519,7 @@ export function createCoreTransaction(input: Readonly<{
       tableId: found.tableId.slice(), id: found.id.slice(), jsonValue: found.jsonValue.slice() });
     let document: DocumentObject | null = null;
     if (original !== undefined && !original.deleted) {
-      const decoded = yield* Effect.fromResult(readDocumentObject(original, table));
+      const decoded = decodedDocuments.take(original, table) ?? (yield* Effect.fromResult(readDocumentObject(original, table)));
       const policy = access?.kind === "native" ? coreNativeRelationalRows(access.authority.definition, table.name) : undefined;
       if (policy !== undefined) {
         const { _id, _creationTime, ...body } = decoded;
@@ -572,6 +573,7 @@ export function createCoreTransaction(input: Readonly<{
     nativeObservations.addReads(metadataTimestamp, metadata);
     if (index !== undefined) yield* Effect.fromResult(observeNativeIndex(nativeObservations, metadataRegistry, metadataTimestamp, indexedTable, index));
     return { ...selected, registry: metadataRegistry, indexSnapshot: createCoreIndexSnapshot({ snapshot: selected.snapshot, registry: metadataRegistry,
+      decoded: decodedDocuments,
       ...(selected.residentReader === undefined ? {} : { resident: selected.residentReader }),
       ...(input.operationCacheMaxBytes === undefined ? {} : { maxBytes: input.operationCacheMaxBytes }) }) };
   });

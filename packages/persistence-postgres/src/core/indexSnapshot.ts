@@ -6,9 +6,10 @@
 import { BTreeEx as BTree } from "sorted-btree/extended/index.js";
 import { Cause, Effect, Exit, Result } from "effect";
 import { bytesEqual, compareBytesLexicographically, encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
+import type { DocumentObject } from "flarex-protocol/document-value";
 import { incrementIndexKeyPrefix, indexRangeIsEmpty, splitIndexRangeAfter } from "flarex-protocol/index-range";
 import { CoreTransactionError, type CoreError, type CoreTableDefinition } from "./api";
-import { CorePersistenceError, type CoreHydratedIndexEntry, type CoreIndexPage, type CoreIndexScan,
+import { CorePersistenceError, type CoreDocumentLogEntry, type CoreHydratedIndexEntry, type CoreIndexPage, type CoreIndexScan,
   type CoreInterval, type CorePersistenceSnapshot } from "./contracts";
 import { captureCoreDocument } from "./document";
 import { documentIndexKey } from "./documentIndex";
@@ -73,12 +74,60 @@ export const advisoryPreload = Effect.fnUntraced(function* <E, R>(preload: Effec
   if (propagated.length > 0) return yield* Effect.failCause(Cause.fromReasons<never>(propagated));
 });
 
+/** Hands each document a fill decoded to the one observation that reads the
+ * same stored revision next, so a fetched row is decoded once. A handed
+ * document leaves this owner: a later observation of that row decodes again,
+ * exactly as it does without a handoff. Byte-identical stored JSON and the
+ * same expected table are required, so a handed document is what a fresh
+ * decode would return. Only the most recent offers are kept, within a small
+ * window of stored bytes of its own: a reader takes right after its fill, and
+ * offers no reader takes must not accumulate for the transaction. */
+const DECODED_HANDOFF_BYTES = 1024 * 1024;
+export class CoreDecodedDocumentHandoff {
+  private readonly offered = new Map<string, Readonly<{ entry: CoreDocumentLogEntry;
+    table: Pick<CoreTableDefinition, "number" | "tabletId">; document: DocumentObject }>>();
+  private bytes = 0;
+  private readonly maxBytes: number;
+  constructor(maxBytes: number = DECODED_HANDOFF_BYTES) { this.maxBytes = Math.min(maxBytes, DECODED_HANDOFF_BYTES); }
+
+  offer(entry: CoreDocumentLogEntry, table: Pick<CoreTableDefinition, "number" | "tabletId">, document: DocumentObject): void {
+    const revision = revisionKey(entry);
+    this.withdraw(revision);
+    if (entry.jsonValue.byteLength > this.maxBytes) return;
+    this.offered.set(revision, { entry, table, document });
+    this.bytes += entry.jsonValue.byteLength;
+    for (const oldest of this.offered.keys()) {
+      if (this.bytes <= this.maxBytes) break;
+      this.withdraw(oldest);
+    }
+  }
+
+  take(entry: CoreDocumentLogEntry, table: Pick<CoreTableDefinition, "number" | "tabletId">): DocumentObject | undefined {
+    const revision = revisionKey(entry);
+    const offer = this.offered.get(revision);
+    if (offer === undefined) return undefined;
+    this.withdraw(revision);
+    return offer.table.number === table.number && bytesEqual(offer.table.tabletId, table.tabletId)
+      && bytesEqual(offer.entry.tableId, entry.tableId) && bytesEqual(offer.entry.jsonValue, entry.jsonValue)
+      ? offer.document : undefined;
+  }
+
+  private withdraw(revision: string): void {
+    const offer = this.offered.get(revision);
+    if (offer === undefined) return;
+    this.offered.delete(revision);
+    this.bytes -= offer.entry.jsonValue.byteLength;
+  }
+}
+const revisionKey = (entry: CoreDocumentLogEntry) => `${encodeBytesToLowercaseHex(entry.id)}:${entry.ts}`;
+
 /** One operation's coverage. This never records user dependencies or charges user reads. */
 export function createCoreIndexSnapshot(input: Readonly<{
   snapshot: CorePersistenceSnapshot;
   registry: CoreRegistry;
   resident?: (request: CoreIndexScan) => CoreIndexPage | undefined;
   maxBytes?: number;
+  decoded?: CoreDecodedDocumentHandoff;
 }>): CoreBatchIndexSnapshot {
   const indexes = new Map<string, IndexDocuments>();
   const maxBytes = input.maxBytes ?? REFERENCE_OPERATION_CACHE_BYTES;
@@ -137,6 +186,7 @@ export function createCoreIndexSnapshot(input: Readonly<{
         // Keep a single immutable document revision shared by its secondary
         // keys. The source charges document value size only through ById.
         const owned = copyEntry(entry).document;
+        input.decoded?.offer(owned, table, measured.value);
         for (const index of table.indexes) {
           if (cacheBytes > maxBytes) continue;
           if (index.name === "by_id") cacheBytes += measured.semanticSizeBytes;

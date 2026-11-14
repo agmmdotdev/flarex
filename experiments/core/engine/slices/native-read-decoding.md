@@ -63,3 +63,23 @@ Round trips did not change. Native Medusa on the same host needs about 0.5–20 
 CPU for these reads, so a large gap remains. Each request still fetches and decodes
 its rows again; a decoded-revision cache shared across requests is a separate design.
 
+
+## Decode once per request
+
+Baseline `4dd219735`. Mechanism:
+[decoded document handoff](../divergences/decoded-document-handoff.md).
+
+A fetched row was decoded twice in one request: by the fill that derives its index keys
+and by the observation that reads it. An independent challenge rejected a process-wide
+decoded cache and selected a handoff inside the transaction.
+
+Same host and catalogue, minimum of three alternating rounds (medians were disturbed by
+other load on the host):
+
+| Operation | CPU per operation |
+| --- | --- |
+| Retrieve | 7.6 → 7.0 ms |
+| List by IDs | 27.5 → 26.3 ms |
+| List page | 31.5 → 28.6 ms |
+| List recent | 31.6 → 27.0 ms |
+| Search | 32.0 → 26.7 ms |

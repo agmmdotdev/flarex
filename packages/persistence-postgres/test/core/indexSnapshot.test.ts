@@ -7,7 +7,7 @@ import { type CoreTableDefinition } from "../../src/core/api";
 import { CorePersistenceError, type CoreHydratedIndexEntry, type CoreIndexPage,
   type CoreIndexScan, type CoreInterval, type CorePersistenceSnapshot } from "../../src/core/contracts";
 import { documentIndexKey } from "../../src/core/documentIndex";
-import { createCoreIndexSnapshot } from "../../src/core/indexSnapshot";
+import { CoreDecodedDocumentHandoff, createCoreIndexSnapshot } from "../../src/core/indexSnapshot";
 import { initialRegistry, publicDocumentId, readDocumentObject } from "../../src/core/registry";
 import { CoreFinalizationVault, createCoreTransaction } from "../../src/core/transaction";
 import { createTransactionIdGenerator } from "../../src/core/transactionIdGenerator";
@@ -104,6 +104,33 @@ describe("translated operation index snapshot", () => {
     expect(rowValues(await Effect.runPromise(snapshot.scan(request(byValue, { start: null, end: null }, 100, "desc")))))
       .toEqual([3, 2, 1, 0]);
     expect(physical.calls).toHaveLength(1);
+  });
+
+  it("hands each fetched document to one reader of the same stored revision and table", async () => {
+    const physical = reader();
+    const decoded = new CoreDecodedDocumentHandoff();
+    const snapshot = createCoreIndexSnapshot({ snapshot: physical.snapshot, registry, decoded });
+    const page = await Effect.runPromise(snapshot.scan(request()));
+    const [first, second, third, fourth] = page.entries.map(entry => entry.document);
+    if (first === undefined || second === undefined || third === undefined || fourth === undefined) throw new Error("Missing rows");
+    const fresh = Result.getOrThrow(readDocumentObject(first, table));
+    const handed = decoded.take(first, table);
+    expect(handed).toEqual(fresh);
+    // A handed document has left the owner; the next reader decodes for itself.
+    expect(decoded.take(first, table)).toBeUndefined();
+    // Different stored bytes, another table or another revision are never handed, and the offer is withdrawn.
+    const changed = { ...second, jsonValue: Result.getOrThrow(encodeDocumentValue({ ...Result.getOrThrow(readDocumentObject(second, table)), value: 99 })) };
+    expect(decoded.take(changed, table)).toBeUndefined();
+    expect(decoded.take(second, table)).toBeUndefined();
+    expect(decoded.take(third, { number: table.number + 1, tabletId: table.tabletId })).toBeUndefined();
+    expect(decoded.take(third, table)).toBeUndefined();
+    expect(decoded.take({ ...fourth, ts: fourth.ts + 1n }, table)).toBeUndefined();
+    expect(decoded.take(fourth, table)).toEqual(Result.getOrThrow(readDocumentObject(fourth, table)));
+    // Only the most recent offers stay inside the byte window.
+    const bounded = new CoreDecodedDocumentHandoff(first.jsonValue.byteLength);
+    const small = createCoreIndexSnapshot({ snapshot: reader().snapshot, registry, decoded: bounded });
+    const rows = (await Effect.runPromise(small.scan(request()))).entries.map(entry => entry.document);
+    expect(rows.map(row => bounded.take(row, table) !== undefined)).toEqual([false, false, false, true]);
   });
 
   it("retains negative coverage and returns independent mutable byte ownership", async () => {
