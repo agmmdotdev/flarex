@@ -1,0 +1,41 @@
+name: Perry full Product CPU
+on:
+  push:
+    branches: [bench/perry-native-full-20261115]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  native:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: 24
+      - name: Install locked workspace dependencies without scripts
+        run: |
+          npm install --global pnpm@11.7.0
+          pnpm --config.verify-deps-before-run=false install --frozen-lockfile --ignore-scripts --config.strict-dep-builds=false
+      - name: Build pinned native Medusa packages
+        run: pnpm --config.verify-deps-before-run=false --filter '@medusajs/*' --workspace-concurrency=1 run build
+      - name: Install Perry and its matching native extensions
+        run: |
+          npm install --prefix "$RUNNER_TEMP/perry" --no-package-lock @perryts/perry@0.5.1665 @perryts/perry-ext-x86_64-unknown-linux-gnu@0.5.1665
+          sudo apt-get update
+          sudo apt-get install -y clang libjemalloc2
+      - name: Compile full workflow with Perry and measure verified native execution
+        run: node packages/medusa-adapter/benchmarks/product-cpu/perry-native.mjs "$RUNNER_TEMP/perry/node_modules/.bin/perry" work/validation/perry-ci
+      - uses: actions/upload-artifact@v7.0.2
+        if: always()
+        with:
+          name: perry-full-product-cpu
+          retention-days: 1
+          if-no-files-found: warn
+          path: |
+            work/validation/perry-ci/*.json
+            work/validation/perry-ci/*.log
+            work/validation/perry-ci/*.txt
