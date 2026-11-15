@@ -1,4 +1,4 @@
-import { Cause, Effect, Result, Schema } from "effect";
+import { Cause, Effect, Option, Result, Schema } from "effect";
 import type { DocumentObject } from "flarex-protocol/document-value";
 import { isJsonObject, type Json, type JsonObject } from "flarex-protocol/json";
 import { CoreNativeSetNullIntentSchema, type CoreError, type CoreNativeBindingMetadata,
@@ -92,7 +92,9 @@ export const makeNativeCommerceParticipant = Effect.fnUntraced(function* (
     const read = (context: BoundedRequestContext, input: unknown, preparation: Preparation, operation: "find" | "count" = "find") => guard(context, "read", Effect.gen(function* () {
       const query = yield* prepare(input, preparation);
       const selected = yield* nativeResult(observeExecution(`NativeCommerce.query/${declaration.localName ?? table.name}`,
-        executeCoreNativeRelationalRead(operations, table, policy, query, operation === "count" ? "count" : "rows")));
+        executeCoreNativeRelationalRead(operations, table, policy, query, operation === "count" ? "count" : "rows",
+          // A read with receipts must present its complete observed cohort.
+          invocation === undefined ? Option.some(operations.filterSnapshot) : Option.none())));
       if (invocation?.onRead !== undefined) {
         const captured = preparation.captured;
         if (captured === undefined) return yield* commerceError("storedCorruption");

@@ -41,13 +41,13 @@ import { encodeCanonicalJson, isJson, isJsonObject, type JsonObject } from "flar
 import { decodeCoreSchemaMetadata } from "./schemaTypes";
 import { parseCoreSchema } from "./schemaJson";
 import { capturePrivateJsonData, useCapturedPrivateJsonData } from "../values/privateJsonData";
-import { preparePostgresRelationalBatch, inspectPostgresRelationalBatch, decodePostgresRelationalMatches,
+import { preparePostgresRelationalBatch, inspectPostgresRelationalBatch, decodePostgresRelationalMatches, inspectIssuedPostgresSnapshotFilter,
   MAX_POSTGRES_RELATIONAL_PREDICATE_BYTES, type PostgresRelationalPredicateProgram } from "../values/postgresRelationalPredicate";
 import { decodeRelatedRelationalQuery, prepareRelatedRelationalPredicate } from "../values/relatedRelationalPredicate";
 import { inspectRelationalRealNormalization } from "../values/relationalRows";
 import { retainRelationalFailure } from "../values/relationalFailure";
 import { CoreNativeActivityOwner } from "./nativeActivity";
-import { captureCoreNativeRelatedCohort, coreNativeRelationalQueryFailure as nativeRelationalPredicateFailure,
+import { captureCoreNativeRelatedCohort, coreNativeUnconditionalIndex, coreNativeRelationalQueryFailure as nativeRelationalPredicateFailure,
   coreNativeRelationalRow } from "./nativeRelationalQuery";
 import type { CoreNativeRelationalRowPolicy, CoreNativeTableDeclaration } from "./nativePolicy";
 import { CoreNativeObservationState, type CoreNativeMembership,
@@ -187,6 +187,9 @@ const sameNativeTuple = (left: readonly CoreNativeScalar[], right: readonly Core
 const NativePageCount = Schema.Int.check(Schema.makeFilter(value => Number.isSafeInteger(value) && value >= 0
   ? undefined : "Expected a nonnegative safe native page count"));
 const decodeNativePageOptions = Schema.decodeUnknownEffect(Schema.Struct({ indexName: Schema.NonEmptyString,
+  offset: NativePageCount, limit: NativePageCount, order: Schema.optionalKey(Schema.Literals(["asc", "desc"])),
+}).annotate({ parseOptions: { onExcessProperty: "error" } }));
+const decodeNativeSnapshotFilterOptions = Schema.decodeUnknownEffect(Schema.Struct({ orderColumn: Schema.NonEmptyString,
   offset: NativePageCount, limit: NativePageCount, order: Schema.optionalKey(Schema.Literals(["asc", "desc"])),
 }).annotate({ parseOptions: { onExcessProperty: "error" } }));
 const decodeNativeIncomingOptions = Schema.decodeUnknownEffect(Schema.Struct({ limit: NativePageCount })
@@ -2582,6 +2585,76 @@ export function createCoreTransaction(input: Readonly<{
       return matches;
     })));
 
+  /** divergences/native-snapshot-predicate-pushdown.md. A read-only operation's
+   * fixed snapshot needs no overlay, remembered original or per-row point read.
+   * Source capture runs before the statement and again before delivery. The
+   * fixed Source read limit admits each statement by its live examined documents;
+   * only returned documents are charged, to the Source and native budgets. None
+   * charges nothing and leaves the read to the complete path. */
+  const nativeFilterSnapshot = (access: Extract<CoreTransactionNativeAccess, { readonly kind: "native" }>): CoreNativeOperations["filterSnapshot"] =>
+    (tableName, program, inputOptions) => Effect.suspend(() => nativeOperation(access, Effect.gen(function* () {
+      type Selected = Readonly<{ documents: readonly DocumentObject[]; count: number }>;
+      if (native === undefined || nativeObservations === undefined) return yield* invalid();
+      if (input.native?.visibility !== "snapshot") return Option.none<Selected>();
+      const options = yield* decodeNativeSnapshotFilterOptions(inputOptions).pipe(Effect.mapError(cause => new CoreNativeQueryError({ reason: "invalidInput", cause })));
+      const table = yield* Effect.fromResult(tableByName(tableName, false, access));
+      const policy = coreNativeRelationalRows(access.authority.definition, table.name);
+      const declaration = access.authority.definition.tables.find(candidate => candidate.name === table.name);
+      if (policy === undefined || declaration === undefined) return yield* new CoreNativeQueryError({ reason: "invalidInput" });
+      const facts = yield* Effect.fromResult(inspectIssuedPostgresSnapshotFilter(program, nativeRelationalPredicateFailure));
+      if (facts.sourceTable !== policy.table) return yield* nativeRelationalPredicateFailure("invalidAuthority");
+      const ordered = coreNativeUnconditionalIndex(table, declaration, options.orderColumn, "exact");
+      if (ordered === undefined) return Option.none<Selected>();
+      const { index } = yield* Effect.fromResult(selectIndex(tableName, ordered.name, access));
+      // One row beyond the identity budget is enough for the reservation below to
+      // refuse a window it cannot hold; a wider default window is not itself a refusal.
+      const limit = Math.min(options.limit, (yield* Effect.fromResult(nativeObservations.limitsFor(table))).maxIdentities + 1);
+      const selected = yield* nativeCapture(table, access, index);
+      const filter = selected.snapshot.filter;
+      if (filter === undefined) return Option.none<Selected>();
+      const interval = { start: null, end: null };
+      const sourceLimits = input.limits ?? CORE_TRANSACTION_REFERENCE_LIMITS;
+      // The fixed Source read limit admits each statement; it is not a charge.
+      const page = yield* filter({ index: index.ref, tableId: table.tabletId, order: options.order ?? "asc", predicate: program,
+        offset: options.offset, limit, maxExamined: sourceLimits.documentsRead, maxBytes: sourceLimits.bytesRead });
+      yield* assertOpen();
+      // The complete read may hold a narrower cohort; only it may refuse this read.
+      if (page.overBudget) return Option.none<Selected>();
+      if (page.entries.length > limit || page.count > page.examined) return yield* new CorePersistenceError({ reason: "corruptData" });
+      const ids = yield* Effect.forEach(page.entries, entry => Effect.fromResult(publicDocumentId(table, entry.document.id)));
+      if (new Set(ids).size !== ids.length) return yield* new CorePersistenceError({ reason: "corruptData" });
+      const documents: DocumentObject[] = [];
+      let sourceBytes = 0, retainedBytes = facts.bytes + 128;
+      for (const [position, entry] of page.entries.entries()) {
+        if (entry.document.deleted || entry.document.ts > selected.snapshot.timestamp) return yield* new CorePersistenceError({ reason: "corruptData" });
+        const observation = yield* captureObservation(table, entry.document, selected.snapshot.timestamp, access);
+        const document = observation.document;
+        if (document === null || document._id !== ids[position]
+          || !bytesEqual(yield* Effect.fromResult(documentIndexKey(index, document)), entry.key))
+          return yield* new CorePersistenceError({ reason: "corruptData", cause: "Native snapshot filter entry differs from its document" });
+        sourceBytes += documentSizes.get(document) ?? 0;
+        retainedBytes += 128 + entry.key.length + (yield* Effect.fromResult(nativeBodyBytes(table, document)));
+        documents.push(document);
+      }
+      // Returned rows are charged as the complete read charges the rows it reads,
+      // and they are a subset of its cohort. Where a budget cannot take them the
+      // read goes to the complete path uncharged, so this path never refuses first.
+      const usage = accounting.snapshot().user;
+      if (usage.documentsRead + documents.length > sourceLimits.documentsRead || usage.bytesRead + sourceBytes > sourceLimits.bytesRead
+        || accounting.snapshot().databaseQueries >= sourceLimits.databaseQueries || retainedBytes > native.remainingBytes()
+        || Result.isFailure(nativeObservations.reserve(table, ids))) return Option.none<Selected>();
+      yield* Effect.fromResult(accounting.query(index.ref.id, interval));
+      yield* native.chargeRetained(retainedBytes);
+      for (const document of documents) {
+        yield* Effect.fromResult(chargeDocument(table, document));
+        markNativeUse(table, document, access);
+      }
+      nativeRead(selected.snapshot.timestamp, index, interval);
+      // Success-only source validation, as for a captured-row program.
+      yield* nativeCapture(table, access);
+      return Option.some<Selected>(Object.freeze({ documents: Object.freeze(documents), count: page.count }));
+    })));
+
   const nativeReadRelated = (access: Extract<CoreTransactionNativeAccess, { readonly kind: "native" }>): CoreNativeRootOperations["readRelated"] =>
     (tableName, inputQuery, bounds) => Effect.suspend(() => nativeOperation(access, Effect.gen(function* () {
       const root = input.nativeRoot;
@@ -2637,6 +2710,7 @@ export function createCoreTransaction(input: Readonly<{
 
   const nativeOperationsFor = (access: Extract<CoreTransactionNativeAccess, { readonly kind: "native" }>): CoreNativeOperations => ({
     ...userOperations(access), find: nativeFind(access), findPage: nativeFindPage(access), matchRelational: nativeMatchRelational(access),
+    filterSnapshot: nativeFilterSnapshot(access),
     nativeActivityCursor: () => nativeActivity.cursor(access),
     nativeActivitySince: cursor => operation(Effect.gen(function* () {
       if (access?.kind !== "native" || !nativeAccesses.has(access) || native === undefined || nativeObservations === undefined)

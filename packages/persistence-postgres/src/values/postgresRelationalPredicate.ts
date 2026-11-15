@@ -149,3 +149,33 @@ export function decodePostgresRelationalMatches<Binding, Failure>(batch: Postgre
     return Object.freeze({ matches: Object.freeze(rows.map(row => row.matched)), bytes: captured.bytes });
   });
 }
+
+declare const snapshotFilterBrand: unique symbol;
+/** A closed predicate evaluated by PostgreSQL over snapshot-visible stored
+ * documents, never over captured rows. See
+ * experiments/core/engine/divergences/native-snapshot-predicate-pushdown.md. */
+export interface PostgresSnapshotFilterProgram { readonly [snapshotFilterBrand]: true }
+type SnapshotFilter = Readonly<{ sourceTable: RelationalTableDefinition; predicate: NormalizedRelationalPredicate; bytes: number }>;
+const snapshotFilters = new WeakMap<object, SnapshotFilter>();
+
+/** Called only with the relational compiler's `snapshotPredicate`: a validated
+ * tree whose every leaf has a proven stored-document form. The renderer still
+ * refuses any other leaf, so issuing here grants no wider SQL. */
+export function issuePostgresSnapshotFilter<Failure>(sourceTable: RelationalTableDefinition,
+  predicate: NormalizedRelationalPredicate, error: PostgresRelationalPredicateFailure<Failure>) {
+  return capturePrivateJsonData(predicate, MAX_POSTGRES_RELATIONAL_PREDICATE_BYTES, error).pipe(Result.map(captured => {
+    // SAFETY: capture preserves the validated tree's JSON shape and values.
+    const retained = captured.value as NormalizedRelationalPredicate;
+    // SAFETY: only this issuer registers the frozen token in the private
+    // WeakMap; the nominal type grants nothing without that exact identity.
+    const program = Object.freeze({}) as PostgresSnapshotFilterProgram;
+    snapshotFilters.set(program, Object.freeze({ sourceTable, predicate: retained, bytes: captured.bytes }));
+    return program;
+  }));
+}
+
+export function inspectIssuedPostgresSnapshotFilter<Failure>(program: PostgresSnapshotFilterProgram,
+  error: PostgresRelationalPredicateFailure<Failure>): Result.Result<SnapshotFilter, Failure> {
+  const facts = snapshotFilters.get(program);
+  return facts === undefined ? Result.fail(error("invalidAuthority")) : Result.succeed(facts);
+}

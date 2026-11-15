@@ -356,8 +356,9 @@ export const makeCoreCommitter = Effect.fn("CoreCommitter.make")(function* (
               || needsProtectedSnapshot;
             const physicalSnapshot = !needsNativeSnapshot || transaction.nativeObservations === undefined && !needsProtectedSnapshot ? undefined
               : yield* persistence.readSnapshot(snapshot.timestamp, retention);
+            // Admission reads index pages only; the snapshot's optional `filter` is deliberately not offered here.
             const nativeSnapshot: CorePersistenceSnapshot | undefined = physicalSnapshot === undefined ? undefined : {
-              ...physicalSnapshot,
+              timestamp: physicalSnapshot.timestamp, get: physicalSnapshot.get,
               scan: request => indexCache.scanForAdmission({ snapshot: physicalSnapshot, registry: publishedRegistry, request,
                 retention: retention ?? persistence.retentionValidator }),
               preload: requests => indexCache.preloadMisses({ snapshot: physicalSnapshot, registry: publishedRegistry, requests, admission: true }),

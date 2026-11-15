@@ -19,12 +19,15 @@ import {
   type CorePersistenceIndexEntry,
   type CorePersistenceLease,
   type CoreRetentionValidator,
+  type CoreSnapshotFilterPage,
+  type CoreSnapshotFilterRequest,
   type CoreWriteBatch,
 } from "../../core/contracts";
 import { classifyCoreQueryFailure, type CoreSqlConnection, type CoreSqlParameter } from "./driver";
+import { sql } from "drizzle-orm";
 import { PgDialect } from "drizzle-orm/pg-core";
 import { inspectIssuedPostgresRelationalBatch, type PostgresRelationalPredicateFailure } from "../../values/postgresRelationalPredicate";
-import { buildPostgresRelationalPredicateBody } from "../postgresRelationalPredicate";
+import { buildPostgresRelationalPredicateBody, buildPostgresSnapshotFilterPredicate } from "../postgresRelationalPredicate";
 import { coreTableName, inspectCorePersistenceTarget, type CorePersistenceTarget } from "./target";
 import {
   decodeDocumentRows, decodePreviousRevisionRows, decodeIndexRows, decodeIndexHistoryRows, documentFromRow, makeStoredRowsDecoder,
@@ -77,6 +80,33 @@ const decodeIndexHistoryRequest = Schema.decodeUnknownEffect(Schema.Struct({
   ts: timestampSchema })),
 }));
 const decodeBatch = Schema.decodeUnknownEffect(batchSchema);
+const boundSchema = Schema.Int.check(Schema.makeFilter(value => Number.isSafeInteger(value) && value >= 0
+  ? undefined : "Expected a nonnegative safe bound"));
+const decodeSnapshotFilter = Schema.decodeUnknownEffect(Schema.Struct({
+  index: scanSchema.fields.index, tableId: internalIdSchema, order: scanSchema.fields.order,
+  offset: boundSchema, limit: boundSchema, maxExamined: boundSchema, maxBytes: boundSchema,
+}));
+const snapshotFilterCount = timestampSchema.check(Schema.makeFilter(value => value <= BigInt(Number.MAX_SAFE_INTEGER)
+  ? undefined : "Expected an exactly representable count"));
+/** Every row repeats the statement facts; window columns are null when the window is empty. */
+const decodeSnapshotFilterRows = makeStoredRowsDecoder(Schema.Array(Schema.Struct({
+  examined: snapshotFilterCount, bytes: snapshotFilterCount, broken: snapshotFilterCount, total: snapshotFilterCount,
+  ts: Schema.NullOr(timestampSchema), key_prefix: nullableBytes, key_suffix: nullableBytes,
+  table_id: Schema.NullOr(internalIdSchema), document_id: Schema.NullOr(internalIdSchema),
+  json_value: nullableBytes, prev_ts: Schema.NullOr(timestampSchema),
+})).check(Schema.isMinLength(1)));
+/** invalid byte sequence, invalid text representation, untranslatable character:
+ * what PostgreSQL itself reports for a stored body it cannot read as UTF-8 JSON. */
+const UNREADABLE_BODY = new Set(["22021", "22P02", "22P05"]);
+/** Only a PostgreSQL-reported error, carrying a severity as a proven write
+ * refusal does, is evidence about the stored body. Every other failure keeps
+ * its ordinary classification. */
+const snapshotFilterFailure = (failure: CorePersistenceError) => {
+  const cause: unknown = failure.cause;
+  return failure.reason === "unavailable" && typeof cause === "object" && cause !== null && "code" in cause && "severity" in cause
+    && typeof cause.severity === "string" && typeof cause.code === "string" && UNREADABLE_BODY.has(cause.code)
+    ? new CorePersistenceError({ reason: "corruptData", cause }) : failure;
+};
 const decodePoint = Schema.decodeUnknownEffect(pointSchema);
 const decodeDocumentLogRequest = Schema.decodeUnknownEffect(Schema.Struct({
   start: timestampSchema, end: timestampSchema, order: Schema.Literals(["asc", "desc"]), maxResults: countSchema,
@@ -453,6 +483,88 @@ export const createCorePersistence = Effect.fn("CorePersistence.create")(
       }, effect => Effect.withSpan(effect, "CorePersistence.indexPage", { captureStackTrace: false }),
     );
 
+    /** One statement: snapshot visibility inside, then predicate, full-key order,
+     * window and exact count outside. Tombstoned keys are walked but not examined.
+     * The JSON parse and the predicate run only when both examined bounds hold;
+     * otherwise the page reports that. Bodies are read where the predicate runs
+     * and for the returned window, and are never carried between the steps. */
+    const filter = Effect.fn("CorePersistence.filterSnapshot")(function* (
+      at: bigint, input: CoreSnapshotFilterRequest, retention: CoreRetentionValidator,
+    ): Effect.fn.Return<CoreSnapshotFilterPage, CorePersistenceError> {
+      const request = yield* decodeSnapshotFilter({ index: input.index, tableId: input.tableId, order: input.order,
+        offset: input.offset, limit: input.limit, maxExamined: input.maxExamined, maxBytes: input.maxBytes }).pipe(Effect.mapError(invalid));
+      const predicate = yield* Effect.fromResult(buildPostgresSnapshotFilterPredicate(input.predicate, sql`parsed.row`, relationalPersistenceFailure));
+      const tableId = copyBytes(request.tableId), direction = sql.raw(request.order === "asc" ? "ASC" : "DESC");
+      const documents = sql.raw(table("documents"));
+      const statement = relationalDialect.sqlToQuery(sql`WITH live AS MATERIALIZED (
+          SELECT a.ts, a.key_prefix, a.key_suffix, a.table_id, a.document_id, d.ts AS document_ts, d.deleted AS document_deleted,
+            d.prev_ts, octet_length(d.json_value) AS body_bytes
+          FROM (SELECT visible.* FROM (SELECT DISTINCT ON (key_prefix, key_sha256)
+              ts, key_prefix, key_suffix, key_sha256, deleted, table_id, document_id
+              FROM ${sql.raw(table("indexes"))} WHERE instance_name = ${instance} AND index_id = ${copyBytes(request.index.id)} AND ts <= ${at}
+              ORDER BY key_prefix ASC, key_sha256 ASC, ts DESC) visible
+            WHERE NOT visible.deleted LIMIT ${request.maxExamined + 1}) a
+          LEFT JOIN ${documents} d ON d.instance_name = ${instance} AND d.ts = a.ts
+            AND d.table_id = a.table_id AND d.id = a.document_id
+        ), facts AS MATERIALIZED (
+          SELECT count(*) AS examined, coalesce(sum(body_bytes), 0) AS bytes,
+            count(*) FILTER (WHERE document_ts IS NULL OR body_bytes IS NULL OR document_deleted IS DISTINCT FROM false
+              OR table_id IS DISTINCT FROM ${tableId}) AS broken
+          FROM live
+        ), admitted AS MATERIALIZED (
+          SELECT examined <= ${request.maxExamined} AND bytes <= ${request.maxBytes} AND broken = 0 AS ok FROM facts
+        ), matched AS MATERIALIZED (
+          SELECT parsed.ts, parsed.key_prefix, parsed.key_suffix, parsed.table_id, parsed.document_id, parsed.prev_ts
+          -- OFFSET 0 keeps one JSON parse per document whatever the predicate's leaf count.
+          FROM (SELECT live.*, convert_from(d.json_value, 'UTF8')::jsonb AS row
+            FROM live JOIN ${documents} d ON d.instance_name = ${instance} AND d.ts = live.ts
+              AND d.table_id = live.table_id AND d.id = live.document_id
+            WHERE (SELECT ok FROM admitted) OFFSET 0) parsed
+          WHERE ${predicate}
+        ), page AS MATERIALIZED (
+          SELECT * FROM matched ORDER BY key_prefix ${direction}, coalesce(key_suffix, ''::bytea) ${direction}
+          OFFSET ${request.offset} LIMIT ${request.limit}
+        )
+        SELECT facts.examined::text AS examined, facts.bytes::text AS bytes, facts.broken::text AS broken,
+          (SELECT count(*) FROM matched)::text AS total, page.ts::text AS ts, page.key_prefix, page.key_suffix,
+          page.table_id, page.document_id, d.json_value, page.prev_ts::text AS prev_ts
+        FROM facts LEFT JOIN page ON true
+        LEFT JOIN ${documents} d ON d.instance_name = ${instance} AND d.ts = page.ts
+          AND d.table_id = page.table_id AND d.id = page.document_id
+        ORDER BY page.key_prefix ${direction}, coalesce(page.key_suffix, ''::bytea) ${direction}`);
+      const parameters: readonly CoreSqlParameter[] = yield* decodeSqlParameters(statement.params).pipe(Effect.mapError(invalid));
+      yield* retention.validateIndex(at);
+      const rows = yield* decodeSnapshotFilterRows(yield* driver.query(statement.sql, parameters).pipe(Effect.mapError(snapshotFilterFailure)));
+      // Retention may have deleted anchors while the statement ran; never release its result.
+      yield* retention.validateIndex(at);
+      const first = rows[0];
+      if (first === undefined) return yield* Effect.fail(new CorePersistenceError({ reason: "corruptData" }));
+      const facts = { examined: Number(first.examined), bytes: Number(first.bytes), total: Number(first.total) };
+      const overBudget = facts.examined > request.maxExamined || facts.bytes > request.maxBytes;
+      // Past the examined bound the unexamined remainder is unknown, and so is whether it is intact.
+      if (!overBudget && first.broken > 0n) return yield* Effect.fail(new CorePersistenceError({ reason: "corruptData" }));
+      const entries: CoreHydratedIndexEntry[] = [];
+      for (const row of rows) {
+        if (row.key_prefix === null) {
+          if (rows.length !== 1) return yield* Effect.fail(new CorePersistenceError({ reason: "corruptData" }));
+          break;
+        }
+        if (overBudget || row.ts === null || row.table_id === null || row.document_id === null
+          || row.json_value === null || row.ts > at || !bytesEqual(row.table_id, tableId))
+          return yield* Effect.fail(new CorePersistenceError({ reason: "corruptData" }));
+        const key = new Uint8Array(row.key_prefix.length + (row.key_suffix?.length ?? 0));
+        key.set(row.key_prefix);
+        if (row.key_suffix !== null) key.set(row.key_suffix, row.key_prefix.length);
+        entries.push(Object.freeze({ key, document: documentFromRow({ ts: row.ts, table_id: row.table_id,
+          id: row.document_id, json_value: row.json_value, deleted: false, prev_ts: row.prev_ts }) }));
+      }
+      if (entries.length > request.limit || facts.total > facts.examined
+        || entries.length !== Math.min(request.limit, Math.max(0, facts.total - request.offset)))
+        return yield* Effect.fail(new CorePersistenceError({ reason: "corruptData" }));
+      return Object.freeze({ entries: Object.freeze(entries), count: overBudget ? 0 : facts.total, examined: facts.examined,
+        bytes: facts.bytes, overBudget });
+    });
+
     const get = Effect.fn("CorePersistence.get")(function* (
       at: bigint, retention: CoreRetentionValidator, tableId: Uint8Array, id: Uint8Array,
     ) {
@@ -745,6 +857,7 @@ export const createCorePersistence = Effect.fn("CorePersistence.create")(
           get: (tableId: Uint8Array, id: Uint8Array) => get(at, retention, tableId, id),
           scan: (request: CoreIndexScan) => scan(at, request, retention, preloaded),
           preload: (requests: readonly CoreIndexScan[]) => preload(at, requests, retention, preloaded),
+          filter: (request: CoreSnapshotFilterRequest) => filter(at, request, retention),
         });
       }),
       write: (lease, batch) => writeBatch(lease, batch),

@@ -11,7 +11,7 @@ import { CoreTableIteratorResourceBudgetSchema, CoreIteratorPositiveBudgetSchema
 import type { CoreNativeDefinition, CoreNativeIdentity, CoreNativeTablePolicy } from "./nativePolicy";
 import type { CoreSchemaBundle } from "./schemaBundle";
 import type { CoreNativeRootRequestEvidence, CoreCommittedNativeRootRequest } from "./nativeRootRequest";
-import type { PostgresRelationalPredicateProgram } from "../values/postgresRelationalPredicate";
+import type { PostgresRelationalPredicateProgram, PostgresSnapshotFilterProgram } from "../values/postgresRelationalPredicate";
 
 export interface CoreIndexDefinition {
   readonly name: string;
@@ -448,6 +448,15 @@ export type CoreNativeOperations = Pick<CoreTransaction, "get" | "insert" | "pat
   readonly findPage: (table: string, where: JsonObject, options: Readonly<{
     indexName: string; offset: number; limit: number; order?: "asc" | "desc";
   }>) => Effect.Effect<Readonly<{ documents: readonly DocumentObject[]; hasMore: boolean }>, CoreError>;
+  /** PostgreSQL evaluates the closed program, full index-key order, window and
+   * exact count over a read-only operation's fixed snapshot; only the returned
+   * documents are decoded and validated here. None means the complete read
+   * applies: the operation is not a read-only snapshot, no complete index has
+   * exactly the order column, the snapshot has no evaluator, or the statement
+   * would examine more than the Source read budget has left. */
+  readonly filterSnapshot: (table: string, program: PostgresSnapshotFilterProgram, options: Readonly<{
+    orderColumn: string; offset: number; limit: number; order?: "asc" | "desc";
+  }>) => Effect.Effect<Option.Option<Readonly<{ documents: readonly DocumentObject[]; count: number }>>, CoreError>;
 };
 export type CoreNativeRootOperations = CoreNativeOperations & {
   /** Complete related cohorts and their actual match under one scope-exclusive root. */

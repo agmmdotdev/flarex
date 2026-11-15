@@ -1,5 +1,5 @@
 import { Data, Schema, type Effect, type Option } from "effect";
-import type { PostgresRelationalPredicateBatch } from "../values/postgresRelationalPredicate";
+import type { PostgresRelationalPredicateBatch, PostgresSnapshotFilterProgram } from "../values/postgresRelationalPredicate";
 
 /** Pinned source: convex-backend db914cf06, common/src/persistence/mod.rs. */
 export type CoreTimestamp = bigint;
@@ -81,6 +81,33 @@ export interface CoreIndexScan {
   readonly maxResults: number;
 }
 
+/** One statement over every snapshot-visible entry of one complete index:
+ * PostgreSQL applies the closed predicate, the full-key order, the window and
+ * the exact match count. See divergences/native-snapshot-predicate-pushdown.md. */
+export interface CoreSnapshotFilterRequest {
+  readonly index: CoreIndexRef;
+  readonly tableId: CoreInternalId;
+  readonly order: CoreOrder;
+  readonly predicate: PostgresSnapshotFilterProgram;
+  readonly offset: number;
+  readonly limit: number;
+  /** Live visible index entries the statement may examine; tombstones are walked, not counted. */
+  readonly maxExamined: number;
+  /** Stored body bytes of the live examined documents. */
+  readonly maxBytes: number;
+}
+export interface CoreSnapshotFilterPage {
+  /** The requested window of matches in full index-key order; never truncated. */
+  readonly entries: readonly CoreHydratedIndexEntry[];
+  /** Exact number of matching live documents at the snapshot. */
+  readonly count: number;
+  readonly examined: number;
+  readonly bytes: number;
+  /** A bound was exceeded: no predicate ran, `entries`/`count` are empty and
+   * `examined` stops one past the bound. The caller takes its complete read. */
+  readonly overBudget: boolean;
+}
+
 /** Exclusive actual physical position: versions remain distinct. Its timestamp
  * may be outside the request's value-eligibility window. */
 export interface CoreIndexHistoryCursor {
@@ -139,6 +166,9 @@ export interface CorePersistenceSnapshot {
    * so identical later `scan` calls at this timestamp consume them instead of
    * issuing their own first statement. It never changes any scan's result. */
   readonly preload: (requests: readonly CoreIndexScan[]) => Effect.Effect<void, CorePersistenceError>;
+  /** Absent on snapshots without a PostgreSQL evaluator; callers then keep the
+   * complete captured read. Results are not index pages and bypass every cache. */
+  readonly filter?: (request: CoreSnapshotFilterRequest) => Effect.Effect<CoreSnapshotFilterPage, CorePersistenceError>;
 }
 
 /** Durable deletion floors loaded while holding this persistence owner's lease. */

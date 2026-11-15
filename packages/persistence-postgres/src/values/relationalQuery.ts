@@ -96,6 +96,9 @@ interface SelectionPlan {
 interface Filter<Failure> {
   readonly predicate: NormalizedRelationalPredicate;
   readonly postgres: boolean;
+  /** Every leaf has a proven PostgreSQL form over the stored document that
+   * agrees with `matches`; see divergences/native-snapshot-predicate-pushdown.md. */
+  readonly snapshot: boolean;
   /** null denotes no indexed selection; an empty list matches no rows. */
   readonly select: (requiredNulls: ReadonlySet<string>, access?: RelationalReadAccess) => Result.Result<SelectionPlan, Failure>;
   /** Every matching row has these null fields, including across OR branches. */
@@ -212,7 +215,7 @@ export function prepareRelationalRead<Failure>(table: RelationalTableDefinition,
         // Retain and charge the raw predicate, but it contributes no equality
         // point and never matches a nullable left-hand value in positive WHERE.
         const keys = new Set(node.values.filter((value): value is string | boolean => value !== null));
-        return { predicate: node, postgres: false, select: (requiredNulls: ReadonlySet<string>, access?: RelationalReadAccess) => {
+        return { predicate: node, postgres: false, snapshot: true, select: (requiredNulls: ReadonlySet<string>, access?: RelationalReadAccess) => {
           const indexes = access?.indexes ?? table.indexes, tableKeys = access?.keys ?? table.keys;
           const declaredUnconditional = tableKeys.some(tableKey => tableKey.columns[0]?.columnId === node.column) ||
             indexes.some(index => index.predicate === null && index.kind !== "jsonContainment" && index.columns[0]?.columnId === node.column);
@@ -242,7 +245,7 @@ export function prepareRelationalRead<Failure>(table: RelationalTableDefinition,
         // Binary numeric equality is a residual over the existing bounded
         // candidate cohort. It creates no numeric index or selection authority.
         // REAL conversion and exact-decimal numeric retain separate owners.
-        return { predicate: { kind: "numberIn", column: node.column, values: [...keys] }, postgres: false,
+        return { predicate: { kind: "numberIn", column: node.column, values: [...keys] }, postgres: false, snapshot: false,
           select: () => Result.succeed({ selections: keys.size === 0 ? [] : null, unindexedText: false }),
           requiredNulls: new Set<string>(), search: null,
           matches: row => { const value = row[node.column]; return typeof value === "number" && keys.has(value); } };
@@ -260,7 +263,7 @@ export function prepareRelationalRead<Failure>(table: RelationalTableDefinition,
         // This terminal predicate does not introduce a numeric access path.
         // Existing indexed conjuncts, row validation and bounded reads retain
         // their owners. Empty membership still proves an empty selection.
-        return { predicate: { kind: "numericIn", column: node.column, values: [...keys] }, postgres: false,
+        return { predicate: { kind: "numericIn", column: node.column, values: [...keys] }, postgres: false, snapshot: false,
           select: () => Result.succeed({ selections: keys.size === 0 ? [] : null, unindexedText: false }),
           requiredNulls: new Set<string>(), search: null,
           matches: row => {
@@ -285,7 +288,7 @@ export function prepareRelationalRead<Failure>(table: RelationalTableDefinition,
         for (const column of node.columns) demandedFields.add(column);
         demandedPoints.set(JSON.stringify(node.columns), Object.freeze([...node.columns]));
         const points = new Set(node.values.map(point => JSON.stringify(point)));
-        return { predicate: node, postgres: false, select: (requiredNulls: ReadonlySet<string>, access?: RelationalReadAccess) => {
+        return { predicate: node, postgres: false, snapshot: false, select: (requiredNulls: ReadonlySet<string>, access?: RelationalReadAccess) => {
           const plan = pointPlan(node.columns, node.values, requiredNulls, access);
           return plan === null ? Result.fail(error("invalidInput")) : Result.succeed(plan);
         }, requiredNulls: new Set<string>(), search: null,
@@ -295,7 +298,7 @@ export function prepareRelationalRead<Failure>(table: RelationalTableDefinition,
         const column = columnForName(node.column);
         if (column === undefined) return yield* Result.fail(error("invalidInput"));
         if (column.nullable) demandedNulls.add(node.column);
-        return { predicate: node, postgres: false, select: () => Result.succeed({ selections: column.nullable ? null : [], unindexedText: false }),
+        return { predicate: node, postgres: false, snapshot: true, select: () => Result.succeed({ selections: column.nullable ? null : [], unindexedText: false }),
           requiredNulls: column.nullable ? new Set([node.column]) : new Set<string>(),
           search: null,
           matches: row => row[node.column] === null };
@@ -304,7 +307,7 @@ export function prepareRelationalRead<Failure>(table: RelationalTableDefinition,
         const column = columnForName(node.column);
         if (column?.type !== "text" || !isRelationalColumnValue("text", false, node.value))
           return yield* Result.fail(error("invalidInput"));
-        return { predicate: node, postgres: false, select: () => Result.succeed({ selections: null, unindexedText: false }), requiredNulls: new Set<string>(), search: null,
+        return { predicate: node, postgres: false, snapshot: true, select: () => Result.succeed({ selections: null, unindexedText: false }), requiredNulls: new Set<string>(), search: null,
           matches: row => typeof row[node.column] === "string" && row[node.column] !== node.value };
       }
       if (node.kind === "greaterThan" || node.kind === "lessThan") {
@@ -314,7 +317,7 @@ export function prepareRelationalRead<Failure>(table: RelationalTableDefinition,
           return yield* Result.fail(error("invalidInput"));
         demandedFields.add(node.column);
         const bound = new TextEncoder().encode(node.value);
-        return { predicate: node, postgres: false, select: (_requiredNulls: ReadonlySet<string>, access?: RelationalReadAccess) => {
+        return { predicate: node, postgres: false, snapshot: true, select: (_requiredNulls: ReadonlySet<string>, access?: RelationalReadAccess) => {
           const indexed = (access?.indexes ?? table.indexes).some(index => index.predicate === null &&
             index.kind !== "textEquality" && index.kind !== "jsonContainment" &&
             index.columns[0]?.columnId === node.column);
@@ -335,7 +338,7 @@ export function prepareRelationalRead<Failure>(table: RelationalTableDefinition,
         if (column?.type !== "text" || !isRelationalColumnValue("text", false, node.pattern))
           return yield* Result.fail(error("invalidInput"));
         if ([...node.pattern].length > 256) return yield* Result.fail(error("limitExceeded"));
-        return { predicate: node, postgres: false, select: () => Result.succeed({ selections: null, unindexedText: true }),
+        return { predicate: node, postgres: false, snapshot: true, select: () => Result.succeed({ selections: null, unindexedText: true }),
           requiredNulls: new Set<string>(), search: [{ column: node.column, pattern: node.pattern }],
           matches: row => { const value = row[node.column]; return typeof value === "string" &&
             matchesTextLikeAscii(value, node.pattern); } };
@@ -346,7 +349,7 @@ export function prepareRelationalRead<Failure>(table: RelationalTableDefinition,
         const encoded = new TextEncoder().encode(JSON.stringify(node.value));
         if (encoded.byteLength > 4096) return yield* Result.fail(error("limitExceeded"));
         demandedFields.add(node.column);
-        return { predicate: node, postgres: false, select: () => Result.succeed({ selections: null, unindexedText: true }),
+        return { predicate: node, postgres: false, snapshot: false, select: () => Result.succeed({ selections: null, unindexedText: true }),
           requiredNulls: new Set<string>(), search: null,
           json: { column: node.column, value: node.value },
           matches: row => row[node.column] !== null && row[node.column] !== undefined &&
@@ -358,7 +361,7 @@ export function prepareRelationalRead<Failure>(table: RelationalTableDefinition,
         demandedFields.add(node.column);
         // PostgreSQL owns parsing of stored text, NULL and cast failures. This
         // residual introduces no access path or approximate JavaScript verdict.
-        return { predicate: node, postgres: true,
+        return { predicate: node, postgres: true, snapshot: false,
           select: () => Result.succeed({ selections: null, unindexedText: true }),
           requiredNulls: new Set<string>(), search: null, matches: () => false };
       }
@@ -373,7 +376,7 @@ export function prepareRelationalRead<Failure>(table: RelationalTableDefinition,
         demandedFields.add(node.column);
         const nullOnly = node.operator === "exists" && !node.value;
         if (nullOnly && column.nullable) demandedNulls.add(node.column);
-        return { predicate: node, postgres: true,
+        return { predicate: node, postgres: true, snapshot: false,
           select: () => Result.succeed({ selections: nullOnly && !column.nullable ? [] : null, unindexedText: true }),
           requiredNulls: new Set(nullOnly && column.nullable ? [node.column] : []), search: null,
           // A PostgreSQL program replaces the complete predicate. This leaf
@@ -403,7 +406,7 @@ export function prepareRelationalRead<Failure>(table: RelationalTableDefinition,
       }
       const jsonChild = node.kind === "and" ? children.find(child => child.json !== undefined) : undefined;
       return { predicate: { kind: node.kind, children: children.map(child => child.predicate) },
-        postgres: children.some(child => child.postgres),
+        postgres: children.some(child => child.postgres), snapshot: children.every(child => child.snapshot),
         select: (inheritedNulls: ReadonlySet<string>, access?: RelationalReadAccess) => Result.gen(function* () {
         const available = node.kind === "and" ? new Set([...inheritedNulls, ...requiredNulls]) : inheritedNulls;
         let selections: readonly RelationalSelection[] | null = node.kind === "and" ? null : [];
@@ -445,6 +448,7 @@ export function prepareRelationalRead<Failure>(table: RelationalTableDefinition,
     });
     const filter = yield* visit(query.predicate ?? { kind: "and", children: [] }, 0);
     const postgresPredicate = filter.postgres ? filter.predicate : undefined;
+    const snapshotPredicate = filter.snapshot ? filter.predicate : undefined;
     const demand: RelationalReadDemand = Object.freeze({ fields: Object.freeze([...demandedFields].toSorted()),
       nulls: Object.freeze([...demandedNulls].toSorted()), points: Object.freeze([...demandedPoints].toSorted(([left], [right]) =>
         left === right ? 0 : left < right ? -1 : 1).map(([, columns]) => columns)) });
@@ -517,7 +521,7 @@ export function prepareRelationalRead<Failure>(table: RelationalTableDefinition,
           : Result.fail(error("invalidInput")),
       });
     });
-    return Object.freeze({ demand, pointDemand, compile, predicate: filter.predicate, postgresPredicate,
+    return Object.freeze({ demand, pointDemand, compile, predicate: filter.predicate, postgresPredicate, snapshotPredicate,
       complexity: Object.freeze({ nodes, operands, depth: maximumDepth }) });
   });
 }

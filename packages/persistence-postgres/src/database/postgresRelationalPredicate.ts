@@ -1,7 +1,8 @@
 import { Result } from "effect";
 import { sql, type SQL } from "drizzle-orm";
-import { inspectIssuedPostgresRelationalBatch, type NormalizedRelatedRelationalPredicate,
-  type PostgresRelationalPredicateBatch, type PostgresRelationalPredicateFailure } from "../values/postgresRelationalPredicate";
+import { inspectIssuedPostgresRelationalBatch, inspectIssuedPostgresSnapshotFilter, type NormalizedRelatedRelationalPredicate,
+  type PostgresRelationalPredicateBatch, type PostgresRelationalPredicateFailure,
+  type PostgresSnapshotFilterProgram } from "../values/postgresRelationalPredicate";
 import type { NormalizedRelationalPredicate } from "../values/relationalPredicate";
 
 const text = (row: SQL, column: string) => sql`(${row} ->> ${column})`;
@@ -89,5 +90,49 @@ export function buildPostgresRelationalPredicateBody<Binding, Failure>(batch: Po
       select candidate.ordinal from candidate_rows candidate where ${expression(facts.program.predicate, sql`candidate.row`)}
     ) select (candidate.ordinal - 1)::integer as ordinal, matches.ordinal is not null as matched
     from candidate_rows candidate left join matches using (ordinal) order by candidate.ordinal`;
+  }));
+}
+
+const jsonOperand = (value: string | boolean) => sql`${JSON.stringify(value)}::jsonb`;
+const isText = (row: SQL, column: string) => sql`jsonb_typeof(${json(row, column)}) = 'string'`;
+
+/** Stored-document forms agree with the relational compiler's JavaScript
+ * `matches` for each admitted leaf: typed JSON comparison, no implicit text
+ * coercion, and a two-valued verdict (an absent field never matches). Any
+ * other leaf is refused, so the caller keeps the complete captured path. */
+function documentExpression(node: NormalizedRelationalPredicate, row: SQL): SQL | undefined {
+  switch (node.kind) {
+    case "and": case "or": {
+      const children: SQL[] = [];
+      for (const child of node.children) {
+        const rendered = documentExpression(child, row);
+        if (rendered === undefined) return undefined;
+        children.push(rendered);
+      }
+      return join(children, node.kind);
+    }
+    case "in": {
+      const values = node.values.filter(value => value !== null);
+      return values.length === 0 ? sql`false`
+        : sql`coalesce(${json(row, node.column)} in (${sql.join(values.map(jsonOperand), sql`, `)}), false)`;
+    }
+    case "isNull": return sql`coalesce(jsonb_typeof(${json(row, node.column)}) = 'null', false)`;
+    case "textNotEqual": return sql`coalesce(${isText(row, node.column)} and ${json(row, node.column)} <> ${jsonOperand(node.value)}, false)`;
+    case "greaterThan": return sql`coalesce(${isText(row, node.column)} and convert_to(${text(row, node.column)}, 'UTF8') > convert_to(${node.value}, 'UTF8'), false)`;
+    case "lessThan": return sql`coalesce(${isText(row, node.column)} and convert_to(${text(row, node.column)}, 'UTF8') < convert_to(${node.value}, 'UTF8'), false)`;
+    // Under the "C" collation `lower` folds only ASCII A-Z, in one pass; `translate`
+    // gives the same folding at many times the cost per examined character.
+    case "textLikeAscii": return sql`coalesce(${isText(row, node.column)} and lower(${text(row, node.column)} collate "C") like lower(${node.pattern}::text collate "C") escape '', false)`;
+    default: return undefined;
+  }
+}
+
+/** A closed Boolean over one stored-document expression. Column keys and
+ * operands are parameters; no identifier or caller SQL crosses this boundary. */
+export function buildPostgresSnapshotFilterPredicate<Failure>(program: PostgresSnapshotFilterProgram, row: SQL,
+  error: PostgresRelationalPredicateFailure<Failure>): Result.Result<SQL, Failure> {
+  return inspectIssuedPostgresSnapshotFilter(program, error).pipe(Result.flatMap(facts => {
+    const rendered = documentExpression(facts.predicate, row);
+    return rendered === undefined ? Result.fail(error("invalidInput")) : Result.succeed(rendered);
   }));
 }

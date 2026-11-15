@@ -1,11 +1,11 @@
 /** Native relational plans borrow the ordinary Core observation owners. */
-import { Effect, Result } from "effect";
+import { Effect, Option, Result } from "effect";
 import { compareBytesLexicographically } from "@flarex/utils/bytes";
 import type { DocumentObject } from "flarex-protocol/document-value";
 import { isJson, isJsonObject, type Json, type JsonObject } from "flarex-protocol/json";
 import { prepareRelationalRead, relationalSelectionValues, type RelationalSelection } from "../values/relationalQuery";
 import type { NormalizedRelationalPredicate } from "../values/relationalPredicate";
-import { issuePostgresRelationalPredicate, type PostgresRelationalPredicateFailure } from "../values/postgresRelationalPredicate";
+import { issuePostgresRelationalPredicate, issuePostgresSnapshotFilter, type PostgresRelationalPredicateFailure } from "../values/postgresRelationalPredicate";
 import { CoreNativeQueryError, CoreQueryInputError, CoreTransactionError, type CoreError, type CoreNativeOperations, type CoreTableDefinition } from "./api";
 import { CorePersistenceError } from "./contracts";
 import type { CoreNativeRelationalRowPolicy, CoreNativeTableDeclaration } from "./nativePolicy";
@@ -38,7 +38,10 @@ export function prepareCoreNativeRelationalRead(policy: CoreNativeRelationalRowP
     const postgresPredicate = prepared.postgresPredicate === undefined ? undefined
       : yield* issuePostgresRelationalPredicate(policy.table, prepared.postgresPredicate, failure);
     const query = yield* prepared.compile();
-    return { ...query, postgresPredicate, predicate: prepared.predicate };
+    // Issued only for a full-set read whose every leaf has a stored-document form.
+    const snapshotFilter = prepared.snapshotPredicate === undefined || query.selections !== null ? undefined
+      : yield* issuePostgresSnapshotFilter(policy.table, prepared.snapshotPredicate, failure);
+    return { ...query, postgresPredicate, snapshotFilter, predicate: prepared.predicate };
   });
 }
 type Query = Result.Result.Success<ReturnType<typeof prepareCoreNativeRelationalRead>>;
@@ -57,6 +60,9 @@ function selectedWhere(table: CoreTableDefinition, selection: RelationalSelectio
   return where;
 }
 
+const lacksIndexedNullAnchor = (table: CoreTableDefinition, query: Query) => query.selections === null && query.requiresIndexedNullAnchor
+  && !query.requiredNulls.some(field => table.indexes.some(index => index.fields[0] === field));
+
 interface InspectedRow {
   readonly id: string;
   readonly row: JsonObject;
@@ -69,9 +75,7 @@ const inspectCoreNativeRelationalCohort = Effect.fnUntraced(function* (
   find: CoreNativeOperations["find"], table: CoreTableDefinition, policy: CoreNativeRelationalRowPolicy, query: Query,
   prefetch?: (wheres: readonly JsonObject[]) => Effect.Effect<void>,
 ) {
-  if (query.selections === null && query.requiresIndexedNullAnchor
-    && !query.requiredNulls.some(field => table.indexes.some(index => index.fields[0] === field)))
-    return yield* failure("invalidInput");
+  if (lacksIndexedNullAnchor(table, query)) return yield* failure("invalidInput");
   const candidates = new Map<string, DocumentObject>();
   const wheres = (query.selections ?? [null]).map(selection => selectedWhere(table, selection, query));
   // The selections are independent: overlap their first reads, then find them in order.
@@ -133,13 +137,77 @@ function projectCoreNativeRelationalCohort(inspectedRows: readonly InspectedRow[
   });
 }
 
+/** What either read path returns; only a complete read lists identities. */
+interface CoreNativeRelationalSelection {
+  readonly rows: JsonObject[];
+  readonly count: number;
+  readonly returned: number;
+  readonly orderedIdentities?: readonly Readonly<Record<string, string>>[];
+}
+
+/** The one rule for an index that covers every row of its table: its binding
+ * requires neither a prefix nor a non-null field. `leading` orders a page by
+ * the complete key; `exact` is the single-field index whose key order is the
+ * complete read's order, that field and then the document identity. */
+export function coreNativeUnconditionalIndex(table: CoreTableDefinition, declaration: CoreNativeTableDeclaration,
+  column: string, shape: "leading" | "exact") {
+  return table.indexes.find(candidate => candidate.fields[0] === column && (shape === "leading" || candidate.fields.length === 1)
+    && declaration.indexes?.some(binding => binding.indexName === candidate.name
+      && binding.requiredPrefix === undefined && binding.requiredNonNull === undefined));
+}
+
+/** divergences/native-snapshot-predicate-pushdown.md. PostgreSQL selects, orders,
+ * windows and counts the snapshot-visible rows; each returned row is then
+ * validated, re-evaluated and ordered here exactly as a complete read would.
+ * None leaves the read with the complete captured path. */
+const filterCoreNativeRelationalSnapshot = Effect.fnUntraced(function* (
+  filterSnapshot: CoreNativeOperations["filterSnapshot"], table: CoreTableDefinition,
+  policy: CoreNativeRelationalRowPolicy, query: Query, purpose: "rows" | "count",
+) {
+  if (query.snapshotFilter === undefined || query.selections !== null || query.storageInsertion
+    || query.includeIdentities || query.postgresPredicate !== undefined) return Option.none<CoreNativeRelationalSelection>();
+  const page = yield* filterSnapshot(table.name, query.snapshotFilter, { orderColumn: query.orderColumn, order: query.direction,
+    offset: purpose === "count" ? 0 : query.offset, limit: purpose === "count" ? 0 : query.limit });
+  if (Option.isNone(page)) return Option.none<CoreNativeRelationalSelection>();
+  const { documents, count } = page.value;
+  return yield* Effect.fromResult(Result.gen(function* () {
+    const rows: JsonObject[] = [];
+    const direction = query.direction === "asc" ? 1 : -1;
+    let previous: Readonly<{ id: string; order: Uint8Array }> | undefined;
+    for (const document of documents) {
+      if (typeof document._id !== "string" || typeof document._creationTime !== "number" || !Number.isFinite(document._creationTime))
+        return yield* Result.fail(failure("storedCorruption"));
+      const row = yield* coreNativeRelationalRow(document);
+      yield* policy.rows.validate(row, "storedCorruption");
+      const inspected = yield* query.inspect(row);
+      const id = document._id;
+      // A returned row the owning evaluator rejects, or one out of the complete
+      // read's order, means the statement and this owner disagree: refuse it.
+      if (!inspected.matches || previous !== undefined && (compareBytesLexicographically(previous.order, inspected.order) * direction
+        || (previous.id < id ? -1 : previous.id > id ? 1 : 0) * direction) >= 0)
+        return yield* Result.fail(failure("storedCorruption"));
+      previous = { id, order: inspected.order };
+      rows.push(yield* project(row, query.fields));
+    }
+    return Option.some<CoreNativeRelationalSelection>({ rows, count, returned: purpose === "count" ? count : rows.length });
+  }));
+});
+
 /** Complete selections retain their first native membership observation. Closed
  * PostgreSQL programs evaluate only that captured cohort; pure residuals retain
- * their existing owner. Count precedes projection and population. */
+ * their existing owner. Count precedes projection and population. A read-only
+ * snapshot operation may instead hand a full-set read to PostgreSQL. */
 export const executeCoreNativeRelationalRead = Effect.fn("CoreNativeRelational.read")(function* (
   operations: Pick<CoreNativeOperations, "find" | "matchRelational">, table: CoreTableDefinition,
   policy: CoreNativeRelationalRowPolicy, query: Query, purpose: "rows" | "count" = "rows",
+  /** Supplied only for reads that carry no receipts; None keeps the complete path. */
+  filterSnapshot: Option.Option<CoreNativeOperations["filterSnapshot"]> = Option.none(),
 ) {
+  // A read the cohort owner refuses for its missing anchor is left to that owner.
+  if (Option.isSome(filterSnapshot) && !lacksIndexedNullAnchor(table, query)) {
+    const filtered = yield* filterCoreNativeRelationalSnapshot(filterSnapshot.value, table, policy, query, purpose);
+    if (Option.isSome(filtered)) return filtered.value;
+  }
   const inspected = yield* inspectCoreNativeRelationalCohort(operations.find, table, policy, query,
     wheres => prefetchCoreNativeFindSlots(operations, table.name, wheres));
   // Even an empty indexed cohort reaches the complete validated SQL tree once.
@@ -180,9 +248,7 @@ export const executeCoreNativeRelationalPage = Effect.fn("CoreNativeRelational.p
     return yield* new CoreQueryInputError({ reason: "invalidQuery" });
   if (query.selections?.length === 0) return { rows: Object.freeze([]), hasMore: false };
   const where = yield* Effect.fromResult(pageWhere(query.predicate));
-  const index = table.indexes.find(candidate => candidate.fields[0] === query.orderColumn
-    && declaration.indexes?.some(binding => binding.indexName === candidate.name
-      && binding.requiredPrefix === undefined && binding.requiredNonNull === undefined));
+  const index = coreNativeUnconditionalIndex(table, declaration, query.orderColumn, "leading");
   if (index === undefined) return yield* new CoreQueryInputError({ reason: "invalidQuery" });
   const page = yield* operations.findPage(table.name, where,
     { indexName: index.name, offset: query.offset, limit: query.limit, order: query.direction });
