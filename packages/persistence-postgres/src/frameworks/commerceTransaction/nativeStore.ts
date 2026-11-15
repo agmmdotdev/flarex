@@ -107,7 +107,9 @@ export const makeNativeCommerceParticipant = Effect.fnUntraced(function* (
     }));
     const readPage = (context: BoundedRequestContext, input: unknown, preparation: Preparation) => guard(context, "read", Effect.gen(function* () {
       const query = yield* prepare(input, preparation);
-      const selected = yield* nativeResult(executeCoreNativeRelationalPage(operations, table, declaration, policy, query));
+      const selected = yield* nativeResult(executeCoreNativeRelationalPage(operations, table, declaration, policy, query,
+        // A read with receipts keeps the examined page and its observations.
+        invocation === undefined ? Option.some(operations.filterSnapshot) : Option.none()));
       const rows = yield* retain(selected.rows);
       if (!Array.isArray(rows) || !rows.every(isJsonObject)) return yield* commerceError("storedCorruption");
       return { rows, hasMore: selected.hasMore };

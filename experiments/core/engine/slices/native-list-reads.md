@@ -57,8 +57,13 @@ milliseconds at concurrency 1. Skip varies, so a page examines 100 rows on avera
 
 ## Remaining limits
 
-Totals and `q` still read every matching row, so catalogs above 2,048 active rows
-are refused for Admin-style lists. CPU per examined row remains the read cost.
+On write-mode requests totals and `q` still read every matching row, so catalogs above 2,048 active rows
+are refused there. Read-only operations hand both to PostgreSQL through the snapshot pushdown.
+
+The limits in the next paragraph now apply to write-mode requests and to reads the
+[snapshot pushdown](./native-snapshot-read-pushdown.md) leaves on the examined page. On read-only operations a plain
+list page is served by that slice's page form: soft-deleted rows ahead of the page are walked in PostgreSQL, not
+captured, and a deep `skip` is bounded by the fixed Source read limit of 32,000 live rows, not by 2,033.
 
 A page examines soft-deleted rows as residuals, where complete capture anchors on
 active rows. More than 2,048 soft-deleted rows ahead of a page can therefore refuse

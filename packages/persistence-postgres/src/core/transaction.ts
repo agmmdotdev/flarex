@@ -191,6 +191,7 @@ const decodeNativePageOptions = Schema.decodeUnknownEffect(Schema.Struct({ index
 }).annotate({ parseOptions: { onExcessProperty: "error" } }));
 const decodeNativeSnapshotFilterOptions = Schema.decodeUnknownEffect(Schema.Struct({ orderColumn: Schema.NonEmptyString,
   offset: NativePageCount, limit: NativePageCount, order: Schema.optionalKey(Schema.Literals(["asc", "desc"])),
+  window: Schema.optionalKey(Schema.Literal("page")),
 }).annotate({ parseOptions: { onExcessProperty: "error" } }));
 const decodeNativeIncomingOptions = Schema.decodeUnknownEffect(Schema.Struct({ limit: NativePageCount })
   .annotate({ parseOptions: { onExcessProperty: "error" } }));
@@ -2593,7 +2594,7 @@ export function createCoreTransaction(input: Readonly<{
    * charges nothing and leaves the read to the complete path. */
   const nativeFilterSnapshot = (access: Extract<CoreTransactionNativeAccess, { readonly kind: "native" }>): CoreNativeOperations["filterSnapshot"] =>
     (tableName, program, inputOptions) => Effect.suspend(() => nativeOperation(access, Effect.gen(function* () {
-      type Selected = Readonly<{ documents: readonly DocumentObject[]; count: number }>;
+      type Selected = Readonly<{ documents: readonly DocumentObject[]; count: Option.Option<number>; hasMore: boolean }>;
       if (native === undefined || nativeObservations === undefined) return yield* invalid();
       if (input.native?.visibility !== "snapshot") return Option.none<Selected>();
       const options = yield* decodeNativeSnapshotFilterOptions(inputOptions).pipe(Effect.mapError(cause => new CoreNativeQueryError({ reason: "invalidInput", cause })));
@@ -2615,12 +2616,27 @@ export function createCoreTransaction(input: Readonly<{
       const interval = { start: null, end: null };
       const sourceLimits = input.limits ?? CORE_TRANSACTION_REFERENCE_LIMITS;
       // The fixed Source read limit admits each statement; it is not a charge.
-      const page = yield* filter({ index: index.ref, tableId: table.tabletId, order: options.order ?? "asc", predicate: program,
-        offset: options.offset, limit, maxExamined: sourceLimits.documentsRead, maxBytes: sourceLimits.bytesRead });
+      const request = { index: index.ref, tableId: table.tabletId, order: options.order ?? "asc", predicate: program,
+        offset: options.offset, limit, maxExamined: sourceLimits.documentsRead, maxBytes: sourceLimits.bytesRead };
+      // A page asks only the page form, which decides its window within one walked
+      // entry past the Source read limit or leaves it undecided. Other reads count.
+      const filterPage = selected.snapshot.filterPage;
+      if (options.window === "page" && filterPage === undefined) return Option.none<Selected>();
+      const answered = options.window === "page" && filterPage !== undefined
+        ? yield* Effect.map(filterPage(request), Option.map(decided =>
+          ({ entries: decided.entries, hasMore: decided.hasMore, count: Option.none<number>() })))
+        : yield* Effect.gen(function* () {
+          const counted = yield* filter(request);
+          if (counted.overBudget) return Option.none();
+          if (counted.count > counted.examined) return yield* new CorePersistenceError({ reason: "corruptData" });
+          return Option.some({ entries: counted.entries, hasMore: counted.count > options.offset + counted.entries.length,
+            count: Option.some(counted.count) });
+        });
       yield* assertOpen();
       // The complete read may hold a narrower cohort; only it may refuse this read.
-      if (page.overBudget) return Option.none<Selected>();
-      if (page.entries.length > limit || page.count > page.examined) return yield* new CorePersistenceError({ reason: "corruptData" });
+      if (Option.isNone(answered)) return Option.none<Selected>();
+      const page = answered.value;
+      if (page.entries.length > limit) return yield* new CorePersistenceError({ reason: "corruptData" });
       const ids = yield* Effect.forEach(page.entries, entry => Effect.fromResult(publicDocumentId(table, entry.document.id)));
       if (new Set(ids).size !== ids.length) return yield* new CorePersistenceError({ reason: "corruptData" });
       const documents: DocumentObject[] = [];
@@ -2652,7 +2668,7 @@ export function createCoreTransaction(input: Readonly<{
       nativeRead(selected.snapshot.timestamp, index, interval);
       // Success-only source validation, as for a captured-row program.
       yield* nativeCapture(table, access);
-      return Option.some<Selected>(Object.freeze({ documents: Object.freeze(documents), count: page.count }));
+      return Option.some<Selected>(Object.freeze({ documents: Object.freeze(documents), count: page.count, hasMore: page.hasMore }));
     })));
 
   const nativeReadRelated = (access: Extract<CoreTransactionNativeAccess, { readonly kind: "native" }>): CoreNativeRootOperations["readRelated"] =>

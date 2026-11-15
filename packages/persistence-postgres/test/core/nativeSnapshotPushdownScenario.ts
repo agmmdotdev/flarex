@@ -8,9 +8,12 @@ import type { CoreDatabaseOptions, CoreError, CoreNativeLimits, CoreNativeOperat
 import { CorePersistenceError, type CorePersistence, type CorePersistenceSnapshot, type CoreRetentionValidator } from "../../src/core/contracts";
 import { openCoreDatabase } from "../../src/core/database";
 import { coreNativeRelationalRows, makeCoreRelationalNativeDefinition } from "../../src/core/nativePolicy";
-import { executeCoreNativeRelationalRead, prepareCoreNativeRelationalRead } from "../../src/core/nativeRelationalQuery";
+import { executeCoreNativeRelationalPage, executeCoreNativeRelationalRead, prepareCoreNativeRelationalRead } from "../../src/core/nativeRelationalQuery";
 import { makeCoreSchemaBundle, type CoreSchemaBundle } from "../../src/core/schemaBundle";
-import { readCoreFixtureRegistry, type CorePersistenceFixture } from "./fixture";
+import { makeBoundedRequestLifetime } from "../../src/execution/preparation/boundedRequestLifetime";
+import { commerceError, commerceLimits } from "../../src/frameworks/commerceTransaction/model";
+import { makeNativeCommerceParticipant } from "../../src/frameworks/commerceTransaction/nativeStore";
+import { readCoreFixtureRegistry, type CorePersistenceFixture, type CorePersistenceFixtureOptions } from "./fixture";
 import { coreNativeTestBudget } from "./nativeTestBudget";
 import { CORE_SCHEMA_WORKER_TEST_OPTIONS } from "./schemaFixture";
 
@@ -21,7 +24,10 @@ const lifecycleOrigin = { kind: "implicit", sourceId: `${origin.sourceId}.lifecy
 type Budget = Readonly<{ limits: CoreNativeLimits; remainingBytes: () => number; chargeRetained: (bytes: number) => Effect.Effect<void, CoreError> }>;
 /** Counts and optionally intercepts the pushed statement and its retention checks. */
 interface Probe {
+  /** Counting statements. */
   filters: number;
+  /** Page-form calls, each one or more bounded statements. */
+  pages?: number;
   afterFilter?: Effect.Effect<void>;
   retention?: (validations: number) => Effect.Effect<void, CorePersistenceError>;
   withoutFilter?: true;
@@ -33,9 +39,12 @@ function probed(inner: CorePersistence, probe: Probe): CorePersistence {
     const counted: CoreRetentionValidator = { validateDocument: base.validateDocument,
       validateIndex: timestamp => Effect.andThen(base.validateIndex(timestamp), Effect.suspend(() => probe.retention?.(++validations) ?? Effect.void)) };
     const snapshot = yield* inner.readSnapshot(at, counted);
-    const { filter, ...rest } = snapshot;
-    if (filter === undefined || probe.withoutFilter === true) return rest;
-    const wrapped: CorePersistenceSnapshot = { ...rest, filter: request => Effect.gen(function* () {
+    const { filter, filterPage, ...rest } = snapshot;
+    if (filter === undefined || filterPage === undefined || probe.withoutFilter === true) return rest;
+    const wrapped: CorePersistenceSnapshot = { ...rest, filterPage: request => Effect.suspend(() => {
+      probe.pages = (probe.pages ?? 0) + 1;
+      return filterPage(request);
+    }), filter: request => Effect.gen(function* () {
       probe.filters++;
       validations = 0;
       const page = yield* filter(request);
@@ -52,6 +61,7 @@ export const setupSnapshotPushdown = Effect.fn("NativeSnapshotPushdownTest.setup
     tables: [{ tableId: "entry", origin, columns: [
       { columnId: "id", type: "text", nullable: false, default: { kind: "none" }, origin },
       { columnId: "rank", type: "text", nullable: false, default: { kind: "none" }, origin },
+      { columnId: "grp", type: "text", nullable: false, default: { kind: "none" }, origin },
       { columnId: "title", type: "text", nullable: true, default: { kind: "none" }, origin },
       { columnId: "flag", type: "boolean", nullable: true, default: { kind: "none" }, origin },
       { columnId: "qty", type: "integer", nullable: true, default: { kind: "none" }, origin },
@@ -60,6 +70,8 @@ export const setupSnapshotPushdown = Effect.fn("NativeSnapshotPushdownTest.setup
       { columnId: "deleted_at", type: "timestamptz", nullable: true, default: { kind: "none" }, origin: lifecycleOrigin },
     ], keys: [{ keyId: "entry.primary", kind: "primary", columns: ["id"], origin }], indexes: [
       { indexId: "entry.rank", kind: "btree", columns: ["rank"], predicate: null, origin },
+      // The only index leading with `grp` is compound: pages by it, but its key order is not the complete read's.
+      { indexId: "entry.group", kind: "btree", columns: ["grp", "rank"], predicate: null, origin },
       { indexId: "entry.active", kind: "btree", columns: ["deleted_at"], predicate: { kind: "isNull", columnId: "deleted_at" }, origin: lifecycleOrigin },
     ], constraints: [], relationships: [] }], capabilities: [
       { capabilityId: "entry.timestamps", kind: "managedTimestamps", createdAtColumn: { tableId: "entry", columnId: "created_at" },
@@ -111,11 +123,17 @@ export const setupSnapshotPushdown = Effect.fn("NativeSnapshotPushdownTest.setup
       return yield* executeCoreNativeRelationalRead(operations, table, policy, query, purpose,
         path === "pushed" ? Option.some(operations.filterSnapshot) : Option.none());
     });
+  /** The page owner's entry: `pushed` offers it the statement, `examined` keeps its examined windows. */
+  const page = (operations: CoreNativeOperations, input: JsonObject, path: "pushed" | "examined") => Effect.gen(function* () {
+    const query = yield* Effect.fromResult(prepareCoreNativeRelationalRead(policy, input, 256));
+    return yield* executeCoreNativeRelationalPage(operations, table, declaration, policy, query,
+      path === "pushed" ? Option.some(operations.filterSnapshot) : Option.none());
+  });
   const reading = <Value>(body: (operations: CoreNativeOperations) => Effect.Effect<Value, CoreError>, budget: Budget = coreNativeTestBudget()) =>
     Effect.acquireUseRelease(begin("read", budget), operation => Effect.gen(function* () {
       const value = yield* body(operation.operations); yield* operation.finishRead(); return value;
     }), operation => operation.abort());
-  return { database, definition, declaration, bundle, withdrawn, binding, writeBinding, table, policy, begin, write, select, reading, activate };
+  return { database, definition, declaration, metadata, bundle, withdrawn, binding, writeBinding, table, policy, begin, write, select, page, reading, activate };
 });
 type Graph = Effect.Success<ReturnType<typeof setupSnapshotPushdown>>;
 
@@ -125,6 +143,7 @@ const TITLES = ["abc", "ABC", "aXc", "a_c", "a%c", "back\\slash", "", "Ångströ
 const longRank = (tail: string) => "L".repeat(2600) + tail;
 const RANKS = ["a", "a", "a", "ab", "b", "B", "é", "é", "💵", "z", "", longRank("a"), longRank("b"), longRank("a")];
 const seedRow = (ordinal: number): JsonObject => ({ id: `row-${String(ordinal).padStart(3, "0")}`, rank: RANKS[(ordinal * 5) % RANKS.length] ?? "",
+  grp: `g${ordinal % 3}`,
   title: TITLES[ordinal % TITLES.length] ?? null, flag: ordinal % 3 === 0 ? true : ordinal % 3 === 1 ? false : null, qty: ordinal % 4 === 0 ? null : ordinal % 5 });
 const active = (predicate: JsonObject): JsonObject => ({ kind: "and", children: [{ kind: "isNull", column: "deleted_at" }, predicate] });
 const like = (pattern: string, column = "title"): JsonObject => ({ kind: "textLikeAscii", column, pattern });
@@ -173,7 +192,8 @@ const compare = Effect.fnUntraced(function* (graph: Graph, operations: CoreNativ
 const failure = <Value>(result: Result.Result<Value, CoreError>) => Result.isFailure(result) ? result.failure : undefined;
 const search: JsonObject = { fields: ["id"], order: { column: "id", direction: "asc" }, take: 20, predicate: active(like("%a%")) };
 
-export function registerNativeSnapshotPushdownScenarios(label: string, createFixture: () => Promise<CorePersistenceFixture>) {
+export function registerNativeSnapshotPushdownScenarios(label: string,
+  createFixture: (options?: CorePersistenceFixtureOptions) => Promise<CorePersistenceFixture>) {
   describe(label, () => {
     const run = <Failure>(body: (fixture: CorePersistenceFixture) => Effect.Effect<void, Failure, import("effect").Scope.Scope>) => async () => {
       const fixture = await createFixture();
@@ -424,6 +444,186 @@ export function registerNativeSnapshotPushdownScenarios(label: string, createFix
         }), operation => operation.abort());
       })), 120_000);
     }
+
+    it("serves an examined page's window, order, tie-break and has-more through the page form, at the current and an earlier snapshot", run(fixture => Effect.gen(function* () {
+      const probe: Probe = { filters: 0 };
+      const graph = yield* setupSnapshotPushdown(fixture, { probe });
+      const rows = Array.from({ length: 44 }, (_, ordinal) => seedRow(ordinal));
+      yield* graph.write(operations => operations.writeRows(graph.table.name, "insert", rows.slice(0, 22)));
+      yield* graph.write(operations => operations.writeRows(graph.table.name, "insert", rows.slice(22)));
+      yield* graph.write(operations => operations.lifecycle(graph.table.name, "softDelete",
+        rows.filter((_, ordinal) => ordinal % 3 === 1).map(row => String(row.id))));
+      // Ranks tie, share prefixes and twice exceed the physical key prefix, where prefix order alone is not key order.
+      const orders = [{ column: "rank", direction: "asc" }, { column: "rank", direction: "desc" }, { column: "id", direction: "asc" },
+        { column: "id", direction: "desc" }] as const;
+      const compare = (label: string, order: typeof orders[number], run: <Value>(body: (operations: CoreNativeOperations) => Effect.Effect<Value, CoreError>) => Effect.Effect<Value, CoreError>) =>
+        Effect.gen(function* () {
+          const all: JsonObject = { fields: ["id"], order, predicate: active({ kind: "and", children: [] }) };
+          const total = (yield* run(operations => graph.select(operations, all, "complete", "count"))).count;
+          expect(total, label).toBeGreaterThan(20);
+          // First page, mid-table, the last partial page, exactly at the end, past the end, an empty window.
+          for (const [skip, take] of [[0, 5], [0, total], [0, total - 1], [7, 6], [total - 2, 2], [total - 2, 5], [total, 4], [total + 9, 4], [3, 0]] as const) {
+            const input: JsonObject = { fields: ["id", "rank", "title"], order, skip, take, predicate: active({ kind: "and", children: [] }) };
+            const before = { pages: probe.pages ?? 0, filters: probe.filters }, name = `${label} ${JSON.stringify(input)}`;
+            const pushed = yield* run(operations => graph.page(operations, input, "pushed"));
+            // The page form decides every window here, the last ones included, without the counting form.
+            expect({ pages: (probe.pages ?? 0) - before.pages, filters: probe.filters - before.filters }, name).toEqual({ pages: 1, filters: 0 });
+            expect(pushed, name).toEqual(yield* run(operations => graph.page(operations, input, "examined")));
+            expect((probe.pages ?? 0) - before.pages, name).toBe(1);
+            expect(pushed.rows.length, name).toBe(Math.max(0, Math.min(take, total - skip)));
+            expect(pushed.hasMore, name).toBe(skip + take < total);
+            // The same window of the complete read, which this page must agree with on ties.
+            expect(pushed.rows, name).toEqual((yield* run(operations => graph.select(operations, input, "complete"))).rows);
+          }
+        });
+      const held = yield* Effect.forEach(orders, () => Effect.acquireRelease(graph.begin("read", wideBudget()), operation => operation.abort()));
+      // Later commits move, rewrite, remove and add rows; the held operations keep their snapshot.
+      yield* graph.write(operations => operations.writeRows(graph.table.name, "update", [
+        { id: "row-000", rank: "moved" }, { id: "row-009", rank: longRank("zz") }, { id: "row-012", rank: "" }]));
+      yield* graph.write(operations => operations.deleteRows(graph.table.name, ["row-002", "row-011", "row-030"]));
+      yield* graph.write(operations => operations.lifecycle(graph.table.name, "softDelete", ["row-003", "row-005"]));
+      yield* graph.write(operations => operations.writeRows(graph.table.name, "insert", [seedRow(70), seedRow(71)]));
+      for (const [position, order] of orders.entries()) {
+        yield* compare("current", order, body => graph.reading(body, wideBudget()));
+        const operation = held[position];
+        if (operation === undefined) return yield* Effect.die(new Error("Missing held operation"));
+        yield* compare("earlier", order, body => body(operation.operations));
+        yield* operation.finishRead();
+      }
+    })), 600_000);
+
+    it("pages inside the statement's bound on a table larger than it, and leaves a window past the bound to the examined page without counting", run(fixture => Effect.gen(function* () {
+      const probe: Probe = { filters: 0 };
+      const graph = yield* setupSnapshotPushdown(fixture, { probe, options: { transactionLimits: { documentsRead: 20 } } });
+      for (let start = 0; start < 30; start += 10) yield* graph.write(operations => operations.writeRows(graph.table.name, "insert",
+        Array.from({ length: 10 }, (_, offset) => seedRow(start + offset))));
+      const input: JsonObject = { fields: ["id"], order: { column: "id", direction: "asc" }, skip: 2, take: 3, predicate: active({ kind: "and", children: [] }) };
+      // Thirty live documents exceed the bound of twenty, but this window ends inside the first twenty walked entries.
+      const examined = yield* graph.reading(operations => graph.page(operations, input, "examined"));
+      expect(examined).toEqual({ rows: [{ id: "row-002" }, { id: "row-003" }, { id: "row-004" }], hasMore: true });
+      expect(yield* graph.reading(operations => graph.page(operations, input, "pushed"))).toEqual(examined);
+      expect({ pages: probe.pages, filters: probe.filters }).toEqual({ pages: 1, filters: 0 });
+      // A window past the bound is over budget for the page form, which the counting form could only confirm; the examined page refuses, as it did before.
+      for (const path of ["pushed", "examined"] as const)
+        expect(failure(yield* Effect.result(graph.reading(operations => graph.page(operations, { ...input, skip: 19 }, path)))), path)
+          .toMatchObject({ _tag: "CoreTransactionError", reason: "capacity" });
+      expect({ pages: probe.pages, filters: probe.filters }).toEqual({ pages: 2, filters: 0 });
+    })), 240_000);
+
+    it("widens the walk when soft-deleted rows fill the first one, and still serves the examined page's window", async () => {
+      const statements = { page: 0, counting: 0 };
+      const fixture = await createFixture({ wrapRuntimeDriver: driver => ({ ...driver, query: (statement, parameters) => {
+        if (statement.includes("AS walked")) statements.page++;
+        else if (statement.includes("facts AS MATERIALIZED")) statements.counting++;
+        return driver.query(statement, parameters);
+      } }) });
+      try {
+        await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+          const probe: Probe = { filters: 0 };
+          const graph = yield* setupSnapshotPushdown(fixture, { probe });
+          // One hundred soft-deleted rows precede ten active ones in id order.
+          for (let start = 0; start < 110; start += 55) {
+            const batch = Array.from({ length: 55 }, (_, offset) => seedRow(start + offset));
+            yield* graph.write(operations => operations.writeRows(graph.table.name, "insert", batch));
+            const deleted = batch.filter((_, offset) => start + offset < 100).map(row => String(row.id));
+            for (let position = 0; position < deleted.length; position += 25)
+              yield* graph.write(operations => operations.lifecycle(graph.table.name, "softDelete", deleted.slice(position, position + 25)));
+          }
+          for (const [order, expected] of [["asc", ["row-100", "row-101", "row-102", "row-103"]], ["desc", ["row-109", "row-108", "row-107", "row-106"]]] as const) {
+            const input: JsonObject = { fields: ["id"], order: { column: "id", direction: order }, skip: 0, take: 4, predicate: active({ kind: "and", children: [] }) };
+            const examined = yield* graph.reading(operations => graph.page(operations, input, "examined"));
+            expect(examined).toEqual({ rows: expected.map(id => ({ id })), hasMore: true });
+            const before = { ...statements };
+            expect(yield* graph.reading(operations => graph.page(operations, input, "pushed"))).toEqual(examined);
+            // Ascending, the first walk of sixty-four finds no match and a wider one sees the whole index; descending, the first decides.
+            expect({ page: statements.page - before.page, counting: statements.counting - before.counting }, order)
+              .toEqual({ page: order === "asc" ? 2 : 1, counting: 0 });
+          }
+          expect({ pages: probe.pages, filters: probe.filters }).toEqual({ pages: 2, filters: 0 });
+        })));
+      } finally { await fixture.close(); }
+    }, 240_000);
+
+    it("keeps the examined page for a write operation, a compound page index and an order without an index", run(fixture => Effect.gen(function* () {
+      const probe: Probe = { filters: 0 };
+      const graph = yield* setupSnapshotPushdown(fixture, { probe });
+      yield* graph.write(operations => operations.writeRows(graph.table.name, "insert", Array.from({ length: 30 }, (_, ordinal) => seedRow(ordinal))));
+      const input: JsonObject = { fields: ["id"], order: { column: "id", direction: "asc" }, skip: 2, take: 3, predicate: active({ kind: "and", children: [] }) };
+      yield* Effect.acquireUseRelease(graph.begin("write"), operation => Effect.gen(function* () {
+        yield* operation.operations.writeRows(graph.table.name, "insert", [{ ...seedRow(90), id: "row-0025" }]);
+        expect(yield* graph.page(operation.operations, input, "pushed"))
+          .toEqual({ rows: [{ id: "row-002" }, { id: "row-0025" }, { id: "row-003" }], hasMore: true });
+      }), operation => operation.abort());
+      // `grp` leads only a compound index: the examined page orders by that whole key, which no statement reproduces.
+      const grouped = { ...input, fields: ["id", "grp", "rank"], order: { column: "grp", direction: "asc" }, skip: 4, take: 9 };
+      const examined = yield* graph.reading(operations => graph.page(operations, grouped, "examined"));
+      expect(examined.rows).toHaveLength(9);
+      expect(examined.rows.map(row => [row.grp, row.rank])).toEqual(examined.rows.map(row => [row.grp, row.rank]).toSorted((left, right) =>
+        Buffer.compare(Buffer.from(`${String(left[0])}\u0000${String(left[1])}`), Buffer.from(`${String(right[0])}\u0000${String(right[1])}`))));
+      expect(yield* graph.reading(operations => graph.page(operations, grouped, "pushed"))).toEqual(examined);
+      for (const path of ["pushed", "examined"] as const)
+        expect(failure(yield* Effect.result(graph.reading(operations => graph.page(operations,
+          { ...input, order: { column: "created_at", direction: "asc" } }, path)))), path).toMatchObject({ _tag: "CoreQueryInputError", reason: "invalidQuery" });
+      expect({ pages: probe.pages ?? 0, filters: probe.filters }).toEqual({ pages: 0, filters: 0 });
+    })), 240_000);
+
+    it("refuses a nullable order column before either path, so index order and the returned-row order check cannot disagree on null", run(fixture => Effect.gen(function* () {
+      const probe: Probe = { filters: 0 };
+      const graph = yield* setupSnapshotPushdown(fixture, { probe });
+      // `title` is nullable text and holds both "" and null in these rows.
+      yield* graph.write(operations => operations.writeRows(graph.table.name, "insert", Array.from({ length: 22 }, (_, ordinal) => seedRow(ordinal))));
+      const input: JsonObject = { fields: ["id"], order: { column: "title", direction: "asc" }, take: 5, predicate: active({ kind: "and", children: [] }) };
+      for (const path of ["pushed", "examined"] as const)
+        expect(failure(yield* Effect.result(graph.reading(operations => graph.page(operations, input, path)))), path)
+          .toMatchObject({ _tag: "CoreNativeQueryError", reason: "invalidInput" });
+      expect(failure(yield* Effect.result(graph.reading(operations => graph.select(operations, input, "pushed")))))
+        .toMatchObject({ _tag: "CoreNativeQueryError", reason: "invalidInput" });
+      // The admitted non-null text column holds "" beside other values, and both paths agree on it.
+      const ranked = { ...input, fields: ["id", "rank"], order: { column: "rank", direction: "asc" }, take: 4 };
+      const pushed = yield* graph.reading(operations => graph.page(operations, ranked, "pushed"));
+      expect(pushed.rows[0]).toMatchObject({ rank: "" });
+      expect(pushed).toEqual(yield* graph.reading(operations => graph.page(operations, ranked, "examined")));
+      expect({ pages: probe.pages, filters: probe.filters }).toEqual({ pages: 1, filters: 0 });
+    })), 240_000);
+
+    it("keeps the examined page and the complete read for a store whose reads carry receipts", run(fixture => Effect.gen(function* () {
+      const probe: Probe = { filters: 0 };
+      const graph = yield* setupSnapshotPushdown(fixture, { probe });
+      yield* graph.write(operations => operations.writeRows(graph.table.name, "insert", Array.from({ length: 12 }, (_, ordinal) => seedRow(ordinal))));
+      const input: JsonObject = { fields: ["id"], order: { column: "id", direction: "asc" }, skip: 1, take: 3, predicate: active({ kind: "and", children: [] }) };
+      const through = (receipts: boolean) => Effect.acquireUseRelease(graph.begin("read"), operation => Effect.gen(function* () {
+        const request = `pushdown-receipts-${String(receipts)}`;
+        const lifetime = yield* Effect.acquireRelease(makeBoundedRequestLifetime(commerceError, commerceLimits, {}, {}, request, "read"), value => value.close);
+        let observed = 0;
+        const participant = yield* makeNativeCommerceParticipant(operation.operations, graph.metadata, lifetime, lifetime.context, request,
+          operation.unixTime, undefined, receipts ? { onRead: () => Effect.sync(() => { observed++; }) } : undefined);
+        const page = yield* participant.store.findPage(lifetime.context, input);
+        const found = yield* participant.store.find(lifetime.context, input);
+        return { page, found, observed };
+      }), operation => operation.abort());
+      const plain = yield* through(false);
+      expect({ pages: probe.pages, filters: probe.filters }).toEqual({ pages: 1, filters: 1 });
+      const receipted = yield* through(true);
+      expect({ pages: probe.pages, filters: probe.filters }).toEqual({ pages: 1, filters: 1 });
+      expect(receipted.observed).toBe(1);
+      expect({ page: receipted.page, found: receipted.found }).toEqual({ page: plain.page, found: plain.found });
+      expect(plain.page).toEqual({ rows: [{ id: "row-001" }, { id: "row-002" }, { id: "row-003" }], hasMore: true });
+    })), 240_000);
+
+    it("serves a page whose skipped prefix exceeds the examined page's identity budget, and still refuses a window it cannot hold", run(fixture => Effect.gen(function* () {
+      const probe: Probe = { filters: 0 };
+      const graph = yield* setupSnapshotPushdown(fixture, { probe });
+      yield* graph.write(operations => operations.writeRows(graph.table.name, "insert", Array.from({ length: 40 }, (_, ordinal) => seedRow(ordinal))));
+      const narrow = { ...coreNativeTestBudget(), limits: { maxIdentities: 20, maxDocumentBytes: 65_536 } };
+      const input: JsonObject = { fields: ["id"], order: { column: "id", direction: "asc" }, skip: 30, take: 4, predicate: active({ kind: "and", children: [] }) };
+      expect(failure(yield* Effect.result(graph.reading(operations => graph.page(operations, input, "examined"), narrow))))
+        .toMatchObject({ _tag: "CoreTransactionError", reason: "capacity" });
+      expect(yield* graph.reading(operations => graph.page(operations, input, "pushed"), narrow))
+        .toEqual({ rows: [{ id: "row-030" }, { id: "row-031" }, { id: "row-032" }, { id: "row-033" }], hasMore: true });
+      // Twenty-one returned rows do not fit twenty identities: the examined page decides, and refuses.
+      expect(failure(yield* Effect.result(graph.reading(operations => graph.page(operations, { ...input, skip: 0, take: 21 }, "pushed"), narrow))))
+        .toMatchObject({ _tag: "CoreTransactionError", reason: "capacity" });
+    })), 240_000);
 
     it("fails a corrupt returned row exactly as the complete read does, and no longer inspects a row it does not return", run(fixture => Effect.gen(function* () {
       const probe: Probe = { filters: 0 };

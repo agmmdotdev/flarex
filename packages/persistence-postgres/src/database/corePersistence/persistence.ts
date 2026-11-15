@@ -21,6 +21,8 @@ import {
   type CoreRetentionValidator,
   type CoreSnapshotFilterPage,
   type CoreSnapshotFilterRequest,
+  type CoreSnapshotPage,
+  type CoreSnapshotPageRequest,
   type CoreWriteBatch,
 } from "../../core/contracts";
 import { classifyCoreQueryFailure, type CoreSqlConnection, type CoreSqlParameter } from "./driver";
@@ -95,6 +97,13 @@ const decodeSnapshotFilterRows = makeStoredRowsDecoder(Schema.Array(Schema.Struc
   table_id: Schema.NullOr(internalIdSchema), document_id: Schema.NullOr(internalIdSchema),
   json_value: nullableBytes, prev_ts: Schema.NullOr(timestampSchema),
 })).check(Schema.isMinLength(1)));
+/** Every row repeats the walk facts; window columns are null when the window is empty. */
+const decodeSnapshotPageRows = makeStoredRowsDecoder(Schema.Array(Schema.Struct({
+  walked: snapshotFilterCount, bytes: snapshotFilterCount, broken: snapshotFilterCount, last_prefix: nullableBytes,
+  ts: Schema.NullOr(timestampSchema), key_prefix: nullableBytes, key_suffix: nullableBytes,
+  table_id: Schema.NullOr(internalIdSchema), document_id: Schema.NullOr(internalIdSchema),
+  json_value: nullableBytes, prev_ts: Schema.NullOr(timestampSchema),
+})));
 /** invalid byte sequence, invalid text representation, untranslatable character:
  * what PostgreSQL itself reports for a stored body it cannot read as UTF-8 JSON. */
 const UNREADABLE_BODY = new Set(["22021", "22P02", "22P05"]);
@@ -534,7 +543,7 @@ export const createCorePersistence = Effect.fn("CorePersistence.create")(
         ORDER BY page.key_prefix ${direction}, coalesce(page.key_suffix, ''::bytea) ${direction}`);
       const parameters: readonly CoreSqlParameter[] = yield* decodeSqlParameters(statement.params).pipe(Effect.mapError(invalid));
       yield* retention.validateIndex(at);
-      const rows = yield* decodeSnapshotFilterRows(yield* driver.query(statement.sql, parameters).pipe(Effect.mapError(snapshotFilterFailure)));
+      const rows = yield* decodeSnapshotFilterRows(yield* driver.query(statement.sql, parameters).pipe(Effect.mapError(failure => snapshotFilterFailure(failure))));
       // Retention may have deleted anchors while the statement ran; never release its result.
       yield* retention.validateIndex(at);
       const first = rows[0];
@@ -563,6 +572,103 @@ export const createCorePersistence = Effect.fn("CorePersistence.create")(
         return yield* Effect.fail(new CorePersistenceError({ reason: "corruptData" }));
       return Object.freeze({ entries: Object.freeze(entries), count: overBudget ? 0 : facts.total, examined: facts.examined,
         bytes: facts.bytes, overBudget });
+    });
+
+    /** The page form: no count. One statement walks the first `walk` live entries
+     * in index order, a bound proportional to `offset + limit`, reads their
+     * headers and body lengths, and joins and parses their bodies only when the
+     * byte bound holds and every walked entry has its intact revision. It returns
+     * the window, one lookahead match, how many entries it walked, their bytes
+     * and the last walked key prefix. A walk that ends before the window is
+     * decided is repeated four times wider, up to one entry past `maxExamined`,
+     * which tells an index of exactly that size from a larger one. */
+    const filterPage = Effect.fn("CorePersistence.filterSnapshotPage")(function* (
+      at: bigint, input: CoreSnapshotPageRequest, retention: CoreRetentionValidator,
+    ): Effect.fn.Return<Option.Option<CoreSnapshotPage>, CorePersistenceError> {
+      const request = yield* decodeSnapshotFilter({ index: input.index, tableId: input.tableId, order: input.order,
+        offset: input.offset, limit: input.limit, maxExamined: input.maxExamined, maxBytes: input.maxBytes }).pipe(Effect.mapError(invalid));
+      const predicate = yield* Effect.fromResult(buildPostgresSnapshotFilterPredicate(input.predicate, sql`parsed.row`, relationalPersistenceFailure));
+      const tableId = copyBytes(request.tableId), ascending = request.order === "asc";
+      const direction = sql.raw(ascending ? "ASC" : "DESC"), reverse = sql.raw(ascending ? "DESC" : "ASC");
+      const documents = sql.raw(table("documents")), needed = request.offset + request.limit + 1, widest = request.maxExamined + 1;
+      yield* retention.validateIndex(at);
+      for (let walk = Math.min(widest, Math.max(64, needed * 2)); ; walk = Math.min(widest, walk * 4)) {
+        // The innermost levels carry no join, so the planner sees `walk` as the row target of the ordered index scan.
+        // The limit takes the ordered subquery's first rows: repeating its ORDER BY outside makes the planner sort
+        // every visible entry of the index before limiting, which the plan test refuses.
+        const statement = relationalDialect.sqlToQuery(sql`WITH live AS MATERIALIZED (
+            SELECT visible.ts, visible.key_prefix, visible.key_suffix, visible.table_id, visible.document_id
+            FROM (SELECT DISTINCT ON (key_prefix, key_sha256) ts, key_prefix, key_suffix, key_sha256, deleted, table_id, document_id
+              FROM ${sql.raw(table("indexes"))} WHERE instance_name = ${instance} AND index_id = ${copyBytes(request.index.id)} AND ts <= ${at}
+              ORDER BY key_prefix ${direction}, key_sha256 ${direction}, ts DESC) visible
+            WHERE NOT visible.deleted LIMIT ${walk}
+          ), headed AS MATERIALIZED (
+            SELECT live.*, d.ts AS document_ts, d.deleted AS document_deleted, d.prev_ts, octet_length(d.json_value) AS body_bytes
+            FROM live LEFT JOIN ${documents} d ON d.instance_name = ${instance} AND d.ts = live.ts
+              AND d.table_id = live.table_id AND d.id = live.document_id
+          ), facts AS MATERIALIZED (
+            SELECT count(*) AS walked, coalesce(sum(body_bytes), 0) AS bytes,
+              count(*) FILTER (WHERE document_ts IS NULL OR body_bytes IS NULL OR document_deleted IS DISTINCT FROM false
+                OR table_id IS DISTINCT FROM ${tableId}) AS broken
+            FROM headed
+          ), admitted AS MATERIALIZED (
+            SELECT bytes <= ${request.maxBytes} AND broken = 0 AS ok FROM facts
+          )
+          SELECT facts.walked::text AS walked, facts.bytes::text AS bytes, facts.broken::text AS broken,
+            (SELECT key_prefix FROM live ORDER BY key_prefix ${reverse} LIMIT 1) AS last_prefix,
+            page.ts::text AS ts, page.key_prefix, page.key_suffix, page.table_id, page.document_id, body.json_value, page.prev_ts::text AS prev_ts
+          FROM facts LEFT JOIN (
+            SELECT parsed.ts, parsed.key_prefix, parsed.key_suffix, parsed.table_id, parsed.document_id, parsed.prev_ts
+            FROM (SELECT headed.*, convert_from(d.json_value, 'UTF8')::jsonb AS row
+              FROM headed JOIN ${documents} d ON d.instance_name = ${instance} AND d.ts = headed.ts
+                AND d.table_id = headed.table_id AND d.id = headed.document_id
+              WHERE (SELECT ok FROM admitted) OFFSET 0) parsed
+            WHERE ${predicate}
+            ORDER BY parsed.key_prefix ${direction}, coalesce(parsed.key_suffix, ''::bytea) ${direction}
+            OFFSET ${request.offset} LIMIT ${request.limit + 1}
+          ) page ON true
+          -- Bodies are read again for the window only, so the sort carries keys.
+          LEFT JOIN ${documents} body ON body.instance_name = ${instance} AND body.ts = page.ts
+            AND body.table_id = page.table_id AND body.id = page.document_id
+          ORDER BY page.key_prefix ${direction}, coalesce(page.key_suffix, ''::bytea) ${direction}`);
+        const parameters: readonly CoreSqlParameter[] = yield* decodeSqlParameters(statement.params).pipe(Effect.mapError(invalid));
+        const rows = yield* decodeSnapshotPageRows(yield* driver.query(statement.sql, parameters)
+          .pipe(Effect.mapError(failure => snapshotFilterFailure(failure))));
+        // Retention may have deleted anchors while the statement ran; never release its result.
+        yield* retention.validateIndex(at);
+        const first = rows[0];
+        if (first === undefined || first.walked > BigInt(walk) || rows.length > request.limit + 1)
+          return yield* Effect.fail(new CorePersistenceError({ reason: "corruptData" }));
+        // Past the byte bound nothing was parsed, and a wider walk only reads more.
+        if (first.bytes > BigInt(request.maxBytes)) return Option.none();
+        if (first.broken > 0n) return yield* Effect.fail(new CorePersistenceError({ reason: "corruptData" }));
+        const entries: Array<CoreHydratedIndexEntry & Readonly<{ prefix: Uint8Array }>> = [];
+        for (const row of rows) {
+          if (row.key_prefix === null) {
+            if (rows.length !== 1) return yield* Effect.fail(new CorePersistenceError({ reason: "corruptData" }));
+            break;
+          }
+          if (row.ts === null || row.table_id === null || row.document_id === null || row.json_value === null
+            || row.ts > at || !bytesEqual(row.table_id, tableId)) return yield* Effect.fail(new CorePersistenceError({ reason: "corruptData" }));
+          const key = new Uint8Array(row.key_prefix.length + (row.key_suffix?.length ?? 0));
+          key.set(row.key_prefix);
+          if (row.key_suffix !== null) key.set(row.key_suffix, row.key_prefix.length);
+          entries.push(Object.freeze({ key, prefix: row.key_prefix, document: documentFromRow({ ts: row.ts, table_id: row.table_id,
+            id: row.document_id, json_value: row.json_value, deleted: false, prev_ts: row.prev_ts }) }));
+        }
+        const page = (hasMore: boolean) => Option.some(Object.freeze({ hasMore,
+          entries: Object.freeze(entries.slice(0, request.limit).map(({ key, document }) => Object.freeze({ key, document }))) }));
+        // Every live entry was walked: the window and its end are exact.
+        if (first.walked < BigInt(walk)) return page(entries.length > request.limit);
+        // Unwalked entries can share only the last walked key prefix. A window
+        // that ends before that prefix, with its lookahead found, is decided.
+        const last = entries.at(request.limit === 0 ? 0 : request.limit - 1);
+        if (entries.length > request.limit && last !== undefined && first.last_prefix !== null
+          && (request.limit === 0 || !bytesEqual(last.prefix, first.last_prefix))) return page(true);
+        // More live entries than the examined bound and no decided window: the
+        // counting form would be over budget too.
+        if (walk >= widest) return Option.none();
+      }
     });
 
     const get = Effect.fn("CorePersistence.get")(function* (
@@ -858,6 +964,7 @@ export const createCorePersistence = Effect.fn("CorePersistence.create")(
           scan: (request: CoreIndexScan) => scan(at, request, retention, preloaded),
           preload: (requests: readonly CoreIndexScan[]) => preload(at, requests, retention, preloaded),
           filter: (request: CoreSnapshotFilterRequest) => filter(at, request, retention),
+          filterPage: (request: CoreSnapshotPageRequest) => filterPage(at, request, retention),
         });
       }),
       write: (lease, batch) => writeBatch(lease, batch),

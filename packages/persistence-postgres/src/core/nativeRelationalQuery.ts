@@ -162,14 +162,16 @@ export function coreNativeUnconditionalIndex(table: CoreTableDefinition, declara
  * None leaves the read with the complete captured path. */
 const filterCoreNativeRelationalSnapshot = Effect.fnUntraced(function* (
   filterSnapshot: CoreNativeOperations["filterSnapshot"], table: CoreTableDefinition,
-  policy: CoreNativeRelationalRowPolicy, query: Query, purpose: "rows" | "count",
+  policy: CoreNativeRelationalRowPolicy, query: Query, purpose: "rows" | "count" | "page",
 ) {
+  type Filtered = Readonly<{ rows: JsonObject[]; count: Option.Option<number>; hasMore: boolean }>;
   if (query.snapshotFilter === undefined || query.selections !== null || query.storageInsertion
-    || query.includeIdentities || query.postgresPredicate !== undefined) return Option.none<CoreNativeRelationalSelection>();
+    || query.includeIdentities || query.postgresPredicate !== undefined) return Option.none<Filtered>();
   const page = yield* filterSnapshot(table.name, query.snapshotFilter, { orderColumn: query.orderColumn, order: query.direction,
-    offset: purpose === "count" ? 0 : query.offset, limit: purpose === "count" ? 0 : query.limit });
-  if (Option.isNone(page)) return Option.none<CoreNativeRelationalSelection>();
-  const { documents, count } = page.value;
+    offset: purpose === "count" ? 0 : query.offset, limit: purpose === "count" ? 0 : query.limit,
+    ...(purpose === "page" ? { window: "page" as const } : {}) });
+  if (Option.isNone(page)) return Option.none<Filtered>();
+  const { documents, count, hasMore } = page.value;
   return yield* Effect.fromResult(Result.gen(function* () {
     const rows: JsonObject[] = [];
     const direction = query.direction === "asc" ? 1 : -1;
@@ -189,7 +191,7 @@ const filterCoreNativeRelationalSnapshot = Effect.fnUntraced(function* (
       previous = { id, order: inspected.order };
       rows.push(yield* project(row, query.fields));
     }
-    return Option.some<CoreNativeRelationalSelection>({ rows, count, returned: purpose === "count" ? count : rows.length });
+    return Option.some<Filtered>({ rows, count, hasMore });
   }));
 });
 
@@ -206,7 +208,14 @@ export const executeCoreNativeRelationalRead = Effect.fn("CoreNativeRelational.r
   // A read the cohort owner refuses for its missing anchor is left to that owner.
   if (Option.isSome(filterSnapshot) && !lacksIndexedNullAnchor(table, query)) {
     const filtered = yield* filterCoreNativeRelationalSnapshot(filterSnapshot.value, table, policy, query, purpose);
-    if (Option.isSome(filtered)) return filtered.value;
+    if (Option.isSome(filtered)) {
+      // Only the counting form answers these purposes. A served, charged read
+      // without its total must not continue into the complete path.
+      if (Option.isNone(filtered.value.count)) return yield* Effect.die(new Error("Counted native snapshot read returned no total"));
+      const count = filtered.value.count.value, { rows } = filtered.value;
+      const selected: CoreNativeRelationalSelection = { rows, count, returned: purpose === "count" ? count : rows.length };
+      return selected;
+    }
   }
   const inspected = yield* inspectCoreNativeRelationalCohort(operations.find, table, policy, query,
     wheres => prefetchCoreNativeFindSlots(operations, table.name, wheres));
@@ -238,10 +247,16 @@ const pageWhere = (predicate: NormalizedRelationalPredicate): Result.Result<Json
 });
 
 /** Examined pages stay on the existing consumed-prefix/EOF owner, rather than
- * turning a page into a complete selection or observing its untouched suffix. */
+ * turning a page into a complete selection or observing its untouched suffix.
+ * A read-only snapshot operation may instead hand a page this owner admits to
+ * PostgreSQL, when the page's index is the single-field one whose key order
+ * the statement uses. The statement's page form then walks entries in
+ * proportion to the window's end and supplies the window and "has more". */
 export const executeCoreNativeRelationalPage = Effect.fn("CoreNativeRelational.page")(function* (
   operations: Pick<CoreNativeOperations, "findPage">, table: CoreTableDefinition,
   declaration: CoreNativeTableDeclaration, policy: CoreNativeRelationalRowPolicy, query: Query,
+  /** Supplied only for reads that carry no receipts; None keeps the examined page. */
+  filterSnapshot: Option.Option<CoreNativeOperations["filterSnapshot"]> = Option.none(),
 ) {
   if (query.includeIdentities || query.storageInsertion || query.search !== null || query.json !== null
     || query.postgresPredicate !== undefined || query.selections !== null && query.selections.length > 1)
@@ -250,6 +265,10 @@ export const executeCoreNativeRelationalPage = Effect.fn("CoreNativeRelational.p
   const where = yield* Effect.fromResult(pageWhere(query.predicate));
   const index = coreNativeUnconditionalIndex(table, declaration, query.orderColumn, "leading");
   if (index === undefined) return yield* new CoreQueryInputError({ reason: "invalidQuery" });
+  if (Option.isSome(filterSnapshot) && index.fields.length === 1) {
+    const filtered = yield* filterCoreNativeRelationalSnapshot(filterSnapshot.value, table, policy, query, "page");
+    if (Option.isSome(filtered)) return { rows: filtered.value.rows, hasMore: filtered.value.hasMore };
+  }
   const page = yield* operations.findPage(table.name, where,
     { indexName: index.name, offset: query.offset, limit: query.limit, order: query.direction });
   const rows = yield* Effect.fromResult(Result.gen(function* () {

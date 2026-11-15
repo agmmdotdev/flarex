@@ -10,5 +10,5 @@ const endpoints = path === undefined ? undefined : Schema.decodeUnknownSync(Sche
 }))(JSON.parse(await readFile(path, "utf8")));
 
 describe.runIf(endpoints !== undefined)("ordinary-role native snapshot predicate pushdown", () => {
-  if (endpoints !== undefined) registerNativeSnapshotPushdownScenarios("PostgreSQL", () => createCorePostgresFixture(endpoints));
+  if (endpoints !== undefined) registerNativeSnapshotPushdownScenarios("PostgreSQL", options => createCorePostgresFixture({ ...endpoints, ...options }));
 });

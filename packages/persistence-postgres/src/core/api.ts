@@ -456,7 +456,10 @@ export type CoreNativeOperations = Pick<CoreTransaction, "get" | "insert" | "pat
    * would examine more than the Source read budget has left. */
   readonly filterSnapshot: (table: string, program: PostgresSnapshotFilterProgram, options: Readonly<{
     orderColumn: string; offset: number; limit: number; order?: "asc" | "desc";
-  }>) => Effect.Effect<Option.Option<Readonly<{ documents: readonly DocumentObject[]; count: number }>>, CoreError>;
+    /** `page` asks for no total: PostgreSQL then walks entries in proportion to
+     * `offset + limit`, and `count` is None when that page form answered. */
+    window?: "page";
+  }>) => Effect.Effect<Option.Option<Readonly<{ documents: readonly DocumentObject[]; count: Option.Option<number>; hasMore: boolean }>>, CoreError>;
 };
 export type CoreNativeRootOperations = CoreNativeOperations & {
   /** Complete related cohorts and their actual match under one scope-exclusive root. */

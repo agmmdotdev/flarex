@@ -346,13 +346,13 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
 
   const openSnapshot = Effect.fnUntraced(function* (timestamp: bigint, registry: CoreRegistry) {
     const physicalSnapshot = yield* persistence.readSnapshot(timestamp, initial.retention);
-    const filter = physicalSnapshot.filter;
+    const filter = physicalSnapshot.filter, filterPage = physicalSnapshot.filterPage;
     const snapshot: CorePersistenceSnapshot = Object.freeze({ timestamp: physicalSnapshot.timestamp, get: physicalSnapshot.get,
       scan: (request: CoreIndexScan) => committer.indexCache.scan({ snapshot: physicalSnapshot, registry, request }),
       preload: (requests: readonly CoreIndexScan[]) => committer.indexCache.preloadMisses({ snapshot: physicalSnapshot, registry,
         requests, admission: false }),
       // A filtered statement is not an index page: it goes to the physical snapshot, past the cache.
-      ...(filter === undefined ? {} : { filter }),
+      ...(filter === undefined ? {} : { filter }), ...(filterPage === undefined ? {} : { filterPage }),
     });
     yield* assertOpen;
     return snapshot;

@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Effect, Result } from "effect";
 import type { CorePersistence, CorePersistenceSnapshot } from "../../persistence-postgres/src/core/contracts";
-import type { Json } from "@flarex/persistence-postgres/internal/commerce-values";
+import { isJsonObject, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
 import { prepareProductReadInput } from "../src/modules/product/service-input";
 import { createCoreProductFixture, type CoreProductFixture } from "./support/core-product-fixture";
 
@@ -9,12 +9,14 @@ const driver = process.env.FLAREX_TEST_DRIVER ?? "pglite";
 if (driver !== "pglite" && driver !== "postgres") throw new Error("Invalid native Product snapshot pushdown driver");
 
 /** `complete` withholds the statement, so the same host serves the same read through the complete captured path. */
-const probe = { statements: 0, complete: false };
+/** `statements` counts calls of either form; `pages` those of the page form, which never counts the table. */
+const probe = { statements: 0, pages: 0, complete: false };
 const wrapPersistence = (inner: CorePersistence): CorePersistence => ({ ...inner,
   readSnapshot: (at, retention) => Effect.map(inner.readSnapshot(at, retention), (snapshot): CorePersistenceSnapshot => {
-    const { filter, ...rest } = snapshot;
-    return filter === undefined || probe.complete ? rest
-      : { ...rest, filter: request => Effect.suspend(() => { probe.statements++; return filter(request); }) };
+    const { filter, filterPage, ...rest } = snapshot;
+    return filter === undefined || filterPage === undefined || probe.complete ? rest
+      : { ...rest, filter: request => Effect.suspend(() => { probe.statements++; return filter(request); }),
+        filterPage: request => Effect.suspend(() => { probe.statements++; probe.pages++; return filterPage(request); }) };
   }) });
 
 const TITLES = ["Needle", "NEEDLE in hay", "needle", "Haystack", "Back\\slash", "Ångström needle", "ÅNGSTRÖM", "ångström", "100% wool", "under_score",
@@ -31,6 +33,12 @@ describe(`native Product snapshot predicate pushdown on Core ${driver}`, () => {
           subtitle: ordinal % 5 === 0 ? "Needle subtitle" : null };
       })));
     await fixture.run(fixture.host.run(fixture.host.newRequestKey(), fixture.runtime.commands.softDelete, ["push_00", "push_17", "push_33"]));
+    // Products with relations sort between the plain ones by id.
+    for (let ordinal = 0; ordinal < 6; ordinal++) await fixture.run(fixture.host.run(fixture.host.newRequestKey(), fixture.runtime.commands.create,
+      { id: `push_${ordinal}5_rel`, title: `Related ${ordinal}`, handle: `push-rel-${ordinal}`,
+        images: [{ url: `image-${ordinal}-a` }, { url: `image-${ordinal}-b` }], options: [{ title: "size", values: ["one", "two"] }],
+        variants: [{ title: "One", options: { size: "one" } }, { title: "Two", options: { size: "two" } }] }));
+    await fixture.run(fixture.host.run(fixture.host.newRequestKey(), fixture.runtime.commands.softDelete, ["push_25_rel"]));
   }, 240_000);
   afterAll(async () => { if (fixture !== undefined) await fixture.close(); }, 180_000);
 
@@ -77,6 +85,35 @@ describe(`native Product snapshot predicate pushdown on Core ${driver}`, () => {
       const populated = await both(host, list, input({ q: "needle" }, { take: 5, relations: ["variants", "images"] }), 1);
       expect(Result.isSuccess(populated.pushed)).toBe(true);
       expect(populated.pushed).toEqual(populated.complete);
+    } finally { await fixture.run(host.close); }
+  }, 600_000);
+
+  it("serves a paged list with relations through one page-form read for the parent page, identically to the examined page", async () => {
+    const host = await fixture.run(fixture.openReadHost());
+    try {
+      const { list } = fixture.runtime.commands;
+      let related = 0;
+      for (const order of [{ id: "ASC" }, { id: "DESC" }, { created_at: "DESC" }] satisfies Json[])
+        for (const [skip, take] of [[0, 20], [0, 5], [13, 9], [44, 20], [50, 5], [80, 5]] as const) {
+          // No total and no filter: the Product profile selects its page read, and relations are indexed selections.
+          const pagesBefore = probe.pages;
+          const paged = await both(host, list, input({}, { take, skip, order, relations: ["variants", "images"] }), 1);
+          expect(probe.pages - pagesBefore, `${JSON.stringify(order)} ${skip}/${take}`).toBe(1);
+          expect(Result.isSuccess(paged.pushed), `${JSON.stringify(order)} ${skip}/${take}`).toBe(true);
+          expect(paged.pushed, `${JSON.stringify(order)} ${skip}/${take}`).toEqual(paged.complete);
+          const rows = Result.getOrThrow(paged.pushed);
+          if (!Array.isArray(rows)) throw new Error("Expected Product rows");
+          expect(rows.length, `${JSON.stringify(order)} ${skip}/${take}`).toBe(Math.max(0, Math.min(take, 50 - skip)));
+          for (const row of rows) if (isJsonObject(row) && typeof row.id === "string" && row.id.endsWith("_rel")) {
+            related++;
+            expect(row.id).not.toBe("push_25_rel");
+            expect(Array.isArray(row.variants) && row.variants.length).toBe(2);
+            expect(Array.isArray(row.images) && row.images.length).toBe(2);
+          }
+        }
+      expect(related).toBeGreaterThan(10);
+      const plain = await both(host, list, input({}, { take: 7, skip: 4, order: { id: "ASC" }, select: ["id", "handle"] }), 1);
+      expect(plain.pushed).toEqual(plain.complete);
     } finally { await fixture.run(host.close); }
   }, 600_000);
 

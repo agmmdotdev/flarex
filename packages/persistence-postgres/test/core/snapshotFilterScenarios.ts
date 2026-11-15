@@ -1,4 +1,4 @@
-import { Effect, Result } from "effect";
+import { Effect, Option, Result } from "effect";
 import { describe, expect, it } from "vitest";
 import { compareBytesLexicographically } from "@flarex/utils/bytes";
 import { encodeDocumentId } from "flarex-protocol/document-id";
@@ -112,6 +112,12 @@ const filter = (snapshot: CorePersistenceSnapshot, request: Omit<Parameters<NonN
   return snapshot.filter({ index: { id: indexId }, tableId, maxExamined: 32_000, maxBytes: 1 << 24, ...request });
 };
 
+const filterPage = (snapshot: CorePersistenceSnapshot, request: Omit<Parameters<NonNullable<CorePersistenceSnapshot["filterPage"]>>[0], "index" | "tableId" | "maxExamined" | "maxBytes">
+  & Partial<Readonly<{ maxExamined: number; maxBytes: number }>>) => {
+  if (snapshot.filterPage === undefined) return Effect.die(new Error("Snapshot has no page statement"));
+  return snapshot.filterPage({ index: { id: indexId }, tableId, maxExamined: 32_000, maxBytes: 1 << 24, ...request });
+};
+
 const seed = Effect.fnUntraced(function* (fixture: CorePersistenceFixture, rows = 90) {
   const persistence = fixture.persistence;
   const lease = yield* persistence.acquireLease();
@@ -166,6 +172,21 @@ export function registerSnapshotFilterScenarios(lane: string, create: () => Prom
               expect(isJson(decoded) && isJsonObject(decoded) ? decoded._id : undefined, label).toBe(expected[position]?.id);
               expect(entry.document.ts <= at && !entry.document.deleted, label).toBe(true);
             }
+            // The page form: the same window and bodies without a count, and whether a match follows it.
+            const paged = yield* filterPage(snapshot, { predicate: program, order: direction, offset, limit });
+            expect(Option.isSome(paged), label).toBe(true);
+            if (Option.isSome(paged)) {
+              expect(paged.value.entries, label).toEqual(page.entries);
+              expect(paged.value.hasMore, label).toBe(ordered.length > offset + limit);
+            }
+            // Under a tight bound, which can end inside a long-key prefix group, it decides the same window or declines.
+            for (const maxExamined of limit === 3 || limit === 5 ? [0, 7, 61, members.length - 1, members.length] : []) {
+              const bounded = yield* filterPage(snapshot, { predicate: program, order: direction, offset, limit, maxExamined });
+              if (Option.isSome(bounded)) expect({ keys: bounded.value.entries.map(entry => Buffer.from(entry.key).toString("hex")), hasMore: bounded.value.hasMore },
+                `${label} bound ${maxExamined}`).toEqual({ keys: expected.map(member => Buffer.from(member.key).toString("hex")), hasMore: ordered.length > offset + limit });
+              // It declines only when the index holds more live entries than the bound: an index of exactly the bound is decided.
+              else expect(members.length, `${label} bound ${maxExamined}`).toBeGreaterThan(maxExamined);
+            }
           }
         }
       }
@@ -198,6 +219,13 @@ export function registerSnapshotFilterScenarios(lane: string, create: () => Prom
       expect(bytes).toEqual({ entries: [], count: 0, examined: 30, bytes: admitted.bytes, overBudget: true });
       const exact = yield* filter(snapshot, { predicate: program, order: "asc", offset: 0, limit: 5, maxBytes: admitted.bytes });
       expect(exact.overBudget).toBe(false);
+      // The page form applies both bounds to the entries it walks, here all thirty, and parses nothing past them.
+      const paged = yield* filterPage(snapshot, { predicate: program, order: "asc", offset: 0, limit: 5, maxBytes: admitted.bytes });
+      expect(Option.isSome(paged) && paged.value.entries).toEqual(admitted.entries);
+      expect(yield* filterPage(snapshot, { predicate: program, order: "asc", offset: 0, limit: 5, maxBytes: admitted.bytes - 1 })).toEqual(Option.none());
+      expect(yield* filterPage(snapshot, { predicate: program, order: "asc", offset: 0, limit: 0, maxBytes: 0 })).toEqual(Option.none());
+      expect(Option.isSome(yield* filterPage(snapshot, { predicate: program, order: "asc", offset: 28, limit: 5, maxExamined: 30 }))).toBe(true);
+      expect(yield* filterPage(snapshot, { predicate: program, order: "asc", offset: 28, limit: 5, maxExamined: 29 })).toEqual(Option.none());
       // Tombstoned keys are walked but are not examined entries: timestamp 2 moved four rows and removed three.
       const later = yield* persistence.readSnapshot(2n);
       const visible = yield* filter(later, { predicate: program, order: "asc", offset: 0, limit: 0, maxExamined: 27 });
@@ -224,6 +252,14 @@ export function registerSnapshotFilterScenarios(lane: string, create: () => Prom
       expect(yield* Effect.result(filter(snapshot, { predicate: program, order: "asc", offset: 0, limit: 20 })))
         .toMatchObject({ _tag: "Failure", failure: { reason: "outOfRetention" } });
       expect(validations).toBe(6);
+      // The page form validates before its statement and again before releasing its rows.
+      failAt = Number.POSITIVE_INFINITY;
+      expect(Option.isSome(yield* filterPage(snapshot, { predicate: program, order: "asc", offset: 0, limit: 2 }))).toBe(true);
+      expect(validations).toBe(8);
+      failAt = 10;
+      expect(yield* Effect.result(filterPage(snapshot, { predicate: program, order: "asc", offset: 0, limit: 2 })))
+        .toMatchObject({ _tag: "Failure", failure: { reason: "outOfRetention" } });
+      expect(validations).toBe(10);
     })), 120_000);
 
     it("reports a visible entry without its exact revision as corrupt data", run(fixture => Effect.gen(function* () {
@@ -232,6 +268,9 @@ export function registerSnapshotFilterScenarios(lane: string, create: () => Prom
       const { program } = prepare({ kind: "and", children: [] }, "asc");
       yield* persistence.write(lease, { documents: [document(1n, 1, body(1))], indexes: [index(1n, "a", 1), index(1n, "b", 2)] });
       expect(yield* Effect.result(filter(yield* persistence.readSnapshot(1n), { predicate: program, order: "asc", offset: 0, limit: 5 })))
+        .toMatchObject({ _tag: "Failure", failure: { reason: "corruptData" } });
+      // The page form aborts on the same walked entry, even when its window would not return it.
+      for (const limit of [5, 1, 0]) expect(yield* Effect.result(filterPage(yield* persistence.readSnapshot(1n), { predicate: program, order: "asc", offset: 0, limit })))
         .toMatchObject({ _tag: "Failure", failure: { reason: "corruptData" } });
 
     })), 120_000);
@@ -292,6 +331,10 @@ export function registerSnapshotFilterScenarios(lane: string, create: () => Prom
           .toMatchObject({ _tag: "Failure", failure: { reason: "corruptData" } });
         expect(yield* Effect.result(filter(snapshot, { predicate: leaf, order: "asc", offset: 0, limit: 0 })))
           .toMatchObject({ _tag: "Failure", failure: { reason: "corruptData" } });
+        // The page form fails on it too, but past its byte bound it parses nothing, so the same body is never read.
+        expect(yield* Effect.result(filterPage(snapshot, { predicate: leaf, order: "asc", offset: 0, limit: 1 })))
+          .toMatchObject({ _tag: "Failure", failure: { reason: "corruptData" } });
+        expect(yield* filterPage(snapshot, { predicate: leaf, order: "asc", offset: 0, limit: 1, maxBytes: 1 })).toEqual(Option.none());
       }
     })), 120_000);
 

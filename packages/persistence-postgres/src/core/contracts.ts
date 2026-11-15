@@ -96,6 +96,16 @@ export interface CoreSnapshotFilterRequest {
   /** Stored body bytes of the live examined documents. */
   readonly maxBytes: number;
 }
+/** The page form of the same statement: no count, and PostgreSQL walks a number
+ * of live entries proportional to `offset + limit`, never the whole index. Both
+ * bounds apply to the entries it walks. */
+export type CoreSnapshotPageRequest = CoreSnapshotFilterRequest;
+export interface CoreSnapshotPage {
+  /** The requested window of matches in full index-key order. */
+  readonly entries: readonly CoreHydratedIndexEntry[];
+  /** Whether a further match follows the window. */
+  readonly hasMore: boolean;
+}
 export interface CoreSnapshotFilterPage {
   /** The requested window of matches in full index-key order; never truncated. */
   readonly entries: readonly CoreHydratedIndexEntry[];
@@ -169,6 +179,10 @@ export interface CorePersistenceSnapshot {
   /** Absent on snapshots without a PostgreSQL evaluator; callers then keep the
    * complete captured read. Results are not index pages and bypass every cache. */
   readonly filter?: (request: CoreSnapshotFilterRequest) => Effect.Effect<CoreSnapshotFilterPage, CorePersistenceError>;
+  /** None: the walk exceeded a bound before the window was decided, which the
+   * counting form would report as over budget too. The caller takes its
+   * examined page. */
+  readonly filterPage?: (request: CoreSnapshotPageRequest) => Effect.Effect<Option.Option<CoreSnapshotPage>, CorePersistenceError>;
 }
 
 /** Durable deletion floors loaded while holding this persistence owner's lease. */

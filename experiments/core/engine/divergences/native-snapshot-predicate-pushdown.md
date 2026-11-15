@@ -1,7 +1,7 @@
 # Mechanism: PostgreSQL filters read-only snapshot reads
 
 Design status: **Accepted**, including the guarantee change below.
-Implementation status: **Implemented** for full-set native relational reads on read-only snapshot operations.
+Implementation status: **Implemented** for full-set native relational reads and examined pages on read-only snapshot operations.
 Measurement status: **Required gates unmet**; local load only, in the owning slice.
 
 ## Ownership and decision
@@ -73,6 +73,44 @@ complete captured path unchanged.
 | The snapshot offers `filter` | Fixtures and other snapshots may omit it |
 | Live documents and their bytes fit the fixed Source read limit, and the returned rows fit the remaining budgets | The complete path may read a narrower cohort and alone decides a refusal |
 
+Examined pages. The page read (`executeCoreNativeRelationalPage`) is a second entry. A read-only list without a
+total used to take the examined page: it hydrated, decoded and observed the skipped prefix and a lookahead, because
+the `deleted_at IS NULL` residual runs on every examined document. Where the page owner admits the query (conjoined
+`isNull` leaves only) and the index it would page is the single-field one, a read-only snapshot operation without
+receipts now asks PostgreSQL first, under every condition in the table above. A statement that answers none leaves
+the examined page unchanged, including its refusals. Relation population for the returned parents stays on indexed
+selections.
+
+A page uses a page form of the statement (`filterPage`), not the counting form, which walks and counts the whole
+index for every page. The page form has no count:
+
+1. It walks the first `walk` live entries in index order, `walk` starting at twice the window's end and at least 64.
+   Tombstones are dropped as in the counting form. The walk is a materialised step of that bounded size.
+2. It reads those entries' revision headers and body lengths. Bodies are joined and parsed only when the walked
+   bytes fit the Source byte limit and every walked entry has its intact revision.
+3. It applies the predicate, sorts the matches by full key and returns `take + 1` of them after `skip`, reading
+   bodies again for that window only.
+4. It returns how many entries it walked, their bytes and the last walked key prefix. A walk shorter than `walk` saw
+   the whole index, so the window and "has more" are exact. A full walk decides the window only when the lookahead
+   match was found and the window's last row lies before the last walked prefix: unwalked entries follow in index
+   order and can share only that prefix, which matters for keys at or over the 2,500-byte prefix.
+5. An undecided walk is repeated four times wider, up to one entry past the fixed Source read limit, so one
+   statement walks at most that limit plus one entry. At the reference limit of 32,000 that is at most six
+   statements (64, 256, 1,024, 4,096, 16,384 and 32,001 entries, about 54,000 walked in all) before the examined
+   page runs. A final walk that long proves the index holds more live entries than the limit. It can still decide a
+   window that ends before its last walked prefix; an undecided one, like walked bytes over the byte limit, is the
+   over-budget verdict the counting form would give, so the read goes to the examined page with no counting
+   statement.
+
+A walked entry whose exact revision is missing, deleted or of another table fails the page as `corruptData`. The
+walk is 64 entries at least and up to the Source limit on the widest repeat, so this can fail a page whose window
+the examined page would have served without reading that entry: a recorded consequence of the approved change that
+PostgreSQL, not JavaScript, inspects unreturned rows.
+
+Two consequences follow from rules already recorded here, not from a new one. Skipped rows are no longer decoded or
+validated in JavaScript (the approved change). A page whose skipped prefix exceeds the native identity budget, which
+the examined page refuses, is served when its returned window fits.
+
 `coreNativeUnconditionalIndex` in `nativeRelationalQuery.ts` is the one owner of "complete index"; the page read uses
 its `leading` shape and this path its `exact` shape.
 
@@ -81,9 +119,10 @@ a wrongly typed value or a tagged `$integer`/`$float`/`$bytes` value never match
 is `lower(… COLLATE "C") LIKE lower(…) ESCAPE ''`. Under `"C"`, `lower` folds only ASCII A-Z; the `translate` form used
 for captured candidates gives the same result and measured about sixty times slower on 630-character values.
 
-Budget. The examined bound admits each statement and charges nothing: its live documents and their stored bytes
-must fit the fixed Source read limit (32,000 documents and 16 MiB by default), whatever the operation has already
-read. Only returned rows are charged, as the complete read charges the rows it reads: one Source document read at its
+Budget. The examined bound admits each statement and charges nothing: the live documents it examines and their
+stored bytes must fit the fixed Source read limit (32,000 documents and 16 MiB by default), whatever the operation
+has already read. The counting form applies it to the whole index, the page form to the entries of each walk, and
+neither parses a body when it does not hold. Only returned rows are charged, as the complete read charges the rows it reads: one Source document read at its
 semantic size, a native identity, and the native retained bytes of its body and key, plus the retained program as a
 captured-row program is charged. Returned rows are a subset of the complete read's cohort, so this path never spends
 more Source budget than the complete path would. The 2,048-identity and 8 MiB read-host budget therefore bounds the
@@ -136,6 +175,25 @@ statements; when they no longer fit, the complete path takes the read.
   key changed more often than the bound; tagged values in a filtered and an ordered column; a 200,000-character title;
   invalid UTF-8 and unparseable bodies with and without a leaf; wrongly typed comparison operands; several revisions of
   one key at each snapshot; a read-mode operation that still cannot write.
+- `nativeSnapshotPushdownScenario.ts` also compares the pushed page with the examined page and the complete read:
+  offsets at zero, mid-table, the last row and past the end, both directions, tied order values, interleaved
+  soft-deleted rows and has-more at each boundary; a write operation, an order without a single-field index and an
+  over-budget statement keep the examined page; a deep skip beyond the identity budget. The Medusa test pages a list
+  with relations on one read host and expects one statement per parent page. Both lanes.
+- `test/core/snapshotFilterScenarios.ts` compares the page form with the counting form for every predicate, window,
+  direction and snapshot there, and under tight entry bounds that end inside a long-key prefix group, where it must
+  decide the same window or decline. `test/core/snapshotPagePlan.postgres.test.ts` explains the page form on a
+  28,000-row table in both directions and asserts, at `skip` 0 and 1,000, that no plan node handles more than the
+  bounded walk and none is a sequential scan. At `skip` 19,000 the walk is the whole table, so only the result is
+  checked. `nativeSnapshotPushdownScenario.ts` counts SQL statements for a window behind one hundred soft-deleted
+  rows: two page statements ascending, one descending, no counting statement.
+- Cost of each form. Counting form: linear in the index, every time; about 140 ms for 20,000 rows. Page form: linear
+  in `skip + take`, about twice the window's end in walked entries plus their older revisions and tombstones; 0.5 ms
+  at `skip` 0, 10 to 12 ms at `skip` 1,000 and 250 to 680 ms at `skip` 19,000 on that table, where it costs more
+  than the counting form. It is a bounded
+  materialised walk and sort, not a row-at-a-time stream: PostgreSQL would not keep the ordered index scan beneath a
+  full-key sort or a join. A window made undecidable by many non-matching rows costs the wider repeats, each
+  bounded in entries and bytes, and then the examined page.
 - Limits. PostgreSQL work is bounded only by the examined bound, the statement timeout and the server's temp-file
   limits. `DISTINCT ON` walks every historical revision and every tombstone of the index up to the bound, and a
   statement that reports over budget has walked as much as one that is served; the complete read then runs as well.
