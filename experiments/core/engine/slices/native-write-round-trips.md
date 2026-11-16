@@ -94,3 +94,40 @@ Only native roots pass a write log; ordinary begin and abort keep the read. A st
 claim that is still active can arise only in another process, whose writes this log
 never holds, and that owner's commit then fails on the lease fence as before. The
 round-trip counts above are the witness for the shortcut; no unit test isolates it.
+
+## Per-write CPU, first cut
+
+Baseline `e6f8183d6`. An independent challenge of a Product create profile found
+the cost flat: no item above about 3.5%. Two read-only reviewers found no blocking
+defect. No guarantee, byte or refusal changed.
+
+| Change | Owner |
+| --- | --- |
+| Root request evidence and event policy derived once per bound root | `nativeRootRequest.ts`, `coreStore.ts` ([record](../divergences/native-event-policy-commitment.md)) |
+| A final document's staged encoding is taken by the commit | `CoreEncodedDocumentHandoff` ([record](../divergences/decoded-document-handoff.md)) |
+| Metadata read selections kept for one transaction | `CoreNativeMetadataSelections` ([record](../divergences/native-policy-match-reuse.md)) |
+| Index key text written through one scratch buffer | `flarex-protocol/src/index-key.ts` |
+| Workflow values restored by a plain copy instead of `structuredClone` | `medusa-adapter/src/workflow/value.ts` |
+| No generator per row or per operation | `transaction.ts`, `nativeQuery.ts`, `dependencies.ts`, `protectedNativeAuthority.ts` |
+
+Ordinary-role PostgreSQL, one host, 200-product catalogue, three alternating rounds
+of 100 operations:
+
+| Operation | CPU per operation (median) | Minimum |
+| --- | --- | --- |
+| Product create | 53.6 → 48.6 ms | 50.8 → 46.5 ms |
+| List by IDs | 21.1 → 19.0 ms | 18.9 → 18.2 ms |
+
+Round trips stay at 40. Other reads are within noise.
+
+Not done, with reasons:
+
+- Merging the request claim into the root commit is rejected. The durable claim is
+  what makes a crashed request terminal instead of rerun; pinned Convex has no claim
+  only because its functions are deterministic and sandboxed.
+- The string size measure in `value-runtime-core.ts` is bundled into the generated
+  runtime kernels, so changing it changes their hashes; it waits for a slice that
+  regenerates them.
+- About 75 value captures and 40 owner fibers per create remain the larger share and
+  need their own design.
+

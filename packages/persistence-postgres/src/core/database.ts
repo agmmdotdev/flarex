@@ -54,7 +54,7 @@ import { guardCoreUnregisteredLifecycle, readActiveCoreApplicationRegistration, 
 import { makeCoreApplicationDeploymentOwner } from "./applicationDeployment";
 import { migrateCoreApplicationDeployments } from "./applicationDeploymentMigration";
 import type { CoreSchemaSelection } from "./schemaRegistry";
-import { captureCoreNativeRootIdentity, captureCoreNativeRootRequestEvidence,
+import { captureCoreNativeRootIdentity, captureCoreNativeRootRequestEvidence, composeCoreNativeRootRequestEvidence,
   type CoreNativeRootRequestEvidence } from "./nativeRootRequest";
 
 function schemaStatusValue(registry: CoreRegistry, proposal: CoreSchemaProposal, found: CoreSchemaSelection): CoreSchemaStatus {
@@ -1204,9 +1204,10 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
           const operations = yield* selected.context.nativeFor(access);
           if (!nativeRootRequests.has(operations)) {
             let evidence: CoreNativeRootRequestEvidence | undefined;
-            const readEvidence = () => evidence === undefined ? captureCoreNativeRootRequestEvidence({ key: selected.claimData.identity.key,
+            // The frame was captured, decoded and frozen when this root was bound.
+            const readEvidence = () => evidence === undefined ? composeCoreNativeRootRequestEvidence({ key: selected.claimData.identity.key,
               requestHash: selected.claimData.identity.requestHash, root: selected.data.metadata.identity,
-              source: access.authority.definition.identity, frame: selected.data.frame }).pipe(Result.map(captured => {
+              source: access.authority.definition.identity }, selected.data.frame).pipe(Result.map(captured => {
               evidence = captured; return captured;
             })) : Result.succeed(evidence);
             const assertCurrent = Effect.suspend(() => selected.claimData.active && !selected.claimData.aborting

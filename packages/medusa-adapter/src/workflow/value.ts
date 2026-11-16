@@ -70,29 +70,43 @@ export function decodeWorkflowCommandInput<Input>(input: unknown,
   });
 }
 
+/** Captured and decoded payloads are plain JSON trees: null, scalars, dense
+ * arrays and string-keyed data records. One owned copy thaws them; an own
+ * `__proto__` member stays data and never selects the copy's prototype. A
+ * subtree the payload holds twice becomes two copies, as its wire form decodes. */
+const thawWorkflowJson = (value: Json | undefined): unknown => {
+  if (typeof value !== "object" || value === null) return value;
+  if (Array.isArray(value)) return value.map(thawWorkflowJson);
+  const owned: Record<string, unknown> = {};
+  for (const key of Object.keys(value)) {
+    const member = thawWorkflowJson(Object.getOwnPropertyDescriptor(value, key)?.value);
+    if (key === "__proto__") Object.defineProperty(owned, key, { value: member, enumerable: true, writable: true, configurable: true });
+    else owned[key] = member;
+  }
+  return owned;
+};
+
 /** Capture-issued or checked transport paths target only this detached payload.
  * No path data confers source identity or authority. */
-function restoreWorkflowValue(payload: Json | undefined, undefinedPaths: readonly PrivateIntermediateJsonPath[]) {
-  return Result.gen(function* () {
-    const owned: unknown = structuredClone(payload);
-    for (const path of undefinedPaths) {
-      let parent = owned;
-      for (const key of path.slice(0, -1)) {
-        if (typeof parent !== "object" || parent === null ||
-          (typeof key === "number" ? !Array.isArray(parent) : !isNonArrayRecord(parent)) || !Object.hasOwn(parent, key))
-          return yield* Result.fail(commerceError("storedCorruption"));
-        parent = Object.getOwnPropertyDescriptor(parent, key)?.value;
-      }
-      const key = path.at(-1);
-      if (key === undefined || typeof parent !== "object" || parent === null || (typeof key === "number"
-        ? !Array.isArray(parent) || !Number.isSafeInteger(key) || key < 0 || key >= parent.length ||
-          !Object.hasOwn(parent, key) || Object.getOwnPropertyDescriptor(parent, key)?.value !== null
-        : !isNonArrayRecord(parent) || Object.hasOwn(parent, key))) return yield* Result.fail(commerceError("storedCorruption"));
-      Object.defineProperty(parent, key, { value: undefined, enumerable: true, writable: true, configurable: true });
+function restoreWorkflowValue(payload: Json | undefined, undefinedPaths: readonly PrivateIntermediateJsonPath[]): Result.Result<unknown, CommerceTransactionError> {
+  const owned = thawWorkflowJson(payload);
+  for (const path of undefinedPaths) {
+    let parent = owned;
+    for (const key of path.slice(0, -1)) {
+      if (typeof parent !== "object" || parent === null ||
+        (typeof key === "number" ? !Array.isArray(parent) : !isNonArrayRecord(parent)) || !Object.hasOwn(parent, key))
+        return Result.fail(commerceError("storedCorruption"));
+      parent = Object.getOwnPropertyDescriptor(parent, key)?.value;
     }
-    if (!isNonArrayRecord(owned)) return yield* Result.fail(commerceError("storedCorruption"));
-    return owned.value;
-  });
+    const key = path.at(-1);
+    if (key === undefined || typeof parent !== "object" || parent === null || (typeof key === "number"
+      ? !Array.isArray(parent) || !Number.isSafeInteger(key) || key < 0 || key >= parent.length ||
+        !Object.hasOwn(parent, key) || Object.getOwnPropertyDescriptor(parent, key)?.value !== null
+      : !isNonArrayRecord(parent) || Object.hasOwn(parent, key))) return Result.fail(commerceError("storedCorruption"));
+    Object.defineProperty(parent, key, { value: undefined, enumerable: true, writable: true, configurable: true });
+  }
+  if (!isNonArrayRecord(owned)) return Result.fail(commerceError("storedCorruption"));
+  return Result.succeed(owned.value);
 }
 
 /** The staged SDK retains own undefined properties and positional results.

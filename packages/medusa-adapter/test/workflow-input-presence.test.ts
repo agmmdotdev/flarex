@@ -131,6 +131,50 @@ describe("workflow method input presence", () => {
     expect(Object.hasOwn(Object.prototype, "polluted")).toBe(false);
   });
 
+  it("restores captured JSON as a detached mutable copy equal to its structured clone", () => {
+    const parsed: unknown = JSON.parse(`{"__proto__":{"deep":[1,{"leaf":null}]},"list":[[],{},[0,1.5,"text",true,null]],
+      "10":"numeric key","nested":{"again":{"__proto__":"scalar","items":[{"id":"a"},{"id":"b"}]}},"empty":""}`);
+    const input = Schema.decodeUnknownSync(Schema.Json)(parsed);
+    const expected = structuredClone(input);
+    const containers = (value: unknown, seen = new Set<object>()): Set<object> => {
+      if (typeof value !== "object" || value === null) return seen;
+      seen.add(value);
+      for (const key of Object.keys(value)) containers(Object.getOwnPropertyDescriptor(value, key)?.value, seen);
+      return seen;
+    };
+    const captured = Result.getOrThrow(captureWorkflowCommandInput(input));
+    const identity = (value: unknown) => Result.succeed(value);
+    const sources = containers(input);
+    expect(sources.size).toBe(13);
+    for (const restored of [
+      Result.getOrThrow(captureWorkflowInput(input)),
+      Result.getOrThrow(captureWorkflowInput(input, "preserveOwnUndefined")),
+      Result.getOrThrow(decodeWorkflowCommandInput(captured, identity)),
+      Result.getOrThrow(decodeWorkflowCommandInput(JSON.parse(JSON.stringify(captured)), identity)),
+    ]) {
+      expect(restored).toStrictEqual(expected);
+      const owned = containers(restored);
+      expect(owned.size).toBe(sources.size);
+      for (const container of owned) {
+        expect(sources.has(container)).toBe(false);
+        expect(Object.isFrozen(container)).toBe(false);
+        expect(Object.getPrototypeOf(container)).toBe(Array.isArray(container) ? Array.prototype : Object.prototype);
+        for (const key of Object.keys(container))
+          expect(Object.getOwnPropertyDescriptor(container, key))
+            .toMatchObject({ enumerable: true, writable: true, configurable: true });
+      }
+      if (typeof restored !== "object" || restored === null) throw new Error("Expected a restored object");
+      expect(Object.keys(restored)).toEqual(["10", "__proto__", "list", "nested", "empty"]);
+      expect(Object.getOwnPropertyDescriptor(restored, "__proto__")?.value).toStrictEqual({ deep: [1, { leaf: null }] });
+    }
+    // Negative zero is lost only by JSON text, never by the in-process restore.
+    expect(Result.getOrThrow(captureWorkflowInput([-0]))).toStrictEqual(structuredClone([-0]));
+    // The captured wire envelope stays frozen; only the restored copy is owned.
+    expect(Object.isFrozen(captured)).toBe(true);
+    expect(input).toStrictEqual(expected);
+    expect(Object.hasOwn(Object.prototype, "deep")).toBe(false);
+  });
+
   it("propagates the authoritative module decoder failure", () => {
     const failure = commerceError("unsupportedProfile");
     expect(decodeWorkflowCommandInput(Result.getOrThrow(captureWorkflowCommandInput(null)),

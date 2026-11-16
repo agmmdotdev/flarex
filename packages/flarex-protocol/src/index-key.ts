@@ -107,7 +107,7 @@ function writeValue(value: DocumentValue, out: number[]): void {
     return;
   }
   if (typeof value === "boolean") { out.push(value ? 15 : 14); return; }
-  if (typeof value === "string") { out.push(16); writeEscaped(utf8.encode(value), out); return; }
+  if (typeof value === "string") { out.push(16); writeEscapedText(value, out); return; }
   if (value instanceof ArrayBuffer) { out.push(17); writeEscaped(new Uint8Array(value), out); return; }
   if (isDocumentArray(value)) {
     out.push(18);
@@ -119,7 +119,7 @@ function writeValue(value: DocumentValue, out: number[]): void {
   for (const field of Object.keys(value).toSorted()) {
     const child = value[field];
     if (child === undefined) continue;
-    writeEscaped(utf8.encode(field), out);
+    writeEscapedText(field, out);
     if (field === "") out.push(255);
     writeValue(child, out);
   }
@@ -127,8 +127,30 @@ function writeValue(value: DocumentValue, out: number[]): void {
 }
 
 function writeEscaped(bytes: Uint8Array, out: number[]): void {
-  for (const byte of bytes) { out.push(byte); if (byte === 0) out.push(255); }
+  writeEscapedBytes(bytes, bytes.length, out);
+}
+
+function writeEscapedBytes(bytes: Uint8Array, length: number, out: number[]): void {
+  for (let index = 0; index < length; index += 1) {
+    const byte = bytes[index] ?? 0;
+    out.push(byte);
+    if (byte === 0) out.push(255);
+  }
   out.push(0);
+}
+
+/** UTF-8 needs at most three bytes per UTF-16 code unit, so a string within
+ * this bound always encodes completely into the scratch. The scratch is read
+ * out before this returns and never leaves the module. */
+const UTF8_SCRATCH_BYTES = 4096;
+const utf8Scratch = new Uint8Array(UTF8_SCRATCH_BYTES);
+
+function writeEscapedText(text: string, out: number[]): void {
+  if (text.length * 3 <= UTF8_SCRATCH_BYTES) {
+    const { read, written } = utf8.encodeInto(text, utf8Scratch);
+    if (read === text.length) { writeEscapedBytes(utf8Scratch, written, out); return; }
+  }
+  writeEscaped(utf8.encode(text), out);
 }
 
 function writeInt64(value: bigint, out: number[]): void {

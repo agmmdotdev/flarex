@@ -52,11 +52,10 @@ export function coreMetadataReadSet(registry: CoreRegistry, reads: CoreReadSet):
  * compatible schema-head handoff. Every metadata writer emits these keys. */
 export function addTableSemanticDependency(reads: CoreReadSetBuilder, registry: CoreRegistry,
   table: CoreTableDefinition): Result.Result<void, CoreTransactionError> {
-  return Result.gen(function* () {
-    const key = yield* Result.mapError(encodeIndexValue(encodeBytesToLowercaseHex(table.tabletId)),
-      cause => new CoreTransactionError({ reason: "invalidValue", cause }));
-    reads.add(yield* semanticTableIndex(registry), pointInterval(key));
-  });
+  // Every native operation passes here, so the steps are composed without a generator.
+  return Result.flatMap(Result.mapError(encodeIndexValue(encodeBytesToLowercaseHex(table.tabletId)),
+    cause => new CoreTransactionError({ reason: "invalidValue", cause })), key =>
+    Result.map(semanticTableIndex(registry), index => { reads.add(index, pointInterval(key)); }));
 }
 
 const decodeNativePolicy = Schema.decodeUnknownResult(CoreNativeTablePolicySchema);
@@ -84,42 +83,37 @@ function prefixInterval(prefix: Uint8Array) {
 
 export function addIndexMetadataDependency(reads: CoreReadSetBuilder, registry: CoreRegistry,
   index: CoreIndexDefinition): Result.Result<void, CoreTransactionError> {
-  return Result.gen(function* () {
-    const table = registry.table(INDEXES)?.definition;
-    const byId = table?.indexes.find(candidate => candidate.name === "by_id");
-    if (table === undefined || byId === undefined) return yield* Result.fail(new CoreTransactionError({ reason: "invalidValue" }));
-    const id = yield* publicDocumentId(table, index.ref.id);
-    const key = yield* Result.mapError(encodeIndexKey([], id), cause => new CoreTransactionError({ reason: "invalidValue", cause }));
-    reads.add(byId.ref.id, pointInterval(key));
-  });
+  const table = registry.table(INDEXES)?.definition;
+  const byId = table?.indexes.find(candidate => candidate.name === "by_id");
+  if (table === undefined || byId === undefined) return Result.fail(new CoreTransactionError({ reason: "invalidValue" }));
+  return Result.flatMap(publicDocumentId(table, index.ref.id), id =>
+    Result.map(Result.mapError(encodeIndexKey([], id), cause => new CoreTransactionError({ reason: "invalidValue", cause })),
+      key => { reads.add(byId.ref.id, pointInterval(key)); }));
 }
 
+/** Every staged write passes here, so the steps are composed without a generator. */
 export function addTableWriteDependencies(reads: CoreReadSetBuilder, registry: CoreRegistry,
   table: CoreTableDefinition, selectiveMetadata = false): Result.Result<void, CoreTransactionError> {
-  return Result.gen(function* () {
-    if (table.name === TABLES || table.name === INDEXES) {
-      for (const name of [TABLES, INDEXES]) {
-        const byId = registry.table(name)?.definition.indexes.find(index => index.name === "by_id");
-        if (byId === undefined) return yield* Result.fail(new CoreTransactionError({ reason: "invalidValue" }));
-        reads.add(byId.ref.id, { start: null, end: null });
-      }
-      return;
+  if (table.name === TABLES || table.name === INDEXES) {
+    for (const name of [TABLES, INDEXES]) {
+      const byId = registry.table(name)?.definition.indexes.find(index => index.name === "by_id");
+      if (byId === undefined) return Result.fail(new CoreTransactionError({ reason: "invalidValue" }));
+      reads.add(byId.ref.id, { start: null, end: null });
     }
-    const metadata = registry.table(TABLES)?.definition;
-    const byId = metadata?.indexes.find(index => index.name === "by_id");
-    const record = registry.table(table.name, table.namespace);
-    if (metadata === undefined || byId === undefined || record === undefined)
-      return yield* Result.fail(new CoreTransactionError({ reason: "invalidValue" }));
-    if (selectiveMetadata) yield* addTableSemanticDependency(reads, registry, table);
-    else {
-      const tableId = yield* publicDocumentId(metadata, record.id);
-      const tableKey = yield* Result.mapError(encodeIndexKey([], tableId), cause => new CoreTransactionError({ reason: "invalidValue", cause }));
-      reads.add(byId.ref.id, pointInterval(tableKey));
-    }
-    const virtual = yield* virtualIndexIdentity(registry);
-    const key = yield* Result.mapError(encodeIndexValue(encodeBytesToLowercaseHex(table.tabletId)), cause => new CoreTransactionError({ reason: "invalidValue", cause }));
-    reads.add(virtual, prefixInterval(key));
-  });
+    return Result.succeed(undefined);
+  }
+  const metadata = registry.table(TABLES)?.definition;
+  const byId = metadata?.indexes.find(index => index.name === "by_id");
+  const record = registry.table(table.name, table.namespace);
+  if (metadata === undefined || byId === undefined || record === undefined)
+    return Result.fail(new CoreTransactionError({ reason: "invalidValue" }));
+  const tableDependency = selectiveMetadata ? addTableSemanticDependency(reads, registry, table)
+    : Result.flatMap(publicDocumentId(metadata, record.id), tableId =>
+      Result.map(Result.mapError(encodeIndexKey([], tableId), cause => new CoreTransactionError({ reason: "invalidValue", cause })),
+        tableKey => { reads.add(byId.ref.id, pointInterval(tableKey)); }));
+  return Result.flatMap(tableDependency, () => Result.flatMap(virtualIndexIdentity(registry), virtual =>
+    Result.map(Result.mapError(encodeIndexValue(encodeBytesToLowercaseHex(table.tabletId)),
+      cause => new CoreTransactionError({ reason: "invalidValue", cause })), key => { reads.add(virtual, prefixInterval(key)); })));
 }
 
 export function metadataConflictKeys(registry: CoreRegistry,

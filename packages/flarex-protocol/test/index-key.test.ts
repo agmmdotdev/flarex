@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { Result } from "effect";
 import { describe, expect, it } from "vitest";
 import { encodeDocumentId } from "../src/document-id";
-import { encodeDocumentIndexKey, encodeIndexKey, encodeIndexValue, compareIndexKeys, splitIndexKey } from "../src/index-key";
+import { encodeCapturedIndexValue, encodeDocumentIndexKey, encodeIndexKey, encodeIndexValue, compareIndexKeys, splitIndexKey } from "../src/index-key";
 import { captureDocumentObject, isCapturedDocumentRoot, type DocumentValue } from "../src/document-value";
 
 const hex = (value: DocumentValue | undefined) => Buffer.from(Result.getOrThrow(encodeIndexValue(value))).toString("hex");
@@ -94,5 +94,54 @@ describe("captured document index keys", () => {
       expect(encodeIndexKey([1], `${valid}x`)).toMatchObject({ _tag: "Failure", failure: { reason: "invalidDocumentId" } });
       expect(encodeIndexKey([1], "not-an-id")).toMatchObject({ _tag: "Failure", failure: { reason: "invalidDocumentId" } });
     }
+  });
+});
+
+describe("index key text encoding", () => {
+  const reference = new TextEncoder();
+  const escaped = (text: string): number[] => {
+    const out: number[] = [];
+    for (const byte of reference.encode(text)) { out.push(byte); if (byte === 0) out.push(255); }
+    out.push(0);
+    return out;
+  };
+  // 4096 scratch bytes hold 1365 code units at three bytes each.
+  const lengths = [0, 1, 2, 7, 1364, 1365, 1366, 1367, 4095, 4096, 4097, 9000];
+  const alphabets: readonly (readonly string[])[] = [
+    ["a", "Z", "0", " "],
+    ["é", "ß", "€", "中", "a"],
+    ["😀", "𝄞", "a", "€"],
+    ["\u0000", "a", "\u0000"],
+    ["\ud800", "a", "\udc00", "😀", "\udbff", "\udfff", "€"],
+  ];
+  const samples = (): string[] => {
+    const texts = ["", "\u0000", "\ud800", "\udc00", "\udc00\ud800", "a\ud83d", "\ude00a", "😀"];
+    let seed = 0x9e3779b9;
+    const next = (bound: number) => {
+      seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+      return seed % bound;
+    };
+    for (const alphabet of alphabets) {
+      for (const length of lengths) {
+        let text = "";
+        while (text.length < length) text += alphabet[next(alphabet.length)] ?? "";
+        texts.push(text, text.slice(0, length));
+      }
+    }
+    return texts;
+  };
+
+  it("matches TextEncoder.encode for string values and object field names, at every scratch boundary", () => {
+    for (const text of samples()) {
+      expect(Array.from(encodeCapturedIndexValue(text))).toEqual([16, ...escaped(text)]);
+      expect(Array.from(encodeCapturedIndexValue({ [text]: text })))
+        .toEqual([21, ...escaped(text), ...(text === "" ? [255] : []), 16, ...escaped(text), 0]);
+    }
+  });
+
+  it("keeps no state between strings of different lengths", () => {
+    const long = "€".repeat(1365);
+    expect(Array.from(encodeCapturedIndexValue([long, "a", "", long])))
+      .toEqual([18, 16, ...escaped(long), 16, ...escaped("a"), 16, ...escaped(""), 16, ...escaped(long), 0]);
   });
 });

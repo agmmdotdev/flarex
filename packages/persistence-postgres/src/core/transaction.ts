@@ -91,6 +91,8 @@ export interface CoreFinalizedState {
   readonly limits?: CoreTransactionLimits;
   readonly admissionDeadlineUnixMilliseconds?: number;
   readonly nativeObservations?: CoreNativeObservations;
+  /** Bytes already encoded for staged final documents; absent or missed entries are encoded at commit. */
+  readonly encodedDocuments?: CoreEncodedDocumentHandoff;
 }
 
 export interface CoreTransactionInternals {
@@ -241,20 +243,99 @@ function nativeUniqueFailure(table: CoreTableDefinition, descriptor: string, fie
   });
 }
 
-function observeNativeIndex(observations: CoreNativeObservationState, registry: CoreRegistry, timestamp: bigint,
-  table: CoreTableDefinition, index: CoreIndexDefinition) {
-  return Result.gen(function* () {
+/** Frozen containers over scalar leaves cannot change. A binary leaf can be
+ * written or detached by any holder, so a document with one is encoded again. */
+function hasOnlyImmutableScalarLeaves(value: DocumentValue): boolean {
+  if (value === null || typeof value !== "object") return true;
+  if (value instanceof ArrayBuffer || !Object.isFrozen(value)) return false;
+  for (const member of Object.values(value)) if (!hasOnlyImmutableScalarLeaves(member)) return false;
+  return true;
+}
+
+/** One transaction's encoded final documents. Staging encodes a native body to
+ * check its byte limit; the commit takes those bytes for the exact document
+ * object it stores instead of encoding it again. Only a document that cannot
+ * change is kept, so the kept bytes are what a fresh encode would return. A
+ * taken entry leaves this owner: a second batch encodes its own bytes. The
+ * bytes are stored as offered, so a caller offers only what
+ * `encodeDocumentValue` returned for that same document. */
+export class CoreEncodedDocumentHandoff {
+  private readonly offered = new WeakMap<DocumentObject, Uint8Array>();
+
+  offer(document: DocumentObject, encoded: Uint8Array): void {
+    if (hasOnlyImmutableScalarLeaves(document)) this.offered.set(document, encoded);
+  }
+
+  take(document: DocumentObject): Uint8Array | undefined {
+    const encoded = this.offered.get(document);
+    if (encoded !== undefined) this.offered.delete(document);
+    return encoded;
+  }
+}
+
+/** One transaction's metadata read selections. An immutable registry selects
+ * the same reads for the same frozen selective authority and table, and for
+ * one of its own index definitions, so a successful selection is kept here
+ * instead of being derived by every native operation. The authority check and
+ * the caller's index comparison still run on every call; a kept selection only
+ * replaces the derivation that follows them. Nothing outlives the transaction. */
+export class CoreNativeMetadataSelections {
+  private readonly frozenAuthorities = new WeakSet<CoreNativeAuthority>();
+  private readonly authorities = new WeakMap<CoreRegistry, WeakMap<CoreNativeAuthority, Map<string, CoreReadSet>>>();
+  private readonly indexes = new WeakMap<CoreRegistry, WeakMap<CoreIndexDefinition, CoreReadSet>>();
+
+  /** A frozen object stays frozen, so the verdict is recorded once. */
+  private isFrozen(authority: CoreNativeAuthority): boolean {
+    if (this.frozenAuthorities.has(authority)) return true;
+    if (!Object.isFrozen(authority) || !Object.isFrozen(authority.tables) || !authority.tables.every(table => Object.isFrozen(table))
+      || !(authority.namespace === null || Object.isFrozen(authority.namespace))) return false;
+    this.frozenAuthorities.add(authority);
+    return true;
+  }
+
+  /** `coreNativeMetadataReads` keeps a non-selective selection itself. A
+   * selective one also depends on the registry's separately recorded schema
+   * proof, which only the check reads; the check therefore runs every time. */
+  native(registry: CoreRegistry, authority: CoreNativeAuthority, tableName: string): Result.Result<CoreReadSet, CoreError> {
+    if (authority.selectiveMetadata !== true || !this.isFrozen(authority)) return coreNativeMetadataReads(registry, authority, tableName);
+    const kept = this.authorities.get(registry)?.get(authority)?.get(tableName);
+    if (kept !== undefined) return Result.map(checkCoreNativeAuthority(registry, authority, tableName), () => kept);
+    return Result.map(coreNativeMetadataReads(registry, authority, tableName), selected => {
+      let byAuthority = this.authorities.get(registry);
+      if (byAuthority === undefined) this.authorities.set(registry, byAuthority = new WeakMap());
+      let byTable = byAuthority.get(authority);
+      if (byTable === undefined) byAuthority.set(authority, byTable = new Map());
+      byTable.set(tableName, selected);
+      return selected;
+    });
+  }
+
+  /** The caller's definition is compared with the registry's on every call;
+   * the kept selection belongs to the registry's own definition object. */
+  index(registry: CoreRegistry, table: CoreTableDefinition, index: CoreIndexDefinition): Result.Result<CoreReadSet, CoreTransactionError> {
     const current = registry.tableByTablet(table.tabletId)?.definition.indexes.find(candidate => candidate.name === index.name);
     const generation = current === undefined ? undefined : registry.indexes.records.get(encodeBytesToLowercaseHex(current.ref.id));
     if (current === undefined || generation === undefined || !isCoreIndexEnabled(generation)
       || !bytesEqual(current.ref.id, index.ref.id) || !bytesEqual(generation.tableId, table.tabletId)
       || current.ref.persistenceIndexId !== index.ref.persistenceIndexId
       || current.fields.length !== index.fields.length || current.fields.some((field, position) => field !== index.fields[position]))
-      return yield* Result.fail(new CoreTransactionError({ reason: "indexUnavailable" }));
+      return Result.fail(new CoreTransactionError({ reason: "indexUnavailable" }));
+    let byIndex = this.indexes.get(registry);
+    if (byIndex === undefined) this.indexes.set(registry, byIndex = new WeakMap());
+    const kept = byIndex.get(current), selections = byIndex;
+    if (kept !== undefined) return Result.succeed(kept);
     const dependency = new CoreReadSetBuilder();
-    yield* addIndexMetadataDependency(dependency, registry, current);
-    observations.addReads(timestamp, dependency.snapshot());
-  });
+    return Result.map(addIndexMetadataDependency(dependency, registry, current), () => {
+      const selected = dependency.snapshot();
+      selections.set(current, selected);
+      return selected;
+    });
+  }
+}
+
+function observeNativeIndex(observations: CoreNativeObservationState, selections: CoreNativeMetadataSelections, registry: CoreRegistry,
+  timestamp: bigint, table: CoreTableDefinition, index: CoreIndexDefinition): Result.Result<void, CoreTransactionError> {
+  return Result.map(selections.index(registry, table, index), reads => { observations.addSelectedReads(timestamp, reads); });
 }
 
 /** Source draws entropy before reading its own raw day clock. */
@@ -399,6 +480,8 @@ export function createCoreTransaction(input: Readonly<{
   // Rust's &mut Transaction excludes interleaving while a syscall awaits persistence.
   const operations = Semaphore.makeUnsafe(1);
   const documentSizes = new WeakMap<DocumentObject, number>();
+  const encodedDocuments = new CoreEncodedDocumentHandoff();
+  const metadataSelections = new CoreNativeMetadataSelections();
   let registryAfter: CoreRegistry | undefined;
   let closed = false;
   let inflight = 0;
@@ -495,26 +578,25 @@ export function createCoreTransaction(input: Readonly<{
     });
   }
 
+  /** Every read row passes here, so the steps are composed without a generator. */
   function chargeDocument(table: CoreTableDefinition, document: DocumentObject | null): Result.Result<void, CoreTransactionError> {
     if (document === null) return Result.succeed(undefined);
-    return Result.gen(function* () {
-      let size = documentSizes.get(document);
-      if (size === undefined) {
-        const measured = yield* Result.mapError(captureCoreDocument(document, isCoreSystemTable(table)), invalid);
-        size = measured.semanticSizeBytes;
-        documentSizes.set(document, size);
-      }
-      yield* accounting.read(isCoreSystemTable(table), size);
+    const system = isCoreSystemTable(table);
+    const size = documentSizes.get(document);
+    if (size !== undefined) return accounting.read(system, size);
+    return Result.flatMap(Result.mapError(captureCoreDocument(document, system), invalid), measured => {
+      documentSizes.set(document, measured.semanticSizeBytes);
+      return accounting.read(system, measured.semanticSizeBytes);
     });
   }
 
-  const resolve = (id: string, privateAccess: boolean, access: CoreTransactionNativeAccess | undefined = defaultAccess) => Result.gen(function* () {
-    const decoded = yield* Result.mapError(decodeDocumentId(id), cause => new CoreTransactionError({ reason: "invalidDocumentId", cause }));
-    const record = registry.tableByNumber(decoded.tableNumber, namespace);
-    if (record === undefined) return yield* Result.fail(new CoreTransactionError({ reason: "missingTable" }));
-    const table = yield* tableByName(record.definition.name, privateAccess, access);
-    return { table, internalId: decoded.internalId };
-  });
+  const resolve = (id: string, privateAccess: boolean, access: CoreTransactionNativeAccess | undefined = defaultAccess):
+    Result.Result<Readonly<{ table: CoreTableDefinition; internalId: Uint8Array }>, CoreError> =>
+    Result.flatMap(Result.mapError(decodeDocumentId(id), cause => new CoreTransactionError({ reason: "invalidDocumentId", cause })), decoded => {
+      const record = registry.tableByNumber(decoded.tableNumber, namespace);
+      if (record === undefined) return Result.fail(new CoreTransactionError({ reason: "missingTable" }));
+      return Result.map(tableByName(record.definition.name, privateAccess, access), table => ({ table, internalId: decoded.internalId }));
+    });
 
   const captureObservation = Effect.fnUntraced(function* (
     table: CoreTableDefinition, found: CoreDocumentLogEntry | undefined, observedAt = snapshot.timestamp, access: CoreTransactionNativeAccess | undefined = defaultAccess,
@@ -537,14 +619,18 @@ export function createCoreTransaction(input: Readonly<{
     return Object.freeze({ original, document, observedAt });
   });
 
-  function nativeBodyBytes(table: CoreTableDefinition, document: DocumentObject | null): Result.Result<number, CoreError> {
-    return Result.gen(function* () {
-      const bytes = document === null ? 0 : (yield* Result.mapError(encodeDocumentValue(document), invalid)).byteLength;
-      const limit = nativeObservations === undefined ? undefined : yield* nativeObservations.limitsFor(table);
-      if (limit !== undefined && bytes > limit.maxDocumentBytes)
-        return yield* Result.fail(new CoreTransactionError({ reason: "capacity", cause: "Native document byte limit" }));
-      return bytes;
-    });
+  /** Every staged or retained native body passes here, so the steps are composed
+   * without a generator. A staged final document offers its bytes to the commit. */
+  function nativeBodyBytes(table: CoreTableDefinition, document: DocumentObject | null, final = false): Result.Result<number, CoreError> {
+    const withinLimit = (bytes: number): Result.Result<number, CoreError> => nativeObservations === undefined ? Result.succeed(bytes)
+      : Result.flatMap(nativeObservations.limitsFor(table), limit => bytes > limit.maxDocumentBytes
+        ? Result.fail(new CoreTransactionError({ reason: "capacity", cause: "Native document byte limit" })) : Result.succeed(bytes));
+    if (document === null) return withinLimit(0);
+    return Result.flatMap(Result.mapError(encodeDocumentValue(document), invalid), encoded =>
+      Result.map(withinLimit(encoded.byteLength), bytes => {
+        if (final) encodedDocuments.offer(document, encoded);
+        return bytes;
+      }));
   }
 
   const nativeRemember = Effect.fnUntraced(function* (
@@ -570,12 +656,12 @@ export function createCoreTransaction(input: Readonly<{
     const metadataRegistry = selected.metadata?.registry ?? selected.registry;
     const metadataTimestamp = selected.metadata?.timestamp ?? selected.snapshot.timestamp;
     const metadata = yield* Effect.fromResult(access.kind === "native"
-      ? coreNativeMetadataReads(metadataRegistry, access.authority, table.name)
+      ? metadataSelections.native(metadataRegistry, access.authority, table.name)
       : access.kind === "applicationRead"
         ? coreApplicationReadMetadataReads(metadataRegistry, access.authority)
         : coreApplicationInsertMetadataReads(metadataRegistry, access.authority));
     nativeObservations.addSelectedReads(metadataTimestamp, metadata);
-    if (index !== undefined) yield* Effect.fromResult(observeNativeIndex(nativeObservations, metadataRegistry, metadataTimestamp, indexedTable, index));
+    if (index !== undefined) yield* Effect.fromResult(observeNativeIndex(nativeObservations, metadataSelections, metadataRegistry, metadataTimestamp, indexedTable, index));
     return { ...selected, registry: metadataRegistry, indexSnapshot: createCoreIndexSnapshot({ snapshot: selected.snapshot, registry: metadataRegistry,
       decoded: decodedDocuments,
       ...(selected.residentReader === undefined ? {} : { resident: selected.residentReader }),
@@ -920,7 +1006,7 @@ export function createCoreTransaction(input: Readonly<{
     const retainedBytes = native === undefined || isCoreSystemTable(table) && table.nativePolicy?.privateReference === undefined
       && table.nativePolicy?.privateEvent === undefined ? 0
       : table.nativePolicy?.privateReference !== undefined ? next === null ? 0 : (yield* Effect.fromResult(Result.mapError(encodeDocumentValue(next), invalid))).byteLength
-        : yield* Effect.fromResult(nativeBodyBytes(table, next));
+        : yield* Effect.fromResult(nativeBodyBytes(table, next, true));
     if (native !== undefined && isCoreNativeObservedTable(table)) yield* nativeConstraints(table, developerId, previous, next, access);
     yield* Effect.fromResult(addTableWriteDependencies(reads, registry, table, selectiveMetadata));
     const pendingUpdates: Array<Readonly<{ index: CoreIndexDefinition; oldKey?: Uint8Array; newKey?: Uint8Array }>> = [];
@@ -1164,7 +1250,7 @@ export function createCoreTransaction(input: Readonly<{
       const field = column.identity.columnId;
       const index = table.indexes.find(candidate => candidate.fields.length === 1 && candidate.fields[0] === field);
       if (index === undefined) return yield* new CoreTransactionError({ reason: "indexUnavailable" });
-      yield* Effect.fromResult(observeNativeIndex(nativeObservations, selected.registry, selected.metadata?.timestamp ?? selected.snapshot.timestamp, table, index));
+      yield* Effect.fromResult(observeNativeIndex(nativeObservations, metadataSelections, selected.registry, selected.metadata?.timestamp ?? selected.snapshot.timestamp, table, index));
       let maximum: number | undefined;
       if (complete === undefined) maximum = yield* queryNativeSerialMaximum(table, index, byId, field, selected, access);
       else for (const [id, document] of complete) {
@@ -1747,7 +1833,7 @@ export function createCoreTransaction(input: Readonly<{
       if (registryAfter !== undefined) yield* authenticateCoreNativeRegistry(registryAfter, input.registry, input.schemaBundles);
       return input.vault.issue(Object.freeze({ namespace, timestamp: snapshot.timestamp, reads: reads.snapshot(), queryReads: accounting.queryReads(),
         ...(input.scopeExclusion === undefined ? {} : { scopeExclusion: input.scopeExclusion }),
-        changes: Object.freeze([...writes.values()]), registry: input.registry,
+        changes: Object.freeze([...writes.values()]), registry: input.registry, encodedDocuments,
         ...(nativeObservations === undefined ? {} : { nativeObservations: Object.freeze({ ...nativeObservations.snapshot(),
           ...(selectiveMetadata ? { selectiveMetadata: true as const } : {}) }) }),
         ...(registryAfter === undefined ? {} : { registryAfter }),
@@ -3103,31 +3189,34 @@ export function createCoreTransaction(input: Readonly<{
 
 /** Coalesced first-original/final writes; unchanged ordinary keys still get a live revision. */
 export function deriveCoreWriteBatch(transaction: CoreFinalizedState, timestamp: bigint): Result.Result<CoreWriteBatch, CoreTransactionError> {
-  return Result.gen(function* () {
-    const documents: CoreDocumentLogEntry[] = [];
-    const indexes = new Map<string, import("./contracts").CorePersistenceIndexEntry>();
+  const documents: CoreDocumentLogEntry[] = [];
+  const indexes = new Map<string, import("./contracts").CorePersistenceIndexEntry>();
+  // Plain guards: these loops run per written document and per index of it, without a generator.
+  const derive = (): Result.Result<void, CoreTransactionError> => {
     for (const change of transaction.changes.toSorted((a, b) => a.table.number - b.table.number)) {
-      const jsonValue = change.finalDocument === null ? new Uint8Array()
-        : yield* Result.mapError(encodeDocumentValue(change.finalDocument), invalid);
-      documents.push(Object.freeze({ ts: timestamp, tableId: change.table.tabletId.slice(), id: change.id.slice(),
-        jsonValue, deleted: change.finalDocument === null, prevTs: change.original?.ts ?? null }));
+      const kept = change.finalDocument === null ? new Uint8Array() : transaction.encodedDocuments?.take(change.finalDocument);
+      const logged = Result.map(kept !== undefined ? Result.succeed(kept) : Result.mapError(encodeDocumentValue(change.finalDocument), invalid),
+        jsonValue => { documents.push(Object.freeze({ ts: timestamp, tableId: change.table.tabletId.slice(), id: change.id.slice(),
+          jsonValue, deleted: change.finalDocument === null, prevTs: change.original?.ts ?? null })); });
+      if (Result.isFailure(logged)) return logged;
       for (const index of (transaction.registryAfter ?? transaction.registry).indexesForTablet(change.table.tabletId)) {
-        if (change.originalDocument !== null) {
-          const key = yield* documentIndexKey(index, change.originalDocument);
+        const removed = change.originalDocument === null ? undefined : Result.map(documentIndexKey(index, change.originalDocument), key => {
           indexes.set(`${encodeBytesToLowercaseHex(index.ref.id)}:${encodeBytesToLowercaseHex(key)}`, Object.freeze({
             mode: coreIndexWriteMode(index), ts: timestamp, index: index.ref, key, value: null,
             prev: change.original === undefined ? null : { ts: change.original.ts, documentId: change.id.slice() },
           }));
-        }
-        if (change.finalDocument !== null) {
-          const key = yield* documentIndexKey(index, change.finalDocument);
+        });
+        if (removed !== undefined && Result.isFailure(removed)) return removed;
+        const added = change.finalDocument === null ? undefined : Result.map(documentIndexKey(index, change.finalDocument), key => {
           const identity = `${encodeBytesToLowercaseHex(index.ref.id)}:${encodeBytesToLowercaseHex(key)}`;
           const old = indexes.get(identity);
           indexes.set(identity, Object.freeze({ mode: coreIndexWriteMode(index), ts: timestamp, index: index.ref, key,
             value: { tableId: change.table.tabletId.slice(), documentId: change.id.slice() }, prev: old?.prev ?? null }));
-        }
+        });
+        if (added !== undefined && Result.isFailure(added)) return added;
       }
     }
-    return Object.freeze({ documents: Object.freeze(documents), indexes: Object.freeze([...indexes.values()]) });
-  });
+    return Result.succeed(undefined);
+  };
+  return Result.map(derive(), () => Object.freeze({ documents: Object.freeze(documents), indexes: Object.freeze([...indexes.values()]) }));
 }

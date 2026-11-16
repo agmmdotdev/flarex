@@ -17,14 +17,12 @@ const revoked = () => new CoreTransactionError({ reason: "authorityRevoked" });
 const verifiedProtectedPolicies = new WeakSet<CoreNativeTablePolicy>();
 
 function addAuthorityDependency(reads: CoreReadSetBuilder, registry: CoreRegistry, epoch: bigint): Result.Result<void, CoreError> {
-  return Result.gen(function* () {
-    const programs = registry.table(PROGRAMS)?.definition, authority = registry.authority;
-    const byId = programs?.indexes.find(index => index.name === "by_id");
-    if (programs === undefined || byId === undefined || authority?.epoch !== epoch) return yield* Result.fail(revoked());
-    const id = yield* publicDocumentId(programs, authority.id);
-    const key = yield* Result.mapError(encodeIndexKey([], id), revoked);
-    reads.add(byId.ref.id, pointInterval(key));
-  });
+  // Every protected capture passes here, so the steps are composed without a generator.
+  const programs = registry.table(PROGRAMS)?.definition, authority = registry.authority;
+  const byId = programs?.indexes.find(index => index.name === "by_id");
+  if (programs === undefined || byId === undefined || authority?.epoch !== epoch) return Result.fail(revoked());
+  return Result.flatMap(publicDocumentId(programs, authority.id), id =>
+    Result.map(Result.mapError(encodeIndexKey([], id), revoked), key => { reads.add(byId.ref.id, pointInterval(key)); }));
 }
 
 export function coreProtectedAuthorityMetadataReads(registry: CoreRegistry, epoch: bigint): Result.Result<CoreReadSet, CoreError> {

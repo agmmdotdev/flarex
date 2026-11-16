@@ -5,13 +5,13 @@ import { encodeCanonicalJson, type JsonObject } from "flarex-protocol/json";
 import { compileCurrencyCoreDefinition } from "../../../medusa-adapter/src/modules/currency/schema";
 import { openCoreDatabase } from "../../src/core/database";
 import { makeCoreSchemaBundle } from "../../src/core/schemaBundle";
-import { captureCoreNativeRootIdentity } from "../../src/core/nativeRootRequest";
+import { captureCoreNativeRootIdentity, captureCoreNativeRootRequestEvidence } from "../../src/core/nativeRootRequest";
 import { compileCoreNativeEventStorageDefinition, CORE_NATIVE_EVENT_WRITE, coreNativeEventLimits } from "../../src/commit/events/coreDefinition";
-import { makeCoreCommitEventPump, makeCoreCommitEventStore, prepareCoreRootCommitEventFamily, stageCoreCommitEventFamily,
+import { coreNativeRootEventFamilyId, makeCoreCommitEventPump, makeCoreCommitEventStore, prepareCoreRootCommitEventFamily, stageCoreCommitEventFamily,
   type CoreCommitEventHandler } from "../../src/commit/events/coreStore";
 import { commitEventsDigest } from "../../src/commit/events/digest";
 import type { CommittedEvent, CommitEventMessage } from "../../src/commit/events/model";
-import type { CoreDatabase, CoreRequestIdentity } from "../../src/core/api";
+import type { CoreDatabase, CoreNativeRootBinding, CoreRequestIdentity } from "../../src/core/api";
 import type { CorePersistenceFixture } from "./fixture";
 import { coreNativeTestBudget } from "./nativeTestBudget";
 import { CORE_SCHEMA_WORKER_TEST_OPTIONS } from "./schemaFixture";
@@ -50,12 +50,12 @@ const setup = Effect.fn("NativeRootEventsFixture.setup")(function* (fixture: Cor
   const table = currency.tables[0]?.name;
   if (table === undefined) return yield* Effect.die(new Error("Missing real Currency source"));
   let sequence = 0;
-  const begin = Effect.fn("NativeRootEventsFixture.begin")(function* (selectedPolicy = firstPolicy, padding?: string) {
-    const root = yield* database.bindNativeRoot({ bundle, contract: { events: selectedPolicy,
+  const begin = Effect.fn("NativeRootEventsFixture.begin")(function* (selectedPolicy = firstPolicy, padding?: string, bound?: CoreNativeRootBinding) {
+    const root = bound ?? (yield* database.bindNativeRoot({ bundle, contract: { events: selectedPolicy,
       ...(padding === undefined ? {} : { padding }) }, participants: [
       { binding: businessBinding, commands: ["write"], limits: coreNativeTestBudget().limits },
       { binding: eventBinding, commands: [CORE_NATIVE_EVENT_WRITE], limits: coreNativeEventLimits },
-    ], maxFinalUserDocuments: 1, protectedMetadata: true });
+    ], maxFinalUserDocuments: 1, protectedMetadata: true }));
     const metadata = yield* database.readNativeRootBinding(root);
     const key = `root-events-${++sequence}`, identity: CoreRequestIdentity = { kind: "nativeRoot", root: metadata.identity,
       key, requestHash: createHash("sha256").update(key).digest("hex") };
@@ -65,8 +65,8 @@ const setup = Effect.fn("NativeRootEventsFixture.setup")(function* (fixture: Cor
     const eventOperations = yield* operation.native(eventBinding);
     return { root, identity, claim: claimed.claim, operation, eventOperations, selectedPolicy };
   });
-  const stage = Effect.fn("NativeRootEventsFixture.stage")(function* (code: string, selectedPolicy = firstPolicy) {
-    const selected = yield* begin(selectedPolicy);
+  const stage = Effect.fn("NativeRootEventsFixture.stage")(function* (code: string, selectedPolicy = firstPolicy, bound?: CoreNativeRootBinding) {
+    const selected = yield* begin(selectedPolicy, undefined, bound);
     const prepared = yield* prepareCoreRootCommitEventFamily(database, selected.eventOperations, storage);
     const values: CommittedEvent[] = [{ contract: "neutral.changed", contractRevision: selectedPolicy.contracts[0]?.revision ?? "",
       internal: true, producerRevision: selectedPolicy.producerRevision, group: selected.identity.key,
@@ -102,6 +102,38 @@ export function registerNativeRootEventScenarios(label: string, createFixture: (
         const historical = yield* makeCoreCommitEventStore({ database: cold, binding });
         expect((yield* historical.readFamily(first.prepared.id)).events).toEqual(first.values);
         expect((yield* historical.readFamily(third.prepared.id)).events).toEqual(third.values);
+      }))); } finally { await fixture.close(); }
+    }, 120_000);
+
+    it("reuses one bound root's frame across requests with the complete capture's evidence, bytes and family id", async () => {
+      const fixture = await createFixture();
+      try { await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+        const tested = yield* setup(fixture), first = yield* tested.stage("xrh"), second = yield* tested.stage("xri", firstPolicy, first.root);
+        const metadata = yield* tested.database.readNativeRootBinding(first.root);
+        for (const selected of [first, second]) {
+          // The complete capture of independently assembled input is the reference.
+          const complete = yield* Effect.fromResult(captureCoreNativeRootRequestEvidence({ key: selected.identity.key,
+            requestHash: selected.identity.requestHash, root: metadata.identity, source: tested.storage.identity,
+            frame: structuredClone(first.prepared.request.frame) }));
+          expect(selected.prepared.request).toEqual(complete);
+          expect(selected.prepared.packedRequest).toBe(canonical(complete));
+          expect(selected.prepared.retainedBytes).toBe(new TextEncoder().encode(canonical(complete)).byteLength);
+          expect(selected.prepared.id).toBe(yield* coreNativeRootEventFamilyId(complete));
+          expect(selected.prepared.policy).toEqual(firstPolicy);
+          expect(failure(yield* Effect.result(tested.database.readNativeRootRequestEvidence(selected.eventOperations)))).toMatchObject({ reason: "foreignClaim" });
+        }
+        expect(second.prepared.id).not.toBe(first.prepared.id);
+        expect(second.prepared.request.frame).toBe(first.prepared.request.frame);
+        // An aborted claim over the already derived frame still refuses.
+        const aborted = yield* tested.begin(firstPolicy, undefined, first.root);
+        expect((yield* tested.database.readNativeRootRequestEvidence(aborted.eventOperations)).frame).toBe(first.prepared.request.frame);
+        yield* aborted.operation.abort(); yield* tested.database.abortRequest(aborted.claim);
+        expect(failure(yield* Effect.result(tested.database.readNativeRootRequestEvidence(aborted.eventOperations)))).toMatchObject({ reason: "foreignClaim" });
+        expect(failure(yield* Effect.result(prepareCoreRootCommitEventFamily(tested.database, aborted.eventOperations, tested.storage))))
+          .toMatchObject({ reason: "invalidAuthority" });
+        // The cold reader re-encodes the stored evidence through the complete path.
+        const store = yield* makeCoreCommitEventStore({ database: tested.database, binding: tested.eventBinding });
+        for (const selected of [first, second]) expect((yield* store.readFamily(selected.prepared.id)).events).toEqual(selected.values);
       }))); } finally { await fixture.close(); }
     }, 120_000);
 

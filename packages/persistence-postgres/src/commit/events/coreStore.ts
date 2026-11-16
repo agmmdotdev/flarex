@@ -1,6 +1,6 @@
 import { Cause, Effect, Option, Result, Schema } from "effect";
 import type { DocumentObject } from "flarex-protocol/document-value";
-import { encodeCanonicalJson, type JsonObject } from "flarex-protocol/json";
+import type { JsonObject } from "flarex-protocol/json";
 import { snapshotDecodedProtocolPlainData } from "flarex-protocol/internal/decoded-protocol-snapshot";
 import { MAX_PERSISTED_SIGNED_INT64_V1 } from "flarex-protocol/storage-authority";
 import { CoreNativeBudgetError, CoreNativeForeignKeyError, CoreNativeQueryError, CoreNativeReferenceError, CoreNativeUniqueConflict,
@@ -12,7 +12,8 @@ import { captureCoreObject } from "../../core/document";
 import { coreNativeRelationalRow } from "../../core/nativeRelationalQuery";
 import { prefetchCoreNativeInsertSlots } from "../../core/nativePrefetch";
 import { coreNativeRelationalRows, sameCoreNativeIdentity, type CoreNativeDefinition } from "../../core/nativePolicy";
-import { CoreNativeRootRequestEvidenceSchema, type CoreNativeRootRequestEvidence } from "../../core/nativeRootRequest";
+import { CoreNativeRootRequestEvidenceSchema, encodeCoreNativeRootRequestEvidence, isIssuedCoreNativeRootFrame,
+  type CoreNativeRootRequestEvidence } from "../../core/nativeRootRequest";
 import { capturePrivateCanonicalValue } from "../../installation/frameworkSchema/privateCanonicalValue";
 import { observeExecution } from "../../execution/diagnostics/operation";
 import { capturePrivateJsonData } from "../../values/privateJsonData";
@@ -125,8 +126,18 @@ interface PreparedRootFamily {
 }
 const preparedRootFamilies = new WeakMap<CoreNativeOperations, Readonly<{ authority: RootEventAuthority;
   definition: CoreNativeDefinition; family: PreparedRootFamily }>>();
-const canonicalRootRequest = (evidence: CoreNativeRootRequestEvidence) => encodeCanonicalJson(evidence,
-  issue => { throw new Error("Native root request evidence lost its canonical owner", { cause: issue }); });
+const canonicalRootRequest = encodeCoreNativeRootRequestEvidence;
+/** A bound root's frame is immutable, so its declared policy is decoded once. */
+const boundRootPolicies = new WeakMap<CoreNativeRootRequestEvidence["frame"], RootEventPolicy>();
+const rootRequestPolicy = (frame: CoreNativeRootRequestEvidence["frame"]) => {
+  const known = boundRootPolicies.get(frame);
+  if (known !== undefined) return Result.succeed(known);
+  return captureCoreNativeEventPolicy(frame.contract.events).pipe(Result.map(captured => {
+    const policy = snapshotDecodedProtocolPlainData(captured);
+    if (isIssuedCoreNativeRootFrame(frame)) boundRootPolicies.set(frame, policy);
+    return policy;
+  }));
+};
 
 export const coreNativeRootEventFamilyId = Effect.fn("CoreNativeEvents.rootFamilyId")(function* (
   evidence: CoreNativeRootRequestEvidence,
@@ -149,7 +160,7 @@ export const prepareCoreRootCommitEventFamily = Effect.fn("CoreNativeEvents.prep
   if (!sameCoreNativeIdentity(request.source, definition.identity)) return yield* eventError("invalidAuthority");
   const previous = preparedRootFamilies.get(operations);
   if (previous?.authority === authority && previous.definition === definition) return previous.family;
-  const policy = snapshotDecodedProtocolPlainData(yield* Effect.fromResult(captureCoreNativeEventPolicy(request.frame.contract.events)));
+  const policy = yield* Effect.fromResult(rootRequestPolicy(request.frame));
   const id = yield* coreNativeRootEventFamilyId(request);
   const packedRequest = canonicalRootRequest(request);
   const selected = yield* Effect.fromResult(tables(definition));

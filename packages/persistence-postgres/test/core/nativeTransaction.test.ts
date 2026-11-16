@@ -1,7 +1,7 @@
 import { Effect, Option, Result } from "effect";
 import { describe, expect, it, vi } from "vitest";
 import { bytesEqual, compareBytesLexicographically } from "@flarex/utils/bytes";
-import { encodeDocumentValue } from "flarex-protocol/document-value";
+import { encodeDocumentValue, type DocumentObject } from "flarex-protocol/document-value";
 import { compilePayloadCollections } from "../../../payload-adapter/src/collections";
 import type { CoreTableDefinition } from "../../src/core/api";
 import { CorePersistenceError, type CoreDocumentLogEntry, type CoreIndexScan, type CorePersistenceSnapshot } from "../../src/core/contracts";
@@ -9,7 +9,8 @@ import { documentIndexKey } from "../../src/core/documentIndex";
 import { checkCoreNativeAuthority, coreNativeMetadataReads, makeCoreNativeDefinition, type CoreNativeAuthority } from "../../src/core/nativePolicy";
 import { initialRegistry, publicDocumentId, readDocumentObject, type CoreRegistry } from "../../src/core/registry";
 import { serializeCoreSchema } from "../../src/core/schemaJson";
-import { CoreFinalizationVault, createCoreTransaction } from "../../src/core/transaction";
+import { CoreEncodedDocumentHandoff, CoreFinalizationVault, CoreNativeMetadataSelections, createCoreTransaction, deriveCoreWriteBatch } from "../../src/core/transaction";
+import { addIndexMetadataDependency } from "../../src/core/dependencies";
 import { prefetchCoreNativeFindSlots, prefetchCoreNativeInsertSlots } from "../../src/core/nativePrefetch";
 import { createTransactionIdGenerator } from "../../src/core/transactionIdGenerator";
 import { CoreReadSetBuilder, CoreWriteLog, keyInInterval, type CoreIndexKeys } from "../../src/core/writeLog";
@@ -24,7 +25,7 @@ interface Row { readonly id: number; readonly title: string; readonly ts?: bigin
 
 /** Metadata is seeded through actual registry/codec owners; the reader supplies immutable test pages only. */
 async function fixture(visibility: "command" | "snapshot" = "command", maxIdentities = 256,
-  maxDocumentBytes = 65536, retainedMaximum = 1 << 20, nativeReadBatch?: { concurrency: number }) {
+  maxDocumentBytes = 65536, retainedMaximum = 1 << 20, nativeReadBatch?: { concurrency: number }, selective?: "frozen" | "mutable") {
   const definition = await Effect.runPromise(Effect.gen(function* () {
     const compiled = yield* compilePayloadCollections([{ slug: "news", fields: [
       { name: "title", type: "text", required: true, unique: true },
@@ -61,7 +62,10 @@ async function fixture(visibility: "command" | "snapshot" = "command", maxIdenti
     id: schemaId, creationTime: 1, value: { state: { state: "active" },
       schema: Result.getOrThrow(serializeCoreSchema(definition.schema)), native: definition.metadata },
   })));
-  const authority: CoreNativeAuthority = { definition, namespace: null, schemaId, authorityEpoch: 0n, tables: [table] };
+  // A selective authority is checked on every capture; only a frozen one may keep its derived reads.
+  const authority: CoreNativeAuthority = selective === undefined ? { definition, namespace: null, schemaId, authorityEpoch: 0n, tables: [table] }
+    : selective === "mutable" ? { definition, namespace: null, schemaId, authorityEpoch: 0n, tables: [table], selectiveMetadata: true }
+      : Object.freeze({ definition, namespace: null, schemaId, authorityEpoch: 0n, tables: Object.freeze([Object.freeze(table)]), selectiveMetadata: true });
   const calls: CoreIndexScan[] = [];
   let scanFault: ((request: CoreIndexScan) => Effect.Effect<never, CorePersistenceError> | undefined) | undefined;
   const id = (identity: number) => Result.getOrThrow(publicDocumentId(table, bytes(identity)));
@@ -214,6 +218,159 @@ describe("native transaction observations over the source transaction", () => {
     mutable.tables = [{ ...tested.table, number: tested.table.number + 1 }];
     expect(coreNativeMetadataReads(tested.registry, mutable)).toMatchObject({ _tag: "Failure", failure: { reason: "authorityRevoked" } });
     await Effect.runPromise(tested.context.transaction.abort());
+  });
+
+  it("selects the same dependencies through a transaction's kept metadata selections as without them", async () => {
+    const run = async (selective: "frozen" | "mutable") => {
+      const tested = await fixture("command", 256, 65536, 1 << 20, undefined, selective);
+      const rows = [{ id: 201, title: "first", ts: 10n }, { id: 202, title: "second", ts: 10n }];
+      for (const timestamp of [10n, 20n]) {
+        // The second round reads a new registry object with equal content at a later timestamp.
+        if (timestamp === 20n) tested.publish(20n, rows, tested.registry.withAuthority({ epoch: 0n, id: bytes(60), ts: 1n }));
+        for (let repeat = 0; repeat < 2; repeat++) {
+          await Effect.runPromise(tested.operations.get(tested.id(201)));
+          await Effect.runPromise(tested.operations.find(tested.table.name, { title: "second" }));
+          await Effect.runPromise(tested.operations.find(tested.table.name, { amount: 15 }));
+          await Effect.runPromise(tested.operations.insert(tested.table.name, body(`pending ${timestamp} ${repeat}`)));
+        }
+      }
+      return tested.finalized();
+    };
+    const kept = await run("frozen"), plain = await run("mutable");
+    expect(kept.nativeObservations?.dependencies.map(group => group.timestamp)).toEqual([10n, 20n]);
+    expect(kept.nativeObservations?.dependencies).toEqual(plain.nativeObservations?.dependencies);
+    expect(kept.nativeObservations?.indexes).toEqual(plain.nativeObservations?.indexes);
+    expect(kept.reads).toEqual(plain.reads);
+  });
+
+  it("checks a selective authority and the caller's index on every kept selection", async () => {
+    const tested = await fixture();
+    if (tested.table.nativePolicy === undefined) throw new Error("Missing native policy");
+    // The frozen authority holds its own policy copy, which only the authority check reads.
+    const policy = { ...tested.table.nativePolicy };
+    const authority: CoreNativeAuthority = Object.freeze({ ...tested.authority, selectiveMetadata: true as const,
+      tables: Object.freeze([Object.freeze({ ...tested.table, nativePolicy: policy })]) });
+    const selections = new CoreNativeMetadataSelections();
+    const first = Result.getOrThrow(selections.native(tested.registry, authority, tested.table.name));
+    expect(Result.getOrThrow(selections.native(tested.registry, authority, tested.table.name))).toBe(first);
+    expect(first).toEqual(Result.getOrThrow(coreNativeMetadataReads(tested.registry, authority, tested.table.name)));
+    expect(first).toEqual(Result.getOrThrow(new CoreNativeMetadataSelections().native(tested.registry, authority, tested.table.name)));
+    // A mutable authority and another registry never reuse a kept selection.
+    const mutable = { ...authority, tables: [...authority.tables] };
+    const unkept = Result.getOrThrow(selections.native(tested.registry, mutable, tested.table.name));
+    expect(Result.getOrThrow(selections.native(tested.registry, mutable, tested.table.name))).not.toBe(unkept);
+    const advanced = tested.registry.withAuthority({ epoch: 0n, id: bytes(60), ts: 1n });
+    const next = Result.getOrThrow(selections.native(advanced, authority, tested.table.name));
+    expect(next).not.toBe(first);
+    expect(next).toEqual(first);
+    expect(selections.native(tested.registry.withAuthority({ epoch: 1n, id: bytes(61), ts: 2n }), authority, tested.table.name))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "authorityRevoked" } });
+    for (let repeat = 0; repeat < 2; repeat++) expect(selections.native(tested.registry, authority, "not-bound"))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "authorityRevoked" } });
+    // The same registry and frozen authority are refused once the check itself refuses.
+    policy.applicationRead = true;
+    expect(selections.native(tested.registry, authority, tested.table.name))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "authorityRevoked" } });
+
+    const title = tested.table.indexes.find(index => index.name === tested.table.nativePolicy?.uniqueConstraints[0]?.indexName);
+    if (title === undefined) throw new Error("Missing title index");
+    const expected = new CoreReadSetBuilder();
+    Result.getOrThrow(addIndexMetadataDependency(expected, tested.registry, title));
+    const index = Result.getOrThrow(selections.index(tested.registry, tested.table, title));
+    expect(index).toEqual(expected.snapshot());
+    expect(Result.getOrThrow(selections.index(tested.registry, tested.table, { ...title }))).toBe(index);
+    for (const stale of [{ ...title, ref: { id: bytes(999) } }, { ...title, fields: [...title.fields, "amount"] }])
+      expect(selections.index(tested.registry, tested.table, stale)).toMatchObject({ _tag: "Failure", failure: { reason: "indexUnavailable" } });
+    expect(selections.index(tested.registry.withoutIndex(title.ref.id), tested.table, title))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "indexUnavailable" } });
+    expect(Result.getOrThrow(selections.index(advanced, tested.table, title))).toEqual(index);
+    await Effect.runPromise(tested.context.transaction.abort());
+  });
+
+  it("observes a registry advance in the middle of a request after its selections were kept", async () => {
+    const refusal = async (selective: "frozen" | "mutable", advance: (registry: CoreRegistry, title: Uint8Array) => CoreRegistry) => {
+      const tested = await fixture("command", 256, 65536, 1 << 20, undefined, selective);
+      const title = tested.table.indexes.find(index => index.name === tested.table.nativePolicy?.uniqueConstraints[0]?.indexName);
+      if (title === undefined) throw new Error("Missing title index");
+      for (let repeat = 0; repeat < 2; repeat++)
+        expect(await Effect.runPromise(tested.operations.find(tested.table.name, { title: "first" }))).toHaveLength(1);
+      tested.publish(20n, [{ id: 201, title: "first", ts: 10n }, { id: 202, title: "second", ts: 10n }], advance(tested.registry, title.ref.id));
+      const calls = tested.calls.length;
+      const refused = await Effect.runPromise(tested.operations.find(tested.table.name, { title: "second" }).pipe(Effect.result));
+      expect(tested.calls).toHaveLength(calls);
+      await Effect.runPromise(tested.context.transaction.abort());
+      return refused;
+    };
+    for (const advance of [(registry: CoreRegistry) => registry.withAuthority({ epoch: 1n, id: bytes(61), ts: 2n }),
+      (registry: CoreRegistry, title: Uint8Array) => registry.withoutIndex(title)]) {
+      const kept = await refusal("frozen", advance);
+      expect(kept._tag).toBe("Failure");
+      expect(kept).toEqual(await refusal("mutable", advance));
+    }
+  });
+
+  it("stores the bytes a staged final document was measured with, and the later document after a patch", async () => {
+    const tested = await fixture();
+    const inserted = await Effect.runPromise(tested.operations.insert(tested.table.name, body("inserted")));
+    await Effect.runPromise(tested.operations.patch(inserted, { amount: 16 }));
+    await Effect.runPromise(tested.operations.patch(tested.id(201), { amount: 17 }));
+    await Effect.runPromise(tested.operations.delete(tested.id(202)));
+    const finalized = await tested.finalized();
+    const finals = finalized.changes.map(change => change.finalDocument);
+    expect(finals.map(document => document?.amount)).toEqual([16, 17, undefined]);
+    // Each kept entry is the fresh encoding of the exact final document object.
+    const kept = finals.map(document => document === null ? undefined : finalized.encodedDocuments?.take(document));
+    for (const [position, document] of finals.entries()) {
+      const encoded = kept[position];
+      if (document === null) continue;
+      if (encoded === undefined) throw new Error("Missing kept final document bytes");
+      expect(encoded).toEqual(Result.getOrThrow(encodeDocumentValue(document)));
+      finalized.encodedDocuments?.offer(document, encoded);
+    }
+    const fresh = finals.map(document => document === null ? new Uint8Array() : Result.getOrThrow(encodeDocumentValue(document)));
+    const first = Result.getOrThrow(deriveCoreWriteBatch(finalized, 30n));
+    expect(first.documents.map(document => document.jsonValue)).toEqual(fresh);
+    expect(first.documents.map(document => document.deleted)).toEqual([false, false, true]);
+    for (const [position, document] of first.documents.entries()) if (!document.deleted) expect(document.jsonValue).toBe(kept[position]);
+    // A taken entry left the handoff, so another batch owns freshly encoded bytes.
+    const second = Result.getOrThrow(deriveCoreWriteBatch(finalized, 31n));
+    expect(second.documents.map(document => document.jsonValue)).toEqual(fresh);
+    for (const [position, document] of second.documents.entries()) if (!document.deleted) expect(document.jsonValue).not.toBe(kept[position]);
+  });
+
+  it("encodes a final document with a binary leaf again at commit", async () => {
+    const tested = await fixture();
+    await Effect.runPromise(tested.operations.patch(tested.id(201), { amount: 17 }));
+    const finalized = await tested.finalized();
+    const change = finalized.changes[0];
+    if (change?.finalDocument == null) throw new Error("Missing final document");
+    const leaf = new Uint8Array([1, 2, 3]).buffer;
+    const stale = Uint8Array.of(0);
+    const handoff = new CoreEncodedDocumentHandoff();
+    for (const binary of [Object.freeze({ ...change.finalDocument, blob: leaf }),
+      Object.freeze({ ...change.finalDocument, nested: Object.freeze([Object.freeze({ blob: leaf })]) })] satisfies DocumentObject[]) {
+      handoff.offer(binary, stale);
+      expect(handoff.take(binary)).toBeUndefined();
+      const state = { ...finalized, encodedDocuments: handoff, changes: [{ ...change, finalDocument: binary }] };
+      handoff.offer(binary, stale);
+      const before = Result.getOrThrow(deriveCoreWriteBatch(state, 30n)).documents[0]?.jsonValue;
+      expect(before).toEqual(Result.getOrThrow(encodeDocumentValue(binary)));
+      // Any holder may write the leaf, and the stored bytes follow it.
+      new Uint8Array(leaf)[0] = 9;
+      handoff.offer(binary, stale);
+      const after = Result.getOrThrow(deriveCoreWriteBatch(state, 31n)).documents[0]?.jsonValue;
+      expect(after).toEqual(Result.getOrThrow(encodeDocumentValue(binary)));
+      expect(after).not.toEqual(before);
+      new Uint8Array(leaf)[0] = 1;
+    }
+    // A container that is not frozen can change as well and is never kept.
+    const open = { ...change.finalDocument };
+    handoff.offer(open, stale);
+    expect(handoff.take(open)).toBeUndefined();
+    const scalar = Object.freeze({ ...change.finalDocument, nested: Object.freeze([Object.freeze({ value: 1n })]) });
+    handoff.offer(scalar, stale);
+    expect(handoff.take(scalar)).toBe(stale);
+    expect(handoff.take(scalar)).toBeUndefined();
   });
 
   it("keeps source identity caps inside the shared aggregate allowance", async () => {

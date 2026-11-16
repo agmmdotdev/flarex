@@ -188,11 +188,11 @@ export class CoreNativeObservationState {
     for (const read of reads) for (const interval of read.intervals) group.add(read.indexId, interval);
   }
 
-  /** A metadata selection is a frozen snapshot. Only `coreNativeMetadataReads`
-   * keeps one and returns it again for the same registry and authority, so the
-   * skip applies on the native path alone; every other selection is a fresh
-   * snapshot and is united each time. Uniting the same snapshot into the same
-   * timestamp's group a second time changes nothing, so it is skipped. */
+  /** A metadata selection is a frozen snapshot. Only the native path keeps one
+   * and passes it again: `coreNativeMetadataReads` per registry and authority,
+   * and a transaction's own metadata selections. Every other selection is a
+   * fresh snapshot and is united each time. Uniting the same snapshot into the
+   * same timestamp's group a second time changes nothing, so it is skipped. */
   addSelectedReads(timestamp: bigint, selection: CoreReadSet): void {
     let united = this.unitedSelections.get(timestamp);
     if (united === undefined) {

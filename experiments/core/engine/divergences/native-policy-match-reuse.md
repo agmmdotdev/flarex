@@ -21,3 +21,34 @@ dependency frontier.
 Test a structurally equal detached copy, rejection after a policy change or
 authority withdrawal, and reevaluation of unissued mutable policy data.
 Validate the connected native scope and Product root on both database drivers.
+
+## Metadata read selections inside one transaction
+
+Owner: `CoreNativeMetadataSelections` in
+`packages/persistence-postgres/src/core/transaction.ts`, one per transaction.
+Convex resolves a table or index through transaction-owned snapshot state once
+and records the dependency it consumed. Every Flarex native operation derived
+the same metadata reads again for the same registry, authority, table and
+index.
+
+A transaction now keeps a successful selection for one immutable registry
+object and
+
+- a frozen selective authority and table name, and
+- one of that registry's own enabled index definitions.
+
+Only the derived read set is kept. The selective authority check runs on every
+call, because the registry's schema proof is recorded beside the registry and
+is not proven write-once; a kept selection is returned only after that check
+succeeds. The caller's index definition is compared with the registry's on
+every call. A mutable authority is selected again every time. A registry
+advance is a new registry object and selects again. The reads are united into
+the same timestamp's dependency group as before; a kept selection already
+united at that timestamp is not united again, which leaves the group unchanged.
+Non-selective selections stay with `coreNativeMetadataReads`. Nothing is shared
+between transactions.
+
+Test that the dependencies equal those of a mutable authority, which keeps
+nothing; that the same registry and frozen authority are refused once the check
+refuses; that a stale caller index is refused after a kept selection; and that
+a registry advance in the middle of a request is observed and refused.

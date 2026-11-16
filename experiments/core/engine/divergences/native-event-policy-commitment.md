@@ -70,6 +70,31 @@ available for required family verification/delivery; any later outcome retention
 must preserve that relationship before activation. No implicit request TTL is
 introduced by this extension.
 
+### Frame work is done once per bound root
+
+Flarex-only; Convex has no root request evidence. The frame in the evidence is the
+one captured, decoded, frozen and hashed when the root was bound, and it does not
+change between requests. Capturing the whole evidence again on every request
+repeated that work for no new check.
+
+Now each request captures and decodes only its own members: key, request hash,
+root identity and source. They are joined to the bound frame object. For that
+frame, three values are derived on first use and kept for as long as the frame
+lives: the byte budget it leaves the request members, its canonical JSON, and
+its decoded event policy. The stored `root_request` is the kept frame text with
+the request members appended; `frame` sorts first, so the bytes are the same.
+
+Nothing a caller can observe changes. The 1 MiB + 1024 byte ceiling, the depth
+limit, the limit-before-Unicode order, and every refusal reason for plain JSON
+request members (the only kind the one caller passes) are the same as
+the complete capture, which unit witnesses compare directly at the size and
+depth edges. The claim and root authority are still checked on every read.
+Stored evidence read back from a family, and any frame not issued by the root
+identity owner, still take the complete capture and encoding.
+
+Limit: the kept canonical text is up to one more frame-sized string per bound
+root that stages events. It is not charged to a request budget.
+
 ## Required proof and cutover
 
 Use independent neutral same-app workflows with different exact policies,

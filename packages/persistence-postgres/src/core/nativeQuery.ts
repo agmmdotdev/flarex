@@ -5,7 +5,7 @@ import { compareBytesLexicographically } from "@flarex/utils/bytes";
 import type { DocumentObject } from "flarex-protocol/document-value";
 import type { JsonObject } from "flarex-protocol/json";
 import { encodeIndexValue } from "flarex-protocol/index-key";
-import { compileIndexRange, type CapturedIndexRangeExpression } from "flarex-protocol/index-range";
+import { compileIndexRange, type CapturedIndexRangeExpression, type IndexRangeInterval } from "flarex-protocol/index-range";
 import { capturePrivateJsonData } from "../values/privateJsonData";
 import { CoreNativeQueryError, CoreTransactionError, type CoreError, type CoreIndexDefinition,
   type CoreTableDefinition } from "./api";
@@ -46,13 +46,11 @@ export function* coreNativePendingIndexDocuments(
 }
 
 export function captureCoreNativeWhere(input: JsonObject): Result.Result<CoreNativeWhere, CoreError> {
-  return Result.gen(function* () {
-    // Structural ownership permits escaped surrogates. Selected operands and
-    // residual comparisons retain their original lazy value-validation order.
-    const captured = yield* capturePrivateJsonData(input, CORE_TRANSACTION_REFERENCE_LIMITS.bytesRead,
-      (reason, cause) => reason === "limitExceeded" ? new CoreTransactionError({ reason: "capacity", cause }) : invalid(cause));
-    return yield* Result.mapError(decodeWhere(captured.value), invalid);
-  });
+  // Structural ownership permits escaped surrogates. Selected operands and
+  // residual comparisons retain their original lazy value-validation order.
+  return Result.flatMap(capturePrivateJsonData(input, CORE_TRANSACTION_REFERENCE_LIMITS.bytesRead,
+    (reason, cause): CoreError => reason === "limitExceeded" ? new CoreTransactionError({ reason: "capacity", cause }) : invalid(cause)),
+    captured => Result.mapError(decodeWhere(captured.value), invalid));
 }
 
 export type CoreNativeQueryPlan = Readonly<{ kind: "all" }> | Readonly<{ kind: "id"; id: string }>
@@ -71,23 +69,24 @@ export function coreNativeUniqueValues(constraint: Constraint, document: Documen
   return Result.succeed(coreNativeConstraintNullsDistinct(constraint) && values.some(value => value === null) ? null : values);
 }
 
-export function coreNativeUniqueSelection(table: CoreTableDefinition, constraint: Constraint, values: readonly (Predicate | undefined)[]) {
-  return Result.gen(function* () {
-    const index = table.indexes.find(candidate => candidate.name === constraint.indexName);
-    if (index === undefined) return yield* Result.fail(new CoreTransactionError({ reason: "indexUnavailable" }));
-    const expressions: CapturedIndexRangeExpression[] = [];
-    const fields = coreNativeConstraintFields(constraint);
-    const eligibility = coreNativeConstraintEligibility(constraint);
-    const prefix = eligibility === undefined ? [] : coreNativeEligibilityTerms(eligibility);
-    for (const term of prefix) expressions.push({ op: "eq", field: term.field, value: term.value });
-    for (const [position, field] of fields.entries()) {
-      const value = values[position];
-      if (value === undefined || isCoreNativeRange(value)) return yield* Result.fail(invalid());
-      yield* Result.mapError(encodeIndexValue(value), invalid);
-      if (!prefix.some(term => term.field === field)) expressions.push({ op: "eq", field, value });
-    }
-    return { index, interval: yield* Result.mapError(compileIndexRange(expressions, index.fields), invalid) };
-  });
+/** Every unique lookup and staged unique write passes here, so refusals are plain guards without a generator. */
+export function coreNativeUniqueSelection(table: CoreTableDefinition, constraint: Constraint, values: readonly (Predicate | undefined)[]):
+  Result.Result<Readonly<{ index: CoreIndexDefinition; interval: IndexRangeInterval }>, CoreTransactionError | CoreNativeQueryError> {
+  const index = table.indexes.find(candidate => candidate.name === constraint.indexName);
+  if (index === undefined) return Result.fail(new CoreTransactionError({ reason: "indexUnavailable" }));
+  const expressions: CapturedIndexRangeExpression[] = [];
+  const fields = coreNativeConstraintFields(constraint);
+  const eligibility = coreNativeConstraintEligibility(constraint);
+  const prefix = eligibility === undefined ? [] : coreNativeEligibilityTerms(eligibility);
+  for (const term of prefix) expressions.push({ op: "eq", field: term.field, value: term.value });
+  for (const [position, field] of fields.entries()) {
+    const value = values[position];
+    if (value === undefined || isCoreNativeRange(value)) return Result.fail(invalid());
+    const encoded = encodeIndexValue(value);
+    if (Result.isFailure(encoded)) return Result.fail(invalid(encoded.failure));
+    if (!prefix.some(term => term.field === field)) expressions.push({ op: "eq", field, value });
+  }
+  return Result.map(Result.mapError(compileIndexRange(expressions, index.fields), invalid), interval => ({ index, interval }));
 }
 
 /** A trusted native page names an ordinary index; equality does not promote it to a unique slot. */
@@ -115,52 +114,55 @@ export function coreNativePageInterval(index: CoreIndexDefinition, where: CoreNa
 /** Deterministic ID, complete unique tuple, longest ordinary prefix, then table. */
 export function planCoreNativeQuery(table: CoreTableDefinition, where: CoreNativeWhere, rangeIndex?: CoreIndexDefinition):
   Result.Result<CoreNativeQueryPlan, CoreError> {
-  return Result.gen(function* () {
-    if (Object.hasOwn(where, "_id")) {
-      if (typeof where._id !== "string") return yield* Result.fail(invalid());
-      return { kind: "id", id: where._id };
+  // Every native query passes here, so refusals are plain guards without a generator.
+  if (Object.hasOwn(where, "_id")) {
+    if (typeof where._id !== "string") return Result.fail(invalid());
+    return Result.succeed({ kind: "id", id: where._id });
+  }
+  for (const constraint of table.nativePolicy?.uniqueConstraints ?? []) {
+    const fields = coreNativeConstraintFields(constraint);
+    const eligibility = coreNativeConstraintEligibility(constraint);
+    if (eligibility !== undefined && !coreNativeEligibilityMatches(eligibility, where)) continue;
+    if (!fields.every(field => Object.hasOwn(where, field) && !isCoreNativeRange(where[field]))
+      || coreNativeConstraintNullsDistinct(constraint) && fields.some(field => where[field] === null)) continue;
+    const values: CoreNativeScalar[] = [];
+    for (const field of fields) {
+      const value = where[field];
+      if (value === undefined || isCoreNativeRange(value)) return Result.fail(invalid());
+      values.push(value);
     }
-    for (const constraint of table.nativePolicy?.uniqueConstraints ?? []) {
-      const fields = coreNativeConstraintFields(constraint);
-      const eligibility = coreNativeConstraintEligibility(constraint);
-      if (eligibility !== undefined && !coreNativeEligibilityMatches(eligibility, where)) continue;
-      if (!fields.every(field => Object.hasOwn(where, field) && !isCoreNativeRange(where[field]))
-        || coreNativeConstraintNullsDistinct(constraint) && fields.some(field => where[field] === null)) continue;
-      const values: CoreNativeScalar[] = [];
-      for (const field of fields) {
-        const value = where[field];
-        if (value === undefined || isCoreNativeRange(value)) return yield* Result.fail(invalid());
-        values.push(value);
+    return Result.map(coreNativeUniqueSelection(table, constraint, values),
+      selected => ({ kind: "unique", constraint, values, ...selected }));
+  }
+  let selected: Readonly<{ index: CoreIndexDefinition; expressions: readonly CapturedIndexRangeExpression[]; count: number }> | undefined;
+  for (const index of rangeIndex === undefined ? table.indexes : [rangeIndex]) {
+    if (index.name === "by_id" || index.name === "by_creation_time"
+      || (table.nativePolicy !== undefined && isCoreNativeSerialIndexName(index.name))) continue;
+    const expressions: CapturedIndexRangeExpression[] = [];
+    let count = 0;
+    for (const field of index.fields) {
+      if (!Object.hasOwn(where, field)) break;
+      const value = where[field];
+      if (value === undefined) break;
+      count += 1;
+      if (isCoreNativeRange(value)) {
+        for (const op of ["gt", "gte", "lt", "lte"] as const)
+          if (Object.hasOwn(value, op) && value[op] !== undefined) expressions.push({ op, field, value: value[op] });
+        break;
       }
-      const selected = yield* coreNativeUniqueSelection(table, constraint, values);
-      return { kind: "unique", constraint, values, ...selected };
+      expressions.push({ op: "eq", field, value });
     }
-    let selected: Readonly<{ index: CoreIndexDefinition; expressions: readonly CapturedIndexRangeExpression[]; count: number }> | undefined;
-    for (const index of rangeIndex === undefined ? table.indexes : [rangeIndex]) {
-      if (index.name === "by_id" || index.name === "by_creation_time"
-        || (table.nativePolicy !== undefined && isCoreNativeSerialIndexName(index.name))) continue;
-      const expressions: CapturedIndexRangeExpression[] = [];
-      let count = 0;
-      for (const field of index.fields) {
-        if (!Object.hasOwn(where, field)) break;
-        const value = where[field];
-        if (value === undefined) break;
-        count += 1;
-        if (isCoreNativeRange(value)) {
-          for (const op of ["gt", "gte", "lt", "lte"] as const)
-            if (Object.hasOwn(value, op) && value[op] !== undefined) expressions.push({ op, field, value: value[op] });
-          break;
-        }
-        expressions.push({ op: "eq", field, value });
-      }
-      if (count > 0 && (selected === undefined || count > selected.count)) selected = { index, expressions, count };
-    }
-    if (selected === undefined) return { kind: "all" };
-    for (const expression of selected.expressions) yield* Result.mapError(encodeIndexValue(expression.value), invalid);
-    const interval = yield* Result.mapError(compileIndexRange(selected.expressions, selected.index.fields), invalid);
-    return { kind: "range", index: selected.index, interval: interval.end !== null
-      && compareBytesLexicographically(interval.start, interval.end) > 0 ? { start: interval.start, end: interval.start } : interval };
-  });
+    if (count > 0 && (selected === undefined || count > selected.count)) selected = { index, expressions, count };
+  }
+  if (selected === undefined) return Result.succeed({ kind: "all" });
+  for (const expression of selected.expressions) {
+    const encoded = encodeIndexValue(expression.value);
+    if (Result.isFailure(encoded)) return Result.fail(invalid(encoded.failure));
+  }
+  const { index } = selected;
+  return Result.map(Result.mapError(compileIndexRange(selected.expressions, index.fields), invalid),
+    interval => ({ kind: "range", index, interval: interval.end !== null
+      && compareBytesLexicographically(interval.start, interval.end) > 0 ? { start: interval.start, end: interval.start } : interval }));
 }
 
 /** Ordered, short-circuiting comparisons. Unused residual operands are not lowered. */
