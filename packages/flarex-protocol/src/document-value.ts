@@ -40,8 +40,9 @@ const utf8 = new TextEncoder();
 const utf8Decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
 
 /** Returns detached, frozen containers and copied binary leaves. Once the codec
- * has walked a root this module issued or decoded, with scalar leaves only,
- * later captures of that root return that walk's output without another walk. */
+ * has walked a tree that could not change under it and held scalar leaves only
+ * (a frozen input, a root this module issued, or a tree it decoded), later
+ * captures of that walk's output return it without another walk. */
 export function captureDocumentValue(value: unknown): Result.Result<DocumentValue, DocumentValueError> {
   return captureDocumentValueWithSize(value).pipe(Result.map(captured => captured.value));
 }
@@ -92,10 +93,11 @@ export function captureDocumentPatch(value: unknown): Result.Result<
 /** Container roots issued by capture: their complete trees are normalized and
  * frozen by the authoritative codec. Binary leaves stay owned by that tree.
  * `proven` is the codec's own output for a walk whose input held scalar leaves
- * only: a later walk of that root, or the walk of a tree this module decoded.
+ * only and could not change: the walk of a frozen tree, a later walk of that
+ * root, or the walk of a tree this module decoded.
  * `false` records that the root can never be proven. */
 interface IssuedRoot {
-  /** Size the codec measured at issuance; a genuine tree has no more nodes. */
+  /** Size the codec measured at issuance; a genuine tree costs no more. */
   readonly semanticSizeBytes: number;
   proven: CapturedDocumentValue | false | undefined;
 }
@@ -104,19 +106,25 @@ const capturedRoots = new WeakMap<object, IssuedRoot>();
 export function isCapturedDocumentRoot(value: DocumentValue): boolean {
   return typeof value === "object" && value !== null && capturedRoots.has(value);
 }
+/** True only for a root this module issued and has itself seen to be frozen
+ * plain containers over scalar leaves, so it cannot change and holds no binary
+ * leaf. Identity is the evidence; a look-alike tree never qualifies. */
+export function isProvenScalarDocumentRoot(value: DocumentValue): boolean {
+  const proven = typeof value === "object" && value !== null ? capturedRoots.get(value)?.proven : undefined;
+  return proven !== undefined && proven !== false;
+}
 
 /** Frozen plain containers over scalar leaves cannot change after this check,
  * and the codec copies nothing foreign out of them. A binary leaf can be
  * written, transferred or detached by any holder, and the codec copies it
  * through the input's own method, so a tree with one is never proven.
- * Every genuine node costs at least one semantic byte, so the size measured at
- * issuance bounds the walk. */
-function isImmutableScalarTree(value: unknown, depth: number, budget: { nodes: number }): boolean {
-  if (--budget.nodes < 0) return false;
-  if (value === null) return true;
-  if (typeof value !== "object")
-    return typeof value === "string" || typeof value === "number" || typeof value === "boolean" || typeof value === "bigint";
-  if (depth > MAX_FLAREX_VALUE_NESTING_V1) return false;
+ * Each node is charged no more than the codec's semantic size for it, so a
+ * size the codec measured, or the limit it would refuse above, bounds the walk. */
+function isImmutableScalarTree(value: unknown, depth: number, budget: { bytes: number }): boolean {
+  if (value === null || typeof value === "boolean") return --budget.bytes >= 0;
+  if (typeof value === "number" || typeof value === "bigint") return (budget.bytes -= 9) >= 0;
+  if (typeof value === "string") return (budget.bytes -= 2 + value.length) >= 0;
+  if (typeof value !== "object" || (budget.bytes -= 2) < 0 || depth > MAX_FLAREX_VALUE_NESTING_V1) return false;
   // Frozen first: a Proxy that reports frozen has a frozen target, and the
   // language then pins its prototype, keys and values for every later read.
   if (!Object.isFrozen(value)) return false;
@@ -125,11 +133,22 @@ function isImmutableScalarTree(value: unknown, depth: number, budget: { nodes: n
   if (Object.getPrototypeOf(value) !== (array ? Array.prototype : Object.prototype)) return false;
   for (const key of Reflect.ownKeys(value)) {
     if (array && key === "length") continue;
+    if (typeof key !== "string" || (!array && (budget.bytes -= key.length + 1) < 0)) return false;
     const descriptor = Object.getOwnPropertyDescriptor(value, key);
-    if (typeof key !== "string" || descriptor === undefined || !("value" in descriptor) ||
+    if (descriptor === undefined || !("value" in descriptor) ||
       !isImmutableScalarTree(descriptor.value, depth + 1, budget)) return false;
   }
   return true;
+}
+
+/** The shape check reads a Proxy's extensibility, which the codec never does.
+ * A trap that throws there proves nothing and leaves the outcome to the codec. */
+function isPinnedScalarTree(value: unknown, bytes: number): boolean {
+  try {
+    return isImmutableScalarTree(value, 0, { bytes });
+  } catch {
+    return false;
+  }
 }
 
 function capture(value: unknown, profile: FlarexValueProfileV1,
@@ -144,8 +163,10 @@ function capture(value: unknown, profile: FlarexValueProfileV1,
   // Shape is pinned before the codec walks it, so both inspect the same tree.
   // `ownScalarTree` is this module's own fresh tree without a binary leaf: the
   // codec copies nothing foreign out of it, so its output needs no second walk.
-  const proving = ownScalarTree || (issued !== undefined && proven === undefined &&
-    isImmutableScalarTree(value, 0, { nodes: issued.semanticSizeBytes }));
+  // Any other frozen scalar tree is pinned the same way whoever built it; a
+  // tree larger than the profile's limit is refused by the codec's own walk.
+  const proving = ownScalarTree || (proven === undefined && typeof value === "object" && value !== null &&
+    isPinnedScalarTree(value, issued?.semanticSizeBytes ?? limitBytes(profile)));
   if (issued !== undefined && proven === undefined && !proving) issued.proven = false;
   return Result.try({
     try: () => {

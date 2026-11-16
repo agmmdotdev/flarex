@@ -131,3 +131,35 @@ Not done, with reasons:
 - About 75 value captures and 40 owner fibers per create remain the larger share and
   need their own design.
 
+
+## Per-write CPU, second cut
+
+| Change | Owner |
+| --- | --- |
+| Per-request named wrappers keep their span and skip stack capture; one create drops from about 355 named calls and 157 named definitions to about 11 and 1, reads to none | adapter, Core and workflow owners ([record](../divergences/core-effect-hot-scan-spans.md)) |
+| A frozen scalar document is proven by its first codec walk; Core freezes the documents it assembles, and the commit handoff accepts them by identity | `flarex-protocol/src/document-value.ts`, `CoreEncodedDocumentHandoff` ([record](../divergences/issued-document-reuse.md)) |
+| A captured workflow value is frozen and recognised by identity; a mutable copy is made only for callback code | `medusa-adapter/src/workflow/value.ts`, `WorkflowExecutionPort.present` ([record](../divergences/issued-workflow-captures.md)) |
+
+Same load as the first cut, against that cut's commit:
+
+| Operation | CPU per operation (median) | Minimum |
+| --- | --- | --- |
+| Product create | 51.5 → 47.8 ms | 49.0 → 47.1 ms |
+| List by IDs | 20.7 → 19.9 ms | 20.7 → 19.2 ms |
+| List page | 14.8 → 14.0 ms | 14.4 → 14.0 ms |
+| List recent | 13.7 → 13.1 ms | 13.4 → 12.9 ms |
+| Retrieve | 6.8 → 5.9 ms | 5.9 → 5.4 ms |
+| Search | 2.4 → 2.2 ms | 2.4 → 2.2 ms |
+
+Round trips are unchanged.
+
+Not done, with reasons:
+
+- A synchronous fast path in the promise owner: the identical form saves one closure,
+  and the faster form settles callers earlier, shortens the pending window that
+  overlap detection reads, and drops a rejection handler.
+- An inserted row is still walked about eight times. Merging validation with
+  relational normalization changes which refusal is selected first, and passing the
+  supplied row to normalization changes key order in diagnostics and activity rows.
+- `MedusaWorkflow.execute` stays traced; it is not a mechanical conversion.
+- `medusa-workflows-sdk` has no test of `present` in its own package.

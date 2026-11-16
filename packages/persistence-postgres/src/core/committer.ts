@@ -30,7 +30,7 @@ import { CoreNativeScopeExclusion, type CoreSettlementPermit } from "./nativeSco
 const decodeGeneratedIdBoundary = Schema.decodeUnknownEffect(CoreTimestampSchema);
 
 /** Source derives generated IDs from coalesced old=None updates, including insert-delete. */
-export const checkCoreGeneratedIds = Effect.fn("CoreCommitter.checkGeneratedIds")(function* (
+export const checkCoreGeneratedIds = Effect.fnUntraced(function* (
   persistence: CorePersistence, transaction: CoreFinalizedState, retention?: CoreRetentionValidator,
 ) {
   const generated = transaction.changes.filter(change => change.originalDocument === null).toSorted((left, right) =>
@@ -47,7 +47,7 @@ export const checkCoreGeneratedIds = Effect.fn("CoreCommitter.checkGeneratedIds"
     cause: { tableId: encodeBytesToLowercaseHex(reused.query.tableId), id: encodeBytesToLowercaseHex(reused.query.id),
       previousTimestamp: reused.document.ts.toString() },
   });
-});
+}, effect => Effect.withSpan(effect, "CoreCommitter.checkGeneratedIds", { captureStackTrace: false }));
 
 interface CorePublishedSnapshot {
   readonly registry: CoreRegistry;
@@ -83,14 +83,14 @@ function externalPredecessors(members: readonly AcceptedCommit[]): readonly Dura
     if (!ownTimestamps.has(predecessor.timestamp)) predecessors.set(predecessor.timestamp, predecessor);
   return [...predecessors.values()];
 }
-const waitForDurability = Effect.fn("CoreWriteBatcher.waitForDurability")(function* (predecessors: readonly DurableCommit[]) {
+const waitForDurability = Effect.fnUntraced(function* (predecessors: readonly DurableCommit[]) {
   for (const predecessor of predecessors) yield* Deferred.await(predecessor.completion);
-});
-const readyToSave = Effect.fn("CoreWriteBatcher.readyToSave")(function* (members: readonly AcceptedCommit[]) {
+}, effect => Effect.withSpan(effect, "CoreWriteBatcher.waitForDurability", { captureStackTrace: false }));
+const readyToSave = Effect.fnUntraced(function* (members: readonly AcceptedCommit[]) {
   for (const predecessor of externalPredecessors(members))
     if (!(yield* Deferred.isDone(predecessor.completion))) return false;
   return true;
-});
+}, effect => Effect.withSpan(effect, "CoreWriteBatcher.readyToSave", { captureStackTrace: false }));
 
 const PositiveLimit = Schema.Int.check(Schema.makeFilter(value => Number.isSafeInteger(value) && value > 0
   ? undefined : "Expected a positive safe limit"));
@@ -212,7 +212,7 @@ export const makeCoreCommitter = Effect.fn("CoreCommitter.make")(function* (
     }
   }).pipe(Effect.catchCause(cause => Effect.andThen(stop(cause), Effect.failCause(cause))));
 
-  const saveBatch = Effect.fn("CoreWriteBatcher.save")(function* (members: readonly AcceptedCommit[], permitHeld: boolean) {
+  const saveBatch = Effect.fnUntraced(function* (members: readonly AcceptedCommit[], permitHeld: boolean) {
     const batch: CoreWriteBatch = {
       documents: members.flatMap(member => member.batch.documents),
       indexes: members.flatMap(member => member.batch.indexes),
@@ -249,7 +249,7 @@ export const makeCoreCommitter = Effect.fn("CoreCommitter.make")(function* (
       if (saving) activeSaves -= 1;
       if (ownsPermit) yield* saveSlots.release(1);
     }));
-  });
+  }, effect => Effect.withSpan(effect, "CoreWriteBatcher.save", { captureStackTrace: false }));
 
   const saveLoop = Effect.fn("CoreWriteBatcher.run")(function* () {
     let lookahead: AcceptedCommit | undefined;
@@ -302,7 +302,7 @@ export const makeCoreCommitter = Effect.fn("CoreCommitter.make")(function* (
     yield* Queue.shutdown(queue);
   })));
 
-  const submit: CoreCommitter["submit"] = Effect.fn("CoreCommitter.submit")((transaction: CoreFinalizedState) => Effect.uninterruptibleMask(resume => Effect.gen(function* () {
+  const submit: CoreCommitter["submit"] = (transaction: CoreFinalizedState) => Effect.withSpan(Effect.suspend(() => Effect.uninterruptibleMask(resume => Effect.gen(function* () {
     if (stopped !== undefined) return yield* Effect.failCause(stopped);
     let ownedPermit: CoreSettlementPermit | undefined;
     let ownedBySave = false;
@@ -459,7 +459,7 @@ export const makeCoreCommitter = Effect.fn("CoreCommitter.make")(function* (
         return yield* Effect.failCause(cause);
       })), Effect.sync(() => { if (!ownedBySave && jobs > 0) jobs -= 1; }));
     }), Effect.suspend(() => ownedBySave ? Effect.void : ownedPermit?.release ?? Effect.void)));
-  })));
+  }))), "CoreCommitter.submit", { captureStackTrace: false });
   return {
     whenStopped: Deferred.await(stoppedSignal),
     stoppedCause: () => stopped,

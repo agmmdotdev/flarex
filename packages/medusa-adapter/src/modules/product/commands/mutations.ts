@@ -26,11 +26,11 @@ export function productMutationCommands({ metadata, withService, withCollectionS
   Pick<ProductCommandServices, "metadata" | "withService" | "withCollectionService">) {
   const commands = commerceServiceCommands(withService);
   const collections = commerceServiceCommands(withCollectionService);
-  const createInput = (table: string) => Effect.fn("ProductAdapter.relatedCreateInput")(function* (ctx: Context, input: Json) {
+  const createInput = (table: string) => Effect.fnUntraced(function* (ctx: Context, input: Json) {
     yield* Effect.fromResult(metadata.valueProfile.validateRelatedCreate(table, input))
       .pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
     return copyRelatedInput(input);
-  });
+  }, effect => Effect.withSpan(effect, "ProductAdapter.relatedCreateInput", { captureStackTrace: false }));
   const decodeUpdate = (table: string) => Effect.fn("ProductAdapter.relatedUpdateInput")(function* (ctx: Context, input: Json) {
     const decoded = yield* Effect.fromResult(decodeRelatedUpdate(input)).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
     yield* Effect.fromResult(metadata.valueProfile.validateRelatedUpdateData(table, decoded.data))
@@ -72,7 +72,7 @@ export function productMutationCommands({ metadata, withService, withCollectionS
   });
   const lifecycleInput = Effect.fn("ProductAdapter.lifecycleInput")((ctx: Context, input: Json) =>
     Effect.fromResult(decodeProductLifecycleIds(input)).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error))));
-  const create = defineCommerceCommand("productCreate", "write", Effect.fn("ProductAdapter.create")(function* (ctx, input) {
+  const create = defineCommerceCommand("productCreate", "write", Effect.fnUntraced(function* (ctx, input) {
     yield* validateProductCreate(metadata, input).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
     // SAFETY: the external graph is checked before the unchanged service, then its
     // normalized values are checked against DML columns by the DAL and core.
@@ -80,7 +80,7 @@ export function productMutationCommands({ metadata, withService, withCollectionS
     return yield* withService(ctx, ({ service, context }) => Array.isArray(decoded)
       ? service.createProducts(structuredClone(decoded) as ProductTypes.CreateProductDTO[], context)
       : service.createProducts(structuredClone(decoded) as ProductTypes.CreateProductDTO, context));
-  }));
+  }, effect => Effect.withSpan(effect, "ProductAdapter.create", { captureStackTrace: false })));
   const productChange = (operation: "update" | "upsert") => defineCommerceCommand("product" + (operation === "update" ? "Update" : "Upsert"), "write", Effect.fn("ProductAdapter.change")(function* (ctx, input) {
     const selected = operation === "upsert" ? undefined : yield* Effect.fromResult(decodeRelatedUpdate(input)).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
     if (selected !== undefined && selected.data.id !== undefined && selected.data.id !== selected.id) return yield* ctx.refuse(commerceError("invalidInput"));

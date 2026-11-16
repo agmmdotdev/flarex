@@ -40,7 +40,7 @@ function refusal(selection: Selection, sourceId: string, targetId: string, reaso
     sourceTable: selection.source.name, targetTable: selection.target.name, sourceId, targetId });
 }
 
-export const prepareCoreNativeProtectedReferences = Effect.fn("CoreNativeProtectedReferences.prepare")(function* (
+export const prepareCoreNativeProtectedReferences = Effect.fnUntraced(function* (
   snapshot: CorePersistenceSnapshot, registry: CoreRegistry, transaction: CoreFinalizedState, budget?: CoreNativeIntegrityBudget,
 ) {
   const reads = new CoreReadSetBuilder(), grantReads = new CoreReadSetBuilder();
@@ -69,7 +69,7 @@ export const prepareCoreNativeProtectedReferences = Effect.fn("CoreNativeProtect
     selections.set(key, { reference, source, target });
   }
   const probes = new Map<string, CoreNativeKeyProbe>();
-  const probe = Effect.fn("CoreNativeProtectedReferences.probe")(function* (table: CoreTableDefinition, indexName: string, field: string, value: string) {
+  const probe = Effect.fnUntraced(function* (table: CoreTableDefinition, indexName: string, field: string, value: string) {
     const index = table.indexes.find(candidate => candidate.name === indexName);
     const generation = index === undefined ? undefined : registry.indexes.records.get(encodeBytesToLowercaseHex(index.ref.id));
     if (index === undefined || index.fields[0] !== field || generation === undefined || !isCoreIndexEnabled(generation)
@@ -94,7 +94,7 @@ export const prepareCoreNativeProtectedReferences = Effect.fn("CoreNativeProtect
       }),
     });
     reads.add(index.ref.id, interval); probes.set(key, result); return result;
-  });
+  }, effect => Effect.withSpan(effect, "CoreNativeProtectedReferences.probe", { captureStackTrace: false }));
   for (const selection of selections.values()) {
     const reference = selection.reference, declaration = reference.reference;
     for (const change of transaction.changes) {
@@ -126,7 +126,7 @@ export const prepareCoreNativeProtectedReferences = Effect.fn("CoreNativeProtect
   }
   return { reads: reads.snapshot(), grantReads: grantReads.snapshot(), demands, releases, maxIdentities, identities: [...identities],
     sourceCaptures: sources.map(source => ({ ...source, identities: [...source.identities] })) } satisfies CorePreparedNativeProtectedReferences;
-});
+}, effect => Effect.withSpan(effect, "CoreNativeProtectedReferences.prepare", { captureStackTrace: false }));
 
 export function validateCoreNativeProtectedReferences(prepared: CorePreparedNativeProtectedReferences, accepted: Iterable<CoreWriteBatch>,
   candidate: CoreWriteBatch, budget?: CoreNativeIntegrityBudget): Result.Result<ReadonlySet<CoreWriteBatch>, CoreError> {

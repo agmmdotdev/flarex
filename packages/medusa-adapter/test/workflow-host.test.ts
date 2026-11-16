@@ -14,7 +14,7 @@ import { checkedCommerceValue } from "../src/value/checked";
 import { prepareAtomicWorkflowHost, prepareWorkflowComposition, captureInstalledWorkflowModules, type InstalledWorkflowModule, type AtomicWorkflowExecution } from "../src/workflow/host";
 import { runNativeMedusaWorkflow } from "../src/workflow/runtime";
 import type { CommercePromiseOwner } from "../src/module/promise-owner";
-import { captureWorkflowValue } from "../src/workflow/value";
+import { captureWorkflowValue, presentWorkflowValue } from "../src/workflow/value";
 
 const source = { name: "sample-module", profile: "sample", models: [], extensions: [], capabilities: [] };
 const command = defineGraphReadCommand("sampleRead", () => Effect.succeed([[], 0]));
@@ -414,17 +414,23 @@ describe("workflow registration and scoped resource composition", () => {
     expect(getter).not.toHaveBeenCalled();
   });
 
-  it("restores own undefined fields in mutable detached workflow inputs", async () => {
+  it("issues frozen workflow values and presents own undefined fields in mutable detached inputs", async () => {
     const foreign = { missing: undefined, nested: { missing: undefined, count: 1 } };
-    const owned = await Effect.runPromise(captureWorkflowValue(context(), foreign));
+    const issued = await Effect.runPromise(captureWorkflowValue(context(), foreign));
+    expect(issued).toEqual(foreign);
+    expect(issued).not.toBe(foreign);
+    expect(Object.getOwnPropertyDescriptor(issued, "missing")).toMatchObject({ value: undefined, enumerable: true });
+    expect(Object.isFrozen(issued)).toBe(true);
+    const owned = presentWorkflowValue(issued);
     expect(owned).toEqual(foreign);
-    expect(owned).not.toBe(foreign);
+    expect(owned).not.toBe(issued);
     expect(Object.getOwnPropertyDescriptor(owned, "missing"))
       .toMatchObject({ value: undefined, enumerable: true, writable: true, configurable: true });
     expect(Object.isFrozen(owned)).toBe(false);
-    if (typeof owned !== "object" || owned === null) throw new Error("Expected captured workflow object");
+    if (typeof owned !== "object" || owned === null) throw new Error("Expected presented workflow object");
     expect(Reflect.set(owned, "missing", "changed")).toBe(true);
     expect(foreign.missing).toBeUndefined();
+    expect(issued).toEqual(foreign);
   });
   it("detaches each reached native callback without mutating retained outputs or omission fields", async () => {
     const reached: object[] = [];

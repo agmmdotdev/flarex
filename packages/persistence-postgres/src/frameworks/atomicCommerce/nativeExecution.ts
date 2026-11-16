@@ -43,9 +43,16 @@ const events = <A>(work: Effect.Effect<A, CommitEventError>) => work.pipe(Effect
     : failure.reason === "storedCorruption" ? "storedCorruption" : failure.reason === "resourceFailure" ? "resourceFailure"
       : failure.reason === "statementFailure" ? "statementFailure" : "unadmittedEvent", failure)))));
 
+const assertSelection = Effect.fnUntraced(function* (
+  configuration: PreparedAtomicCommerceNativeConfiguration, selected: readonly AtomicCommerceNativeParticipant[],
+) {
+  yield* configuration.database.assertOpen.pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectCoreCommerceFailure))));
+  for (const participant of selected) yield* core(configuration.database.readNativeBinding(participant.binding));
+}, effect => Effect.withSpan(effect, "AtomicCommerceNative.assertSelection", { captureStackTrace: false }));
+
 /** One ordinary native workflow borrows one Core root. Native methods receive
  * only their selected source store/context; settlement never enters a resource. */
-export const executeAtomicCommerceNative = Effect.fn("AtomicCommerceNative.execute")(function* (
+export const executeAtomicCommerceNative = Effect.fnUntraced(function* (
   configuration: PreparedAtomicCommerceNativeConfiguration,
   selected: readonly AtomicCommerceNativeParticipant[], operation: CoreNativeRootOperation,
   eventBinding: CoreNativeBinding | undefined, lifetime: BoundedRequestLifetime<CommerceTransactionError>,
@@ -53,16 +60,12 @@ export const executeAtomicCommerceNative = Effect.fn("AtomicCommerceNative.execu
 ) {
   const rootCommand = getAtomicCommerceCommand(token);
   if (rootCommand === undefined || !configuration.allowed.has(token)) return yield* commerceError("invalidAuthority");
-  const assertSelection = Effect.fn("AtomicCommerceNative.assertSelection")(function* () {
-    yield* configuration.database.assertOpen.pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectCoreCommerceFailure))));
-    for (const participant of selected) yield* core(configuration.database.readNativeBinding(participant.binding));
-  });
   const eventOperations = eventBinding === undefined ? undefined : yield* core(operation.native(eventBinding));
   const family = eventOperations === undefined || configuration.eventStorage === undefined ? undefined
     : yield* events(prepareCoreRootCommitEventFamily(configuration.database, eventOperations, configuration.eventStorage.definition));
   if (family !== undefined) yield* lifetime.fromResult(lifetime.charge(family.retainedBytes));
   const eventCapture = configuration.eventPolicy === undefined ? undefined
-    : makeAtomicEventCapture(assertSelection(), lifetime, requestKey, configuration.eventPolicy, configuration.limits.eventLimit);
+    : makeAtomicEventCapture(assertSelection(configuration, selected), lifetime, requestKey, configuration.eventPolicy, configuration.limits.eventLimit);
   const participants = yield* Effect.forEach(selected, participant => core(operation.native(participant.binding)).pipe(Effect.map((operations): ParticipantExecution => {
     const activity = makeNativeCommerceActivity(operations, participant.metadata, lifetime);
     return { ...participant, operations, activity, original: activity.cursor(),
@@ -226,7 +229,7 @@ export const executeAtomicCommerceNative = Effect.fn("AtomicCommerceNative.execu
         consumed, operation.unixTime, configuration.database));
     }
     yield* lifetime.close;
-    yield* assertSelection();
+    yield* assertSelection(configuration, selected);
     return { value: canonical.valueJson, finalized: yield* core(operation.finalize()), deadline: lifetime.deadlineUnixMilliseconds };
   }), queue => (queue === undefined ? Effect.void : queue.close).pipe(Effect.andThen(lifetime.close)));
-});
+}, effect => Effect.withSpan(effect, "AtomicCommerceNative.execute", { captureStackTrace: false }));

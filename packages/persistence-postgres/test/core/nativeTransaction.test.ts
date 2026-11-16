@@ -1,7 +1,7 @@
 import { Effect, Option, Result } from "effect";
 import { describe, expect, it, vi } from "vitest";
 import { bytesEqual, compareBytesLexicographically } from "@flarex/utils/bytes";
-import { encodeDocumentValue, type DocumentObject } from "flarex-protocol/document-value";
+import { captureDocumentObject, encodeDocumentValue, isProvenScalarDocumentRoot, type DocumentObject } from "flarex-protocol/document-value";
 import { compilePayloadCollections } from "../../../payload-adapter/src/collections";
 import type { CoreTableDefinition } from "../../src/core/api";
 import { CorePersistenceError, type CoreDocumentLogEntry, type CoreIndexScan, type CorePersistenceSnapshot } from "../../src/core/contracts";
@@ -336,6 +336,43 @@ describe("native transaction observations over the source transaction", () => {
     const second = Result.getOrThrow(deriveCoreWriteBatch(finalized, 31n));
     expect(second.documents.map(document => document.jsonValue)).toEqual(fresh);
     for (const [position, document] of second.documents.entries()) if (!document.deleted) expect(document.jsonValue).not.toBe(kept[position]);
+  });
+
+  it("walks a staged scalar document once and stores what a body that is not frozen stores", async () => {
+    const staged = async (prepare: (value: ReturnType<typeof body>) => ReturnType<typeof body>) => {
+      const tested = await fixture();
+      const supplied = prepare(body("inserted"));
+      const inserted = await Effect.runPromise(tested.operations.insert(tested.table.name, supplied));
+      // A body Core did not freeze can still be written by its holder; nothing staged follows it.
+      if (!Object.isFrozen(supplied)) { supplied.title = "changed"; supplied.amount = 99; }
+      await Effect.runPromise(tested.operations.patch(tested.id(201), prepare({ ...body("first"), amount: 17 })));
+      const refused = await Effect.runPromiseExit(tested.operations.insert(tested.table.name, prepare({ ...body("refused"), title: "\ud800" })));
+      const usage = await Effect.runPromise(tested.context.transaction.usage);
+      const retained = tested.retained.snapshot();
+      const finalized = await tested.finalized();
+      const finals = finalized.changes.map(change => change.finalDocument);
+      const proven = finals.map(document => document !== null && isProvenScalarDocumentRoot(document));
+      const kept = finals.map(document => document === null ? undefined : finalized.encodedDocuments?.take(document));
+      for (const [position, document] of finals.entries()) {
+        const encoded = kept[position];
+        if (document === null || encoded === undefined) throw new Error("Missing kept final document bytes");
+        expect(encoded).toEqual(Result.getOrThrow(encodeDocumentValue(structuredClone(document))));
+        // Staging's walk was the proving one: a second walk would have issued another root.
+        expect(Result.getOrThrow(captureDocumentObject(document))).toBe(document);
+        finalized.encodedDocuments?.offer(document, encoded);
+      }
+      const batch = Result.getOrThrow(deriveCoreWriteBatch(finalized, 30n));
+      for (const [position, document] of batch.documents.entries()) expect(document.jsonValue).toBe(kept[position]);
+      return { inserted, refused, usage, retained, proven, finals,
+        stored: batch.documents.map(document => document.jsonValue), indexes: batch.indexes };
+    };
+    const open = await staged(value => value);
+    const frozen = await staged(value => Object.freeze(value));
+    expect(frozen.proven).toEqual([true, true]);
+    expect(open.proven).toEqual([true, true]);
+    expect(frozen.finals.map(document => document?.title)).toEqual(["inserted", "first"]);
+    expect(frozen.refused._tag).toBe("Failure");
+    expect(frozen).toEqual(open);
   });
 
   it("encodes a final document with a binary leaf again at commit", async () => {

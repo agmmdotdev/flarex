@@ -12,11 +12,12 @@ type Project<Input> = (result: Json, input: Input) => Json;
  * The command's input boundary already owns JSON capture and byte accounting. */
 export function commerceCommandPreparation(name: string) {
   return <Input>(decode: (input: unknown) => Result.Result<Input, CommerceTransactionError>): Prepare<Input> =>
-    Effect.fn(name)((ctx: CommerceCommandContext, input: Json) =>
-      Effect.fromResult(decode(input)).pipe(
+    Effect.fnUntraced(function* (ctx: CommerceCommandContext, input: Json) {
+      return yield* Effect.fromResult(decode(input)).pipe(
         Effect.map(value => structuredClone(value)),
         Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)),
-      ));
+      );
+    }, effect => Effect.withSpan(effect, name, { captureStackTrace: false }));
 }
 interface ServiceCommands<Service> {
   readonly read: <Input>(name: string, prepare: Prepare<Input>, invoke: Invoke<Service, Input>) => GraphReadCommand;
@@ -31,11 +32,11 @@ interface ServiceCommands<Service> {
  * Several prepared module profiles can coexist without a global Context. */
 export function commerceServiceCommands<Service>(use: PreparedCommerceModule<Service>["use"]): ServiceCommands<Service> {
   const run = <Input>(name: string, prepare: Prepare<Input>, invoke: Invoke<Service, Input>, project?: Project<Input>) =>
-    Effect.fn(name)(function* (ctx: CommerceCommandContext, input: Json) {
+    Effect.fnUntraced(function* (ctx: CommerceCommandContext, input: Json) {
       const prepared = yield* prepare(ctx, input);
       const result = yield* use(ctx, service => invoke(service, prepared));
       return project === undefined ? result : project(result, prepared);
-    });
+    }, effect => Effect.withSpan(effect, name, { captureStackTrace: false }));
   return {
     read: (name, prepare, invoke) => defineGraphReadCommand(name, run(name, prepare, invoke)),
     write: (name, prepare, invoke, project) => defineCommerceCommand(name, "write", run(name, prepare, invoke, project)),

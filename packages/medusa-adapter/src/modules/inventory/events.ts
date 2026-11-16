@@ -19,13 +19,13 @@ export function inventoryCreateEventPolicy(levels = false) {
     metadata: Schema.Struct({ source: Schema.Literal(Modules.INVENTORY), object: Schema.Literals(levels ? ["inventory_item", "inventory_level"] : ["inventory_item"]), action: Schema.Literal(CommonEvents.CREATED) }),
     data: Schema.Struct({ id: Schema.Union([Id, Schema.Array(Id).check(Schema.isLengthBetween(1, levels ? 8 : 4))]) }),
   }), defaultCommerceResources);
-  const capture = Effect.fn("InventoryEvents.capture")(function* (input: unknown) {
+  const capture = Effect.fnUntraced(function* (input: unknown) {
     const message = yield* decode(input);
     if (message.name !== buildModuleResourceEventName({ prefix: Modules.INVENTORY, objectName: message.metadata.object, action: CommonEvents.CREATED }))
       return yield* Effect.fail(commerceError("unadmittedEvent"));
     return message;
-  });
-  const validateCreationCall = Effect.fn("InventoryEvents.validateCall")(function* (
+  }, effect => Effect.withSpan(effect, "InventoryEvents.capture", { captureStackTrace: false }));
+  const validateCreationCall = Effect.fnUntraced(function* (
     call: Parameters<LogicalCallReceiptValidation>[0], activity: Parameters<LogicalCallReceiptValidation>[1],
   ) {
     if (activity.lifecycle.length || activity.setNull.length || activity.referenceReplacements.length)
@@ -86,7 +86,7 @@ export function inventoryCreateEventPolicy(levels = false) {
     }
     if (expected.size) return yield* Effect.fail(commerceError("receiptMismatch"));
     return itemCohort;
-  });
+  }, effect => Effect.withSpan(effect, "InventoryEvents.validateCall", { captureStackTrace: false }));
   const validateLogicalCall: LogicalCallReceiptValidation = (call, activity) => validateCreationCall(call, activity).pipe(Effect.asVoid);
   return { capture, validateLogicalCall, validateCreationCall };
 }

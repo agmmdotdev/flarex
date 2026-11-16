@@ -158,12 +158,12 @@ const compose = Effect.fn("CommerceNativeHost.compose")(function* (hostInput: Re
   const policy = yield* Effect.fromResult(capturedPolicy);
   const initialization = yield* makeNativeCommerceInitialization(database, binding, initializationInput);
   const initializerBinding = readOnly ? undefined : yield* coreResult(database.bindNativeInitialization({ binding, commandName: commerceNativeInitializationCommand.name }));
-  const readBinding = Effect.fn("CommerceNativeHost.readBinding")(function* () {
+  const readBinding = Effect.fnUntraced(function* () {
     const metadata = yield* initialization.readBinding();
     if (metadata.definition.source.definition.kind !== "relational" || registrations.some(selected => !metadata.commands.some(command =>
       command.name === selected.name && command.mode === selected.mode))) return yield* commerceError("invalidAuthority");
     return metadata;
-  });
+  }, effect => Effect.withSpan(effect, "CommerceNativeHost.readBinding", { captureStackTrace: false }));
   const initial = yield* readBinding();
   if (eventInput?.derivedIdEvent !== undefined && !initial.definition.tables.some(table =>
     table.name === eventInput.derivedIdEvent?.sourceTable && table.privateEvent === undefined && table.privateReference === undefined))
@@ -191,7 +191,7 @@ const compose = Effect.fn("CommerceNativeHost.compose")(function* (hostInput: Re
   yield* chargeHostPreparation({ native: initial.definition.identity, commands: registrations, initialization: initialization.descriptor,
     policy: profilePolicy }).pipe(Effect.mapError(projectRetentionFailure));
   const owner = Object.freeze({ hostId: Symbol("commerce.nativeHost") });
-  const select = Effect.fn("CommerceNativeHost.select")(function* (token: CommerceCommand, mode?: "read" | "write") {
+  const select = Effect.fnUntraced(function* (token: CommerceCommand, mode?: "read" | "write") {
     const metadata = yield* readBinding();
     const definition = getCommerceCommand(token);
     if (!allowed.has(token) || definition === undefined || (mode !== undefined && definition.mode !== mode))
@@ -199,8 +199,8 @@ const compose = Effect.fn("CommerceNativeHost.compose")(function* (hostInput: Re
     const command = metadata.commands.find(candidate => candidate.name === definition.name && candidate.mode === definition.mode);
     if (command === undefined) return yield* commerceError("bindingChanged");
     return { definition, command, metadata };
-  });
-  const execute = Effect.fn("CommerceNativeHost.execute")(function* (commandName: string, token: CommerceCommand | null,
+  }, effect => Effect.withSpan(effect, "CommerceNativeHost.select", { captureStackTrace: false }));
+  const execute = Effect.fnUntraced(function* (commandName: string, token: CommerceCommand | null,
     args: Json, evidenceBytes: number, claim?: CoreRequestClaim) {
     const metadata = yield* readBinding();
     const command = metadata.commands.find(candidate => candidate.name === commandName);
@@ -224,7 +224,7 @@ const compose = Effect.fn("CommerceNativeHost.compose")(function* (hostInput: Re
         yield* lifetime.fromResult(lifetime.charge(evidenceBytes));
         const working = yield* makeNativeCommerceParticipant(operation.operations, metadata, lifetime, lifetime.context, id, operation.unixTime, resources,
           undefined, readOnly);
-        const invoke = Effect.fn("CommerceNativeHost.invoke")(function* (
+        const invoke = Effect.fnUntraced(function* (
           context: BoundedRequestContext, child: CommerceCommand, value: Json,
         ): Effect.fn.Return<Json, CommerceTransactionError> {
           const selected = yield* select(child);
@@ -239,7 +239,7 @@ const compose = Effect.fn("CommerceNativeHost.compose")(function* (hostInput: Re
           const capturedOutput = yield* lifetime.fromResult(captureCommerceJsonData(output, lifetime.remainingBytes()));
           yield* lifetime.fromResult(lifetime.charge(capturedOutput.bytes));
           return capturedOutput.value;
-        });
+        }, effect => Effect.withSpan(effect, "CommerceNativeHost.invoke", { captureStackTrace: false }));
         let value: Json;
         if (token === null) {
           for (const table of metadata.tables) if (!(yield* coreResult(operation.operations.isEmpty(table.name))))
@@ -299,7 +299,7 @@ const compose = Effect.fn("CommerceNativeHost.compose")(function* (hostInput: Re
         chargeRetained, remainingBytes: lifetime.remainingBytes, ...(claim === undefined ? {} : { claim }) }));
     return yield* Effect.acquireUseRelease(beginOperation, operation => body(operation),
     operation => operation.abort()).pipe(Effect.ensuring(lifetime.close));
-  });
+  }, effect => Effect.withSpan(effect, "CommerceNativeHost.execute", { captureStackTrace: false }));
   const abortWithCause = <Failure>(claim: CoreRequestClaim, cause: Cause.Cause<Failure>) => coreResult(database.abortRequest(claim)).pipe(
     Effect.exit, Effect.flatMap(aborted => Effect.failCause(Exit.isFailure(aborted) ? Cause.combine(cause, aborted.cause) : cause)));
   const write = Effect.fn("CommerceNativeHost.write")(function* (identity: CoreRequestIdentity,
@@ -347,12 +347,12 @@ const compose = Effect.fn("CommerceNativeHost.compose")(function* (hostInput: Re
     return yield* write(identity, root ?? binding,
       selected.command.name, token, captured.value, evidence.canonicalByteLength);
   });
-  const read = Effect.fn("CommerceNativeHost.read")(function* (token: CommerceCommand, args: Json) {
+  const read = Effect.fnUntraced(function* (token: CommerceCommand, args: Json) {
     const selected = yield* select(token, "read");
     yield* initialization.requireReady;
     const captured = yield* Effect.fromResult(captureCommerceJsonData(args, limits.commandBytes));
     return (yield* execute(selected.command.name, token, captured.value, captured.bytes)).value;
-  });
+  }, effect => Effect.withSpan(effect, "CommerceNativeHost.read", { captureStackTrace: false }));
   const initialize = Effect.fn("CommerceNativeHost.initialize")(function* (rows: Json) {
     if (initializerBinding === undefined) return yield* commerceError("invalidAuthority");
     yield* readBinding();

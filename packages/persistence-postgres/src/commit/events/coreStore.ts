@@ -139,7 +139,7 @@ const rootRequestPolicy = (frame: CoreNativeRootRequestEvidence["frame"]) => {
   }));
 };
 
-export const coreNativeRootEventFamilyId = Effect.fn("CoreNativeEvents.rootFamilyId")(function* (
+export const coreNativeRootEventFamilyId = Effect.fnUntraced(function* (
   evidence: CoreNativeRootRequestEvidence,
 ) {
   const identity = yield* capturePrivateCanonicalValue({ format: "flarex.native-root-event-family", version: 1,
@@ -147,11 +147,11 @@ export const coreNativeRootEventFamilyId = Effect.fn("CoreNativeEvents.rootFamil
     key: evidence.key, requestHash: evidence.requestHash }, 4096,
   { invalidInput: () => eventError("invalidAuthority"), hashFailure: cause => eventError("resourceFailure", cause) });
   return identity.sha256Hex;
-});
+}, effect => Effect.withSpan(effect, "CoreNativeEvents.rootFamilyId", { captureStackTrace: false }));
 
 /** Run before native callbacks. The exact metadata commitment and maximum
  * header are retained/charged once, within the existing native document cap. */
-export const prepareCoreRootCommitEventFamily = Effect.fn("CoreNativeEvents.prepareRootFamily")(function* (
+export const prepareCoreRootCommitEventFamily = Effect.fnUntraced(function* (
   authority: RootEventAuthority, operations: CoreNativeOperations, definition: CoreNativeDefinition,
 ): Effect.fn.Return<PreparedRootFamily, CommitEventError> {
   const storage = yield* Effect.fromResult(coreNativeEventStorage(definition));
@@ -181,12 +181,12 @@ export const prepareCoreRootCommitEventFamily = Effect.fn("CoreNativeEvents.prep
   const family = Object.freeze({ id, request, packedRequest, retainedBytes: new TextEncoder().encode(packedRequest).byteLength, policy });
   preparedRootFamilies.set(operations, Object.freeze({ authority, definition, family }));
   return family;
-});
+}, effect => Effect.withSpan(effect, "CoreNativeEvents.prepareRootFamily", { captureStackTrace: false }));
 
 /** The host consumes its authentic sealed Commerce closure before calling this
  * trusted storage seam. All input is captured before hashing or the first write.
  * Publication densely numbers the surviving values, matching the old publisher. */
-export const stageCoreCommitEventFamily = Effect.fn("CoreNativeEvents.stageFamily")(function* (
+export const stageCoreCommitEventFamily = Effect.fnUntraced(function* (
   operations: CoreNativeOperations, definition: CoreNativeDefinition, familyId: string,
   input: CoreNativeEventFamilyInput, unixTime: number, rootAuthority?: RootEventAuthority,
 ) {
@@ -263,7 +263,7 @@ export const stageCoreCommitEventFamily = Effect.fn("CoreNativeEvents.stageFamil
   for (const group of records) yield* observeExecution(`CoreNativeEvents.stage/${group.phase}`, Effect.gen(function* () {
     for (const record of group.rows) yield* core(operations.insert(group.table.name, record));
   }));
-});
+}, effect => Effect.withSpan(effect, "CoreNativeEvents.stageFamily", { captureStackTrace: false }));
 
 declare const verifiedBrand: unique symbol;
 export interface VerifiedCoreCommitEventFamily { readonly [verifiedBrand]: true }

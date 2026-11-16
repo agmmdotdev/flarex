@@ -194,7 +194,7 @@ export function prepareLocalGraph(participants: readonly GraphParticipant[]): Re
     return Object.freeze({ entities: Object.freeze([...entries.keys()]), bind: (context): LocalGraphQuery => {
       // Only newly originated planner/result failures enter refusal here. A
       // participant call already owns its full failure Cause and must propagate.
-      const execute = Effect.fn("LocalGraph.query")(function* (input: unknown, service: boolean, native: boolean, options?: unknown) {
+      const execute = Effect.fnUntraced(function* (input: unknown, service: boolean, native: boolean, options?: unknown) {
         const { entry, args, fields, order } = yield* checkedCommerceValue(context, () => planQuery(input, service ? services : entries, service, native));
         const read = entry.read;
         if (read.result === "list") return yield* context.refuse(commerceError("unsupportedProfile"));
@@ -231,8 +231,8 @@ export function prepareLocalGraph(participants: readonly GraphParticipant[]): Re
         const populated = selectedRemote.length === 0 ? rows
           : yield* populateGraphRemotePaths(context, rows, fields.node, remote ?? new Map(), endpoints, direct);
         return yield* checkedCommerceValue(context, () => graphResult(populated, count, fields, skip, take));
-      });
-      const list = Effect.fn("LocalGraph.list")(function* (input: unknown) {
+      }, effect => Effect.withSpan(effect, "LocalGraph.query", { captureStackTrace: false }));
+      const list = Effect.fnUntraced(function* (input: unknown) {
         const { args, entry, fields, order } = yield* checkedCommerceValue(context, () => Result.gen(function* () {
           const captured = yield* capturePrivateJsonData(input, commerceLimits.commandBytes, commerceError), args = yield* decodeListInput(captured.value), entry = entries.get(args.entity);
           if (entry === undefined || entry.read.result !== "list" || remotePaths.has(entry.read.model) || linkEndpoints.has(entry.read.model) || directPaths.has(entry.read.model) ||
@@ -245,7 +245,7 @@ export function prepareLocalGraph(participants: readonly GraphParticipant[]): Re
           config: { select: fields.select, relations: fields.relations, order } });
         const rows = yield* checkedCommerceValue(context, () => read.decode(value));
         return yield* checkedCommerceValue(context, () => fields.project(rows));
-      });
+      }, effect => Effect.withSpan(effect, "LocalGraph.list", { captureStackTrace: false }));
       return Object.freeze({ graph: (input: unknown, options?: unknown) => execute(input, false, false, options), service: (input: unknown) => execute(input, true, true), native: (input: unknown) => execute(input, false, true), list });
     } } satisfies PreparedLocalGraph);
   });

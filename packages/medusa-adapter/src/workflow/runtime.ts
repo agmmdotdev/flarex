@@ -4,12 +4,12 @@ import { WorkflowDefinitionError, type PreparedWorkflow, type WorkflowContainer 
 import type { AtomicCommerceContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { makeCommercePromiseOwner, type CommercePromiseOwner } from "../module/promise-owner";
-import { captureWorkflowValue } from "./value";
+import { captureWorkflowValue, presentWorkflowValue } from "./value";
 import { captureCommerceInput } from "../value/input";
 import { borrowWorkflowResourceContext } from "./resources";
 
 /** One native root owns the foreign step/hook callbacks and their service runners. */
-export const runNativeMedusaWorkflow = Effect.fn("MedusaWorkflow.runNative")(function* (
+export const runNativeMedusaWorkflow = Effect.fnUntraced(function* (
   definition: PreparedWorkflow, ctx: AtomicCommerceContext, input: unknown,
   bind: (owner: CommercePromiseOwner) => WorkflowContainer,
 ) {
@@ -22,6 +22,7 @@ export const runNativeMedusaWorkflow = Effect.fn("MedusaWorkflow.runNative")(fun
     storedWorkflowPolicy: "atomicRootOutcome",
     checkpoint: ctx.checkpoint,
     capture: value => captureWorkflowValue(ctx, value),
+    present: presentWorkflowValue,
     context: { container, eventGroupId: ctx.eventGroupId },
     invoke: work => owner.invoke(() => Promise.resolve(work()), error => error instanceof WorkflowDefinitionError
       ? commerceError("unsupportedProfile", error) : undefined),
@@ -39,4 +40,4 @@ export const runNativeMedusaWorkflow = Effect.fn("MedusaWorkflow.runNative")(fun
         : ctx.capture(value === undefined ? null : value, captureCommerceInput);
     }),
   ));
-});
+}, effect => Effect.withSpan(effect, "MedusaWorkflow.runNative", { captureStackTrace: false }));

@@ -11,19 +11,20 @@ export type ProductTable = string;
 export interface ProductGraph { readonly products: readonly string[]; readonly rows: ReadonlyMap<ProductTable, readonly JsonObject[]> }
 
 /** Refuse unsupported input before Medusa can normalize away unknown members. */
-export const validateProductCreate = Effect.fn("ProductAdapter.validateCreate")((catalog: ProductRuntimeMetadata, input: Json) =>
-  Effect.fromResult(catalog.valueProfile.validateCreate(input)));
+export const validateProductCreate = (catalog: ProductRuntimeMetadata, input: Json) =>
+  Effect.withSpan(Effect.suspend(() => Effect.fromResult(catalog.valueProfile.validateCreate(input))),
+    "ProductAdapter.validateCreate", { captureStackTrace: false });
 
-export const captureProductGraph = Effect.fn("ProductAdapter.captureGraph")(function* (
+export const captureProductGraph = Effect.fnUntraced(function* (
   catalog: ProductRuntimeMetadata, input: unknown, resources: CommerceResources = defaultCommerceResources,
 ) {
   const graph = yield* captureGraph(productCreationProfile(catalog), input, resources);
   return { products: graph.roots, rows: graph.rows } satisfies ProductGraph;
-}, work => observeExecution("ProductGraph.capture", work));
+}, work => observeExecution("ProductGraph.capture", work), effect => Effect.withSpan(effect, "ProductAdapter.captureGraph", { captureStackTrace: false }));
 
-export const insertProductGraph = Effect.fn("ProductAdapter.insertGraph")((
-  ctx: CommerceCommandContext, catalog: ProductRuntimeMetadata, graph: ProductGraph,
-) => observeExecution("ProductGraph.insert", insertGraphRows(ctx, productGraphCatalog(catalog), graph.rows)));
+export const insertProductGraph = (ctx: CommerceCommandContext, catalog: ProductRuntimeMetadata, graph: ProductGraph) =>
+  Effect.withSpan(Effect.suspend(() => observeExecution("ProductGraph.insert", insertGraphRows(ctx, productGraphCatalog(catalog), graph.rows))),
+    "ProductAdapter.insertGraph", { captureStackTrace: false });
 
 /** Reuse Medusa's relation grouping for the newly inserted, acyclic graph. */
 export function assembleProducts(catalog: ProductRuntimeMetadata, rows: ReadonlyMap<ProductTable, readonly JsonObject[]>, relations: readonly string[]) {

@@ -31,23 +31,23 @@ export function pricingListCreationPolicy(contracts: Contracts, fallback?: Reado
     ["price_list", contracts.decodeListRow], ["price", contracts.decodePriceRow],
     ["price_list_rule", contracts.decodeListRuleRow], ["price_rule", contracts.decodePriceRuleRow],
   ]);
-  const captureListEvent = Effect.fn("PricingLists.captureListEvent")(function* (input: unknown) {
+  const captureListEvent = Effect.fnUntraced(function* (input: unknown) {
     const message = yield* decodeEvent(input);
     if (message.name !== buildModuleResourceEventName({ prefix: Modules.PRICING,
       objectName: message.metadata.object, action: message.metadata.action }) ||
       message.metadata.action === "deleted" && message.metadata.object !== "price_list")
       return yield* Effect.fail(commerceError("unadmittedEvent"));
     return message;
-  });
-  const capture = Effect.fn("PricingLists.captureEvent")(function* (input: unknown) {
+  }, effect => Effect.withSpan(effect, "PricingLists.captureListEvent", { captureStackTrace: false }));
+  const capture = Effect.fnUntraced(function* (input: unknown) {
     const captured = yield* Effect.fromResult(captureCommerceInput(input, defaultCommerceResources));
     if (fallback && (!isJsonObject(captured) || captured.metadata === undefined || !isJsonObject(captured.metadata) ||
       typeof captured.metadata.object !== "string" || !decoders.has(captured.metadata.object) ||
       captured.metadata.action !== "created" && captured.metadata.action !== "deleted" ||
       captured.metadata.action === "deleted" && captured.metadata.object !== "price_list")) return yield* fallback.capture(captured);
     return yield* captureListEvent(captured);
-  });
-  const validateLogicalCall: LogicalCallReceiptValidation = Effect.fn("PricingLists.validateCall")(function* (call, activity) {
+  }, effect => Effect.withSpan(effect, "PricingLists.captureEvent", { captureStackTrace: false }));
+  const validateLogicalCall: LogicalCallReceiptValidation = Effect.fnUntraced(function* (call, activity) {
     const mismatch = () => commerceError("receiptMismatch");
     if (call.commandName !== "pricingCreateList" && call.commandName !== "pricingDeleteList" && fallback)
       return yield* fallback.validateLogicalCall(call, activity);
@@ -141,6 +141,6 @@ export function pricingListCreationPolicy(contracts: Contracts, fallback?: Reado
         if (expectedEvents[emitted++] !== message.metadata.object + ":" + id) return yield* Effect.fail(mismatch());
     }
     if (emitted !== expectedEvents.length) return yield* Effect.fail(mismatch());
-  });
+  }, effect => Effect.withSpan(effect, "PricingLists.validateCall", { captureStackTrace: false }));
   return { capture, validateLogicalCall, ...(fallback === undefined ? { allowStorageInsertionOrder: true as const } : {}) };
 }

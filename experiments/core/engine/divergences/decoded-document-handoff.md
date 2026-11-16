@@ -49,8 +49,12 @@ Measurement status: **Required gates unmet**; local load only.
   object with its own bytes, so the later document wins; bytes of a displaced document
   are never looked up and are released with it.
 - Only a document of frozen containers over scalar leaves is kept, since it cannot
-  change and its kept bytes are what a fresh encode returns. A binary leaf can be
-  written or detached by any holder, so such a document is encoded again at commit.
+  change and its kept bytes are what a fresh encode returns. Core freezes the document
+  it assembles before staging, so staging's one codec walk proves it, the encode
+  reuses that walk, and the handoff accepts the document on the capture owner's
+  identity evidence instead of inspecting it again. A document without that evidence
+  is still inspected here. A binary leaf can be written or detached by any holder, so
+  such a document is encoded again at commit.
 - A taken entry leaves the handoff: a second batch from the same finalized state encodes
   its own bytes, and no two batches share one byte array.
 - The byte limit, the retained-byte charge, their order and the stored bytes are

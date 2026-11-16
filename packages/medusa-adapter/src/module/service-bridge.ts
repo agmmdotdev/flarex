@@ -4,7 +4,7 @@ import { useCapturedPrivateJsonData, commerceError } from "@flarex/persistence-p
 import { makeCommercePromiseOwner, type CommercePromiseOwner } from "./promise-owner";
 
 /** One command owns all foreign framework continuations and DAL runners. */
-export const withCommerceService = Effect.fn("MedusaAdapter.withService")(function* <Service>(
+export const withCommerceService = Effect.fnUntraced(function* <Service>(
   ctx: CommerceCommandContext, compose: (owner: CommercePromiseOwner) => Service,
   work: (service: Service) => Promise<unknown>,
 ) {
@@ -14,4 +14,4 @@ export const withCommerceService = Effect.fn("MedusaAdapter.withService")(functi
     if (owner.hasPending()) return yield* ctx.refuse(commerceError("overlappingOperation"));
     return (yield* Effect.fromResult(useCapturedPrivateJsonData(value, ctx.resources.commandBytes, commerceError))).value;
   }));
-});
+}, effect => Effect.withSpan(effect, "MedusaAdapter.withService", { captureStackTrace: false }));

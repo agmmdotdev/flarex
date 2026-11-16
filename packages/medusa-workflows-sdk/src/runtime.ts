@@ -12,8 +12,15 @@ export interface WorkflowExecutionPort<Failure> {
   readonly storedWorkflowPolicy?: "atomicRootOutcome";
   readonly checkpoint: Effect.Effect<void, Failure>;
   /** Check the current execution lifetime, validate/charge the value and return
-   * an owned copy. Native capture already performs this owner's checkpoint. */
+   * an owned copy. Native capture already performs this owner's checkpoint.
+   * A port that supplies `present` may return an immutable value it issued and
+   * recognize that exact value when it is captured again. */
   readonly capture: (value: unknown) => Effect.Effect<unknown, Failure>;
+  /** Fresh mutable copy of one captured value for a single callback. Every
+   * captured value reaches step, transform and callback-child code only through
+   * this; what such code returns is captured again as foreign data. Omitted
+   * when `capture` already returns a copy the callback may own. */
+  readonly present?: (captured: unknown) => unknown;
   readonly invoke: (work: () => unknown | Promise<unknown>) => Effect.Effect<unknown, Failure>;
   /** The existing foreign callback owner runs and drains borrowed child effects.
    * Failures must remain sticky even when native code catches the rejection. */
@@ -49,7 +56,7 @@ export const executeWorkflow = Effect.fn("MedusaWorkflow.execute")(function <Fai
   return executeFrame(definition, input, port, true);
 });
 /** Child frames borrow the root port; only their evaluation caches are local. */
-const executeFrame = Effect.fn("MedusaWorkflow.frame")(function* <Failure>(
+const executeFrame = Effect.fnUntraced(function* <Failure>(
   definition: PreparedWorkflow, input: unknown, port: WorkflowExecutionPort<Failure>, root = false, framePath: readonly number[] = [],
   parentStepIdempotencyKey?: string,
 ): Effect.fn.Return<unknown, Failure | ReturnType<typeof definitionError>> {
@@ -60,6 +67,7 @@ const executeFrame = Effect.fn("MedusaWorkflow.frame")(function* <Failure>(
   const pendingTransforms = new Map<object, Deferred.Deferred<WorkflowResolvedValue, Failure | ReturnType<typeof definitionError>>>();
   const transformDependencies = new Map<object, Set<object>>();
   const frame = { owner: definition.owner, input, outputs, undefinedStepOutputs, transforms };
+  const present = port.present ?? ((captured: unknown) => captured);
   const sharedTransform = (reference: object, parent: object | undefined, work: Effect.Effect<WorkflowResolvedValue, Failure | ReturnType<typeof definitionError>>) => Effect.suspend(() => {
     if (parent !== undefined) {
       const pending = [reference], seen = new Set<object>();
@@ -91,7 +99,7 @@ const executeFrame = Effect.fn("MedusaWorkflow.frame")(function* <Failure>(
         const resolvedInput = yield* port.capture(request.input);
         const transform = request.reference.transform;
         if (transform === undefined) return yield* Effect.fail(definitionError("invalidReference", "Missing transformer"));
-        const output = yield* port.invoke(() => transform(resolvedInput, port.context));
+        const output = yield* port.invoke(() => transform(present(resolvedInput), port.context));
         // Foreign Proxy descriptor traps belong to the same callback boundary
         // as transformer invocation. The initialized failure also refuses a
         // broken port that reports success without running its callback.
@@ -161,7 +169,7 @@ const executeFrame = Effect.fn("MedusaWorkflow.frame")(function* <Failure>(
           const childInput = yield* port.invoke(() => callbackWorkflowInput(options));
           const captured = yield* port.capture(childInput);
           const result = yield* executeFrame(declared.workflow, captured, port, false, [...framePath, index, position], invocationKey);
-          return { result: yield* port.capture(result) };
+          return { result: present(yield* port.capture(result)) };
         });
       used.add(child);
       pendingChildren++;
@@ -177,7 +185,7 @@ const executeFrame = Effect.fn("MedusaWorkflow.frame")(function* <Failure>(
       idempotencyKey: invocationKey });
     const releaseResources = binding === undefined ? undefined : port.bindCallbackResources?.(binding.container);
     const returned = yield* port.invoke(() => {
-      const value = node.invoke(input, context);
+      const value = node.invoke(present(input), context);
       if (node.kind !== "condition" || typeof value === "boolean") return value;
       const refuse = () => { throw definitionError("unsupportedProfile", "Conditions must synchronously return a Boolean"); };
       // Observe an invalid Promise through the same bounded callback owner;
@@ -210,7 +218,7 @@ const executeFrame = Effect.fn("MedusaWorkflow.frame")(function* <Failure>(
       if (returned === undefined) undefinedStepOutputs.add(node.id);
     } else outputs.set(node.id, yield* port.capture(stepCallbackOutput(returned)));
   });
-  const executeRange = Effect.fn("MedusaWorkflow.region")(function* (start: number, end: number, parent?: ParallelGroup): Effect.fn.Return<void, Failure | ReturnType<typeof definitionError>> {
+  const executeRange = Effect.fnUntraced(function* (start: number, end: number, parent?: ParallelGroup): Effect.fn.Return<void, Failure | ReturnType<typeof definitionError>> {
     for (let index = start; index < end;) {
       // The outermost group starts first; a nested group is interpreted only
       // within its owning branch. Prepared intervals cannot partially overlap.
@@ -222,8 +230,8 @@ const executeFrame = Effect.fn("MedusaWorkflow.frame")(function* <Failure>(
       });
       index = group.branches.at(-1)!.end;
     }
-  });
+  }, effect => Effect.withSpan(effect, "MedusaWorkflow.region", { captureStackTrace: false }));
   yield* executeRange(0, definition.nodes.length);
   if (root) yield* port.checkpoint;
   return (yield* resolve(definition.resolution.result)).value;
-});
+}, effect => Effect.withSpan(effect, "MedusaWorkflow.frame", { captureStackTrace: false }));

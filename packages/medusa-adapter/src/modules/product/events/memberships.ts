@@ -10,7 +10,7 @@ import { ProductRelationshipUpsertRows } from "../value-profile";
 import { productModuleEventCapture } from "./capture";
 
 /** Read only the two module-local Product memberships declared by pinned DML. */
-export const productMembershipPivots = Effect.fn("ProductEvents.membershipPivots")(function* (catalog: ProductRuntimeMetadata) {
+export const productMembershipPivots = Effect.fnUntraced(function* (catalog: ProductRuntimeMetadata) {
   const pivots: Array<{ readonly table: string; readonly productColumn: string; readonly targetColumn: string }> = [];
   for (const name of ["tags", "categories"] as const) {
     const relation = catalog.queryRelations.get(catalog.product.table.name)?.get(name);
@@ -27,9 +27,9 @@ export const productMembershipPivots = Effect.fn("ProductEvents.membershipPivots
     pivots.push({ table, productColumn, targetColumn });
   }
   return pivots;
-});
+}, effect => Effect.withSpan(effect, "ProductEvents.membershipPivots", { captureStackTrace: false }));
 
-export const validateProductMembershipRows = Effect.fn("ProductEvents.validateMembershipRows")(function* (
+export const validateProductMembershipRows = Effect.fnUntraced(function* (
   pivots: Effect.Success<ReturnType<typeof productMembershipPivots>>,
   rows: ReadonlyMap<string, readonly JsonObject[]>, products: ReadonlyMap<string, JsonObject>,
 ) {
@@ -43,7 +43,7 @@ export const validateProductMembershipRows = Effect.fn("ProductEvents.validateMe
       identities.add(identity);
     }
   }
-});
+}, effect => Effect.withSpan(effect, "ProductEvents.validateMembershipRows", { captureStackTrace: false }));
 
 export function productRelationshipCallReceipt(catalog: ProductRuntimeMetadata): LogicalCallReceiptValidation {
   const input = Schema.decodeUnknownEffect(ProductRelationshipUpsertRows, { onExcessProperty: "error" });

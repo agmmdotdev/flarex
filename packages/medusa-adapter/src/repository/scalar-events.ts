@@ -14,12 +14,12 @@ function scalarCapture(source: string, tableName: string,
     data: Schema.Struct({ id: Schema.Union([Id, Schema.Array(Id).check(Schema.isMinLength(1),
       Schema.isMaxLength(resources.eventIds))]) }),
   }), resources);
-  return Effect.fn(spanName)(function* (input: unknown) {
+  return Effect.fnUntraced(function* (input: unknown) {
     const message = yield* decode(input);
     if (message.name !== buildModuleResourceEventName({ prefix: source, objectName: tableName,
       action: message.metadata.action })) return yield* Effect.fail(commerceError("unadmittedEvent"));
     return { ...message, metadata: { ...message.metadata }, data: { ...message.data } } satisfies Json;
-  });
+  }, effect => Effect.withSpan(effect, spanName, { captureStackTrace: false }));
 }
 
 /** Authenticate one native scalar command against its exact logical row
@@ -27,7 +27,7 @@ function scalarCapture(source: string, tableName: string,
 export function scalarLogicalEventPolicy(source: string, tableName: string,
   commands: Readonly<{ insert: string; update?: string; delete?: string }>) {
   const capture = scalarCapture(source, tableName, defaultCommerceResources, "ScalarEvents.captureLogical");
-  const validateLogicalCall: LogicalCallReceiptValidation = Effect.fn("ScalarEvents.validateLogicalCall")(
+  const validateLogicalCall: LogicalCallReceiptValidation = Effect.fnUntraced(
     function* (call: Parameters<LogicalCommerceCallValidation>[0], { mutations, lifecycle, setNull, referenceReplacements }: Parameters<LogicalCommerceCallValidation>[1]) {
       if (lifecycle.length !== 0 || setNull.length !== 0 || referenceReplacements.length !== 0 ||
         mutations.some((mutation, index) => mutation.ordinal !== index))
@@ -63,6 +63,6 @@ export function scalarLogicalEventPolicy(source: string, tableName: string,
         }
       }
       if (expected.size !== 0) return yield* Effect.fail(commerceError("receiptMismatch"));
-    });
+    }, effect => Effect.withSpan(effect, "ScalarEvents.validateLogicalCall", { captureStackTrace: false }));
   return { capture, validateLogicalCall };
 }

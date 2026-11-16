@@ -35,7 +35,7 @@ export const inventoryLevelWhere: WherePolicy = { ...scalarIdWhere,
  * serialization boundary converts complete, checked pairs to numeric DTOs. */
 export function inventoryQuantityProjection(columns: readonly SchemaTable["columns"][number][], exact = false) {
   const numeric = columns.filter(column => column.type === "bigNumber");
-  return Effect.fn("InventoryQuantity.project")(function* (value: Json) {
+  return Effect.fnUntraced(function* (value: Json) {
     const output: JsonObject[] = [];
     const projected = yield* projectExactNumericColumns(value, numeric, exact ? "exact" : "dto");
     for (const entry of Array.isArray(projected) ? projected : [projected]) {
@@ -51,7 +51,7 @@ export function inventoryQuantityProjection(columns: readonly SchemaTable["colum
       output.push(row);
     }
     return Array.isArray(value) ? output : output[0]!;
-  });
+  }, effect => Effect.withSpan(effect, "InventoryQuantity.project", { captureStackTrace: false }));
 }
 
 /** Inventory's exact quantities extend shared scalar DAL mechanics. Native

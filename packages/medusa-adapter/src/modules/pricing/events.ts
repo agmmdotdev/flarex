@@ -22,7 +22,7 @@ export function pricingLogicalCreateEventPolicy(preferences: ReturnType<typeof p
     data: Schema.Struct({ id: Schema.Union([Id, Schema.Array(Id).check(Schema.isMinLength(1),
       Schema.isMaxLength(defaultCommerceResources.eventIds))]) }),
   }), defaultCommerceResources);
-  const capture = Effect.fn("PricingEvents.captureLogical")(function* (input: unknown) {
+  const capture = Effect.fnUntraced(function* (input: unknown) {
     // The complete preference owner authenticates its event envelope and rows.
     // Capture uses the same outer private-data boundary as the generic decoder.
     const message = yield* decode(input);
@@ -31,8 +31,8 @@ export function pricingLogicalCreateEventPolicy(preferences: ReturnType<typeof p
       prefix: Modules.PRICING, objectName: message.metadata.object, action: CommonEvents.CREATED,
     })) return yield* Effect.fail(commerceError("unadmittedEvent"));
     return { ...message, metadata: { ...message.metadata }, data: { ...message.data } } satisfies Json;
-  });
-  const validateLogicalCall: LogicalCallReceiptValidation = Effect.fn("PricingEvents.validateLogicalCreate")(
+  }, effect => Effect.withSpan(effect, "PricingEvents.captureLogical", { captureStackTrace: false }));
+  const validateLogicalCall: LogicalCallReceiptValidation = Effect.fnUntraced(
     function* (call: Parameters<LogicalCommerceCallValidation>[0], activity: Parameters<LogicalCommerceCallValidation>[1]) {
       if (call.commandName === "pricingCreatePreference") return yield* preferences.validateLogicalCall(call, activity);
       const { mutations, lifecycle, setNull, referenceReplacements } = activity;
@@ -62,6 +62,6 @@ export function pricingLogicalCreateEventPolicy(preferences: ReturnType<typeof p
         }
       }
       if (expected.size !== 0) return yield* Effect.fail(commerceError("receiptMismatch"));
-    });
+    }, effect => Effect.withSpan(effect, "PricingEvents.validateLogicalCreate", { captureStackTrace: false }));
   return { capture, validateLogicalCall };
 }

@@ -127,7 +127,7 @@ export interface CorePreparedNativeReferences {
   readonly sourceCaptures?: readonly Readonly<{ tablets: readonly string[]; maxIdentities: number; identities: readonly string[] }>[];
 }
 
-export const prepareCoreNativeReferences = Effect.fn("CoreNativeReferences.prepare")(function* (
+export const prepareCoreNativeReferences = Effect.fnUntraced(function* (
   snapshot: CorePersistenceSnapshot, registry: CoreRegistry, transaction: CoreFinalizedState, budget?: CoreNativeIntegrityBudget,
 ) {
   const observations = transaction.nativeObservations;
@@ -253,7 +253,7 @@ export const prepareCoreNativeReferences = Effect.fn("CoreNativeReferences.prepa
   return { reads: reads.snapshot(), demands, incoming, maxIdentities, capturedIdentities: [...identities],
     sourceCaptures: sourceCaptures.map(source => ({ tablets: source.tablets, maxIdentities: source.limits.maxIdentities,
       identities: [...source.captured] })) } satisfies CorePreparedNativeReferences;
-});
+}, effect => Effect.withSpan(effect, "CoreNativeReferences.prepare", { captureStackTrace: false }));
 
 /** Fold the full accepted-unsaved prefix, then the whole candidate final overlay. */
 export function validateCoreNativeReferences(prepared: CorePreparedNativeReferences, accepted: Iterable<CoreWriteBatch>,

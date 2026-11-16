@@ -286,7 +286,7 @@ export const createCorePersistence = Effect.fn("CorePersistence.create")(
      * so `indexes` is locked before `leases` ROW SHARE as physical maintenance
      * requires. A lease that is gone at either point divides by zero: the
      * statement aborts and nothing is inserted. The statement must stay unnamed. */
-    const writeFencedBatch = Effect.fn("CorePersistence.writeFencedBatch")(
+    const writeFencedBatch = Effect.fnUntraced(
       function* (lease: CorePersistenceLease,
         documentRows: readonly (readonly CoreSqlParameter[])[], indexRows: readonly (readonly CoreSqlParameter[])[]) {
         if (!issuedLeases.has(lease)) return yield* Effect.fail(new CorePersistenceError({ reason: "invalidTarget" }));
@@ -316,9 +316,9 @@ export const createCorePersistence = Effect.fn("CorePersistence.create")(
           return yield* Effect.fail(new CorePersistenceError({ reason: "leaseLost" }));
         }
         return yield* Effect.fail(classifyCoreQueryFailure(outcome.cause));
-      },
+      }, effect => Effect.withSpan(effect, "CorePersistence.writeFencedBatch", { captureStackTrace: false }),
     );
-    const writeBatch = Effect.fn("CorePersistence.writeBatch")(
+    const writeBatch = Effect.fnUntraced(
       function* (lease: CorePersistenceLease, input: CoreWriteBatch, overwriteIndexes = false) {
         const validated = yield* decodeBatch(input).pipe(Effect.mapError(invalid));
         // The complete batch is detached before any asynchronous operation.
@@ -340,7 +340,7 @@ export const createCorePersistence = Effect.fn("CorePersistence.create")(
           yield* insertRows(connection, "documents", documentColumns.map(([column]) => column), documentRows);
           yield* insertRows(connection, "indexes", indexColumns.map(([column]) => column), indexRows, overwriteIndexes);
         }));
-      },
+      }, effect => Effect.withSpan(effect, "CorePersistence.writeBatch", { captureStackTrace: false }),
     );
 
     const decodeScanRequest = Effect.fnUntraced(function* (input: CoreIndexScan) {
@@ -497,7 +497,7 @@ export const createCorePersistence = Effect.fn("CorePersistence.create")(
      * The JSON parse and the predicate run only when both examined bounds hold;
      * otherwise the page reports that. Bodies are read where the predicate runs
      * and for the returned window, and are never carried between the steps. */
-    const filter = Effect.fn("CorePersistence.filterSnapshot")(function* (
+    const filter = Effect.fnUntraced(function* (
       at: bigint, input: CoreSnapshotFilterRequest, retention: CoreRetentionValidator,
     ): Effect.fn.Return<CoreSnapshotFilterPage, CorePersistenceError> {
       const request = yield* decodeSnapshotFilter({ index: input.index, tableId: input.tableId, order: input.order,
@@ -572,7 +572,7 @@ export const createCorePersistence = Effect.fn("CorePersistence.create")(
         return yield* Effect.fail(new CorePersistenceError({ reason: "corruptData" }));
       return Object.freeze({ entries: Object.freeze(entries), count: overBudget ? 0 : facts.total, examined: facts.examined,
         bytes: facts.bytes, overBudget });
-    });
+    }, effect => Effect.withSpan(effect, "CorePersistence.filterSnapshot", { captureStackTrace: false }));
 
     /** The page form: no count. One statement walks the first `walk` live entries
      * in index order, a bound proportional to `offset + limit`, reads their
@@ -582,7 +582,7 @@ export const createCorePersistence = Effect.fn("CorePersistence.create")(
      * and the last walked key prefix. A walk that ends before the window is
      * decided is repeated four times wider, up to one entry past `maxExamined`,
      * which tells an index of exactly that size from a larger one. */
-    const filterPage = Effect.fn("CorePersistence.filterSnapshotPage")(function* (
+    const filterPage = Effect.fnUntraced(function* (
       at: bigint, input: CoreSnapshotPageRequest, retention: CoreRetentionValidator,
     ): Effect.fn.Return<Option.Option<CoreSnapshotPage>, CorePersistenceError> {
       const request = yield* decodeSnapshotFilter({ index: input.index, tableId: input.tableId, order: input.order,
@@ -669,7 +669,7 @@ export const createCorePersistence = Effect.fn("CorePersistence.create")(
         // counting form would be over budget too.
         if (walk >= widest) return Option.none();
       }
-    });
+    }, effect => Effect.withSpan(effect, "CorePersistence.filterSnapshotPage", { captureStackTrace: false }));
 
     const get = Effect.fn("CorePersistence.get")(function* (
       at: bigint, retention: CoreRetentionValidator, tableId: Uint8Array, id: Uint8Array,
@@ -819,7 +819,7 @@ export const createCorePersistence = Effect.fn("CorePersistence.create")(
         return Object.freeze({ documents: Object.freeze(documents), done: documents.length < Number(parameters.at(-1)),
           cursor: last === undefined ? null : Object.freeze({ ts: last.ts, tableId: last.tableId.slice(), id: last.id.slice() }) });
       }),
-      previousRevisions: Effect.fn("CorePersistence.previousRevisions")(function* (
+      previousRevisions: Effect.fnUntraced(function* (
         input: readonly CorePreviousRevisionSearch[], retention: CoreRetentionValidator = sqlRetention) {
         const capturedQueries = (yield* decodePreviousSearches(input).pipe(Effect.mapError(invalid)))
           .map(query => Object.freeze({ ...query, tableId: copyBytes(query.tableId), id: copyBytes(query.id) })).toSorted(comparePreviousSearches);
@@ -869,7 +869,7 @@ export const createCorePersistence = Effect.fn("CorePersistence.create")(
           } else yield* retention.validateDocument(witness);
           return Object.freeze(groups.flat().toSorted((left, right) => comparePreviousSearches(left.query, right.query)));
         }));
-      }),
+      }, effect => Effect.withSpan(effect, "CorePersistence.previousRevisions", { captureStackTrace: false })),
       previousRevisionsOfDocuments: Effect.fn("CorePersistence.previousRevisionsOfDocuments")(function* (
         input: readonly CorePreviousRevisionQuery[], retention: CoreRetentionValidator = sqlRetention) {
         const queries = (yield* decodePreviousQueries(input).pipe(Effect.mapError(invalid)))

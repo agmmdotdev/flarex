@@ -68,7 +68,7 @@ export function makeCoreApplicationOwner<Value, Failure, R>(input: Readonly<{
       if (generation === selected) generation = undefined;
     }, Effect.uninterruptible);
 
-    const invoke = Effect.fn("CoreApplicationOwner.invoke")(function* <Selected, A, E, Requirements>(select: (current: Generation) => Selected,
+    const invoke = Effect.fnUntraced(function* <Selected, A, E, Requirements>(select: (current: Generation) => Selected,
       allowed: () => boolean, run: (selected: Selected) => Effect.Effect<A, E, Requirements | Scope.Scope>): Effect.fn.Return<A, E | CoreError | Failure, Requirements> {
       return yield* Effect.uninterruptibleMask(restore => Effect.gen(function* () {
         const current = generation;
@@ -93,7 +93,7 @@ export function makeCoreApplicationOwner<Value, Failure, R>(input: Readonly<{
           return result.value;
         }), Effect.andThen(Effect.suspend(() => invocation.interrupt), Effect.sync(() => { current.invocations.delete(invocation); })));
       }));
-    });
+    }, effect => Effect.withSpan(effect, "CoreApplicationOwner.invoke", { captureStackTrace: false }));
 
     const awaitReconstruction = Effect.suspend(() => rebuilding !== undefined || generation?.kernel.stoppedCause() !== undefined ? recover : Effect.void);
     const refuseAdmission = (error: CoreApplicationAdmissionError) => error.reason === "closed" ? unavailable() : new CoreTransactionError({ reason: "capacity", cause: error });

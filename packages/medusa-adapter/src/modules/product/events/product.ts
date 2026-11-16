@@ -16,7 +16,7 @@ export function productLogicalCreateEventPolicy(catalog: ProductRuntimeMetadata)
   const capture = productModuleEventCapture(catalog, defaultCommerceResources);
   const entities = [catalog.product, catalog.option, catalog.value, catalog.variant, catalog.image];
   const byTable = new Map(entities.map(entity => [entity.table.name, entity]));
-  const validateLogicalCall: LogicalCallReceiptValidation = Effect.fn("ProductEvents.validateLogicalCreate")(function* (call, activity) {
+  const validateLogicalCall: LogicalCallReceiptValidation = Effect.fnUntraced(function* (call, activity) {
       const { mutations, lifecycle } = activity;
     if (call.commandName !== "productCreate") return yield* Effect.fail(commerceError("receiptMismatch"));
       const emitted = call.events;
@@ -73,7 +73,7 @@ export function productLogicalCreateEventPolicy(catalog: ProductRuntimeMetadata)
       }
     }
     if (expected.size !== 0) return yield* Effect.fail(commerceError("receiptMismatch"));
-  });
+  }, effect => Effect.withSpan(effect, "ProductEvents.validateLogicalCreate", { captureStackTrace: false }));
   return { capture, validateLogicalCall };
 }
 

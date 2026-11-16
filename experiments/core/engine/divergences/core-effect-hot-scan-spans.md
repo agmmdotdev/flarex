@@ -20,3 +20,13 @@ owner resource guarantees remain.
 Preserve exact snapshot, retentions, parent span/context and driver checkout
 behavior in focused tests. Remeasure the complete graph and retain timing
 and separate profiling evidence.
+
+The same named-span-without-stack-capture form applies to the per-request
+Medusa adapter command, service, repository, module, link, query, local-graph
+and workflow wrappers, to the Core transaction, database, committer,
+scope-exclusion, relational-read, schema-model, persistence and event-store
+wrappers counted on a Product create or read, and to the native commerce hosts
+and `MedusaWorkflow.region` and `frame`. Span name, parent, error
+channel, interruption and the named `CurrentStackFrame` entry remain; only the
+call and definition source-location strings are lost. Cold registration,
+schema, maintenance and recovery paths keep full stack capture.

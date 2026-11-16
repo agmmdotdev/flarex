@@ -18,7 +18,7 @@ import { buildQuery } from "@medusajs/utils/modules-sdk/build-query";
 export function productLogicalVariantCreateEventPolicy(catalog: ProductRuntimeMetadata) {
   const capture = productModuleEventCapture(catalog, defaultCommerceResources);
   const decodeEmpty = Schema.decodeUnknownEffect(Schema.Array(Schema.Never));
-  const validateLogicalCall: LogicalCallReceiptValidation = Effect.fn("ProductEvents.validateLogicalVariantCreate")(
+  const validateLogicalCall: LogicalCallReceiptValidation = Effect.fnUntraced(
     function* (call, activity) {
       const { mutations, lifecycle, observedRows } = activity;
       if (call.commandName !== "productCreatevariant") return yield* Effect.fail(commerceError("receiptMismatch"));
@@ -81,7 +81,7 @@ export function productLogicalVariantCreateEventPolicy(catalog: ProductRuntimeMe
           if (!expected.delete(id)) return yield* Effect.fail(commerceError("receiptMismatch"));
       }
       if (expected.size !== 0) return yield* Effect.fail(commerceError("receiptMismatch"));
-    });
+    }, effect => Effect.withSpan(effect, "ProductEvents.validateLogicalVariantCreate", { captureStackTrace: false }));
   return { capture, validateLogicalCall };
 }
 

@@ -20,7 +20,7 @@ export function orderedWorkflowIdEvents(name: string,
     : Schema.Struct(fields), "unadmittedEvent");
   return {
     contracts: [{ name, decode, ...(options.pendingCancellation === undefined ? {} : { pendingCancellation: options.pendingCancellation }) }],
-    validate: Effect.fn("Workflow.validateOrderedIdEvents")(function* (
+    validate: Effect.fnUntraced(function* (
       events: Parameters<AtomicCommerceEvents["validate"]>[0], calls: WorkflowCallResults,
     ) {
       const expected = yield* expectedIds(calls);
@@ -32,7 +32,7 @@ export function orderedWorkflowIdEvents(name: string,
         observed.push(typeof message.data === "string" ? message.data : message.data.id);
       }
       if (observed.length !== expected.length || observed.some((id, index) => id !== expected[index])) return yield* Effect.fail(commerceError("receiptMismatch"));
-    }),
+    }, effect => Effect.withSpan(effect, "Workflow.validateOrderedIdEvents", { captureStackTrace: false })),
   };
 }
 

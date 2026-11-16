@@ -4,7 +4,7 @@ import type { ProductRuntimeMetadata } from "./runtime-metadata";
 import { decodeProductQuery } from "./query-profile";
 import { executeRead } from "../../query/read";
 
-export const findProducts = Effect.fn("ProductAdapter.find")(function* (
+export const findProducts = Effect.fnUntraced(function* (
   ctx: CommerceCommandContext, catalog: ProductRuntimeMetadata, input: unknown, withCount: boolean, internalProduct = false,
 ) {
   const selected = yield* Effect.fromResult(decodeProductQuery(catalog, input, internalProduct));
@@ -20,4 +20,4 @@ export const findProducts = Effect.fn("ProductAdapter.find")(function* (
     ordering: new Map([[catalog.image.table.name, "rank"]]),
     window: { kind: "database", countAt: "beforePopulation", pageable },
   }, withCount);
-});
+}, effect => Effect.withSpan(effect, "ProductAdapter.find", { captureStackTrace: false }));

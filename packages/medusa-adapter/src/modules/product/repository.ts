@@ -37,7 +37,7 @@ export function productRepository(root: CommerceCommandContext, owner: CommerceP
   const events = commerceMutationEvents(owner);
   const categoryIdentities = new Set<string>();
   const createdCategoryIdentities = new Set<string>();
-  const observeCategoryRows = Effect.fn("ProductCategory.admitTreeClosure")(function* (rows: readonly JsonObject[]) {
+  const observeCategoryRows = Effect.fnUntraced(function* (rows: readonly JsonObject[]) {
     if (profile !== "categoryWorkflow") return;
     for (const row of rows) {
       if (typeof row.id !== "string") return yield* root.refuse(commerceError("storedCorruption"));
@@ -47,7 +47,7 @@ export function productRepository(root: CommerceCommandContext, owner: CommerceP
     }
     if (categoryIdentities.size > 16 + createdCategoryIdentities.size)
       return yield* root.refuse(commerceError("unsupportedProfile"));
-  });
+  }, effect => Effect.withSpan(effect, "ProductCategory.admitTreeClosure", { captureStackTrace: false }));
   const mutationPersistence: CommerceModuleEvents = {
     createEventSubscriber: events.createSubscriber,
     registerEventSubscriber: events.registerSubscriber,
@@ -143,7 +143,7 @@ export function productRepository(root: CommerceCommandContext, owner: CommerceP
   /** Table-bound repositories share this request's bridge and subscriber set. */
   const nativeRelatedWorkflow = (entity: ProductEntityMetadata) => profile === "collectionWorkflow" && entity === metadata.collection ||
     profile === "typeWorkflow" && entity === metadata.type || profile === "optionWorkflow" && entity === metadata.option;
-  const findRelated = Effect.fn("ProductAdapter.findRelatedForProfile")((ctx: CommerceCommandContext, entity: ProductEntityMetadata, input: unknown, withCount: boolean) =>
+  const findRelated = (ctx: CommerceCommandContext, entity: ProductEntityMetadata, input: unknown, withCount: boolean) => Effect.withSpan(Effect.suspend(() =>
     findProductRelated(imageVariant === undefined ? ctx : { ...ctx, admitSelection: imageVariant.admitSelection }, metadata, entity, input, withCount,
       { nativeFilterOrder: nativeRelatedWorkflow(entity),
         ...(imageVariant === undefined ? {} : { complete: true,
@@ -161,7 +161,7 @@ export function productRepository(root: CommerceCommandContext, owner: CommerceP
         result.rows.some(row => Array.isArray(row.values) && row.values.length > 4))
         return ctx.refuse(commerceError("unsupportedProfile"));
       return Effect.succeed(result);
-    })));
+    }))), "ProductAdapter.findRelatedForProfile", { captureStackTrace: false });
   const relatedRepository = (entity: ProductEntityMetadata): DAL.RepositoryService => ({
     ...repository,
     delete: deleteRows(entity), softDelete: [metadata.variant, metadata.tag].includes(entity) || nativeRelatedWorkflow(entity)

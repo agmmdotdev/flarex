@@ -87,13 +87,13 @@ export const makeLocalProductCommands = Effect.fn("ProductAdapter.commands")(fun
   const graph = yield* Effect.fromResult(productGraphDefinition(metadata, commands));
   const receipts = productCallReceipts(metadata);
   const admitted = new Set(Object.values(commands));
-  const validateLogicalCall: LogicalCommerceCallValidation = Effect.fn("Product.validateNativeCall")(
+  const validateLogicalCall: LogicalCommerceCallValidation = Effect.fnUntraced(
     function* (call, activity, command) {
       const identity = commerceCommandIdentity(command);
       if (!admitted.has(command) || identity?.name !== call.commandName || identity.mode !== call.mode)
         return yield* Effect.fail(commerceError("invalidAuthority"));
       yield* receipts.validateLogicalCall(call, activity);
-    });
+    }, effect => Effect.withSpan(effect, "Product.validateNativeCall", { captureStackTrace: false }));
   const logicalPolicy = Object.freeze({ capture: receipts.capture, validateLogicalCall });
   const workflowEvents = { created: metadata.tag.createdEvent, updated: metadata.tag.updatedEvent, deleted: metadata.tag.deletedEvent,
       variantUpdated: metadata.variant.updatedEvent, variantCreated: metadata.variant.createdEvent,

@@ -190,7 +190,7 @@ export function preparePricingRepository(metadata: Effect.Success<ReturnType<typ
     const mutations = mutable || shippingUpdates ? yield* preparePricingMutations(catalog, price, rule,
       priceTable.relationships.some(relation => relation.name === "price_rules" && relation.cascadeDelete), shippingUpdates) : undefined;
     const numeric = price.table.columns.filter(column => column.type === "bigNumber");
-    const serializeGraph = Effect.fn("PricingRepository.serializeGraph")(function* (value: Json) {
+    const serializeGraph = Effect.fnUntraced(function* (value: Json) {
       const output: JsonObject[] = [];
       for (const input of Array.isArray(value) ? value : [value]) {
         if (!isJsonObject(input)) return yield* Effect.fail(commerceError("storedCorruption"));
@@ -205,7 +205,7 @@ export function preparePricingRepository(metadata: Effect.Success<ReturnType<typ
         output.push(row);
       }
       return Array.isArray(value) ? output.every((row, index) => row === value[index]) ? value : output : output[0]!;
-    });
+    }, effect => Effect.withSpan(effect, "PricingRepository.serializeGraph", { captureStackTrace: false }));
     const listRelations = new Map(relations);
     listRelations.set(list.table.name, new Map([["prices", listPrices], ["price_list_rules", listRules]]));
     // The original ORM emits afterCreate in this dependency order, retaining
@@ -262,7 +262,7 @@ export function preparePricingRepository(metadata: Effect.Success<ReturnType<typ
           yield* events.dispatch(event, args, shared, subscriber);
         }))),
       };
-      const find = Effect.fn("PricingRepository.find")(function* (ctx: CommerceCommandContext, input: unknown, count: boolean) {
+      const find = Effect.fnUntraced(function* (ctx: CommerceCommandContext, input: unknown, count: boolean) {
         const plan = yield* Effect.fromResult(query(yield* Effect.fromResult(captureCommerceInput(input, ctx.resources))));
         const result = yield* executeRead(ctx, readCatalog, plan, count);
         // Validate exact entities here; public DTO conversion belongs to serialize.
@@ -291,8 +291,8 @@ export function preparePricingRepository(metadata: Effect.Success<ReturnType<typ
         // Native updates replace child arrays on returned entities. Core read
         // evidence stays immutable; hand detached mutable graphs to the DAL.
         return { ...result, rows: structuredClone(output) };
-      });
-      const createGraph = Effect.fn("PricingRepository.createGraph")(function* (
+      }, effect => Effect.withSpan(effect, "PricingRepository.find", { captureStackTrace: false }));
+      const createGraph = Effect.fnUntraced(function* (
         ctx: CommerceCommandContext, profile: CreationProfile,
         input: unknown, shared: Parameters<DAL.RepositoryService["create"]>[1],
       ) {
@@ -323,7 +323,7 @@ export function preparePricingRepository(metadata: Effect.Success<ReturnType<typ
           new Map([...inserted].map(([table, rows]) => [table, rows.map(projectNativeRow)])),
           ["prices", "prices.price_rules", "price_list_rules"], listCatalog.queryRelations)));
         return [...inserted.get(profile.root.entity.table.name) ?? []];
-      });
+      }, effect => Effect.withSpan(effect, "PricingRepository.createGraph", { captureStackTrace: false }));
       const repository: DAL.RepositoryService = {
         getFreshManager: bridge.getFreshManager, getActiveManager: bridge.getActiveManager, transaction: bridge.transaction,
         serialize: <Output extends object | object[]>(input: unknown, options?: unknown): Promise<Output> => owner.run(bridge.checked(root, Effect.gen(function* () {
@@ -390,7 +390,7 @@ export function preparePricingRepository(metadata: Effect.Success<ReturnType<typ
           return ids;
         }))) : refuse,
       };
-      const findTaxRules = Effect.fn("PricingRepository.findTaxRules")(function* (ctx: CommerceCommandContext, input: unknown) {
+      const findTaxRules = Effect.fnUntraced(function* (ctx: CommerceCommandContext, input: unknown) {
           const query = yield* Effect.fromResult(decodeRuleFind(yield* Effect.fromResult(captureCommerceInput(input, ctx.resources))));
           const ids = [...new Set(query.where.price_id)];
           const rows: JsonObject[] = [];
@@ -401,7 +401,7 @@ export function preparePricingRepository(metadata: Effect.Success<ReturnType<typ
             ] }));
           }
           return [...yield* Effect.fromResult(decodeTaxRules(rows))];
-      });
+      }, effect => Effect.withSpan(effect, "PricingRepository.findTaxRules", { captureStackTrace: false }));
       const ruleRepository: DAL.RepositoryService = { ...denied, serialize: repository.serialize,
         find: listPriceUpdateContracts === undefined ? (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, findTaxRules(ctx, input)))
           : (input, shared) => bridge.executeInput(shared, input, (ctx, captured) => bridge.checked(ctx,

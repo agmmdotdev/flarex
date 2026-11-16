@@ -33,7 +33,7 @@ export interface ReadPlan {
 export const executeRead: (
   ctx: ReadContext, catalog: ReadCatalog, plan: ReadPlan, withCount: boolean,
   boundStore?: CommerceCommandContext["store"],
-) => Effect.Effect<{ readonly rows: JsonObject[]; readonly count: number | undefined }, CommerceTransactionError> = Effect.fn("MedusaRead.execute")(function* (
+) => Effect.Effect<{ readonly rows: JsonObject[]; readonly count: number | undefined }, CommerceTransactionError> = Effect.fnUntraced(function* (
   ctx: ReadContext, catalog: ReadCatalog, plan: ReadPlan, withCount: boolean,
   boundStore?: CommerceCommandContext["store"],
 ) {
@@ -59,13 +59,13 @@ export const executeRead: (
   const rows = yield* Effect.fromResult(projectRows(populated, plan.projection.node));
   if (withCount && !countBefore) count = yield* selection.count;
   return { rows, count };
-});
+}, effect => Effect.withSpan(effect, "MedusaRead.execute", { captureStackTrace: false }));
 
 type BoundReadWindow = Extract<ReadWindow, { readonly kind: "catalog" }>
   | (Exclude<ReadWindow, { readonly kind: "catalog" }> & { readonly store: CommerceCommandContext["store"] });
 
 /** Keep the store and deferred count inside this request's execution boundary. */
-const readWindow = Effect.fn("MedusaRead.window")(function* (
+const readWindow = Effect.fnUntraced(function* (
   ctx: ReadContext, table: string, query: ReadPlan["query"], window: BoundReadWindow,
 ) {
   if (window.kind === "catalog") {
@@ -78,7 +78,7 @@ const readWindow = Effect.fn("MedusaRead.window")(function* (
     : yield* program.find(ctx.manager);
   if (ctx.admitSelection !== undefined) yield* Effect.fromResult(ctx.admitSelection(table, rows));
   return { rows, count: Effect.suspend(() => program.count(ctx.manager)) };
-});
+}, effect => Effect.withSpan(effect, "MedusaRead.window", { captureStackTrace: false }));
 
 export function orderedCatalog(direction: "asc" | "desc"): (rows: readonly JsonObject[]) => CatalogSelection {
   return rows => ({ rows: direction === "desc" ? [...rows].reverse() : rows, count: rows.length });

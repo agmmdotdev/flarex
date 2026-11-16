@@ -28,7 +28,7 @@ export function compileStockLocationReadReceipt(table: SchemaTable,
     if (table.name !== "stock_location")
       return yield* Result.fail(commerceError("unsupportedProfile"));
     const decodeRow = yield* compileCompleteRow(table);
-    const validateLogicalCall: LogicalCallReceiptValidation = Effect.fn("StockLocation.validateRead")(function* (call, activity) {
+    const validateLogicalCall: LogicalCallReceiptValidation = Effect.fnUntraced(function* (call, activity) {
       if (call.commandName !== "stockLocationCount" || call.mode !== "read" || call.events.length ||
         activity.mutations.length || activity.lifecycle.length || activity.setNull.length || activity.referenceReplacements.length)
         return yield* Effect.fail(commerceError("receiptMismatch"));
@@ -68,7 +68,7 @@ export function compileStockLocationReadReceipt(table: SchemaTable,
         .pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
       if (count !== selection.count || !jsonEqual(rows, expected))
         return yield* Effect.fail(commerceError("receiptMismatch"));
-    });
+    }, effect => Effect.withSpan(effect, "StockLocation.validateRead", { captureStackTrace: false }));
     return validateLogicalCall;
   });
 }

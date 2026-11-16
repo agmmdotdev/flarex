@@ -62,7 +62,7 @@ import { issueLogicalParticipantAttemptAdmission } from "../../../src/storage/do
 import {
   makeLogicalDocumentRootEvaluator,
 } from "../../../src/storage/documents/logicalDocuments/rootEvaluator";
-import { captureWorkflowValue } from "../../../../medusa-adapter/src/workflow/value";
+import { captureWorkflowValue, presentWorkflowValue } from "../../../../medusa-adapter/src/workflow/value";
 
 beforeEach(() => { construction.admissions = []; construction.state = undefined;
   construction.states.clear();
@@ -219,7 +219,10 @@ it("charges the complete normalized omission envelope once through the borrowed 
       workCalls: before.workCalls + 1,
       workBytes: before.workBytes + new TextEncoder().encode(JSON.stringify(envelope)).byteLength,
     });
+    // The capture stays frozen with trusted state; callback code gets the mutable copy.
     expect(Object.getOwnPropertyDescriptor(owned, "missing"))
+      .toMatchObject({ value: undefined, writable: false, enumerable: true, configurable: false });
+    expect(Object.getOwnPropertyDescriptor(presentWorkflowValue(owned), "missing"))
       .toMatchObject({ value: undefined, writable: true, enumerable: true, configurable: true });
   } finally { await Effect.runPromise(borrowed.abort); evaluator.close(); }
 });

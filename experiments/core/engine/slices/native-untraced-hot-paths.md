@@ -17,10 +17,18 @@ calls and 886 named definitions, about 8–9 ms of 62 ms CPU in the profile.
 Functions below that threshold keep their names. After the change one create makes
 355 named calls and 157 named definitions.
 
-Kept traced regardless of count because tests or diagnostics read their spans:
+Kept named regardless of count because tests or diagnostics read their spans:
 `MedusaAdapter.withService`, `CommerceRepository.select`, `CommerceRepository.checked`,
 `MedusaRead.execute`, `MedusaRead.window`, `CoreNativeScopeExclusion.beforeDeadline`,
 `CoreNativeRelational.read`.
+
+Per-request wrappers that keep their name now open the same span through
+`Effect.withSpan(effect, name, { captureStackTrace: false })` on an untraced function
+(data-last: `Effect.withSpan(name, undefined, { captureStackTrace: false })`; the
+two-argument data-last form reads the options as span options and captures), so the
+span, its parent and the named stack frame remain and no `Error` is allocated per call
+or definition. See
+[the divergence record](../divergences/core-effect-hot-scan-spans.md).
 
 ## Independent review
 

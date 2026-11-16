@@ -302,12 +302,12 @@ export const prepareWorkflowComposition = Effect.fn("Workflow.prepareComposition
   const decodeStoredOutput = commerceDecoder(Schema.toType(workflow.output), "storedCorruption");
   const scopeExclusive = executionIsolation === "scopeExclusive" ||
     (workflowComposedResources(workflow.resources) ?? []).some(member => composedWorkflowResourceDefinition(member.resource)?.scopeExclusive);
-  const execute = Effect.fn("Workflow.runAtomic")(function* (ctx: AtomicCommerceContext, value: Json) {
+  const execute = Effect.fnUntraced(function* (ctx: AtomicCommerceContext, value: Json) {
     if (scopeExclusive) yield* requireAtomicCommerceScopeExclusion(ctx);
     const args = yield* checkedCommerceValue(ctx, () => decodeInput(value));
     const result = yield* runNativeMedusaWorkflow(workflow.prepared, ctx, args, owner => bindWorkflowResources(workflow.resources, members, graph, emitted, ctx, owner));
     return yield* checkedCommerceValue(ctx, () => decodeOutput(result));
-  });
+  }, effect => Effect.withSpan(effect, "Workflow.runAtomic", { captureStackTrace: false }));
   const command = defineAtomicCommerceCommand(workflow.name, execute);
   const events: AtomicCommerceEvents | undefined = eventDefinition === undefined || options.subscribers === undefined ? undefined : {
     producerRevision: options.revision, contracts, subscribers: options.subscribers,
@@ -397,10 +397,10 @@ const prepareBoundWorkflowHost = Effect.fn("Workflow.prepareBoundHost")(function
 export const prepareAtomicWorkflowHost = Effect.fn("Workflow.prepareAtomicHost")(function* <Resources, Input extends Json, Output extends Json, EncodedInput extends Json>(input: WorkflowHostInput<Resources, Input, Output, EncodedInput, AtomicCommerceHost>) {
   const { host, prepared } = yield* prepareBoundWorkflowHost(input);
   return Object.freeze({ newRequestKey: host.newRequestKey, close: host.close,
-    run: Effect.fn("Workflow.run")((key: string, value: EncodedInput) => Effect.fromResult(captureCommerceInput(value)).pipe(
+    run: (key: string, value: EncodedInput) => Effect.withSpan(Effect.suspend(() => Effect.fromResult(captureCommerceInput(value)).pipe(
       Effect.flatMap(args => host.run(key, prepared.command, args)),
       Effect.flatMap(result => Effect.fromResult(prepared.decodeStoredOutput(result))),
-    )),
+    )), "Workflow.run", { captureStackTrace: false }),
   });
 });
 

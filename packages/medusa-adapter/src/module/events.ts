@@ -14,7 +14,7 @@ export const decodeLocalEventBatch = commerceDecoder(Schema.Array(Schema.Json), 
  * strict decoding; native naming and row/event correlation remain with policy. */
 export function moduleEventDecoder<S extends Schema.ConstraintDecoder<unknown>>(schema: S, resources: CommerceResources) {
   const decode = Schema.decodeUnknownEffect(schema, { onExcessProperty: "error" });
-  return Effect.fn(function* (input: unknown) {
+  return Effect.fnUntraced(function* (input: unknown) {
     const value = yield* Effect.fromResult(captureCommerceInput(input, resources));
     return yield* decode(value).pipe(Effect.mapError(cause => commerceError("unadmittedEvent", cause)));
   });

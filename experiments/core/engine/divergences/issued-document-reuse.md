@@ -21,13 +21,28 @@ Measurement status: **Required gates unmet**; local load only.
 
 ## Flarex mechanism and difference
 
-- A root that `capture` issued is recognised by identity. The first time it is captured
-  again, its shape is checked and then the codec walks it as before.
-- If every container was a frozen plain array or object with string-keyed data
-  properties and every leaf was null, boolean, number, string or bigint, that walk's
-  output is recorded as proven for both roots. Later captures of either return it,
-  with its size and nesting, when they fit the requested profile. A root outside that
-  profile takes the full walk, which selects the refusal.
+- A walk is proven when its input could not change under the codec and held no binary
+  leaf: a tree of frozen plain arrays and objects with string-keyed data properties
+  over null, boolean, number, string or bigint leaves, whoever built it; a root
+  `capture` issued, checked the same way the first time it is captured again; or a
+  tree this module decoded. The codec's output for that walk is recorded as proven,
+  and later captures of it (and of an issued input root) return it, with its size and
+  nesting, when they fit the requested profile. A root outside that profile takes the
+  full walk, which selects the refusal.
+- A frozen input is walked, never issued: only the codec's output is recorded, so a
+  foreign tree is not returned and is not a captured root. Convex needs no such case
+  because only its own constructors build values; Flarex accepts it because a frozen
+  tree is pinned by the language exactly as an issued one is, and it removes the
+  second codec walk of every document Core assembles from captured parts.
+- The shape check charges each node no more than the codec's semantic size for it
+  (strings by length, object keys by length), bounded by the size measured at issuance
+  or by the profile's byte limit. A frozen foreign tree the codec refuses early can
+  therefore cost up to one further limit-bounded traversal before that refusal.
+- The shape check asks a Proxy whether it is extensible, one trap call the codec
+  never makes. A trap that throws there proves nothing; the codec's walk alone
+  selects the outcome.
+- `isProvenScalarDocumentRoot` reports that evidence by identity to trusted owners; a
+  structural copy never qualifies.
 - The returned tree is always the codec's own output, never the tree first handed in.
 - A root that fails the shape check or the proving walk is never reused.
 - A stored document is proven when it is decoded. Decoding builds this module's own
@@ -40,8 +55,7 @@ Measurement status: **Required gates unmet**; local load only.
   input's own `slice`, so a forged subclass can plant an unvalidated leaf, a Proxy or a
   shared subtree in an issued tree. That codec is embedded in generated runtimes and
   stays unchanged here. The shape check runs before the walk, frozen state first, so a
-  Proxy cannot differ between the two. It visits at most as many nodes as the size the
-  codec measured when it issued the root; every genuine node costs at least one byte.
+  Proxy cannot differ between the two.
 
 ## Why
 

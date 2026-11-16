@@ -79,7 +79,7 @@ export function productReplacementProfile(catalog: ProductRuntimeMetadata, admis
       }
       return Result.succeed(undefined);
     },
-    prepareProjection: Effect.fn("ProductAdapter.prepareReplacementProjection")(function* (entity, roots, load) {
+    prepareProjection: Effect.fnUntraced(function* (entity, roots, load) {
       if (admission !== "option-workflows") return;
       if (entity !== catalog.option) return yield* Effect.fail(commerceError("unsupportedProfile"));
       const ids: string[] = [];
@@ -90,16 +90,16 @@ export function productReplacementProfile(catalog: ProductRuntimeMetadata, admis
       // Move the complete Value projection's existing indexed read before
       // writes. The planner reuses this same operation-local selection later.
       yield* load(catalog.value.table, catalog.foreignKeys.value, ids);
-    }),
+    }, effect => Effect.withSpan(effect, "ProductAdapter.prepareReplacementProjection", { captureStackTrace: false })),
     toManyMode: (entity, _name, child) => entity === catalog.collection
       ? child === catalog.product ? Result.succeed("associate") : Result.fail(commerceError("unsupportedProfile"))
       : Result.succeed("replace"),
-    validateLink: Effect.fn("ProductAdapter.validateGraphLink")(function* (source, next, selected, load) {
+    validateLink: Effect.fnUntraced(function* (source, next, selected, load) {
       if (source !== catalog.variant) return;
       if (typeof selected.option_id !== "string") return yield* Effect.fail(commerceError("invalidInput"));
       const options = yield* load(catalog.option.table, "id", [selected.option_id]);
       if (!options.some(value => value.id === selected.option_id && value.product_id === next.product_id)) return yield* Effect.fail(commerceError("invalidInput"));
-    }),
+    }, effect => Effect.withSpan(effect, "ProductAdapter.validateGraphLink", { captureStackTrace: false })),
     projectionPaths: (entity, relations) => relations.flatMap(name => name === "options" && entity === catalog.product ? [name, "options.values"] : [name]),
     project: rows => {
       const projection = new Map(rows);

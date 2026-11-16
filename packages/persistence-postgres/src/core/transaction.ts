@@ -8,7 +8,8 @@ import { Cause, Effect, Exit, Option, Result, Schema, Semaphore } from "effect";
 import { bytesEqual, compareBytesLexicographically, encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { SchemaManifestAppTableNameSchema } from "flarex-protocol/schema-manifest";
 import { decodeDocumentId, normalizeDocumentId } from "flarex-protocol/document-id";
-import { captureDocumentObject, captureDocumentPatch, encodeDocumentValue, type DocumentObject, type DocumentValue } from "flarex-protocol/document-value";
+import { captureDocumentObject, captureDocumentPatch, encodeDocumentValue, isProvenScalarDocumentRoot,
+  type DocumentObject, type DocumentValue } from "flarex-protocol/document-value";
 import { encodeIndexKey, encodeIndexValue } from "flarex-protocol/index-key";
 import { captureLogicalQuery, compileIndexRange, fingerprintQuery, incrementIndexKeyPrefix, splitIndexRangeAfter } from "flarex-protocol/index-range";
 import type { ValidatorIdPolicyV1 } from "flarex-protocol/validator-engine";
@@ -255,7 +256,9 @@ function hasOnlyImmutableScalarLeaves(value: DocumentValue): boolean {
 /** One transaction's encoded final documents. Staging encodes a native body to
  * check its byte limit; the commit takes those bytes for the exact document
  * object it stores instead of encoding it again. Only a document that cannot
- * change is kept, so the kept bytes are what a fresh encode would return. A
+ * change is kept, so the kept bytes are what a fresh encode would return. The
+ * capture owner has already seen that for a root it proved, which is every
+ * scalar document staging encodes; any other document is inspected here. A
  * taken entry leaves this owner: a second batch encodes its own bytes. The
  * bytes are stored as offered, so a caller offers only what
  * `encodeDocumentValue` returned for that same document. */
@@ -263,7 +266,7 @@ export class CoreEncodedDocumentHandoff {
   private readonly offered = new WeakMap<DocumentObject, Uint8Array>();
 
   offer(document: DocumentObject, encoded: Uint8Array): void {
-    if (hasOnlyImmutableScalarLeaves(document)) this.offered.set(document, encoded);
+    if (isProvenScalarDocumentRoot(document) || hasOnlyImmutableScalarLeaves(document)) this.offered.set(document, encoded);
   }
 
   take(document: DocumentObject): Uint8Array | undefined {
@@ -339,13 +342,13 @@ function observeNativeIndex(observations: CoreNativeObservationState, selections
 }
 
 /** Source draws entropy before reading its own raw day clock. */
-export const prepareCoreTransactionIdGenerator = Effect.fn("CoreTransaction.prepareIdGenerator")(function* (
+export const prepareCoreTransactionIdGenerator = Effect.fnUntraced(function* (
   options: Pick<CoreDatabaseOptions, "randomBytes" | "now">,
 ) {
   const seed = yield* Effect.fromResult(captureCoreEntropy(yield* options.randomBytes(32), 32));
   const rawDayTime = yield* options.now;
   return yield* Effect.fromResult(createTransactionIdGenerator(seed, rawDayTime));
-});
+}, effect => Effect.withSpan(effect, "CoreTransaction.prepareIdGenerator", { captureStackTrace: false }));
 
 /** Bootstrap/snapshot construction reads its creation clock separately after the generator. */
 export const prepareCoreTransactionIds = Effect.fn("CoreTransaction.prepareIds")(function* (
@@ -682,7 +685,7 @@ export function createCoreTransaction(input: Readonly<{
     nativeObservations?.addReads(selected.metadata?.timestamp ?? selected.snapshot.timestamp, dependency.snapshot());
   });
 
-  const nativeObserve = Effect.fn("CoreTransaction.nativeObserve")(function* (table: CoreTableDefinition, id: Uint8Array, access: CoreTransactionNativeAccess | undefined = defaultAccess) {
+  const nativeObserve = Effect.fnUntraced(function* (table: CoreTableDefinition, id: Uint8Array, access: CoreTransactionNativeAccess | undefined = defaultAccess) {
     if (nativeObservations === undefined) return yield* invalid();
     const developerId = yield* Effect.fromResult(publicDocumentId(table, id));
     yield* Effect.fromResult(nativeObservations.reserve(table, [developerId]));
@@ -702,7 +705,7 @@ export function createCoreTransaction(input: Readonly<{
     const observation = yield* captureObservation(table, page.entries[0]?.document, selected.snapshot.timestamp, access);
     nativeRead(selected.snapshot.timestamp, byId, interval);
     return yield* nativeRemember(table, developerId, observation);
-  });
+  }, effect => Effect.withSpan(effect, "CoreTransaction.nativeObserve", { captureStackTrace: false }));
 
   // Overlapped first reads of independent native slots (divergences/native-read-batches.md).
   // A prefetched physical page is consumed at most once, and only when the
@@ -911,7 +914,7 @@ export function createCoreTransaction(input: Readonly<{
     return slot;
   });
 
-  const observe = Effect.fn("CoreTransaction.observe")(function* (table: CoreTableDefinition, id: Uint8Array, access: CoreTransactionNativeAccess | undefined = defaultAccess) {
+  const observe = Effect.fnUntraced(function* (table: CoreTableDefinition, id: Uint8Array, access: CoreTransactionNativeAccess | undefined = defaultAccess) {
     yield* assertOpen();
     const developerId = yield* Effect.fromResult(publicDocumentId(table, id));
     const pending = writes.get(developerId);
@@ -933,7 +936,7 @@ export function createCoreTransaction(input: Readonly<{
     const found = page.entries[0]?.document;
     yield* assertOpen();
     return yield* captureObservation(table, found, snapshot.timestamp, access);
-  });
+  }, effect => Effect.withSpan(effect, "CoreTransaction.observe", { captureStackTrace: false }));
 
   const markNativeUse = (table: CoreTableDefinition, document: DocumentObject | null,
     access: CoreTransactionNativeAccess | undefined) => {
@@ -941,13 +944,13 @@ export function createCoreTransaction(input: Readonly<{
       nativeActivity.mark(access, table.name, document._id);
   };
 
-  const read = Effect.fn("CoreTransaction.read")(function* (table: CoreTableDefinition, id: Uint8Array, access: CoreTransactionNativeAccess | undefined = defaultAccess) {
+  const read = Effect.fnUntraced(function* (table: CoreTableDefinition, id: Uint8Array, access: CoreTransactionNativeAccess | undefined = defaultAccess) {
     const developerId = yield* Effect.fromResult(publicDocumentId(table, id));
     const pending = writes.get(developerId);
     const document = pending === undefined ? (yield* observe(table, id, access)).document : pending.finalDocument;
     markNativeUse(table, document, access);
     return document;
-  });
+  }, effect => Effect.withSpan(effect, "CoreTransaction.read", { captureStackTrace: false }));
 
   /** Source pending-graph checkpoints restore attempted writes only. Actual
    * observations, charged work and ID/time reservations are never rewound. */
@@ -1096,7 +1099,7 @@ export function createCoreTransaction(input: Readonly<{
     return candidates;
   }
 
-  const validateEarlierNativeSerialReads = Effect.fn("CoreTransaction.validateEarlierNativeSerialReads")(function* (
+  const validateEarlierNativeSerialReads = Effect.fnUntraced(function* (
     table: CoreTableDefinition, byId: CoreIndexDefinition, selected: Effect.Success<ReturnType<typeof nativeCapture>>,
     observations: CoreNativeObservationState, includeOriginals: boolean,
   ) {
@@ -1125,9 +1128,9 @@ export function createCoreTransaction(input: Readonly<{
       const conflict = yield* Effect.fromResult(selected.writeLog.conflict(readGroup.snapshot(), timestamp));
       if (conflict !== undefined) return yield* new CoreTransactionError({ reason: "conflict", cause: conflict });
     }
-  });
+  }, effect => Effect.withSpan(effect, "CoreTransaction.validateEarlierNativeSerialReads", { captureStackTrace: false }));
 
-  const queryNativeSerialMaximum = Effect.fn("CoreTransaction.queryNativeSerialMaximum")(function* (
+  const queryNativeSerialMaximum = Effect.fnUntraced(function* (
     table: CoreTableDefinition, index: CoreIndexDefinition, byId: CoreIndexDefinition, field: string,
     selected: Effect.Success<ReturnType<typeof nativeCapture>>, access: Extract<CoreTransactionNativeAccess, { kind: "native" }>,
   ) {
@@ -1227,7 +1230,7 @@ export function createCoreTransaction(input: Readonly<{
     const value = winner[field];
     if (typeof value !== "number") return yield* new CorePersistenceError({ reason: "corruptData" });
     return value;
-  });
+  }, effect => Effect.withSpan(effect, "CoreTransaction.queryNativeSerialMaximum", { captureStackTrace: false }));
 
   const normalizeNativeInsert = Effect.fnUntraced(function* (
     table: CoreTableDefinition, body: JsonObject, policy: NonNullable<ReturnType<typeof coreNativeRelationalRows>>,
@@ -1308,15 +1311,15 @@ export function createCoreTransaction(input: Readonly<{
     operation: withinOperation ? body => body : operation,
   });
 
-  const writeSystem = Effect.fn("CoreTransaction.writeSystem")(function* (name: string, id: Uint8Array, body: DocumentObject | null,
+  const writeSystem = Effect.fnUntraced(function* (name: string, id: Uint8Array, body: DocumentObject | null,
     mode: "insert" | "update" = "update") {
     yield* assertOpen();
     const table = yield* Effect.fromResult(tableByName(name, true));
     const developerId = yield* Effect.fromResult(publicDocumentId(table, id));
     const previous = mode === "insert" ? null : yield* read(table, id);
     if (previous === null && body === null) return;
-    const document = body === null ? null : { ...body, _id: developerId,
-      _creationTime: previous?._creationTime ?? (yield* Effect.fromResult(takeCreationTime())) };
+    const document = body === null ? null : Object.freeze({ ...body, _id: developerId,
+      _creationTime: previous?._creationTime ?? (yield* Effect.fromResult(takeCreationTime())) });
     yield* stage(table, id, document, defaultAccess, mode);
     if (name === TABLES) {
       registry = document === null ? registry.withoutTable(id)
@@ -1331,9 +1334,9 @@ export function createCoreTransaction(input: Readonly<{
         document === null ? undefined : yield* Effect.fromResult(systemDocument(document)))));
     }
     if(name===TABLES||name===INDEXES||name===SCHEMAS)registryAfter = registry;
-  });
+  }, effect => Effect.withSpan(effect, "CoreTransaction.writeSystem", { captureStackTrace: false }));
 
-  const ensureUserTable = Effect.fn("CoreTransaction.ensureUserTable")(function* (name: string) {
+  const ensureUserTable = Effect.fnUntraced(function* (name: string) {
     yield* decodeAppTableName(name).pipe(Effect.mapError(invalid));
     yield* Effect.fromResult(mappingRead());
     const existing = registry.table(name, namespace);
@@ -1357,18 +1360,18 @@ export function createCoreTransaction(input: Readonly<{
     const selected = registry.table(name, namespace);
     if (selected === undefined) return yield* new CorePersistenceError({ reason: "corruptData" });
     return selected.definition;
-  });
+  }, effect => Effect.withSpan(effect, "CoreTransaction.ensureUserTable", { captureStackTrace: false }));
 
-  const getSystem = Effect.fn("CoreTransaction.getSystem")(function* (name: string, id: string) {
+  const getSystem = Effect.fnUntraced(function* (name: string, id: string) {
     const table = yield* Effect.fromResult(tableByName(name, true));
     const decoded = yield* Effect.fromResult(Result.mapError(decodeDocumentId(id), invalid));
     if (decoded.tableNumber !== table.number) return yield* invalid();
     yield* Effect.fromResult(chargePointQuery(table, decoded.internalId));
     const document = yield* read(table, decoded.internalId);
     return document === null ? Option.none<CoreSystemDocument>() : Option.some(yield* Effect.fromResult(systemDocument(document)));
-  });
+  }, effect => Effect.withSpan(effect, "CoreTransaction.getSystem", { captureStackTrace: false }));
 
-  const querySystem = Effect.fn("CoreTransaction.querySystem")(function* (name: string, indexName: string, eqValues: readonly DocumentValue[]) {
+  const querySystem = Effect.fnUntraced(function* (name: string, indexName: string, eqValues: readonly DocumentValue[]) {
     const table = yield* Effect.fromResult(tableByName(name, true));
     const index = table.indexes.find(candidate => candidate.name === indexName);
     if (index === undefined) return yield* new CorePersistenceError({ reason: "corruptData" });
@@ -1389,11 +1392,11 @@ export function createCoreTransaction(input: Readonly<{
       if (page.done) break;
     }
     return rows;
-  });
+  }, effect => Effect.withSpan(effect, "CoreTransaction.querySystem", { captureStackTrace: false }));
 
   /** Reuse Source's ordinary query/pending merge. Captured prefetch is separate
    * from the exact consumed prefix and its inspected membership accounting. */
-  const queryNativeReferenceIndex = Effect.fn("CoreTransaction.queryNativeReferenceIndex")(function* (
+  const queryNativeReferenceIndex = Effect.fnUntraced(function* (
     selection: CoreNativeReferenceSelection, table: CoreTableDefinition, index: CoreIndexDefinition,
     interval: CoreInterval, maximum: number, access: CoreTransactionNativeAccess,
   ) {
@@ -1448,9 +1451,9 @@ export function createCoreTransaction(input: Readonly<{
     }
     yield* native.chargeRetained(128 + physical.size * 128);
     return { documents: Object.freeze(documents), selected, physical, inspectedMemberships: examined.size };
-  });
+  }, effect => Effect.withSpan(effect, "CoreTransaction.queryNativeReferenceIndex", { captureStackTrace: false }));
 
-  const rememberNativeMembership = Effect.fn("CoreTransaction.rememberNativeMembership")(function* (
+  const rememberNativeMembership = Effect.fnUntraced(function* (
     selection: CoreNativeReferenceSelection, selected: Effect.Success<ReturnType<typeof nativeCapture>>,
     document: DocumentObject,
   ) {
@@ -1482,9 +1485,9 @@ export function createCoreTransaction(input: Readonly<{
       nativeRead(selected.snapshot.timestamp, byId, pointInterval(yield* Effect.fromResult(Result.mapError(encodeIndexKey([], member.id), invalid))));
     }
     return member;
-  });
+  }, effect => Effect.withSpan(effect, "CoreTransaction.rememberNativeMembership", { captureStackTrace: false }));
 
-  const maintainNativeMemberships = Effect.fn("CoreTransaction.maintainNativeMemberships")(function* (
+  const maintainNativeMemberships = Effect.fnUntraced(function* (
     selection: CoreNativeReferenceSelection, sourceId: string, previous: DocumentObject | null, next: DocumentObject | null,
     access: CoreTransactionNativeAccess,
   ) {
@@ -1543,15 +1546,15 @@ export function createCoreTransaction(input: Readonly<{
         membershipIdentities.set(key, member);
         if (native !== undefined) yield* native.chargeRetained(96 + key.length * 2);
       }
-      const document = { sourceId, targetId, _id: member.id, _creationTime: member.creationTime };
+      const document = Object.freeze({ sourceId, targetId, _id: member.id, _creationTime: member.creationTime });
       yield* stageDocument(table, member.internalId, document, access,
         member.allocated && !writes.has(member.id) ? "insert" : "update");
     }
-  });
+  }, effect => Effect.withSpan(effect, "CoreTransaction.maintainNativeMemberships", { captureStackTrace: false }));
 
   /** A reverse lookup observes its sources at the same capture frontier. It
    * never refreshes an earlier semantic original from another operation. */
-  const hydrateNativeReferenceSource = Effect.fn("CoreTransaction.hydrateNativeReferenceSource")(function* (
+  const hydrateNativeReferenceSource = Effect.fnUntraced(function* (
     selection: CoreNativeReferenceSelection, selected: Effect.Success<ReturnType<typeof nativeCapture>>,
     sourceId: string, access: CoreTransactionNativeAccess,
   ) {
@@ -1586,7 +1589,7 @@ export function createCoreTransaction(input: Readonly<{
       return yield* new CoreTransactionError({ reason: "conflict", cause: "Native incoming source revision changed" });
     if (selection.projection !== undefined) yield* Effect.fromResult(chargeDocument(table, original.document));
     return original.document;
-  });
+  }, effect => Effect.withSpan(effect, "CoreTransaction.hydrateNativeReferenceSource", { captureStackTrace: false }));
 
   const prepareNativeMutation = Effect.fnUntraced(function* (
     access: CoreTransactionNativeAccess | undefined, table: CoreTableDefinition,
@@ -1669,7 +1672,9 @@ export function createCoreTransaction(input: Readonly<{
       const body = yield* validateUserBody(table, value, null, access, "insert");
       const internalId = idGenerator.nextInternalId();
       const id = yield* Effect.fromResult(publicDocumentId(table, internalId));
-      const document = { ...body, _id: id, _creationTime: yield* Effect.fromResult(takeCreationTime()) };
+      // Core's own frozen document over a captured body: staging's one codec walk
+      // of it is then final, and its measured bytes need no second walk.
+      const document = Object.freeze({ ...body, _id: id, _creationTime: yield* Effect.fromResult(takeCreationTime()) });
       const record = yield* prepareNativeMutation(access, table, "insert", null, document, body, recordActivity);
       yield* stage(table, internalId, document, access, "insert");
       record();
@@ -1693,7 +1698,7 @@ export function createCoreTransaction(input: Readonly<{
         else body[key] = next;
       }
       const captured = yield* validateUserBody(selected.table, body, document, access, managedUpdate);
-      const next = { ...captured, _id: originalId, _creationTime: originalTime };
+      const next = Object.freeze({ ...captured, _id: originalId, _creationTime: originalTime });
       if (checkPatchedReferences !== undefined) yield* checkPatchedReferences(id, next);
       const record = yield* prepareNativeMutation(access, selected.table, "patch", document, next, captured, recordActivity);
       yield* stage(selected.table, selected.internalId, next, access);
@@ -1713,7 +1718,7 @@ export function createCoreTransaction(input: Readonly<{
       const { _id: originalId, _creationTime: originalTime } = previous;
       if (originalId === undefined || originalTime === undefined)
         return yield* Effect.die(new Error("Validated core document lost its system fields"));
-      const next = { ...body, _id: originalId, _creationTime: originalTime };
+      const next = Object.freeze({ ...body, _id: originalId, _creationTime: originalTime });
       const record = yield* prepareNativeMutation(access, selected.table, "replace", previous, next, body, recordActivity);
       yield* stage(selected.table, selected.internalId, next, access);
       record();
@@ -1741,7 +1746,7 @@ export function createCoreTransaction(input: Readonly<{
         && !isCoreSystemTable(record.definition) && coreNamespaceKey(record.definition.namespace) === coreNamespaceKey(namespace))
         .map(record => Object.freeze({ tableId: record.definition.number, logicalName: record.definition.name })));
     })),
-    selectProgram: Effect.fn("CoreTransaction.selectProgram")((path: string) => operation(Effect.gen(function* () {
+    selectProgram: (path: string) => Effect.withSpan(Effect.suspend(() => operation(Effect.gen(function* () {
       const head = registry.head(path);
       const program = head === undefined ? undefined : registry.program(head.identity);
       if (program === undefined || head === undefined)
@@ -1754,12 +1759,12 @@ export function createCoreTransaction(input: Readonly<{
       return Object.freeze({ identity: Object.freeze({ ...program.definition.identity }),
         metadata: (yield* Effect.fromResult(Result.mapError(captureCoreObject(program.definition.metadata, true), invalid))).value,
       }) satisfies CoreProgramDefinition;
-    }))),
-    tableNumber: Effect.fn("CoreTransaction.tableNumber")((name: string) => operation(Effect.gen(function* () {
+    }))), "CoreTransaction.selectProgram", { captureStackTrace: false }),
+    tableNumber: (name: string) => Effect.withSpan(Effect.suspend(() => operation(Effect.gen(function* () {
       return (yield* Effect.fromResult(tableByName(name, false))).number;
-    }))),
+    }))), "CoreTransaction.tableNumber", { captureStackTrace: false }),
     ...userOperations(),
-    startQuery: Effect.fn("CoreTransaction.startQuery")((request: import("./api").CoreQueryRequest) => operation(Effect.gen(function* () {
+    startQuery: (request: import("./api").CoreQueryRequest) => Effect.withSpan(Effect.suspend(() => operation(Effect.gen(function* () {
       const query = yield* Effect.fromResult(Result.mapError(captureLogicalQuery(request.query),
         cause => new CoreQueryInputError({ reason: "invalidQuery", cause })));
       const source = query.source;
@@ -1801,8 +1806,8 @@ export function createCoreTransaction(input: Readonly<{
       }
       const limit = query.operators.length === 0 ? undefined : Math.min(...query.operators.map(operator => operator.limit));
       return scanner(table, index, interval, source.order, limit, queryFingerprint, cursor?.position);
-    }))),
-    scan: Effect.fn("CoreTransaction.scan")((tableName: string, indexName: string, options = {}) => operation(Effect.gen(function* () {
+    }))), "CoreTransaction.startQuery", { captureStackTrace: false }),
+    scan: (tableName: string, indexName: string, options: Parameters<CoreTransaction["scan"]>[2] = {}) => Effect.withSpan(Effect.suspend(() => operation(Effect.gen(function* () {
       const { table, index } = yield* Effect.fromResult(selectIndex(tableName, indexName));
       const order = options.order ?? "asc";
       const limit = options.limit ?? Math.min((input.limits ?? CORE_TRANSACTION_REFERENCE_LIMITS).documentsRead + 1, Number.MAX_SAFE_INTEGER);
@@ -1816,8 +1821,8 @@ export function createCoreTransaction(input: Readonly<{
         if (page.done) break;
       }
       return Object.freeze(results);
-    }))),
-    finalize: Effect.fn("CoreTransaction.finalize")(() => Effect.gen(function* () {
+    }))), "CoreTransaction.scan", { captureStackTrace: false }),
+    finalize: () => Effect.withSpan(Effect.suspend(() => Effect.gen(function* () {
       yield* assertOpen();
       if (input.readonly) return yield* new CoreTransactionError({ reason: "readonly" });
       if (inflight !== 0) return yield* new CoreTransactionError({ reason: "inflight" });
@@ -1839,9 +1844,9 @@ export function createCoreTransaction(input: Readonly<{
         ...(registryAfter === undefined ? {} : { registryAfter }),
         ...(input.claim === undefined ? {} : { claim: input.claim }), usage: accounting.snapshot(),
         limits: Object.freeze({ ...(input.limits ?? CORE_TRANSACTION_REFERENCE_LIMITS) }) }));
-    })),
-    abort: Effect.fn("CoreTransaction.abort")(() => Effect.uninterruptible(Effect.andThen(Effect.sync(markClosed),
-      operations.withPermits(1)(Effect.sync(() => input.onClosed?.()))).pipe(Effect.andThen(input.scopeExclusion?.drain ?? Effect.void)))),
+    })), "CoreTransaction.finalize", { captureStackTrace: false }),
+    abort: () => Effect.withSpan(Effect.suspend(() => Effect.uninterruptible(Effect.andThen(Effect.sync(markClosed),
+      operations.withPermits(1)(Effect.sync(() => input.onClosed?.()))).pipe(Effect.andThen(input.scopeExclusion?.drain ?? Effect.void)))), "CoreTransaction.abort", { captureStackTrace: false }),
   });
 
   const nativeFind = (access: CoreTransactionNativeAccess | undefined = defaultAccess, withinOperation = false,
@@ -2067,7 +2072,7 @@ export function createCoreTransaction(input: Readonly<{
     return { table, policy, rows, access };
   });
 
-  const checkpointNativeRowReferences = Effect.fn("CoreTransaction.checkpointNativeRowReferences")(function* (
+  const checkpointNativeRowReferences = Effect.fnUntraced(function* (
     table: CoreTableDefinition, policy: NonNullable<ReturnType<typeof coreNativeRelationalRows>>,
     id: string, document: DocumentObject, access: Extract<CoreTransactionNativeAccess, { kind: "native" }>,
     find: CoreNativeOperations["find"],
@@ -2087,7 +2092,7 @@ export function createCoreTransaction(input: Readonly<{
         target: { identity: target.table.identity, tableName: target.table.identity.tableId,
           columns: foreignKey.targetFields, values: tuple } });
     }
-  });
+  }, effect => Effect.withSpan(effect, "CoreTransaction.checkpointNativeRowReferences", { captureStackTrace: false }));
 
   const nativeWriteRows = (access: CoreTransactionNativeAccess | undefined = defaultAccess): CoreNativeOperations["writeRows"] => (tableName, mode, inputRows, invocation) => Effect.suspend(() => nativeBatch(access, Effect.gen(function* () {
     if (mode !== "insert" && mode !== "upsert" && mode !== "upsertPreservingDeletion" && mode !== "update") return yield* new CoreNativeQueryError({ reason: "invalidInput" });
@@ -2294,7 +2299,7 @@ export function createCoreTransaction(input: Readonly<{
           const pending = writes.get(id);
           if (pending?.finalDocument === null) {
             yield* enforceUserSchema(table, row);
-            const next = { ...row, _id: id, _creationTime: destination._creationTime };
+            const next = Object.freeze({ ...row, _id: id, _creationTime: destination._creationTime });
             const record = yield* prepareNativeMutation(access, table, "insert", null, next, row);
             yield* stage(table, pending.id, next, access);
             record(); markNativeUse(table, next, access);
@@ -2343,7 +2348,7 @@ export function createCoreTransaction(input: Readonly<{
           return yield* new CorePersistenceError({ reason: "corruptData" });
         const body = yield* validateUserBody(table, row, document, access,
           selectedPolicy === "preserveTimestamps" ? "preserve" : "advance");
-        const next = { ...body, _id: document._id, _creationTime: document._creationTime };
+        const next = Object.freeze({ ...body, _id: document._id, _creationTime: document._creationTime });
         const record = yield* prepareNativeMutation(access, table, "insert", null, next, body);
         yield* stage(table, pending.id, next, access);
         record(); markNativeUse(table, next, access);
@@ -2640,7 +2645,7 @@ export function createCoreTransaction(input: Readonly<{
     });
   };
 
-  const evaluateNativeRelational = Effect.fn("CoreTransaction.evaluateNativeRelational")(function* (
+  const evaluateNativeRelational = Effect.fnUntraced(function* (
     table: CoreTableDefinition, policy: CoreNativeRelationalRowPolicy, program: PostgresRelationalPredicateProgram,
     rows: readonly JsonObject[], child?: Readonly<{ table: CoreNativeRelationalRowPolicy["table"];
       tableId: CoreTableDefinition; rows: readonly JsonObject[] }>,
@@ -2655,7 +2660,7 @@ export function createCoreTransaction(input: Readonly<{
     const decoded = yield* Effect.fromResult(decodePostgresRelationalMatches(batch, table, raw, nativeRelationalPredicateFailure));
     yield* native.chargeRetained(decoded.bytes);
     return decoded.matches;
-  });
+  }, effect => Effect.withSpan(effect, "CoreTransaction.evaluateNativeRelational", { captureStackTrace: false }));
 
   const nativeMatchRelational = (access: Extract<CoreTransactionNativeAccess, { readonly kind: "native" }>): CoreNativeOperations["matchRelational"] =>
     (tableName, program, rows) => Effect.suspend(() => nativeOperation(access, Effect.gen(function* () {
@@ -3043,7 +3048,7 @@ export function createCoreTransaction(input: Readonly<{
       yield* Effect.fromResult(checkCoreNativeAuthority(registry, access.authority));
       return withInsertPrefetch(Object.freeze({ ...nativeOperationsFor(access), readRelated: nativeReadRelated(access) }), access);
     }),
-    applicationInsertFor: Effect.fn("CoreTransaction.applicationInsertFor")(function* (access) {
+    applicationInsertFor: Effect.fnUntraced(function* (access) {
       yield* assertOpen();
       if (!nativeAccesses.has(access) || access.kind !== "applicationInsert") return yield* new CoreTransactionError({ reason: "authorityRevoked" });
       yield* Effect.fromResult(checkCoreApplicationInsertAuthority(registry, access.authority));
@@ -3081,8 +3086,8 @@ export function createCoreTransaction(input: Readonly<{
       });
       applicationInserts.set(access, granted);
       return granted;
-    }),
-    applicationReadFor: Effect.fn("CoreTransaction.applicationReadFor")(function* (access) {
+    }, effect => Effect.withSpan(effect, "CoreTransaction.applicationInsertFor", { captureStackTrace: false })),
+    applicationReadFor: Effect.fnUntraced(function* (access) {
       yield* assertOpen();
       if (!nativeAccesses.has(access) || access.kind !== "applicationRead") return yield* new CoreTransactionError({ reason: "authorityRevoked" });
       yield* Effect.fromResult(checkCoreApplicationReadAuthority(registry, access.authority));
@@ -3096,8 +3101,8 @@ export function createCoreTransaction(input: Readonly<{
       }))) });
       applicationReads.set(access, granted);
       return granted;
-    }),
-    count: Effect.fn("CoreTransaction.count")(function*(tableId:Uint8Array){
+    }, effect => Effect.withSpan(effect, "CoreTransaction.applicationReadFor", { captureStackTrace: false })),
+    count: Effect.fnUntraced(function*(tableId:Uint8Array){
       const table=registry.tableByTablet(tableId)?.definition;
       const byId=table?.indexes.find(index=>index.name==="by_id");
       if(table===undefined||byId===undefined)return yield* invalid();
@@ -3107,26 +3112,26 @@ export function createCoreTransaction(input: Readonly<{
       for(const change of writes.values())if(bytesEqual(change.table.tabletId,tableId)) count+=BigInt(change.finalDocument===null?0:1)-BigInt(change.originalDocument===null?0:1);
       if(count<0n||count>0xffff_ffff_ffff_ffffn)return yield* new CorePersistenceError({reason:"corruptData",cause:"Table count overflow or underflow"});
       return Option.some(count);
-    }),
+    }, effect => Effect.withSpan(effect, "CoreTransaction.count", { captureStackTrace: false })),
     runSystem: operation,
     getSystem, querySystem,
-    insertSystem: Effect.fn("CoreTransaction.insertSystem")(function* (name: string, body: DocumentObject) {
+    insertSystem: Effect.fnUntraced(function* (name: string, body: DocumentObject) {
       yield* assertOpen();
       if (!name.startsWith("_")) return yield* invalid();
       const id = idGenerator.nextInternalId();
       yield* writeSystem(name, id, body, "insert");
       return yield* Effect.fromResult(publicDocumentId(yield* Effect.fromResult(tableByName(name, true)), id));
-    }),
-    replaceSystem: Effect.fn("CoreTransaction.replaceSystem")(function* (name: string, id: string, body: DocumentObject) {
+    }, effect => Effect.withSpan(effect, "CoreTransaction.insertSystem", { captureStackTrace: false })),
+    replaceSystem: Effect.fnUntraced(function* (name: string, id: string, body: DocumentObject) {
       const decoded = yield* Effect.fromResult(Result.mapError(decodeDocumentId(id), invalid));
       if (decoded.tableNumber !== (yield* Effect.fromResult(tableByName(name, true))).number) return yield* invalid();
       yield* writeSystem(name, decoded.internalId, body);
-    }),
-    deleteSystem: Effect.fn("CoreTransaction.deleteSystem")(function* (name: string, id: string) {
+    }, effect => Effect.withSpan(effect, "CoreTransaction.replaceSystem", { captureStackTrace: false })),
+    deleteSystem: Effect.fnUntraced(function* (name: string, id: string) {
       const decoded = yield* Effect.fromResult(Result.mapError(decodeDocumentId(id), invalid));
       if (decoded.tableNumber !== (yield* Effect.fromResult(tableByName(name, true))).number) return yield* invalid();
       yield* writeSystem(name, decoded.internalId, null);
-    }),
+    }, effect => Effect.withSpan(effect, "CoreTransaction.deleteSystem", { captureStackTrace: false })),
     ensureUserTable,
     tableExists: name => { if(native===undefined){const result=mappingRead(); if(Result.isFailure(result))throw new Error("Missing table mapping index");} return registry.table(name, namespace) !== undefined; },
     applicationSchemaRetained: schemaId => Result.gen(function* () {
@@ -3142,7 +3147,7 @@ export function createCoreTransaction(input: Readonly<{
       if (index === undefined) throw new Error("Schema system table is not initialized");
       return index.ref;
     },
-    finishRead: Effect.fn("CoreTransaction.finishRead")(() => Effect.gen(function* () {
+    finishRead: () => Effect.withSpan(Effect.suspend(() => Effect.gen(function* () {
       yield* assertOpen();
       if (inflight !== 0) return yield* new CoreTransactionError({ reason: "inflight" });
       if (writes.size !== 0 || registryAfter !== undefined || input.claim !== undefined)
@@ -3168,7 +3173,7 @@ export function createCoreTransaction(input: Readonly<{
       }
       return Object.freeze({ timestamp: snapshot.timestamp, get reads() { return reads.snapshot(); },
         ...(selectiveMetadata ? { metadataReadFrontiers: Object.freeze(metadataReadFrontiers) } : {}) });
-    })),
+    })), "CoreTransaction.finishRead", { captureStackTrace: false }),
     readPrivate: (tableName, id) => operation(Effect.gen(function* () {
       const table = yield* Effect.fromResult(tableByName(tableName, true));
       yield* Effect.fromResult(chargePointQuery(table, id));
@@ -3176,10 +3181,10 @@ export function createCoreTransaction(input: Readonly<{
       yield* Effect.fromResult(chargeDocument(table, document));
       return Option.fromNullOr(document);
     })),
-    insertPrivate: Effect.fn("CoreTransaction.insertPrivate")(function* (tableName: string, id: Uint8Array, body: DocumentObject) {
+    insertPrivate: Effect.fnUntraced(function* (tableName: string, id: Uint8Array, body: DocumentObject) {
       if (!tableName.startsWith("_")) return yield* invalid();
       yield* writeSystem(tableName, id, body, "insert");
-    }),
+    }, effect => Effect.withSpan(effect, "CoreTransaction.insertPrivate", { captureStackTrace: false })),
     writePrivate: (tableName, id, body) => operation(writeSystem(tableName, id, body)),
     setRegistryAfter: value => { registry = value; registryAfter = value; },
     addIndexRead: (indexId, interval) => reads.add(indexId, interval),

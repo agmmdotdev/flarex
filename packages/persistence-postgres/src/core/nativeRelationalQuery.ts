@@ -199,7 +199,7 @@ const filterCoreNativeRelationalSnapshot = Effect.fnUntraced(function* (
  * PostgreSQL programs evaluate only that captured cohort; pure residuals retain
  * their existing owner. Count precedes projection and population. A read-only
  * snapshot operation may instead hand a full-set read to PostgreSQL. */
-export const executeCoreNativeRelationalRead = Effect.fn("CoreNativeRelational.read")(function* (
+export const executeCoreNativeRelationalRead = Effect.fnUntraced(function* (
   operations: Pick<CoreNativeOperations, "find" | "matchRelational">, table: CoreTableDefinition,
   policy: CoreNativeRelationalRowPolicy, query: Query, purpose: "rows" | "count" = "rows",
   /** Supplied only for reads that carry no receipts; None keeps the complete path. */
@@ -223,7 +223,7 @@ export const executeCoreNativeRelationalRead = Effect.fn("CoreNativeRelational.r
   const verdicts = query.postgresPredicate === undefined ? undefined
     : yield* operations.matchRelational(table.name, query.postgresPredicate, inspected.map(row => row.row));
   return yield* Effect.fromResult(projectCoreNativeRelationalCohort(inspected, query, purpose, verdicts));
-});
+}, effect => Effect.withSpan(effect, "CoreNativeRelational.read", { captureStackTrace: false }));
 
 export const captureCoreNativeRelatedCohort = Effect.fn("CoreNativeRelational.captureRelatedCohort")(function* (
   find: CoreNativeOperations["find"], table: CoreTableDefinition, policy: CoreNativeRelationalRowPolicy,
@@ -252,7 +252,7 @@ const pageWhere = (predicate: NormalizedRelationalPredicate): Result.Result<Json
  * PostgreSQL, when the page's index is the single-field one whose key order
  * the statement uses. The statement's page form then walks entries in
  * proportion to the window's end and supplies the window and "has more". */
-export const executeCoreNativeRelationalPage = Effect.fn("CoreNativeRelational.page")(function* (
+export const executeCoreNativeRelationalPage = Effect.fnUntraced(function* (
   operations: Pick<CoreNativeOperations, "findPage">, table: CoreTableDefinition,
   declaration: CoreNativeTableDeclaration, policy: CoreNativeRelationalRowPolicy, query: Query,
   /** Supplied only for reads that carry no receipts; None keeps the examined page. */
@@ -281,4 +281,4 @@ export const executeCoreNativeRelationalPage = Effect.fn("CoreNativeRelational.p
     return output;
   }));
   return { rows, hasMore: page.hasMore };
-});
+}, effect => Effect.withSpan(effect, "CoreNativeRelational.page", { captureStackTrace: false }));

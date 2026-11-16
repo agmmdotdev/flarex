@@ -333,7 +333,7 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
   const closing = Semaphore.makeUnsafe(1);
   const assertOpen = Effect.suspend(() => closed
     ? Effect.fail(new CoreTransactionError({ reason: "closed" })) : committer.assertReady);
-  const close = Effect.fn("CoreDatabase.close")(() => closing.withPermits(1)(Effect.gen(function* () {
+  const close = () => Effect.withSpan(Effect.suspend(() => closing.withPermits(1)(Effect.gen(function* () {
     closed = true;
     recovery?.seal();
     yield* scopeExclusion.close();
@@ -341,7 +341,7 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
     yield* drainSchemaWork;
     const sessions = [...borrowed];
     for (const context of sessions) yield* context.transaction.abort();
-  })));
+  }))), "CoreDatabase.close", { captureStackTrace: false });
   yield* Effect.addFinalizer(() => close());
 
   const openSnapshot = Effect.fnUntraced(function* (timestamp: bigint, registry: CoreRegistry) {
@@ -357,11 +357,11 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
     yield* assertOpen;
     return snapshot;
   });
-  const start = Effect.fn("CoreDatabase.start")(function* (at?: bigint) {
+  const start = Effect.fnUntraced(function* (at?: bigint) {
     yield* assertOpen;
     const selected = yield* Effect.fromResult(committer.selectSnapshot(at));
     return { ...selected, snapshot: yield* openSnapshot(selected.timestamp, selected.registry) };
-  });
+  }, Effect.withSpan("CoreDatabase.start", undefined, { captureStackTrace: false }));
   const startNative = Effect.fnUntraced(function* () {
     yield* assertOpen;
     // Registry, data timestamp and COW history are selected together before I/O.
@@ -407,7 +407,7 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
     get: (at: bigint, tableId: Uint8Array, id: Uint8Array) => nativeHistoricalPoint(timestamp, at, tableId, id),
   });
 
-  const make = Effect.fn("CoreDatabase.transaction")(function* (at?: bigint, claim?: CoreRequestClaim, readonly = false, namespace:CoreTableNamespace = null, system = false) {
+  const make = Effect.fnUntraced(function* (at?: bigint, claim?: CoreRequestClaim, readonly = false, namespace:CoreTableNamespace = null, system = false) {
     namespace=yield* Effect.fromResult(Result.mapError(captureCoreTableNamespace(namespace),invalid));
     const selected = yield* start(at);
     const minimum = yield* decodeCreationTimestamp((yield* committer.publishedTimestamp) + 1n).pipe(Effect.mapError(invalid));
@@ -421,32 +421,32 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
       schemaBundles,
       onClosed: () => borrowed.delete(context), ...(claim === undefined ? {} : { claim }) });
     return { ...selected, context };
-  });
+  }, Effect.withSpan("CoreDatabase.transaction", undefined, { captureStackTrace: false }));
 
-  const registerBorrow = Effect.fn("CoreDatabase.registerBorrow")(<Selected extends Readonly<{ context: CoreTransactionInternals }>>(
+  const registerBorrow = <Selected extends Readonly<{ context: CoreTransactionInternals }>>(
     selected: Selected, guard?: () => Result.Result<void, CoreError>,
-  ) => Effect.andThen(committer.assertReady, Effect.suspend(() => {
+  ) => Effect.withSpan(Effect.suspend(() => Effect.andThen(committer.assertReady, Effect.suspend(() => {
     if (closed) return Effect.fail(new CoreTransactionError({ reason: "closed" }));
     // Guard and registration share one synchronous callback, with no I/O boundary.
     return Result.match(guard?.() ?? Result.succeed(undefined), {
       onFailure: error => Effect.fail(error),
       onSuccess: () => { borrowed.add(selected.context); return Effect.succeed(selected); },
     });
-  })));
+  }))), "CoreDatabase.registerBorrow", { captureStackTrace: false });
 
   // Preparation owns only detached heap state and remains interruptible in the
   // caller's current mode. Only borrow registration is a masked acquisition.
   // Dispose every non-transferred
   // operation on its full Exit, including defects and interruption. Disposal
   // never changes a durable request/outcome, even after an uncertain save.
-  const useTransaction = Effect.fn("CoreDatabase.useTransaction")(<Value>(
+  const useTransaction = <Value>(
     prepare: ReturnType<typeof make>,
     use: (selected: Effect.Success<ReturnType<typeof make>>) => Effect.Effect<Value, CoreError>,
     transferOnSuccess = false,
-  ) => Effect.flatMap(prepare, prepared => Effect.acquireUseRelease(registerBorrow(prepared), use, (selected, exit) =>
-    transferOnSuccess && Exit.isSuccess(exit) ? Effect.void : selected.context.transaction.abort())));
+  ) => Effect.withSpan(Effect.suspend(() => Effect.flatMap(prepare, prepared => Effect.acquireUseRelease(registerBorrow(prepared), use, (selected, exit) =>
+    transferOnSuccess && Exit.isSuccess(exit) ? Effect.void : selected.context.transaction.abort()))), "CoreDatabase.useTransaction", { captureStackTrace: false });
 
-  const findRequestEntry = Effect.fn("CoreDatabase.findRequestEntry")(function* (
+  const findRequestEntry = Effect.fnUntraced(function* (
     selected: Effect.Success<ReturnType<typeof start>>, key: string, transaction?: CoreTransactionInternals,
   ) {
     const table = selected.registry.table(REQUESTS)?.definition;
@@ -461,14 +461,14 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
     const entry = page.entries[0];
     if (entry === undefined) return undefined;
     return { entry: entry.document, table };
-  });
-  const findRequest = Effect.fn("CoreDatabase.findRequest")(function* (
+  }, effect => Effect.withSpan(effect, "CoreDatabase.findRequestEntry", { captureStackTrace: false }));
+  const findRequest = Effect.fnUntraced(function* (
     selected: Effect.Success<ReturnType<typeof start>>, identity: CoreRequestIdentity, transaction?: CoreTransactionInternals,
   ) {
     const found = yield* findRequestEntry(selected, identity.key, transaction);
     return found === undefined ? undefined : yield* Effect.fromResult(requestRecord(found.entry, found.table, identity));
-  });
-  const requireClaimRevision = Effect.fn("CoreDatabase.requireClaimRevision")(function* (
+  }, effect => Effect.withSpan(effect, "CoreDatabase.findRequest", { captureStackTrace: false }));
+  const requireClaimRevision = Effect.fnUntraced(function* (
     selected: Effect.Success<ReturnType<typeof start>> & Readonly<{ writeLog?: CoreWriteLogSnapshot }>,
     data: ClaimData, context: CoreTransactionInternals,
   ) {
@@ -493,7 +493,7 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
       || record.revision.ts !== data.record.revision.ts || record.leaseToken !== data.record.leaseToken)
       return yield* new CoreTransactionError({ reason: "foreignClaim" });
     return record;
-  });
+  }, effect => Effect.withSpan(effect, "CoreDatabase.requireClaimRevision", { captureStackTrace: false }));
 
   const consume = (handle: import("./api").CoreFinalizedTransaction): Effect.Effect<CoreFinalizedState, CoreTransactionError> => {
     const record = typeof handle === "object" && handle !== null ? vault.take(handle) : undefined;
@@ -844,13 +844,13 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
     nativeInitializationBindings.set(initialization, Object.freeze({ binding, command }));
     return initialization;
   });
-  const nativeRootAuthority = Effect.fn("CoreDatabase.nativeRootAuthority")(function* (binding: RequestBinding) {
+  const nativeRootAuthority = Effect.fnUntraced(function* (binding: RequestBinding) {
     yield* assertOpen;
     const data = nativeRootBindings.get(binding);
     if (data === undefined) return yield* new CoreTransactionError({ reason: "authorityRevoked" });
     yield* Effect.fromResult(validateNativeRoot(committer.currentRegistry(), data));
     return data;
-  });
+  }, effect => Effect.withSpan(effect, "CoreDatabase.nativeRootAuthority", { captureStackTrace: false }));
   const captureNativeRootIdentity = Effect.fn("CoreDatabase.captureNativeRootIdentity")(function* (
     requested: Parameters<CoreDatabase["bindNativeRootRecovery"]>[0],
   ) {
@@ -1070,8 +1070,8 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
       applicationRead: Object.freeze({ ...metadata.applicationRead, table: copyTableDefinition(metadata.applicationRead.table) }),
     }) });
   });
-  const beginNative: CoreDatabase["beginNative"] = Effect.fn("CoreDatabase.beginNative")((binding, beginOptions) =>
-    Effect.flatMap(Effect.gen(function* () {
+  const beginNative: CoreDatabase["beginNative"] = (binding, beginOptions) =>
+    Effect.withSpan(Effect.suspend(() => Effect.flatMap(Effect.gen(function* () {
       const authority = yield* nativeAuthority(binding);
       const command = authority.commands.find(candidate => candidate.name === beginOptions.commandName);
       if (command === undefined) return yield* new CoreTransactionError({ reason: "authorityRevoked" });
@@ -1087,7 +1087,7 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
       yield* Effect.fromResult(checkCoreNativeAuthority(selected.registry, authority));
       const assertNativeOpen = Effect.andThen(assertOpen, Effect.suspend(() =>
         Effect.fromResult(checkCoreNativeAuthority(committer.currentRegistry(), authority))));
-      const capture = Effect.fn("CoreDatabase.captureNative")(function* () {
+      const capture = Effect.fnUntraced(function* () {
         yield* assertNativeOpen;
         const observed = command.mode === "read" ? selected : yield* startNative();
         yield* Effect.fromResult(checkCoreNativeAuthority(observed.registry, authority));
@@ -1097,7 +1097,7 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
           history: capturedNativeHistory(observed.timestamp),
           ...(metadata === undefined ? {} : { metadata: { registry: metadata.registry, timestamp: metadata.timestamp } }),
           residentReader: (request: CoreIndexScan) => observed.resident.scan(request) };
-      });
+      }, effect => Effect.withSpan(effect, "CoreDatabase.captureNative", { captureStackTrace: false }));
       const now = yield* decodeCreationTimestamp(yield* options.now).pipe(Effect.mapError(invalid));
       const idGenerator = yield* prepareCoreTransactionIdGenerator(options);
       yield* assertNativeOpen;
@@ -1119,20 +1119,20 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
       }
       const operations = selected.context.nativeOperations;
       if (operations === undefined) return yield* corrupt("Native transaction facade is unavailable");
-      const finishRead = Effect.fn("CoreDatabase.finishNativeRead")(function* () {
+      const finishRead = Effect.fnUntraced(function* () {
         const token = yield* selected.context.finishRead();
         if (selected.authority.selectiveMetadata === true) {
           if (token.metadataReadFrontiers === undefined) return yield* corrupt("Protected read metadata frontiers are absent");
           yield* committer.validateReadMetadata(token.metadataReadFrontiers);
         }
         return token;
-      });
+      }, effect => Effect.withSpan(effect, "CoreDatabase.finishNativeRead", { captureStackTrace: false }));
       return Object.freeze({ unixTime: selected.context.transaction.unixTime, command: selected.command, operations, finishRead,
         finalize: selected.context.transaction.finalize, abort: selected.context.transaction.abort }) satisfies CoreNativeOperation;
-    }), (selected, exit) => Exit.isSuccess(exit) ? Effect.void : selected.context.transaction.abort())));
+    }), (selected, exit) => Exit.isSuccess(exit) ? Effect.void : selected.context.transaction.abort()))), "CoreDatabase.beginNative", { captureStackTrace: false });
 
-  const beginNativeRoot: CoreDatabase["beginNativeRoot"] = Effect.fn("CoreDatabase.beginNativeRoot")((binding, beginOptions) =>
-    Effect.uninterruptibleMask(restore => Effect.gen(function* () {
+  const beginNativeRoot: CoreDatabase["beginNativeRoot"] = (binding, beginOptions) =>
+    Effect.withSpan(Effect.suspend(() => Effect.uninterruptibleMask(restore => Effect.gen(function* () {
       const data = yield* nativeRootAuthority(binding);
       const claimData = claims.get(beginOptions.claim);
       if (claimData === undefined || !claimData.active || claimData.aborting || claimData.identity.kind !== "nativeRoot"
@@ -1217,16 +1217,16 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
           }
           return operations;
         });
-        const applicationInsert = Effect.fn("CoreNativeRoot.applicationInsert")(function* (childBinding: CoreApplicationInsertBinding) {
+        const applicationInsert = Effect.fnUntraced(function* (childBinding: CoreApplicationInsertBinding) {
           const access = selected.data.applicationInserts.get(childBinding);
           if (access === undefined) return yield* new CoreTransactionError({ reason: "authorityRevoked" });
           return yield* selected.context.applicationInsertFor(access);
-        });
-        const applicationRead = Effect.fn("CoreNativeRoot.applicationRead")(function* (childBinding: CoreApplicationReadBinding) {
+        }, effect => Effect.withSpan(effect, "CoreNativeRoot.applicationInsert", { captureStackTrace: false }));
+        const applicationRead = Effect.fnUntraced(function* (childBinding: CoreApplicationReadBinding) {
           const access = selected.data.applicationReads.get(childBinding);
           if (access === undefined) return yield* new CoreTransactionError({ reason: "authorityRevoked" });
           return yield* selected.context.applicationReadFor(access);
-        });
+        }, effect => Effect.withSpan(effect, "CoreNativeRoot.applicationRead", { captureStackTrace: false }));
         let live = true;
         const requireScopeExclusion = Effect.suspend(() => live ? assertScopeExclusion
           : Effect.andThen(assertOpen, Effect.fail(new CoreTransactionError({ reason: "authorityRevoked" }))));
@@ -1240,12 +1240,12 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
       return yield* restore(open).pipe(Effect.onExit(exit => Exit.isSuccess(exit) ? Effect.void : Effect.andThen(
         claimData.nativeRootContext?.transaction.abort() ?? grant?.cancelAdmission ?? Effect.void,
         grant?.abandon ?? Effect.void)));
-    })));
+    }))), "CoreDatabase.beginNativeRoot", { captureStackTrace: false });
 
-  const resolveRequest: CoreDatabase["resolveRequest"] = Effect.fn("CoreDatabase.resolveRequest")(function* (requested) {
+  const resolveRequest: CoreDatabase["resolveRequest"] = Effect.fnUntraced(function* (requested) {
       const identity = ownRequestIdentity(requested);
       return yield* Effect.fromResult(resolution(yield* findRequest(yield* start(), identity)));
-    });
+    }, effect => Effect.withSpan(effect, "CoreDatabase.resolveRequest", { captureStackTrace: false }));
   const recoverRequest: CoreDatabase["recoverRequest"] = Effect.fn("CoreDatabase.recoverRequest")((requested) => {
       const identity = ownRequestIdentity(requested);
       return useTransaction(make(), selected => Effect.gen(function* () {
@@ -1286,8 +1286,8 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
       || registration.value.sourcePackageHash !== pin.sourcePackageHash)
       return yield* new CoreTransactionError({ reason: "authorityRevoked" });
   });
-  const acquireRequest = Effect.fn("CoreDatabase.acquireRequest")((requested: CoreRequestIdentity, binding?: RequestBinding,
-    expectedApplication?: CoreApplicationSourcePin) => {
+  const acquireRequest = (requested: CoreRequestIdentity, binding?: RequestBinding,
+    expectedApplication?: CoreApplicationSourcePin) => Effect.withSpan(Effect.suspend(() => {
       const identity = ownRequestIdentity(requested);
       if (expectedApplication !== undefined && (identity.kind === "native" || identity.kind === "nativeRoot"))
         return Effect.fail(new CoreTransactionError({ reason: "authorityRevoked" }));
@@ -1373,20 +1373,20 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
           return { kind: "claimed" as const, claim };
         }) });
       }));
-  });
+  }), "CoreDatabase.acquireRequest", { captureStackTrace: false });
   yield* admin(null, selected => Effect.gen(function* () {
     const changed = yield* selected.context.runSystem(migrateCoreApplicationDeployments(selected.context));
     if (changed) yield* settle(selected, "global");
   }));
   const database: CoreDatabase = {
     assertOpen,
-    readNativeRootRequestEvidence: Effect.fn("CoreDatabase.readNativeRootRequestEvidence")(function* (operations) {
+    readNativeRootRequestEvidence: Effect.fnUntraced(function* (operations) {
       yield* assertOpen;
       const issued = nativeRootRequests.get(operations);
       if (issued === undefined) return yield* new CoreTransactionError({ reason: "authorityRevoked" });
       yield* issued.assertCurrent;
       return yield* Effect.fromResult(issued.evidence());
-    }),
+    }, effect => Effect.withSpan(effect, "CoreDatabase.readNativeRootRequestEvidence", { captureStackTrace: false })),
     resolveCommittedNativeRootRequest: Effect.fn("CoreDatabase.resolveCommittedNativeRootRequest")(function* (input, binding) {
       const evidence = yield* Effect.fromResult(captureCoreNativeRootRequestEvidence(input));
       const metadata = yield* readNativeBinding(binding);
@@ -1452,7 +1452,7 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
     }),
     resolveRequest,
     recoverRequest,
-    claimRequest: Effect.fn("CoreDatabase.claimRequest")((identity, binding) => acquireRequest(identity, binding)),
+    claimRequest: (identity, binding) => Effect.withSpan(Effect.suspend(() => acquireRequest(identity, binding)), "CoreDatabase.claimRequest", { captureStackTrace: false }),
     claimApplicationRequest: Effect.fn("CoreDatabase.claimApplicationRequest")((identity, pin) => {
       const capturedIdentity = ownRequestIdentity(identity), capturedPin = decodeApplicationSourcePin(pin).pipe(Result.mapError(invalid));
       return Effect.flatMap(Effect.fromResult(capturedPin), expected => acquireRequest(capturedIdentity, undefined, expected));
@@ -1490,7 +1490,7 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
         return selected.context.transaction;
       }), true);
     }),
-    commit: Effect.fn("CoreDatabase.commit")(function* (handle, commitOptions = {}) {
+    commit: Effect.fnUntraced(function* (handle, commitOptions = {}) {
       yield* assertOpen;
       return yield* Effect.uninterruptibleMask(restore => Effect.gen(function* () {
         let finalized = yield* consume(handle);
@@ -1531,7 +1531,7 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
           return timestamp;
         }), scopeGrant?.abandon ?? Effect.void));
       }));
-    }),
+    }, effect => Effect.withSpan(effect, "CoreDatabase.commit", { captureStackTrace: false })),
     abortRequest: Effect.fn("CoreDatabase.abortRequest")(function* (claim) {
       const data = claims.get(claim);
       if (data === undefined || !data.active) return yield* Effect.fail(new CoreTransactionError({ reason: "foreignClaim" }));

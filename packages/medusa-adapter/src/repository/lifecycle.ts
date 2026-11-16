@@ -22,14 +22,14 @@ export function medusaLifecycle(ctx: CommerceCommandContext, catalog: Catalog, o
 } {
   const state = new Map<string, readonly JsonObject[]>();
   const stores = new Map<string, Effect.Success<ReturnType<CommerceCommandContext["table"]>>>();
-  const getStore = Effect.fn("MedusaLifecycle.store")(function* (table: Table) {
+  const getStore = Effect.fnUntraced(function* (table: Table) {
     const prior = stores.get(table.name);
     if (prior !== undefined) return prior;
     const store = yield* ctx.table(table.name); stores.set(table.name, store); return store;
-  });
+  }, effect => Effect.withSpan(effect, "MedusaLifecycle.store", { captureStackTrace: false }));
   const keys = (table: Table) => table.columns.some(column => column.primaryKey) ? table.columns.filter(column => column.primaryKey).map(column => column.name)
     : table.foreignKeys.flatMap(key => key.columns);
-  const load = Effect.fn("MedusaLifecycle.load")(function* (table: Table,
+  const load = Effect.fnUntraced(function* (table: Table,
     selection: Readonly<{ column: string; values: readonly string[] }>) {
     const cacheKey = JSON.stringify([table.name, selection.column, selection.values]);
     const prior = state.get(cacheKey);
@@ -42,8 +42,8 @@ export function medusaLifecycle(ctx: CommerceCommandContext, catalog: Catalog, o
     const rows = yield* store.find(ctx.manager, { take: ctx.resources.queryRows, order: { column: order, direction: "asc" },
       predicate: { kind: "in", column: selection.column, values: selection.values } });
     state.set(cacheKey, rows); return rows;
-  });
-  const loadReferencing = Effect.fn("MedusaLifecycle.loadReferencing")(function* (
+  }, effect => Effect.withSpan(effect, "MedusaLifecycle.load", { captureStackTrace: false }));
+  const loadReferencing = Effect.fnUntraced(function* (
     table: Table, columns: readonly string[], row: JsonObject, referencedColumns: readonly string[],
   ) {
     if (columns.length !== 1 || referencedColumns.length !== 1) return yield* Effect.fail(commerceError("unsupportedProfile"));
@@ -52,15 +52,15 @@ export function medusaLifecycle(ctx: CommerceCommandContext, catalog: Catalog, o
     const value = row[referenced];
     if (typeof value !== "string") return yield* Effect.fail(commerceError("storedCorruption"));
     return yield* load(table, { column, values: [value] });
-  });
-  const roots = Effect.fn("MedusaLifecycle.roots")(function* (table: Table, ids: readonly string[]) {
+  }, effect => Effect.withSpan(effect, "MedusaLifecycle.loadReferencing", { captureStackTrace: false }));
+  const roots = Effect.fnUntraced(function* (table: Table, ids: readonly string[]) {
     return (ids.length === 0 ? [] : yield* load(table, { column: "id", values: ids }))
       .filter(row => typeof row.id === "string" && ids.includes(row.id) && (operation !== "softDelete" || row.deleted_at === null));
-  });
-  const plan = Effect.fn("MedusaLifecycle.plan")(function* (rootTable: Table, roots: readonly JsonObject[], options?: LifecyclePlanOptions) {
+  }, effect => Effect.withSpan(effect, "MedusaLifecycle.roots", { captureStackTrace: false }));
+  const plan = Effect.fnUntraced(function* (rootTable: Table, roots: readonly JsonObject[], options?: LifecyclePlanOptions) {
     const rootIdentities = new Set(roots.map(row => tupleKey(row, keys(rootTable))));
     const planned = new Map<string, Map<string, JsonObject>>();
-    const visit = Effect.fn("MedusaLifecycle.visit")(function* (table: Table, row: JsonObject): Effect.fn.Return<void, CommerceTransactionError> {
+    const visit = Effect.fnUntraced(function* (table: Table, row: JsonObject): Effect.fn.Return<void, CommerceTransactionError> {
       const identity = tupleKey(row, keys(table));
       const group = planned.get(table.name) ?? new Map<string, JsonObject>();
       if (group.has(identity)) return;
@@ -78,10 +78,10 @@ export function medusaLifecycle(ctx: CommerceCommandContext, catalog: Catalog, o
           for (const member of yield* loadReferencing(child, descriptor.join.foreignKeys, row, descriptor.sourcePrimaryKeys)) yield* visit(child, member);
         }
       }
-    });
+    }, effect => Effect.withSpan(effect, "MedusaLifecycle.visit", { captureStackTrace: false }));
     for (const row of roots) yield* visit(rootTable, row);
     const rows = (table: Table): readonly JsonObject[] => [...planned.get(table.name)?.values() ?? []];
-    const apply = Effect.fn("MedusaLifecycle.apply")(function* () {
+    const apply = Effect.fnUntraced(function* () {
       const ordered: Table[] = [];
       const pending = catalog.tables.filter(table => planned.has(table.name));
       while (pending.length) {
@@ -152,8 +152,8 @@ export function medusaLifecycle(ctx: CommerceCommandContext, catalog: Catalog, o
         changedRoots = selectedRoots;
       }
       return { roots: changedRoots, cascades };
-    });
+    }, effect => Effect.withSpan(effect, "MedusaLifecycle.apply", { captureStackTrace: false }));
     return { rows, apply };
-  });
+  }, effect => Effect.withSpan(effect, "MedusaLifecycle.plan", { captureStackTrace: false }));
   return { roots, plan, getStore, loadReferencing };
 }

@@ -101,7 +101,7 @@ const compose = Effect.fn("AtomicCommerceNative.composeHost")(function* (
       return yield* commerceError("storedCorruption");
     return Object.freeze({ selected: Object.freeze(selected), root, eventBinding });
   }));
-  const request = Effect.fn("AtomicCommerceNative.prepareRequest")(function* (token: AtomicCommerceNativeRequest) {
+  const request = Effect.fnUntraced(function* (token: AtomicCommerceNativeRequest) {
     const data = readAtomicCommerceNativeRequest(token);
     if (data === undefined) return yield* commerceError("invalidAuthority");
     const definition = getAtomicCommerceCommand(data.command);
@@ -124,7 +124,7 @@ const compose = Effect.fn("AtomicCommerceNative.composeHost")(function* (
     const prepared = yield* Effect.fromResult(bindAtomicCommerceNativeRequest(token, identity,
       capturedArguments.bytes + evidence.canonicalByteLength));
     return { ...prepared, args: capturedArguments.value, command: data.command };
-  });
+  }, effect => Effect.withSpan(effect, "AtomicCommerceNative.prepareRequest", { captureStackTrace: false }));
   const stored = Effect.fn("AtomicCommerceNative.storedResult")(function* (value: unknown) {
     return (yield* Effect.fromResult(captureCommerceJsonData(value, configuration.limits.commandBytes)
       .pipe(Result.mapError(cause => commerceError("storedCorruption", cause))))).value;
@@ -139,7 +139,7 @@ const compose = Effect.fn("AtomicCommerceNative.composeHost")(function* (
   });
   const abortWithCause = <E>(claim: CoreRequestClaim, cause: Cause.Cause<E>) => core(database.abortRequest(claim)).pipe(Effect.exit,
     Effect.flatMap(aborted => Effect.failCause(Exit.isFailure(aborted) ? Cause.combine(cause, aborted.cause) : cause)));
-  const runCaptured = Effect.fn("AtomicCommerceNative.runCaptured")(function* (token: AtomicCommerceNativeRequest) {
+  const runCaptured = Effect.fnUntraced(function* (token: AtomicCommerceNativeRequest) {
     const capturedRequest = yield* request(token);
     const observed = yield* core(configuration.recovery.resolve(capturedRequest.identity));
     const recovered = observed.kind === "busy" ? yield* core(configuration.recovery.recover(capturedRequest.identity)) : observed;
@@ -186,7 +186,7 @@ const compose = Effect.fn("AtomicCommerceNative.composeHost")(function* (
       }
       return executed.value.value;
     }));
-  });
+  }, effect => Effect.withSpan(effect, "AtomicCommerceNative.runCaptured", { captureStackTrace: false }));
   const captureRequest = (key: string, command: AtomicCommerceCommand, args: Json) =>
     captureAtomicCommerceNativeRequest(key, command, args, configuration.limits.commandBytes);
   return Object.freeze({ run: (key: string, command: AtomicCommerceCommand, args: Json) => Effect.suspend(() =>

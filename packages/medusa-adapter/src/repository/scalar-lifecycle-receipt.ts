@@ -16,15 +16,17 @@ interface ScalarLifecycleReceipt {
   readonly decodeResult: (input: Json) => Result.Result<Readonly<{ empty: boolean; ids: readonly string[] }>, CommerceTransactionError>;
 }
 
+type ScalarLifecycleReceiptResult = Readonly<{ operation: "softDelete" | "restore"; ids: readonly string[];
+  requestedIds: readonly string[]; rows: ReadonlyMap<string, JsonObject> }>;
+
 /** Shared native scalar lifecycle correlation. Modules still own exact metadata,
  * command admission, linkable-key maps and event schemas. No storage is opened. */
 export function scalarLifecycleReceipt(configuration: ScalarLifecycleReceipt): (
   call: Parameters<LogicalCallReceiptValidation>[0], activity: Parameters<LogicalCallReceiptValidation>[1],
-) => Effect.Effect<Readonly<{ operation: "softDelete" | "restore"; ids: readonly string[];
-  requestedIds: readonly string[]; rows: ReadonlyMap<string, JsonObject> }>, CommerceTransactionError> {
-  return Effect.fn("CommerceReceipt.validateScalarLifecycle")(function* (
+) => Effect.Effect<ScalarLifecycleReceiptResult, CommerceTransactionError> {
+  return Effect.fnUntraced(function* (
     call: Parameters<LogicalCallReceiptValidation>[0], activity: Parameters<LogicalCallReceiptValidation>[1],
-  ) {
+  ): Effect.fn.Return<ScalarLifecycleReceiptResult, CommerceTransactionError> {
     const operation = call.commandName === configuration.softDeleteCommand ? "softDelete"
       : call.commandName === configuration.restoreCommand ? "restore" : undefined;
     if (operation === undefined || call.mode !== "write" || activity.setNull.length !== 0 || activity.referenceReplacements.length !== 0)
@@ -34,14 +36,14 @@ export function scalarLifecycleReceipt(configuration: ScalarLifecycleReceipt): (
     const result = yield* Effect.fromResult(configuration.decodeResult(call.result))
       .pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
     const requested = new Set(ids), observed = new Map<string, JsonObject>();
-    const record = Effect.fn("CommerceReceipt.observeScalarLifecycleRow")(function* (table: string, value: JsonObject) {
+    const record = Effect.fnUntraced(function* (table: string, value: JsonObject) {
       const row = yield* Effect.fromResult(configuration.decodeRow(projectNativeRow(value)))
         .pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
       if (table !== configuration.table || typeof row.id !== "string" || !requested.has(row.id))
         return yield* Effect.fail(commerceError("receiptMismatch"));
       observed.set(row.id, row);
       return { row, id: row.id };
-    });
+    }, effect => Effect.withSpan(effect, "CommerceReceipt.observeScalarLifecycleRow", { captureStackTrace: false }));
     for (const observation of activity.observedRows) yield* record(observation.table, observation.row);
     const finalObserved = new Map(observed);
     for (const transition of activity.lifecycle) if (transition.rowAtOperation !== null) {
@@ -91,5 +93,5 @@ export function scalarLifecycleReceipt(configuration: ScalarLifecycleReceipt): (
       (ordered.length === 0 ? !result.empty : result.ids.length !== ordered.length || result.ids.some((id, index) => id !== ordered[index])))
       return yield* Effect.fail(commerceError("receiptMismatch"));
     return { operation, ids: ordered, requestedIds: ids, rows: observed };
-  });
+  }, effect => Effect.withSpan(effect, "CommerceReceipt.validateScalarLifecycle", { captureStackTrace: false }));
 }

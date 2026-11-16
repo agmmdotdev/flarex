@@ -27,7 +27,7 @@ const nativeIndexIsCurrent = (registry: CoreRegistry, { table, index }: CoreNati
     && currentIndex.fields.every((field, position) => field === index.fields[position]);
 };
 
-export const prepareCoreNativeIndexes = Effect.fn("CoreNativeValidation.prepare")(function* (
+export const prepareCoreNativeIndexes = Effect.fnUntraced(function* (
   snapshot: CorePersistenceSnapshot,
   registry: CoreRegistry,
   observations: readonly CoreNativeIndexObservation[],
@@ -73,7 +73,7 @@ export const prepareCoreNativeIndexes = Effect.fn("CoreNativeValidation.prepare"
     prepared.push({ observation, entries });
   }
   return prepared;
-});
+}, effect => Effect.withSpan(effect, "CoreNativeValidation.prepare", { captureStackTrace: false }));
 
 function applyBatch(slot: CoreNativeIndexObservation, entries: Map<string, string>,
   batch: CoreWriteBatch): Result.Result<boolean, CoreError> {

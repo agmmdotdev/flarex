@@ -122,7 +122,7 @@ export function prepareScalarRepository(table: SchemaTable, modelName: string, w
         }
         const plan = planScalarCreateBatch(rows);
         let accepted = false;
-        const accept = Effect.fn("ScalarRepository.acceptCreated")(function* (beforeCreatedEvents?: Effect.Effect<void, CommerceTransactionError>) {
+        const accept = Effect.fnUntraced(function* (beforeCreatedEvents?: Effect.Effect<void, CommerceTransactionError>) {
           if (creation !== undefined) {
             if (accepted) return yield* ctx.refuse(commerceError("invalidAuthority"));
             accepted = true;
@@ -158,7 +158,7 @@ export function prepareScalarRepository(table: SchemaTable, modelName: string, w
           }
           if (returned.size !== plan.entities.length) return yield* ctx.refuse(commerceError("storedCorruption"));
           return plan.created.map(entity => structuredClone(returned.get(entity.id)!));
-        });
+        }, effect => Effect.withSpan(effect, "ScalarRepository.acceptCreated", { captureStackTrace: false }));
         return creation === undefined ? yield* accept()
           : yield* creation.stage(ctx, plan, accept);
       });

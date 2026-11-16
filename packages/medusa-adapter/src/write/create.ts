@@ -11,7 +11,7 @@ const decodeOwnedToOne = commerceDecoder(Schema.Union([Schema.String, Schema.Jso
 
 /** Traverse the module's declared steps in order. Each root owns its reference
  * snapshots; duplicate identities and the row budget cover the entire graph. */
-export const captureGraph = Effect.fn("MedusaGraph.capture")(function* (
+export const captureGraph = Effect.fnUntraced(function* (
   profile: CreationProfile, input: unknown, resources: CommerceResources = defaultCommerceResources,
 ) {
   const captured = yield* Effect.fromResult(captureCommerceInput(input, resources));
@@ -70,11 +70,11 @@ export const captureGraph = Effect.fn("MedusaGraph.capture")(function* (
     resources.facts, graphRows, Object.fromEntries([...rows].map(([table, group]) => [table, group.length])),
   )));
   return { roots, rows } satisfies CreatedGraph;
-});
+}, effect => Effect.withSpan(effect, "MedusaGraph.capture", { captureStackTrace: false }));
 
 /** The checked catalog supplies insertion order. The caller retains the sole
  * transaction manager; only rows actually returned by writes leave this step. */
-export const insertGraphRows = Effect.fn("MedusaGraph.insert")(function* (
+export const insertGraphRows = Effect.fnUntraced(function* (
   ctx: Pick<CommerceCommandContext, "manager" | "table">, catalog: GraphCatalog, graph: GraphRows,
   options: { readonly allowReconstitution?: true } = {},
 ) {
@@ -102,4 +102,4 @@ export const insertGraphRows = Effect.fn("MedusaGraph.insert")(function* (
     inserted.set(table, restored);
   }
   return inserted;
-});
+}, effect => Effect.withSpan(effect, "MedusaGraph.insert", { captureStackTrace: false }));

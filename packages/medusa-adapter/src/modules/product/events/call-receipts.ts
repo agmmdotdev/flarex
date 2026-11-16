@@ -96,7 +96,7 @@ export function productCallReceipts(catalog: ProductRuntimeMetadata) {
     ["productImageWorkflowDeleteAssignment", imageVariants.validateLogicalCall],
     ["productImageWorkflowUpdateVariantsBySelector", imageVariants.validateLogicalCall],
   ]);
-  const validateLogicalCall: LogicalCallReceiptValidation = Effect.fn("ProductEvents.validateLogicalCall")(
+  const validateLogicalCall: LogicalCallReceiptValidation = Effect.fnUntraced(
     function* (call, activity) {
       if (call.fromAttempt !== 0 || call.toAttempt !== activity.mutations.length ||
         call.fromLifecycle !== 0 || call.toLifecycle !== activity.lifecycle.length ||
@@ -124,6 +124,6 @@ export function productCallReceipts(catalog: ProductRuntimeMetadata) {
       const policy = policies.get(call.commandName);
       if (policy === undefined) return yield* Effect.fail(commerceError("receiptMismatch"));
       yield* policy(call, activity);
-    });
+    }, effect => Effect.withSpan(effect, "ProductEvents.validateLogicalCall", { captureStackTrace: false }));
   return { capture: categoryCreate.capture, validateLogicalCall };
 }

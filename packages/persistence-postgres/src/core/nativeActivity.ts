@@ -125,8 +125,8 @@ export class CoreNativeActivityOwner {
     });
   });
 
-  lifecycle = Effect.fn("CoreNativeActivity.lifecycle")((source: NativeSource, entry: Omit<CoreNativeLifecycleActivity, "attemptOrdinal">,
-    changed: boolean) => Effect.suspend(() => {
+  lifecycle = (source: NativeSource, entry: Omit<CoreNativeLifecycleActivity, "attemptOrdinal">,
+    changed: boolean) => Effect.withSpan(Effect.suspend(() => Effect.suspend(() => {
     const activity = this.#sources.get(source), charge = this.chargeRetained;
     if (activity === undefined) return Effect.void;
     const table = entry.table, operation = entry.operation, key = Object.freeze({ ...entry.key }),
@@ -140,5 +140,5 @@ export class CoreNativeActivityOwner {
     activity.lifecycle.push(Object.freeze({ table, operation, key, beforeDeletedAt, afterDeletedAt, rowAtOperation: row,
       attemptOrdinal: changed ? activity.mutations.length - 1 : null }));
     });
-  }));
+  })), "CoreNativeActivity.lifecycle", { captureStackTrace: false });
 }

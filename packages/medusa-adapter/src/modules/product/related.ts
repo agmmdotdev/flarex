@@ -25,7 +25,7 @@ const decodeOptions = commerceDecoder(Schema.Struct({
 }), "unsupportedProfile");
 
 /** Internal service reads share the command's manager; this is no public DAL. */
-export const findProductRelated = Effect.fn("ProductAdapter.findRelated")(function* (
+export const findProductRelated = Effect.fnUntraced(function* (
   ctx: CommerceRelationReadContext, metadata: ProductRuntimeMetadata, entity: ProductEntityMetadata, input: unknown, withCount: boolean,
   profileOptions: { readonly nativeFilterOrder?: boolean; readonly projection?: ProjectionPolicy; readonly where?: WherePolicy | undefined; readonly complete?: boolean;
     readonly relationFilters?: (where: JsonObject) => Result.Result<ReadPlan["relationFilters"], ReturnType<typeof commerceError>> } = {},
@@ -61,7 +61,7 @@ export const findProductRelated = Effect.fn("ProductAdapter.findRelated")(functi
   return profileOptions.nativeFilterOrder ? { ...result, rows: preservePrimaryKeyOrFilterOrder(result.rows, where,
     entity.table.columns.filter(column => column.primaryKey).map(column => column.name),
     [["id", direction === "desc" ? "DESC" : "ASC"]]) } : result;
-});
+}, effect => Effect.withSpan(effect, "ProductAdapter.findRelated", { captureStackTrace: false }));
 
 export const updateProductRelated = Effect.fn("ProductAdapter.updateRelated")(function* (
   ctx: CommerceCommandContext, metadata: ProductRuntimeMetadata, entity: ProductEntityMetadata, input: unknown,

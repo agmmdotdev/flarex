@@ -9,7 +9,7 @@ const hash = makeLivePrivateSha256V1({
 });
 /** Ordered envelope digest includes contract, producer, payload, routing and
  * pinned subscribers. Bound the complete family before allocating its bytes. */
-export const commitEventsDigest = Effect.fn("CommitEvents.digest")(function* (events: readonly CommittedEvent[],
+export const commitEventsDigest = Effect.fnUntraced(function* (events: readonly CommittedEvent[],
   purpose: "publication" | "storedVerification" = "publication") {
   if (events.length > commitEventLimits.messages) return yield* Effect.fail(eventError("invalidInput"));
   // Older committed families could occupy the former 256-envelope budget.
@@ -27,4 +27,4 @@ export const commitEventsDigest = Effect.fn("CommitEvents.digest")(function* (ev
     encoder.encode(encodeCanonicalJson(events, () => { throw new Error("Owned committed event lost JSON membership"); })),
     { maximumInputBytes: maximumBytes },
   ));
-});
+}, effect => Effect.withSpan(effect, "CommitEvents.digest", { captureStackTrace: false }));

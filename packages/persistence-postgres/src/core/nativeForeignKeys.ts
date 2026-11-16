@@ -115,7 +115,7 @@ export interface CorePreparedNativeForeignKeys {
 
 /** Re-prepare only pure integrity facts against the current published suffix.
  * A final acceptance never widens a previously sealed deletion graph. */
-export const prepareCoreNativeForeignKeys = Effect.fn("CoreNativeForeignKeys.prepare")(function* (
+export const prepareCoreNativeForeignKeys = Effect.fnUntraced(function* (
   snapshot: CorePersistenceSnapshot, registry: CoreRegistry, transaction: CoreFinalizedState, budget?: CoreNativeIntegrityBudget,
 ) {
   const reads = new CoreReadSetBuilder();
@@ -181,7 +181,7 @@ export const prepareCoreNativeForeignKeys = Effect.fn("CoreNativeForeignKeys.pre
   }
   return { reads: reads.snapshot(), demands, releases, maxIdentities, identities: [...identities],
     sourceCaptures: sources.map(source => ({ ...source, identities: [...source.identities] })) } satisfies CorePreparedNativeForeignKeys;
-});
+}, effect => Effect.withSpan(effect, "CoreNativeForeignKeys.prepare", { captureStackTrace: false }));
 
 /** Fold the complete ordered accepted prefix and candidate. Provenance tracks
  * surviving keys and removals on which this candidate's integrity depends. */

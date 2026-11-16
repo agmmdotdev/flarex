@@ -41,7 +41,7 @@ export function inventoryDeletionReadTable(table: ReadTable): ReadTable {
 /** Only this named DAL projection recognizes the computed field. Its physical
  * read still goes through the scalar owner; levels use complete bounded reads. */
 export function inventoryDeletionFind(bound: ReturnType<Result.Result.Success<ReturnType<typeof prepareScalarRepository>>["bind"]>) {
-  return Effect.fn("InventoryDeletion.findItems")(function* (ctx: CommerceCommandContext, input: unknown, withCount: boolean) {
+  return Effect.fnUntraced(function* (ctx: CommerceCommandContext, input: unknown, withCount: boolean) {
     const query = yield* Effect.fromResult(decodeQuery(yield* Effect.fromResult(captureCommerceInput(input, ctx.resources))));
     const fields = query.options?.fields, computed = fields?.includes("reserved_quantity") ?? false;
     if (computed && !fields?.includes("id")) return yield* Effect.fail(commerceError("unsupportedProfile"));
@@ -61,5 +61,5 @@ export function inventoryDeletionFind(bound: ReturnType<Result.Result.Success<Re
       output.push(Object.fromEntries(Object.entries(projected).filter(([key]) => fields?.includes(key))));
     }
     return { ...result, rows: output };
-  });
+  }, effect => Effect.withSpan(effect, "InventoryDeletion.findItems", { captureStackTrace: false }));
 }

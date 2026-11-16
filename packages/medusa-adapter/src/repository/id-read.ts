@@ -59,7 +59,7 @@ export function prepareIdReadRepository(root: SchemaTable, model: string, tables
         window: { kind: "catalog", order: "id", select: orderedCatalog("asc") } } satisfies ReadPlan;
     });
     const scalar = yield* prepareScalarRepository(root, model, scalarIdWhere);
-    const present = Effect.fn("IdRead.present")(function* (input: Json, table: string): Effect.fn.Return<Json, CommerceTransactionError> {
+    const present = Effect.fnUntraced(function* (input: Json, table: string): Effect.fn.Return<Json, CommerceTransactionError> {
       const entity = byName.get(table);
       if (entity === undefined) return yield* Effect.fail(commerceError("storedCorruption"));
       const rows: JsonObject[] = [];
@@ -76,7 +76,7 @@ export function prepareIdReadRepository(root: SchemaTable, model: string, tables
         rows.push({ ...projected, ...nested });
       }
       return Array.isArray(input) ? rows : rows[0]!;
-    });
+    }, effect => Effect.withSpan(effect, "IdRead.present", { captureStackTrace: false }));
     const bind = (ctx: CommerceCommandContext, owner: CommercePromiseOwner) => {
       const bound = scalar.bind(ctx, owner), denied = deniedCommerceRepository(bound.repository, bound.refuse), { bridge } = bound;
       const repository: DAL.RepositoryService = { ...denied,
@@ -100,7 +100,7 @@ export function prepareIdReadRepository(root: SchemaTable, model: string, tables
       };
       return { ...bound, repository, denied };
     };
-    const validateLogicalCall: LogicalCallReceiptValidation = Effect.fn("IdRead.validateCall")(function* (call, activity) {
+    const validateLogicalCall: LogicalCallReceiptValidation = Effect.fnUntraced(function* (call, activity) {
       const mismatch = () => commerceError("receiptMismatch");
       if (call.commandName !== commandName || call.mode !== "read" || call.events.length || activity.mutations.length ||
         activity.lifecycle.length || activity.setNull.length || activity.referenceReplacements.length) return yield* Effect.fail(mismatch());
@@ -146,7 +146,8 @@ export function prepareIdReadRepository(root: SchemaTable, model: string, tables
       const expected = yield* present(projected, root.name).pipe(Effect.flatMap(value => Effect.fromResult(captureNativeNumericDto(value))));
       const [rows, count] = yield* Effect.fromResult(decodeGraphCount(call.result));
       if (!jsonEqual(reads, activity.relationalReads) || count !== roots.length || !jsonEqual(rows, expected)) return yield* Effect.fail(mismatch());
-    }, Effect.mapError(cause => cause.reason === "receiptMismatch" ? cause : commerceError("receiptMismatch", cause)));
+    }, Effect.mapError(cause => cause.reason === "receiptMismatch" ? cause : commerceError("receiptMismatch", cause)),
+    effect => Effect.withSpan(effect, "IdRead.validateCall", { captureStackTrace: false }));
     return { bind, query, table: yield* catalog.table(root.name), policy: {
       capture: () => Effect.fail(commerceError("unadmittedEvent")), validateLogicalCall } };
   });

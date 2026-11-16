@@ -40,14 +40,14 @@ export function productReadCommands({ withService, withCategoryReadService, with
   const commands = commerceServiceCommands(withService);
   const categories = commerceServiceCommands(withCategoryReadService);
   const options = commerceServiceCommands(withOptionWorkflowService);
-  const rootInput = Effect.fn("ProductAdapter.readInput")(function* (ctx: Context, input: Json) {
+  const rootInput = Effect.fnUntraced(function* (ctx: Context, input: Json) {
     const decoded = yield* Effect.fromResult(decodeProductRead(input)).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
     yield* Effect.fromResult(decodeProductFindConfig(decoded.config ?? {})).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
     const filters = yield* Effect.fromResult(productReadFilters(decoded)).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
     const copied = structuredClone({ ...decoded, filters });
     return { ...copied, config: copied.config as FindConfig<ProductTypes.ProductDTO> | undefined,
       filters: copied.filters as ProductTypes.FilterableProductProps | undefined };
-  });
+  }, effect => Effect.withSpan(effect, "ProductAdapter.readInput", { captureStackTrace: false }));
   const named = relatedReadInput(decodeProductNamedRead);
   const collection = relatedReadInput(decodeProductCollectionRead);
   const category = relatedReadInput(decodeProductCategoryRead);

@@ -74,7 +74,7 @@ export function decodeWorkflowCommandInput<Input>(input: unknown,
  * arrays and string-keyed data records. One owned copy thaws them; an own
  * `__proto__` member stays data and never selects the copy's prototype. A
  * subtree the payload holds twice becomes two copies, as its wire form decodes. */
-const thawWorkflowJson = (value: Json | undefined): unknown => {
+const thawWorkflowJson = (value: unknown): unknown => {
   if (typeof value !== "object" || value === null) return value;
   if (Array.isArray(value)) return value.map(thawWorkflowJson);
   const owned: Record<string, unknown> = {};
@@ -109,9 +109,63 @@ function restoreWorkflowValue(payload: Json | undefined, undefinedPaths: readonl
   return Result.succeed(owned.value);
 }
 
+/** Presented workflow roots issued by `captureWorkflowValue`, with the envelope
+ * the context already validated and measured for them. Membership is identity
+ * of an object this module froze itself, never a structural resemblance, and
+ * conveys value facts only: every use is still charged by its own context. */
+const issuedWorkflowValues = new WeakMap<object, Json>();
+
+/** Deep-frozen presentation of one captured payload. A subtree holding no
+ * undefined slot is the capture owner's issued node itself, so a later capture
+ * recognizes it by identity. Only containers on the way to an undefined slot are
+ * rebuilt, with the member order `restoreWorkflowValue` gives its thawed copy. */
+function issueWorkflowJson(node: Json | undefined, undefinedPaths: readonly PrivateIntermediateJsonPath[], depth: number): Result.Result<unknown, CommerceTransactionError> {
+  if (undefinedPaths.length === 0) return Result.succeed(node);
+  return Result.gen(function* () {
+    if (typeof node !== "object" || node === null) return yield* Result.fail(commerceError("storedCorruption"));
+    const slots = new Set<string | number>();
+    const nested = new Map<string | number, PrivateIntermediateJsonPath[]>();
+    for (const path of undefinedPaths) {
+      const key = path[depth];
+      if (key === undefined || (typeof key === "number" ? !Array.isArray(node) : !isNonArrayRecord(node)))
+        return yield* Result.fail(commerceError("storedCorruption"));
+      if (path.length !== depth + 1) {
+        if (!Object.hasOwn(node, key)) return yield* Result.fail(commerceError("storedCorruption"));
+        const paths = nested.get(key);
+        if (paths === undefined) nested.set(key, [path]);
+        else paths.push(path);
+      } else if (slots.has(key) || (typeof key === "number"
+        ? !Number.isSafeInteger(key) || key < 0 || !Object.hasOwn(node, key) || Object.getOwnPropertyDescriptor(node, key)?.value !== null
+        : Object.hasOwn(node, key))) return yield* Result.fail(commerceError("storedCorruption"));
+      else slots.add(key);
+    }
+    // One member cannot be both an undefined slot and the parent of one.
+    for (const key of slots) if (nested.has(key)) return yield* Result.fail(commerceError("storedCorruption"));
+    if (Array.isArray(node)) {
+      const members: unknown[] = [];
+      for (const [index, member] of node.entries())
+        members.push(slots.has(index) ? undefined : yield* issueWorkflowJson(member, nested.get(index) ?? [], depth + 1));
+      return Object.freeze(members);
+    }
+    const entries: [string, unknown][] = [];
+    for (const key of Object.keys(node))
+      entries.push([key, yield* issueWorkflowJson(Object.getOwnPropertyDescriptor(node, key)?.value, nested.get(key) ?? [], depth + 1)]);
+    for (const key of slots) entries.push([String(key), undefined]);
+    return Object.freeze(Object.fromEntries(entries));
+  });
+}
+
 /** The staged SDK retains own undefined properties and positional results.
- * Budget the shared owner's JSON envelope before restoring only issued slots. */
+ * Budget the shared owner's JSON envelope, then issue a deep-frozen value that
+ * stays with trusted workflow state. Capturing that exact root again charges
+ * its retained envelope without another walk; anything else, including a
+ * presented copy or a frozen look-alike, is captured completely. */
 export const captureWorkflowValue = Effect.fnUntraced(function* (ctx: AtomicCommerceContext, value: unknown) {
+  const issued = typeof value === "object" && value !== null ? issuedWorkflowValues.get(value) : undefined;
+  if (issued !== undefined) {
+    yield* ctx.capture(issued);
+    return value;
+  }
   let undefinedPaths: readonly PrivateIntermediateJsonPath[] = [];
   const captured = yield* ctx.capture(value, input =>
     captureIntermediate(input)
@@ -120,5 +174,14 @@ export const captureWorkflowValue = Effect.fnUntraced(function* (ctx: AtomicComm
         return { payload: snapshot.value, undefinedPaths };
       })));
   if (!isNonArrayRecord(captured)) return yield* ctx.refuse(commerceError("storedCorruption"));
-  return yield* restoreWorkflowValue(captured.payload, undefinedPaths).pipe(Result.match({ onFailure: ctx.refuse, onSuccess: Effect.succeed }));
+  const presented = yield* issueWorkflowJson(captured.payload, undefinedPaths, 0).pipe(
+    Result.flatMap(payload => isNonArrayRecord(payload) ? Result.succeed(payload.value) : Result.fail(commerceError("storedCorruption"))),
+    Result.match({ onFailure: ctx.refuse, onSuccess: Effect.succeed }));
+  if (typeof presented === "object" && presented !== null) issuedWorkflowValues.set(presented, captured);
+  return presented;
 });
+
+/** The only crossing from issued workflow state to Medusa or application
+ * callbacks: one fresh mutable copy per presentation. Whatever a callback
+ * returns, this copy included, is foreign again and is captured completely. */
+export const presentWorkflowValue = (value: unknown): unknown => thawWorkflowJson(value);

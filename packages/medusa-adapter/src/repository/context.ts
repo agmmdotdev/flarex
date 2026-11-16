@@ -4,29 +4,40 @@ import { commerceError, CommerceTransactionError } from "@flarex/persistence-pos
 import type { CommercePromiseOwner } from "../module/promise-owner";
 import { captureCommerceInput } from "../value/input";
 import type { Json } from "@flarex/persistence-postgres/internal/commerce-values";
+/** Retain a failed DAL operation in its exact command context. The span keeps
+ * its name without a per-call stack capture. */
+const checked = <Value, Requirements>(ctx: CommerceCommandContext,
+  value: Effect.Effect<Value, CommerceTransactionError, Requirements>) =>
+  Effect.withSpan(value.pipe(Effect.catchCause(cause => Result.match(ctx.recordFailure(cause), {
+    onSuccess: owned => Effect.failCause(owned),
+    onFailure: error => Effect.failCause(Cause.combine(cause, Cause.fail(error))),
+  }))), "CommerceRepository.checked", { captureStackTrace: false });
+/** Authenticate the shared DAL context against one request's issued managers. */
+const selectContext = Effect.fnUntraced(function* (root: CommerceCommandContext,
+  contexts: ReadonlyMap<unknown, CommerceCommandContext>, shared: unknown): Effect.fn.Return<CommerceCommandContext, CommerceTransactionError> {
+  const captured = yield* checked(root, Effect.fromResult(Result.try({
+    try: () => {
+      if (shared === null || typeof shared !== "object") return undefined;
+      return { prototype: Object.getPrototypeOf(shared), transaction: Object.getOwnPropertyDescriptor(shared, "transactionManager"), manager: Object.getOwnPropertyDescriptor(shared, "manager") };
+    }, catch: cause => commerceError("invalidAuthority", cause),
+  })));
+  if (captured === undefined || (captured.prototype !== Object.prototype && captured.prototype !== null) ||
+    (captured.transaction !== undefined && !Object.hasOwn(captured.transaction, "value"))) return yield* root.refuse(commerceError("invalidAuthority"));
+  // InjectManager preserves manager through a getter but supplies transactionManager
+  // as own data. Prefer that authenticated token without invoking the unused getter.
+  const selected = captured.transaction?.value == null ? captured.manager : captured.transaction;
+  if (selected === undefined || !Object.hasOwn(selected, "value")) return yield* root.refuse(commerceError("invalidAuthority"));
+  const manager: unknown = selected.value;
+  const ctx = contexts.get(manager);
+  if (ctx === undefined) return yield* root.refuse(commerceError("invalidAuthority"));
+  return ctx;
+}, effect => Effect.withSpan(effect, "CommerceRepository.select", { captureStackTrace: false }));
 export function commerceRepositoryContext(root: CommerceCommandContext, owner: CommercePromiseOwner,
   transaction?: { readonly flush?: (child: CommerceCommandContext) => Effect.Effect<void, CommerceTransactionError>;
     readonly presentExpectedFailure?: (error: CommerceTransactionError) => Error | undefined }) {
   const contexts = new Map<unknown, CommerceCommandContext>([[root.manager, root]]);
   let active = root;
-  const select = Effect.fn("CommerceRepository.select")(function* (shared: unknown): Effect.fn.Return<CommerceCommandContext, CommerceTransactionError> {
-    const captured = yield* checked(root, Effect.fromResult(Result.try({
-      try: () => {
-        if (shared === null || typeof shared !== "object") return undefined;
-        return { prototype: Object.getPrototypeOf(shared), transaction: Object.getOwnPropertyDescriptor(shared, "transactionManager"), manager: Object.getOwnPropertyDescriptor(shared, "manager") };
-      }, catch: cause => commerceError("invalidAuthority", cause),
-    })));
-    if (captured === undefined || (captured.prototype !== Object.prototype && captured.prototype !== null) ||
-      (captured.transaction !== undefined && !Object.hasOwn(captured.transaction, "value"))) return yield* root.refuse(commerceError("invalidAuthority"));
-    // InjectManager preserves manager through a getter but supplies transactionManager
-    // as own data. Prefer that authenticated token without invoking the unused getter.
-    const selected = captured.transaction?.value == null ? captured.manager : captured.transaction;
-    if (selected === undefined || !Object.hasOwn(selected, "value")) return yield* root.refuse(commerceError("invalidAuthority"));
-    const manager: unknown = selected.value;
-    const ctx = contexts.get(manager);
-    if (ctx === undefined) return yield* root.refuse(commerceError("invalidAuthority"));
-    return ctx;
-  });
+  const select = (shared: unknown) => selectContext(root, contexts, shared);
   const execute = <Value>(shared: unknown, work: (ctx: CommerceCommandContext) => Effect.Effect<Value, CommerceTransactionError>): Promise<Value> =>
     owner.run(Effect.gen(function* () {
       const ctx = yield* select(shared);
@@ -44,13 +55,6 @@ export function commerceRepositoryContext(root: CommerceCommandContext, owner: C
       return yield* (ctx.enqueue === undefined ? work(ctx, normalized)
         : ctx.enqueue(() => captureCommerceInput(normalized, ctx.resources), (captured: Json) => work(ctx, captured)));
     }));
-  const checked = Effect.fn("CommerceRepository.checked")(<Value, Requirements>(ctx: CommerceCommandContext,
-    value: Effect.Effect<Value, CommerceTransactionError, Requirements>): Effect.Effect<Value, CommerceTransactionError, Requirements> =>
-    value.pipe(Effect.catchCause(cause => Result.match(ctx.recordFailure(cause), {
-      onSuccess: owned => Effect.failCause(owned),
-      onFailure: error => Effect.failCause(Cause.combine(cause, Cause.fail(error))),
-    }))),
-  );
   return { execute, executeInput, checked, select, current: () => active,
     // SAFETY: Medusa declares caller-selected manager types; the returned opaque
     // token is authenticated again on every DAL call and nested entry.

@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   captureDocumentObject, captureDocumentPatch, captureDocumentValue,
   captureDocumentObjectWithSize, captureDocumentValueWithSize,
-  decodeDocumentValue, encodeDocumentValue,
+  decodeDocumentValue, encodeDocumentValue, isProvenScalarDocumentRoot,
 } from "../src/document-value";
 
 const text = (value: unknown) => new TextDecoder().decode(Result.getOrThrow(encodeDocumentValue(value)));
@@ -182,6 +182,124 @@ describe("Convex internal document JSON", () => {
         expect((again.success.value as { leaf: unknown }).leaf).not.toBe(shifting);
       }
     }
+  });
+
+  it("proves the walk of a frozen scalar tree at once, with the facts and bytes of any other walk", () => {
+    const freeze = (value: unknown): unknown => {
+      if (typeof value === "object" && value !== null && !(value instanceof ArrayBuffer)) for (const member of Object.values(value)) freeze(member);
+      return Object.freeze(value);
+    };
+    const make = () => ({ title: "a\0é", nested: { list: [1, -0, 1n, "\u{1F600}", null, true], z: {}, a: [] }, "10": 1, "9": 2 });
+    const frozen = freeze(make());
+    const control = Result.getOrThrow(captureDocumentObjectWithSize(make()));
+    const captured = Result.getOrThrow(captureDocumentObjectWithSize(frozen));
+    expect(captured).toEqual(control);
+    expect(captured.value).not.toBe(frozen);
+    expect(Object.keys(captured.value)).toEqual(Object.keys(control.value));
+    // The one walk is final: later captures and the encoder take its output.
+    expect(isProvenScalarDocumentRoot(captured.value)).toBe(true);
+    expect(isProvenScalarDocumentRoot(control.value)).toBe(false);
+    for (let repeat = 0; repeat < 2; repeat++) {
+      expect(Result.getOrThrow(captureDocumentObjectWithSize(captured.value)).value).toBe(captured.value);
+      expect(Result.getOrThrow(captureDocumentValueWithSize(captured.value))).toEqual(control);
+    }
+    expect(Result.getOrThrow(encodeDocumentValue(captured.value))).toEqual(Result.getOrThrow(encodeDocumentValue(make())));
+    expect(Result.getOrThrow(encodeDocumentValue(frozen))).toEqual(Result.getOrThrow(encodeDocumentValue(make())));
+    // The frozen input was walked, not issued: it stays a foreign value.
+    expect(isProvenScalarDocumentRoot(frozen as never)).toBe(false);
+    expect(Result.getOrThrow(captureDocumentValue(frozen))).not.toBe(frozen);
+    // A root proven by its second walk reports the same evidence.
+    const second = Result.getOrThrow(captureDocumentValue(control.value));
+    expect(isProvenScalarDocumentRoot(control.value)).toBe(true);
+    expect(isProvenScalarDocumentRoot(second)).toBe(true);
+    expect(isProvenScalarDocumentRoot(structuredClone(second))).toBe(false);
+    for (const scalar of [null, 1, "x", 1n, true]) expect(isProvenScalarDocumentRoot(scalar)).toBe(false);
+
+    // Every refusal is the codec's own, selected as for a tree that is not frozen.
+    let deep: unknown = 1;
+    for (let depth = 0; depth < 17; depth++) deep = { child: deep };
+    let tooDeep: unknown = 1;
+    for (let depth = 0; depth < 65; depth++) tooDeep = [tooDeep];
+    for (const invalid of [
+      () => ({ ok: 1, nested: { list: [1, { $bad: 1 }] } }), () => ({ nested: ["\ud800"] }), () => ({ nested: { big: 1n << 63n } }),
+      () => ({ nested: [undefined] }), () => ({ nested: { call: () => 1 } }), () => ({ "": { "non\0ascii": 1 } }),
+      () => ({ long: "x".repeat(1 << 20) }), () => structuredClone(deep), () => structuredClone(tooDeep), () => [1],
+    ]) {
+      const refused = captureDocumentObjectWithSize(freeze(invalid()));
+      expect(Result.isFailure(refused)).toBe(true);
+      expect(refused).toEqual(captureDocumentObjectWithSize(invalid()));
+    }
+    expect(captureDocumentValueWithSize(freeze(structuredClone(tooDeep)))).toEqual(captureDocumentValueWithSize(structuredClone(tooDeep)));
+    expect(captureDocumentValueWithSize(freeze(structuredClone(deep)))).toEqual(captureDocumentValueWithSize(structuredClone(deep)));
+  });
+
+  it("never proves a walk of a tree that can still change or holds a binary leaf", () => {
+    const unproven = (input: unknown, expected: unknown) => {
+      const first = Result.getOrThrow(captureDocumentValue(input));
+      expect(first).toEqual(expected);
+      expect(isProvenScalarDocumentRoot(first)).toBe(false);
+      return first;
+    };
+    // A Proxy whose extensibility trap throws: the codec never asks, so it still captures.
+    const trapped = () => new Proxy({ value: 1 }, { isExtensible() { throw new Error("trap"); } });
+    unproven(trapped(), { value: 1 });
+    unproven(Object.freeze({ inner: trapped() }), { inner: { value: 1 } });
+    // A frozen root over a container that is not frozen: a later write cannot reach the capture.
+    const open = { value: 1 };
+    const half = Object.freeze({ open, list: Object.freeze([open]) });
+    const captured = unproven(half, { open: { value: 1 }, list: [{ value: 1 }] });
+    const encoded = Result.getOrThrow(encodeDocumentValue(captured));
+    open.value = 2;
+    expect(captured).toEqual({ open: { value: 1 }, list: [{ value: 1 }] });
+    expect(Result.getOrThrow(encodeDocumentValue(captured))).toEqual(encoded);
+    expect(Result.getOrThrow(captureDocumentValue(half))).toEqual({ open: { value: 2 }, list: [{ value: 2 }] });
+    // The same holds for a tree frozen only after it was handed in and walked.
+    const late = { nested: { value: 1 } };
+    const early = unproven(late, { nested: { value: 1 } });
+    late.nested.value = 2; Object.freeze(late.nested); Object.freeze(late);
+    expect(early).toEqual({ nested: { value: 1 } });
+    expect(Result.getOrThrow(captureDocumentValue(late))).toEqual({ nested: { value: 2 } });
+
+    // Binary leaves, frozen or forged, are copied by every walk and never proven.
+    const leaf = Uint8Array.of(1, 2).buffer;
+    const binary = unproven(Object.freeze({ leaf: Object.freeze(leaf) }), { leaf: Uint8Array.of(1, 2).buffer }) as { leaf: ArrayBuffer };
+    expect(binary.leaf).not.toBe(leaf);
+    new Uint8Array(leaf).fill(9);
+    expect(binary.leaf).toEqual(Uint8Array.of(1, 2).buffer);
+    class Forged extends ArrayBuffer { override slice(): ArrayBuffer { return Object.freeze({ $bad: 1 }) as never; } }
+    const planted = Result.getOrThrow(captureDocumentValue(Object.freeze({ leaf: Object.freeze(new Forged(1)) })));
+    expect(isProvenScalarDocumentRoot(planted)).toBe(false);
+    for (let repeat = 0; repeat < 3; repeat++) expect(Result.isFailure(captureDocumentValue(planted))).toBe(true);
+    const binaryArray = Object.freeze(Object.setPrototypeOf([], Object.create(ArrayBuffer.prototype, {
+      slice: { value: () => Object.freeze({ $bad: 1 }) }, byteLength: { value: 1 },
+    })));
+    const relayed = Result.getOrThrow(captureDocumentValue(Object.freeze({ leaf: binaryArray })));
+    expect(isProvenScalarDocumentRoot(relayed)).toBe(false);
+    for (let repeat = 0; repeat < 3; repeat++) expect(Result.isFailure(captureDocumentValue(relayed))).toBe(true);
+    // Exotic frozen shapes take the ordinary walk and its refusal.
+    for (const exotic of [Object.freeze(Object.create(null, { a: { value: 1, enumerable: true } })),
+      Object.freeze(Object.defineProperty({}, "hidden", { value: 1 })), Object.freeze({ [Symbol("s")]: 1 }),
+      Object.freeze(Object.assign([1], { extra: 1 }))]) {
+      const walked = captureDocumentValue(Object.freeze({ exotic }));
+      if (Result.isSuccess(walked)) expect(isProvenScalarDocumentRoot(walked.success)).toBe(false);
+    }
+
+    // A frozen Proxy is pinned to its frozen target; the output holds the target's content only.
+    let reads = 0;
+    const proxied = new Proxy(Object.freeze({ a: Object.freeze([1, "x"]) }), {
+      getOwnPropertyDescriptor(target, key) { reads += 1; return Reflect.getOwnPropertyDescriptor(target, key); },
+    });
+    const pinned = Result.getOrThrow(captureDocumentValueWithSize(proxied));
+    expect(reads).toBeGreaterThan(0);
+    expect(pinned).toEqual(Result.getOrThrow(captureDocumentValueWithSize({ a: [1, "x"] })));
+    expect(pinned.value).not.toBe(proxied);
+
+    // A frozen shared subtree is bounded by the profile's size, as the codec's own walk is.
+    let shared: unknown = "x".repeat(1 << 22);
+    for (let depth = 0; depth < 40; depth++) shared = Object.freeze({ a: shared, b: shared });
+    const started = Date.now();
+    expect(Result.isFailure(captureDocumentValue(shared))).toBe(true);
+    expect(Date.now() - started).toBeLessThan(5_000);
   });
 
   it("proves a decoded scalar document at once and still copies a decoded binary one", () => {

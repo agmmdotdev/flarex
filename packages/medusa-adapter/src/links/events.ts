@@ -23,7 +23,7 @@ export function linkLogicalEventPolicy(tableName: string, serviceName: string, e
       return yield* Effect.fail(commerceError("unadmittedEvent"));
     return message satisfies Json;
   });
-  const validateLogicalCall: LogicalCallReceiptValidation = Effect.fn("LinkEvents.validateLogicalCall")(
+  const validateLogicalCall: LogicalCallReceiptValidation = Effect.fnUntraced(
     function* (call: Parameters<LogicalCommerceCallValidation>[0], activity: Parameters<LogicalCommerceCallValidation>[1]) {
       const { mutations, lifecycle, setNull, referenceReplacements } = activity;
       if (setNull.length || referenceReplacements.length || mutations.some((mutation, index) => mutation.ordinal !== index))
@@ -92,7 +92,7 @@ export function linkLogicalEventPolicy(tableName: string, serviceName: string, e
           }
         }
         if (expected.length !== 0) return yield* Effect.fail(commerceError("receiptMismatch"));
-    });
+    }, effect => Effect.withSpan(effect, "LinkEvents.validateLogicalCall", { captureStackTrace: false }));
   return { capture, validateLogicalCall };
 }
 
@@ -125,9 +125,9 @@ export function selectedLinkLogicalEventPolicy(definitions: readonly {
     if (!valid || member === undefined) return yield* Effect.fail(commerceError("unadmittedEvent"));
     return { member, message: yield* member.policy.capture(value) };
   });
-  const capture = Effect.fn("LinkEvents.captureSelectedLogical")((input: unknown) =>
-    identify(input).pipe(Effect.map(value => value.message)));
-  const validateLogicalCall: LogicalCallReceiptValidation = Effect.fn("LinkEvents.validateSelectedLogicalCall")(
+  const capture = (input: unknown) => Effect.withSpan(Effect.suspend(() => identify(input).pipe(Effect.map(value => value.message))),
+    "LinkEvents.captureSelectedLogical", { captureStackTrace: false });
+  const validateLogicalCall: LogicalCallReceiptValidation = Effect.fnUntraced(
     function* (call: Parameters<LogicalCommerceCallValidation>[0], activity: Parameters<LogicalCommerceCallValidation>[1]) {
       const { mutations, lifecycle, observedRows, setNull, referenceReplacements } = activity;
       if (!valid || setNull.length || referenceReplacements.length ||
@@ -145,6 +145,6 @@ export function selectedLinkLogicalEventPolicy(definitions: readonly {
       const member = selected.find(item => item.tableName === table);
       if (member === undefined) return yield* Effect.fail(commerceError("receiptMismatch"));
       yield* member.policy.validateLogicalCall(call, activity);
-    });
+    }, effect => Effect.withSpan(effect, "LinkEvents.validateSelectedLogicalCall", { captureStackTrace: false }));
   return { capture, validateLogicalCall };
 }

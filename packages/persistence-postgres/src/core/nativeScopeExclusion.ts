@@ -23,7 +23,7 @@ class SettlementLock {
   private readonly assertOpen: Effect.Effect<void, CoreError> = Effect.suspend(() => this.closed === undefined
     ? Effect.void : Effect.failCause(this.closed));
 
-  private readonly pump = Effect.fn("CoreSettlementLock.pump")((): Effect.Effect<void> => Effect.suspend(() => {
+  private readonly pump = (): Effect.Effect<void> => Effect.withSpan(Effect.suspend(() => Effect.suspend(() => {
     if (this.closed !== undefined) return Effect.void;
     const granted: Waiter[] = [];
     while (this.queue.length > 0) {
@@ -39,10 +39,10 @@ class SettlementLock {
       if (waiter.mode === "exclusive" && this.policy === "namespace") break;
     }
     return Effect.forEach(granted, waiter => Deferred.succeed(waiter.ready, undefined), { discard: true });
-  }));
+  })), "CoreSettlementLock.pump", { captureStackTrace: false });
 
-  private readonly release = Effect.fn("CoreSettlementLock.release")((waiter: Waiter): Effect.Effect<void> =>
-    Effect.uninterruptible(Effect.gen({ self: this }, function* () {
+  private readonly release = (waiter: Waiter): Effect.Effect<void> =>
+    Effect.withSpan(Effect.suspend(() => Effect.uninterruptible(Effect.gen({ self: this }, function* () {
       const previous = waiter.state;
       if (previous === "released") return;
       waiter.state = "released";
@@ -55,10 +55,10 @@ class SettlementLock {
       }
       yield* Deferred.fail(waiter.ready, new CoreTransactionError({ reason: "closed" }));
       yield* this.pump();
-    })));
+    }))), "CoreSettlementLock.release", { captureStackTrace: false });
 
-  private readonly acquire = Effect.fn("CoreSettlementLock.acquire")((waiter: Waiter): Effect.Effect<void, CoreError> =>
-    Effect.uninterruptibleMask(restore => Effect.gen({ self: this }, function* () {
+  private readonly acquire = (waiter: Waiter): Effect.Effect<void, CoreError> =>
+    Effect.withSpan(Effect.suspend(() => Effect.uninterruptibleMask(restore => Effect.gen({ self: this }, function* () {
       yield* this.assertOpen;
       if (waiter.state === "released") return yield* new CoreTransactionError({ reason: "closed" });
       if (waiter.state === "created") {
@@ -69,7 +69,7 @@ class SettlementLock {
       yield* restore(Deferred.await(waiter.ready));
       yield* this.assertOpen;
       if (waiter.state !== "granted") return yield* new CoreTransactionError({ reason: "closed" });
-    })).pipe(Effect.onExit(exit => Exit.isFailure(exit) ? this.release(waiter) : Effect.void)));
+    })).pipe(Effect.onExit(exit => Exit.isFailure(exit) ? this.release(waiter) : Effect.void))), "CoreSettlementLock.acquire", { captureStackTrace: false });
 
   /** Allocation is inert; the owning bracket receives the ticket before ready. */
   request(mode: Waiter["mode"]): SettlementTicket {
@@ -77,13 +77,13 @@ class SettlementLock {
     return { ready: this.acquire(waiter), release: this.release(waiter) };
   }
 
-  readonly close = Effect.fn("CoreSettlementLock.close")((cause: Cause.Cause<CoreError>): Effect.Effect<void> =>
-    Effect.uninterruptible(Effect.suspend(() => {
+  readonly close = (cause: Cause.Cause<CoreError>): Effect.Effect<void> =>
+    Effect.withSpan(Effect.suspend(() => Effect.uninterruptible(Effect.suspend(() => {
       this.closed ??= cause;
       const waiting = this.queue.splice(0);
       for (const waiter of waiting) waiter.state = "released";
       return Effect.forEach(waiting, waiter => Deferred.failCause(waiter.ready, cause), { discard: true });
-    })));
+    }))), "CoreSettlementLock.close", { captureStackTrace: false });
 }
 
 /** Private finalized-state evidence; never exposed through a native facade. */
@@ -136,13 +136,13 @@ export class CoreNativeScopeExclusion {
   }
 
   /** Only readiness is raced. Its ticket already has an owner on every Exit. */
-  readonly beforeDeadline = Effect.fn("CoreNativeScopeExclusion.beforeDeadline")((work: Effect.Effect<void, CoreError>,
-    deadline?: number): Effect.Effect<void, CoreError> => deadline === undefined ? work : Effect.gen(function* () {
+  readonly beforeDeadline = (work: Effect.Effect<void, CoreError>,
+    deadline?: number): Effect.Effect<void, CoreError> => Effect.withSpan(Effect.suspend(() => deadline === undefined ? work : Effect.gen(function* () {
       const remaining = deadline - (yield* Clock.currentTimeMillis);
       if (remaining <= 0) return yield* new CoreTransactionError({ reason: "admissionExpired" });
       yield* Effect.timeoutOrElse(work, { duration: Duration.millis(remaining),
         orElse: () => Effect.fail(new CoreTransactionError({ reason: "admissionExpired" })) });
-    }));
+    })), "CoreNativeScopeExclusion.beforeDeadline", { captureStackTrace: false });
 
   readonly acquireExclusive = Effect.fn("CoreNativeScopeExclusion.acquireExclusive")((namespace: CoreTableNamespace,
     deadline: number | undefined, ownGrant: (grant: CoreNativeScopeExclusionGrant) => void): Effect.Effect<CoreNativeScopeExclusionGrant, CoreError> =>
@@ -200,9 +200,9 @@ export class CoreNativeScopeExclusion {
     return authorized;
   };
 
-  readonly settlement = Effect.fn("CoreNativeScopeExclusion.settlement")((transaction: CoreFinalizedState,
+  readonly settlement = (transaction: CoreFinalizedState,
     ownPermit: (permit: CoreSettlementPermit) => void): Effect.Effect<CoreSettlementPermit, CoreError> =>
-    Effect.uninterruptibleMask(restore => Effect.gen({ self: this }, function* () {
+    Effect.withSpan(Effect.suspend(() => Effect.uninterruptibleMask(restore => Effect.gen({ self: this }, function* () {
       yield* this.assertOpen;
       const authorization = transaction.settlementAuthorization;
       const issued = authorization === undefined ? undefined : this.settlements.get(authorization);
@@ -223,12 +223,12 @@ export class CoreNativeScopeExclusion {
         yield* this.assertOpen;
         return ticket;
       }).pipe(Effect.onExit(exit => Exit.isFailure(exit) ? ticket.release : Effect.void));
-    })));
+    }))), "CoreNativeScopeExclusion.settlement", { captureStackTrace: false });
 
-  readonly close = Effect.fn("CoreNativeScopeExclusion.close")((cause: Cause.Cause<CoreError> =
-    Cause.fail(new CoreTransactionError({ reason: "closed" }))): Effect.Effect<void> => Effect.uninterruptible(Effect.suspend(() => {
+  readonly close = (cause: Cause.Cause<CoreError> =
+    Cause.fail(new CoreTransactionError({ reason: "closed" }))): Effect.Effect<void> => Effect.withSpan(Effect.suspend(() => Effect.uninterruptible(Effect.suspend(() => {
       this.closed ??= cause;
       return Effect.andThen(this.global.close(this.closed),
         Effect.forEach(this.namespaces.values(), lock => lock.close(cause), { discard: true }));
-    })));
+    }))), "CoreNativeScopeExclusion.close", { captureStackTrace: false });
 }

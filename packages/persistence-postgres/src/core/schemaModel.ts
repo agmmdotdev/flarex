@@ -65,16 +65,16 @@ export class CoreSchemaModel {
   readonly pending = () => this.getByState("pending");
   readonly validated = () => this.getByState("validated");
 
-  readonly get = Effect.fn("CoreSchemaModel.get")((id: string) => Effect.gen({ self: this }, function* () {
+  readonly get = (id: string) => Effect.withSpan(Effect.suspend(() => Effect.gen({ self: this }, function* () {
     const document = yield* this.tx.getSystem(SCHEMAS, id);
     if (Option.isNone(document)) return Option.none<CoreSchemaSelection>();
     const metadata = yield* Effect.fromResult(decodeCoreSchemaMetadata(document.value.value).pipe(Result.mapError(coreSchemaCorrupt)));
     const schema = yield* Effect.fromResult(parseCoreSchema(metadata.schema).pipe(Result.mapError(coreSchemaCorrupt)));
     return Option.some(Object.freeze({ id, creationTime: document.value.creationTime,
       metadata: Object.freeze({ ...metadata, state: Object.freeze({ ...metadata.state }) }), schema }));
-  }));
+  })), "CoreSchemaModel.get", { captureStackTrace: false });
 
-  readonly submitPending = Effect.fn("CoreSchemaModel.submitPending")((input: CoreSchemaDefinition, native?: string) => Effect.gen({ self: this }, function* () {
+  readonly submitPending = (input: CoreSchemaDefinition, native?: string) => Effect.withSpan(Effect.suspend(() => Effect.gen({ self: this }, function* () {
     const schema = yield* Effect.fromResult(captureCoreSchema(input));
     const serialized = yield* Effect.fromResult(serializeCoreSchema(schema));
     const active = yield* this.active();
@@ -117,30 +117,30 @@ export class CoreSchemaModel {
       ...(native === undefined ? {} : { native }) });
     if (hasStaged) yield* this.validations.initializeStagedValidators(id, schema, carryOver);
     return { id, state: { state: "pending" } as const };
-  }));
+  })), "CoreSchemaModel.submitPending", { captureStackTrace: false });
 
-  readonly markValidated = Effect.fn("CoreSchemaModel.markValidated")((id: string) => Effect.gen({ self: this }, function* () {
+  readonly markValidated = (id: string) => Effect.withSpan(Effect.suspend(() => Effect.gen({ self: this }, function* () {
     const schema = yield* this.mustGet(id);
     if (schema.metadata.state.state !== "pending") return yield* Effect.fail(stateRefusal(schema.metadata.state));
     yield* this.tx.replaceSystem(SCHEMAS, id, { ...schema.metadata, state: { state: "validated" } });
-  }));
+  })), "CoreSchemaModel.markValidated", { captureStackTrace: false });
 
-  readonly getValidatedOrActive = Effect.fn("CoreSchemaModel.getValidatedOrActive")((id: string) => Effect.gen({ self: this }, function* () {
+  readonly getValidatedOrActive = (id: string) => Effect.withSpan(Effect.suspend(() => Effect.gen({ self: this }, function* () {
     const schema = yield* this.mustGet(id);
     if (schema.metadata.state.state !== "validated" && schema.metadata.state.state !== "active")
       return yield* Effect.fail(stateRefusal(schema.metadata.state));
     return schema;
-  }));
+  })), "CoreSchemaModel.getValidatedOrActive", { captureStackTrace: false });
 
-  readonly markActive = Effect.fn("CoreSchemaModel.markActive")((id: string) => Effect.gen({ self: this }, function* () {
+  readonly markActive = (id: string) => Effect.withSpan(Effect.suspend(() => Effect.gen({ self: this }, function* () {
     const schema = yield* this.getValidatedOrActive(id);
     if (schema.metadata.state.state === "active") return;
     yield* this.validations.deleteEnforcedValidationsForSchema(id);
     yield* this.clearActive();
     yield* this.tx.replaceSystem(SCHEMAS, id, { ...schema.metadata, state: { state: "active" } });
-  }));
+  })), "CoreSchemaModel.markActive", { captureStackTrace: false });
 
-  readonly markFailed = Effect.fn("CoreSchemaModel.markFailed")((id: string, error: string, tableName?: string) => Effect.gen({ self: this }, function* () {
+  readonly markFailed = (id: string, error: string, tableName?: string) => Effect.withSpan(Effect.suspend(() => Effect.gen({ self: this }, function* () {
     const schema = yield* this.mustGet(id);
     switch (schema.metadata.state.state) {
       case "pending": case "validated":
@@ -152,28 +152,28 @@ export class CoreSchemaModel {
     }
     yield* this.deleteOldFailedAndOverwritten();
     yield* this.validations.deleteValidationsForSchema(id);
-  }));
+  })), "CoreSchemaModel.markFailed", { captureStackTrace: false });
 
-  readonly markOverwritten = Effect.fn("CoreSchemaModel.markOverwritten")((id: string) => Effect.gen({ self: this }, function* () {
+  readonly markOverwritten = (id: string) => Effect.withSpan(Effect.suspend(() => Effect.gen({ self: this }, function* () {
     const schema = yield* this.mustGet(id);
     yield* this.tx.replaceSystem(SCHEMAS, id, { ...schema.metadata, state: { state: "overwritten" } });
     yield* this.deleteOldFailedAndOverwritten();
     yield* this.validations.deleteValidationsForSchema(id);
-  }));
+  })), "CoreSchemaModel.markOverwritten", { captureStackTrace: false });
 
-  readonly clearActive = Effect.fn("CoreSchemaModel.clearActive")(() => Effect.gen({ self: this }, function* () {
+  readonly clearActive = () => Effect.withSpan(Effect.suspend(() => Effect.gen({ self: this }, function* () {
     const active = yield* this.active();
     if (Option.isSome(active)) yield* this.markOverwritten(active.value.id);
-  }));
+  })), "CoreSchemaModel.clearActive", { captureStackTrace: false });
 
-  readonly overwriteAll = Effect.fn("CoreSchemaModel.overwriteAll")(() => Effect.gen({ self: this }, function* () {
+  readonly overwriteAll = () => Effect.withSpan(Effect.suspend(() => Effect.gen({ self: this }, function* () {
     let overwritten = false;
     for (const state of ["pending", "active", "validated"] as const) {
       const selected = yield* this.getByState(state);
       if (Option.isSome(selected)) { yield* this.markOverwritten(selected.value.id); overwritten = true; }
     }
     return overwritten;
-  }));
+  })), "CoreSchemaModel.overwriteAll", { captureStackTrace: false });
 
   readonly enforceDocument = (tableName: string, body: DocumentObject,
     idPolicy: ValidatorIdPolicyV1) => Effect.gen({ self: this }, function* () {
@@ -196,7 +196,7 @@ export class CoreSchemaModel {
   });
 
   /** Called by the real deletion/replacement owner before losing the table mapping. */
-  readonly enforceTableDeletion = Effect.fn("CoreSchemaModel.enforceTableDeletion")((tableName: string) => Effect.gen({ self: this }, function* () {
+  readonly enforceTableDeletion = (tableName: string) => Effect.withSpan(Effect.suspend(() => Effect.gen({ self: this }, function* () {
     for (const state of ["active", "pending", "validated"] as const) {
       const selected = yield* this.getByState(state);
       if (Option.isNone(selected)) continue;
@@ -208,13 +208,13 @@ export class CoreSchemaModel {
       yield* this.markFailed(selected.value.id, `Table ${tableName} is declared or referenced by the proposed schema`, tableName);
     }
     yield* this.validations.invalidateTableReferences(tableName);
-  }));
+  })), "CoreSchemaModel.enforceTableDeletion", { captureStackTrace: false });
 
-  private readonly mustGet = Effect.fn("CoreSchemaModel.mustGet")((id: string) => Effect.gen({ self: this }, function* () {
+  private readonly mustGet = (id: string) => Effect.withSpan(Effect.suspend(() => Effect.gen({ self: this }, function* () {
     const schema = yield* this.get(id);
     if (Option.isNone(schema)) return yield* Effect.fail(new CoreSchemaError({ reason: "schemaNotFound", message: "Schema does not exist" }));
     return schema.value;
-  }));
+  })), "CoreSchemaModel.mustGet", { captureStackTrace: false });
 
   private readonly checkStagedWrite = (selected: CoreSchemaSelection,
     tableName: string, body: DocumentObject, idPolicy: ValidatorIdPolicyV1) => Effect.suspend(() => Result.match(
@@ -224,7 +224,7 @@ export class CoreSchemaModel {
         `New document in ${tableName} violates its staged validator (${failure.issue.reason} at ${failure.issue.path})`).pipe(Effect.asVoid),
     }));
 
-  private readonly deleteOldFailedAndOverwritten = Effect.fn("CoreSchemaModel.cleanup")(() => Effect.gen({ self: this }, function* () {
+  private readonly deleteOldFailedAndOverwritten = () => Effect.withSpan(Effect.suspend(() => Effect.gen({ self: this }, function* () {
     const rows = yield* this.tx.querySystem(SCHEMAS, "by_creation_time", []);
     const cutoff = Number(this.tx.timestamp) / 1_000_000 - 3_600_000;
     for (const row of rows) {
@@ -235,5 +235,5 @@ export class CoreSchemaModel {
       if (row.creationTime > cutoff) break;
       yield* this.tx.deleteSystem(SCHEMAS, row.id);
     }
-  }));
+  })), "CoreSchemaModel.cleanup", { captureStackTrace: false });
 }
