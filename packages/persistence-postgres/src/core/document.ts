@@ -56,11 +56,9 @@ export function captureCoreObject(value: unknown, system: boolean): Result.Resul
 
 /** Full documents additionally require canonical system fields and nesting<=16. */
 export function captureCoreDocument(value: unknown, system: boolean): Result.Result<CoreMeasuredDocument, DocumentValueError> {
-  return Result.gen(function* () {
-    const captured = yield* captureCoreObject(value, system);
-    yield* Result.mapError(decodeSystemFields(captured.value), () => new DocumentValueError({ reason: "invalidValue" }));
-    if (captured.nestingDepth > 16 || Object.keys(captured.value).some(name => name.startsWith("_") && name !== "_id" && name !== "_creationTime"))
-      return yield* Result.fail(new DocumentValueError({ reason: "invalidValue" }));
-    return captured;
-  });
+  // Every observed row passes here, so the steps are composed without a generator.
+  return Result.flatMap(captureCoreObject(value, system), captured =>
+    Result.flatMap(Result.mapError(decodeSystemFields(captured.value), () => new DocumentValueError({ reason: "invalidValue" })), () =>
+      captured.nestingDepth > 16 || Object.keys(captured.value).some(name => name.startsWith("_") && name !== "_id" && name !== "_creationTime")
+        ? Result.fail(new DocumentValueError({ reason: "invalidValue" })) : Result.succeed(captured)));
 }

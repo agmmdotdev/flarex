@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Result } from "effect";
-import { CorePendingWrites, CoreReadSetBuilder, CoreWriteLog, pointInterval } from "../../src/core/writeLog";
+import { CoreIntervalSet, CorePendingWrites, CoreReadSetBuilder, CoreWriteLog, pointInterval } from "../../src/core/writeLog";
 
 const bytes = (...values: number[]) => Uint8Array.from(values);
 const index = bytes(1);
@@ -111,5 +111,20 @@ describe("translated indexed conflict history", () => {
     expect(Result.getOrThrow(log.snapshot().conflict(reads(5), 0n))).toBeUndefined();
     log.append(2n, changes(7));
     expect(Result.isFailure(log.snapshot().conflict(readSet, 0n))).toBe(true);
+  });
+
+  it("unions one index's intervals exactly as the read set does, in any order", () => {
+    const intervals = [{ start: bytes(6), end: bytes(7) }, { start: bytes(2), end: bytes(4) }, { start: bytes(9), end: bytes(9) },
+      { start: bytes(4), end: bytes(5) }, { start: bytes(8), end: null }, { start: null, end: bytes(1) }, { start: bytes(3), end: bytes(3, 0) }];
+    const builder = new CoreReadSetBuilder();
+    for (const interval of intervals) builder.add(index, interval);
+    const expected = [{ start: null, end: bytes(1) }, { start: bytes(2), end: bytes(5) }, { start: bytes(6), end: bytes(7) }, { start: bytes(8), end: null }];
+    expect(builder.snapshot()[0]?.intervals).toEqual(expected);
+    expect(builder.intervalCount).toBe(4);
+    for (const ordered of [intervals, intervals.toReversed()]) {
+      const set = new CoreIntervalSet();
+      for (const interval of ordered) set.addOwned({ start: interval.start, end: interval.end });
+      expect([...set.values()]).toEqual(expected);
+    }
   });
 });

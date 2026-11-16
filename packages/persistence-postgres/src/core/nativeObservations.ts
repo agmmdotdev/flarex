@@ -62,6 +62,7 @@ export class CoreNativeObservationState {
   private readonly tables = new Set<string>();
   private readonly slots = new Map<string, Readonly<{ slot: CoreNativeUniqueSlot; membership: CoreNativeSlotMembership; observed: boolean }>>();
   private readonly dependencies = new Map<bigint, CoreReadSetBuilder>();
+  private readonly unitedSelections = new Map<bigint, WeakSet<CoreReadSet>>();
   private readonly ranges = new Map<string, CoreNativeRangeSlot>();
   private readonly pages: CoreNativeRangeSlot[] = [];
   private readonly serialPagesByTablet = new Map<string, Array<Readonly<{ timestamp: bigint; page: CoreNativeRangeSlot }>>>();
@@ -185,6 +186,22 @@ export class CoreNativeObservationState {
       this.dependencies.set(timestamp, group);
     }
     for (const read of reads) for (const interval of read.intervals) group.add(read.indexId, interval);
+  }
+
+  /** A metadata selection is a frozen snapshot. Only `coreNativeMetadataReads`
+   * keeps one and returns it again for the same registry and authority, so the
+   * skip applies on the native path alone; every other selection is a fresh
+   * snapshot and is united each time. Uniting the same snapshot into the same
+   * timestamp's group a second time changes nothing, so it is skipped. */
+  addSelectedReads(timestamp: bigint, selection: CoreReadSet): void {
+    let united = this.unitedSelections.get(timestamp);
+    if (united === undefined) {
+      united = new WeakSet();
+      this.unitedSelections.set(timestamp, united);
+    }
+    if (united.has(selection)) return;
+    this.addReads(timestamp, selection);
+    united.add(selection);
   }
 
   snapshot(): CoreNativeObservations {

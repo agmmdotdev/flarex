@@ -574,7 +574,7 @@ export function createCoreTransaction(input: Readonly<{
       : access.kind === "applicationRead"
         ? coreApplicationReadMetadataReads(metadataRegistry, access.authority)
         : coreApplicationInsertMetadataReads(metadataRegistry, access.authority));
-    nativeObservations.addReads(metadataTimestamp, metadata);
+    nativeObservations.addSelectedReads(metadataTimestamp, metadata);
     if (index !== undefined) yield* Effect.fromResult(observeNativeIndex(nativeObservations, metadataRegistry, metadataTimestamp, indexedTable, index));
     return { ...selected, registry: metadataRegistry, indexSnapshot: createCoreIndexSnapshot({ snapshot: selected.snapshot, registry: metadataRegistry,
       decoded: decodedDocuments,
@@ -650,6 +650,7 @@ export function createCoreTransaction(input: Readonly<{
     const captured = yield* Effect.match(native.capture(), { onFailure: () => undefined, onSuccess: snapshotCapture => snapshotCapture });
     if (captured === undefined || captured.writeLog.timestamp !== captured.snapshot.timestamp) return;
     const prefetchSnapshot = createCoreIndexSnapshot({ snapshot: captured.snapshot, registry: captured.registry,
+      decoded: decodedDocuments,
       ...(captured.residentReader === undefined ? {} : { resident: captured.residentReader }),
       ...(input.operationCacheMaxBytes === undefined ? {} : { maxBytes: input.operationCacheMaxBytes }) });
     const keys = [...selected.keys()], requested = [...selected.values()];

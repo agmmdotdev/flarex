@@ -83,3 +83,37 @@ other load on the host):
 | List page | 31.5 → 28.6 ms |
 | List recent | 31.6 → 27.0 ms |
 | Search | 32.0 → 26.7 ms |
+
+## Derive index keys only for the index that is read
+
+Baseline `fc3dd1e8f`. Mechanism:
+[deferred index coverage](../divergences/deferred-index-coverage.md). Two read-only
+reviewers inspected the diff and found no blocking defect.
+
+A fill derived every index key and interval of every fetched row, but a native read
+makes one operation snapshot per capture and reads one index of it. A profile of the
+Product list page also showed that the decoded handoff never hit: its rows arrive
+through the batch prefetch, whose fills did not offer.
+
+| Change | Owner |
+| --- | --- |
+| Admission and budget at the fill; keys and intervals when the index is first read | `createCoreIndexSnapshot` |
+| One index's interval union without a per-add index lookup or a copy per read | `CoreIntervalSet` in `writeLog.ts` |
+| Prefetch fills offer their decoded documents | `prefetchNativeSlots` in `transaction.ts` |
+| A kept metadata selection already united at a timestamp is not united again; native path only, since only `coreNativeMetadataReads` keeps one | `CoreNativeObservationState.addSelectedReads` |
+| No generator per row | `readDocumentObject`, `captureCoreDocument` |
+
+Same host and catalogue, minimum of three alternating rounds of 100 operations
+(the host carried other load):
+
+| Operation | CPU per operation | Median latency |
+| --- | --- | --- |
+| Retrieve | 6.2 → 5.9 ms | 8.6 → 8.2 ms |
+| List by IDs | 24.9 → 18.8 ms | 28.8 → 23.0 ms |
+| List page | 15.9 → 13.8 ms | 22.2 → 18.9 ms |
+| List recent | 15.9 → 12.6 ms | 21.7 → 18.3 ms |
+| Search | 2.3 → 2.3 ms | 6.5 → 6.5 ms |
+| Product create | 49.7 → 51.1 ms | 72.7 → 73.9 ms |
+
+Round trips did not change. Product create is within the noise of the host: a second
+comparison gave 49.9 → 51.3 ms by minimum and 52.6 → 51.3 ms by median.

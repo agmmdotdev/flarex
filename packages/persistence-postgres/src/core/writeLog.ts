@@ -34,16 +34,54 @@ export function pointInterval(key: Uint8Array): CoreInterval {
   return Object.freeze({ start: key.slice(), end });
 }
 
+type OrderedIntervals = BTree<Uint8Array | null, CoreInterval>;
+
+function intervalIsEmpty(interval: CoreInterval): boolean {
+  return interval.start !== null && interval.end !== null && compareBytesLexicographically(interval.start, interval.end) >= 0;
+}
+
+/** Unions one non-empty interval into a normalized set, which keeps `owned` and never writes its bounds. */
+function mergeInterval(intervals: OrderedIntervals, owned: CoreInterval): void {
+  let merged = owned;
+  const equal = intervals.get(merged.start);
+  const previous = equal ?? intervals.nextLowerPair(merged.start)?.[1];
+  const removals: Array<Uint8Array | null> = [];
+  if (previous !== undefined && (previous.end === null || merged.start === null
+    || compareBytesLexicographically(previous.end, merged.start) >= 0)) {
+    merged = { start: previous.start, end: maximumEnd(previous.end, merged.end) };
+    removals.push(previous.start);
+  }
+  for (const [key, next] of intervals.entries(merged.start)) {
+    if (merged.end !== null && next.start !== null && compareBytesLexicographically(next.start, merged.end) > 0) break;
+    merged = { start: merged.start, end: maximumEnd(merged.end, next.end) };
+    removals.push(key);
+  }
+  for (const key of removals) intervals.delete(key);
+  intervals.set(merged.start, merged);
+}
+
+/** One index's ordered, normalized interval union, with the read set's merge. */
+export class CoreIntervalSet {
+  private readonly intervals: OrderedIntervals = new BTree<Uint8Array | null, CoreInterval>(undefined, compareStarts);
+
+  /** Takes ownership of `interval`: the caller must never write its bounds again. */
+  addOwned(interval: CoreInterval): void {
+    if (!intervalIsEmpty(interval)) mergeInterval(this.intervals, interval);
+  }
+
+  /** Ascending, disjoint and non-adjacent. The set still owns every bound. */
+  values(): IterableIterator<CoreInterval> { return this.intervals.values(); }
+}
+
 /** Ordered, normalized interval union. Empty intervals never become broad dependencies. */
 export class CoreReadSetBuilder {
-  private readonly byIndex = new Map<string, { id: Uint8Array; intervals: BTree<Uint8Array | null, CoreInterval> }>();
+  private readonly byIndex = new Map<string, { id: Uint8Array; intervals: OrderedIntervals }>();
   private count = 0;
 
   get intervalCount(): number { return this.count; }
 
   add(indexId: Uint8Array, interval: CoreInterval): void {
-    if (interval.start !== null && interval.end !== null
-      && compareBytesLexicographically(interval.start, interval.end) >= 0) return;
+    if (intervalIsEmpty(interval)) return;
     const name = encodeBytesToLowercaseHex(indexId);
     let entry = this.byIndex.get(name);
     if (entry === undefined) {
@@ -51,22 +89,7 @@ export class CoreReadSetBuilder {
       this.byIndex.set(name, entry);
     }
     const before = entry.intervals.size;
-    let merged = copyInterval(interval);
-    const equal = entry.intervals.get(merged.start);
-    const previous = equal ?? entry.intervals.nextLowerPair(merged.start)?.[1];
-    const removals: Array<Uint8Array | null> = [];
-    if (previous !== undefined && (previous.end === null || merged.start === null
-      || compareBytesLexicographically(previous.end, merged.start) >= 0)) {
-      merged = { start: previous.start, end: maximumEnd(previous.end, merged.end) };
-      removals.push(previous.start);
-    }
-    for (const [key, next] of entry.intervals.entries(merged.start)) {
-      if (merged.end !== null && next.start !== null && compareBytesLexicographically(next.start, merged.end) > 0) break;
-      merged = { start: merged.start, end: maximumEnd(merged.end, next.end) };
-      removals.push(key);
-    }
-    for (const key of removals) entry.intervals.delete(key);
-    entry.intervals.set(merged.start, merged);
+    mergeInterval(entry.intervals, copyInterval(interval));
     this.count += entry.intervals.size - before;
   }
 

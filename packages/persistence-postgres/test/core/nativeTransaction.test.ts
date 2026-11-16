@@ -1,5 +1,5 @@
 import { Effect, Option, Result } from "effect";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { bytesEqual, compareBytesLexicographically } from "@flarex/utils/bytes";
 import { encodeDocumentValue } from "flarex-protocol/document-value";
 import { compilePayloadCollections } from "../../../payload-adapter/src/collections";
@@ -12,7 +12,7 @@ import { serializeCoreSchema } from "../../src/core/schemaJson";
 import { CoreFinalizationVault, createCoreTransaction } from "../../src/core/transaction";
 import { prefetchCoreNativeFindSlots, prefetchCoreNativeInsertSlots } from "../../src/core/nativePrefetch";
 import { createTransactionIdGenerator } from "../../src/core/transactionIdGenerator";
-import { CoreWriteLog, keyInInterval, type CoreIndexKeys } from "../../src/core/writeLog";
+import { CoreReadSetBuilder, CoreWriteLog, keyInInterval, type CoreIndexKeys } from "../../src/core/writeLog";
 import { CoreAccounting, CORE_TRANSACTION_REFERENCE_LIMITS } from "../../src/core/accounting";
 import { CoreNativeObservationState } from "../../src/core/nativeObservations";
 import { prepareCoreNativeIndexes, validateCoreNativeIndexes } from "../../src/core/nativeValidation";
@@ -396,6 +396,26 @@ describe("native transaction observations over the source transaction", () => {
     expect((await tested.finalized()).nativeObservations?.indexes).toEqual([]);
   });
 
+  it("unites a repeated metadata selection once per timestamp and leaves the dependencies unchanged", () => {
+    const selection = (first: number) => {
+      const reads = new CoreReadSetBuilder();
+      reads.add(Uint8Array.of(7), { start: Uint8Array.of(first), end: Uint8Array.of(first + 2) });
+      reads.add(Uint8Array.of(8), { start: null, end: null });
+      return reads.snapshot();
+    };
+    const kept = selection(1), other = selection(2);
+    const plain = new CoreNativeObservationState({ maxIdentities: 1, maxDocumentBytes: 1 });
+    const skipping = new CoreNativeObservationState({ maxIdentities: 1, maxDocumentBytes: 1 });
+    for (const [timestamp, reads] of [[20n, kept], [20n, other], [20n, kept], [30n, kept], [20n, kept], [30n, other], [30n, kept]] as const) {
+      plain.addReads(timestamp, reads);
+      skipping.addSelectedReads(timestamp, reads);
+    }
+    expect(skipping.snapshot().dependencies).toEqual(plain.snapshot().dependencies);
+    expect(skipping.snapshot().dependencies).toEqual([20n, 30n].map(timestamp => ({ timestamp, reads: [
+      { indexId: Uint8Array.of(7), intervals: [{ start: Uint8Array.of(1), end: Uint8Array.of(4) }] },
+      { indexId: Uint8Array.of(8), intervals: [{ start: null, end: null }] }] })));
+  });
+
   it("stores only detached key membership in unique-slot memos, including observed upgrades", async () => {
     const tested = await fixture();
     const index = tested.table.indexes.find(candidate => candidate.fields[0] === "title");
@@ -759,6 +779,26 @@ describe("native transaction observations over the source transaction", () => {
       expect(actual).toEqual(expected);
       expect(await Effect.runPromise(tested.context.transaction.usage)).toEqual(await Effect.runPromise(control.context.transaction.usage));
       expect((await tested.finalized()).nativeObservations).toEqual((await control.finalized()).nativeObservations);
+    });
+
+    it("hands a prefetched row's decoded document to the find that consumes its slot", async () => {
+      const wheres = [{ title: "first" }, { title: "missing" }, { title: "second" }];
+      const stored = (text: unknown) => typeof text === "string" && text.includes('"_creationTime"') && text.includes('"title"');
+      const tested = await fixture("command", 256, 65536, 1 << 20, { concurrency: 4 });
+      await Effect.runPromise(prefetchCoreNativeFindSlots(tested.operations, tested.table.name, wheres));
+      const scans = tested.calls.length;
+      const parse = vi.spyOn(JSON, "parse");
+      try {
+        const found = [];
+        for (const where of wheres) found.push(await Effect.runPromise(tested.operations.find(tested.table.name, where)));
+        expect(found.map(rows => rows.map(row => row.title))).toEqual([["first"], [], ["second"]]);
+        // The prefetch fill decoded both stored rows; their consumers decode nothing.
+        expect(tested.calls).toHaveLength(scans);
+        expect(parse.mock.calls.filter(([text]) => stored(text))).toHaveLength(0);
+      } finally {
+        parse.mockRestore();
+      }
+      await Effect.runPromise(tested.context.transaction.abort());
     });
 
     it("rereads a prefetched slot that a competing commit touched before consumption", async () => {

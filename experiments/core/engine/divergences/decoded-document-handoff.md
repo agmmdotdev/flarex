@@ -31,7 +31,8 @@ Measurement status: **Required gates unmet**; local load only.
 - Only the most recent offers are kept, inside a window of 1 MiB of stored bytes that is
   separate from the operation cache and not charged to it; the decoded trees add to that.
   Offers end with the transaction and nothing is shared between transactions.
-- Fills made for a batch prefetch do not offer, so those rows are still decoded twice.
+- Fills made for a batch prefetch offer to the same handoff. Their rows are read by the
+  slots that consume the prefetched pages, under the same identity checks.
 
 ## Why
 

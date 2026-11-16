@@ -229,15 +229,13 @@ export interface CoreRegistryDecoders {
 }
 export const readDocumentObject = (entry: CoreDocumentLogEntry,
   expected?: Pick<CoreTableDefinition, "number" | "tabletId">): Result.Result<DocumentObject, CorePersistenceError> =>
-  Result.gen(function* () {
-    const value = yield* Result.mapError(decodeDocumentValue(entry.jsonValue), corrupt);
-    const document = (yield* Result.mapError(captureCoreDocument(value, true), corrupt)).value;
-    const id = yield* Result.mapError(decodeDocumentId(document._id), corrupt);
-    if (!bytesEqual(id.internalId, entry.id) || (expected !== undefined
-      && (id.tableNumber !== expected.number || !bytesEqual(entry.tableId, expected.tabletId))))
-      return yield* Result.fail(corrupt());
-    return document;
-  });
+  // Every fetched row passes here, so the steps are composed without a generator.
+  Result.flatMap(Result.mapError(decodeDocumentValue(entry.jsonValue), corrupt), value =>
+    Result.flatMap(Result.mapError(captureCoreDocument(value, true), corrupt), ({ value: document }) =>
+      Result.flatMap(Result.mapError(decodeDocumentId(document._id), corrupt), id =>
+        !bytesEqual(id.internalId, entry.id) || (expected !== undefined
+          && (id.tableNumber !== expected.number || !bytesEqual(entry.tableId, expected.tabletId)))
+          ? Result.fail(corrupt()) : Result.succeed(document))));
 
 /** Bootstrap discovery reads only trusted built-in by-ID indexes at this snapshot. */
 export const loadCoreRegistry = Effect.fn("CoreRegistry.load")(function* (

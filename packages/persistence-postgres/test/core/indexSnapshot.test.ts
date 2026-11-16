@@ -6,6 +6,7 @@ import { decodeDocumentId } from "flarex-protocol/document-id";
 import { type CoreTableDefinition } from "../../src/core/api";
 import { CorePersistenceError, type CoreHydratedIndexEntry, type CoreIndexPage,
   type CoreIndexScan, type CoreInterval, type CorePersistenceSnapshot } from "../../src/core/contracts";
+import { captureCoreDocument } from "../../src/core/document";
 import { documentIndexKey } from "../../src/core/documentIndex";
 import { CoreDecodedDocumentHandoff, createCoreIndexSnapshot } from "../../src/core/indexSnapshot";
 import { initialRegistry, publicDocumentId, readDocumentObject } from "../../src/core/registry";
@@ -174,6 +175,84 @@ describe("translated operation index snapshot", () => {
     expect(physical.calls).toHaveLength(2);
   });
 
+  it("answers an index it never fetched through exactly as if every key had been derived at the fill", async () => {
+    const physical = reader();
+    const snapshot = createCoreIndexSnapshot({ snapshot: physical.snapshot, registry });
+    // Two fills through ById leave by_value untouched until it is first read.
+    const [first, second, third, fourth] = physical.rows;
+    if (first === undefined || second === undefined || third === undefined || fourth === undefined) throw new Error("Missing rows");
+    const split = keyFor(third, byId);
+    expect(rowValues(await Effect.runPromise(snapshot.scan(request(byId, { start: null, end: split }))))).toEqual([0, 1]);
+    expect(rowValues(await Effect.runPromise(snapshot.scan(request(byId, { start: split, end: null }))))).toEqual([2, 3]);
+    expect(physical.calls).toHaveLength(2);
+    // Every row read through ById is a hit on by_value, in either order.
+    for (const row of [fourth, first, third, second]) {
+      const point = await Effect.runPromise(snapshot.scan(request(byValue, pointInterval(keyFor(row)), 2)));
+      expect(point.entries.map(entry => entry.document.id)).toEqual([row.id]);
+      expect(point.cursor).toEqual({ kind: "end" });
+    }
+    expect(physical.calls).toHaveLength(2);
+    // by_value holds the rows but only their own points: the gaps were never
+    // certified through it, so a whole-range read fetches them and nothing else.
+    expect(rowValues(await Effect.runPromise(snapshot.scan(request(byValue, { start: null, end: null }, 100, "desc")))))
+      .toEqual([3, 2, 1, 0]);
+    const gaps = physical.calls.slice(2);
+    expect(gaps).toHaveLength(4);
+    expect(gaps.every(call => bytesEqual(call.index.id, byValue.ref.id)
+      && [first, second, third].every(row => !keyInInterval(keyFor(row), call.interval)))).toBe(true);
+    // That read certified the whole of by_value; ById stays certified as fetched.
+    expect(rowValues(await Effect.runPromise(snapshot.scan(request())))).toEqual([0, 1, 2, 3]);
+    expect(rowValues(await Effect.runPromise(snapshot.scan(request(byId))))).toEqual([0, 1, 2, 3]);
+    expect(physical.calls).toHaveLength(6);
+  });
+
+  it("derives every index key of a captured document with a valid developer ID", () => {
+    const developerId = Result.getOrThrow(publicDocumentId(table, internalId(150)));
+    const captured = Result.getOrThrow(captureCoreDocument({ _id: developerId, _creationTime: 1, value: -0.5, big: 2n ** 62n,
+      flag: false, none: null, text: "a\u0000b", bytes: Uint8Array.of(0, 255).buffer, list: [1, [null, "x"], { deep: { deeper: [true] } }],
+      nested: { "": 1, text: "value", inner: { list: [] } } }, false)).value;
+    // The ID-only key is the proof a fill takes; no field path adds a refusal.
+    expect(Result.isSuccess(documentIndexKey({ fields: [] }, captured))).toBe(true);
+    const paths = ["value", "big", "flag", "none", "text", "bytes", "list", "nested", "nested.text", "nested.inner.list", "nested.",
+      "list.0", "missing", "missing.deeper", "text.length", "_id", "_creationTime", "", "nested..text", "__proto__", "constructor"];
+    for (const first of paths) for (const second of paths) {
+      const key = documentIndexKey({ fields: [first, second] }, captured);
+      expect(Result.isSuccess(key), `${first}, ${second}`).toBe(true);
+    }
+    expect(Result.isSuccess(documentIndexKey({ fields: paths }, captured))).toBe(true);
+  });
+
+  it("cuts an unread index off at the same row as the byte budget cut it at the fill", async () => {
+    const physical = reader();
+    const sizes = physical.rows.map(row => Result.getOrThrow(captureCoreDocument(
+      Result.getOrThrow(readDocumentObject(row, table)), false)).semanticSizeBytes);
+    const [firstSize, secondSize] = sizes;
+    if (firstSize === undefined || secondSize === undefined) throw new Error("Missing rows");
+    // ById precedes by_value. Row 2 is admitted to ById while the budget is
+    // exactly full and charged there, so by_value never receives it; row 3
+    // enters no index. The fetched range is not certified.
+    const snapshot = createCoreIndexSnapshot({ snapshot: physical.snapshot, registry, maxBytes: firstSize + secondSize });
+    expect(rowValues(await Effect.runPromise(snapshot.scan(request(byId))))).toEqual([0, 1, 2, 3]);
+    expect(physical.calls).toHaveLength(1);
+    const served = async (index: typeof byId) => {
+      const hits: boolean[] = [];
+      for (const row of physical.rows) {
+        const before = physical.calls.length;
+        const point = await Effect.runPromise(snapshot.scan(request(index, pointInterval(keyFor(row, index)), 2)));
+        expect(point.entries.map(entry => entry.document.id)).toEqual([row.id]);
+        hits.push(physical.calls.length === before);
+      }
+      return hits;
+    };
+    // The misses are fetched over budget, so they stay misses.
+    expect(await served(byValue)).toEqual([true, true, false, false]);
+    expect(await served(byId)).toEqual([true, true, true, false]);
+    expect(await served(byValue)).toEqual([true, true, false, false]);
+    const before = physical.calls.length;
+    expect(rowValues(await Effect.runPromise(snapshot.scan(request(byId))))).toEqual([0, 1, 2, 3]);
+    expect(physical.calls.length).toBeGreaterThan(before);
+  });
+
   it("selects resident rows before operation coverage or physical pages", async () => {
     const physical = reader();
     const residentPage: CoreIndexPage = { entries: [], cursor: { kind: "end" } };
@@ -338,6 +417,28 @@ describe("translated operation range batch", () => {
     failFor = undefined;
     expect(rowValues(await Effect.runPromise(snapshot.scan(requests[1]!)))).toEqual([2]);
     expect(physical.calls).toHaveLength(before + 1);
+  });
+
+  it("serves rows through either index after one batch filled through both", async () => {
+    const physical = reader();
+    const snapshot = createCoreIndexSnapshot({ snapshot: physical.snapshot, registry });
+    const [first, second, third, fourth] = physical.rows;
+    if (first === undefined || second === undefined || third === undefined || fourth === undefined) throw new Error("Missing rows");
+    const outcomes = await Effect.runPromise(snapshot.rangeBatch([
+      request(byId, pointInterval(keyFor(first, byId))), request(byValue, pointInterval(keyFor(second))),
+      request(byId, pointInterval(keyFor(third, byId))), request(byValue, pointInterval(keyFor(first))),
+    ], { concurrency: 4 }));
+    expect(outcomes.map(outcome => Exit.isSuccess(outcome) ? rowValues(outcome.value) : "failed")).toEqual([[0], [1], [2], [0]]);
+    const fetched = physical.calls.length;
+    const again = await Effect.runPromise(snapshot.rangeBatch([
+      request(byValue, pointInterval(keyFor(third))), request(byId, pointInterval(keyFor(second, byId))),
+      request(byValue, pointInterval(keyFor(first))), request(byId, pointInterval(keyFor(first, byId))),
+    ], { concurrency: 4 }));
+    expect(again.map(outcome => Exit.isSuccess(outcome) ? rowValues(outcome.value) : "failed")).toEqual([[2], [1], [0], [0]]);
+    expect(physical.calls).toHaveLength(fetched);
+    expect(rowValues(await Effect.runPromise(snapshot.scan(request(byValue, pointInterval(keyFor(fourth)))))))
+      .toEqual([3]);
+    expect(physical.calls).toHaveLength(fetched + 1);
   });
 
   it("admits each persistence fetch through the supplied permit and bounds overlap", async () => {
