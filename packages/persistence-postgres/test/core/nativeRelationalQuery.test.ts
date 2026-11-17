@@ -8,7 +8,7 @@ import { compileProductLinksCoreDefinition } from "../../../medusa-adapter/src/l
 import type { CoreNativeDefinition, CoreNativeRelationalRowPolicy } from "../../src/core/nativePolicy";
 import { coreNativePolicyForTable, coreNativeRelationalRows } from "../../src/core/nativePolicy";
 import type { CoreTableDefinition } from "../../src/core/api";
-import { executeCoreNativeRelationalPage, executeCoreNativeRelationalRead, prepareCoreNativeRelationalRead } from "../../src/core/nativeRelationalQuery";
+import { coreNativeRelationalFindWheres, executeCoreNativeRelationalPage, executeCoreNativeRelationalRead, prepareCoreNativeRelationalRead } from "../../src/core/nativeRelationalQuery";
 import { captureCoreNativeWhere, coreNativeUniqueValues, planCoreNativeQuery } from "../../src/core/nativeQuery";
 
 let definition: CoreNativeDefinition;
@@ -63,6 +63,29 @@ describe("native relational plans over Core observations", () => {
     } }, table, policy, query));
     expect(captured).toEqual([{ deleted_at: null }]);
     expect(result).toEqual({ rows: [{ id: "later" }], count: 2, returned: 1 });
+  });
+
+  it("derives one prepared query's find conditions once for a table, as objects nothing can change", () => {
+    const { table, policy } = select("product");
+    const byIds = () => Result.getOrThrow(prepareCoreNativeRelationalRead(policy, { fields: ["id"], order: { column: "id", direction: "asc" },
+      predicate: { kind: "and", children: [{ kind: "in", column: "id", values: ["a", "b"] }, { kind: "isNull", column: "deleted_at" }] } }, 2048));
+    const query = byIds(), wheres = coreNativeRelationalFindWheres(table, query);
+    expect(wheres.map(where => where.id)).toEqual(["a", "b"]);
+    expect(Object.isFrozen(wheres) && wheres.every(where => Object.isFrozen(where))).toBe(true);
+    expect(coreNativeRelationalFindWheres(table, query)).toBe(wheres);
+    // An equal query prepared again has its own conditions.
+    const again = coreNativeRelationalFindWheres(table, byIds());
+    expect(again).toEqual(wheres);
+    expect(again[0]).not.toBe(wheres[0]);
+    // The conditions depend on the table's indexes: another definition derives its own.
+    const active = Result.getOrThrow(prepareCoreNativeRelationalRead(policy, { fields: ["id"], order: { column: "id", direction: "asc" },
+      predicate: { kind: "isNull", column: "deleted_at" } }, 2048));
+    const anchored = coreNativeRelationalFindWheres(table, active);
+    expect(anchored).toEqual([{ deleted_at: null }]);
+    const unanchored = coreNativeRelationalFindWheres({ ...table, indexes: [] }, active);
+    expect(unanchored).toEqual([{ id: { gte: "" } }]);
+    expect(unanchored.every(where => Object.isFrozen(where) && Object.values(where).every(value => Object.isFrozen(value)))).toBe(true);
+    expect(coreNativeRelationalFindWheres(table, active)).toEqual(anchored);
   });
 
   it("keeps native JSON containment and stable insertion order in the shared query owner", async () => {

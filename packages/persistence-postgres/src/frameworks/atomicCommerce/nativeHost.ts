@@ -148,7 +148,9 @@ const compose = Effect.fn("AtomicCommerceNative.composeHost")(function* (
     const prepared = yield* live;
     for (const participant of prepared.selected) yield* participant.initialization.requireReady;
     return yield* Effect.uninterruptibleMask(restore => Effect.gen(function* () {
-      const acquired = yield* core(database.claimRequest(capturedRequest.identity, prepared.root));
+      // The resolution's own absence spares the claim a second read of this key.
+      const acquired = yield* core(database.claimRequest(capturedRequest.identity, prepared.root,
+        recovered.kind === "missing" ? recovered.absence : undefined));
       if (acquired.kind === "committed") return yield* stored(acquired.result);
       if (acquired.kind !== "claimed") return yield* commerceError(acquired.kind === "busy" ? "overlappingOperation" : "requestConflict");
       const id = crypto.randomUUID();

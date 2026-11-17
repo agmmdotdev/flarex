@@ -88,6 +88,16 @@ schema/source policy and authority remain usable at that data frontier. A disabl
 old index can otherwise disclose incomplete membership before final validation.
 Do not refresh earlier data or invalidate unrelated metadata automatically.
 
+A fresh capture that selects the same timestamp and registry as the transaction's
+previous capture takes that capture's opened persistence snapshot rather than
+opening another. Selection, the owner and authority checks above and the
+retention check for the selected timestamp run on every capture, and each capture
+builds its own index snapshot. A different timestamp or registry, a capture that
+does not succeed and the end of the transaction all end the reuse. Pinned Convex
+keeps one snapshot for a transaction's lifetime; this shares only the opened
+snapshot of an unchanged frontier and changes no observation
+([overlapped native slot reads](./native-read-batches.md)).
+
 Exact private API/record shapes follow coordinated implementation. Keep genuine
 native command identity distinct from Application functions, with confined facade
 operations and no caller-issued timestamps/snapshots/finalizers. Do not retain the

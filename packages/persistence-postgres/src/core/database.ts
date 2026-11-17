@@ -10,6 +10,7 @@ import { isJsonObject, type Json } from "flarex-protocol/json";
 import { decodeDocumentValue, encodeDocumentValue, type DocumentObject, type DocumentValue } from "flarex-protocol/document-value";
 import { encodeIndexValue } from "flarex-protocol/index-key";
 import { CoreProgramIdentitySchema, CoreApplicationSourcePinSchema, CoreNativeRootIdentitySchema, CoreSchemaWorkerOptionsSchema, CoreTransactionLimitsSchema, CoreTransactionError, issueCoreClaim, issueCoreNativeBinding,
+  issueCoreRequestAbsence, type CoreRequestAbsence,
   issueCoreNativeRootBinding, issueCoreApplicationInsertBinding, issueCoreApplicationReadBinding, issueCoreNativeInitializationBinding,
   type CoreDatabase, type CoreDatabaseOptions, type CoreError,
   type CoreProgramPublication, type CoreSchemaProposal, type CoreSchemaStatus, type CoreProgramDefinition, type CoreProgramIdentity, type CoreRequestAcquisition,
@@ -231,6 +232,12 @@ function sameNativeCommand(left: CoreNativeCommandIdentity, right: CoreNativeCom
 function sameNativeRoot(left: CoreNativeRootIdentity, right: CoreNativeRootIdentity): boolean {
   return left.definitionHash === right.definitionHash;
 }
+function sameRequestIdentity(left: CoreRequestIdentity, right: CoreRequestIdentity): boolean {
+  if (left.key !== right.key || left.requestHash !== right.requestHash) return false;
+  if (left.kind === "native") return right.kind === "native" && sameNativeCommand(left.native, right.native);
+  if (left.kind === "nativeRoot") return right.kind === "nativeRoot" && sameNativeRoot(left.root, right.root);
+  return right.kind !== "native" && right.kind !== "nativeRoot" && programKey(left.program) === programKey(right.program);
+}
 function requestActor(identity: CoreRequestIdentity): DocumentObject {
   return identity.kind === "native" ? { kind: "native", native: { source: { ...identity.native.source }, name: identity.native.name, mode: identity.native.mode } }
     : identity.kind === "nativeRoot" ? { kind: "nativeRoot", root: { ...identity.root } } : { program: { ...identity.program } };
@@ -279,6 +286,36 @@ function trackMetadataEquality(context: CoreTransactionInternals, registry: Core
   });
 }
 
+/** One native transaction's opened persistence snapshot, kept between its captures.
+ * A capture that selects the held timestamp and registry object takes the held
+ * snapshot after `recheck`, the checks an opening makes besides constructing it;
+ * any other selection opens its own, which replaces the held one. Selection and
+ * authority stay with the capture. A capture that does not succeed leaves nothing
+ * held, and nothing is held after `end` (see divergences/native-read-batches.md). */
+export function makeCoreSnapshotReuse<E>(input: Readonly<{
+  open: (timestamp: bigint, registry: CoreRegistry) => Effect.Effect<CorePersistenceSnapshot, E>;
+  recheck: (timestamp: bigint) => Effect.Effect<void, E>;
+}>) {
+  let held: Readonly<{ timestamp: bigint; registry: CoreRegistry; snapshot: CorePersistenceSnapshot }> | undefined;
+  let ended = false;
+  const drop = () => { held = undefined; };
+  return Object.freeze({
+    open: (timestamp: bigint, registry: CoreRegistry) => Effect.suspend(() => {
+      const current = held;
+      if (current !== undefined && current.timestamp === timestamp && current.registry === registry)
+        return Effect.as(input.recheck(timestamp), current.snapshot);
+      drop();
+      return Effect.map(input.open(timestamp, registry), snapshot => {
+        if (!ended) held = Object.freeze({ timestamp, registry, snapshot });
+        return snapshot;
+      });
+    }),
+    /** Typed failure, defect and interruption of a capture all end the reuse. */
+    guard: <A, R>(capture: Effect.Effect<A, E, R>) => Effect.onError(capture, () => Effect.sync(drop)),
+    end: () => { ended = true; drop(); },
+  });
+}
+
 /** One trusted persistence instance. No legacy database facade is constructed here. */
 const openDatabase = Effect.fn("CoreDatabase.open")(function* (
   persistence: CorePersistence, options: CoreDatabaseOptions,
@@ -305,6 +342,9 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
   const committer = yield* makeCoreCommitter(persistence, lease, initial.timestamp, initial.registry, initial.resident, options, initial.retention, recovery, scopeExclusion);
   const vault = new CoreFinalizationVault();
   const claims = new WeakMap<CoreRequestClaim, ClaimData>();
+  // Issued by this owner's resolutions only. Another owner's evidence, a copy
+  // or a structural object is simply not a key here.
+  const requestAbsences = new WeakMap<CoreRequestAbsence, Readonly<{ identity: CoreRequestIdentity; indexId: Uint8Array; timestamp: bigint }>>();
   const nativeBindings = new WeakMap<object, CoreNativeAuthority & { readonly commands: readonly CoreNativeCommandDefinition[] }>();
   const nativeInitializationBindings = new WeakMap<object, Readonly<{ binding: CoreNativeBinding; command: CoreNativeCommandDefinition }>>();
   const nativeRootBindings = new WeakMap<object, NativeRootData>();
@@ -362,12 +402,15 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
     const selected = yield* Effect.fromResult(committer.selectSnapshot(at));
     return { ...selected, snapshot: yield* openSnapshot(selected.timestamp, selected.registry) };
   }, Effect.withSpan("CoreDatabase.start", undefined, { captureStackTrace: false }));
-  const startNative = Effect.fnUntraced(function* () {
+  const startNative = Effect.fnUntraced(function* (open: typeof openSnapshot = openSnapshot) {
     yield* assertOpen;
     // Registry, data timestamp and COW history are selected together before I/O.
     const selected = yield* Effect.fromResult(committer.selectNativeSnapshot());
-    return { ...selected, snapshot: yield* openSnapshot(selected.timestamp, selected.registry) };
+    return { ...selected, snapshot: yield* open(selected.timestamp, selected.registry) };
   });
+  /** A reused snapshot repeats an opening's retention and owner checks, in its order. */
+  const captureSnapshots = () => makeCoreSnapshotReuse({ open: openSnapshot,
+    recheck: timestamp => Effect.andThen(initial.retention.validateIndex(timestamp), assertOpen) });
 
   const { indexMinimumTimestamp, documentMinimumTimestamp } = initial.retentionBounds;
   const minimumTimestamp = indexMinimumTimestamp > documentMinimumTimestamp ? indexMinimumTimestamp : documentMinimumTimestamp;
@@ -468,6 +511,19 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
     const found = yield* findRequestEntry(selected, identity.key, transaction);
     return found === undefined ? undefined : yield* Effect.fromResult(requestRecord(found.entry, found.table, identity));
   }, effect => Effect.withSpan(effect, "CoreDatabase.findRequest", { captureStackTrace: false }));
+  /** The by-key read of one request key, when this write log shows no write to the
+   * key after `since`: a row, or an absence, observed at `since` is then the one at
+   * the log's own timestamp. Undefined when the key was written, the log no longer
+   * reaches back to `since`, or the key cannot be encoded; the caller then reads. */
+  const requestKeyUnwrittenSince = (registry: CoreRegistry, writeLog: CoreWriteLogSnapshot, key: string, since: bigint) => {
+    const index = registry.table(REQUESTS)?.definition.indexes.find(value => value.name === "by_key");
+    if (index === undefined) return undefined;
+    return Result.getOrUndefined(Result.gen(function* () {
+      const interval = equalityInterval(yield* encodeIndexValue(key));
+      const later = yield* writeLog.conflict([{ indexId: index.ref.id, intervals: [interval] }], since);
+      return later === undefined ? { indexId: index.ref.id, interval } : undefined;
+    }));
+  };
   const requireClaimRevision = Effect.fnUntraced(function* (
     selected: Effect.Success<ReturnType<typeof start>> & Readonly<{ writeLog?: CoreWriteLogSnapshot }>,
     data: ClaimData, context: CoreTransactionInternals,
@@ -476,17 +532,11 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
     // log selected with this snapshot shows no later write to the request key,
     // the row at this snapshot is that exact revision and is not fetched again.
     // The read witness is registered either way; lost history takes the read.
-    const table = selected.registry.table(REQUESTS)?.definition;
-    const index = table?.indexes.find(value => value.name === "by_key");
-    if (index !== undefined && selected.writeLog !== undefined && data.record.state === "claimed"
-      && selected.timestamp >= data.record.revision.ts) {
-      const interval = equalityInterval(yield* Effect.fromResult(Result.mapError(encodeIndexValue(data.identity.key), invalid)));
-      const unchanged = Result.match(selected.writeLog.conflict([{ indexId: index.ref.id, intervals: [interval] }], data.record.revision.ts),
-        { onFailure: () => false, onSuccess: later => later === undefined });
-      if (unchanged) {
-        context.addIndexRead(index.ref.id, interval);
-        return data.record;
-      }
+    const unwritten = selected.writeLog !== undefined && data.record.state === "claimed" && selected.timestamp >= data.record.revision.ts
+      ? requestKeyUnwrittenSince(selected.registry, selected.writeLog, data.identity.key, data.record.revision.ts) : undefined;
+    if (unwritten !== undefined) {
+      context.addIndexRead(unwritten.indexId, unwritten.interval);
+      return data.record;
     }
     const record = yield* findRequest(selected, data.identity, context);
     if (record === undefined || record.state !== "claimed" || !bytesEqual(record.id, data.record.id)
@@ -1088,9 +1138,10 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
       yield* Effect.fromResult(checkCoreNativeAuthority(selected.registry, authority));
       const assertNativeOpen = Effect.andThen(assertOpen, Effect.suspend(() =>
         Effect.fromResult(checkCoreNativeAuthority(committer.currentRegistry(), authority))));
+      const captured = captureSnapshots();
       const capture = Effect.fnUntraced(function* () {
         yield* assertNativeOpen;
-        const observed = command.mode === "read" ? selected : yield* startNative();
+        const observed = command.mode === "read" ? selected : yield* startNative(captured.open);
         yield* Effect.fromResult(checkCoreNativeAuthority(observed.registry, authority));
         const metadata = authority.selectiveMetadata === true && command.mode === "read"
           ? yield* Effect.fromResult(committer.selectNativeSnapshot()) : undefined;
@@ -1098,7 +1149,7 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
           history: capturedNativeHistory(observed.timestamp),
           ...(metadata === undefined ? {} : { metadata: { registry: metadata.registry, timestamp: metadata.timestamp } }),
           residentReader: (request: CoreIndexScan) => observed.resident.scan(request) };
-      }, effect => Effect.withSpan(effect, "CoreDatabase.captureNative", { captureStackTrace: false }));
+      }, effect => Effect.withSpan(captured.guard(effect), "CoreDatabase.captureNative", { captureStackTrace: false }));
       const now = yield* decodeCreationTimestamp(yield* options.now).pipe(Effect.mapError(invalid));
       const idGenerator = yield* prepareCoreTransactionIdGenerator(options);
       yield* assertNativeOpen;
@@ -1108,7 +1159,7 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
         readonly: command.mode === "read", native: { authority, visibility: command.mode === "read" ? "snapshot" : "command", capture,
           limits: nativeLimits, chargeRetained: beginOptions.chargeRetained, remainingBytes: beginOptions.remainingBytes,
           evaluateRelational: persistence.evaluateRelational },
-        assertOwnerOpen: assertNativeOpen, onClosed: () => borrowed.delete(context),
+        assertOwnerOpen: assertNativeOpen, onClosed: () => { captured.end(); borrowed.delete(context); },
         ...(beginOptions.claim === undefined ? {} : { claim: beginOptions.claim }) });
       return { selected, context, command, authority, claimData };
     }), prepared => Effect.acquireUseRelease(registerBorrow(prepared,
@@ -1166,14 +1217,15 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
         const assertNativeOpen = Effect.andThen(assertOpen, Effect.suspend(() => !claimData.active || claimData.aborting
           ? Effect.fail(new CoreTransactionError({ reason: "foreignClaim" })) : data.selectiveMetadata === true ? Effect.void
             : Effect.fromResult(validateNativeRoot(committer.currentRegistry(), data))));
+        const captured = captureSnapshots();
         const capture = Effect.fnUntraced(function* () {
           yield* assertNativeOpen;
-          const observed = yield* startNative();
+          const observed = yield* startNative(captured.open);
           if (data.selectiveMetadata !== true) yield* Effect.fromResult(validateNativeRoot(observed.registry, data));
           return { snapshot: observed.snapshot, registry: observed.registry, writeLog: observed.writeLog,
             history: capturedNativeHistory(observed.timestamp),
             residentReader: (request: CoreIndexScan) => observed.resident.scan(request) };
-      });
+      }, captured.guard);
       const now = yield* decodeCreationTimestamp(yield* options.now).pipe(Effect.mapError(invalid));
       const idGenerator = yield* prepareCoreTransactionIdGenerator(options);
       yield* assertNativeOpen;
@@ -1184,7 +1236,7 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
           chargeRetained: beginOptions.chargeRetained, remainingBytes: beginOptions.remainingBytes,
           evaluateRelational: persistence.evaluateRelational, capture, assertScopeExclusion }, assertOwnerOpen: assertNativeOpen,
         ...(grant === undefined ? {} : { scopeExclusion: grant }),
-        onClosed: () => borrowed.delete(context), claim: beginOptions.claim });
+        onClosed: () => { captured.end(); borrowed.delete(context); }, claim: beginOptions.claim });
       return { selected, context, data, claimData };
       });
       return yield* Effect.flatMap(prepare, prepared => Effect.acquireUseRelease(registerBorrow(prepared,
@@ -1245,8 +1297,31 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
 
   const resolveRequest: CoreDatabase["resolveRequest"] = Effect.fnUntraced(function* (requested) {
       const identity = ownRequestIdentity(requested);
-      return yield* Effect.fromResult(resolution(yield* findRequest(yield* start(), identity)));
+      const selected = yield* start();
+      const record = yield* findRequest(selected, identity);
+      if (record !== undefined) return yield* Effect.fromResult(existingResolution(record));
+      const index = selected.registry.table(REQUESTS)?.definition.indexes.find(value => value.name === "by_key");
+      if (index === undefined) return yield* Effect.fail(corrupt());
+      const absence = issueCoreRequestAbsence();
+      requestAbsences.set(absence, Object.freeze({ identity, indexId: index.ref.id.slice(), timestamp: selected.timestamp }));
+      return Object.freeze({ kind: "missing" as const, absence });
     }, effect => Effect.withSpan(effect, "CoreDatabase.resolveRequest", { captureStackTrace: false }));
+  /** The by-key read a resolution's absence of this exact request stands for at the
+   * claim's later snapshot, when it still holds there: this owner's write log, read
+   * no earlier than that snapshot, shows no write to the request key since the
+   * resolution. It registers nothing: the claim adds this read to its own read set,
+   * as its scan would have, so its commit decides against every later and pending
+   * claimant exactly as before. Unknown, foreign, mismatched or unprovable evidence
+   * is undefined and takes the read. */
+  const heldRequestAbsence = (selected: Effect.Success<ReturnType<typeof make>>, identity: CoreRequestIdentity,
+    absence: CoreRequestAbsence | undefined) => {
+    const issued = typeof absence === "object" && absence !== null ? requestAbsences.get(absence) : undefined;
+    if (issued === undefined || !sameRequestIdentity(issued.identity, identity) || issued.timestamp > selected.timestamp) return undefined;
+    const current = Result.getOrUndefined(committer.selectNativeSnapshot());
+    if (current === undefined || current.timestamp < selected.timestamp) return undefined;
+    const unwritten = requestKeyUnwrittenSince(selected.registry, current.writeLog, identity.key, issued.timestamp);
+    return unwritten !== undefined && bytesEqual(unwritten.indexId, issued.indexId) ? unwritten : undefined;
+  };
   const recoverRequest: CoreDatabase["recoverRequest"] = Effect.fn("CoreDatabase.recoverRequest")((requested) => {
       const identity = ownRequestIdentity(requested);
       return useTransaction(make(), selected => Effect.gen(function* () {
@@ -1288,7 +1363,7 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
       return yield* new CoreTransactionError({ reason: "authorityRevoked" });
   });
   const acquireRequest = (requested: CoreRequestIdentity, binding?: RequestBinding,
-    expectedApplication?: CoreApplicationSourcePin) => Effect.withSpan(Effect.suspend(() => {
+    expectedApplication?: CoreApplicationSourcePin, absence?: CoreRequestAbsence) => Effect.withSpan(Effect.suspend(() => {
       const identity = ownRequestIdentity(requested);
       if (expectedApplication !== undefined && (identity.kind === "native" || identity.kind === "nativeRoot"))
         return Effect.fail(new CoreTransactionError({ reason: "authorityRevoked" }));
@@ -1313,7 +1388,10 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
           const metadataReads = yield* Effect.fromResult(coreNativeMetadataReads(selected.registry, authority));
           for (const read of metadataReads) for (const interval of read.intervals) selected.context.addIndexRead(read.indexId, interval);
         }
-        const existing = yield* findRequest(selected, identity, selected.context);
+        const absent = heldRequestAbsence(selected, identity, absence);
+        // A held absence stands for the scan: the claim registers the scan's read witness itself.
+        if (absent !== undefined) selected.context.addIndexRead(absent.indexId, absent.interval);
+        const existing = absent !== undefined ? undefined : yield* findRequest(selected, identity, selected.context);
         if (existing !== undefined && existing.leaseToken > lease.token)
           return yield* new CorePersistenceError({ reason: "leaseLost" });
         const reclaimFailed = existing?.state === "failed" && (initialization !== undefined || retryProvenNoncommit);
@@ -1453,7 +1531,7 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
     }),
     resolveRequest,
     recoverRequest,
-    claimRequest: (identity, binding) => Effect.withSpan(Effect.suspend(() => acquireRequest(identity, binding)), "CoreDatabase.claimRequest", { captureStackTrace: false }),
+    claimRequest: (identity, binding, absence) => Effect.withSpan(Effect.suspend(() => acquireRequest(identity, binding, undefined, absence)), "CoreDatabase.claimRequest", { captureStackTrace: false }),
     claimApplicationRequest: Effect.fn("CoreDatabase.claimApplicationRequest")((identity, pin) => {
       const capturedIdentity = ownRequestIdentity(identity), capturedPin = decodeApplicationSourcePin(pin).pipe(Result.mapError(invalid));
       return Effect.flatMap(Effect.fromResult(capturedPin), expected => acquireRequest(capturedIdentity, undefined, expected));

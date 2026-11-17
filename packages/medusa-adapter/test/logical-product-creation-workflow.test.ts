@@ -18,13 +18,13 @@ import { postgresUrl } from "../../persistence-postgres/test/support/postgresHel
 import type { CoreSqlConnection, CoreSqlDriver } from "../../persistence-postgres/src/database/corePersistence/driver";
 
 /** Exact counts measured on PGlite and on ordinary-role PostgreSQL for one warmed create of this
- * test's product shape, `input(prefix, 1)`: 33 statements, 9 of them first-page batches. The
- * benchmark's create shape (`write-product-create`) is a different product and measures 31; the
- * two numbers are not the same measurement. Three of the first-page batches are the Product graph
- * insert, the price graph insert and the event family; the other six are multi-selection reads and
- * per-table batches outside a graph insert. Reading the graph tables and family rows separately
- * again adds first-page batches; a lower total means a read was removed and this record is stale. */
-const PRODUCT_CREATE_STATEMENTS = { statements: 33, firstPageBatches: 9 };
+ * test's product shape, `input(prefix, 1)`: 27 statements, 12 of them first-page batches. The
+ * benchmark's create shape (`write-product-create`) is a different product; the two numbers are
+ * not the same measurement. The first-page batches are the graph inserts, the event family, the
+ * variant replacement's announced finds and inserts, the announced relation reads of the returned
+ * Product, and the remaining multi-selection reads. Reading any of these tables separately again
+ * raises the total; a lower total means a read was removed and this record is stale. */
+const PRODUCT_CREATE_STATEMENTS = { statements: 27, firstPageBatches: 12 };
 const driver = process.env.FLAREX_TEST_DRIVER ?? "pglite";
 if (driver !== "pglite" && driver !== "postgres") throw new Error("Invalid Product creation driver");
 const cleanup: Array<() => Promise<void>> = [];

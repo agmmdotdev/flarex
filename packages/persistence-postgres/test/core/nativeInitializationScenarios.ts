@@ -91,7 +91,7 @@ export function registerNativeInitializationScenarios(label: string, createFixtu
           const acquired = yield* Fiber.join(acquiring);
           expect(acquired.kind).toBe("claimed");
           expect(yield* tested.database.resolveRequest(original)).toEqual({ kind: "busy" });
-          expect(yield* tested.database.resolveRequest(mutable)).toEqual({ kind: "missing" });
+          expect(yield* tested.database.resolveRequest(mutable)).toMatchObject({ kind: "missing" });
           if (acquired.kind !== "claimed") return yield* Effect.die(new Error("Missing captured claim"));
           yield* tested.database.abortRequest(acquired.claim);
         }).pipe(Effect.ensuring(Deferred.succeed(release, undefined)), Effect.timeout("30 seconds"));

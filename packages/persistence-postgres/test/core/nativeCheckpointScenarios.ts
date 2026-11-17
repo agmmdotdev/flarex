@@ -1,11 +1,14 @@
 import { randomBytes } from "node:crypto";
 import { Effect, Result } from "effect";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { captureLogicalSchemaSource } from "@flarex/analysis/internal/logical-schema-candidate";
 import { normalizeRelationalSchema, relationalSchemaSourceFromDefinition } from "flarex-protocol/internal/relational-schema";
 import type { CoreError, CoreNativeOperations, CoreNativeSetNullIntent, CoreRequestIdentity } from "../../src/core/api";
 import { openCoreDatabase } from "../../src/core/database";
 import { makeCoreRelationalNativeDefinition } from "../../src/core/nativePolicy";
+import { CORE_NATIVE_ANNOUNCED_FINDS } from "../../src/core/nativePrefetch";
+import * as nativeQuery from "../../src/core/nativeQuery";
+import * as nativeRelationalQuery from "../../src/core/nativeRelationalQuery";
 import { makeCoreSchemaBundle } from "../../src/core/schemaBundle";
 import { inspectReferenceFailure } from "../../src/values/referenceFailure";
 import { inspectRelationalFailure } from "../../src/values/relationalFailure";
@@ -311,7 +314,7 @@ export function registerNativeCheckpointScenarios(label: string, createFixture: 
       expect(yield* graph.read("child")).toEqual([]);
     })), 120_000);
 
-    describe("announced graph inserts through the native commerce participant", () => {
+    describe("announcements through the native commerce participant", () => {
       const rows = (prefix: string) => [{ id: `${prefix}-a` }, { id: `${prefix}-b` }];
       const children = (prefix: string) => [{ id: `${prefix}-c`, parent_id: `${prefix}-a`, code: "one" }, { id: `${prefix}-d`, parent_id: `${prefix}-a`, code: "two" }];
       /** Counts the first pages the participant's transaction asks persistence for. */
@@ -322,6 +325,9 @@ export function registerNativeCheckpointScenarios(label: string, createFixture: 
             preload: requests => Effect.andThen(Effect.sync(() => { preloads.push(requests.length); }), snapshot.preload(requests)) })) } };
         return { observed, preloads };
       };
+      /** One announced find: the table and the query its later find receives. */
+      const byIds = (tableName: string, ids: readonly string[]) => ({ tableName,
+        query: { take: 8, order: { column: "id", direction: "asc" }, predicate: { kind: "in", column: "id", values: [...ids] } } });
       const participate = Effect.fnUntraced(function* (fixture: CorePersistenceFixture, request: string, mode: "read" | "write" = "write") {
         const { observed, preloads } = observedFixture(fixture);
         const graph = yield* setup(observed), operation = yield* graph.begin();
@@ -335,7 +341,7 @@ export function registerNativeCheckpointScenarios(label: string, createFixture: 
       it("translates the adapter's table names, reads once and charges neither a call nor a byte", run(fixture => Effect.gen(function* () {
         const { operation, lifetime, participant, preloads } = yield* participate(fixture, "announce-native-request");
         const calls = lifetime.usedCalls(), bytes = lifetime.remainingBytes();
-        yield* participant.prefetchInserts(lifetime.context, [{ tableName: "parent", rows: rows("named") }, { tableName: "child", rows: children("named") }]);
+        yield* participant.announce(lifetime.context, { inserts: [{ tableName: "parent", rows: rows("named") }, { tableName: "child", rows: children("named") }] });
         expect(preloads).toHaveLength(1);
         expect(preloads[0]).toBeGreaterThanOrEqual(4);
         expect(lifetime.usedCalls()).toBe(calls);
@@ -350,39 +356,162 @@ export function registerNativeCheckpointScenarios(label: string, createFixture: 
 
       it("stops the announcement at a table the participant does not hold", run(fixture => Effect.gen(function* () {
         const { operation, lifetime, participant, preloads } = yield* participate(fixture, "stopped-native-request");
-        yield* participant.prefetchInserts(lifetime.context, [{ tableName: "parent", rows: rows("alone") }]);
+        yield* participant.announce(lifetime.context, { inserts: [{ tableName: "parent", rows: rows("alone") }] });
         const alone = preloads[0];
         expect(alone).toBeGreaterThanOrEqual(2);
-        yield* participant.prefetchInserts(lifetime.context, [{ tableName: "parent", rows: rows("stopped") },
-          { tableName: "foreign", rows: rows("stopped") }, { tableName: "child", rows: children("stopped") }]);
+        yield* participant.announce(lifetime.context, { inserts: [{ tableName: "parent", rows: rows("stopped") },
+          { tableName: "foreign", rows: rows("stopped") }, { tableName: "child", rows: children("stopped") }] });
         // The child table announced after the unknown one was not read.
         expect(preloads).toEqual([alone, alone]);
-        yield* participant.prefetchInserts(lifetime.context, [{ tableName: "foreign", rows: rows("none") }, { tableName: "parent", rows: rows("none") }]);
+        yield* participant.announce(lifetime.context, { inserts: [{ tableName: "foreign", rows: rows("none") }, { tableName: "parent", rows: rows("none") }] });
         expect(preloads).toEqual([alone, alone]);
         yield* operation.abort();
       })), 120_000);
 
       it("refuses a foreign context, a rollback-only request and a closed request's revoked context without reading", run(fixture => Effect.gen(function* () {
-        const groups = [{ tableName: "parent", rows: rows("refused") }];
+        const groups = { inserts: [{ tableName: "parent", rows: rows("refused") }], finds: [byIds("parent", ["refused-a", "refused-b"])] };
         const { operation, lifetime, participant, preloads } = yield* participate(fixture, "refused-native-request");
         const other = yield* Effect.acquireRelease(makeBoundedRequestLifetime(commerceError, commerceLimits, {}, {}, "other-native-request", "write"), value => value.close);
-        expect(reason(yield* Effect.result(participant.prefetchInserts(other.context, groups)))).toBe("invalidAuthority");
+        expect(reason(yield* Effect.result(participant.announce(other.context, groups)))).toBe("invalidAuthority");
         // The foreign context's refusal left this request rollback-only.
-        expect(reason(yield* Effect.result(participant.prefetchInserts(lifetime.context, groups)))).toBe("rollbackOnly");
+        expect(reason(yield* Effect.result(participant.announce(lifetime.context, groups)))).toBe("rollbackOnly");
         // Closing revokes the request's context; the lifetime answers a revoked context this way.
         yield* lifetime.close;
-        expect(reason(yield* Effect.result(participant.prefetchInserts(lifetime.context, groups)))).toBe("invalidAuthority");
+        expect(reason(yield* Effect.result(participant.announce(lifetime.context, groups)))).toBe("invalidAuthority");
         expect(preloads).toEqual([]);
         yield* operation.abort();
       })), 120_000);
 
-      it("refuses a read request's announcement and retains the refusal", run(fixture => Effect.gen(function* () {
+      it("refuses a read request's announced inserts, whatever finds accompany them, and retains the refusal", run(fixture => Effect.gen(function* () {
         const { operation, lifetime, participant, preloads } = yield* participate(fixture, "read-native-request", "read");
         const calls = lifetime.usedCalls();
-        expect(reason(yield* Effect.result(participant.prefetchInserts(lifetime.context, [{ tableName: "parent", rows: rows("read") }])))).toBe("invalidAuthority");
+        expect(reason(yield* Effect.result(participant.announce(lifetime.context, { finds: [byIds("parent", ["read-a", "read-b"])],
+          inserts: [{ tableName: "parent", rows: rows("read") }] })))).toBe("invalidAuthority");
         expect(preloads).toEqual([]);
         expect(lifetime.usedCalls()).toBe(calls);
         expect(Result.isFailure(yield* Effect.result(lifetime.seal))).toBe(true);
+        yield* operation.abort();
+      })), 120_000);
+
+      it.each(["read", "write"] as const)("reads a %s request's announced finds of both tables once, uncharged, and serves the finds that follow", mode => run(fixture => Effect.gen(function* () {
+        const { observed, preloads } = observedFixture(fixture);
+        const graph = yield* setup(observed);
+        yield* graph.write(operations => Effect.gen(function* () {
+          yield* operations.writeRows(graph.table("parent"), "insert", rows("found"));
+          yield* operations.writeRows(graph.table("child"), "insert", children("found"));
+        }));
+        const parents = byIds("parent", ["found-a", "found-b", "found-missing"]), kids = byIds("child", ["found-c", "found-d"]);
+        const attempt = Effect.fnUntraced(function* (announced: boolean) {
+          const request = `finds-${mode}-${announced}-request`, operation = yield* graph.begin();
+          const lifetime = yield* Effect.acquireRelease(makeBoundedRequestLifetime(commerceError, commerceLimits, {}, {}, request, mode), value => value.close);
+          const participant = yield* makeNativeCommerceParticipant(operation.operations, graph.metadata, lifetime, lifetime.context, request, operation.unixTime);
+          preloads.length = 0;
+          const calls = lifetime.usedCalls(), bytes = lifetime.remainingBytes();
+          if (announced) yield* participant.announce(lifetime.context, { finds: [parents, kids] });
+          const planned = { preloads: [...preloads], calls: lifetime.usedCalls() - calls, bytes: bytes - lifetime.remainingBytes() };
+          const parent = yield* (yield* participant.table(lifetime.context, "parent")).find(lifetime.context, parents.query);
+          const child = yield* (yield* participant.table(lifetime.context, "child")).find(lifetime.context, kids.query);
+          yield* operation.abort();
+          return { planned, parent, child, preloads: [...preloads] };
+        });
+        const control = yield* attempt(false), tested = yield* attempt(true);
+        expect(control.parent.map(row => row.id)).toEqual(["found-a", "found-b"]);
+        expect(control.child.map(row => row.id)).toEqual(["found-c", "found-d"]);
+        // Unannounced, each find overlaps only its own selections.
+        expect(control.preloads).toEqual([3, 2]);
+        // Announced, one batch carries every selection of both tables and the finds start none.
+        expect(tested.planned).toEqual({ preloads: [5], calls: 0, bytes: 0 });
+        expect(tested.preloads).toEqual([5]);
+        expect(tested.parent).toEqual(control.parent);
+        expect(tested.child).toEqual(control.child);
+      }))(), 120_000);
+
+      it("prepares an announced query once for the find handed that same unchanged object, and every other find afresh", run(fixture => Effect.gen(function* () {
+        const graph = yield* setup(fixture);
+        yield* graph.write(operations => Effect.gen(function* () {
+          yield* operations.writeRows(graph.table("parent"), "insert", rows("kept"));
+          yield* operations.writeRows(graph.table("child"), "insert", children("kept"));
+        }));
+        const prepared = vi.spyOn(nativeRelationalQuery, "prepareCoreNativeRelationalRead"), planned = vi.spyOn(nativeQuery, "planCoreNativeQuery");
+        const attempt = Effect.fnUntraced(function* (announced: boolean) {
+          const request = `kept-${announced}-request`, operation = yield* graph.begin();
+          const lifetime = yield* Effect.acquireRelease(makeBoundedRequestLifetime(commerceError, commerceLimits, {}, {}, request, "write"), value => value.close);
+          const participant = yield* makeNativeCommerceParticipant(operation.operations, graph.metadata, lifetime, lifetime.context, request, operation.unixTime);
+          const parent = yield* participant.table(lifetime.context, "parent"), child = yield* participant.table(lifetime.context, "child");
+          const parents = byIds("parent", ["kept-a", "kept-b", "kept-missing"]), kids = byIds("child", ["kept-c", "kept-d"]);
+          const again = byIds("parent", ["kept-b", "kept-a"]);
+          const counted = (store: typeof parent, query: unknown) => Effect.gen(function* () {
+            prepared.mockClear(); planned.mockClear();
+            const found = yield* store.find(lifetime.context, query);
+            return { ids: found.map(row => row.id), prepared: prepared.mock.calls.length, planned: planned.mock.calls.length };
+          });
+          const calls = lifetime.usedCalls(), bytes = lifetime.remainingBytes();
+          if (announced) yield* participant.announce(lifetime.context, { finds: [parents, kids, again] });
+          const same = yield* counted(parent, parents.query);
+          const equal = yield* counted(parent, byIds("parent", ["kept-a", "kept-b", "kept-missing"]).query);
+          // The parent's announced query handed to the other table's store.
+          const elsewhere = yield* counted(child, parents.query);
+          // The announced object now says something else: the find prepares what it says.
+          kids.query.predicate.values.length = 1;
+          const changed = yield* counted(child, kids.query);
+          if (announced) yield* participant.announce(lifetime.context, { finds: [byIds("parent", ["next-a", "next-b"])] });
+          const replaced = yield* counted(parent, again.query);
+          const used = { calls: lifetime.usedCalls() - calls, bytes: bytes - lifetime.remainingBytes() };
+          yield* operation.abort();
+          return { same, equal, elsewhere, changed, replaced, used };
+        });
+        const control = yield* attempt(false), tested = yield* attempt(true);
+        prepared.mockRestore(); planned.mockRestore();
+        // Unannounced, the read prepares its query and derives each selection for its batch and its find.
+        expect(control.same).toEqual({ ids: ["kept-a", "kept-b"], prepared: 1, planned: 6 });
+        // Announced, it takes the announcement's preparation and Core's derivations of its conditions.
+        expect(tested.same).toEqual({ ids: ["kept-a", "kept-b"], prepared: 0, planned: 0 });
+        for (const attempted of [control, tested]) {
+          expect(attempted.equal).toMatchObject({ ids: ["kept-a", "kept-b"], prepared: 1 });
+          expect(attempted.elsewhere).toMatchObject({ ids: [], prepared: 1 });
+          expect(attempted.changed).toMatchObject({ ids: ["kept-c"], prepared: 1 });
+          expect(attempted.replaced).toMatchObject({ ids: ["kept-a", "kept-b"], prepared: 1 });
+        }
+        // The announcements charged nothing, and every find charged what it charges unannounced.
+        expect(tested.used).toEqual(control.used);
+      })), 120_000);
+
+      it("announces a query only whole within Core's find bound, ends the list at the first that does not fit and asks nothing for a lone find", run(fixture => Effect.gen(function* () {
+        const { operation, lifetime, participant, preloads } = yield* participate(fixture, "bounded-finds-request");
+        const ids = (prefix: string, count: number) => Array.from({ length: count }, (_, position) => `${prefix}-${position}`);
+        const parent = yield* participant.table(lifetime.context, "parent");
+        const prepared = vi.spyOn(nativeRelationalQuery, "prepareCoreNativeRelationalRead");
+        // Whole queries while they fit. One that Core would cover in part is not announced:
+        // it ends the list, also for a later one that would fit, which is not even prepared.
+        const fits = byIds("parent", ids("fits", 200)), cut = byIds("child", ids("cut", CORE_NATIVE_ANNOUNCED_FINDS - 199)), late = byIds("child", ["late-c", "late-d"]);
+        yield* participant.announce(lifetime.context, { finds: [fits, cut, late] });
+        expect(preloads).toEqual([200]);
+        expect(prepared.mock.calls).toHaveLength(2);
+        // The query left out reads as it does unannounced, in one batch of its own.
+        expect(yield* (yield* participant.table(lifetime.context, "child")).find(lifetime.context, cut.query)).toEqual([]);
+        expect(preloads).toEqual([200, cut.query.predicate.values.length]);
+        // A lone find shares a statement with nothing: Core is not asked and keeps the pages it holds.
+        yield* participant.announce(lifetime.context, { finds: [byIds("child", ["lone-c"])] });
+        expect(yield* parent.find(lifetime.context, fits.query)).toEqual([]);
+        expect(preloads).toEqual([200, cut.query.predicate.values.length]);
+        // Exactly the bound is announced whole, and nothing after it is captured or prepared.
+        preloads.length = 0; prepared.mockClear();
+        yield* participant.announce(lifetime.context, { finds: [byIds("parent", ids("exact", 200)), byIds("child", ids("exact", CORE_NATIVE_ANNOUNCED_FINDS - 200)), late] });
+        expect(preloads).toEqual([CORE_NATIVE_ANNOUNCED_FINDS]);
+        expect(prepared.mock.calls).toHaveLength(2);
+        prepared.mockRestore();
+        yield* operation.abort();
+      })), 120_000);
+
+      it("ends the announced finds at a table the participant does not hold and at a query the read would refuse", run(fixture => Effect.gen(function* () {
+        const { operation, lifetime, participant, preloads } = yield* participate(fixture, "stopped-finds-request");
+        yield* participant.announce(lifetime.context, { finds: [byIds("parent", ["stop-a", "stop-b"]), byIds("foreign", ["stop-a"]), byIds("child", ["stop-c", "stop-d"])] });
+        expect(preloads).toEqual([2]);
+        yield* participant.announce(lifetime.context, { finds: [byIds("parent", ["bad-a", "bad-b"]),
+          { tableName: "parent", query: { take: 4, predicate: { kind: "in", column: "not-a-column", values: ["x"] } } }, byIds("child", ["bad-c", "bad-d"])] });
+        expect(preloads).toEqual([2, 2]);
+        // Neither refusal is the request's: it still accepts calls.
+        expect(yield* (yield* participant.table(lifetime.context, "parent")).find(lifetime.context, byIds("parent", ["bad-a", "bad-b"]).query)).toEqual([]);
         yield* operation.abort();
       })), 120_000);
     });

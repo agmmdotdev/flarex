@@ -186,8 +186,14 @@ export interface CoreRequestClaim { readonly [requestClaimBrand]: true }
 const finalizedTransactionBrand: unique symbol = Symbol("CoreFinalizedTransaction");
 export interface CoreFinalizedTransaction { readonly [finalizedTransactionBrand]: true }
 
+const requestAbsenceBrand: unique symbol = Symbol("CoreRequestAbsence");
+/** Trusted evidence that one resolution found no record for its request. It
+ * carries no readable content and grants nothing: only the database that issued
+ * it recognizes it, for that exact request, and a claim still decides alone. */
+export interface CoreRequestAbsence { readonly [requestAbsenceBrand]: true }
+
 export type CoreRequestResolution =
-  | Readonly<{ kind: "missing" }>
+  | Readonly<{ kind: "missing"; absence?: CoreRequestAbsence }>
   | Readonly<{ kind: "busy" }>
   | Readonly<{ kind: "failed" }>
   | Readonly<{ kind: "committed"; timestamp: CoreTimestamp; result: DocumentValue }>;
@@ -561,7 +567,11 @@ export interface CoreDatabase {
   readonly resolveRequest: (identity: CoreRequestIdentity) => Effect.Effect<CoreRequestResolution, CoreError>;
   /** Fenced predecessor recovery; never executes another body or abandons a current-owner claim. */
   readonly recoverRequest: (identity: CoreRequestIdentity) => Effect.Effect<CoreRequestResolution, CoreError>;
-  readonly claimRequest: (identity: CoreRequestIdentity, nativeBinding?: CoreNativeBinding | CoreNativeRootBinding | CoreNativeInitializationBinding) => Effect.Effect<CoreRequestAcquisition, CoreError>;
+  /** `absence` is the evidence of this request's own preceding resolution. It only
+   * spares the claim's read of the request key while this owner's write log shows
+   * that key unwritten since; the claim's read witness and commit still decide. */
+  readonly claimRequest: (identity: CoreRequestIdentity, nativeBinding?: CoreNativeBinding | CoreNativeRootBinding | CoreNativeInitializationBinding,
+    absence?: CoreRequestAbsence) => Effect.Effect<CoreRequestAcquisition, CoreError>;
   /** Known outcomes precede fresh admission of the complete active source package. */
   readonly claimApplicationRequest: (identity: Extract<CoreRequestIdentity, { readonly program: CoreProgramIdentity }>,
     expectedApplication: CoreApplicationSourcePin) => Effect.Effect<CoreRequestAcquisition, CoreError>;
@@ -609,6 +619,9 @@ export interface CoreDatabaseOptions {
 /** Identity issuance stays internal; structural objects do not gain authority. */
 export function issueCoreClaim(): CoreRequestClaim {
   return Object.freeze({ [requestClaimBrand]: true as const });
+}
+export function issueCoreRequestAbsence(): CoreRequestAbsence {
+  return Object.freeze({ [requestAbsenceBrand]: true as const });
 }
 export function issueCoreNativeBinding(): CoreNativeBinding {
   return Object.freeze({ [nativeBindingBrand]: true as const });

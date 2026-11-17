@@ -24,17 +24,44 @@ export interface CommerceRelationReadOptions {
 
 /** Module-owned finite admission sees actual selections before presentation.
  * The callback receives rows only; it cannot acquire persistence authority. */
-export type CommerceRelationReadContext = Pick<CommerceCommandContext, "manager" | "table" | "resources"> & {
+export type CommerceRelationReadContext = Pick<CommerceCommandContext, "manager" | "table" | "resources" | "announce"> & {
   readonly admitSelection?: (table: string, rows: readonly JsonObject[]) => Result.Result<void, CommerceTransactionError>;
 };
-export type CommerceRelationRows = (table: string, predicate: Json, order?: CommerceRelationOrder,
-  options?: CommerceRelationReadOptions) => Effect.Effect<readonly JsonObject[], CommerceTransactionError>;
+/** One relation read as its later `CommerceRelationRows` call receives it, without options. */
+export interface CommerceRelationRead {
+  readonly table: string;
+  readonly predicate: Json;
+  readonly order: CommerceRelationOrder;
+}
+export interface CommerceRelationRows {
+  (table: string, predicate: Json, order?: CommerceRelationOrder,
+    options?: CommerceRelationReadOptions): Effect.Effect<readonly JsonObject[], CommerceTransactionError>;
+  /** Present only on a live context that accepts announcements: independent reads
+   * that follow, soonest first. A hint; every read still runs and decides its result. */
+  readonly announce?: (reads: readonly CommerceRelationRead[]) => Effect.Effect<void, CommerceTransactionError>;
+}
 
 /** Bind the live manager once. Population/filter execution receives only this
  * operation; proof reconstruction supplies an authenticated observation reader
  * without manufacturing a database manager or another request lifetime. */
 export function bindCommerceRelationRows(ctx: CommerceRelationReadContext, defaults: CommerceRelationReadOptions = {}): CommerceRelationRows {
-  return (table, predicate, order, options) => readCommerceRelationRows(ctx, table, predicate, order, { ...defaults, ...options });
+  const announce = ctx.announce;
+  if (announce === undefined) return (table, predicate, order, options) => readCommerceRelationRows(ctx, table, predicate, order, { ...defaults, ...options });
+  // The announced query is built by the read's own owner from the same arguments. The
+  // read of the same table, predicate object and order without options of its own
+  // issues the query object of the latest announcement that named it, which lets the
+  // host recognize it.
+  const announced = new WeakMap<object, Readonly<{ read: CommerceRelationRead; query: JsonObject }>>();
+  const rows: CommerceRelationRows = (table, predicate, order = "id", options) => {
+    const held = options === undefined && typeof predicate === "object" && predicate !== null ? announced.get(predicate) : undefined;
+    return held !== undefined && held.read.table === table && held.read.order === order ? readCommerceRelationQuery(ctx, table, held.query)
+      : readCommerceRelationRows(ctx, table, predicate, order, { ...defaults, ...options });
+  };
+  return Object.assign(rows, { announce: (reads: readonly CommerceRelationRead[]) => announce({ finds: reads.map(read => {
+    const query = commerceRelationReadQuery(ctx.resources, read.predicate, read.order, defaults);
+    if (typeof read.predicate === "object" && read.predicate !== null) announced.set(read.predicate, { read, query });
+    return { tableName: read.table, query };
+  }) }) });
 }
 
 /** One complete-set query shape for execution and authenticated read receipts. */
@@ -74,16 +101,22 @@ export function prepareCommerceRelationPopulation(columns: readonly string[], pa
  * physical profile enforces its own catalog bound. A truncated population
  * would silently omit Medusa relationships, so a page alone is insufficient.
  */
-export const readCommerceRelationRows = Effect.fnUntraced(function* (
+export const readCommerceRelationRows = (
   ctx: CommerceRelationReadContext, table: string, predicate: Json, order: CommerceRelationOrder = "id", options: CommerceRelationReadOptions = {},
-) {
-  const store = yield* ctx.table(table);
-  const query = commerceRelationReadQuery(ctx.resources, predicate, order, options);
-  const rows = yield* store.find(ctx.manager, query);
-  if (rows.length > ctx.resources.queryRows) return yield* Effect.fail(commerceError("storedCorruption"));
-  if (ctx.admitSelection !== undefined) yield* Effect.fromResult(ctx.admitSelection(table, rows));
-  return rows;
-});
+) => Effect.suspend(() => readCommerceRelationQuery(ctx, table, commerceRelationReadQuery(ctx.resources, predicate, order, options)));
+
+/** One complete-set read of a query `commerceRelationReadQuery` built: either just
+ * now from the read's arguments, or earlier from the same arguments for the
+ * announcement that named this read. */
+function readCommerceRelationQuery(ctx: CommerceRelationReadContext, table: string, query: JsonObject) {
+  return Effect.gen(function* () {
+    const store = yield* ctx.table(table);
+    const rows = yield* store.find(ctx.manager, query);
+    if (rows.length > ctx.resources.queryRows) return yield* Effect.fail(commerceError("storedCorruption"));
+    if (ctx.admitSelection !== undefined) yield* Effect.fromResult(ctx.admitSelection(table, rows));
+    return rows;
+  });
+}
 
 /** Pinned loadToOneRelation's tuple-key attachment, over already owned rows. */
 function attachToOne(rows: Array<Record<string, Json>>, name: string, related: readonly JsonObject[], keys: readonly string[], foreignKeys: readonly string[]) {
@@ -117,6 +150,44 @@ interface RelationPopulation {
   readonly withDeleted: boolean;
   readonly filters: ReadonlyMap<string, Predicate>;
   readonly fetched: Map<string, readonly JsonObject[]>;
+  /** Announced reads whose turn has not come. A later announcement repeats them:
+   * that is how Core learns they are still wanted and keeps the pages it holds for
+   * them, which it does not read again. */
+  readonly announced: Set<CommerceRelationRead>;
+}
+interface PopulationRead {
+  readonly table: string;
+  readonly columns: readonly string[];
+  readonly parentColumns: readonly string[];
+  readonly softDelete: boolean;
+  readonly order: CommerceRelationOrder;
+  readonly primaryLookup: boolean;
+  readonly predicate?: Predicate | undefined;
+}
+/** A read's selection prepared before its turn and, when announced, its entry. */
+interface PreparedPopulationRead {
+  readonly selection: ReturnType<typeof prepareCommerceRelationPopulation>;
+  readonly find: CommerceRelationRead | undefined;
+}
+const populationCacheKey = (read: PopulationRead) => JSON.stringify([read.table, read.softDelete, read.order, read.predicate ?? null]);
+
+/** One relation's reads: its pivot, when it has one, then its target. */
+function relationReads(population: RelationPopulation, source: string, name: string, path: string) {
+  const { relations, ordering, filters } = population;
+  const predicate = filters.get(path);
+  const descriptor = relations.get(source)?.get(name);
+  if (descriptor === undefined) return Result.fail(commerceError("unsupportedProfile"));
+  const order = ordering.get(descriptor.targetTable) ?? descriptor.targetPrimaryKeys[0];
+  if (order === undefined) return Result.fail(commerceError("unsupportedProfile"));
+  const join = descriptor.join, table = descriptor.targetTable;
+  const pivot: PopulationRead | undefined = join.type !== "manyToMany" ? undefined : { table: join.pivotTable, columns: join.sourceColumns,
+    parentColumns: descriptor.sourcePrimaryKeys, softDelete: false, order: ordering.get(join.pivotTable) ?? join.targetColumns[0] ?? "id", primaryLookup: false };
+  const related: PopulationRead = join.type === "belongsTo"
+    ? { table, columns: descriptor.targetPrimaryKeys, parentColumns: join.foreignKeys, softDelete: true, order, primaryLookup: true, predicate }
+    : join.type === "manyToMany"
+      ? { table, columns: descriptor.targetPrimaryKeys, parentColumns: join.targetColumns, softDelete: true, order, primaryLookup: true, predicate }
+      : { table, columns: join.foreignKeys, parentColumns: descriptor.sourcePrimaryKeys, softDelete: true, order, primaryLookup: false, predicate };
+  return Result.succeed({ descriptor, pivot, related });
 }
 
 /** A complete earlier selection can satisfy a primary-key population only
@@ -129,58 +200,73 @@ export function reusePrimaryRelationRows<Row extends JsonObject>(previous: reado
 }
 
 const readPopulationRelation = Effect.fnUntraced(function* (
-  population: RelationPopulation,
-  targetTable: string, columns: readonly string[], parents: readonly JsonObject[],
-  parentColumns: readonly string[], softDelete: boolean, order: CommerceRelationOrder, primaryLookup = false, predicate?: Predicate,
+  population: RelationPopulation, read: PopulationRead, parents: readonly JsonObject[], ahead?: PreparedPopulationRead,
 ) {
-  const { readRows, fetched, withDeleted } = population;
-  const selection = yield* Effect.fromResult(prepareCommerceRelationPopulation(columns, parents, parentColumns, softDelete, withDeleted, predicate));
+  const { readRows, fetched, withDeleted, announced } = population;
+  const selection = yield* Effect.fromResult(ahead?.selection
+    ?? prepareCommerceRelationPopulation(read.columns, parents, read.parentColumns, read.softDelete, withDeleted, read.predicate));
+  if (ahead?.find !== undefined) announced.delete(ahead.find);
   if (Option.isNone(selection)) return [];
   const { column, values } = selection.value;
-  const cacheKey = JSON.stringify([targetTable, softDelete, order, predicate ?? null]);
+  const cacheKey = populationCacheKey(read);
   const previous = fetched.get(cacheKey);
-  const reused = primaryLookup ? reusePrimaryRelationRows(previous, column, values) : undefined;
+  const reused = read.primaryLookup ? reusePrimaryRelationRows(previous, column, values) : undefined;
   if (reused !== undefined) return reused;
-  const loaded = yield* readRows(targetTable, selection.value.predicate, order);
+  const loaded = yield* readRows(read.table, selection.value.predicate, read.order);
   fetched.set(cacheKey, loaded);
   return loaded;
 });
 
+/** The reads are issued one at a time in the tree's depth-first order, announced
+ * or not. One node's relations all read by the same parents, so their first reads
+ * are independent: a reader that accepts announcements is told of them together
+ * before the first runs. A selection prepared for that still fails at its own turn. */
 const populateRelationTree = Effect.fnUntraced(function* (
   population: RelationPopulation,
   source: string, rows: readonly JsonObject[], tree: PopulateTree, prefix = "",
 ): Effect.fn.Return<JsonObject[], CommerceTransactionError> {
-  const { relations, ordering, filters } = population;
+  const { readRows, fetched, withDeleted, announced } = population;
   const result = rows.map(row => ({ ...row }));
-  for (const [name, nested] of tree) {
+  const relations = [...tree].map(([name, nested]) => {
     const path = prefix === "" ? name : prefix + "." + name;
-    const predicate = filters.get(path);
-    const descriptor = relations.get(source)?.get(name);
-    if (descriptor === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
-    const order = ordering.get(descriptor.targetTable) ?? descriptor.targetPrimaryKeys[0];
-    if (order === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
-    const join = descriptor.join;
-    if (join.type === "belongsTo") {
-      const related = yield* readPopulationRelation(population, descriptor.targetTable, descriptor.targetPrimaryKeys, rows, join.foreignKeys, true, order, true, predicate);
-      attachToOne(result, name, yield* populateRelationTree(population, descriptor.targetTable, related, nested, path), descriptor.targetPrimaryKeys, join.foreignKeys);
-      continue;
+    return { name, nested, path, reads: relationReads(population, source, name, path) };
+  });
+  const ahead = new Map<string, PreparedPopulationRead>();
+  if (readRows.announce !== undefined && relations.length > 1) {
+    const fresh: CommerceRelationRead[] = [];
+    for (const { name, reads } of relations) {
+      const planned = Result.getOrUndefined(reads), first = planned?.pivot ?? planned?.related;
+      if (first === undefined) continue;
+      const selection = prepareCommerceRelationPopulation(first.columns, rows, first.parentColumns, first.softDelete, withDeleted, first.predicate);
+      const selected = Option.getOrUndefined(Result.getOrElse(selection, () => Option.none()));
+      // A primary-key read that the rows read so far already satisfy issues no find.
+      const find = selected === undefined || first.primaryLookup
+        && reusePrimaryRelationRows(fetched.get(populationCacheKey(first)), selected.column, selected.values) !== undefined
+        ? undefined : { table: first.table, predicate: selected.predicate, order: first.order };
+      if (find !== undefined) fresh.push(find);
+      ahead.set(name, { selection, find });
     }
-    if (join.type === "hasOne") {
-      const related = yield* readPopulationRelation(population, descriptor.targetTable, join.foreignKeys, rows, descriptor.sourcePrimaryKeys, true, order, false, predicate);
-      yield* Effect.fromResult(attachHasOne(result, name, yield* populateRelationTree(population, descriptor.targetTable, related, nested, path), descriptor.sourcePrimaryKeys, join.foreignKeys));
-      continue;
+    if (fresh.length > 1) {
+      const finds = [...fresh, ...announced];
+      for (const find of fresh) announced.add(find);
+      yield* readRows.announce(finds);
     }
-    const pivotRows = join.type === "manyToMany"
-      ? yield* readPopulationRelation(population, join.pivotTable, join.sourceColumns, rows, descriptor.sourcePrimaryKeys, false, ordering.get(join.pivotTable) ?? join.targetColumns[0] ?? "id")
-      : [];
-    const related = join.type === "hasMany"
-      ? yield* readPopulationRelation(population, descriptor.targetTable, join.foreignKeys, rows, descriptor.sourcePrimaryKeys, true, order, false, predicate)
-      : yield* readPopulationRelation(population, descriptor.targetTable, descriptor.targetPrimaryKeys, pivotRows, join.targetColumns, true, order, true, predicate);
+  }
+  for (const { name, nested, path, reads } of relations) {
+    const { descriptor, pivot, related: target } = yield* Effect.fromResult(reads);
+    const first = ahead.get(name);
+    const pivotRows = pivot === undefined ? [] : yield* readPopulationRelation(population, pivot, rows, first);
+    const related = yield* readPopulationRelation(population, target, pivot === undefined ? rows : pivotRows, pivot === undefined ? first : undefined);
     const populated = yield* populateRelationTree(population, descriptor.targetTable, related, nested, path);
-    const grouped = join.type === "hasMany"
-      ? groupHasManyRows(populated, join.foreignKeys)
-      : groupManyToManyRows(populated, pivotRows, descriptor.targetPrimaryKeys, join.sourceColumns, join.targetColumns);
-    for (const row of result) row[name] = grouped.get(tupleKey(row, descriptor.sourcePrimaryKeys)) ?? [];
+    const join = descriptor.join;
+    if (join.type === "belongsTo") attachToOne(result, name, populated, descriptor.targetPrimaryKeys, join.foreignKeys);
+    else if (join.type === "hasOne") yield* Effect.fromResult(attachHasOne(result, name, populated, descriptor.sourcePrimaryKeys, join.foreignKeys));
+    else {
+      const grouped = join.type === "hasMany"
+        ? groupHasManyRows(populated, join.foreignKeys)
+        : groupManyToManyRows(populated, pivotRows, descriptor.targetPrimaryKeys, join.sourceColumns, join.targetColumns);
+      for (const row of result) row[name] = grouped.get(tupleKey(row, descriptor.sourcePrimaryKeys)) ?? [];
+    }
   }
   return result;
 });
@@ -205,7 +291,7 @@ export const populateCommerceRelations = Effect.fnUntraced(function* (
   // Retain ordered scalar rows only, never a branch's mutable population. A
   // later primary-key read can reuse a complete subset of an earlier FK read.
   const fetched = new Map<string, readonly JsonObject[]>();
-  const population: RelationPopulation = { readRows, relations, ordering, withDeleted, filters, fetched };
+  const population: RelationPopulation = { readRows, relations, ordering, withDeleted, filters, fetched, announced: new Set() };
   return yield* populateRelationTree(population, table, roots, toPopulateTree(paths));
 });
 

@@ -12,7 +12,7 @@ Two read-only challengers inspected current Core and pinned Convex.
 
 | Proposal | Outcome |
 | --- | --- |
-| One request lookup before a claim | Rejected. The first runs before live authority and serves committed replay; the second registers the read witness that separates racing claimants. Reusing the first page is at most one round trip. |
+| One request lookup before a claim | Implemented in a narrower form. The claim still registers the read witness that separates racing claimants; only its index scan is skipped, and only when the owner's write log proves the resolution's absence current ([record](../divergences/native-request-absence-proof.md)). |
 | Drop the opening lease check | Rejected. A stale owner would reach constraint failures first, and Convex keeps both checks. |
 | Move `FOR SHARE` first | Rejected. It can deadlock with physical maintenance. |
 | Separate statements through pipelining | Not available. `pg` 8.22 sends one query at a time. |
@@ -168,7 +168,7 @@ Not done, with reasons:
 
 | Change | Owner |
 | --- | --- |
-| The identity and unique slots of one graph insert, and the three event family rows, are each read in one statement; a Product create takes 31 round trips instead of 40 | `prefetchInserts` on the native commerce context, `core/transaction.ts` ([record](../divergences/native-read-batches.md)) |
+| The identity and unique slots of one graph insert, and the three event family rows, are each read in one statement; a Product create takes 31 round trips instead of 40 | `announce` on the native commerce context, `core/transaction.ts` ([record](../divergences/native-read-batches.md)) |
 | `rangeBatch` serves its requests on lanes and forks only while earlier lanes wait | `core/indexSnapshot.ts` |
 | Request admission is one step when no ID is pending and nothing observes it | `execution/preparation/boundedRequestLifetime.ts` |
 | Index page hash without BigInt; read-set merge returns early when covered; schema state intervals encoded once | `core/indexCacheSketch.ts`, `core/writeLog.ts`, `core/schemaRegistry.ts` |
@@ -194,3 +194,41 @@ Not done, with reasons:
 - The write-log append's tree insert is at the floor for its structure.
 - A faster key enumeration in the private JSON walk would show a Proxy two traps and
   could select a different refusal.
+
+## Announced finds, and a request claim without a scan
+
+Against the third cut's commit `ee3d920a4`.
+
+| Change | Owner |
+| --- | --- |
+| One announcement carries finds and inserts; an announced first page serves only the later find of the identical index interval, and a write to its table drops it | `announce` on the native commerce context, `planCoreNativeSlots` in `core/nativePrefetch.ts`, `core/transaction.ts` ([record](../divergences/native-read-batches.md)) |
+| An announced condition's capture and plan are kept for the find that receives the same frozen object | `core/transaction.ts`, `core/nativeRelationalQuery.ts`, `frameworks/commerceTransaction/nativeStore.ts` |
+| The request claim keeps its read witness and skips its index scan when the owner's write log proves the resolution's absence current | `resolveRequest`, `acquireRequest` in `core/database.ts` ([record](../divergences/native-request-absence-proof.md)) |
+| The variant replacement announces its key-derivable finds, then its inserts | `medusa-adapter/src/write/replace.ts` |
+| The relations of one node are announced together; read order is unchanged | `medusa-adapter/src/query/relations.ts` |
+| Slots of a normalised insert row are derived without a document capture | `nativeInsertBatchSlots` in `core/transaction.ts` |
+| One opened persistence snapshot per transaction for one timestamp and registry; retention and liveness are rechecked at every capture | `makeCoreSnapshotReuse` in `core/database.ts` ([record](../divergences/native-direct-read-visibility.md)) |
+
+Ordinary-role PostgreSQL, one local host, medians of three alternating rounds:
+
+| Operation | Round trips | CPU per operation |
+| --- | --- | --- |
+| Product create | 31 → 27 | 38.7 → 38.8 ms |
+| Retrieve | 8 → 4 | 4.6 → 4.5 ms |
+| List by IDs | 8 → 4 | 16.0 → 15.8 ms |
+| List page | 3 → 2 | 11.9 → 11.8 ms |
+| List recent | 3 → 2 | 10.9 → 10.8 ms |
+
+CPU is unchanged within noise; the gain is round trips, which a local socket does
+not price. Search is unchanged at one round trip.
+
+Not done, with reasons:
+
+- Retrieve and list by IDs in three round trips needs both pivots read before either
+  target. The cart payment and flat-tree receipt validators compare the read
+  transcript in depth-first order, so the order stays.
+- One statement for the variant replacement's finds and inserts needs the insert rows
+  before the plan's finds run.
+- A lease holder that a successor replaced is refused at the fenced commit, with or
+  without a held absence, also when the successor already claimed the same request.
+  Nothing is stored and no claim is issued either way.

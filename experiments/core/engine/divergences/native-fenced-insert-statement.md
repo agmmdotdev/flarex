@@ -26,8 +26,10 @@ Measurement status: **Required gates unmet**; local load only.
 - Removing the advisory check was rejected. A stale writer could reach a constraint
   failure before discovering it had lost the lease, and would do wasted inserts.
 - Moving `FOR SHARE` first was rejected: it can deadlock with physical maintenance.
-- Removing a request lookup was rejected. The two lookups do different jobs, and the
-  second registers the read witness that separates racing claimants.
+- Removing a request lookup outright was rejected. The two lookups do different jobs,
+  and the second registers the read witness that separates racing claimants. The
+  witness stays; its scan is skipped under the
+  [request absence proof](./native-request-absence-proof.md).
 
 ## Why a difference is necessary
 

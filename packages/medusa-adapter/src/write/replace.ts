@@ -11,7 +11,7 @@ import type { CommerceCommandContext } from "@flarex/persistence-postgres/intern
 import { commerceError, type CommerceTransactionError, type Json, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { commerceDecoder } from "../value/decoder";
 import { captureCommerceInput } from "../value/input";
-import { assembleCommerceRelations } from "../query/relations";
+import { assembleCommerceRelations, commerceRelationReadQuery } from "../query/relations";
 import type { GraphEntity, GraphTable, ReplacementProfile, ReplacedGraph } from "./graph-model";
 // The authoritative native capture already established the complete JSON tree.
 // Relation shape remains checked here; operation-specific decoders stay below.
@@ -27,7 +27,7 @@ type Table = GraphTable;
  * No manager, SQL implementation or mutable state survives this operation.
  */
 export const replaceGraphRows = Effect.fnUntraced(function* (
-  ctx: Pick<CommerceCommandContext, "manager" | "table" | "resources">, profile: ReplacementProfile, entity: GraphEntity,
+  ctx: Pick<CommerceCommandContext, "manager" | "table" | "resources" | "announce">, profile: ReplacementProfile, entity: GraphEntity,
   input: unknown, config: unknown, creation = false,
 ): Effect.fn.Return<ReplacedGraph, CommerceTransactionError> {
   const catalog = profile.catalog;
@@ -82,6 +82,18 @@ export const replaceGraphRows = Effect.fnUntraced(function* (
     const rows = group.get(table.name) ?? new Map<string, JsonObject>();
     rows.set(identity(table, row), row); group.set(table.name, rows);
   };
+  /** The one query that selects a table's rows by one column. */
+  const selection = (table: Table, column: string, values: readonly string[]) => {
+    const order = profile.ordering.get(table.name) ?? keys(table)[0];
+    return order === undefined ? undefined
+      : commerceRelationReadQuery(ctx.resources, { kind: "in", column, values: [...values] }, order);
+  };
+  /** The announced query objects, by table, column and values in their order. The
+   * selection of exactly those sends the announced object itself, not an equal one:
+   * the host and Core recognize an announced find by its object and then reuse what
+   * they prepared for it. */
+  const announcedSelections = new Map<string, JsonObject>();
+  const announcedKey = (table: Table, column: string, values: readonly string[]) => JSON.stringify([table.name, column, values]);
   const load = (table: Table, column: string, values: readonly string[], refresh = false) => observeExecution("MedusaGraph.load", Effect.gen(function* () {
     if (values.length === 0) return [];
     const selected = new Set(values);
@@ -97,11 +109,10 @@ export const replaceGraphRows = Effect.fnUntraced(function* (
     const selectionKey = JSON.stringify([table.name, column, [...selected].sort()]);
     if (refresh || !selectedKeys.has(selectionKey)) {
       const store = yield* getStore(table);
-      const order = profile.ordering.get(table.name) ?? keys(table)[0];
-      if (order === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
-      const rows = yield* store.find(ctx.manager, { take: ctx.resources.queryRows,
-        order: typeof order === "string" ? { column: order, direction: "asc" } : { ...order },
-        predicate: { kind: "in", column, values: [...selected] } });
+      const order = profile.ordering.get(table.name) ?? keys(table)[0], wanted = [...selected];
+      const query = announcedSelections.get(announcedKey(table, column, wanted)) ?? selection(table, column, wanted);
+      if (order === undefined || query === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
+      const rows = yield* store.find(ctx.manager, query);
       yield* Effect.fromResult(profile.admitSelection(table, rows));
       // The plan's request-local rows override prior store values until its
       // batched writes run. The core read still owns index selection and bounds.
@@ -143,9 +154,31 @@ export const replaceGraphRows = Effect.fnUntraced(function* (
     put(deletes, table, row);
     state.set(table.name, (state.get(table.name) ?? []).filter(value => identity(table, value) !== token));
   }));
-  const plan = (target: GraphEntity, inputRow: Json, owner: JsonObject, root: boolean, touch = false) => observeExecution("MedusaGraph.plan", Effect.gen(function* (): Effect.fn.Return<JsonObject, CommerceTransactionError> {
-    const decoded = yield* Effect.fromResult(catalog.decodeRow(target, inputRow));
-    const id = generateEntityId(decoded.key, target.prefix);
+  /** Decode a pivot relation's pure references ahead of one indexed target read.
+   * Stop at the first invalid or duplicate member so its predecessors can still
+   * report a missing target before that member does. */
+  const pivotReferences = (child: GraphEntity, members: readonly Json[]) => {
+    const references: Array<Result.Result<{ readonly key: string }, CommerceTransactionError>> = [];
+    const targetIds = new Set<string>();
+    for (const member of members) {
+      const reference = Result.flatMap(catalog.decodeReference(child, member), value =>
+        value.supplied === undefined ? Result.succeed({ key: value.key })
+          : Result.map(catalog.decodeRow(child, value.supplied), () => ({ key: value.key })));
+      if (Result.isFailure(reference)) { references.push(reference); break; }
+      if (targetIds.has(reference.success.key)) {
+        references.push(Result.fail(commerceError("invalidInput")));
+        break;
+      }
+      targetIds.add(reference.success.key);
+      references.push(reference);
+    }
+    return { references, targetIds };
+  };
+  type DecodedRow = Result.Result.Success<ReturnType<typeof catalog.decodeRow>>;
+  const plan = (target: GraphEntity, inputRow: Json, owner: JsonObject, root: boolean, touch = false,
+    identified?: { readonly decoded: DecodedRow; readonly id: string }) => observeExecution("MedusaGraph.plan", Effect.gen(function* (): Effect.fn.Return<JsonObject, CommerceTransactionError> {
+    const decoded = identified?.decoded ?? (yield* Effect.fromResult(catalog.decodeRow(target, inputRow)));
+    const id = identified?.id ?? generateEntityId(decoded.key, target.prefix);
     const row = decoded.supplied;
     const token = target.table.name + ":" + id;
     const keyOnly = Object.keys(row).length === 1 && row[target.keyColumn] === id;
@@ -293,24 +326,8 @@ export const replaceGraphRows = Effect.fnUntraced(function* (
         if (pivot === undefined || sourceColumn === undefined || targetColumn === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
         const previous = (yield* load(pivot, sourceColumn, [id])).filter(value => value[sourceColumn] === id);
         const retained = new Set<string>();
-        // Decode pure references ahead of one indexed target read, then report
-        // errors and validate links in the original member order. Stop at the
-        // first invalid or duplicate member so its predecessors can still
-        // report a missing target before that member does.
-        const references: Array<Result.Result<{ readonly key: string }, CommerceTransactionError>> = [];
-        const targetIds = new Set<string>();
-        for (const member of members) {
-          const reference = Result.flatMap(catalog.decodeReference(child, member), value =>
-            value.supplied === undefined ? Result.succeed({ key: value.key })
-              : Result.map(catalog.decodeRow(child, value.supplied), () => ({ key: value.key })));
-          if (Result.isFailure(reference)) { references.push(reference); break; }
-          if (targetIds.has(reference.success.key)) {
-            references.push(Result.fail(commerceError("invalidInput")));
-            break;
-          }
-          targetIds.add(reference.success.key);
-          references.push(reference);
-        }
+        // Report errors and validate links in the original member order.
+        const { references, targetIds } = pivotReferences(child, members);
         const targets = new Map((yield* load(child.table, child.keyColumn, [...targetIds]))
           .map(value => [value[child.keyColumn], value]));
         for (const reference of references) {
@@ -330,8 +347,74 @@ export const replaceGraphRows = Effect.fnUntraced(function* (
     }
     return next;
   }));
+  // Every read of the plan precedes its first write, and the selections each root
+  // row declares are known from the input alone: its identity, its scalar
+  // references, its replaced members and its pivot links with their targets.
+  // Announce them so their first pages share one statement. This is only a hint
+  // that follows `plan`: where that owner would refuse or select otherwise the
+  // walk ends, and every selection still runs in place, in its original order.
+  // A generated root identity keeps its turn: once an earlier root may generate
+  // child identities, only roots that supply their key are identified here.
+  const identified: Array<{ readonly decoded: DecodedRow; readonly id: string }> = [];
+  if (ctx.announce !== undefined) {
+    const finds: Array<{ tableName: string; query: JsonObject }> = [];
+    const find = (table: Table, column: string, values: Iterable<string>) => {
+      const wanted = [...values], key = announcedKey(table, column, wanted);
+      // A selection declared again is the same later read: it is announced once.
+      if (announcedSelections.has(key)) return;
+      const query = selection(table, column, wanted);
+      if (query === undefined) return;
+      announcedSelections.set(key, query);
+      finds.push({ tableName: table.name, query });
+    };
+    /** Announces one root's selections; true when its plan may generate identities. */
+    const declare = (row: JsonObject, id: string) => {
+      find(entity.table, entity.keyColumn, [id]);
+      const owned = profile.ownedToOne(entity).filter(name => row[name] !== undefined);
+      let generates = owned.some(name => row[name] !== null && typeof row[name] !== "string");
+      // An owned to-one replaces its scalar reference before that is selected.
+      if (owned.length === 0) for (const fk of entity.table.foreignKeys) {
+        const column = fk.columns[0], targetColumn = fk.referencedColumns[0];
+        const reference = column === undefined ? undefined : column === entity.keyColumn ? id : row[column];
+        const table = catalog.tables.find(table => table.name === fk.referencedTable);
+        if (fk.columns.length === 1 && fk.referencedColumns.length === 1 && targetColumn !== undefined && table !== undefined &&
+          typeof reference === "string") find(table, targetColumn, [reference]);
+      }
+      for (const [name, descriptor] of catalog.queryRelations.get(entity.table.name) ?? []) {
+        const members = row[name], join = descriptor.join;
+        if (members === undefined || join.type === "belongsTo") continue;
+        const child = catalog.entities.find(value => value.table.name === descriptor.targetTable);
+        if (join.type === "hasOne" || !relations.includes(name) || child === undefined || !Array.isArray(members)) break;
+        if (!creation && profile.operation === "update" && members.length === 0 && profile.emptyCollections !== "replace") continue;
+        if (join.type === "hasMany") {
+          const fk = join.foreignKeys[0], mode = Result.getOrUndefined(profile.toManyMode(entity, name, child));
+          if (join.foreignKeys.length !== 1 || fk === undefined || mode === undefined) break;
+          if (mode === "associate") continue;
+          find(child.table, fk, [id]);
+          generates ||= members.length > 0;
+        } else {
+          const pivot = catalog.writablePivots.find(table => table.name === join.pivotTable), sourceColumn = join.sourceColumns[0];
+          if (pivot === undefined || sourceColumn === undefined || join.targetColumns[0] === undefined) break;
+          find(pivot, sourceColumn, [id]);
+          const { targetIds } = pivotReferences(child, members);
+          if (targetIds.size > 0) find(child.table, child.keyColumn, targetIds);
+        }
+      }
+      return generates;
+    };
+    let generates = false;
+    for (const row of inputs) {
+      const decoded = Result.getOrUndefined(catalog.decodeRow(entity, row));
+      if (decoded === undefined || (generates && !decoded.key)) break;
+      const id = generateEntityId(decoded.key, entity.prefix);
+      identified.push({ decoded, id });
+      generates = declare(decoded.supplied, id) || generates;
+    }
+    // A lone selection has nothing to share a statement with.
+    if (finds.length > 1) yield* ctx.announce({ finds });
+  }
   const roots: JsonObject[] = [];
-  for (const row of inputs) roots.push(yield* plan(entity, row, {}, true));
+  for (const [index, row] of inputs.entries()) roots.push(yield* plan(entity, row, {}, true, false, identified[index]));
   yield* profile.prepareProjection(entity, roots, load);
   // A stable dependency order batches independent rows and removes children
   // before parents. Self-referential tree policies require separate admission.
@@ -416,6 +499,14 @@ export const replaceGraphRows = Effect.fnUntraced(function* (
     }
   }));
   for (const table of [...ordered].reverse()) yield* apply(table, "delete", deletes);
+  // The complete rows of the ordered table inserts that follow, as each write
+  // receives them. Replayed rows are not inserts; reconstituted rows keep their
+  // own deletion proof and are not announced.
+  const announced = profile.recordedRowReplay === true ? [] : ordered.flatMap(table => {
+    const rows = [...inserts.get(table.name)?.values() ?? []];
+    return rows.length === 0 ? [] : [{ tableName: table.name, rows }];
+  });
+  if (ctx.announce !== undefined && announced.length > 1) yield* ctx.announce({ inserts: announced });
   for (const table of ordered) {
     yield* apply(table, "insert", inserts);
     yield* apply(table, "reconstitute", reconstitutions);

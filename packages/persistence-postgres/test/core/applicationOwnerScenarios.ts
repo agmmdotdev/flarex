@@ -258,7 +258,7 @@ export function registerApplicationOwnerScenarios(label: string, createFixture: 
         const second = yield* prepared.database.claimRequest(request(selected.metadata.identity.definitionHash, "capacity-two"), selected.root);
         expect(failure(yield* Effect.result(prepared.database.claimRequest(request(selected.metadata.identity.definitionHash, "capacity-three"), selected.root))))
           .toMatchObject({ reason: "capacity", cause: "Unresolved request census limit" });
-        expect(yield* prepared.database.resolveRequest(request(selected.metadata.identity.definitionHash, "capacity-three"))).toEqual({ kind: "missing" });
+        expect(yield* prepared.database.resolveRequest(request(selected.metadata.identity.definitionHash, "capacity-three"))).toMatchObject({ kind: "missing" });
         if (first.kind !== "claimed" || second.kind !== "claimed") return yield* Effect.die(new Error("Missing bounded claims"));
         yield* prepared.database.abortRequest(first.claim); yield* prepared.database.abortRequest(second.claim);
       }));

@@ -1,10 +1,10 @@
 import { Cause, Effect, Option, Result, Schema } from "effect";
 import type { DocumentObject } from "flarex-protocol/document-value";
-import { isJsonObject, type Json, type JsonObject } from "flarex-protocol/json";
+import { isJsonObject, jsonEqual, type Json, type JsonObject } from "flarex-protocol/json";
 import { CoreNativeSetNullIntentSchema, type CoreError, type CoreNativeBindingMetadata,
   type CoreNativeOperations, type CoreNativeRootOperations } from "../../core/api";
-import { coreNativeRelationalRows } from "../../core/nativePolicy";
-import { coreNativeRelationalRow, executeCoreNativeRelationalRead, executeCoreNativeRelationalPage,
+import { coreNativeRelationalRows, type CoreNativeRelationalRowPolicy } from "../../core/nativePolicy";
+import { coreNativeRelationalFindWheres, coreNativeRelationalRow, executeCoreNativeRelationalRead, executeCoreNativeRelationalPage,
   prepareCoreNativeRelationalRead } from "../../core/nativeRelationalQuery";
 import type { BoundedRequestContext, BoundedRequestLifetime } from "../../execution/preparation/boundedRequestLifetime";
 import { useCapturedPrivateJsonData } from "../../values/privateJsonData";
@@ -14,8 +14,8 @@ import type { CommerceStore } from "./storeModel";
 import type { LogicalPreservingDeletionUpsertPolicy, LogicalReconstitutionPolicy } from "../../storage/documents/logicalDocuments/model";
 import { projectCoreCommerceFailure } from "./nativeFailure";
 import { observeExecution } from "../../execution/diagnostics/operation";
-import type { CommerceInsertGroups, CommerceReferenceReplacement, CommerceSetNullSelection } from "./commands";
-import { prefetchCoreNativeGraphInsertSlots } from "../../core/nativePrefetch";
+import type { CommerceAnnouncement, CommerceReferenceReplacement, CommerceSetNullSelection } from "./commands";
+import { CORE_NATIVE_ANNOUNCED_FINDS, planCoreNativeSlots } from "../../core/nativePrefetch";
 
 const nativeResult = <A>(work: Effect.Effect<A, CoreError>) => work.pipe(
   Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectCoreCommerceFailure))));
@@ -60,8 +60,14 @@ export const makeNativeCommerceParticipant = Effect.fnUntraced(function* (
   admitListPages = false,
 ) {
   const stores = new Map<string, CommerceStore>();
-  /** The Core table behind each store, by the same adapter-local name. */
-  const storeTables = new Map<string, string>();
+  /** The Core table and row policy behind each store, by the same adapter-local name. */
+  const storeTables = new Map<string, Readonly<{ table: CoreNativeBindingMetadata["tables"][number]; policy: CoreNativeRelationalRowPolicy }>>();
+  /** The current announcement's prepared finds, by the announced query object itself.
+   * A read handed that same object still captures and charges its input; when the
+   * capture equals the announced one for the same table it takes this preparation,
+   * and so issues the announced conditions. Each announcement starts an empty map. */
+  let announcedReads = new WeakMap<object, Readonly<{ policy: CoreNativeRelationalRowPolicy; captured: Json;
+    query: Result.Result.Success<ReturnType<typeof prepareCoreNativeRelationalRead>> }>>();
   const onRead = invocation?.onRead;
   const readRelated = invocation?.readRelated;
   const retain = <Value>(value: Value) => Effect.gen(function* () {
@@ -86,7 +92,9 @@ export const makeNativeCommerceParticipant = Effect.fnUntraced(function* (
       const captured = yield* lifetime.fromResult(useCapturedPrivateJsonData(preparation.captured?.value ?? input,
         lifetime.remainingBytes(), commerceError));
       yield* lifetime.fromResult(lifetime.charge(captured.bytes));
-      const query = yield* nativeResult(Effect.fromResult(prepareCoreNativeRelationalRead(policy, captured.value, resources.queryRows)));
+      const announced = typeof input === "object" && input !== null ? announcedReads.get(input) : undefined;
+      const query = announced !== undefined && announced.policy === policy && jsonEqual(announced.captured, captured.value) ? announced.query
+        : yield* nativeResult(Effect.fromResult(prepareCoreNativeRelationalRead(policy, captured.value, resources.queryRows)));
       if (invocation !== undefined && query.storageInsertion && invocation.allowStorageInsertionOrder !== true)
         return yield* commerceError("invalidAuthority");
       preparation.captured ??= captured;
@@ -193,7 +201,7 @@ export const makeNativeCommerceParticipant = Effect.fnUntraced(function* (
       }),
     } satisfies CommerceStore);
     stores.set(declaration.localName ?? declaration.name, store);
-    storeTables.set(declaration.localName ?? declaration.name, table.name);
+    storeTables.set(declaration.localName ?? declaration.name, { table, policy });
   }
   const table = (context: BoundedRequestContext, name: string) => lifetime.operation(context, transactionId, "read", Effect.suspend(() => {
     const store = stores.get(name);
@@ -202,28 +210,57 @@ export const makeNativeCommerceParticipant = Effect.fnUntraced(function* (
   const first = metadata.definition.tables[0];
   if (first === undefined) return yield* commerceError("unsupportedProfile");
   const store = yield* table(initialContext, first.localName ?? first.name);
-  /** The context is authenticated without a call charge, and only a write request may
-   * announce. The body runs within the request deadline, so a refusal, defect or
+  /** The context is authenticated without a call charge; a read request may announce
+   * finds only. The body runs within the request deadline, so a refusal, defect or
    * interruption is retained as the request's failure like any native call's. The
-   * announced rows are captured exactly as rows reaching a write are, within the
-   * remaining request bytes, but not charged: they are only read to derive slot
-   * intervals, and the write that follows captures and charges them. A table or
-   * capture this owner refuses ends the announcement there, leaving the rest to
-   * their own inserts. */
-  const prefetchInserts = (context: BoundedRequestContext, groups: CommerceInsertGroups) => Effect.andThen(lifetime.checkpoint(context),
+   * announced queries and rows are captured exactly as those reaching a read or a
+   * write are, within the remaining request bytes, but not charged: they are only
+   * read to derive slot intervals, and the call that follows captures and charges
+   * them. A table, query or capture this owner refuses ends its list there, leaving
+   * the rest to their own calls. */
+  const announce = (context: BoundedRequestContext, announcement: CommerceAnnouncement) => Effect.andThen(lifetime.checkpoint(context),
     lifetime.withinDeadline(Effect.suspend(() => {
-      if (lifetime.mode === "read") return Effect.fail(commerceError("invalidAuthority"));
-      const announced: Array<{ tableName: string; rows: readonly JsonObject[] }> = [];
-      for (const group of groups) {
-        const tableName = storeTables.get(group.tableName);
+      if (lifetime.mode === "read" && announcement.inserts !== undefined && announcement.inserts.length > 0)
+        return Effect.fail(commerceError("invalidAuthority"));
+      const finds: Array<{ tableName: string; where: JsonObject }> = [];
+      announcedReads = new WeakMap();
+      // Core examines this many finds of one announcement. A query is admitted only
+      // whole: one that Core would cover in part makes its read issue a second batch
+      // for the rest. The first query that does not fit ends the list, so nothing
+      // past the bound is captured or prepared.
+      let admissible = CORE_NATIVE_ANNOUNCED_FINDS;
+      for (const find of announcement.finds ?? []) {
+        if (admissible === 0) break;
+        const selected = storeTables.get(find.tableName);
+        // The query is prepared exactly as the read that follows prepares it; one
+        // that read would refuse ends the announced finds here.
+        const prepared = selected === undefined ? undefined : Result.getOrUndefined(Result.flatMap(
+          useCapturedPrivateJsonData(find.query, lifetime.remainingBytes(), commerceError),
+          captured => Result.map(prepareCoreNativeRelationalRead(selected.policy, captured.value, resources.queryRows),
+            query => ({ captured: captured.value, query }))));
+        if (selected === undefined || prepared === undefined
+          || invocation !== undefined && prepared.query.storageInsertion && invocation.allowStorageInsertionOrder !== true) break;
+        const wheres = coreNativeRelationalFindWheres(selected.table, prepared.query);
+        // A query without a find still takes one place, which bounds this loop.
+        if (wheres.length > admissible) break;
+        admissible -= Math.max(1, wheres.length);
+        if (typeof find.query === "object" && find.query !== null)
+          announcedReads.set(find.query, { policy: selected.policy, ...prepared });
+        for (const where of wheres) finds.push({ tableName: selected.table.name, where });
+      }
+      const inserts: Array<{ tableName: string; rows: readonly JsonObject[] }> = [];
+      for (const group of announcement.inserts ?? []) {
+        const tableName = storeTables.get(group.tableName)?.table.name;
         const rows = tableName === undefined ? undefined
           : Result.getOrUndefined(useCapturedPrivateJsonData(group.rows, lifetime.remainingBytes(), commerceError))?.value;
         if (tableName === undefined || !Array.isArray(rows) || !rows.every(isJsonObject)) break;
-        announced.push({ tableName, rows });
+        inserts.push({ tableName, rows });
       }
-      return prefetchCoreNativeGraphInsertSlots(operations, announced);
+      // One find has no other read to share a statement with: Core is not asked, and
+      // keeps what it holds of the previous announcement.
+      return finds.length < 2 && inserts.length === 0 ? Effect.void : planCoreNativeSlots(operations, { finds, inserts });
     })));
-  return Object.freeze({ store, resources, table, prefetchInserts,
+  return Object.freeze({ store, resources, table, announce,
     ...(invocation?.setNullPolicy === undefined ? {} : {
       planSetNull: (context: BoundedRequestContext, input: CommerceSetNullSelection) => lifetime.operation(context, transactionId, "write", Effect.gen(function* () {
         const captured = yield* lifetime.fromResult(useCapturedPrivateJsonData(input, lifetime.remainingBytes(), commerceError));

@@ -143,6 +143,27 @@ export function registerNativeRootScenarios(label: string, createFixture: () => 
       }))); } finally { await fixture.close(); }
     }, 90_000);
 
+    it("opens one persistence snapshot for the captures of every child of one root at one published timestamp", async () => {
+      const fixture = await createFixture();
+      const opened: bigint[] = [];
+      const persistence: CorePersistence = { ...fixture.persistence, readSnapshot: (...input) =>
+        Effect.tap(fixture.persistence.readSnapshot(...input), snapshot => Effect.sync(() => { opened.push(snapshot.timestamp); })) };
+      try { await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+        const tested = yield* setup(fixture, 128, undefined, undefined, persistence), selected = yield* tested.begin();
+        const payload = yield* selected.operation.native(tested.payloadBinding), currency = yield* selected.operation.native(tested.currencyBinding);
+        opened.length = 0;
+        expect(yield* payload.find("posts", { title: "absent" })).toEqual([]);
+        expect(yield* payload.find("posts", { title: "missing" })).toEqual([]);
+        expect(yield* currency.find(tested.currencyTable, { code: "zzz" })).toEqual([]);
+        expect(opened).toHaveLength(1);
+        yield* closeRequest(tested.database, selected);
+        // The closed root is refused before any snapshot, held or new.
+        opened.length = 0;
+        expect(failure(yield* Effect.result(payload.find("posts", { title: "absent" })))).toMatchObject({ reason: "closed" });
+        expect(opened).toEqual([]);
+      }))); } finally { await fixture.close(); }
+    }, 90_000);
+
     it("publishes all three children with one outcome and authenticates cold replay", async () => {
       const fixture = await createFixture();
       try { await Effect.runPromise(Effect.scoped(Effect.gen(function* () {

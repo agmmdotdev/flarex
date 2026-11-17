@@ -41,7 +41,7 @@ export function prepareCoreNativeRelationalRead(policy: CoreNativeRelationalRowP
     // Issued only for a full-set read whose every leaf has a stored-document form.
     const snapshotFilter = prepared.snapshotPredicate === undefined || query.selections !== null ? undefined
       : yield* issuePostgresSnapshotFilter(policy.table, prepared.snapshotPredicate, failure);
-    return { ...query, postgresPredicate, snapshotFilter, predicate: prepared.predicate };
+    return Object.freeze({ ...query, postgresPredicate, snapshotFilter, predicate: prepared.predicate });
   });
 }
 type Query = Result.Result.Success<ReturnType<typeof prepareCoreNativeRelationalRead>>;
@@ -49,7 +49,7 @@ type Query = Result.Result.Success<ReturnType<typeof prepareCoreNativeRelational
 function selectedWhere(table: CoreTableDefinition, selection: RelationalSelection | null, query: Query): JsonObject {
   if (selection === null) {
     const anchor = query.requiredNulls.find(field => table.indexes.some(index => index.fields[0] === field));
-    return anchor === undefined ? { [query.key]: { gte: "" } } : { [anchor]: null };
+    return Object.freeze(anchor === undefined ? { [query.key]: Object.freeze({ gte: "" }) } : { [anchor]: null });
   }
   const values = relationalSelectionValues(selection);
   const where: Record<string, Json> = {};
@@ -57,11 +57,28 @@ function selectedWhere(table: CoreTableDefinition, selection: RelationalSelectio
     const value = values.value(field);
     if (value !== undefined) where[field] = value;
   }
-  return where;
+  return Object.freeze(where);
 }
 
 const lacksIndexedNullAnchor = (table: CoreTableDefinition, query: Query) => query.selections === null && query.requiresIndexedNullAnchor
   && !query.requiredNulls.some(field => table.indexes.some(index => index.fields[0] === field));
+
+/** One prepared query's conditions for the table they were derived for. */
+const findWheres = new WeakMap<Query, Readonly<{ table: CoreTableDefinition; wheres: readonly JsonObject[] }>>();
+
+/** The conditions of the ordered native finds a complete read of this query issues,
+ * one per selection; none for a read the cohort owner refuses. The sole derivation:
+ * the read itself and a trusted owner announcing that read both use it. One prepared
+ * query yields the same frozen condition objects for the same table each time, so a
+ * read of the query a trusted owner announced issues the very conditions announced. */
+export const coreNativeRelationalFindWheres = (table: CoreTableDefinition, query: Query): readonly JsonObject[] => {
+  const held = findWheres.get(query);
+  if (held?.table === table) return held.wheres;
+  const wheres = Object.freeze(lacksIndexedNullAnchor(table, query) ? []
+    : (query.selections ?? [null]).map(selection => selectedWhere(table, selection, query)));
+  findWheres.set(query, { table, wheres });
+  return wheres;
+};
 
 interface InspectedRow {
   readonly id: string;
@@ -77,7 +94,7 @@ const inspectCoreNativeRelationalCohort = Effect.fnUntraced(function* (
 ) {
   if (lacksIndexedNullAnchor(table, query)) return yield* failure("invalidInput");
   const candidates = new Map<string, DocumentObject>();
-  const wheres = (query.selections ?? [null]).map(selection => selectedWhere(table, selection, query));
+  const wheres = coreNativeRelationalFindWheres(table, query);
   // The selections are independent: overlap their first reads, then find them in order.
   if (prefetch !== undefined && wheres.length > 1) yield* prefetch(wheres);
   for (const where of wheres) {

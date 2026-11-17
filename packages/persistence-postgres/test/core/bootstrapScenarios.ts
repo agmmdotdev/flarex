@@ -769,7 +769,7 @@ describe(name, () => {
           const wrongPath = yield* Effect.result(database.claimRequest({ ...request, program: otherProgram }));
           expect(Result.isFailure(wrongPath) && wrongPath.failure).toMatchObject({ reason: "requestMismatch" });
           // Pending discovery never promotes an unpublished claim to durable resolution.
-          expect(yield* database.resolveRequest(request)).toEqual({ kind: "missing" });
+          expect(yield* database.resolveRequest(request)).toMatchObject({ kind: "missing" });
           expect(saves).toBe(1);
         }), Deferred.succeed(release, undefined));
         const original = yield* Fiber.join(acquiring);

@@ -1,10 +1,11 @@
-import { Effect, Option, Result } from "effect";
+import { Effect, Exit, Option, Result } from "effect";
 import { describe, expect, it, vi } from "vitest";
 import { bytesEqual, compareBytesLexicographically } from "@flarex/utils/bytes";
 import { captureDocumentObject, encodeDocumentValue, isProvenScalarDocumentRoot, type DocumentObject } from "flarex-protocol/document-value";
 import { compilePayloadCollections } from "../../../payload-adapter/src/collections";
 import type { CoreTableDefinition } from "../../src/core/api";
 import { CorePersistenceError, type CoreDocumentLogEntry, type CoreIndexScan, type CorePersistenceSnapshot } from "../../src/core/contracts";
+import { makeCoreSnapshotReuse } from "../../src/core/database";
 import { documentIndexKey } from "../../src/core/documentIndex";
 import { checkCoreNativeAuthority, coreNativeMetadataReads, makeCoreNativeDefinition, type CoreNativeAuthority } from "../../src/core/nativePolicy";
 import { initialRegistry, publicDocumentId, readDocumentObject, type CoreRegistry } from "../../src/core/registry";
@@ -1097,5 +1098,88 @@ describe("native transaction observations over the source transaction", () => {
       await Effect.runPromise(prefetchCoreNativeInsertSlots(single.operations, [{ tableName: single.table.name, rows: [body("only")] }]));
       expect(titleScans(single.calls, single.table)).toBe(0);
     });
+  });
+});
+
+describe("one native transaction's opened persistence snapshot", () => {
+  const registries = () => [Result.getOrThrow(initialRegistry([])), Result.getOrThrow(initialRegistry([]))] as const;
+  /** Counts openings and applies a floor the way an opening's retention check does. */
+  function reuse() {
+    const opened: bigint[] = [], rechecked: bigint[] = [];
+    const state = { floor: 0n, defect: undefined as Error | undefined };
+    const retained = (timestamp: bigint) => timestamp < state.floor
+      ? Effect.fail(new CorePersistenceError({ reason: "outOfRetention" })) : Effect.void;
+    const tested = makeCoreSnapshotReuse({
+      open: timestamp => Effect.andThen(retained(timestamp), Effect.suspend(() => {
+        if (state.defect !== undefined) return Effect.die(state.defect);
+        opened.push(timestamp);
+        const snapshot: CorePersistenceSnapshot = Object.freeze({ timestamp, get: () => Effect.succeed(Option.none()),
+          scan: () => Effect.succeed({ entries: [], cursor: { kind: "end" as const } }), preload: () => Effect.void });
+        return Effect.succeed(snapshot);
+      })),
+      recheck: timestamp => Effect.andThen(Effect.sync(() => { rechecked.push(timestamp); }), retained(timestamp)),
+    });
+    const open = (timestamp: bigint, registry: CoreRegistry) => Effect.runPromise(Effect.exit(tested.guard(tested.open(timestamp, registry))));
+    return { tested, open, opened, rechecked, state };
+  }
+  const value = (exit: Exit.Exit<CorePersistenceSnapshot, CorePersistenceError>) => Exit.isSuccess(exit) ? exit.value : undefined;
+
+  it("returns the held snapshot for the same timestamp and registry after repeating the opening's checks", async () => {
+    const { open, opened, rechecked } = reuse(), [registry] = registries();
+    const first = value(await open(10n, registry));
+    expect(first).toBeDefined();
+    expect(value(await open(10n, registry))).toBe(first);
+    expect(value(await open(10n, registry))).toBe(first);
+    expect(opened).toEqual([10n]);
+    expect(rechecked).toEqual([10n, 10n]);
+  });
+
+  it("opens another snapshot for another timestamp or another registry and holds only the latest", async () => {
+    const { open, opened } = reuse(), [registry, successor] = registries();
+    const first = value(await open(10n, registry)), later = value(await open(11n, registry));
+    expect(later).not.toBe(first);
+    expect(later?.timestamp).toBe(11n);
+    expect(value(await open(11n, registry))).toBe(later);
+    const other = value(await open(11n, successor));
+    expect(other).not.toBe(later);
+    expect(value(await open(11n, successor))).toBe(other);
+    // The earlier selections are no longer held.
+    expect(value(await open(11n, registry))).not.toBe(later);
+    expect(value(await open(10n, registry))).not.toBe(first);
+    expect(opened).toEqual([10n, 11n, 11n, 11n, 10n]);
+  });
+
+  it("refuses a held snapshot once retention passed its timestamp and holds nothing afterwards", async () => {
+    const { open, opened, state } = reuse(), [registry] = registries();
+    const first = value(await open(10n, registry));
+    state.floor = 11n;
+    expect(await open(10n, registry)).toMatchObject({ _tag: "Failure", cause: { reasons: [{ _tag: "Fail", error: { reason: "outOfRetention" } }] } });
+    state.floor = 0n;
+    expect(value(await open(10n, registry))).not.toBe(first);
+    expect(opened).toEqual([10n, 10n]);
+  });
+
+  it("holds nothing after a capture that dies or is interrupted", async () => {
+    const { tested, open, opened, state } = reuse(), [registry] = registries();
+    const first = value(await open(10n, registry));
+    state.defect = new Error("opening died");
+    expect(await open(11n, registry)).toMatchObject({ _tag: "Failure", cause: { reasons: [{ _tag: "Die", defect: state.defect }] } });
+    state.defect = undefined;
+    expect(value(await open(10n, registry))).not.toBe(first);
+    const held = value(await open(10n, registry));
+    // A capture that fails after its snapshot was taken ends the reuse too.
+    await Effect.runPromise(Effect.exit(tested.guard(Effect.andThen(tested.open(10n, registry), Effect.interrupt))));
+    expect(value(await open(10n, registry))).not.toBe(held);
+    expect(opened).toEqual([10n, 10n, 10n]);
+  });
+
+  it("holds nothing once the transaction ended, including a snapshot opened afterwards", async () => {
+    const { tested, open, opened } = reuse(), [registry] = registries();
+    const first = value(await open(10n, registry));
+    tested.end();
+    const after = value(await open(10n, registry));
+    expect(after).not.toBe(first);
+    expect(value(await open(10n, registry))).not.toBe(after);
+    expect(opened).toEqual([10n, 10n, 10n]);
   });
 });

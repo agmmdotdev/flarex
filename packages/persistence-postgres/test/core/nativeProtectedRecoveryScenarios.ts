@@ -64,7 +64,7 @@ export function registerNativeProtectedRecoveryScenarios(label: string, fixture:
         const reopened = yield* Effect.acquireRelease(openCoreDatabase(yield* Effect.promise(() => tested.reopen()), options), owner => owner.close());
         const cold = yield* reopened.bindNativeRootRecovery(recoveryInput);
         expect(yield* cold.recover(correlation)).toEqual({ kind: "committed", timestamp, result: { id } });
-        expect(yield* cold.resolve({ ...correlation, key: "genuinely-absent" })).toEqual({ kind: "missing" });
+        expect(yield* cold.resolve({ ...correlation, key: "genuinely-absent" })).toMatchObject({ kind: "missing" });
         expect(yield* Effect.flip(cold.resolve({ ...correlation, requestHash: "bob+normalized-request" }))).toMatchObject({ reason: "requestMismatch" });
         const foreign = yield* reopened.bindNativeRootRecovery({ ...recoveryInput,
           contract: { name: "protected-history", principal: "bob" } });

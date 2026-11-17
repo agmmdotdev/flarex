@@ -75,7 +75,7 @@ export const captureGraph = Effect.fnUntraced(function* (
 /** The checked catalog supplies insertion order. The caller retains the sole
  * transaction manager; only rows actually returned by writes leave this step. */
 export const insertGraphRows = Effect.fnUntraced(function* (
-  ctx: Pick<CommerceCommandContext, "manager" | "table" | "prefetchInserts">, catalog: GraphCatalog, graph: GraphRows,
+  ctx: Pick<CommerceCommandContext, "manager" | "table" | "announce">, catalog: GraphCatalog, graph: GraphRows,
   options: { readonly allowReconstitution?: true } = {},
 ) {
   const inserted = new Map<string, readonly JsonObject[]>();
@@ -86,7 +86,7 @@ export const insertGraphRows = Effect.fnUntraced(function* (
     const rows = (graph.get(tableName) ?? []).filter(row => options.allowReconstitution !== true || row.created_at === undefined);
     return rows.length === 0 ? [] : [{ tableName, rows }];
   });
-  if (ctx.prefetchInserts !== undefined && announced.length > 1) yield* ctx.prefetchInserts(announced);
+  if (ctx.announce !== undefined && announced.length > 1) yield* ctx.announce({ inserts: announced });
   for (const table of tables) {
     const rows = graph.get(table) ?? [];
     if (rows.length === 0) { inserted.set(table, []); continue; }
