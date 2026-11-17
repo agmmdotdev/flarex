@@ -47,7 +47,7 @@ const assertSelection = Effect.fnUntraced(function* (
   configuration: PreparedAtomicCommerceNativeConfiguration, selected: readonly AtomicCommerceNativeParticipant[],
 ) {
   yield* configuration.database.assertOpen.pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectCoreCommerceFailure))));
-  for (const participant of selected) yield* core(configuration.database.readNativeBinding(participant.binding));
+  for (const participant of selected) yield* core(configuration.database.assertNativeBinding(participant.binding));
 }, effect => Effect.withSpan(effect, "AtomicCommerceNative.assertSelection", { captureStackTrace: false }));
 
 /** One ordinary native workflow borrows one Core root. Native methods receive
@@ -92,7 +92,7 @@ export const executeAtomicCommerceNative = Effect.fnUntraced(function* (
     ): Effect.fn.Return<Pick<AtomicCommerceCallObservation, "input" | "result">, CommerceTransactionError> {
       const definition = getCommerceCommand(nested);
       if (definition === undefined || !participant.member.commands.has(nested)) return yield* commerceError("invalidAuthority");
-      yield* core(configuration.database.readNativeBinding(participant.binding));
+      yield* core(configuration.database.assertNativeBinding(participant.binding));
       const captured = capturedInput ?? (yield* lifetime.fromResult(prepareCapture(input)));
       if (participant.working === undefined) participant.working = yield* makeNativeCommerceParticipant(participant.operations,
         participant.metadata, lifetime, manager, transactionId, operation.unixTime, participant.member.resources,
@@ -105,7 +105,7 @@ export const executeAtomicCommerceNative = Effect.fnUntraced(function* (
           emitted.push(yield* eventCapture.captureSelected(participant.member.events, message));
         })), configuration.limits.borrowedOperationScheduling === "queued" ? configuration.limits.calls : undefined,
         context => observeExecution(`AtomicCommerceNative.invoke/${definition.name}`, definition.run(context, captured.value)));
-      yield* core(configuration.database.readNativeBinding(participant.binding));
+      yield* core(configuration.database.assertNativeBinding(participant.binding));
       const output = yield* lifetime.fromResult(prepareCapture(result));
       return Object.freeze({ input: captured.value, result: output.value });
     });

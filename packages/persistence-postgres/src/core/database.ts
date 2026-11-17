@@ -835,6 +835,7 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
     const authority = yield* nativeAuthority(binding);
     return Object.freeze({ ...authority, tables: Object.freeze(authority.tables.map(copyTableDefinition)) });
   });
+  const assertNativeBinding: CoreDatabase["assertNativeBinding"] = binding => Effect.asVoid(nativeAuthority(binding));
   const bindNativeInitialization: CoreDatabase["bindNativeInitialization"] = Effect.fn("CoreDatabase.bindNativeInitialization")(function* (input) {
     const binding = input.binding, commandName = input.commandName;
     const authority = yield* nativeAuthority(binding);
@@ -1415,7 +1416,7 @@ const openDatabase = Effect.fn("CoreDatabase.open")(function* (
       }), true);
     }),
     prepareSchema,prepareApplicationCandidate,activateApplicationCandidate,readActiveApplicationCandidate,readApplicationRegistration,readApplicationCandidate,abandonApplicationCandidate,schemaStatus,advanceSchema,advanceSchemaWork:schemaWorker.advanceWork,activateSchema,publishPrograms,
-    bindNative, readNativeBinding, beginNative, bindNativeInitialization,
+    bindNative, readNativeBinding, assertNativeBinding, beginNative, bindNativeInitialization,
     bindNativeRoot, readNativeRootBinding, beginNativeRoot, bindNativeRootRecovery,
     selectProgram: Effect.fn("CoreDatabase.selectProgram")(function* (path) {
       yield* assertOpen;

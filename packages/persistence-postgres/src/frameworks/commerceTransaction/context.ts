@@ -7,13 +7,14 @@ import type { CommerceStore } from "./storeModel";
 import type { CommerceResources } from "./resources";
 import { makeCommerceOperations, type CommerceOperations } from "./operations";
 import { captureCommerceJsonData } from "./json";
-import type { CommerceSetNullSelection, CommerceReferenceReplacement, CommerceDeletedReferenceSelection } from "./commands";
+import type { CommerceSetNullSelection, CommerceReferenceReplacement, CommerceDeletedReferenceSelection, CommerceInsertGroups } from "./commands";
 
 type CommerceContextWorking = Readonly<{ store: CommerceStore; resources: CommerceResources;
     registerScopeExclusion?: (context: CommerceCommandContext) => void;
     table: (context: BoundedRequestContext, tableId: string) => Effect.Effect<CommerceStore, CommerceTransactionError>;
     transactionTime?: (context: BoundedRequestContext) => Effect.Effect<string, CommerceTransactionError>;
     detachDeletedReference?: (context: BoundedRequestContext, selection: CommerceDeletedReferenceSelection) => Effect.Effect<void, CommerceTransactionError>;
+    prefetchInserts?: (context: BoundedRequestContext, groups: CommerceInsertGroups) => Effect.Effect<void, CommerceTransactionError>;
     checkpointRelationalReferences?: (context: BoundedRequestContext, tableName: string) => Effect.Effect<void, CommerceTransactionError>;
     planSetNull?: (context: BoundedRequestContext, selection: CommerceSetNullSelection) => Effect.Effect<void, CommerceTransactionError>;
     planReferenceReplacement?: (context: BoundedRequestContext, selection: CommerceReferenceReplacement) => Effect.Effect<void, CommerceTransactionError> }>;
@@ -28,6 +29,7 @@ export function makeCommerceCommandContext(
   operations?: CommerceOperations, callLimit?: number,
 ): CommerceCommandContext {
   const detachDeletedReference = working.detachDeletedReference;
+  const prefetchInserts = working.prefetchInserts;
   const checkpointRelationalReferences = working.checkpointRelationalReferences;
   const planSetNull = working.planSetNull;
   const planReferenceReplacement = working.planReferenceReplacement;
@@ -35,13 +37,15 @@ export function makeCommerceCommandContext(
   const issued = Object.freeze({ manager, resources: working.resources, store: working.store,
     table: tableId => working.table(manager, tableId),
     ...(transactionTime === undefined ? {} : { transactionTime: transactionTime(manager) }),
+    ...(prefetchInserts === undefined ? {} : { prefetchInserts: (groups: CommerceInsertGroups) => prefetchInserts(manager, groups) }),
     ...(detachDeletedReference === undefined ? {} : { detachDeletedReference: (selection: CommerceDeletedReferenceSelection) => detachDeletedReference(manager, selection) }),
     ...(planSetNull === undefined ? {} : { planSetNull: (selection: CommerceSetNullSelection) => planSetNull(manager, selection) }),
     ...(planReferenceReplacement === undefined ? {} : { planReferenceReplacement: (selection: CommerceReferenceReplacement) => planReferenceReplacement(manager, selection) }),
     ...(checkpointRelationalReferences === undefined ? {} : { checkpointRelationalReferences: (tableName: string) => checkpointRelationalReferences(manager, tableName) }),
     captureLocalEvent: event => captureEvent(manager, event),
     nested: (child, args) => lifetime.nested(manager, id, context => invoke(context, child, args), getCommerceCommand(child)?.mode),
-    rejectEvent: lifetime.operation(manager, id, "write", Effect.fail(commerceError("unadmittedEvent"))),
+    // Built per refusal: most contexts never reject an event.
+    rejectEvent: Effect.suspend(() => lifetime.operation(manager, id, "write", Effect.fail(commerceError("unadmittedEvent")))),
     recordFailure: cause => lifetime.recordFailure(manager, cause),
     refuse: error => lifetime.operation(manager, id, "read", Effect.fail(error)),
     ...(operations === undefined ? {} : { enqueue: <Value>(

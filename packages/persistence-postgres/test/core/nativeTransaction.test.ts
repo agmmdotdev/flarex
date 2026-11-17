@@ -1047,6 +1047,20 @@ describe("native transaction observations over the source transaction", () => {
       expect(titleScans(tested.calls, tested.table)).toBe(5);
     });
 
+    it("overlaps the single slots of one batch call's separate groups together with usage and observations unchanged", async () => {
+      const titles = ["family", "envelope", "delivery"];
+      const control = await fixture();
+      for (const title of titles) await Effect.runPromise(control.operations.insert(control.table.name, body(title)));
+      const tested = await fixture("command", 256, 65536, 1 << 20, { concurrency: 4 });
+      // No group has two slots of its own; the call's groups share one capture and one range batch.
+      await Effect.runPromise(prefetchCoreNativeInsertSlots(tested.operations, titles.map(title => ({ tableName: tested.table.name, rows: [body(title)] }))));
+      expect(titleScans(tested.calls, tested.table)).toBe(3);
+      for (const title of titles) await Effect.runPromise(tested.operations.insert(tested.table.name, body(title)));
+      expect(titleScans(tested.calls, tested.table)).toBe(3);
+      expect(await Effect.runPromise(tested.context.transaction.usage)).toEqual(await Effect.runPromise(control.context.transaction.usage));
+      expect((await tested.finalized()).nativeObservations).toEqual((await control.finalized()).nativeObservations);
+    });
+
     it("skips a typed prefetch failure and rereads that slot in place", async () => {
       const control = await fixture();
       const expected = await outcome(control.operations.insert(control.table.name, body("typed-a")));

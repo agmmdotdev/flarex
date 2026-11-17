@@ -13,6 +13,11 @@ export class ExecutionDiagnostics extends Context.Service<ExecutionDiagnostics, 
   "Flarex/ExecutionDiagnostics",
 ) {}
 
+/** Whether `observeExecution` reports SDK-traced operations on this fiber. An
+ * owner may skip building steps that exist only to be observed when it is false. */
+export const observesExecution = (fiber: Fiber.Fiber<unknown, unknown>): boolean =>
+  Context.getOrUndefined(fiber.context, ExecutionDiagnostics) !== undefined;
+
 /** SDK diagnostics stay opt-in. Former named operations explicitly retain
  * caller tracing without constructing diagnostic stacks on quiet requests. */
 export function observeExecution<Value, Failure, Requirements>(

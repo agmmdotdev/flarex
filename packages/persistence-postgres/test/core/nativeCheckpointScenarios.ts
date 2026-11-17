@@ -311,6 +311,82 @@ export function registerNativeCheckpointScenarios(label: string, createFixture: 
       expect(yield* graph.read("child")).toEqual([]);
     })), 120_000);
 
+    describe("announced graph inserts through the native commerce participant", () => {
+      const rows = (prefix: string) => [{ id: `${prefix}-a` }, { id: `${prefix}-b` }];
+      const children = (prefix: string) => [{ id: `${prefix}-c`, parent_id: `${prefix}-a`, code: "one" }, { id: `${prefix}-d`, parent_id: `${prefix}-a`, code: "two" }];
+      /** Counts the first pages the participant's transaction asks persistence for. */
+      const observedFixture = (fixture: CorePersistenceFixture) => {
+        const preloads: number[] = [];
+        const observed: CorePersistenceFixture = { ...fixture, persistence: { ...fixture.persistence,
+          readSnapshot: (...input) => Effect.map(fixture.persistence.readSnapshot(...input), snapshot => ({ ...snapshot,
+            preload: requests => Effect.andThen(Effect.sync(() => { preloads.push(requests.length); }), snapshot.preload(requests)) })) } };
+        return { observed, preloads };
+      };
+      const participate = Effect.fnUntraced(function* (fixture: CorePersistenceFixture, request: string, mode: "read" | "write" = "write") {
+        const { observed, preloads } = observedFixture(fixture);
+        const graph = yield* setup(observed), operation = yield* graph.begin();
+        const lifetime = yield* Effect.acquireRelease(makeBoundedRequestLifetime(commerceError, commerceLimits, {}, {}, request, mode), value => value.close);
+        const participant = yield* makeNativeCommerceParticipant(operation.operations, graph.metadata, lifetime, lifetime.context, request, operation.unixTime);
+        preloads.length = 0;
+        return { graph, operation, lifetime, participant, preloads };
+      });
+      const reason = (result: Result.Result<void, unknown>) => Result.isFailure(result) ? (result.failure as { reason?: string }).reason : "accepted";
+
+      it("translates the adapter's table names, reads once and charges neither a call nor a byte", run(fixture => Effect.gen(function* () {
+        const { operation, lifetime, participant, preloads } = yield* participate(fixture, "announce-native-request");
+        const calls = lifetime.usedCalls(), bytes = lifetime.remainingBytes();
+        yield* participant.prefetchInserts(lifetime.context, [{ tableName: "parent", rows: rows("named") }, { tableName: "child", rows: children("named") }]);
+        expect(preloads).toHaveLength(1);
+        expect(preloads[0]).toBeGreaterThanOrEqual(4);
+        expect(lifetime.usedCalls()).toBe(calls);
+        expect(lifetime.remainingBytes()).toBe(bytes);
+        // Both covered tables insert from the planned pages; each write is one charged call as before.
+        yield* (yield* participant.table(lifetime.context, "parent")).write(lifetime.context, "insert", rows("named"));
+        yield* (yield* participant.table(lifetime.context, "child")).write(lifetime.context, "insert", children("named"));
+        expect(preloads).toHaveLength(1);
+        expect(lifetime.usedCalls()).toBe(calls + 4);
+        yield* operation.abort();
+      })), 120_000);
+
+      it("stops the announcement at a table the participant does not hold", run(fixture => Effect.gen(function* () {
+        const { operation, lifetime, participant, preloads } = yield* participate(fixture, "stopped-native-request");
+        yield* participant.prefetchInserts(lifetime.context, [{ tableName: "parent", rows: rows("alone") }]);
+        const alone = preloads[0];
+        expect(alone).toBeGreaterThanOrEqual(2);
+        yield* participant.prefetchInserts(lifetime.context, [{ tableName: "parent", rows: rows("stopped") },
+          { tableName: "foreign", rows: rows("stopped") }, { tableName: "child", rows: children("stopped") }]);
+        // The child table announced after the unknown one was not read.
+        expect(preloads).toEqual([alone, alone]);
+        yield* participant.prefetchInserts(lifetime.context, [{ tableName: "foreign", rows: rows("none") }, { tableName: "parent", rows: rows("none") }]);
+        expect(preloads).toEqual([alone, alone]);
+        yield* operation.abort();
+      })), 120_000);
+
+      it("refuses a foreign context, a rollback-only request and a closed request's revoked context without reading", run(fixture => Effect.gen(function* () {
+        const groups = [{ tableName: "parent", rows: rows("refused") }];
+        const { operation, lifetime, participant, preloads } = yield* participate(fixture, "refused-native-request");
+        const other = yield* Effect.acquireRelease(makeBoundedRequestLifetime(commerceError, commerceLimits, {}, {}, "other-native-request", "write"), value => value.close);
+        expect(reason(yield* Effect.result(participant.prefetchInserts(other.context, groups)))).toBe("invalidAuthority");
+        // The foreign context's refusal left this request rollback-only.
+        expect(reason(yield* Effect.result(participant.prefetchInserts(lifetime.context, groups)))).toBe("rollbackOnly");
+        // Closing revokes the request's context; the lifetime answers a revoked context this way.
+        yield* lifetime.close;
+        expect(reason(yield* Effect.result(participant.prefetchInserts(lifetime.context, groups)))).toBe("invalidAuthority");
+        expect(preloads).toEqual([]);
+        yield* operation.abort();
+      })), 120_000);
+
+      it("refuses a read request's announcement and retains the refusal", run(fixture => Effect.gen(function* () {
+        const { operation, lifetime, participant, preloads } = yield* participate(fixture, "read-native-request", "read");
+        const calls = lifetime.usedCalls();
+        expect(reason(yield* Effect.result(participant.prefetchInserts(lifetime.context, [{ tableName: "parent", rows: rows("read") }])))).toBe("invalidAuthority");
+        expect(preloads).toEqual([]);
+        expect(lifetime.usedCalls()).toBe(calls);
+        expect(Result.isFailure(yield* Effect.result(lifetime.seal))).toBe(true);
+        yield* operation.abort();
+      })), 120_000);
+    });
+
     it("keeps a caught statement reference refusal sticky without granting table checkpoint authority", run(fixture => Effect.gen(function* () {
       const graph = yield* setup(fixture), operation = yield* graph.begin();
       const request = "statement-native-request";

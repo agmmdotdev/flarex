@@ -163,3 +163,34 @@ Not done, with reasons:
   supplied row to normalization changes key order in diagnostics and activity rows.
 - `MedusaWorkflow.execute` stays traced; it is not a mechanical conversion.
 - `medusa-workflows-sdk` has no test of `present` in its own package.
+
+## Graph reads in one statement, and a third CPU cut
+
+| Change | Owner |
+| --- | --- |
+| The identity and unique slots of one graph insert, and the three event family rows, are each read in one statement; a Product create takes 31 round trips instead of 40 | `prefetchInserts` on the native commerce context, `core/transaction.ts` ([record](../divergences/native-read-batches.md)) |
+| `rangeBatch` serves its requests on lanes and forks only while earlier lanes wait | `core/indexSnapshot.ts` |
+| Request admission is one step when no ID is pending and nothing observes it | `execution/preparation/boundedRequestLifetime.ts` |
+| Index page hash without BigInt; read-set merge returns early when covered; schema state intervals encoded once | `core/indexCacheSketch.ts`, `core/writeLog.ts`, `core/schemaRegistry.ts` |
+| The private JSON walk builds its output directly and defines every member and element as an own data property | `values/privateJsonData.ts` |
+| A row the capture owner issued is decoded by identity | `medusa-adapter/src/value/decoder.ts` ([record](../divergences/issued-commerce-row-decode.md)) |
+| A liveness check of a native binding no longer copies its table definitions | `assertNativeBinding` in `core/database.ts` |
+
+Same load as the earlier cuts, against the second cut's commit:
+
+| Operation | CPU per operation (median) | Minimum |
+| --- | --- | --- |
+| Product create | 42.3 → 38.7 ms | 41.2 → 36.5 ms |
+| Retrieve | 4.9 → 4.6 ms | 4.8 → 4.5 ms |
+| List by IDs | 17.3 → 16.8 ms | 16.7 → 16.5 ms |
+
+List page, list recent and search are within noise.
+
+Not done, with reasons:
+
+- The four variant reads of a create are sequential, data-dependent finds in the
+  shared replace engine; batching them needs the engine to announce key-derivable
+  finds before planning.
+- The write-log append's tree insert is at the floor for its structure.
+- A faster key enumeration in the private JSON walk would show a Proxy two traps and
+  could select a different refusal.

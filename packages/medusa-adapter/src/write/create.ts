@@ -75,11 +75,19 @@ export const captureGraph = Effect.fnUntraced(function* (
 /** The checked catalog supplies insertion order. The caller retains the sole
  * transaction manager; only rows actually returned by writes leave this step. */
 export const insertGraphRows = Effect.fnUntraced(function* (
-  ctx: Pick<CommerceCommandContext, "manager" | "table">, catalog: GraphCatalog, graph: GraphRows,
+  ctx: Pick<CommerceCommandContext, "manager" | "table" | "prefetchInserts">, catalog: GraphCatalog, graph: GraphRows,
   options: { readonly allowReconstitution?: true } = {},
 ) {
   const inserted = new Map<string, readonly JsonObject[]>();
-  for (const table of [...catalog.entities.map(item => item.table.name), ...catalog.writablePivots.map(item => item.name)]) {
+  const tables = [...catalog.entities.map(item => item.table.name), ...catalog.writablePivots.map(item => item.name)];
+  // The complete rows of the ordered table inserts that follow at once.
+  // Reconstituted rows keep their own deletion proof and are not announced.
+  const announced = tables.flatMap(tableName => {
+    const rows = (graph.get(tableName) ?? []).filter(row => options.allowReconstitution !== true || row.created_at === undefined);
+    return rows.length === 0 ? [] : [{ tableName, rows }];
+  });
+  if (ctx.prefetchInserts !== undefined && announced.length > 1) yield* ctx.prefetchInserts(announced);
+  for (const table of tables) {
     const rows = graph.get(table) ?? [];
     if (rows.length === 0) { inserted.set(table, []); continue; }
     const store = yield* ctx.table(table);

@@ -63,7 +63,7 @@ import { isCoreNativeManyReference, readCoreNativeMembership } from "./nativeRef
 import { coreNativeForeignKeyError, coreNativeKeyInterval, coreNativeKeyTuple, coreNativeKeyWhere, sameCoreNativeKeyTuple, selectCoreNativeForeignKey,
   type CoreNativeForeignKeySelection, type CoreNativeKeyValue } from "./nativeForeignKeys";
 import { isCoreNativeSerialIndexName } from "./schemaTableName";
-import { registerCoreNativePrefetcher } from "./nativePrefetch";
+import { CORE_NATIVE_INSERT_GRAPH_SLOTS, CORE_NATIVE_INSERT_GRAPH_TRANSACTION_SLOTS, registerCoreNativePrefetcher, type CoreNativeInsertGroups } from "./nativePrefetch";
 
 export interface CoreDocumentChange {
   readonly table: CoreTableDefinition;
@@ -500,7 +500,11 @@ export function createCoreTransaction(input: Readonly<{
 
   const assertOpen = () => Effect.suspend(() => closed
     ? Effect.fail(new CoreTransactionError({ reason: "closed" })) : input.assertOwnerOpen ?? Effect.void);
-  const markClosed = () => { closed = true; };
+  const markClosed = () => {
+    closed = true;
+    // Speculative pages end with their transaction, however it ends.
+    dropPrefetched();
+  };
   const operation = <A>(body: Effect.Effect<A, CoreError>): Effect.Effect<A, CoreError> => Effect.acquireUseRelease(
     Effect.andThen(assertOpen(), Effect.sync(() => {
       inflight += 1;
@@ -712,59 +716,140 @@ export function createCoreTransaction(input: Readonly<{
   // consumer's own fresh capture proves no committed write touched its interval
   // since the prefetch timestamp; the consumer then observes it at its own timestamp.
   // Only the current batch call's unconsumed pages are retained: each new batch
-  // replaces them, bounding residency to one submitted batch's slots.
+  // replaces them. One announced graph insert is one batch across its covered
+  // table inserts, bounded by the graph slot limit.
   type PrefetchedSlot = Readonly<{ timestamp: bigint; entries: readonly CoreHydratedIndexEntry[] }>;
+  type PrefetchGroup = Readonly<{ table: CoreTableDefinition; slots: readonly NativeSlotRead[] }>;
   const prefetchedSlots = new Map<string, PrefetchedSlot>();
+  /** Tables whose planned graph pages are retained, with their announced rows not yet inserted. */
+  const coveredTablets = new Map<string, number>();
+  /** Slots every graph insert of this transaction has planned so far. */
+  let plannedGraphSlots = 0;
+  const dropPrefetched = () => {
+    prefetchedSlots.clear();
+    coveredTablets.clear();
+  };
 
-  /** Fetch only: no capture state, accounting, reservation, memo or dependency.
-   * Typed failures are dropped so the sequential consumer reissues the read in
-   * place; defects and interruption propagate. */
-  const prefetchNativeSlots = Effect.fnUntraced(function* (
-    table: CoreTableDefinition, slots: readonly NativeSlotRead[],
-  ) {
+  /** Fetch only, on one capture and in one range batch for every group: no capture
+   * state, accounting, reservation, memo or dependency. Typed failures are dropped
+   * so the sequential consumer reissues the read in place; defects and interruption
+   * propagate. Returns how many pages it stored. */
+  const prefetchNativeSlots = Effect.fnUntraced(function* (groups: readonly PrefetchGroup[]) {
     const batch = input.nativeReadBatch;
-    if (native === undefined || nativeObservations === undefined || batch === undefined || nativeObservations.hasTable(table)) return;
-    const maxEntries = Result.match(nativeObservations.limitsFor(table), { onFailure: () => undefined, onSuccess: limits => limits.maxIdentities });
-    if (maxEntries === undefined) return;
-    const selected = new Map<string, NativeSlotRead>();
-    for (const slot of slots) {
-      const key = coreNativeUniqueSlotKey(slot.index, slot.interval);
-      if (!selected.has(key) && !prefetchedSlots.has(key) && nativeObservations.slot(slot.index, slot.interval) === undefined)
-        selected.set(key, slot);
+    if (native === undefined || nativeObservations === undefined || batch === undefined) return 0;
+    const selected = new Map<string, Readonly<{ request: CoreIndexScan; maxEntries: number }>>();
+    for (const { table, slots } of groups) {
+      if (slots.length === 0 || nativeObservations.hasTable(table)) continue;
+      const maxEntries = Result.match(nativeObservations.limitsFor(table), { onFailure: () => undefined, onSuccess: limits => limits.maxIdentities });
+      if (maxEntries === undefined) continue;
+      for (const slot of slots) {
+        const key = coreNativeUniqueSlotKey(slot.index, slot.interval);
+        if (!selected.has(key) && !prefetchedSlots.has(key) && nativeObservations.slot(slot.index, slot.interval) === undefined)
+          selected.set(key, { maxEntries, request: { index: slot.index.ref, tableId: table.tabletId, interval: slot.interval,
+            order: "asc", maxResults: Math.min(CORE_INDEX_CAPTURE_PAGE_SIZE, maxEntries + 1) } });
+      }
     }
     // A single independent read has nothing to overlap.
-    if (selected.size < 2) return;
+    if (selected.size < 2) return 0;
     // Every typed capture failure means "no prefetch": the consumer's own capture
     // reports it at its original position. Defects and interruption propagate.
     const captured = yield* Effect.match(native.capture(), { onFailure: () => undefined, onSuccess: snapshotCapture => snapshotCapture });
-    if (captured === undefined || captured.writeLog.timestamp !== captured.snapshot.timestamp) return;
+    if (captured === undefined || captured.writeLog.timestamp !== captured.snapshot.timestamp) return 0;
     const prefetchSnapshot = createCoreIndexSnapshot({ snapshot: captured.snapshot, registry: captured.registry,
       decoded: decodedDocuments,
       ...(captured.residentReader === undefined ? {} : { resident: captured.residentReader }),
       ...(input.operationCacheMaxBytes === undefined ? {} : { maxBytes: input.operationCacheMaxBytes }) });
     const keys = [...selected.keys()], requested = [...selected.values()];
-    const outcomes = yield* prefetchSnapshot.rangeBatch(requested.map(slot => ({ index: slot.index.ref, tableId: table.tabletId,
-      interval: slot.interval, order: "asc" as const, maxResults: Math.min(CORE_INDEX_CAPTURE_PAGE_SIZE, maxEntries + 1) })), batch);
+    const outcomes = yield* prefetchSnapshot.rangeBatch(requested.map(slot => slot.request), batch);
+    let stored = 0;
     for (const [position, outcome] of outcomes.entries()) {
-      const key = keys[position];
-      if (key === undefined) continue;
+      const key = keys[position], maxEntries = requested[position]?.maxEntries;
+      if (key === undefined || maxEntries === undefined) continue;
       if (Exit.isFailure(outcome)) {
         // Typed failures are reissued in place; defects and interruption keep their complete reasons.
         const propagated = outcome.cause.reasons.filter((reason): reason is Cause.Die | Cause.Interrupt =>
           Cause.isDieReason(reason) || Cause.isInterruptReason(reason));
-        if (propagated.length > 0) return yield* Effect.failCause(Cause.fromReasons<never>(propagated));
+        if (propagated.length > 0) {
+          // Nothing of a batch that ends this way stays behind.
+          dropPrefetched();
+          return yield* Effect.failCause(Cause.fromReasons<never>(propagated));
+        }
         continue;
       }
       // Only a complete, within-limit capture is reusable; anything else is reread in place.
       if (outcome.value.cursor.kind !== "end" || outcome.value.entries.length > maxEntries) continue;
       prefetchedSlots.set(key, Object.freeze({ timestamp: prefetchSnapshot.timestamp, entries: outcome.value.entries }));
+      stored += 1;
     }
+    return stored;
   });
 
   /** Starts one batch call's prefetch, replacing any earlier call's unconsumed pages. */
-  const prefetchNativeBatch = (groups: readonly Readonly<{ table: CoreTableDefinition; slots: readonly NativeSlotRead[] }>[]) =>
-    Effect.andThen(Effect.sync(() => prefetchedSlots.clear()),
-      Effect.forEach(groups, group => prefetchNativeSlots(group.table, group.slots), { concurrency: "unbounded", discard: true }));
+  const prefetchNativeBatch = (groups: readonly PrefetchGroup[]) =>
+    Effect.andThen(Effect.sync(dropPrefetched), prefetchNativeSlots(groups));
+
+  /** The slots one table insert of these rows reads first: each row's identity and,
+   * from pure managed normalization, its unique constraints. Rows that need serial
+   * allocation or fail normalization keep their in-place reads. */
+  const nativeInsertBatchSlots = (table: CoreTableDefinition, policy: CoreNativeRelationalRowPolicy,
+    rows: readonly Readonly<{ identity: JsonObject; row: JsonObject }>[], normalizedAt: string): readonly NativeSlotRead[] => [
+    ...nativeQuerySlots(table, rows.map(({ identity }) => identity)),
+    ...(policy.table.columns.some(column => column.default.kind === "serialNext") ? noSlots
+      : nativeInsertSlots(table, rows.flatMap(({ row }) =>
+        Result.match(policy.rows.normalize(row, null, normalizedAt), { onFailure: () => [], onSuccess: normalized => [normalized] })))),
+  ];
+
+  /** The complete rows of one graph insert, in table insert order, while whole tables
+   * fit the graph bound. The announced rows are only a hint: a table resolves through
+   * the writer's own authority, and a table or row that does not is left to its insert.
+   * Only a batch that stored pages covers its tables; each covered table then keeps
+   * the pages until its announced rows were inserted. */
+  const prefetchNativeGraphInserts = Effect.fnUntraced(function* (groups: CoreNativeInsertGroups,
+    access: Extract<CoreTransactionNativeAccess, { readonly kind: "native" }>) {
+    // A closed transaction or a withdrawn access reads nothing.
+    if (closed || !nativeAccesses.has(access)) return;
+    const normalizedAt = new Date(unixTime).toISOString();
+    const planned: PrefetchGroup[] = [], announced = new Map<string, number>();
+    let remaining = Math.min(CORE_NATIVE_INSERT_GRAPH_SLOTS, CORE_NATIVE_INSERT_GRAPH_TRANSACTION_SLOTS - plannedGraphSlots);
+    for (const group of groups) {
+      // Every identified row has at least its identity slot: refuse an oversized table before deriving any.
+      if (group.rows.length > remaining) break;
+      const policy = coreNativeRelationalRows(access.authority.definition, group.tableName);
+      const table = Result.getOrUndefined(Result.flatMap(tableByName(group.tableName, false, access),
+        selected => Result.map(checkAccess(selected, "write", access), () => selected)));
+      if (policy === undefined || table === undefined) continue;
+      const slots = nativeInsertBatchSlots(table, policy, group.rows.flatMap(row => {
+        const identity: Record<string, string> = {};
+        for (const key of policy.rows.keyColumns) {
+          const value = isJsonObject(row) ? row[key] : undefined;
+          if (typeof value !== "string" || value.length === 0) return [];
+          identity[key] = value;
+        }
+        return [{ identity, row }];
+      }), normalizedAt);
+      // Whole tables in insert order only. A table that does not fit prefetches for
+      // itself, as does each later one, after every covered table has taken its pages.
+      if (slots.length > remaining) break;
+      remaining -= slots.length;
+      planned.push({ table, slots });
+      const tablet = encodeBytesToLowercaseHex(table.tabletId);
+      announced.set(tablet, (announced.get(tablet) ?? 0) + group.rows.length);
+    }
+    plannedGraphSlots += planned.reduce((sum, group) => sum + group.slots.length, 0);
+    if ((yield* prefetchNativeBatch(planned)) === 0) return;
+    for (const [tablet, rows] of announced) coveredTablets.set(tablet, rows);
+  });
+
+  /** One table insert's prefetch. A table covered by an announced graph insert keeps
+   * the planned pages until its announced rows were inserted; any other call is an
+   * ordinary batch that replaces them. */
+  const prefetchNativeInsertBatch = (table: CoreTableDefinition, rows: number, slots: () => readonly NativeSlotRead[]) => Effect.suspend(() => {
+    const tablet = encodeBytesToLowercaseHex(table.tabletId), announced = coveredTablets.get(tablet);
+    if (announced === undefined) return Effect.asVoid(prefetchNativeBatch([{ table, slots: slots() }]));
+    if (announced > rows) coveredTablets.set(tablet, announced - rows);
+    else coveredTablets.delete(tablet);
+    return Effect.void;
+  });
 
   /** The consumer's capture decides: not newer than the consumer, within its
    * limit, and no committed write to the interval in (prefetch, capture]. */
@@ -2112,11 +2197,8 @@ export function createCoreTransaction(input: Readonly<{
     // Pure normalization supplies the managed eligibility columns (for example
     // deleted_at); rows that need serial allocation or fail keep their in-place reads.
     const normalizedAt = new Date(unixTime).toISOString();
-    const serial = policy.table.columns.some(column => column.default.kind === "serialNext");
-    yield* prefetchNativeBatch([{ table, slots: [...nativeQuerySlots(table, rows.map(({ identity }) => identity)),
-      ...(mode === "insert" && !serial ? nativeInsertSlots(table, rows.flatMap(({ row }) =>
-        Result.match(policy.rows.normalize(row, null, normalizedAt), { onFailure: () => [], onSuccess: normalized => [normalized] })))
-        : noSlots)] }]);
+    if (mode === "insert") yield* prefetchNativeInsertBatch(table, rows.length, () => nativeInsertBatchSlots(table, policy, rows, normalizedAt));
+    else yield* prefetchNativeBatch([{ table, slots: nativeQuerySlots(table, rows.map(({ identity }) => identity)) }]);
     const find = nativeFind(access, true);
     const preserveUpdatedAt = mode === "upsert"
       || (mode === "upsertPreservingDeletion" && selectedInvocation?.advancePreservingDeletionUpdatedAt !== true);
@@ -2158,6 +2240,8 @@ export function createCoreTransaction(input: Readonly<{
 
   const nativeReplayRows = (access: Extract<CoreTransactionNativeAccess, { readonly kind: "native" }>): CoreNativeOperations["replayRows"] =>
     (tableName, inputRows) => Effect.suspend(() => nativeBatch(access, Effect.gen(function* () {
+      // Like every non-insert row batch, this one ends any retained prefetch.
+      dropPrefetched();
       if (native === undefined || nativeObservations === undefined) return yield* invalid();
       const { table, policy, rows } = yield* prepareNativeRowBatch(tableName, inputRows, false, access);
       // Replay admits complete values before any lookup. Defaults and numeric
@@ -2315,6 +2399,8 @@ export function createCoreTransaction(input: Readonly<{
 
   const nativeReconstituteRows = (access: Extract<CoreTransactionNativeAccess, { readonly kind: "native" }>): CoreNativeOperations["reconstituteRows"] =>
     (tableName, inputRows, inputPolicy) => Effect.suspend(() => nativeBatch(access, Effect.gen(function* () {
+      // Like every non-insert row batch, this one ends any retained prefetch.
+      dropPrefetched();
       const selectedPolicy = yield* decodeNativeReconstitutionPolicy(inputPolicy)
         .pipe(Effect.mapError(cause => new CoreNativeQueryError({ reason: "invalidInput", cause })));
       const { table, policy, rows } = yield* prepareNativeRowBatch(tableName, inputRows, false, access);
@@ -3021,12 +3107,13 @@ export function createCoreTransaction(input: Readonly<{
     }))),
   });
   /** Registers the trusted prefetch seam for exactly this issued facade and its access. */
-  const withInsertPrefetch = <Operations extends Pick<CoreNativeOperations, "find">>(issued: Operations, access: CoreTransactionNativeAccess) => {
+  const withInsertPrefetch = <Operations extends Pick<CoreNativeOperations, "find">>(issued: Operations, access: Extract<CoreTransactionNativeAccess, { readonly kind: "native" }>) => {
     const tableSlots = (tableName: string, slots: (table: CoreTableDefinition) => readonly NativeSlotRead[]) =>
       Result.match(tableByName(tableName, false, access), { onFailure: () => [], onSuccess: table => [{ table, slots: slots(table) }] });
     registerCoreNativePrefetcher(issued, {
-      inserts: groups => prefetchNativeBatch(groups.flatMap(({ tableName, rows }) => tableSlots(tableName, table => nativeInsertSlots(table, rows)))),
-      finds: (tableName, wheres) => prefetchNativeBatch(tableSlots(tableName, table => nativeQuerySlots(table, wheres))),
+      inserts: groups => Effect.asVoid(prefetchNativeBatch(groups.flatMap(({ tableName, rows }) => tableSlots(tableName, table => nativeInsertSlots(table, rows))))),
+      graphInserts: groups => prefetchNativeGraphInserts(groups, access),
+      finds: (tableName, wheres) => Effect.asVoid(prefetchNativeBatch(tableSlots(tableName, table => nativeQuerySlots(table, wheres)))),
     });
     return issued;
   };

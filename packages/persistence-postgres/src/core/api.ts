@@ -534,6 +534,9 @@ export interface CoreDatabase {
   readonly bindNative: (input: Readonly<{ definition: CoreNativeDefinition; namespace?: CoreTableNamespace;
     commands?: readonly Readonly<{ name: string; mode: "read" | "write" }>[]; protectedMetadata?: true }>) => Effect.Effect<CoreNativeBinding, CoreError>;
   readonly readNativeBinding: (binding: CoreNativeBinding) => Effect.Effect<CoreNativeBindingMetadata, CoreError>;
+  /** The open, issued-binding and current-authority checks of `readNativeBinding`
+   * with the same failures, for callers that need no metadata copy. */
+  readonly assertNativeBinding: (binding: CoreNativeBinding) => Effect.Effect<void, CoreError>;
   readonly bindNativeInitialization: (input: Readonly<{ binding: CoreNativeBinding; commandName: string }>) =>
     Effect.Effect<CoreNativeInitializationBinding, CoreError>;
   readonly beginNative: (binding: CoreNativeBinding, options: Readonly<{ commandName: string; claim?: CoreRequestClaim;

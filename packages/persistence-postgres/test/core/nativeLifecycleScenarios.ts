@@ -215,6 +215,7 @@ export function registerNativeLifecycleScenarios(label: string, createFixture: (
         yield* reopened.close();
         const cold = yield* openCoreDatabase(yield* Effect.promise(() => fixture.reopen()), options);
         expect(failure(yield* Effect.result(cold.readNativeBinding(binding)))).toMatchObject({ reason: "authorityRevoked" });
+        expect(failure(yield* Effect.result(cold.assertNativeBinding(binding)))).toMatchObject({ reason: "authorityRevoked" });
         const rebuiltDefinition = yield* source(), coldBinding = yield* cold.bindNative({ definition: rebuiltDefinition });
         const coldRead = yield* cold.beginNative(coldBinding, { ...coreNativeTestBudget(), commandName: "payload-find" });
         expect(yield* coldRead.operations.find(table?.name ?? "missing", {})).toHaveLength(1);
@@ -237,6 +238,8 @@ export function registerNativeLifecycleScenarios(label: string, createFixture: (
         expect(failure(yield* Effect.result(database.claimRequest(request)))).toMatchObject({ reason: "authorityRevoked" });
         const forgedBinding = yield* Effect.result(database.readNativeBinding(issueCoreNativeBinding()));
         expect(failure(forgedBinding)).toMatchObject({ reason: "authorityRevoked" });
+        expect(failure(yield* Effect.result(database.assertNativeBinding(issueCoreNativeBinding())))).toMatchObject({ reason: "authorityRevoked" });
+        expect(yield* database.assertNativeBinding(binding)).toBeUndefined();
         const acquired = yield* database.claimRequest(request, binding);
         if (acquired.kind !== "claimed") return yield* Effect.die(new Error("Missing native claim"));
         const create = yield* database.beginNative(binding, { ...coreNativeTestBudget(), commandName: command.name, claim: acquired.claim });
@@ -371,6 +374,7 @@ export function registerNativeLifecycleScenarios(label: string, createFixture: (
         yield* read.finishRead();
         yield* database.close();
         expect(failure(yield* Effect.result(database.readNativeBinding(fresh)))).toMatchObject({ reason: "closed" });
+        expect(failure(yield* Effect.result(database.assertNativeBinding(fresh)))).toMatchObject({ reason: "closed" });
         expect(failure(yield* Effect.result(read.operations.find(definition.tables[0]?.name ?? "missing", {})))).toMatchObject({ reason: "closed" });
       }))); } finally { await fixture.close(); }
     }, 60_000);

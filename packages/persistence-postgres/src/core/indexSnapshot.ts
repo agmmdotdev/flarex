@@ -4,7 +4,7 @@
  * Copyright 2026 Convex, Inc., FSL-1.1-Apache-2.0 (convex-backend/LICENSE.md).
  */
 import { BTreeEx as BTree } from "sorted-btree/extended/index.js";
-import { Cause, Effect, Exit, Result } from "effect";
+import { Cause, Effect, Exit, Fiber, Result } from "effect";
 import { bytesEqual, compareBytesLexicographically, encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import type { DocumentObject } from "flarex-protocol/document-value";
 import { incrementIndexKeyPrefix, indexRangeIsEmpty, splitIndexRangeAfter } from "flarex-protocol/index-range";
@@ -346,9 +346,31 @@ export function createCoreIndexSnapshot(input: Readonly<{
       const preload = input.snapshot.preload(misses);
       yield* advisoryPreload(options.withPermit === undefined ? preload : options.withPermit(preload));
     }
-    const fetched = yield* Effect.forEach(requests, (request, position) =>
-      Effect.exit(fetch(request, options.withPermit, residents[position])),
-      { concurrency: Math.max(1, options.concurrency) });
+    // Each lane takes the next unclaimed request, so at most `concurrency` fetches
+    // are in flight and every request keeps its own outcome. A lane starts at once
+    // and serves each request whose page is already in hand without suspending;
+    // another lane is forked only while every earlier one waits on persistence
+    // with requests still unclaimed.
+    const fetched: Exit.Exit<Fetched, CoreError>[] = [];
+    let next = 0;
+    const lane = Effect.whileLoop({
+      while: () => next < requests.length,
+      body: () => {
+        const position = next++, request = requests[position];
+        return request === undefined ? Effect.void
+          : Effect.map(Effect.exit(fetch(request, options.withPermit, residents[position])), outcome => { fetched[position] = outcome; });
+      },
+      step: () => undefined,
+    });
+    // A bound that is not a finite number admits one fetch at a time.
+    const lanes = Math.min(Number.isFinite(options.concurrency) ? Math.max(1, Math.trunc(options.concurrency)) : 1, requests.length);
+    if (lanes === 1) yield* lane;
+    else if (lanes > 1) yield* Effect.uninterruptibleMask(restore => Effect.gen(function* () {
+      const fibers: Fiber.Fiber<void>[] = [];
+      // A lane returns here once it waits or finds nothing left to claim.
+      while (fibers.length < lanes && next < requests.length) fibers.push(yield* Effect.forkChild(lane, { startImmediately: true }));
+      yield* Effect.onInterrupt(restore(Fiber.joinAll(fibers)), () => Fiber.interruptAll(fibers));
+    }));
     // Source fills the cache only after the concurrent phase; a failed slot
     // contributes nothing and does not affect any other slot.
     return fetched.map((outcome): Exit.Exit<CoreIndexPage, CoreError> => Exit.isSuccess(outcome)

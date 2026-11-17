@@ -181,3 +181,99 @@ it("retains byte, node and depth bounds and accounts undefined-path metadata as 
   expect(capturePrivateIntermediateJsonData({ ["key".repeat(100)]: undefined }, { ...bounds, bytes: 30 }, failure))
     .toMatchObject({ _tag: "Failure", failure: { reason: "limitExceeded" } });
 });
+
+it("selects the first refusal and the exact charge across representative inputs", () => {
+  const nest = (leaf: unknown, levels: number): unknown => { let value = leaf; for (let level = 0; level < levels; level++) value = [value]; return value; };
+  const accessor = (): object => Object.defineProperty({ first: "x".repeat(50) }, "later", { enumerable: true, get: () => { throw new Error("getter read"); } });
+  const cycle: unknown[] = [1]; cycle.push(cycle);
+  const wide = { bytes: 1024, nodes: 20, depth: 16 };
+  const strict = (input: unknown, maximum: number, policy?: Parameters<typeof capturePrivateJsonData>[3]) =>
+    capturePrivateJsonData(input, maximum, failure, policy);
+  const omitting = (input: unknown, bounds: typeof wide) => capturePrivateJsonDataOmittingUndefined(input, bounds, failure);
+  const cases: readonly (readonly [string, () => ReturnType<typeof strict>, "invalidInput" | "limitExceeded" | number])[] = [
+    ["bytes before a later invalid member", () => strict(["x".repeat(50), () => 1], 10), "limitExceeded"],
+    ["invalid member before later bytes", () => strict([() => 1, "x".repeat(50)], 10), "invalidInput"],
+    ["symbol key before the container charge", () => strict({ a: 1, [Symbol("k")]: 2 }, 1), "invalidInput"],
+    ["key count before members", () => strict([Number.NaN, 2, 3, 4, 5], 4), "limitExceeded"],
+    ["first member before key count allows it", () => strict([Number.NaN, 2, 3, 4, 5], 1024), "invalidInput"],
+    ["sparse array", () => strict(Object.assign(Array(3), { 0: 1, 2: 3 }), 1024), "invalidInput"],
+    ["array with a named member", () => strict(Object.assign([1], { extra: 1 }), 1024), "invalidInput"],
+    ["accessor after bytes ran out", () => strict(accessor(), 10), "limitExceeded"],
+    ["accessor within budget", () => strict(accessor(), 1024), "invalidInput"],
+    ["depth before the leaf type", () => strict(nest(() => 1, 65), 1024), "limitExceeded"],
+    ["invalid leaf at the deepest admitted level", () => strict(nest(() => 1, 64), 1024), "invalidInput"],
+    ["deepest admitted tree", () => strict(nest(1, 64), 1024), 129],
+    ["scalar under an invalid budget", () => strict(1, Number.NaN), "invalidInput"],
+    ["container under a negative budget", () => strict({}, -1), "limitExceeded"],
+    ["bytes before malformed Unicode", () => strict({ bad: "\ud800" }, 10, { wellFormedUnicode: true }), "limitExceeded"],
+    ["malformed Unicode after complete capture", () => strict({ ok: "a", bad: "\ud800" }, 1024, { wellFormedUnicode: true }), "invalidInput"],
+    ["malformed key after complete capture", () => strict({ "k\udc00": 1 }, 1024, { wellFormedUnicode: true }), "invalidInput"],
+    ["escaped surrogates, own __proto__ and negative zero", () => strict(JSON.parse('{"__proto__":1,"雪":[-0,"\\ud800"],"n":null}'), 1024), 43],
+    ["exact budget", () => strict({ a: [true, "é"] }, 17), 17],
+    ["one byte short", () => strict({ a: [true, "é"] }, 16), "limitExceeded"],
+    ["native descriptor before strict bytes", () => omitting(accessor(), { ...wide, bytes: 10 }), "invalidInput"],
+    ["native nodes before a later invalid member", () => omitting({ a: [1, 2, 3], b: Number.NaN }, { ...wide, nodes: 3 }), "limitExceeded"],
+    ["invalid member within native bounds", () => omitting({ a: [1, 2, 3], b: Number.NaN }, wide), "invalidInput"],
+    ["native depth", () => omitting([[1]], { ...wide, depth: 1 }), "limitExceeded"],
+    ["native cycle", () => omitting(cycle, wide), "invalidInput"],
+    ["dense check after members", () => omitting(Object.assign(Array(2), { 1: () => 1 }), wide), "invalidInput"],
+    ["omitted members are not charged", () => omitting({ a: undefined, b: [1, { c: undefined, d: "雪" }] }, wide), 21],
+    ["strict bytes after native validation", () => omitting({ a: undefined, b: "x".repeat(50) }, { ...wide, bytes: 10 }), "limitExceeded"],
+  ];
+  for (const [name, run, expected] of cases) {
+    const result = run();
+    expect(Result.isSuccess(result) ? result.success.bytes : result.failure.reason, name).toBe(expected);
+    if (Result.isSuccess(result))
+      expect(result.success.bytes, name).toBe(new TextEncoder().encode(JSON.stringify(result.success.value)).length);
+  }
+});
+
+it("defines captured members and elements without consulting inherited accessors or descriptor fields", () => {
+  const objectPrototype: object = Object.prototype, arrayPrototype: object = Array.prototype;
+  const text = '{"polluted":1,"__proto__":{"a":1},"toString":2,"0":"zero","nested":[["a","b"],{"polluted":"x","get":[3,4]},"c"]}';
+  const bounds = { bytes: 1024, nodes: 100, depth: 16 };
+  const issued = success(capturePrivateJsonData(JSON.parse(text), 1024, failure));
+  let consulted = 0;
+  type Captured = ReturnType<typeof capturePrivateJsonData<ReturnType<typeof failure>>>;
+  // Named slots: writing results into an array here would itself meet the accessors.
+  let freshResult: Captured | undefined, omittingResult: Captured | undefined, usedResult: Captured | undefined,
+    detachedResult: Captured | undefined, wrappedResult: Captured | undefined;
+  const accessor = { configurable: true, get() { consulted++; return undefined; }, set() { consulted++; } };
+  const installed: (readonly [object, string])[] = [[objectPrototype, "polluted"], [objectPrototype, "0"], [objectPrototype, "2"],
+    [arrayPrototype, "1"], [arrayPrototype, "0"]];
+  for (const [prototype, key] of installed) Object.defineProperty(prototype, key, accessor);
+  Object.defineProperty(objectPrototype, "get", { configurable: true, value: () => 1 });
+  try {
+    const input: unknown = JSON.parse(text);
+    freshResult = capturePrivateJsonData(input, 1024, failure);
+    omittingResult = capturePrivateJsonDataOmittingUndefined(input, bounds, failure);
+    usedResult = useCapturedPrivateJsonData(input, 1024, failure);
+    // An issued tree escaping to another owner is copied by the detach path.
+    detachedResult = capturePrivateJsonData(issued.value, 1024, failure);
+    wrappedResult = capturePrivateJsonData({ wrapped: [issued.value] }, 1024, failure);
+  } finally {
+    for (const [prototype, key] of installed) Reflect.deleteProperty(prototype, key);
+    Reflect.deleteProperty(objectPrototype, "get");
+  }
+  if (freshResult === undefined || omittingResult === undefined || usedResult === undefined || detachedResult === undefined || wrappedResult === undefined)
+    throw new Error("Missing capture under inherited accessors");
+  expect(consulted).toBe(0);
+  const fresh = success(freshResult), omitting = success(omittingResult), used = success(usedResult),
+    detached = success(detachedResult), wrapped = success(wrappedResult);
+  for (const captured of [fresh, omitting, used, detached]) {
+    expect(JSON.stringify(captured.value)).toBe('{"0":"zero","polluted":1,"__proto__":{"a":1},"toString":2,"nested":[["a","b"],{"polluted":"x","get":[3,4]},"c"]}');
+    expect(captured.bytes).toBe(issued.bytes);
+    expect(Object.getPrototypeOf(captured.value)).toBe(Object.prototype);
+    expect(Object.hasOwn(Object(captured.value), "__proto__")).toBe(true);
+  }
+  expect(detached.value).not.toBe(issued.value);
+  expect(detached.value).toEqual(issued.value);
+  expect(JSON.stringify(wrapped.value)).toBe(`{"wrapped":[${JSON.stringify(issued.value)}]}`);
+  // Every array is dense with own data elements, whichever path built it.
+  const arrays = (value: unknown): unknown[][] => Array.isArray(value) ? [value, ...value.flatMap(arrays)]
+    : typeof value === "object" && value !== null ? Object.values(value).flatMap(arrays) : [];
+  for (const captured of [fresh, omitting, used, detached, wrapped]) {
+    expect(arrays(captured.value)).toHaveLength(captured === wrapped ? 4 : 3);
+    for (const array of arrays(captured.value)) expect(Object.keys(array)).toHaveLength(array.length);
+  }
+});

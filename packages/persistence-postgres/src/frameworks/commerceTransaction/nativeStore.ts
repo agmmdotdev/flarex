@@ -14,7 +14,8 @@ import type { CommerceStore } from "./storeModel";
 import type { LogicalPreservingDeletionUpsertPolicy, LogicalReconstitutionPolicy } from "../../storage/documents/logicalDocuments/model";
 import { projectCoreCommerceFailure } from "./nativeFailure";
 import { observeExecution } from "../../execution/diagnostics/operation";
-import type { CommerceReferenceReplacement, CommerceSetNullSelection } from "./commands";
+import type { CommerceInsertGroups, CommerceReferenceReplacement, CommerceSetNullSelection } from "./commands";
+import { prefetchCoreNativeGraphInsertSlots } from "../../core/nativePrefetch";
 
 const nativeResult = <A>(work: Effect.Effect<A, CoreError>) => work.pipe(
   Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectCoreCommerceFailure))));
@@ -59,6 +60,8 @@ export const makeNativeCommerceParticipant = Effect.fnUntraced(function* (
   admitListPages = false,
 ) {
   const stores = new Map<string, CommerceStore>();
+  /** The Core table behind each store, by the same adapter-local name. */
+  const storeTables = new Map<string, string>();
   const onRead = invocation?.onRead;
   const readRelated = invocation?.readRelated;
   const retain = <Value>(value: Value) => Effect.gen(function* () {
@@ -190,6 +193,7 @@ export const makeNativeCommerceParticipant = Effect.fnUntraced(function* (
       }),
     } satisfies CommerceStore);
     stores.set(declaration.localName ?? declaration.name, store);
+    storeTables.set(declaration.localName ?? declaration.name, table.name);
   }
   const table = (context: BoundedRequestContext, name: string) => lifetime.operation(context, transactionId, "read", Effect.suspend(() => {
     const store = stores.get(name);
@@ -198,7 +202,28 @@ export const makeNativeCommerceParticipant = Effect.fnUntraced(function* (
   const first = metadata.definition.tables[0];
   if (first === undefined) return yield* commerceError("unsupportedProfile");
   const store = yield* table(initialContext, first.localName ?? first.name);
-  return Object.freeze({ store, resources, table,
+  /** The context is authenticated without a call charge, and only a write request may
+   * announce. The body runs within the request deadline, so a refusal, defect or
+   * interruption is retained as the request's failure like any native call's. The
+   * announced rows are captured exactly as rows reaching a write are, within the
+   * remaining request bytes, but not charged: they are only read to derive slot
+   * intervals, and the write that follows captures and charges them. A table or
+   * capture this owner refuses ends the announcement there, leaving the rest to
+   * their own inserts. */
+  const prefetchInserts = (context: BoundedRequestContext, groups: CommerceInsertGroups) => Effect.andThen(lifetime.checkpoint(context),
+    lifetime.withinDeadline(Effect.suspend(() => {
+      if (lifetime.mode === "read") return Effect.fail(commerceError("invalidAuthority"));
+      const announced: Array<{ tableName: string; rows: readonly JsonObject[] }> = [];
+      for (const group of groups) {
+        const tableName = storeTables.get(group.tableName);
+        const rows = tableName === undefined ? undefined
+          : Result.getOrUndefined(useCapturedPrivateJsonData(group.rows, lifetime.remainingBytes(), commerceError))?.value;
+        if (tableName === undefined || !Array.isArray(rows) || !rows.every(isJsonObject)) break;
+        announced.push({ tableName, rows });
+      }
+      return prefetchCoreNativeGraphInsertSlots(operations, announced);
+    })));
+  return Object.freeze({ store, resources, table, prefetchInserts,
     ...(invocation?.setNullPolicy === undefined ? {} : {
       planSetNull: (context: BoundedRequestContext, input: CommerceSetNullSelection) => lifetime.operation(context, transactionId, "write", Effect.gen(function* () {
         const captured = yield* lifetime.fromResult(useCapturedPrivateJsonData(input, lifetime.remainingBytes(), commerceError));

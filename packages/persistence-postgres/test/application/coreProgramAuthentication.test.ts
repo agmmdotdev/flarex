@@ -20,7 +20,7 @@ function metadataDatabase(program: CoreProgramDefinition, forbidden: () => Effec
     readApplicationCandidate: forbidden, abandonApplicationCandidate: forbidden,
     prepareApplicationCandidate: forbidden, activateApplicationCandidate: forbidden, readActiveApplicationCandidate: forbidden,
     advanceSchema: forbidden, activateSchema: forbidden, publishPrograms: forbidden, lookupProgram: forbidden,
-    bindNative: forbidden, readNativeBinding: forbidden, beginNative: forbidden,
+    bindNative: forbidden, readNativeBinding: forbidden, assertNativeBinding: forbidden, beginNative: forbidden,
     bindNativeInitialization: forbidden,
     bindNativeRoot: forbidden, readNativeRootBinding: forbidden, beginNativeRoot: forbidden, bindNativeRootRecovery: forbidden,
     readNativeRootRequestEvidence: forbidden, resolveCommittedNativeRootRequest: forbidden,

@@ -441,6 +441,51 @@ describe("translated operation range batch", () => {
     expect(physical.calls).toHaveLength(fetched + 1);
   });
 
+  it("serves pages already in hand in input order without leaving the caller's turn", () => {
+    const physical = reader(6);
+    const keyed = physical.rows.map(row => keyFor(row));
+    const snapshot = createCoreIndexSnapshot({ registry, snapshot: { ...physical.snapshot, scan: input =>
+      input.interval.start !== null && bytesEqual(input.interval.start, keyed[3]!)
+        ? Effect.fail(new CorePersistenceError({ reason: "unavailable" })) : physical.snapshot.scan(input) } });
+    const requests = [5, 3, 1, 4, 0].map(position => request(byValue, pointInterval(keyed[position]!)));
+    // No fetch waits on persistence, so the whole batch settles synchronously on its first lane.
+    const outcomes = Effect.runSync(snapshot.rangeBatch(requests, { concurrency: 4 }));
+    expect(outcomes.map(outcome => Exit.isSuccess(outcome) ? rowValues(outcome.value) : "failed")).toEqual([[5], "failed", [1], [4], [0]]);
+    expect(physical.calls.map(call => call.interval.start)).toEqual([5, 1, 4, 0].map(position => keyed[position]));
+  });
+
+  it.each([Number.NaN, Number.POSITIVE_INFINITY, 0, -3])("serves every request one at a time under the bound %s", concurrency => {
+    const physical = reader(3);
+    const snapshot = createCoreIndexSnapshot({ registry, snapshot: physical.snapshot });
+    const requests = physical.rows.map(row => request(byValue, pointInterval(keyFor(row))));
+    const outcomes = Effect.runSync(snapshot.rangeBatch(requests, { concurrency }));
+    expect(outcomes.map(outcome => Exit.isSuccess(outcome) ? rowValues(outcome.value) : "failed")).toEqual([[0], [1], [2]]);
+  });
+
+  it("adds lanes only while a fetch waits and keeps each waiting request's own outcome", async () => {
+    const physical = reader(6);
+    const keyed = physical.rows.map(row => keyFor(row));
+    const waits = new Set([1, 3].map(position => keyed[position]));
+    let active = 0, peak = 0;
+    const started: Array<Uint8Array | null> = [];
+    const snapshot = createCoreIndexSnapshot({ registry, snapshot: { ...physical.snapshot, scan: input => Effect.gen(function* () {
+      started.push(input.interval.start);
+      const waiting = [...waits].some(key => key !== undefined && input.interval.start !== null && bytesEqual(input.interval.start, key));
+      if (!waiting) return yield* physical.snapshot.scan(input);
+      active += 1; peak = Math.max(peak, active);
+      yield* Effect.sleep("2 millis");
+      active -= 1;
+      if (bytesEqual(input.interval.start ?? new Uint8Array(), keyed[3]!)) return yield* new CorePersistenceError({ reason: "unavailable" });
+      return yield* physical.snapshot.scan(input);
+    }) } });
+    const order = [0, 1, 2, 3, 4, 5];
+    const outcomes = await Effect.runPromise(snapshot.rangeBatch(order.map(position => request(byValue, pointInterval(keyed[position]!))), { concurrency: 2 }));
+    expect(outcomes.map(outcome => Exit.isSuccess(outcome) ? rowValues(outcome.value) : "failed")).toEqual([[0], [1], [2], "failed", [4], [5]]);
+    // Requests are claimed in input order; the second lane started only once the first waited.
+    expect(started).toEqual(order.map(position => keyed[position]));
+    expect(peak).toBe(2);
+  });
+
   it("admits each persistence fetch through the supplied permit and bounds overlap", async () => {
     const physical = reader(8);
     let active = 0, peak = 0, admitted = 0;

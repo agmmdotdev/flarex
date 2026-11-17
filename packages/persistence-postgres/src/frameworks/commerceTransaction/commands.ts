@@ -29,6 +29,8 @@ export interface CommerceReferenceReplacement {
   readonly desiredKeys: readonly string[];
 }
 
+export type CommerceInsertGroups = readonly Readonly<{ tableName: string; rows: readonly Readonly<Record<string, Json>>[] }>[];
+
 declare const commandBrand: unique symbol;
 export interface CommerceCommand { readonly [commandBrand]: true }
 export interface CommerceCommandContext {
@@ -48,6 +50,10 @@ export interface CommerceCommandContext {
   readonly detachDeletedReference?: (selection: CommerceDeletedReferenceSelection) => Effect.Effect<void, CommerceTransactionError>;
   /** Seals one declared nullable-reference replacement for core settlement. */
   readonly planReferenceReplacement?: (selection: CommerceReferenceReplacement) => Effect.Effect<void, CommerceTransactionError>;
+  /** Native participants only. Announces the complete rows of one graph insert, by this
+   * context's table names and in table insert order, immediately before those inserts.
+   * A hint: it reads nothing for the caller, charges no call or byte and grants nothing. */
+  readonly prefetchInserts?: (groups: CommerceInsertGroups) => Effect.Effect<void, CommerceTransactionError>;
   readonly captureLocalEvent: (event: unknown) => Effect.Effect<void, CommerceTransactionError>;
   readonly nested: (command: CommerceCommand, args: Json) => Effect.Effect<Json, CommerceTransactionError>;
   readonly rejectEvent: Effect.Effect<never, CommerceTransactionError>;

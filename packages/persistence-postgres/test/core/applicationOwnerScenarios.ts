@@ -144,6 +144,7 @@ export function registerApplicationOwnerScenarios(label: string, createFixture: 
       yield* owner.use(prepared => Effect.gen(function* () {
         const selected = yield* bindings(prepared.database, profile);
         expect(failure(yield* Effect.result(prepared.database.readNativeBinding(old.binding)))).toMatchObject({ reason: "authorityRevoked" });
+        expect(failure(yield* Effect.result(prepared.database.assertNativeBinding(old.binding)))).toMatchObject({ reason: "authorityRevoked" });
         expect(failure(yield* Effect.result(prepared.database.abortRequest(old.claim)))).toMatchObject({ reason: "foreignClaim" });
         expect(yield* prepared.database.resolveRequest(request(selected.metadata.identity.definitionHash, "owner-A"))).toEqual({ kind: "failed" });
         expect(yield* prepared.database.resolveRequest(request(selected.metadata.identity.definitionHash, "owner-B")))

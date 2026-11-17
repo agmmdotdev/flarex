@@ -25,7 +25,7 @@ const failed = <A>(result: Result.Result<A, CoreError>) => Result.isFailure(resu
 
 /** Every case installs the genuine complete Product compiler output through
  * Core's real lifecycle; no reduced integrity fixture supplies the policy. */
-const setup = Effect.fn("NativeRelationalIntegrity.setup")(function* (fixture: CorePersistenceFixture,
+export const setupCompleteProductNative = Effect.fn("NativeRelationalIntegrity.setup")(function* (fixture: CorePersistenceFixture,
   persistence: CorePersistence = fixture.persistence, overrides: Partial<CoreDatabaseOptions> = {}, applicationReferences = false) {
   const definition = yield* compileProductCoreDefinition(target);
   const application = applicationReferences ? yield* prepareApplicationSchemaSource(defineSchema({
@@ -64,7 +64,7 @@ const setup = Effect.fn("NativeRelationalIntegrity.setup")(function* (fixture: C
     if (declaration === undefined) throw new Error(`Missing genuine Product table ${localName}`);
     return declaration.name;
   };
-  const begin = () => database.beginNative(binding, { commandName: "integrity-write", ...coreNativeTestBudget() });
+  const begin = (budget = coreNativeTestBudget()) => database.beginNative(binding, { commandName: "integrity-write", ...budget });
   const write = <A>(body: (operations: CoreNativeOperations) => Effect.Effect<A, CoreError>) => Effect.acquireUseRelease(begin(),
     operation => Effect.gen(function* () {
       const value = yield* body(operation.operations);
@@ -75,8 +75,11 @@ const setup = Effect.fn("NativeRelationalIntegrity.setup")(function* (fixture: C
       const result = yield* operation.operations.find(table(localName), where);
       yield* operation.finishRead(); return result;
     }), operation => operation.abort());
-  return { database, definition, bundle, table, begin, write, read };
+  const beginRead = () => database.beginNative(binding, { commandName: "integrity-read", ...coreNativeTestBudget() });
+  return { database, definition, bundle, table, begin, beginRead, write, read };
 });
+
+const setup = setupCompleteProductNative;
 
 export function registerNativeRelationalIntegrityScenarios(label: string, createFixture: () => Promise<CorePersistenceFixture>) {
   describe(label, () => {

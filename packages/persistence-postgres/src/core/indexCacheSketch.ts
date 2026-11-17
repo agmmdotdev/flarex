@@ -13,49 +13,66 @@ const RESET_MASK = 0x7777_7777_7777_7777n;
 const ONE_MASK = 0x1111_1111_1111_1111n;
 const utf8 = new TextEncoder();
 
-function rotate(value: bigint, count: bigint): bigint {
-  return BigInt.asUintN(64, (value << count) | (value >> (64n - count)));
-}
+/** Reused UTF-8 scratch space: hashing is synchronous and retains none of it. */
+let scratch = new Uint8Array(256);
 
-/** Keyed SipHash-1-3 over our canonical UTF-8 key representation. */
+/**
+ * Keyed SipHash-1-3 over our canonical UTF-8 key representation. Seeds are
+ * unsigned 64-bit words. Each state word is carried as two 32-bit halves, so
+ * the rounds allocate nothing; the result is the same 64-bit word.
+ */
 export function hashCoreIndexPageKey(key: string, seed0: bigint, seed1: bigint): bigint {
-  const bytes = utf8.encode(key);
-  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  let v0 = seed0 ^ 0x736f_6d65_7073_6575n;
-  let v1 = seed1 ^ 0x646f_7261_6e64_6f6dn;
-  let v2 = seed0 ^ 0x6c79_6765_6e65_7261n;
-  let v3 = seed1 ^ 0x7465_6462_7974_6573n;
-  const round = () => {
-    v0 = BigInt.asUintN(64, v0 + v1);
-    v2 = BigInt.asUintN(64, v2 + v3);
-    v1 = rotate(v1, 13n) ^ v0;
-    v3 = rotate(v3, 16n) ^ v2;
-    v0 = rotate(v0, 32n);
-    v2 = BigInt.asUintN(64, v2 + v1);
-    v0 = BigInt.asUintN(64, v0 + v3);
-    v1 = rotate(v1, 17n) ^ v2;
-    v3 = rotate(v3, 21n) ^ v0;
-    v2 = rotate(v2, 32n);
-  };
-  let offset = 0;
-  while (offset + 8 <= bytes.length) {
-    const word = view.getBigUint64(offset, true);
-    v3 ^= word;
-    round();
-    v0 ^= word;
-    offset += 8;
+  // A UTF-16 code unit encodes to at most three UTF-8 bytes.
+  if (scratch.length < key.length * 3) scratch = new Uint8Array(key.length * 3);
+  const bytes = scratch;
+  const length = utf8.encodeInto(key, bytes).written;
+  const k0l = Number(seed0 & 0xffff_ffffn) | 0;
+  const k0h = Number(seed0 >> 32n) | 0;
+  const k1l = Number(seed1 & 0xffff_ffffn) | 0;
+  const k1h = Number(seed1 >> 32n) | 0;
+  let v0h = k0h ^ 0x736f_6d65, v0l = k0l ^ 0x7073_6575;
+  let v1h = k1h ^ 0x646f_7261, v1l = k1l ^ 0x6e64_6f6d;
+  let v2h = k0h ^ 0x6c79_6765, v2l = k0l ^ 0x6e65_7261;
+  let v3h = k1h ^ 0x7465_6462, v3l = k1l ^ 0x7974_6573;
+  const blocks = length >>> 3;
+  // Every full block and then the length-tagged tail compress once; three more rounds finalize.
+  for (let step = 0; step < blocks + 4; step += 1) {
+    let mh = 0, ml = 0;
+    if (step < blocks) {
+      const at = step << 3;
+      ml = (bytes[at] ?? 0) | ((bytes[at + 1] ?? 0) << 8) | ((bytes[at + 2] ?? 0) << 16) | ((bytes[at + 3] ?? 0) << 24);
+      mh = (bytes[at + 4] ?? 0) | ((bytes[at + 5] ?? 0) << 8) | ((bytes[at + 6] ?? 0) << 16) | ((bytes[at + 7] ?? 0) << 24);
+    } else if (step === blocks) {
+      const at = blocks << 3;
+      mh = (length & 255) << 24;
+      for (let index = at; index < length; index += 1) {
+        const shift = (index - at) << 3;
+        if (shift < 32) ml |= (bytes[index] ?? 0) << shift;
+        else mh |= (bytes[index] ?? 0) << (shift - 32);
+      }
+    } else if (step === blocks + 1) v2l ^= 255;
+    v3h ^= mh; v3l ^= ml;
+    let low = (v0l + v1l) | 0;
+    v0h = (v0h + v1h + ((low >>> 0) < (v0l >>> 0) ? 1 : 0)) | 0; v0l = low;
+    low = (v2l + v3l) | 0;
+    v2h = (v2h + v3h + ((low >>> 0) < (v2l >>> 0) ? 1 : 0)) | 0; v2l = low;
+    let high = (v1h << 13) | (v1l >>> 19);
+    v1l = ((v1l << 13) | (v1h >>> 19)) ^ v0l; v1h = high ^ v0h;
+    high = (v3h << 16) | (v3l >>> 16);
+    v3l = ((v3l << 16) | (v3h >>> 16)) ^ v2l; v3h = high ^ v2h;
+    low = v0h; v0h = v0l; v0l = low;
+    low = (v2l + v1l) | 0;
+    v2h = (v2h + v1h + ((low >>> 0) < (v2l >>> 0) ? 1 : 0)) | 0; v2l = low;
+    low = (v0l + v3l) | 0;
+    v0h = (v0h + v3h + ((low >>> 0) < (v0l >>> 0) ? 1 : 0)) | 0; v0l = low;
+    high = (v1h << 17) | (v1l >>> 15);
+    v1l = ((v1l << 17) | (v1h >>> 15)) ^ v2l; v1h = high ^ v2h;
+    high = (v3h << 21) | (v3l >>> 11);
+    v3l = ((v3l << 21) | (v3h >>> 11)) ^ v0l; v3h = high ^ v0h;
+    low = v2h; v2h = v2l; v2l = low;
+    v0h ^= mh; v0l ^= ml;
   }
-  let tail = BigInt(bytes.length & 255) << 56n;
-  for (let index = offset; index < bytes.length; index += 1)
-    tail |= BigInt(bytes[index] ?? 0) << BigInt(8 * (index - offset));
-  v3 ^= tail;
-  round();
-  v0 ^= tail;
-  v2 ^= 255n;
-  round();
-  round();
-  round();
-  return v0 ^ v1 ^ v2 ^ v3;
+  return (BigInt((v0h ^ v1h ^ v2h ^ v3h) >>> 0) << 32n) | BigInt((v0l ^ v1l ^ v2l ^ v3l) >>> 0);
 }
 
 /** Four 4-bit counters per sample, with the pinned saturation and aging rules. */

@@ -5,7 +5,7 @@
  */
 import { BTreeEx as BTree } from "sorted-btree/extended/index.js";
 import { Result } from "effect";
-import { compareBytesLexicographically, copyBytes, encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
+import { bytesEqual, compareBytesLexicographically, copyBytes, encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { CorePersistenceError, type CoreInterval, type CorePersistenceIndexEntry, type CoreTimestamp } from "./contracts";
 
 /** Pinned source: db914cf06 database/src/write_log.rs, WriteLogSnapshot/PendingKeysInIndex. */
@@ -34,30 +34,67 @@ export function pointInterval(key: Uint8Array): CoreInterval {
   return Object.freeze({ start: key.slice(), end });
 }
 
+/**
+ * Lowercase-hex spelling of an index identifier. Registry references and retained batches present the same
+ * array many times, so its spelling is kept beside a private copy and reused only while the bytes still match.
+ */
+const spelledIdentifiers = new WeakMap<Uint8Array, Readonly<{ id: Uint8Array; name: string }>>();
+function indexName(indexId: Uint8Array): string {
+  const known = spelledIdentifiers.get(indexId);
+  if (known !== undefined && bytesEqual(known.id, indexId)) return known.name;
+  const name = encodeBytesToLowercaseHex(indexId);
+  spelledIdentifiers.set(indexId, { id: copyBytes(indexId), name });
+  return name;
+}
+
+/** An owned copy of an identifier whose spelling is already known, so later batches need not respell it. */
+function copySpelledIdentifier(indexId: Uint8Array, name: string): Uint8Array {
+  const owned = copyBytes(indexId);
+  spelledIdentifiers.set(owned, { id: copyBytes(indexId), name });
+  return owned;
+}
+
 type OrderedIntervals = BTree<Uint8Array | null, CoreInterval>;
+interface ReadIndex { readonly id: Uint8Array; readonly intervals: OrderedIntervals }
 
 function intervalIsEmpty(interval: CoreInterval): boolean {
   return interval.start !== null && interval.end !== null && compareBytesLexicographically(interval.start, interval.end) >= 0;
 }
 
-/** Unions one non-empty interval into a normalized set, which keeps `owned` and never writes its bounds. */
-function mergeInterval(intervals: OrderedIntervals, owned: CoreInterval): void {
-  let merged = owned;
-  const equal = intervals.get(merged.start);
-  const previous = equal ?? intervals.nextLowerPair(merged.start)?.[1];
-  const removals: Array<Uint8Array | null> = [];
-  if (previous !== undefined && (previous.end === null || merged.start === null
-    || compareBytesLexicographically(previous.end, merged.start) >= 0)) {
-    merged = { start: previous.start, end: maximumEnd(previous.end, merged.end) };
-    removals.push(previous.start);
+/**
+ * Unions one non-empty interval into a normalized set. An `owned` interval's bounds are kept and never written;
+ * otherwise only the bounds the set retains are copied. Each neighbour is found by one descent.
+ */
+function mergeInterval(intervals: OrderedIntervals, interval: CoreInterval, owned: boolean): void {
+  let start = interval.start;
+  let end = interval.end;
+  let merged = false;
+  // Normalized members are disjoint and non-adjacent, so only the equal-or-lower one can reach `start`.
+  const previous = intervals.getPairOrNextLower(start)?.[1];
+  if (previous !== undefined && (previous.end === null || start === null
+    || compareBytesLexicographically(previous.end, start) >= 0)) {
+    // A member that already covers the interval leaves the set as it is.
+    if (previous.end === null || (end !== null && compareBytesLexicographically(previous.end, end) >= 0)) return;
+    start = previous.start;
+    merged = true;
   }
-  for (const [key, next] of intervals.entries(merged.start)) {
-    if (merged.end !== null && next.start !== null && compareBytesLexicographically(next.start, merged.end) > 0) break;
-    merged = { start: merged.start, end: maximumEnd(merged.end, next.end) };
-    removals.push(key);
+  for (;;) {
+    const next = intervals.nextHigherPair(start);
+    if (next === undefined) break;
+    const [key, value] = next;
+    if (end !== null && key !== null && compareBytesLexicographically(key, end) > 0) break;
+    end = maximumEnd(end, value.end);
+    intervals.delete(key);
+    merged = true;
   }
-  for (const key of removals) intervals.delete(key);
-  intervals.set(merged.start, merged);
+  if (owned) {
+    intervals.set(start, merged ? { start, end } : interval);
+    return;
+  }
+  // Bounds taken from members are already the set's own; the caller's are not.
+  if (start !== null && start === interval.start) start = copyBytes(start);
+  if (end !== null && end === interval.end) end = copyBytes(end);
+  intervals.set(start, { start, end });
 }
 
 /** One index's ordered, normalized interval union, with the read set's merge. */
@@ -66,7 +103,7 @@ export class CoreIntervalSet {
 
   /** Takes ownership of `interval`: the caller must never write its bounds again. */
   addOwned(interval: CoreInterval): void {
-    if (!intervalIsEmpty(interval)) mergeInterval(this.intervals, interval);
+    if (!intervalIsEmpty(interval)) mergeInterval(this.intervals, interval, true);
   }
 
   /** Ascending, disjoint and non-adjacent. The set still owns every bound. */
@@ -75,21 +112,21 @@ export class CoreIntervalSet {
 
 /** Ordered, normalized interval union. Empty intervals never become broad dependencies. */
 export class CoreReadSetBuilder {
-  private readonly byIndex = new Map<string, { id: Uint8Array; intervals: OrderedIntervals }>();
+  private readonly byIndex = new Map<string, ReadIndex>();
   private count = 0;
 
   get intervalCount(): number { return this.count; }
 
   add(indexId: Uint8Array, interval: CoreInterval): void {
     if (intervalIsEmpty(interval)) return;
-    const name = encodeBytesToLowercaseHex(indexId);
+    const name = indexName(indexId);
     let entry = this.byIndex.get(name);
     if (entry === undefined) {
       entry = { id: indexId.slice(), intervals: new BTree<Uint8Array | null, CoreInterval>(undefined, compareStarts) };
       this.byIndex.set(name, entry);
     }
     const before = entry.intervals.size;
-    mergeInterval(entry.intervals, copyInterval(interval));
+    mergeInterval(entry.intervals, interval, false);
     this.count += entry.intervals.size - before;
   }
 
@@ -102,6 +139,10 @@ export class CoreReadSetBuilder {
 
 function compareStarts(a: Uint8Array | null, b: Uint8Array | null): number {
   return a === null ? b === null ? 0 : -1 : b === null ? 1 : compareBytesLexicographically(a, b);
+}
+
+function compareTimestamps(a: CoreTimestamp, b: CoreTimestamp): number {
+  return a < b ? -1 : a > b ? 1 : 0;
 }
 
 function maximumEnd(a: Uint8Array | null, b: Uint8Array | null): Uint8Array | null {
@@ -126,6 +167,13 @@ function overlap<A>(tree: BTree<Uint8Array, A>, intervals: readonly CoreInterval
     return undefined;
   }
   for (const interval of intervals) {
+    if (interval.start !== null) {
+      // Most intervals hold no written key: one descent settles them without an iterator.
+      const first = tree.getPairOrNextHigher(interval.start);
+      if (first === undefined || (interval.end !== null && compareBytesLexicographically(first[0], interval.end) >= 0)) continue;
+      const ts = timestamp(first[1]);
+      if (ts > after) return [first[0], ts];
+    }
     for (const [key, value] of tree.entries(interval.start ?? undefined)) {
       const ts = timestamp(value);
       if (interval.end !== null && compareBytesLexicographically(key, interval.end) >= 0) break;
@@ -150,24 +198,37 @@ function containsInterval(intervals: readonly CoreInterval[], key: Uint8Array): 
 }
 
 export function indexKeysFromWrites(writes: readonly CorePersistenceIndexEntry[]): readonly CoreIndexKeys[] {
-  const indexes = new Map<string, { id: Uint8Array; keys: BTree<Uint8Array, true> }>();
+  const indexes = new Map<string, { id: Uint8Array; keys: Uint8Array[] }>();
   for (const write of writes) {
-    const name = encodeBytesToLowercaseHex(write.index.id);
+    const name = indexName(write.index.id);
     let entry = indexes.get(name);
     if (entry === undefined) {
-      entry = { id: write.index.id.slice(), keys: new BTree<Uint8Array, true>(undefined, compareBytesLexicographically) };
+      entry = { id: copySpelledIdentifier(write.index.id, name), keys: [] };
       indexes.set(name, entry);
     }
-    entry.keys.set(write.key.slice(), true);
+    entry.keys.push(write.key);
   }
-  return Object.freeze([...indexes.values()].map(entry => Object.freeze({
-    indexId: entry.id, keys: Object.freeze([...entry.keys.keys()]),
-  })));
+  return Object.freeze([...indexes.values()].map(entry => {
+    // Ascending distinct keys, each an owned copy.
+    const keys: Uint8Array[] = [];
+    let last: Uint8Array | undefined;
+    for (const key of entry.keys.toSorted(compareBytesLexicographically)) {
+      if (last === undefined || compareBytesLexicographically(last, key) !== 0) keys.push(key.slice());
+      last = key;
+    }
+    return Object.freeze({ indexId: entry.id, keys: Object.freeze(keys) });
+  }));
 }
 
 /** A derived live entry retains prev exactly when its original/final full keys coincide; tombstones remove keys. */
 export function indexTransitionsFromWrites(writes: readonly CorePersistenceIndexEntry[]): readonly CoreIndexKeys[] {
   return indexKeysFromWrites(writes.filter(write => write.value === null || write.prev === null));
+}
+
+function cloneIndexedKeys(indexes: ReadonlyMap<string, IndexedKeys>): ReadonlyMap<string, IndexedKeys> {
+  const cloned = new Map<string, IndexedKeys>();
+  for (const [name, entry] of indexes) cloned.set(name, { id: entry.id, tree: entry.tree.clone() });
+  return cloned;
 }
 
 /** COW B+tree clones share immutable index batches without copying document bodies. */
@@ -190,7 +251,7 @@ export class CoreWriteLogSnapshot {
   nativeKeyTransition(indexId: Uint8Array, key: Uint8Array, after: CoreTimestamp): Result.Result<CoreConflict | undefined, CorePersistenceError> {
     if (after < this.minimumTimestamp) return Result.fail(new CorePersistenceError({ reason: "outOfRetention" }));
     if (after > this.timestamp) return Result.fail(new CorePersistenceError({ reason: "invalidTarget" }));
-    const entry = this.#transitions.get(encodeBytesToLowercaseHex(indexId));
+    const entry = this.#transitions.get(indexName(indexId));
     const timestamp = entry?.tree.get(key);
     return Result.succeed(entry !== undefined && timestamp !== undefined && timestamp > after
       ? { indexId: copyBytes(entry.id), key: copyBytes(key), timestamp } : undefined);
@@ -214,7 +275,7 @@ export class CoreWriteLog {
   private readonly transitions = new Map<string, IndexedKeys>();
   private readonly batches = new BTree<CoreTimestamp, Readonly<{
     changes: readonly CoreIndexKeys[]; transitions: readonly CoreIndexKeys[]; bytes: number;
-  }>>();
+  }>>(undefined, compareTimestamps);
   private minimum: CoreTimestamp;
   private latest: CoreTimestamp;
   private size = 0;
@@ -228,9 +289,8 @@ export class CoreWriteLog {
   }
 
   snapshot(): CoreWriteLogSnapshot {
-    return this.#currentSnapshot ??= new CoreWriteLogSnapshot(this.latest, this.minimum, new Map(
-      [...this.indexes].map(([name, entry]) => [name, { id: entry.id, tree: entry.tree.clone() }]),
-    ), new Map([...this.transitions].map(([name, entry]) => [name, { id: entry.id, tree: entry.tree.clone() }])));
+    return this.#currentSnapshot ??= new CoreWriteLogSnapshot(this.latest, this.minimum,
+      cloneIndexedKeys(this.indexes), cloneIndexedKeys(this.transitions));
   }
 
   append(timestamp: CoreTimestamp, changes: readonly CoreIndexKeys[], retainedBytes?: number,
@@ -248,7 +308,7 @@ export class CoreWriteLog {
 
   private appendKeys(indexes: Map<string, IndexedKeys>, timestamp: CoreTimestamp, changes: readonly CoreIndexKeys[]): void {
     for (const change of changes) {
-      const name = encodeBytesToLowercaseHex(change.indexId);
+      const name = indexName(change.indexId);
       let entry = indexes.get(name);
       if (entry === undefined) {
         entry = { id: change.indexId.slice(), tree: new BTree<Uint8Array, CoreTimestamp>(undefined, compareBytesLexicographically) };
@@ -284,7 +344,7 @@ export class CoreWriteLog {
 
   private removeKeys(indexes: Map<string, IndexedKeys>, timestamp: CoreTimestamp, changes: readonly CoreIndexKeys[]): void {
     for (const change of changes) {
-      const name = encodeBytesToLowercaseHex(change.indexId);
+      const name = indexName(change.indexId);
       const entry = indexes.get(name);
       if (entry === undefined) continue;
       for (const key of change.keys) if (entry.tree.get(key) === timestamp) entry.tree.delete(key);
@@ -295,7 +355,7 @@ export class CoreWriteLog {
 
 /** Accepted unpublished commits, indexed by full affected key with FIFO removal. */
 export class CorePendingWrites {
-  private readonly commits = new BTree<CoreTimestamp, readonly CoreIndexKeys[]>();
+  private readonly commits = new BTree<CoreTimestamp, readonly CoreIndexKeys[]>(undefined, compareTimestamps);
   private readonly indexes = new Map<string, PendingIndexedKeys>();
 
   get size(): number { return this.commits.size; }
@@ -304,7 +364,7 @@ export class CorePendingWrites {
     const last = this.commits.maxKey();
     if (last !== undefined && last >= timestamp) throw new Error("Pending commits must be increasing");
     for (const change of changes) {
-      const name = encodeBytesToLowercaseHex(change.indexId);
+      const name = indexName(change.indexId);
       let entry = this.indexes.get(name);
       if (entry === undefined) {
         entry = { id: change.indexId.slice(), tree: new BTree<Uint8Array, readonly CoreTimestamp[]>(undefined, compareBytesLexicographically) };
@@ -313,7 +373,8 @@ export class CorePendingWrites {
       for (const key of change.keys) {
         // Native exact-owner validation can admit removal/reacquisition before
         // publication. Source readers still conflict with any pending writer.
-        entry.tree.set(key.slice(), [...entry.tree.get(key) ?? [], timestamp]);
+        const owned = key.slice();
+        if (!entry.tree.set(owned, [timestamp], false)) entry.tree.set(owned, [...entry.tree.get(key) ?? [], timestamp]);
       }
     }
     this.commits.set(timestamp, changes);
@@ -347,7 +408,7 @@ export class CorePendingWrites {
     const changes = this.commits.get(timestamp);
     this.commits.delete(timestamp);
     for (const change of changes ?? []) {
-      const name = encodeBytesToLowercaseHex(change.indexId);
+      const name = indexName(change.indexId);
       const entry = this.indexes.get(name);
       if (entry === undefined) throw new Error("Pending index keys missing during removal");
       for (const key of change.keys) {

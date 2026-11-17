@@ -101,11 +101,12 @@ const executeFrame = Effect.fnUntraced(function* <Failure>(
         if (transform === undefined) return yield* Effect.fail(definitionError("invalidReference", "Missing transformer"));
         const output = yield* port.invoke(() => transform(present(resolvedInput), port.context));
         // Foreign Proxy descriptor traps belong to the same callback boundary
-        // as transformer invocation. The initialized failure also refuses a
-        // broken port that reports success without running its callback.
-        let inspected: ReturnType<typeof prepareTransformResolution> = Result.fail(definitionError("invalidReference", "Transform result inspection did not complete"));
+        // as transformer invocation. A missing verdict also refuses a broken
+        // port that reports success without running its callback.
+        let inspected: ReturnType<typeof prepareTransformResolution> | undefined;
         yield* port.invoke(() => { inspected = prepareTransformResolution(output); });
-        const returned = yield* Effect.fromResult(inspected);
+        const returned = yield* Effect.fromResult(inspected ??
+          Result.fail(definitionError("invalidReference", "Transform result inspection did not complete")));
         const resolved = yield* resolve(returned, request.reference, request.depth + 1);
         return { value: yield* port.capture(resolved.value), undefinedStepResult: resolved.undefinedStepResult };
       }));

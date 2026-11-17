@@ -1,5 +1,5 @@
 import { Cause, Clock, Context, Effect, Equal, Option, Result } from "effect";
-import { observeExecution } from "../diagnostics/operation";
+import { observeExecution, observesExecution } from "../diagnostics/operation";
 
 declare const requestBrand: unique symbol;
 export interface BoundedRequestContext { readonly [requestBrand]: true }
@@ -231,26 +231,52 @@ export const makeBoundedRequestLifetime = Effect.fnUntraced(function* <Failure, 
     const cause = chargeReceipts.get(result);
     return cause === undefined ? Effect.fromResult(result) : Effect.failCause(cause);
   };
-  const check = Effect.fnUntraced(function* (supplied: BoundedRequestContext) {
+  // The admission rules below are plain code: one interpreter step decides a
+  // non-Promise entry. Each returns the refusal to raise, or undefined to proceed.
+  type Refusal = Effect.Effect<never, Failure> | undefined;
+  const refuseContext = (supplied: BoundedRequestContext, clock: Clock.Clock): Refusal => {
     const state = contexts.get(supplied);
     if (state === undefined || !state.live || state.request !== request ||
       state.request.owner !== owner || state.request.requestIdentity !== requestIdentity) {
-      return yield* refuse("invalidAuthority");
+      return refuse("invalidAuthority");
     }
     if (request.phase !== "open") {
       // A framework refusal may re-enter before seal. Keep its rollback-only
       // verdict while retaining the original complete cause for the owner.
-      return yield* Effect.fail(request.phase === "rollbackOnly"
+      return Effect.fail(request.phase === "rollbackOnly"
         ? failure("rollbackOnly", Option.getOrUndefined(request.failure))
         : failure("closed"));
     }
-    if ((yield* Clock.currentTimeMillis) >= request.expiresAt) return yield* refuse("deadlineExceeded");
-    if (request.active !== supplied) return yield* refuse("overlappingOperation");
-  }, work => observeExecution("BoundedRequest.checkContext", work));
+    if (clock.currentTimeMillisUnsafe() >= request.expiresAt) return refuse("deadlineExceeded");
+    if (request.active !== supplied) return refuse("overlappingOperation");
+    return undefined;
+  };
+  const refuseCall = (): Refusal => {
+    request.calls += 1;
+    return request.calls > limits.calls ? refuse("limitExceeded") : undefined;
+  };
+  const refuseMissingId = (missingAllowed: boolean): Refusal => missingAllowed ? undefined : refuse("invalidAuthority");
+  const refuseId = (value: unknown): Refusal =>
+    typeof value !== "string" || value.length === 0 || value !== request.id ? refuse("invalidAuthority") : undefined;
+  const refuseEntry = (supplied: BoundedRequestContext, presented: Exclude<PresentedTransactionId, Promise<string>>,
+    missingAllowed: boolean, clock: Clock.Clock): Refusal =>
+    refuseContext(supplied, clock) ?? refuseCall() ??
+    (presented === undefined || presented === null ? refuseMissingId(missingAllowed) : refuseId(presented)) ??
+    refuseContext(supplied, clock);
+  const refuseOperation = (supplied: BoundedRequestContext, operationMode: "read" | "write"): Refusal => {
+    if (contexts.get(supplied)?.mode === "read" && operationMode === "write") return refuse("invalidAuthority");
+    if (request.busy) return refuse("overlappingOperation");
+    request.busy = true;
+    return undefined;
+  };
+  const exclusive = <Value>(work: Effect.Effect<Value, Failure>) =>
+    work.pipe(Effect.ensuring(Effect.sync(() => { request.busy = false; })));
+  const check = (supplied: BoundedRequestContext): Effect.Effect<void, Failure> => observeExecution("BoundedRequest.checkContext",
+    Effect.withFiber(fiber => refuseContext(supplied, fiber.getRef(Clock.Clock)) ?? Effect.void));
   const resolveId = Effect.fnUntraced(function* (presented: PresentedTransactionId, missingAllowed: boolean) {
     if (presented === undefined || presented === null) {
-      if (missingAllowed) return request.id;
-      return yield* refuse("invalidAuthority");
+      const refused = refuseMissingId(missingAllowed);
+      return refused === undefined ? request.id : yield* refused;
     }
     let value: string;
     if (presented instanceof Promise) {
@@ -264,20 +290,23 @@ export const makeBoundedRequestLifetime = Effect.fnUntraced(function* <Failure, 
       }
       value = yield* resolved;
     } else value = presented;
-    if (typeof value !== "string" || value.length === 0 || value !== request.id) {
-      return yield* refuse("invalidAuthority");
-    }
-    return value;
+    const refused = refuseId(value);
+    return refused === undefined ? value : yield* refused;
   }, work => observeExecution("BoundedRequest.resolveId", work));
-  const enter = Effect.fnUntraced(function* (supplied: BoundedRequestContext,
+  /** Pending IDs and SDK-observed requests keep one interpreter step per rule. */
+  const enterStepwise = Effect.fnUntraced(function* (supplied: BoundedRequestContext,
     presented: PresentedTransactionId, missingAllowed: boolean) {
     yield* check(supplied);
-    request.calls += 1;
-    if (request.calls > limits.calls) return yield* refuse("limitExceeded");
+    const refused = refuseCall();
+    if (refused !== undefined) return yield* refused;
     yield* resolveId(presented, missingAllowed);
     // Pending IDs may settle after revocation, closure, timeout or child entry.
     yield* check(supplied);
   }, work => observeExecution("BoundedRequest.enter", work));
+  const enter = (supplied: BoundedRequestContext, presented: PresentedTransactionId,
+    missingAllowed: boolean): Effect.Effect<void, Failure> => Effect.withFiber(fiber =>
+    presented instanceof Promise || observesExecution(fiber) ? enterStepwise(supplied, presented, missingAllowed)
+      : refuseEntry(supplied, presented, missingAllowed, fiber.getRef(Clock.Clock)) ?? Effect.void);
   const observe = <Value>(work: Effect.Effect<Value, Failure>) => Effect.suspend(() => {
     request.activeCalls += 1;
     return Effect.uninterruptibleMask(restore => restore(work).pipe(Effect.catchCause(cause => {
@@ -290,17 +319,25 @@ export const makeBoundedRequestLifetime = Effect.fnUntraced(function* <Failure, 
   const begin = Effect.fnUntraced(function* (supplied: BoundedRequestContext, presented?: PresentedTransactionId) {
     return yield* (observe(enter(supplied, presented, true).pipe(Effect.as(request.id))));
   }, work => observeExecution("BoundedRequest.begin", work));
-  const operation: BoundedRequestLifetime<Failure>["operation"] = Effect.fnUntraced(
-    function* <Value>(supplied: BoundedRequestContext, presented: PresentedTransactionId, operationMode: "read" | "write", work: Effect.Effect<Value, Failure>) {
-    return yield* (observe(Effect.gen(function* () {
-      yield* enter(supplied, presented, operationMode === "read" && readIdPolicy === "allowMissing");
-      if (contexts.get(supplied)?.mode === "read" && operationMode === "write") return yield* refuse("invalidAuthority");
-      if (request.busy) return yield* refuse("overlappingOperation");
-      request.busy = true;
-      return yield* work.pipe(Effect.ensuring(Effect.sync(() => { request.busy = false; })));
+  const operationStepwise = <Value>(supplied: BoundedRequestContext, presented: PresentedTransactionId,
+    operationMode: "read" | "write", missingAllowed: boolean, work: Effect.Effect<Value, Failure>) =>
+    observeExecution("BoundedRequest.operation", observe(Effect.gen(function* () {
+      yield* enterStepwise(supplied, presented, missingAllowed);
+      const refused = refuseOperation(supplied, operationMode);
+      return yield* (refused ?? exclusive(work));
     })));
-  },
-    work => observeExecution("BoundedRequest.operation", work));
+  // Request paths enter about once per statement, so a plain presented ID is
+  // admitted in the single step that starts the work.
+  const operation: BoundedRequestLifetime<Failure>["operation"] = (supplied, presented, operationMode, work) =>
+    Effect.withFiber(fiber => {
+      const missingAllowed = operationMode === "read" && readIdPolicy === "allowMissing";
+      if (presented instanceof Promise || observesExecution(fiber)) {
+        return operationStepwise(supplied, presented, operationMode, missingAllowed, work);
+      }
+      const clock = fiber.getRef(Clock.Clock);
+      return observe(Effect.suspend(() => refuseEntry(supplied, presented, missingAllowed, clock) ??
+        refuseOperation(supplied, operationMode) ?? exclusive(work)));
+    });
   const nested: BoundedRequestLifetime<Failure>["nested"] = Effect.fnUntraced(
     function* <Value>(supplied: BoundedRequestContext, presented: PresentedTransactionId, work: (child: BoundedRequestContext) => Effect.Effect<Value, Failure>, nestedMode?: "read" | "write") {
     return yield* (observe(Effect.gen(function* () {

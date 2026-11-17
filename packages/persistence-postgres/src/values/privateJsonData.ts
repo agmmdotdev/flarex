@@ -26,12 +26,42 @@ interface CapturePolicy {
 export const inspectCapturedPrivateJsonData = (input: unknown): CapturedPrivateJsonDataFacts | undefined =>
   typeof input === "object" && input !== null ? capturedValues.get(input) : undefined;
 
+/** Own data members without assignment semantics: an inherited setter or getter,
+ * including `__proto__` and an inherited array index, is never consulted and the
+ * descriptor reads no inherited field. Assignment is used only when nothing of
+ * that name is inherited; the target is this owner's fresh ordinary object or
+ * array, so `in` runs no code. */
+const defineOwn = (target: { [key: string]: unknown } | unknown[], key: string | number, value: unknown): void => {
+  const descriptor: PropertyDescriptor = { value, writable: true, enumerable: true, configurable: true };
+  Object.setPrototypeOf(descriptor, null);
+  Object.defineProperty(target, key, descriptor);
+};
+const defineMember = (target: { [key: string]: Json }, key: string, value: Json): void => {
+  if (key in target) defineOwn(target, key, value);
+  else target[key] = value;
+};
+// Deliberately better than the former accidental throw: under an inherited index
+// accessor the element is still the correct own data property.
+const appendElement = <Value>(target: Value[], value: Value): void => {
+  if (target.length in target) defineOwn(target, target.length, value);
+  else target.push(value);
+};
+const noPath: PrivateIntermediateJsonPath = Object.freeze([]);
+
 const detachIssuedJson = (value: Json): Json => {
   if (value === null || typeof value !== "object") return value;
   const issued = capturedValues.get(value);
   if (issued === undefined) throw new Error("Captured JSON child has no ownership facts");
-  const detached = Array.isArray(value) ? Object.freeze(value.map(detachIssuedJson)) :
-    Object.freeze(Object.fromEntries(Object.entries(value).map(([key, member]) => [key, detachIssuedJson(member)])));
+  let detached: Json;
+  if (Array.isArray(value)) {
+    const members: Json[] = [];
+    for (let index = 0; index < value.length; index++) appendElement(members, detachIssuedJson(value[index] ?? null));
+    detached = Object.freeze(members);
+  } else {
+    const members: { [key: string]: Json } = {};
+    for (const [key, member] of Object.entries(value)) defineMember(members, key, detachIssuedJson(member));
+    detached = Object.freeze(members);
+  }
   capturedValues.set(detached, Object.freeze({ ...issued, value: detached }));
   const selectedUnicodeRefusal = capturedUnicodeRefusals.get(value);
   if (selectedUnicodeRefusal !== undefined) capturedUnicodeRefusals.set(detached, selectedUnicodeRefusal);
@@ -85,7 +115,7 @@ export function capturePrivateIntermediateJsonData<Failure>(
 ): Result.Result<Readonly<{ value: Json; bytes: number; undefinedPaths: readonly PrivateIntermediateJsonPath[] }>, Failure> {
   const undefinedPaths: PrivateIntermediateJsonPath[] = [];
   return capture(input, bounds.bytes, failure, true, false, false, { bounds, onOmitted: undefined,
-    onUndefinedSlot: path => undefinedPaths.push(Object.freeze([...path])),
+    onUndefinedSlot: path => { appendElement(undefinedPaths, Object.freeze([...path])); },
   }).pipe(Result.map(captured => Object.freeze({ ...captured, undefinedPaths: Object.freeze(undefinedPaths) })));
 }
 
@@ -116,9 +146,20 @@ function capture<Failure>(
   let undefinedPathNodes = 1, undefinedPathBytes = 2, undefinedPathCount = 0;
   let strictRefusal: CaptureRefusal | undefined;
   let nativeRefusal: CaptureRefusal | undefined;
-  const active = new Set<object>();
+  // Facts of the container the latest `visit` returned. A parent reads them only
+  // for a returned object, which every such return has just described.
+  let returnedFacts: CapturedPrivateJsonDataFacts | undefined;
+  const active = omission === undefined ? undefined : new Set<object>();
+  const onOmitted = omission?.onOmitted, onUndefinedSlot = omission?.onUndefinedSlot;
+  const tracksPaths = onOmitted !== undefined || onUndefinedSlot !== undefined;
   const refuseStrict = (reason: CaptureRefusal["reason"], cause?: unknown): void => {
     strictRefusal ??= { reason, cause };
+  };
+  /** Descriptor and structure refusals are native under omission, strict otherwise. */
+  const refuseStructure = (reason: CaptureRefusal["reason"], cause?: unknown): null => {
+    if (omission === undefined) refuseStrict(reason, cause);
+    else nativeRefusal = { reason, cause };
+    return null;
   };
   const spend = (bytes: number): void => {
     if (strictRefusal !== undefined) return;
@@ -140,6 +181,7 @@ function capture<Failure>(
       if (depth + issued.depth > 64) { refuseStrict("limitExceeded"); return null; }
       spend(issued.bytes);
       if (strictRefusal !== undefined) return null;
+      returnedFacts = issued;
       return owned ? issued.value : detachIssuedJson(issued.value);
     }
     if (
@@ -164,53 +206,41 @@ function capture<Failure>(
       prototype = Object.getPrototypeOf(valueInput);
       keys = Reflect.ownKeys(valueInput);
     } catch (cause) {
-      if (omission === undefined) refuseStrict("invalidInput", cause);
-      else nativeRefusal = { reason: "invalidInput", cause };
-      return null;
+      return refuseStructure("invalidInput", cause);
     }
     if ((isArray ? prototype !== Array.prototype : prototype !== Object.prototype && prototype !== null) ||
-      (omission !== undefined && active.has(valueInput))) {
-      if (omission === undefined) refuseStrict("invalidInput");
-      else nativeRefusal = { reason: "invalidInput" };
-      return null;
-    }
+      (active !== undefined && active.has(valueInput))) return refuseStructure("invalidInput");
+    const keyCount = keys.length;
     if (omission !== undefined) {
-      active.add(valueInput);
-      if (keys.length > omission.bounds.nodes) { nativeRefusal = { reason: "limitExceeded" }; return null; }
-    } else if (keys.some(key => typeof key !== "string")) {
-      refuseStrict("invalidInput"); return null;
+      active?.add(valueInput);
+      if (keyCount > omission.bounds.nodes) { nativeRefusal = { reason: "limitExceeded" }; return null; }
+    } else {
+      for (let position = 0; position < keyCount; position++)
+        if (typeof keys[position] !== "string") { refuseStrict("invalidInput"); return null; }
     }
     const remainingBefore = remaining;
     const refusalBefore = strictRefusal;
     spend(2);
-    if (omission === undefined && keys.length > remaining + 1) { refuseStrict("limitExceeded"); return null; }
+    if (omission === undefined && keyCount > remaining + 1) { refuseStrict("limitExceeded"); return null; }
     const array: Json[] = [];
-    const entries: [string, Json][] = [];
+    const record: { [key: string]: Json } = {};
     let nodes = 1, relativeDepth = 0, negativeZero = false, wellFormedUnicode = true;
     let index = 0;
     let arrayKeysDense = true;
-    for (const key of keys) {
+    for (let position = 0; position < keyCount; position++) {
+      const key = keys[position];
       if (isArray && key === "length") continue;
-      if (typeof key !== "string" || (omission === undefined && isArray && key !== String(index))) {
-        if (omission === undefined) refuseStrict("invalidInput");
-        else nativeRefusal = { reason: "invalidInput" };
-        return null;
-      }
+      if (typeof key !== "string" || (omission === undefined && isArray && key !== String(index)))
+        return refuseStructure("invalidInput");
       let descriptor: PropertyDescriptor | undefined;
       try { descriptor = Object.getOwnPropertyDescriptor(valueInput, key); }
-      catch (cause) {
-        if (omission === undefined) refuseStrict("invalidInput", cause);
-        else nativeRefusal = { reason: "invalidInput", cause };
-        return null;
-      }
-      if (descriptor === undefined || !Object.hasOwn(descriptor, "value") || descriptor.enumerable !== true) {
-        if (omission === undefined) refuseStrict("invalidInput");
-        else nativeRefusal = { reason: "invalidInput" };
-        return null;
-      }
-      const childPath = omission?.onOmitted === undefined && omission?.onUndefinedSlot === undefined ? [] : [...path, isArray ? Number(key) : key];
-      const undefinedSlot = omission?.onUndefinedSlot !== undefined && descriptor.value === undefined;
-      if (undefinedSlot) {
+      catch (cause) { return refuseStructure("invalidInput", cause); }
+      if (descriptor === undefined || !Object.hasOwn(descriptor, "value") || descriptor.enumerable !== true)
+        return refuseStructure("invalidInput");
+      const member: unknown = descriptor.value;
+      const childPath = tracksPaths ? [...path, isArray ? Number(key) : key] : noPath;
+      const undefinedSlot = onUndefinedSlot !== undefined && member === undefined;
+      if (omission !== undefined && onUndefinedSlot !== undefined && undefinedSlot) {
         // Sidecar paths are retained data too. Bound their accumulation before
         // the caller charges the complete private envelope to its root budget.
         undefinedPathNodes += childPath.length + 1;
@@ -224,10 +254,10 @@ function capture<Failure>(
           return null;
         }
         undefinedPathBytes += measured.bytes + (undefinedPathCount++ === 0 ? 0 : 1);
-        omission.onUndefinedSlot?.(childPath);
+        onUndefinedSlot(childPath);
       }
-      if (omission !== undefined && descriptor.value === undefined && !isArray) {
-        omission.onOmitted?.(childPath.map(String));
+      if (omission !== undefined && member === undefined && !isArray) {
+        onOmitted?.(childPath.map(String));
         continue;
       }
       if (index > 0) spend(1);
@@ -237,15 +267,22 @@ function capture<Failure>(
         else spend(keySize.bytes + 1);
         wellFormedUnicode = unicodePattern.test(key) && wellFormedUnicode;
       }
-      const value = visit(undefinedSlot ? null : descriptor.value, depth + 1, childPath);
+      const value = visit(undefinedSlot ? null : member, depth + 1, childPath);
       if (nativeRefusal !== undefined || (omission === undefined && strictRefusal !== undefined)) return null;
-      const child = inspectCapturedPrivateJsonData(value);
-      nodes += child?.nodes ?? 1;
-      relativeDepth = Math.max(relativeDepth, 1 + (child?.depth ?? 0));
-      negativeZero ||= child?.negativeZero ?? (typeof value === "number" && Object.is(value, -0));
-      wellFormedUnicode = (child?.wellFormedUnicode ?? (typeof value !== "string" || unicodePattern.test(value))) && wellFormedUnicode;
-      if (isArray) array.push(value);
-      else entries.push([key, value]);
+      const child = value !== null && typeof value === "object" ? returnedFacts : undefined;
+      if (child === undefined) {
+        nodes += 1;
+        if (relativeDepth < 1) relativeDepth = 1;
+        if (typeof value === "number") negativeZero ||= Object.is(value, -0);
+        else if (typeof value === "string") wellFormedUnicode = unicodePattern.test(value) && wellFormedUnicode;
+      } else {
+        nodes += child.nodes;
+        if (relativeDepth < 1 + child.depth) relativeDepth = 1 + child.depth;
+        negativeZero ||= child.negativeZero;
+        wellFormedUnicode = child.wellFormedUnicode && wellFormedUnicode;
+      }
+      if (isArray) appendElement(array, value);
+      else defineMember(record, key, value);
       if (omission !== undefined && isArray && key !== String(index)) {
         // Native normalization checks density after visiting all array members.
         // Retain this fact without changing descriptor or node refusal order.
@@ -256,28 +293,21 @@ function capture<Failure>(
     if (isArray) {
       let length: PropertyDescriptor | undefined;
       try { length = Object.getOwnPropertyDescriptor(valueInput, "length"); }
-      catch (cause) {
-        if (omission === undefined) refuseStrict("invalidInput", cause);
-        else nativeRefusal = { reason: "invalidInput", cause };
-        return null;
-      }
-      if (length?.value !== array.length || !arrayKeysDense) {
-        if (omission === undefined) refuseStrict("invalidInput");
-        else nativeRefusal = { reason: "invalidInput" };
-        return null;
-      }
+      catch (cause) { return refuseStructure("invalidInput", cause); }
+      if (length?.value !== array.length || !arrayKeysDense) return refuseStructure("invalidInput");
     }
     if (omission !== undefined) {
-      active.delete(valueInput);
+      active?.delete(valueInput);
       // The strict capture's container key-count check precedes child byte or
       // primitive checks. Omitted keys become known only after native validation.
       if (refusalBefore === undefined && index + (isArray ? 1 : 0) > remainingBefore - 1)
         strictRefusal = { reason: "limitExceeded" };
     }
     if (strictRefusal !== undefined) return null;
-    const value = isArray ? Object.freeze(array) : Object.freeze(Object.fromEntries(entries));
-    capturedValues.set(value, Object.freeze({ value, bytes: remainingBefore - remaining,
-      nodes, depth: relativeDepth, negativeZero, wellFormedUnicode }));
+    const value = isArray ? Object.freeze(array) : Object.freeze(record);
+    const facts = Object.freeze({ value, bytes: remainingBefore - remaining,
+      nodes, depth: relativeDepth, negativeZero, wellFormedUnicode });
+    capturedValues.set(value, facts);
     if (!wellFormedUnicode) {
       // Only malformed subtrees need a refusal selection. Enumerate the captured
       // object: numeric keys regain native order even after foreign proxy keys.
@@ -293,9 +323,10 @@ function capture<Failure>(
         }
       }
     }
+    returnedFacts = facts;
     return value;
   };
-  const value = visit(input, 0, []);
+  const value = visit(input, 0, noPath);
   const refusal = nativeRefusal ?? strictRefusal;
   if (refusal !== undefined) return Result.fail(failure(refusal.reason, refusal.cause));
   const captured = Object.freeze({ value, bytes: maximum - remaining });

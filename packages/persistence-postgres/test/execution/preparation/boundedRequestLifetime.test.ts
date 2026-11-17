@@ -1,8 +1,9 @@
-import { Cause, Context, Deferred, Effect, Equal, Exit, Fiber, Result } from "effect";
+import { Cause, Clock, Context, Deferred, Effect, Equal, Exit, Fiber, Result } from "effect";
 import { TestClock } from "effect/testing";
 import { expect, it } from "vitest";
-import { makeBoundedRequestLifetime, projectBoundedRequestLifetime, reclassifyBoundedRequestReason } from "../../../src/execution/preparation/boundedRequestLifetime";
-import { commerceError } from "../../../src/frameworks/commerceTransaction/model";
+import { ExecutionDiagnostics } from "../../../src/execution/diagnostics/operation";
+import { makeBoundedRequestLifetime, projectBoundedRequestLifetime, reclassifyBoundedRequestReason, type PresentedTransactionId } from "../../../src/execution/preparation/boundedRequestLifetime";
+import { commerceError, type CommerceTransactionError } from "../../../src/frameworks/commerceTransaction/model";
 import { runEffect } from "../../support/effectTestRuntime";
 
 const make = () => makeBoundedRequestLifetime(commerceError,
@@ -532,3 +533,249 @@ it("keeps a projected charge receipt's error after failed seals populate the ord
   expect(sealed.cause.reasons.filter(reason => Cause.isDieReason(reason) && reason.defect === cleanup)).toHaveLength(1);
   yield* lifetime.close;
 })));
+
+// A plain ID is admitted in one interpreter step; SDK observation and pending
+// IDs keep one step per rule. Every mode must reach the same verdicts.
+const admissionModes = ["plain", "observed", "pendingId"] as const;
+const admission = (mode: typeof admissionModes[number]) => {
+  let now = 0, reads = 0, expiringRead = Number.POSITIVE_INFINITY;
+  const observed: string[] = [];
+  const live = Context.get(Context.empty(), Clock.Clock);
+  const read = () => { reads += 1; return reads >= expiringRead ? now + 10 : now; };
+  const clock: Clock.Clock = {
+    currentTimeMillisUnsafe: read, currentTimeMillis: Effect.sync(read),
+    currentTimeNanosUnsafe: () => BigInt(now) * 1_000_000n, currentTimeNanos: Effect.sync(() => BigInt(now) * 1_000_000n),
+    monotonicTimeNanosUnsafe: () => live.monotonicTimeNanosUnsafe(), monotonicTimeNanos: live.monotonicTimeNanos,
+    sleep: duration => live.sleep(duration),
+  };
+  return {
+    observed,
+    reads: () => reads,
+    expire: () => { now += 10; },
+    expireAtRead: (count: number) => { expiringRead = reads + count; },
+    id: (value: string): PresentedTransactionId => mode === "pendingId" ? Promise.resolve(value) : value,
+    lifetime: (calls = 16, failure: typeof commerceError = commerceError) => makeBoundedRequestLifetime(failure,
+      { calls, commandBytes: 100, commandMs: 10 }, {}, {}, "request", "write"),
+    run: <Value, Failure>(work: Effect.Effect<Value, Failure>) => runEffect(mode === "observed"
+      ? work.pipe(Effect.provideService(Clock.Clock, clock), Effect.provideService(ExecutionDiagnostics, {
+        observe: (name, observedWork) => Effect.suspend(() => { observed.push(name); return observedWork; }) }))
+      : work.pipe(Effect.provideService(Clock.Clock, clock))),
+  };
+};
+const reasonOf = (work: Effect.Effect<unknown, CommerceTransactionError>) => work.pipe(Effect.matchEffect({
+  onFailure: error => Effect.succeed(error.reason),
+  onSuccess: () => Effect.die(new Error("Expected a refusal")),
+}));
+const sealReasons = (lifetime: { readonly seal: Effect.Effect<void, CommerceTransactionError> }) => Effect.exit(lifetime.seal).pipe(
+  Effect.map(exit => Exit.isFailure(exit) ? exit.cause.reasons.flatMap(reason => Cause.isFailReason(reason) ? [reason.error.reason] : ["defect"]) : []));
+
+it.each(admissionModes)("refuses authority, phase, deadline and overlap before charging a call: %s", mode => {
+  const fixture = admission(mode);
+  return fixture.run(Effect.gen(function* () {
+    let ran = 0;
+    const work = Effect.sync(() => { ran += 1; });
+
+    // Authority precedes every other rule, including a wrong ID and an elapsed deadline.
+    const foreign = yield* fixture.lifetime(), guarded = yield* fixture.lifetime();
+    expect(yield* reasonOf(guarded.operation(foreign.context, fixture.id("other"), "write", work))).toBe("invalidAuthority");
+    expect(guarded.usedCalls()).toBe(1);
+    expect(yield* sealReasons(guarded)).toEqual(["rollbackOnly", "invalidAuthority"]);
+    const revoking = yield* fixture.lifetime();
+    const revoked = yield* revoking.nested(revoking.context, fixture.id("request"), Effect.succeed);
+    expect(yield* reasonOf(revoking.operation(revoked, fixture.id("request"), "write", work))).toBe("invalidAuthority");
+    expect(revoking.usedCalls()).toBe(2);
+    const closed = yield* fixture.lifetime();
+    yield* closed.close;
+    expect(yield* reasonOf(closed.operation(closed.context, fixture.id("request"), "write", work))).toBe("invalidAuthority");
+    expect(closed.usedCalls()).toBe(1);
+
+    // A sealed request reports closure; the observed refusal ends settlement eligibility.
+    const sealed = yield* fixture.lifetime();
+    yield* sealed.seal;
+    expect(yield* reasonOf(sealed.operation(sealed.context, fixture.id("other"), "write", work))).toBe("closed");
+    expect(sealed.usedCalls()).toBe(1);
+    expect(sealed.isClosing()).toBe(false);
+
+    // Overlap is refused without a call charge, even at the call limit.
+    const overlapping = yield* fixture.lifetime(2);
+    expect(yield* overlapping.nested(overlapping.context, fixture.id("request"), () =>
+      reasonOf(overlapping.operation(overlapping.context, fixture.id("other"), "write", work)))).toBe("overlappingOperation");
+    expect(overlapping.usedCalls()).toBe(2);
+    expect(yield* sealReasons(overlapping)).toEqual(["rollbackOnly", "overlappingOperation"]);
+
+    // The sticky failure precedes the deadline; the deadline precedes overlap.
+    const sticky = yield* fixture.lifetime(), expiring = yield* fixture.lifetime();
+    const statement = commerceError("statementFailure");
+    const first = yield* Effect.exit(sticky.operation(sticky.context, fixture.id("request"), "write", Effect.fail(statement)));
+    if (!Exit.isFailure(first)) throw new Error("Expected statement failure");
+    const deadline = yield* expiring.nested(expiring.context, fixture.id("request"), () => Effect.gen(function* () {
+      fixture.expire();
+      return yield* reasonOf(expiring.operation(expiring.context, fixture.id("other"), "write", work));
+    }));
+    expect(deadline).toBe("deadlineExceeded");
+    expect(expiring.usedCalls()).toBe(2);
+    expect(yield* sealReasons(expiring)).toEqual(["rollbackOnly", "deadlineExceeded"]);
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const refusal = yield* Effect.flip(sticky.operation(sticky.context, fixture.id("other"), "write", work));
+      expect(refusal.reason).toBe("rollbackOnly");
+      expect(refusal.cause).toEqual(first.cause);
+    }
+    expect(sticky.usedCalls()).toBe(2);
+    expect(yield* sealReasons(sticky)).toEqual(["rollbackOnly", "statementFailure"]);
+    expect(ran).toBe(0);
+    expect(fixture.observed.includes("BoundedRequest.checkContext")).toBe(mode === "observed");
+  }));
+});
+
+it.each(admissionModes)("charges the call before the limit, ID, mode and busy rules: %s", mode => {
+  const fixture = admission(mode);
+  return fixture.run(Effect.gen(function* () {
+    let ran = 0;
+    const work = Effect.sync(() => { ran += 1; });
+
+    // The limit precedes ID validation and retains the over-limit charge.
+    const limited = yield* fixture.lifetime(2);
+    yield* limited.operation(limited.context, fixture.id("request"), "write", work);
+    expect(yield* reasonOf(limited.operation(limited.context, fixture.id("other"), "write", work))).toBe("limitExceeded");
+    expect(limited.usedCalls()).toBe(3);
+    expect(yield* sealReasons(limited)).toEqual(["rollbackOnly", "limitExceeded"]);
+    expect(ran).toBe(1);
+
+    for (const presented of [fixture.id("other"), fixture.id(""), undefined, null]) {
+      const wrong = yield* fixture.lifetime();
+      expect(yield* reasonOf(wrong.operation(wrong.context, presented, "write", work))).toBe("invalidAuthority");
+      expect(wrong.usedCalls()).toBe(2);
+      expect(yield* sealReasons(wrong)).toEqual(["rollbackOnly", "invalidAuthority"]);
+    }
+    const standalone = yield* fixture.lifetime();
+    yield* standalone.operation(standalone.context, undefined, "read", work);
+    expect(standalone.usedCalls()).toBe(2);
+
+    // A read-only child refuses a write before the busy rule and before the work.
+    const reading = yield* fixture.lifetime();
+    expect(yield* reading.nested(reading.context, fixture.id("request"), child =>
+      reasonOf(reading.operation(child, fixture.id("request"), "write", work)), "read")).toBe("invalidAuthority");
+    expect(reading.usedCalls()).toBe(3);
+
+    const busy = yield* fixture.lifetime();
+    let inner: string | undefined;
+    const outer = yield* Effect.exit(busy.operation(busy.context, fixture.id("request"), "write", Effect.gen(function* () {
+      inner = yield* reasonOf(busy.operation(busy.context, fixture.id("request"), "read", work));
+      return "outer";
+    })));
+    expect(inner).toBe("overlappingOperation");
+    expect(outer).toEqual(Exit.succeed("outer"));
+    expect(busy.usedCalls()).toBe(3);
+    expect(yield* sealReasons(busy)).toEqual(["rollbackOnly", "overlappingOperation"]);
+    expect(ran).toBe(2);
+  }));
+});
+
+it.each(admissionModes)("reads the fiber clock once per context check and rechecks the deadline after the ID: %s", mode => {
+  const fixture = admission(mode);
+  return fixture.run(Effect.gen(function* () {
+    const lifetime = yield* fixture.lifetime();
+    // Effect.cached stamps each newly presented pending ID with one more read.
+    const before = fixture.reads(), entryReads = mode === "pendingId" ? 3 : 2;
+    expect(yield* lifetime.operation(lifetime.context, fixture.id("request"), "write", Effect.succeed("ran"))).toBe("ran");
+    expect(fixture.reads() - before).toBe(entryReads);
+    yield* lifetime.checkpoint(lifetime.context);
+    expect(fixture.reads() - before).toBe(entryReads + 1);
+
+    let ran = false;
+    fixture.expireAtRead(entryReads);
+    expect(yield* reasonOf(lifetime.operation(lifetime.context, fixture.id("request"), "write",
+      Effect.sync(() => { ran = true; })))).toBe("deadlineExceeded");
+    expect(ran).toBe(false);
+    expect(lifetime.usedCalls()).toBe(3);
+    expect(yield* sealReasons(lifetime)).toEqual(["rollbackOnly", "deadlineExceeded"]);
+  }));
+});
+
+it.each(admissionModes)("retains a synchronous throw as the request's first defect and releases the operation: %s", mode => {
+  const fixture = admission(mode);
+  return fixture.run(Effect.gen(function* () {
+    const lifetime = yield* fixture.lifetime();
+    const defect = new Error("synchronous throw");
+    const thrown = yield* Effect.exit(lifetime.operation(lifetime.context, fixture.id("request"), "write",
+      Effect.sync((): string => { throw defect; })));
+    if (!Exit.isFailure(thrown)) throw new Error("Expected the thrown defect");
+    expect(thrown.cause.reasons.map(reason => Cause.isDieReason(reason) && reason.defect)).toEqual([defect]);
+    const refusal = yield* Effect.flip(lifetime.operation(lifetime.context, fixture.id("request"), "read", Effect.void));
+    expect(refusal.reason).toBe("rollbackOnly");
+    expect(refusal.cause).toEqual(thrown.cause);
+    expect(lifetime.usedCalls()).toBe(2);
+    // Neither the busy flag nor the active call outlives the throw.
+    expect(yield* sealReasons(lifetime)).toEqual(["rollbackOnly", "defect"]);
+
+    // A throwing refusal factory is a defect of the entry itself.
+    const factoryDefect = new Error("refusal factory");
+    const throwing = yield* fixture.lifetime(16, (reason, cause) => {
+      if (reason === "invalidAuthority") throw factoryDefect;
+      return commerceError(reason, cause);
+    });
+    let ran = false;
+    const entry = yield* Effect.exit(throwing.operation(throwing.context, fixture.id("other"), "write",
+      Effect.sync(() => { ran = true; })));
+    if (!Exit.isFailure(entry)) throw new Error("Expected the factory defect");
+    expect(entry.cause.reasons.map(reason => Cause.isDieReason(reason) && reason.defect)).toEqual([factoryDefect]);
+    expect(ran).toBe(false);
+    expect(yield* sealReasons(throwing)).toEqual(["rollbackOnly", "defect"]);
+  }));
+});
+
+it.each(admissionModes)("latches interruption of running work and releases the operation: %s", mode => {
+  const fixture = admission(mode);
+  return fixture.run(Effect.gen(function* () {
+    const lifetime = yield* fixture.lifetime();
+    const started = yield* Deferred.make<void>();
+    const running = yield* Effect.forkChild(lifetime.operation(lifetime.context, fixture.id("request"), "write",
+      Deferred.succeed(started, undefined).pipe(Effect.andThen(Effect.never))));
+    yield* Deferred.await(started);
+    const interrupted = yield* Fiber.interrupt(running).pipe(Effect.andThen(Fiber.await(running)));
+    expect(Exit.isFailure(interrupted) && Cause.hasInterruptsOnly(interrupted.cause)).toBe(true);
+    const refusal = yield* Effect.flip(lifetime.operation(lifetime.context, fixture.id("request"), "read", Effect.void));
+    expect(refusal.reason).toBe("rollbackOnly");
+    expect(Cause.isCause(refusal.cause) && Cause.hasInterruptsOnly(refusal.cause)).toBe(true);
+    expect(lifetime.usedCalls()).toBe(2);
+  }));
+});
+
+it("resolves a pending ID once, admits its owner and refuses a rejected or foreign ID", () => runEffect(Effect.gen(function* () {
+  const lifetime = yield* make();
+  let resolve: (value: string) => void = () => undefined, thens = 0;
+  const pending = new Promise<string>(settle => { resolve = settle; });
+  const then = pending.then.bind(pending);
+  pending.then = ((...handlers: Parameters<typeof then>) => { thens += 1; return then(...handlers); }) as typeof pending.then;
+  const waiting = yield* Effect.forkChild(lifetime.operation(lifetime.context, pending, "write", Effect.succeed("first")));
+  yield* Effect.yieldNow;
+  expect(lifetime.usedCalls()).toBe(2);
+  resolve("request");
+  expect(yield* Fiber.join(waiting)).toBe("first");
+  expect(yield* lifetime.operation(lifetime.context, pending, "read", Effect.succeed("second"))).toBe("second");
+  expect(thens).toBe(1);
+  yield* lifetime.seal;
+  yield* lifetime.close;
+
+  const rejection = new Error("pending ID rejected");
+  const rejected = yield* make();
+  let ran = false;
+  const refusal = yield* Effect.flip(rejected.operation(rejected.context, Promise.reject(rejection), "write",
+    Effect.sync(() => { ran = true; })));
+  expect(refusal.reason).toBe("invalidAuthority");
+  expect(refusal.cause).toBe(rejection);
+  expect(ran).toBe(false);
+  yield* rejected.close;
+})));
+
+it("takes the deadline of a plain entry from the fiber's TestClock", () => runEffect(Effect.gen(function* () {
+  const lifetime = yield* makeBoundedRequestLifetime(commerceError,
+    { calls: 16, commandBytes: 100, commandMs: 10 }, {}, {}, "request", "write");
+  yield* TestClock.adjust("9 millis");
+  expect(yield* lifetime.operation(lifetime.context, "request", "write", Effect.succeed("ran"))).toBe("ran");
+  yield* TestClock.adjust("1 millis");
+  expect(yield* Effect.flip(lifetime.operation(lifetime.context, "request", "write", Effect.succeed("late"))))
+    .toMatchObject({ reason: "deadlineExceeded" });
+  expect(lifetime.usedCalls()).toBe(2);
+  yield* lifetime.close;
+}).pipe(Effect.provide(TestClock.layer()))));

@@ -33,6 +33,19 @@ const uniqueState = (metadata: CoreSchemaMetadata): CoreSchemaUniqueState | unde
   return state === "pending" || state === "validated" || state === "active" ? state : undefined;
 };
 const key = (namespace: CoreTableNamespace, state: CoreSchemaUniqueState): string => `${coreNamespaceKey(namespace)}:${state}`;
+const compareKeys = (a: string, b: string): number => a < b ? -1 : a > b ? 1 : 0;
+
+/** The by-state equality interval of each unique state: constant bytes that no reader may write or retain. */
+const stateIntervals = new Map<CoreSchemaUniqueState, CoreInterval>();
+function stateInterval(state: CoreSchemaUniqueState): Result.Result<CoreInterval, CorePersistenceError> {
+  const known = stateIntervals.get(state);
+  if (known !== undefined) return Result.succeed(known);
+  return Result.map(Result.mapError(encodeIndexValue({ state }), coreSchemaCorrupt), start => {
+    const interval = Object.freeze({ start, end: incrementIndexKeyPrefix(start) });
+    stateIntervals.set(state, interval);
+    return interval;
+  });
+}
 
 function entryFor(document: CoreSystemDocument, metadata: CoreSchemaMetadata): RegistryEntry {
   let cached: CoreSchemaDefinition | undefined;
@@ -51,7 +64,7 @@ function entryFor(document: CoreSystemDocument, metadata: CoreSchemaMetadata): R
 export class CoreSchemaRegistry {
   private constructor(private readonly entries: BTree<string, RegistryEntry>) {}
 
-  static empty(): CoreSchemaRegistry { return new CoreSchemaRegistry(new BTree<string, RegistryEntry>()); }
+  static empty(): CoreSchemaRegistry { return new CoreSchemaRegistry(new BTree<string, RegistryEntry>(undefined, compareKeys)); }
 
   static bootstrap(rows: readonly { readonly namespace: CoreTableNamespace; readonly document: CoreSystemDocument }[]):
   Result.Result<CoreSchemaRegistry, CorePersistenceError> {
@@ -101,9 +114,8 @@ export class CoreSchemaRegistry {
   getByState(namespace: CoreTableNamespace, state: CoreSchemaUniqueState, stateIndex: CoreIndexRef,
     recordRead: (indexId: Uint8Array, interval: CoreInterval) => void): Result.Result<Option.Option<CoreSchemaSelection>, CorePersistenceError> {
     return Result.gen(this, function* () {
-      const start = yield* Result.mapError(encodeIndexValue({ state }), coreSchemaCorrupt);
       // Observe absence as well as presence. The indexed value is a state object.
-      recordRead(stateIndex.id, { start, end: incrementIndexKeyPrefix(start) });
+      recordRead(stateIndex.id, yield* stateInterval(state));
       const entry = this.entries.get(key(namespace, state));
       if (entry === undefined) return Option.none();
       const schema = yield* entry.parsed();

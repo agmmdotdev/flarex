@@ -13,7 +13,18 @@ import { productCreationResources } from "../src/workflow/policy";
 import { makeCoreProductCreationFixture, productCreationOptions, productCreationExecution,
   seedCreationEndpoints, seedCreationReferences, type CoreProductCreationFixture } from "./support/core-product-creation-fixture";
 import { prepareCoreInventoryCreateHost } from "./support/core-product-creation-fixture";
+import { createCorePGliteFixture, createCorePostgresFixture } from "../../persistence-postgres/test/core/fixture";
+import { postgresUrl } from "../../persistence-postgres/test/support/postgresHelpers";
+import type { CoreSqlConnection, CoreSqlDriver } from "../../persistence-postgres/src/database/corePersistence/driver";
 
+/** Exact counts measured on PGlite and on ordinary-role PostgreSQL for one warmed create of this
+ * test's product shape, `input(prefix, 1)`: 33 statements, 9 of them first-page batches. The
+ * benchmark's create shape (`write-product-create`) is a different product and measures 31; the
+ * two numbers are not the same measurement. Three of the first-page batches are the Product graph
+ * insert, the price graph insert and the event family; the other six are multi-selection reads and
+ * per-table batches outside a graph insert. Reading the graph tables and family rows separately
+ * again adds first-page batches; a lower total means a read was removed and this record is stale. */
+const PRODUCT_CREATE_STATEMENTS = { statements: 33, firstPageBatches: 9 };
 const driver = process.env.FLAREX_TEST_DRIVER ?? "pglite";
 if (driver !== "pglite" && driver !== "postgres") throw new Error("Invalid Product creation driver");
 const cleanup: Array<() => Promise<void>> = [];
@@ -59,8 +70,21 @@ async function seedItems(values: Array<{ id: string; sku?: string | null }>, fix
 }
 
 describe("complete native Product creation on shared Core storage", () => {
+  /** Set only while one test records the statements the serving role sends. */
+  let recording: string[] | undefined;
   beforeAll(async () => {
-    selected = await makeCoreProductCreationFixture(driver, close => cleanup.push(close));
+    const observe = <Connection extends CoreSqlConnection>(connection: Connection): Connection => ({ ...connection,
+      query: (statement, parameters) => { recording?.push(statement); return connection.query(statement, parameters); } });
+    const wrapRuntimeDriver = (physical: CoreSqlDriver): CoreSqlDriver => ({ ...observe(physical),
+      write: (statement, parameters) => { recording?.push(statement); return physical.write(statement, parameters); },
+      withConnection: run => physical.withConnection(connection => run(observe(connection))),
+      transaction: run => physical.transaction(connection => run(observe(connection))) });
+    const provisioning = process.env.FLAREX_POSTGRES_PROVISIONING_DATABASE_URL;
+    if (driver === "postgres" && (postgresUrl === null || provisioning === undefined)) throw new Error("Product creation requires ordinary and provisioning PostgreSQL endpoints");
+    const physical = driver === "postgres" && postgresUrl !== null && provisioning !== undefined
+      ? await createCorePostgresFixture({ connectionString: postgresUrl, provisioningConnectionString: provisioning, wrapRuntimeDriver })
+      : await createCorePGliteFixture({ wrapRuntimeDriver });
+    selected = await makeCoreProductCreationFixture(driver, close => cleanup.push(close), { physical });
     await seedCreationEndpoints(selected); await seedCreationReferences(selected);
   }, 180_000);
   afterAll(async () => { for (const close of cleanup.reverse()) await close(); });
@@ -76,6 +100,19 @@ describe("complete native Product creation on shared Core storage", () => {
       if (Exit.isSuccess(outcome)) throw new Error("Smaller root unexpectedly accepted the maximum graph");
       expectWorkflowRefusal(outcome, "limitExceeded");
       expect(await snapshot()).toEqual(beforeState); expect(await events()).toEqual(beforeEvents);
+    } finally { await Effect.runPromise(host.close); }
+  });
+
+  it("sends one Product create's measured statements, with one first-page batch per graph insert and event family", async () => {
+    const host = await prepare();
+    try {
+      // The first create fills this installation's shared caches.
+      await Effect.runPromise(host.run(host.newRequestKey(), input("budget-warm", 1)));
+      const statements: string[] = [];
+      recording = statements;
+      try { await Effect.runPromise(host.run(host.newRequestKey(), input("budget", 1))); } finally { recording = undefined; }
+      expect({ statements: statements.length, firstPageBatches: statements.filter(statement => statement.includes("jsonb_to_recordset($3::jsonb)")).length })
+        .toEqual(PRODUCT_CREATE_STATEMENTS);
     } finally { await Effect.runPromise(host.close); }
   });
 
