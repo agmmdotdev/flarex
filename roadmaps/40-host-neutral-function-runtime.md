@@ -798,6 +798,27 @@ point-query profile uses a synthetic platform module but has no internal-call
 feature. Both identities remain accepted historical profiles, but neither is
 the sole selected Standard invocation path now.
 
+Generated identity disposition: every runtime kernel, the three point-mutation
+exact Worker mains, and the Application registration, execution, and
+private-native Worker cores embed shared source whose bytes changed: lowercase-hex
+encoding in `packages/utils` and the string semantic size in the protocol value
+runtime core. An earlier regeneration of the kernels and Application cores for
+typed-buffer document IDs changed the same identities without a recorded
+disposition and is covered here. The digests changed without a profile or
+version change, and with them every exact-runtime code identity, graph basis and
+candidate-bound target digest (point query, point query/internal call, the three
+point-mutation profiles, and edge action) and
+`APPLICATION_RUNTIME_HOST_IDENTITY`. Action and point-mutation admission and
+cold-evidence and readiness comparison fail closed for records activated under
+the previous identities; those revisions must be re-materialized and
+re-activated. No environment holding them is known.
+
+Open: the Application query and relation-query systems read only the stored
+compatibility date and do not compare the stored runtime host identity with the
+current one, so a query revision activated under a previous identity is served
+by the current execution core. The changes above preserve query behavior; the
+missing comparison is the query owner's to add.
+
 The selected private paths are:
 
 - SAP05 selects only the query-internal-call target/profile from roadmap 45;
@@ -2904,7 +2925,9 @@ The final generated source identities are:
 - point mutation/internal call:
   `a5f5bc6ef95a18c93ef4b362e243653bba8784e652deb584d162fa0a63acc939`.
 
-Their final representative graph-basis SHA-256 receipts are point query
+Their representative graph-basis SHA-256 receipts at that time, superseded by
+the generated identity disposition above because the basis includes the kernel
+digest, were point query
 `0148a4ba0e6f21d27971d9f2c27b7b248595f60c275d7b13ba31424112683442`,
 point mutation
 `d27d77a2c54b30fd9a73a4ff1e8bb7c097a257a1e07141bc38f3b7cc64435e15`,

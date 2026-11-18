@@ -4,9 +4,13 @@ import {
   canonicalFlarexRuntimeValueToJsonV1,
   createOwnedCanonicalFlarexRuntimeValueReaderV1,
   createOwnedCanonicalFlarexRuntimeValueProjectionV1,
+  FLAREX_GENERAL_VALUE_LIMITS_V1,
   FlarexValueRuntimeCoreV1Error,
   isCanonicalFlarexRuntimeObjectV1,
+  MAX_FLAREX_APP_DOCUMENT_SEMANTIC_BYTES_V1,
+  MAX_FLAREX_VALUE_SEMANTIC_BYTES_V1,
   normalizeFlarexRuntimeValueV1,
+  normalizeFlarexRuntimeValueWithLimitsV1,
 } from "../src/value-runtime-core";
 import {
   FlarexValueCodecV1Error,
@@ -136,4 +140,115 @@ describe("Effect-free Flarex value runtime core", () => {
       expect((cause as FlarexValueCodecV1Error).issue.reason).toBe(reason);
     }
   });
+
+  it.each([
+    ["empty", "", 0],
+    ["ASCII", "abc", 3],
+    ["NUL", "a\u0000b", 3],
+    ["U+007F", "\u007f", 1],
+    ["U+0080", "\u0080", 2],
+    ["U+07FF", "\u07ff", 2],
+    ["U+0800", "\u0800", 3],
+    ["U+D7FF", "\ud7ff", 3],
+    ["U+E000", "\ue000", 3],
+    ["U+FFFF", "\uffff", 3],
+    ["U+10000", "\u{10000}", 4],
+    ["U+10FFFF", "\u{10ffff}", 4],
+    ["adjacent astral pairs", "\u{1f600}\u{1f601}", 8],
+    ["mixed widths", "a\u0080\u0800\u{1f600}\u0000", 11],
+  ] as const)("charges a %s string two bytes plus its UTF-8 length", (
+    _label,
+    value,
+    utf8Bytes,
+  ) => {
+    expect(normalizeFlarexRuntimeValueV1(value)).toMatchObject({
+      value,
+      semanticSizeBytes: 2 + utf8Bytes,
+      nestingDepth: 0,
+    });
+    expect(normalizeFlarexRuntimeValueV1({ k: [value] }).semanticSizeBytes)
+      .toBe(2 + 2 + (2 + 2 + utf8Bytes));
+  });
+
+  it.each([
+    ["high surrogate alone", "\ud800", "high"],
+    ["high surrogate at the start", "\ud800ab", "high"],
+    ["high surrogate in the middle", "a\udbffb", "high"],
+    ["high surrogate at the end", "ab\ud83d", "high"],
+    ["high surrogate before another pair", "\ud800\u{10000}", "high"],
+    ["low surrogate alone", "\udc00", "low"],
+    ["low surrogate at the start", "\udfffab", "low"],
+    ["low surrogate in the middle", "a\udc00b", "low"],
+    ["low surrogate at the end", "\u{1f600}\ude00", "low"],
+    ["reversed pair", "\udc00\ud800", "low"],
+  ] as const)("rejects a %s before any size limit", (_label, value, kind) => {
+    const issue = {
+      reason: "unsupportedValue",
+      path: "$.field[0]",
+      detail: `string contains an unpaired ${kind} surrogate`,
+    };
+    expect(captureStringIssue(value, MAX_FLAREX_VALUE_SEMANTIC_BYTES_V1)).toEqual(issue);
+    expect(captureStringIssue(value, 0)).toEqual(issue);
+  });
+
+  it("reports the code-unit precheck before the exact UTF-8 string size", () => {
+    const withinLimit = (value: string, maxSemanticBytes: number) =>
+      normalizeFlarexRuntimeValueWithLimitsV1(
+        value,
+        { ...FLAREX_GENERAL_VALUE_LIMITS_V1, maxSemanticBytes },
+      ).semanticSizeBytes;
+    const tooLarge = (observedBytes: number, maximumBytes: number) => ({
+      reason: "valueTooLarge",
+      path: "$.field[0]",
+      profile: "generalValue",
+      observedBytes,
+      maximumBytes,
+    });
+
+    // More code units than the limit: the report is the code-unit count plus two.
+    expect(captureStringIssue("\u0800\u0800\u0800\u0800", 3)).toEqual(tooLarge(6, 3));
+    expect(captureStringIssue("abcd", 3)).toEqual(tooLarge(6, 3));
+    // Exactly as many code units as the limit: the precheck does not apply.
+    expect(captureStringIssue("\u0800\u0800\u0800", 3)).toEqual(tooLarge(11, 3));
+    // Code units fit, the encoded size does not: the report is the exact size.
+    expect(captureStringIssue("abcd", 5)).toEqual(tooLarge(6, 5));
+    expect(captureStringIssue("\u0080\u0080", 5)).toEqual(tooLarge(6, 5));
+    expect(captureStringIssue("\u0800\u0800", 7)).toEqual(tooLarge(8, 7));
+    expect(captureStringIssue("\u{10000}", 5)).toEqual(tooLarge(6, 5));
+    expect(withinLimit("abcd", 6)).toBe(6);
+    expect(withinLimit("\u0080\u0080", 6)).toBe(6);
+    expect(withinLimit("\u0800\u0800", 8)).toBe(8);
+    expect(withinLimit("\u{10000}", 6)).toBe(6);
+
+    const unit = "a\u0080\u0800\u{1f600}\u0000";
+    const large = unit.repeat(120_000);
+    expect(large.length).toBe(720_000);
+    expect(normalizeFlarexRuntimeValueV1(large).semanticSizeBytes).toBe(1_320_002);
+    expect(() => normalizeFlarexRuntimeValueV1({ body: large }, "appDocument"))
+      .toThrowError(expect.objectContaining({
+        issue: {
+          reason: "valueTooLarge",
+          path: '$["body"]',
+          profile: "appDocument",
+          observedBytes: 1_320_002,
+          maximumBytes: MAX_FLAREX_APP_DOCUMENT_SEMANTIC_BYTES_V1,
+        },
+      }));
+  });
 });
+
+function captureStringIssue(value: string, maxSemanticBytes: number): unknown {
+  try {
+    normalizeFlarexRuntimeValueWithLimitsV1(
+      value,
+      { ...FLAREX_GENERAL_VALUE_LIMITS_V1, maxSemanticBytes },
+      "$.field[0]",
+    );
+  } catch (cause) {
+    expect(cause).toBeInstanceOf(FlarexValueRuntimeCoreV1Error);
+    expect((cause as FlarexValueRuntimeCoreV1Error).message)
+      .toBe("Flarex Value Codec V1 rejected a runtime value.");
+    return (cause as FlarexValueRuntimeCoreV1Error).issue;
+  }
+  throw new Error("Expected the runtime value core to reject the string.");
+}

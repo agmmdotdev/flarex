@@ -291,11 +291,11 @@ function normalizeRuntimeNode(
     return primitiveNode(value, 9, path, context);
   }
   if (typeof value === "string") {
-    assertWellFormedUnicode(value, path);
+    const utf8Bytes = wellFormedUtf8ByteLength(value, path);
     if (value.length > context.limits.maxSemanticBytes) {
       assertSemanticSize(value.length + 2, path, context.limits);
     }
-    const semanticSizeBytes = 2 + TEXT_ENCODER.encode(value).byteLength;
+    const semanticSizeBytes = 2 + utf8Bytes;
     assertSemanticSize(semanticSizeBytes, path, context.limits);
     return OBJECT_FREEZE({ value, semanticSizeBytes, nestingDepth: 0 });
   }
@@ -470,19 +470,29 @@ function validateObjectField(field: string, path: string): void {
   }
 }
 
-function assertWellFormedUnicode(value: string, path: string): void {
+/** Rejects unpaired surrogates and returns the string's UTF-8 byte length. */
+function wellFormedUtf8ByteLength(value: string, path: string): number {
+  let bytes = 0;
   for (let index = 0; index < value.length; index += 1) {
     const code = value.charCodeAt(index);
-    if (code >= 0xd800 && code <= 0xdbff) {
+    if (code < 0x80) {
+      bytes += 1;
+    } else if (code < 0x800) {
+      bytes += 2;
+    } else if (code >= 0xd800 && code <= 0xdbff) {
       const next = value.charCodeAt(index + 1);
       if (!Number.isInteger(next) || next < 0xdc00 || next > 0xdfff) {
         throw unsupported(path, "string contains an unpaired high surrogate");
       }
       index += 1;
+      bytes += 4;
     } else if (code >= 0xdc00 && code <= 0xdfff) {
       throw unsupported(path, "string contains an unpaired low surrogate");
+    } else {
+      bytes += 3;
     }
   }
+  return bytes;
 }
 
 function assertProfileRoot(
