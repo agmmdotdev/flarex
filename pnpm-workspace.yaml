@@ -2,6 +2,13 @@ packages:
   - packages/*
   - apps/*
 
+allowBuilds:
+  esbuild: set this to true or false
+  msgpackr-extract: set this to true or false
+  sharp: set this to true or false
+  tsc-rs: set this to true or false
+  workerd: set this to true or false
+
 catalog:
   "@cloudflare/workers-types": "^4.20260613.0"
   "@electric-sql/pglite": "^0.5.8"
