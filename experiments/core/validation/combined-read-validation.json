@@ -1,0 +1,235 @@
+{
+  "status": "complete-measured-experiment",
+  "scope": "Combined experimental read/observation guards; native business/adapter/accepting paths unchanged",
+  "base": "f8b34d3c16729e5ba415c3179493fa855ce6b1c6",
+  "recordedAt": "2026-10-27T05:40:06.816Z",
+  "source": [
+    {
+      "path": "experiments/core/src/persistence.ts",
+      "sha256": "f2b139dc9947da8bf27ed523f13c1e8fc7fa94c57d6f06e184c46b931992a983"
+    },
+    {
+      "path": "experiments/core/src/storage.ts",
+      "sha256": "d3373356ac2e267c072a413224a6670d457d8e5007bd507e8330af65c8cba2b5"
+    },
+    {
+      "path": "experiments/core/src/equality-storage.ts",
+      "sha256": "4400b0381921cbf2ffab2de1834f5d8beb03c217daa7662df34067f73322ce33"
+    },
+    {
+      "path": "experiments/core/test/ownership.test.ts",
+      "sha256": "0a172f5137f38a0f8054c13eae5683881293dea6c53b4e6ec39e7b1b720672d6"
+    },
+    {
+      "path": "experiments/core/test/product.test.ts",
+      "sha256": "16bf1d8c3ed7428ec99539973669c4f727f8a3602d491e535e215c1fcc2e0d4a"
+    },
+    {
+      "path": "experiments/core/test/measurement.test.mjs",
+      "sha256": "77494133253214a7157adfb29bab9c1ad1258034cf9c786f093c3f348c4cefd8"
+    }
+  ],
+  "reports": [
+    {
+      "file": "combined-read-connected.json",
+      "processExitCode": 0,
+      "passed": 268,
+      "failed": 0,
+      "skipped": 4,
+      "success": true
+    },
+    {
+      "file": "combined-read-equality.json",
+      "processExitCode": 0,
+      "passed": 34,
+      "failed": 0,
+      "skipped": 0,
+      "success": true
+    },
+    {
+      "file": "combined-read-ownership.json",
+      "processExitCode": 0,
+      "passed": 17,
+      "failed": 0,
+      "skipped": 9,
+      "success": true
+    },
+    {
+      "file": "combined-read-expiry.json",
+      "processExitCode": 0,
+      "passed": 5,
+      "failed": 0,
+      "skipped": 21,
+      "success": true
+    }
+  ],
+  "coverage": {
+    "distinctPassedCases": 319,
+    "pglite": 144,
+    "ordinaryRolePostgres": 157,
+    "unit": 18,
+    "focusedRepeatedPostgresExpiryCases": 5,
+    "skips": "13 driver-specific cases across main cohorts; focused expiry run filters out remaining cases",
+    "finalAssertionStrengthening": "The17-case ownership receipt precedes100ms live-margin strengthening; all five changed expiry expectations passed again in combined-read-expiry.json."
+  },
+  "contract": [
+    "One Drizzle guard statement consumes row-locked authority, all selected definitions in order, then command and database-time deadline",
+    "Data read follows with fresh READ COMMITTED statement snapshot after guard locks",
+    "Shared command validator preserves identity/token/scope/request/snapshot/profile/selection/fence/non-extension/status/floor checks and error order",
+    "Snapshot deadline separately witnessed after authority/definition waits; command deadline after authority/definition/command waits",
+    "Initial reservation/snapshot opening, accepting clock/expiry/dependency order, materialization, outcome/recovery and native business behavior unchanged"
+  ],
+  "checks": {
+    "typecheck": "tsc-rs passed on final owned TypeScript source before measurement",
+    "candidateLint": "passed on final owned source before measurement",
+    "rootLintCore": "passed",
+    "rootLintDiff": "passed; explicit candidate lint covers experiments/core",
+    "diffCheck": "passed",
+    "reviews": "Both mandatory read-only reviewers clear on final code, strengthened tests, raw measurement percentiles, numeric documentation, source hashes and owned scope; no remaining findings",
+    "exactIndexLint": "pnpm lint:diff -- --staged passed; no changed files in root configured roots. Explicit candidate lint separately passed on final experimental source. git diff --cached --check passed."
+  },
+  "resources": "All correctness and measurement fixtures/processes closed; source freeze released before subsequent active-core work. Earlier retained stopped temporary directory was not reused or deleted.",
+  "measurement": [
+    {
+      "mode": "sql",
+      "report": "combined-read-sql.json",
+      "testReport": "combined-read-sql-test.json",
+      "processExitCode": 0,
+      "status": "complete-declared-profile",
+      "stableSource": true,
+      "cleanup": "complete",
+      "failures": 0,
+      "warmupsPerWorkload": 5,
+      "measuredPairsPerWorkload": 2,
+      "settings": {
+        "candidate": {
+          "role": "fx_exp_1ed12056b4a0138f_serving",
+          "superuser": false,
+          "fsync": "on",
+          "synchronous_commit": "on",
+          "full_page_writes": "on",
+          "version": "18.3"
+        },
+        "referenceApplication": {
+          "role": "fx_exp_bc20cd633f420d2f_serving",
+          "superuser": false,
+          "fsync": "on",
+          "synchronous_commit": "on",
+          "full_page_writes": "on",
+          "version": "18.3"
+        },
+        "nativePayload": {
+          "role": "fx_exp_593a85af9e3136e8_serving",
+          "superuser": false,
+          "fsync": "on",
+          "synchronous_commit": "on",
+          "full_page_writes": "on",
+          "version": "18.3"
+        },
+        "nativeProduct": {
+          "role": "fx_exp_4f4298e0adc92f15_serving",
+          "superuser": false,
+          "fsync": "on",
+          "synchronous_commit": "on",
+          "full_page_writes": "on",
+          "version": "18.3"
+        }
+      }
+    },
+    {
+      "mode": "latency",
+      "report": "combined-read-latency.json",
+      "testReport": "combined-read-latency-test.json",
+      "processExitCode": 0,
+      "status": "complete-declared-profile",
+      "stableSource": true,
+      "cleanup": "complete",
+      "failures": 0,
+      "warmupsPerWorkload": 5,
+      "measuredPairsPerWorkload": 30,
+      "settings": {
+        "candidate": {
+          "role": "fx_exp_db9f5e7fe22a82b7_serving",
+          "superuser": false,
+          "fsync": "on",
+          "synchronous_commit": "on",
+          "full_page_writes": "on",
+          "version": "18.3"
+        },
+        "referenceApplication": {
+          "role": "fx_exp_dd6cb021b750fb68_serving",
+          "superuser": false,
+          "fsync": "on",
+          "synchronous_commit": "on",
+          "full_page_writes": "on",
+          "version": "18.3"
+        },
+        "nativePayload": {
+          "role": "fx_exp_cc92b017b28e0f3d_serving",
+          "superuser": false,
+          "fsync": "on",
+          "synchronous_commit": "on",
+          "full_page_writes": "on",
+          "version": "18.3"
+        },
+        "nativeProduct": {
+          "role": "fx_exp_b74ebe24725e36bf_serving",
+          "superuser": false,
+          "fsync": "on",
+          "synchronous_commit": "on",
+          "full_page_writes": "on",
+          "version": "18.3"
+        }
+      }
+    },
+    {
+      "mode": "cpu",
+      "report": "combined-read-cpu.json",
+      "testReport": "combined-read-cpu-test.json",
+      "processExitCode": 0,
+      "status": "complete-declared-profile",
+      "stableSource": true,
+      "cleanup": "complete",
+      "failures": 0,
+      "warmupsPerWorkload": 5,
+      "measuredPairsPerWorkload": 30,
+      "settings": {
+        "candidate": {
+          "role": "fx_exp_85dd29169bafbd93_serving",
+          "superuser": false,
+          "fsync": "on",
+          "synchronous_commit": "on",
+          "full_page_writes": "on",
+          "version": "18.3"
+        },
+        "referenceApplication": {
+          "role": "fx_exp_b3a048119c2714a9_serving",
+          "superuser": false,
+          "fsync": "on",
+          "synchronous_commit": "on",
+          "full_page_writes": "on",
+          "version": "18.3"
+        },
+        "nativePayload": {
+          "role": "fx_exp_49bb72703ca71c5a_serving",
+          "superuser": false,
+          "fsync": "on",
+          "synchronous_commit": "on",
+          "full_page_writes": "on",
+          "version": "18.3"
+        },
+        "nativeProduct": {
+          "role": "fx_exp_15b4b96e2517ad43_serving",
+          "superuser": false,
+          "fsync": "on",
+          "synchronous_commit": "on",
+          "full_page_writes": "on",
+          "version": "18.3"
+        }
+      }
+    }
+  ],
+  "disposition": "Correct, fewer exchanges, no observed local latency improvement; reject performance promotion",
+  "sourceComparison": "combined-read-comparison.json",
+  "quietWindow": "Coordinated with Choose a parallel workflow. Runtime/source/config/included-test changes and heavy work held across all modes. Excluded Medusa adapter tests, standalone scripts and Markdown edits permitted; each cohort verified fresh source bytes before preparation, after warmup and after requests."
+}

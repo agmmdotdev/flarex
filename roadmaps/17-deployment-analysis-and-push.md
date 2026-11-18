@@ -23,6 +23,17 @@ two analysis authorities. The `AA-R9-P` production-cutover preflight is
 complete with a no-go decision. Production routing and cutover remain
 unapproved.
 
+The [ordinary Core public path](../experiments/core/engine/slices/19-registered-source-upgrades.md)
+uses genuine framed source, the actual analyzer and one PostgreSQL deployment/
+activation owner through local public push, discovery and isolated execution.
+Independent durable source attempts share Core schema validation and index
+preparation. Registered upgrades preserve existing documents, replace complete
+active program heads and retain original committed mutation recovery. Old
+schema-coupled candidates migrate without changing public IDs or durable data.
+This bounded profile does not reinterpret legacy receipts or close managed
+production `AA-R9`; production activation, general framework/data conversions
+and the broader hosted gates remain open.
+
 This roadmap owns:
 
 - the dynamic V1 source-package compatibility contract, the retained private
@@ -274,6 +285,32 @@ inputs, source maps, provenance, or rollback evidence.
 | `DeploymentDO` compatibility control plane | Current candidate records, state transitions, and active pointer/schema/function rows | Replacement Postgres app-data authority or future schema-readiness truth |
 | Artifact runtime | Load the exact source package, materialize managed Dynamic Workers, and invoke active artifacts | Deployment activation policy or raw database authority |
 | FlarexDB control/executor packages | Immutable schema artifacts, readiness, active scope version, deployment package registration, and trusted execution metadata | User-supplied physical IDs or unvalidated analyzer output |
+
+Retained deployment metadata uses encoded wire ingress and trusted semantic
+handoffs. Shared protocol projections encode validators before store-plan JSON,
+local analyzer responses and HTTP response encoding; those consumers do not
+reinterpret semantic bigint/signed-zero literals as raw wire JSON. Stored rows
+are decoded through the same wire contract. This metadata representation grants
+neither application-data transport capabilities nor deployment authority.
+Fresh pre-analyzed pushes construct new successful analyzer metadata. Structural
+capture alone admitted source-invalid record domains and nonfinite literals to
+Store mutation planning, while real source analysis rejected them. The fresh
+construction boundary must apply the shared ordered source admission and finite
+normalization to analysis and explicitly supplied codegen metadata, returning a
+typed validation refusal before any Store mutation. Authentication does not
+supply source-admission provenance. Generic/historical metadata codecs and stored
+row readers retain their wider decoding capability.
+
+Generated application files import these protocol capabilities through the
+existing `flarex/validator-json` SDK boundary, so an app declaring `flarex` does
+not need a new direct dependency on private protocol packages.
+
+The retained generated JSON execution profile has no installed Convex table-number
+catalog. Its synchronous `db.normalizeId` therefore fails explicitly as unsupported
+and follows the existing outer abort path. Legacy prefix parsing or a remote
+async syscall cannot supply that contract. The translated Application Worker uses
+its core table catalog for real normalization; replacement of the retained profile
+must move that capability to the same owner before claiming ID support.
 
 ## Invariants And Trust Boundaries
 

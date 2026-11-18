@@ -1,0 +1,42 @@
+{
+  "purpose": "Retain diagnostic statement entries through the complete server interval; no statistics reset or durability change",
+  "requested": "5000",
+  "before": [
+    {
+      "name": "fsync",
+      "setting": "on",
+      "pending_restart": false
+    },
+    {
+      "name": "full_page_writes",
+      "setting": "on",
+      "pending_restart": false
+    },
+    {
+      "name": "pg_stat_statements.max",
+      "setting": "20000",
+      "pending_restart": false
+    },
+    {
+      "name": "pg_stat_statements.track",
+      "setting": "none",
+      "pending_restart": false
+    },
+    {
+      "name": "synchronous_commit",
+      "setting": "on",
+      "pending_restart": false
+    }
+  ],
+  "statistics": [
+    {
+      "stats_reset": "2026-10-03 04:39:25.4412+00",
+      "dealloc": 2
+    }
+  ],
+  "count": [
+    {
+      "entries": 8324
+    }
+  ]
+}

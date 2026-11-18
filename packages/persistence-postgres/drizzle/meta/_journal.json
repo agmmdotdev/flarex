@@ -722,6 +722,377 @@
       "when": 1789311112781,
       "tag": "0102_framework_head_progress",
       "breakpoints": true
+    },
+    {
+      "idx": 103,
+      "version": "7",
+      "when": 1789825216262,
+      "tag": "0103_index_maintenance",
+      "breakpoints": true
+    },
+    {
+      "idx": 104,
+      "version": "7",
+      "when": 1789832762752,
+      "tag": "0104_unique_maintenance",
+      "breakpoints": true
+    },
+    {
+      "idx": 105,
+      "version": "7",
+      "when": 1789910589951,
+      "tag": "0105_conditional_unique_constraints",
+      "breakpoints": true
+    },
+    {
+      "idx": 106,
+      "version": "7",
+      "when": 1789917080309,
+      "tag": "0106_partial_ordered_indexes",
+      "breakpoints": true
+    },
+    {
+      "idx": 107,
+      "version": "7",
+      "when": 1790139133229,
+      "tag": "0107_logical_source_initialization",
+      "breakpoints": true
+    },
+    {
+      "idx": 108,
+      "version": "7",
+      "when": 1790234183051,
+      "tag": "0108_ordered_index_text_predicate",
+      "breakpoints": true
+    },
+    {
+      "idx": 109,
+      "version": "7",
+      "when": 1790293390547,
+      "tag": "0109_natural_miss_america",
+      "breakpoints": true
+    },
+    {
+      "idx": 110,
+      "version": "7",
+      "when": 1790354106807,
+      "tag": "0110_sticky_black_bird",
+      "breakpoints": true
+    },
+    {
+      "idx": 111,
+      "version": "7",
+      "when": 1790374791913,
+      "tag": "0111_aromatic_hiroim",
+      "breakpoints": true
+    },
+    {
+      "idx": 112,
+      "version": "7",
+      "when": 1790374837296,
+      "tag": "0112_pretty_jean_grey",
+      "breakpoints": true
+    },
+    {
+      "idx": 113,
+      "version": "7",
+      "when": 1790375847190,
+      "tag": "0113_careful_ben_grimm",
+      "breakpoints": true
+    },
+    {
+      "idx": 114,
+      "version": "7",
+      "when": 1790424498770,
+      "tag": "0114_tough_greymalkin",
+      "breakpoints": true
+    },
+    {
+      "idx": 115,
+      "version": "7",
+      "when": 1790459092566,
+      "tag": "0115_violet_doctor_octopus",
+      "breakpoints": true
+    },
+    {
+      "idx": 116,
+      "version": "7",
+      "when": 1790465360865,
+      "tag": "0116_modern_jean_grey",
+      "breakpoints": true
+    },
+    {
+      "idx": 117,
+      "version": "7",
+      "when": 1790491190082,
+      "tag": "0117_big_starhawk",
+      "breakpoints": true
+    },
+    {
+      "idx": 118,
+      "version": "7",
+      "when": 1790516723500,
+      "tag": "0118_admitted_operation_journal",
+      "breakpoints": true
+    },
+    {
+      "idx": 119,
+      "version": "7",
+      "when": 1790583202337,
+      "tag": "0119_protected_metadata_epoch",
+      "breakpoints": true
+    },
+    {
+      "idx": 120,
+      "version": "7",
+      "when": 1790770000000,
+      "tag": "0120_immutable_target_metadata_protection",
+      "breakpoints": true
+    },
+    {
+      "idx": 121,
+      "version": "7",
+      "when": 1790860000000,
+      "tag": "0121_exact_running_attempt_tail",
+      "breakpoints": true
+    },
+    {
+      "idx": 122,
+      "version": "7",
+      "when": 1790946400000,
+      "tag": "0122_installation_lifecycle",
+      "breakpoints": true
+    },
+    {
+      "idx": 123,
+      "version": "7",
+      "when": 1790946500000,
+      "tag": "0123_application_read_binding",
+      "breakpoints": true
+    },
+    {
+      "idx": 124,
+      "version": "7",
+      "when": 1790946600000,
+      "tag": "0124_logical_read_metadata",
+      "breakpoints": true
+    },
+    {
+      "idx": 125,
+      "version": "7",
+      "when": 1790946700000,
+      "tag": "0125_colocated_read_installation",
+      "breakpoints": true
+    },
+    {
+      "idx": 126,
+      "version": "7",
+      "when": 1790946800000,
+      "tag": "0126_finite_execution_authority",
+      "breakpoints": true
+    },
+    {
+      "idx": 127,
+      "version": "7",
+      "when": 1790946900000,
+      "tag": "0127_whole_mutation",
+      "breakpoints": true
+    },
+    {
+      "idx": 128,
+      "version": "7",
+      "when": 1790947000000,
+      "tag": "0128_finite_storage_frontier",
+      "breakpoints": true
+    },
+    {
+      "idx": 129,
+      "version": "7",
+      "when": 1790947100000,
+      "tag": "0129_finite_storage_reads",
+      "breakpoints": true
+    },
+    {
+      "idx": 130,
+      "version": "7",
+      "when": 1790947200000,
+      "tag": "0130_finite_storage_capture",
+      "breakpoints": true
+    },
+    {
+      "idx": 131,
+      "version": "7",
+      "when": 1790947300000,
+      "tag": "0131_finite_entry",
+      "breakpoints": true
+    },
+    {
+      "idx": 132,
+      "version": "7",
+      "when": 1790947400000,
+      "tag": "0132_finite_historical_identity",
+      "breakpoints": true
+    },
+    {
+      "idx": 133,
+      "version": "7",
+      "when": 1790947500000,
+      "tag": "0133_publication_domain",
+      "breakpoints": true
+    },
+    {
+      "idx": 134,
+      "version": "7",
+      "when": 1790947600000,
+      "tag": "0134_materialization_composition",
+      "breakpoints": true
+    },
+    {
+      "idx": 135,
+      "version": "7",
+      "when": 1790947700000,
+      "tag": "0135_frozen_settlement_acceptance",
+      "breakpoints": true
+    },
+    {
+      "idx": 136,
+      "version": "7",
+      "when": 1790947800000,
+      "tag": "0136_typed_maintenance_obligations",
+      "breakpoints": true
+    },
+    {
+      "idx": 137,
+      "version": "7",
+      "when": 1790947900000,
+      "tag": "0137_retained_materialization_proofs",
+      "breakpoints": true
+    },
+    {
+      "idx": 138,
+      "version": "7",
+      "when": 1791417600000,
+      "tag": "0138_finite_capture_frontier",
+      "breakpoints": true
+    },
+    {
+      "idx": 139,
+      "version": "7",
+      "when": 1791504000000,
+      "tag": "0139_application_publication_stages",
+      "breakpoints": true
+    },
+    {
+      "idx": 140,
+      "version": "7",
+      "when": 1791547200000,
+      "tag": "0140_readiness_metadata_protection",
+      "breakpoints": true
+    },
+    {
+      "idx": 141,
+      "version": "7",
+      "when": 1791590400000,
+      "tag": "0141_finite_accepting_readiness",
+      "breakpoints": true
+    },
+    {
+      "idx": 142,
+      "version": "7",
+      "when": 1791590500000,
+      "tag": "0142_static_placement_composition",
+      "breakpoints": true
+    },
+    {
+      "idx": 143,
+      "version": "7",
+      "when": 1791590600000,
+      "tag": "0143_ordinary_readiness_acceptance",
+      "breakpoints": true
+    },
+    {
+      "idx": 144,
+      "version": "7",
+      "when": 1791590700000,
+      "tag": "0144_ordinary_readiness_dispatch_retirement",
+      "breakpoints": true
+    },
+    {
+      "idx": 145,
+      "version": "7",
+      "when": 1791590800000,
+      "tag": "0145_binding_maintenance_authority",
+      "breakpoints": true
+    },
+    {
+      "idx": 146,
+      "version": "7",
+      "when": 1792097890772,
+      "tag": "0146_trusted_workflow_task_binding",
+      "breakpoints": true
+    },
+    {
+      "idx": 147,
+      "version": "7",
+      "when": 1792120750697,
+      "tag": "0147_trusted_workflow_child_commerce",
+      "breakpoints": true
+    },
+    {
+      "idx": 148,
+      "version": "7",
+      "when": 1792126304140,
+      "tag": "0148_trusted_workflow_continuation",
+      "breakpoints": true
+    },
+    {
+      "idx": 149,
+      "version": "7",
+      "when": 1792274400000,
+      "tag": "0149_row_insertion_generation",
+      "breakpoints": true
+    },
+    {
+      "idx": 150,
+      "version": "7",
+      "when": 1792627200000,
+      "tag": "0150_boolean_partial_index_membership",
+      "breakpoints": true
+    },
+    {
+      "idx": 151,
+      "version": "7",
+      "when": 1792700000000,
+      "tag": "0151_all_null_partial_index_membership",
+      "breakpoints": true
+    },
+    {
+      "idx": 152,
+      "version": "7",
+      "when": 1792800000000,
+      "tag": "0152_non_null_partial_index_membership",
+      "breakpoints": true
+    },
+    {
+      "idx": 153,
+      "version": "7",
+      "when": 1793079000000,
+      "tag": "0153_ordered_index_catalog_capacity",
+      "breakpoints": true
+    },
+    {
+      "idx": 154,
+      "version": "7",
+      "when": 1793200000000,
+      "tag": "0154_snapshot_index_position_cuts",
+      "breakpoints": true
+    },
+    {
+      "idx": 155,
+      "version": "7",
+      "when": 1793300000000,
+      "tag": "0155_application_operation_admission",
+      "breakpoints": true
     }
   ]
 }

@@ -1,14 +1,16 @@
 import { payloadJoinQuery, type PayloadJoinQuery } from "./joins";
-import { payloadHasMany, payloadJoins, payloadIsManagedField } from "./contract";
+import { canonicalPayloadNumber, payloadHasMany, payloadJoins, payloadIsManagedField } from "./contract";
 import type { PayloadCollectionRuntime } from "./collectionRuntime";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { ValidationError, type BaseDatabaseAdapter, type DatabaseAdapterObj,
   type PayloadRequest, type TypeWithID, type PaginatedDocs } from "payload";
-import { Clock, Effect, Result, Semaphore } from "effect";
+import { Cause, Clock, Context, Effect, Exit, Result, Semaphore } from "effect";
 import { isJsonObject, type Json } from "flarex-protocol/json";
 import {
   capturePrivateJsonData,
   cmsError,
+  cmsLimits,
+  reclassifyBoundedRequestReason,
   type CmsCommandContext,
   type CmsPresentedTransactionId,
   type CmsTransactionError,
@@ -17,15 +19,18 @@ import type { PayloadContentProfile } from "./contract";
 import { makePayloadPopulation, payloadPopulationIds } from "./population";
 import { payloadManyIds } from "./many";
 import { UnsupportedPayloadCapability } from "./errors";
-import { isPayloadLimit, isPayloadPage } from "./query";
+import { isPayloadLimit, isPayloadPage, payloadPaginationPolicy } from "./query";
 interface RequestBridge {
+  readonly diagnostics: Context.Context<never>;
   readonly collection: PayloadCollectionRuntime;
   readonly context: CmsCommandContext;
   readonly request: Partial<PayloadRequest>;
   readonly signal: AbortSignal;
   readonly population: ReturnType<typeof makePayloadPopulation> | null;
   readonly semaphore: Semaphore.Semaphore;
+  readonly rejections: Map<object, Cause.Cause<unknown>>;
   readonly joins: PayloadJoinQuery;
+  readonly onCollection?: (collection: string) => void;
   live: boolean;
 }
 
@@ -40,18 +45,37 @@ const transactionId = (state: RequestBridge): CmsPresentedTransactionId => {
 };
 function projectUniqueFailure(state: RequestBridge, error: CmsTransactionError) {
   const constraint = error.uniqueConstraint;
-  const field = state.collection.fields.find(candidate => candidate.kind !== "relationship" && candidate.unique === true);
   if (error.reason !== "uniqueConflict" || constraint === undefined || constraint.tableName !== state.collection.logicalTableName ||
-    field === undefined || constraint.orderedFields.length !== 1 || constraint.orderedFields[0] !== field.name) return error;
-  return new ValidationError({ collection: state.collection.collectionSlug, errors: [{ path: field.name,
-    tableName: state.collection.collectionSlug, message: state.request.t?.("error:valueMustBeUnique") ?? "Value must be unique" }],
+    !state.collection.uniqueSelections.some(fields => fields.length === constraint.orderedFields.length &&
+      fields.every((field, position) => field === constraint.orderedFields[position]))) return error;
+  return new ValidationError({ collection: state.collection.collectionSlug, errors: constraint.orderedFields.map(path => ({ path,
+    tableName: state.collection.collectionSlug, message: state.request.t?.("error:valueMustBeUnique") ?? "Value must be unique" })),
   req: state.request }, state.request.t);
 }
-const run = <Value>(state: RequestBridge, effect: Effect.Effect<Value, CmsTransactionError>): Promise<Value> =>
-  Effect.runPromise((state.population === null ? effect : state.semaphore.withPermits(1)(Effect.suspend(() =>
-    state.live ? effect : Effect.fail(cmsError("closed"))))).pipe(Effect.mapError(error => projectUniqueFailure(state, error))), { signal: state.signal });
+const projectUniqueCause = (state: RequestBridge, cause: Cause.Cause<CmsTransactionError>) =>
+  Cause.fromReasons(cause.reasons.map(reason => {
+    if (!Cause.isFailReason(reason)) return reason;
+    const error = projectUniqueFailure(state, reason.error);
+    if (error === reason.error) return reason;
+    const mapped = Cause.makeFailReason(error).annotate(Context.makeUnsafe(new Map(reason.annotations)), { overwrite: true });
+    return reclassifyBoundedRequestReason(reason, mapped);
+  }));
+const run = async <Value>(state: RequestBridge, effect: Effect.Effect<Value, CmsTransactionError>): Promise<Value> => {
+  const outcome = await Effect.runPromiseExitWith(state.diagnostics)((state.population === null ? effect : state.semaphore.withPermits(1)(Effect.suspend(() =>
+    state.live ? effect : Effect.fail(cmsError("closed"))))).pipe(Effect.catchCause(cause =>
+      Effect.failCause(projectUniqueCause(state, cause)))), { signal: state.signal });
+  if (Exit.isSuccess(outcome)) return outcome.value;
+  // Payload must see its native ValidationError object. Keep the complete
+  // failure privately until this exact rejection leaves the Local API call.
+  const squashed = Cause.squash(outcome.cause);
+  const rejection = (typeof squashed === "object" && squashed !== null) || typeof squashed === "function"
+    ? squashed : new Error("Payload adapter operation failed", { cause: squashed });
+  const previous = state.rejections.get(rejection);
+  state.rejections.set(rejection, previous === undefined ? outcome.cause : Cause.combine(previous, outcome.cause));
+  throw rejection;
+};
 // oxlint-disable-next-line flarex/no-result-get-or-throw-without-boundary -- REVIEW: compatibility - Payload requires a throwing parser over the owned Result decoder.
-const capture = (value: unknown): Json => Result.getOrThrow(capturePrivateJsonData(value, 65_536, cmsError)).value;
+const capture = (value: unknown): Json => Result.getOrThrow(capturePrivateJsonData(value, cmsLimits.documentBytes, cmsError)).value;
 // oxlint-disable-next-line flarex/no-result-get-or-throw-without-boundary -- REVIEW: compatibility - Payload requires a throwing parser over its sanitized query decoder.
 const where = (state: RequestBridge, input: unknown) => Result.getOrThrow(state.collection.query.adapter(input));
 const payloadDocument = (value: Json, profile: PayloadContentProfile, collection: PayloadCollectionRuntime): Record<string, Json> & { id: string } => {
@@ -86,15 +110,20 @@ const payloadFields = (profile: PayloadContentProfile, collection: PayloadCollec
       normalized[key] = Result.getOrThrow(payloadManyIds(value));
       continue;
     }
-    const scalar = collection.fields.find(field => field.name === key && field.kind !== "relationship");
-    if (scalar === undefined) throw new UnsupportedPayloadCapability(`document field: ${key} (${typeof value})`);
+    const scalar = collection.fields.find(field => field.name === key);
+    if (scalar === undefined || scalar.kind === "relationship") throw new UnsupportedPayloadCapability(`document field: ${key} (${typeof value})`);
     if (value === undefined && payloadIsManagedField(key)) continue;
+    if (scalar.nullable && value === undefined) continue;
+    if (scalar.nullable && value === null) { normalized[key] = null; continue; }
     if (scalar.kind === "date") {
       if (typeof value !== "string" || !Number.isFinite(Date.parse(value))) throw new UnsupportedPayloadCapability("date");
       normalized[key] = new Date(value).toISOString();
-    } else normalized[key] = value;
+    } else normalized[key] = scalar.kind === "number" && typeof value === "number" ? canonicalPayloadNumber(value) : value;
   }
   if (creationTimestamp !== undefined) {
+    // Native defaults have already run. SQL INSERT would fill remaining nullable
+    // columns with null; patches keep undefined members absent instead.
+    for (const scalar of collection.fields) if (scalar.kind !== "relationship" && scalar.nullable) normalized[scalar.name] ??= null;
     if (payloadHasMany(profile)) normalized.relatedPosts ??= [];
     normalized.createdAt ??= creationTimestamp;
     normalized.updatedAt ??= creationTimestamp;
@@ -105,13 +134,13 @@ const payloadFields = (profile: PayloadContentProfile, collection: PayloadCollec
 };
 
 /** Node-only, per-Payload-instance foreign Promise boundary; it owns no database. */
-export function makePayloadDatabaseAdapter(profile: PayloadContentProfile, collections: readonly PayloadCollectionRuntime[], onCollection?: (collection: string) => void) {
+export function makePayloadDatabaseAdapter(profile: PayloadContentProfile, collections: readonly PayloadCollectionRuntime[]) {
   const document = (collection: PayloadCollectionRuntime, value: Json) => payloadDocument(value, profile, collection);
   const fields = (state: RequestBridge, input: Record<string, unknown>, expectedId?: string, creationTimestamp?: string) => payloadFields(profile, state.collection, input, expectedId, creationTimestamp);
   const current = new AsyncLocalStorage<RequestBridge>();
   const unsupported = async (capability = "deferred adapter member"): Promise<never> => {
     const state = current.getStore();
-    if (state?.live) await Effect.runPromise(state.context.rollback(state.context.transactionId).pipe(Effect.exit), { signal: state.signal });
+    if (state?.live) await Effect.runPromiseWith(state.diagnostics)(state.context.rollback(state.context.transactionId).pipe(Effect.exit), { signal: state.signal });
     throw new UnsupportedPayloadCapability(capability);
   };
   const deferred = () => unsupported();
@@ -135,7 +164,7 @@ export function makePayloadDatabaseAdapter(profile: PayloadContentProfile, colle
       // oxlint-disable-next-line flarex/no-result-get-or-throw-without-boundary -- REVIEW: compatibility - Payload requires a throwing adapter argument parser.
       Result.getOrThrow(payloadJoinQuery(args.joins, true));
     }
-    onCollection?.(args.collection);
+    state.onCollection?.(args.collection);
     return state;
   };
   const roots = async (state: RequestBridge, values: ReturnType<typeof document>[], queryInput: unknown) => {
@@ -154,12 +183,6 @@ export function makePayloadDatabaseAdapter(profile: PayloadContentProfile, colle
   const one = async (args: Parameters<BaseDatabaseAdapter["findOne"]>[0]) => {
     const state = admit(args, true);
     const predicate = where(state, args.where);
-    if (predicate._id !== undefined) {
-      const value = await run(state, state.context.documents.get(state.context.context, transactionId(state), predicate._id, state.collection.logicalTableName));
-      const found = value === null || Object.entries(predicate).some(([field, expected]) => value[field] !== expected) ? null : document(state.collection, value);
-      await roots(state, found === null ? [] : [found], args.joins);
-      return found;
-    }
     const result = await run(state, state.context.documents.find(state.context.context, transactionId(state), state.collection.logicalTableName, { where: predicate, offset: 0, limit: 1 }));
     const found = result.docs[0] === undefined ? null : document(state.collection, result.docs[0]);
     await roots(state, found === null ? [] : [found], args.joins);
@@ -205,7 +228,7 @@ export function makePayloadDatabaseAdapter(profile: PayloadContentProfile, colle
           hasPrevPage: false, hasNextPage: false, prevPage: null, nextPage: null };
       }
       admit(args);
-      const limit = args.limit ?? 10; const page = args.page ?? 1;
+      const limit = args.limit ?? payloadPaginationPolicy.defaultLimit; const page = args.page ?? payloadPaginationPolicy.defaultPage;
       if (!isPayloadLimit(limit) || !isPayloadPage(page) ||
         args.skip !== undefined || args.projection !== undefined || args.versions || (args.sort !== undefined && args.sort !== "id" && !(Array.isArray(args.sort) && args.sort.length === 1 && args.sort[0] === "id"))) {
         return unsupported("pagination or sort");
@@ -239,19 +262,33 @@ export function makePayloadDatabaseAdapter(profile: PayloadContentProfile, colle
       const state = stateFor(args.req);
       if (args.collection !== "payload-preferences" || Object.keys(args).some(key => !["collection", "req", "where"].includes(key))) return unsupported(`deleteMany:${args.collection}`);
       await run(state, state.context.preferences.deleteForPendingDocument(state.context.context, transactionId(state), state.collection.collectionSlug, args.where));
-      onCollection?.(args.collection);
+      state.onCollection?.(args.collection);
     }, deleteVersions: deferred, findDistinct: deferred, findGlobal: deferred,
     findGlobalVersions: deferred, findVersions: deferred, generateSchema: deferred, migrate: deferred, migrateDown: deferred,
     migrateFresh: deferred, migrateRefresh: deferred, migrateReset: deferred, migrateStatus: deferred, queryDrafts: deferred,
     updateGlobal: deferred, updateGlobalVersion: deferred, updateJobs: deferred, updateMany: deferred, updateVersion: deferred, upsert: deferred,
   } satisfies BaseDatabaseAdapter) };
-  const within = async <Value>(context: CmsCommandContext, collection: PayloadCollectionRuntime, request: Partial<PayloadRequest>, signal: AbortSignal, work: () => Promise<Value>, populate = false, joins: PayloadJoinQuery = { referencedBy: false, referencedByMany: false }) => {
-    if (populate && (!context.standaloneRead || profile === "payload.scalar")) throw new UnsupportedPayloadCapability("population request");
-    const state: RequestBridge = { context, collection, request, signal, joins, live: !signal.aborted,
-      population: populate ? makePayloadPopulation(profile, collection) : null, semaphore: Semaphore.makeUnsafe(1) };
-    const abort = () => { state.live = false; };
-    signal.addEventListener("abort", abort, { once: true });
-    try { return await current.run(state, work); } finally { state.live = false; signal.removeEventListener("abort", abort); }
+  const within = async <Value>(context: CmsCommandContext, collection: PayloadCollectionRuntime, request: Partial<PayloadRequest>, signal: AbortSignal, diagnostics: Context.Context<never>, work: () => Promise<Value>, populate = false, joins: PayloadJoinQuery = { referencedBy: false, referencedByMany: false }, onCollection?: (collection: string) => void) => {
+    const rejections = new Map<object, Cause.Cause<unknown>>();
+    let active: RequestBridge | undefined;
+    const abort = () => { if (active !== undefined) active.live = false; };
+    try {
+      if (populate && (!context.populationRead || profile === "payload.scalar")) throw new UnsupportedPayloadCapability("population request");
+      const state: RequestBridge = { context, collection, request, signal, joins, diagnostics, live: !signal.aborted, rejections,
+        population: populate ? makePayloadPopulation(profile, collection) : null, semaphore: Semaphore.makeUnsafe(1),
+        ...(onCollection === undefined ? {} : { onCollection }) };
+      active = state;
+      signal.addEventListener("abort", abort, { once: true });
+      return Exit.succeed(await current.run(state, work));
+    } catch (rejection) {
+      const cause = ((typeof rejection === "object" && rejection !== null) || typeof rejection === "function")
+        ? rejections.get(rejection) : undefined;
+      return Exit.failCause(cause ?? Cause.fail(rejection));
+    } finally {
+      if (active !== undefined) active.live = false;
+      signal.removeEventListener("abort", abort);
+      rejections.clear();
+    }
   };
   return { adapter, within, unsupported };
 }

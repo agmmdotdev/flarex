@@ -1,0 +1,51 @@
+{
+  "checkpoint": "read-admission-construction-final-working-tree@e6bd105ea",
+  "sourceEvidenceSha256": "2771e3a1d08a9deb436ec4690c8dc019dd9c67ada49d9fc577ddf2aab54ea44d",
+  "compression": "gzip; exact compressed/content bytes and hashes",
+  "logSegment": {
+    "source": "work/validation/read-construction-postgres/server.log",
+    "startByte": 125700978,
+    "endByteExclusive": 187811863,
+    "scope": "bootstrap, seed, parity and server diagnostic samples; not a quiet interval"
+  },
+  "baselineManifest": "construction-baseline-manifest.json",
+  "baselineManifestSha256": "d1f5340a3f2c5ff8421d9cd13278e22a2ff2feed34e183a08d3d581c159dde35",
+  "intermediateManifest": "construction-after-manifest.json",
+  "intermediateManifestSha256": "208fc45a6fd48cd850f0e743dd7cf81633d0084f9e950115c1f35262a9d448f5",
+  "files": [
+    {
+      "name": "quiet-construction-final.json",
+      "bytes": 103946,
+      "sha256": "10f6a0c82a271f474cc8eac5b9971d3e8edff6c5c8d723929e6499e682c18bc5"
+    },
+    {
+      "name": "trace-construction-final.json",
+      "bytes": 215156,
+      "sha256": "650b6164ec86e2d6ffc701243c4ca2afe22d249c9ca34f448e062ff0c7573ac0"
+    },
+    {
+      "name": "server-construction-final.json.gz",
+      "bytes": 2483778,
+      "sha256": "0d321ee5eb9de62cd59879ee188e0d5ebbb80083a3bc92fb874700603dc32f9d",
+      "contentBytes": 23411218,
+      "contentSha256": "8d06803d9e584a447de080356e10b8070543893e8486e4960844406f5ab910ac"
+    },
+    {
+      "name": "server-plans-construction-final.log.gz",
+      "bytes": 2637210,
+      "sha256": "c3acfbfda572691c6a3fdd4820e458640404c11ac70252e304889203cf1e1145",
+      "contentBytes": 62110885,
+      "contentSha256": "b3c3967e46bfd9a158a7179b3360eb70ce93968fc233fc4bd5d6d7b5c510097d"
+    },
+    {
+      "name": "construction-final-summary.json",
+      "bytes": 7079,
+      "sha256": "b0e60cf3ab7ea53871ee5f3bed420d834af52fe5adca5055ca62ff8e0c66e4d3"
+    },
+    {
+      "name": "construction-final-comparison-summary.json",
+      "bytes": 34481,
+      "sha256": "b3817b17bc0936284f863eb49ce4248aae27e87ef6c93ed4177c1da707636576"
+    }
+  ]
+}

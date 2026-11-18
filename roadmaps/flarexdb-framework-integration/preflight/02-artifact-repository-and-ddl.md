@@ -89,11 +89,11 @@ selects runtime state.
 The current Application schema-version artifact repository is useful evidence,
 but it is not the new owner:
 
-- [`schemaVersionArtifacts.ts`](../../../packages/persistence-postgres/src/schemaVersionArtifacts.ts)
+- [`schemaVersionArtifacts.ts`](../../../packages/persistence-postgres/src/storage/catalog/schemaVersionArtifacts.ts)
   prepares canonical evidence before SQL, authenticates a prepared value with
   a module-owned `WeakMap`, locks the deployment row, and accepts only exact
   replay;
-- [`schema.ts`](../../../packages/persistence-postgres/src/schema.ts) defines
+- [`schema.ts`](../../../packages/persistence-postgres/src/database/schema.ts) defines
   `fx_control_schema_version` with deployment ownership, immutable identity,
   nonempty canonical evidence and database time, while its repository
   size-gates canonical reads; and
@@ -178,7 +178,7 @@ larger persistence-owner change and is outside this checkpoint.
 The future code remains private under the existing owner:
 
 ```text
-packages/persistence-postgres/src/frameworkSchema/artifact/
+packages/persistence-postgres/src/installation/frameworkSchema/artifact/
   canonical.ts
   controlSession.ts
   errors.ts

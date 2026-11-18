@@ -102,7 +102,7 @@ export default class SalesChannelModuleService
     selector: FilterableSalesChannelProps,
     data: UpdateSalesChannelDTO,
     sharedContext?: Context
-  ): Promise<SalesChannelDTO[]>
+  ): Promise<SalesChannelDTO | undefined>
 
   @InjectManager()
   @EmitEvents()
@@ -111,7 +111,7 @@ export default class SalesChannelModuleService
     idOrSelector: string | FilterableSalesChannelProps,
     data: UpdateSalesChannelDTO | UpdateSalesChannelDTO[],
     @MedusaContext() sharedContext: Context = {}
-  ): Promise<SalesChannelDTO | SalesChannelDTO[]> {
+  ): Promise<SalesChannelDTO | SalesChannelDTO[] | undefined> {
     let normalizedInput: UpdateSalesChanneInput[] = []
     if (isString(idOrSelector)) {
       normalizedInput = [{ id: idOrSelector, ...data }]
@@ -133,7 +133,7 @@ export default class SalesChannelModuleService
       sharedContext
     )
 
-    return await this.baseRepository_.serialize<SalesChannelDTO[]>(
+    return await this.baseRepository_.serialize<SalesChannelDTO | SalesChannelDTO[]>(
       Array.isArray(data) ? result : result[0]
     )
   }

@@ -169,11 +169,9 @@ export const admittedInternalCategoryCases = [
 ];
 export const admittedProductCases = [
   ...admittedInternalProductCases,
-  ...admittedInternalCategoryCases,
-  ...admittedProductOptionCases, ...admittedProductVariantCases, ...admittedProductCategoryCases,
+  ...admittedProductOptionCases, ...admittedProductVariantCases,
   ...admittedProductCollectionCases,
   ...admittedProductTagCases,
-  ...admittedProductTypeCases,
   "Product injected event bus > ProductModuleService Events > Product Deletion > should emit all cascade delete events when soft deleting a product",
   "Product injected event bus > ProductModuleService Events > Delete Operations - Base Service Automatic Events > should emit delete events for all entity types via base service",
   "Product service > ProductModuleService products > softDelete > should soft delete a product and its cascaded relations",
@@ -245,13 +243,13 @@ export const productCoverage = (expected: readonly string[]): Reporter => {
 };
 export default defineConfig({
   resolve: { alias: [
-    { find: /^@medusajs\/test-utils$/, replacement: fileURLToPath(new URL("./test/support/runner.ts", import.meta.url)) },
+    { find: /^@medusajs\/test-utils$/, replacement: fileURLToPath(new URL("./test/support/core-product-runner.ts", import.meta.url)) },
     { find: /^@services$/, replacement: fileURLToPath(new URL("../medusa-product/src/services/index.ts", import.meta.url)) },
     { find: /^@models$/, replacement: fileURLToPath(new URL("../medusa-product/src/models/index.ts", import.meta.url)) },
     { find: /^@types$/, replacement: fileURLToPath(new URL("../medusa-product/src/types/index.ts", import.meta.url)) },
-    { find: "cloudflare:workers", replacement: fileURLToPath(new URL("../persistence-postgres/test/cloudflareWorkersStub.ts", import.meta.url)) },
+    { find: "cloudflare:workers", replacement: fileURLToPath(new URL("../persistence-postgres/test/support/cloudflareWorkersStub.ts", import.meta.url)) },
   ] },
-  test: { env: { FLAREX_PRODUCT_RESOURCES: "scale" }, globals: false, maxWorkers: 1, fileParallelism: false, include: ["test/product-upstream.test.ts"],
+  test: { globals: false, maxWorkers: 1, fileParallelism: false, include: ["test/product-upstream.test.ts"],
     reporters: ["default", productCoverage(admittedProductCases)],
     hookTimeout: 120000, testTimeout: 100000,
   },

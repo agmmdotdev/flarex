@@ -1,0 +1,94 @@
+{
+  "format": "flarex.node-cpu-leaf-sample-summary",
+  "note": "Disjoint leaf timeDelta weights, including idle/GC/Inspector overhead; not CPU self-time proof, invocation-only duration, allocation accounting or latency acceptance.",
+  "revision": "33a6056ebf82bf1006bb7df81ff732de1dd87c20",
+  "workingDiffSha256": "63d9f1feb51701a057686db04bbb410b429af457d8bd9bdc3907aadf96749265",
+  "rows": [
+    {
+      "id": "mixedWorkflow-warm-0-0",
+      "workload": "mixedWorkflow",
+      "temperature": "warmup",
+      "invocationWallMs": 7828.7961,
+      "profileWindowMs": 8131.671,
+      "leafSampleWeightsMs": {
+        "drizzle": 1174.0799999999995,
+        "effect": 1581.141999999999,
+        "gc": 101.14799999999997,
+        "idle": 2443.185000000002,
+        "inspector": 302.194,
+        "medusaAdapter": 15.730999999999998,
+        "nativeOther": 687.2730000000007,
+        "nodeOther": 376.023,
+        "other": 307.82199999999995,
+        "payloadAdapter": 4.6530000000000005,
+        "persistence": 638.2820000000006,
+        "pgDriver": 226.38899999999998,
+        "protocol": 273.5949999999999
+      }
+    },
+    {
+      "id": "mixedWorkflow-warm-0-1",
+      "workload": "mixedWorkflow",
+      "temperature": "warm",
+      "invocationWallMs": 7294.715499999998,
+      "profileWindowMs": 7806.95,
+      "leafSampleWeightsMs": {
+        "drizzle": 1150.8429999999996,
+        "effect": 1419.9879999999998,
+        "gc": 129.34000000000003,
+        "idle": 2391.91,
+        "inspector": 510.416,
+        "medusaAdapter": 18.297,
+        "nativeOther": 650.9069999999995,
+        "nodeOther": 250.90099999999995,
+        "other": 220.95699999999994,
+        "payloadAdapter": 1.547,
+        "persistence": 584.5600000000001,
+        "pgDriver": 210.86300000000006,
+        "protocol": 266.233
+      }
+    },
+    {
+      "id": "mixedWorkflow-warm-0-2",
+      "workload": "mixedWorkflow",
+      "temperature": "warm",
+      "invocationWallMs": 7002.037199999992,
+      "profileWindowMs": 7296.3,
+      "leafSampleWeightsMs": {
+        "drizzle": 1133.6109999999983,
+        "effect": 1383.9749999999983,
+        "gc": 77.417,
+        "idle": 2418.809999999999,
+        "inspector": 293.393,
+        "medusaAdapter": 18.512999999999998,
+        "nativeOther": 538.5810000000001,
+        "nodeOther": 262.094,
+        "other": 187.765,
+        "persistence": 535.9870000000002,
+        "pgDriver": 191.618,
+        "protocol": 254.3719999999999
+      }
+    },
+    {
+      "id": "mixedWorkflow-cold-0-0",
+      "workload": "mixedWorkflow",
+      "temperature": "cold",
+      "invocationWallMs": 7175.2405,
+      "profileWindowMs": 7635.809,
+      "leafSampleWeightsMs": {
+        "drizzle": 1055.4529999999997,
+        "effect": 1429.2219999999982,
+        "gc": 108.83400000000003,
+        "idle": 2511.403999999994,
+        "inspector": 459.441,
+        "medusaAdapter": 12.884,
+        "nativeOther": 642.3819999999996,
+        "nodeOther": 248.10600000000005,
+        "other": 232.58999999999997,
+        "persistence": 492.72499999999997,
+        "pgDriver": 184.04500000000004,
+        "protocol": 258.5810000000001
+      }
+    }
+  ]
+}

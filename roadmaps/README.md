@@ -53,6 +53,10 @@ roadmap merely to legitimize an unreviewed divergence.
 
 ## Shared Storage Architecture Replacement
 
+The separate [Medusa design-quality refactor](./medusa-design-quality/README.md)
+tracks construction/composition, semantic ownership, query contracts and extension
+cost. Its completion is distinct from the storage consumer migration below.
+
 The accepted [shared logical storage redesign](./shared-logical-storage/README.md)
 replaces deployment-owned physical Medusa module tables with logical commerce
 records over generic physical families shared with Application and Payload.
@@ -60,6 +64,38 @@ It permits proper development-phase core redesign and owns connected parity,
 index/constraint/query proofs and retirement. Existing physical implementation
 receipts remain baseline evidence, not the target. Read this decision before
 new framework storage or runtime scalability work.
+
+## Shared Schema Lifecycle Authority
+
+The [shared schema lifecycle design](../design-notes/flarexdb-shared-schema-lifecycle.md)
+puts Application, Payload, Medusa and platform Tasks on shared internal
+installation/evolution APIs. Producers own definitions and conversion meaning;
+the core owns admission, planning/builds, validation, progress/recovery,
+readiness and activation. Shared-storage, managed-schema and framework records
+provide existing foundations; complete consolidation is pending. The
+[shared storage roadmap](./shared-logical-storage/README.md),
+[Task roadmap](./task-system/README.md) and
+[deferred evolution boundary](./shared-logical-storage/deferred-framework-schema-evolution.md)
+retain their own implementation scopes. No per-consumer installer/migration
+engine or new runtime implementation is authorized by this documentation.
+
+## Task System Replacement Authority
+
+The [Task System roadmap](./task-system/README.md) and
+[independent Trigger fork design](../design-notes/task-system/README.md) own
+current Task direction. Adopt the existing engine source once, maintain it
+independently, use [Convex-style private logical system tables](../design-notes/task-system/02-logical-storage.md#convex-storage-reference)
+for all Task-owned state, inject host adapters, and retire the entire
+Task-specific physical schema after cutover. Trigger remains the engine;
+Convex supplies the storage precedent.
+Task integration [reuses shared core indexing and DO caching](../design-notes/task-system/02-logical-storage.md#shared-core-indexing-and-do-cache)
+with writer/freshness proofs; it builds no separate database or cache layer.
+The old `durable-task-engine` folder is legacy baseline/source evidence,
+including its replacement preflights. Its historical next steps are not active
+work. The new direction is accepted; runtime implementation remains pending.
+The [Task goal](./task-system/GOAL.md) is paused. Its workflow uses independent source
+challenges, peer exchange, explicitly owned workers and required code reviews.
+Its first runtime contract is under refinement; the old engine remains active.
 
 ## Start Here
 
@@ -99,6 +135,9 @@ with domain rationale in
 | Roadmap | Domain authority |
 | --- | --- |
 | [Shared logical storage](./shared-logical-storage/README.md) | Cross-consumer generic physical storage, logical schema/index/constraint/relation contracts, core redesign and commerce physical-path retirement |
+| [Execution architecture](./execution-architecture/README.md) | Active organization and reuse refactor for direct Medusa/Payload operations and composed Application queries/mutations. The [architecture map](./execution-architecture/architecture.md) separates entry points, ownership and actual coverage. The first slice separates direct read capabilities from write-capable construction; cross-framework query composition remains an explicit later proof. |
+| [Mixed mutation core](./mixed-mutation-core/README.md) | Existing private Application/Product, Payload Local API and finite Medusa workflow execution; complete native-relative performance acceptance remains unmet. The [foundation plan](./mixed-mutation-core/14-execution-redesign-roadmap.md) and [shared evidence preflight](./mixed-mutation-core/27-shared-execution-evidence-redesign-preflight.md) own the active connected redesign across required core owners and real standalone/mixed consumers. Existing profile, durability, host and capability gates remain explicit. The [design note](../design-notes/flarexdb-mixed-mutation-execution.md) owns architecture. |
+| [Core performance](./core-performance/README.md) | Active substantial connected performance redesign against complete matched native business graphs. Scope follows actual latency, CPU and SQL multipliers across preparation, admission, readiness, execution and settlement as required. Component experiments are internal diagnostics, not independently completed deliveries. Consumer migration, removal of displaced paths, fresh authority, both driver proofs and both final reviews remain required. Complete native-relative latency/CPU acceptance and remaining excess govern results; the separate standalone-read tuning pause and unrelated hosting/public-capability gates remain. |
 | [`06-dynamic-worker-execution.md`](./06-dynamic-worker-execution.md) | Managed execution artifacts, local Miniflare and hosted Dynamic Workers, sandbox capabilities, runtime identity, and syscall execution. |
 | [`09-sdk-and-cli-fork.md`](./09-sdk-and-cli-fork.md) | Public SDK, generated APIs, clients/React, CLI/codegen/deploy, test package relationship, npm distribution, and later non-reactive relation ergonomics only after `SV-R Core`; reactive relation APIs remain gated by `SV-R Live`. |
 | [`10-runtime-validation.md`](./10-runtime-validation.md) | Layered validators, protocol decoding, active metadata checks, commit validation, stored corruption detection, and error boundaries. |
@@ -117,7 +156,7 @@ with domain rationale in
 | [`35-commit-compiler-and-session-intent.md`](./35-commit-compiler-and-session-intent.md) | Logical session journal, trusted planner/executor split, exact snapshots, idempotency, and conditional SessionDO journaling. |
 | [`42-standard-application-apis.md`](./42-standard-application-apis.md) and [`50-clean-application-apis.md`](./50-clean-application-apis.md) | Stable workspace-internal application stages plus the accepted clean API migration. `CAPI-A` provides the private unversioned Application Definition facade, `CAPI-B` moves developer and reusable system-test definition/source producers onto it, and `CAPI-C` adds separate clean query, mutation, and Action invocation primitives; system-test facade migration, public, and production gates remain pending. Concrete wire and persisted contracts keep versions where exact compatibility requires them. |
 | [`relational-standard-apis/`](./relational-standard-apis/README.md) | Active focused plan and capability ledger for raising the implemented private native relation core through typed Standard Application definition and function-runtime APIs, then composing those same APIs in the system-test facade. It records the supported initial profile, every deliberately unsupported capability and rationale, and the gates required before public or reactive claims. |
-| [`durable-task-engine/06-compute-provider-and-runtime.md`](./durable-task-engine/06-compute-provider-and-runtime.md) | Private durable-task compute delivery and Worker runtime. DTE06-A through D and DTE06-E1 are complete privately; E2 through E5 and the hosted DTE06-F proof remain pending. |
+| [`task-system/`](./task-system/README.md) | Task replacement authority: independently maintained Trigger engine fork, Convex-style private logical system tables, injected hosts and complete legacy/physical retirement. Portable adopted attempt-start component implemented; wider integration paused and aligned with translated core. |
 
 ## Cross-Cutting Engineering Guidance
 
@@ -193,6 +232,7 @@ Do not extend these files as active design.
 
 | Roadmap | Reason |
 | --- | --- |
+| [`durable-task-engine/`](./durable-task-engine/README.md) | Entire former Task initiative, including preflights 72/73, is superseded by the Task System design and roadmap. Keep source/behavior evidence; do not resume its backlog. |
 | [`02-schema-placement-and-shards.md`](./02-schema-placement-and-shards.md) | Durable Object shard/storage assumptions are superseded by Postgres `scope_id` authority. |
 | [`07-cross-shard-workflows.md`](./07-cross-shard-workflows.md) | Proposed PartitionDO coordinator model is superseded; no accepted generic cross-shard transaction API exists. |
 | [`08-projections.md`](./08-projections.md) | PartitionDO-driven global projection proposal is unimplemented and not an active replacement requirement. |

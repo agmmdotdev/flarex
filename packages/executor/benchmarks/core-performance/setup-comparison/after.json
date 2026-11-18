@@ -1,0 +1,124 @@
+{
+  "runId": "0278ae58-c9ad-4fd2-a2bb-2d6c05e3a380",
+  "scenario": "medusa-workflow",
+  "full": false,
+  "plan": {
+    "warmups": 1,
+    "measured": 3
+  },
+  "status": "passed",
+  "failureStage": null,
+  "failureTokens": [],
+  "method": "Node direct execution; fresh requests; real settlement; separate single SQL diagnostic",
+  "environment": {
+    "node": "v24.16.0",
+    "postgres": {
+      "postgresVersion": "18.3",
+      "role": "flarex_read_redesign_logical",
+      "superuser": false,
+      "bypassRls": false,
+      "createDb": false,
+      "createRole": false,
+      "synchronousCommit": "on",
+      "fsync": "on",
+      "fullPageWrites": "on"
+    },
+    "revision": "964e13c000fb80a29c2e2c36fbfa3393f51d1e1c",
+    "dirty": "true"
+  },
+  "latency": {
+    "samples": 3,
+    "medianMs": 309.0822999999982,
+    "minMs": 297.9411,
+    "maxMs": 312.9058999999979
+  },
+  "sql": {
+    "outcome": "ok",
+    "dispatches": 301,
+    "statements": 301,
+    "transactions": 13,
+    "openTransactions": 0,
+    "queryErrors": 0,
+    "lostContextDispatches": 0,
+    "unknownStatementDispatches": 0,
+    "unobservedDispatches": 0,
+    "incompleteSpans": 0
+  },
+  "timings": {
+    "loadMs": 3931.1288,
+    "prepareMs": 19727.8741,
+    "preparation": {
+      "provisionAndPrepareMs": 17880.331,
+      "runtimeConstructionMs": 1847.1742999999988,
+      "initialSeedMs": 0,
+      "installation": {
+        "migrationMs": 3834.643,
+        "managedSetupMs": 0,
+        "coLocatedSetupMs": 0,
+        "totalInstallationMs": 3834.643
+      },
+      "fixturePreparation": {
+        "provisionAndMigrateMs": 1992.7878,
+        "applicationAndReadInstallationMs": 651.8922999999995,
+        "compositionAndCompilationMs": 153.32150000000001,
+        "logicalAdmissionMs": 3450.2074000000002,
+        "indexAndUniqueBuildMs": 9000.157299999999,
+        "bindingAndInitializationMs": 1686.1203000000023
+      }
+    },
+    "cleanupMs": 1086.826799999999,
+    "runnerTotalMs": 30057.049899999998
+  },
+  "samples": [
+    {
+      "id": "medusa-workflow-sql-0",
+      "kind": "sql",
+      "requestMs": 440.0210999999981,
+      "seedMs": 681.1053999999967,
+      "verifyMs": 219.85719999999856,
+      "cleanupMs": 223.42929999999978,
+      "failureStage": null,
+      "failureTokens": []
+    },
+    {
+      "id": "medusa-workflow-warmup-1",
+      "kind": "warmup",
+      "requestMs": 318.27790000000095,
+      "seedMs": 465.48989999999685,
+      "verifyMs": 72.81310000000303,
+      "cleanupMs": 90.23099999999977,
+      "failureStage": null,
+      "failureTokens": []
+    },
+    {
+      "id": "medusa-workflow-measured-2",
+      "kind": "measured",
+      "requestMs": 312.9058999999979,
+      "seedMs": 479.17659999999887,
+      "verifyMs": 70.69280000000072,
+      "cleanupMs": 96.71800000000076,
+      "failureStage": null,
+      "failureTokens": []
+    },
+    {
+      "id": "medusa-workflow-measured-3",
+      "kind": "measured",
+      "requestMs": 297.9411,
+      "seedMs": 447.84739999999874,
+      "verifyMs": 65.46039999999994,
+      "cleanupMs": 93.76929999999993,
+      "failureStage": null,
+      "failureTokens": []
+    },
+    {
+      "id": "medusa-workflow-measured-4",
+      "kind": "measured",
+      "requestMs": 309.0822999999982,
+      "seedMs": 452.8917000000001,
+      "verifyMs": 70.69320000000153,
+      "cleanupMs": 97.01339999999982,
+      "failureStage": null,
+      "failureTokens": []
+    }
+  ]
+}

@@ -1,12 +1,17 @@
 import { fileURLToPath } from "node:url";
 
-import { defineConfig } from "vitest/config";
+import { configDefaults, defineConfig } from "vitest/config";
 
 export default defineConfig({
+  test: {
+    fsModuleCache: true,
+    globalSetup: ["./test/support/postgresStorageSession.ts"],
+    exclude: [...configDefaults.exclude, "test/performance/relations/**"],
+  },
   resolve: {
     alias: {
       "cloudflare:workers": fileURLToPath(
-        new URL("./test/cloudflareWorkersStub.ts", import.meta.url),
+        new URL("./test/support/cloudflareWorkersStub.ts", import.meta.url),
       ),
     },
   },

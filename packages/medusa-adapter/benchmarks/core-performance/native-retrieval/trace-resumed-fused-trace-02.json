@@ -1,0 +1,2579 @@
+{
+  "sourcesBefore": {
+    "files": [
+      {
+        "path": "third_party/medusa/SOURCE.json",
+        "sha256": "9f97efb20da45f0995866e325c6372dc0d9aa4be835437d28b164325e703b5b1"
+      },
+      {
+        "path": "pnpm-lock.yaml",
+        "sha256": "41355e0a9754a32aad4bcf4fd9eeff2e294c2614f60dd0e292be3cb823b36893"
+      },
+      {
+        "path": "packages/medusa-adapter/package.json",
+        "sha256": "606c5ca8c062b44a71edf8a2653ccf2b897bc63f1e24bff9f83e77b78eebb516"
+      },
+      {
+        "path": "third_party/medusa/upstream/pnpm-lock.yaml",
+        "sha256": "2c9390dce87526e7f8ecef2c808f57ec2659befa0387bf88fb772c877c5204fe"
+      },
+      {
+        "path": "packages/medusa-product/src/services/product-module-service.ts",
+        "sha256": "0baea69c2a481b5f3467bf4c630a433dd82065d62a84e5463ecc4a59a24754dd"
+      },
+      {
+        "path": "third_party/medusa/upstream/packages/modules/product/src/services/product-module-service.ts",
+        "sha256": "eec1a1e378ad1bfc845bceb1fdcf2741d570f353d795ecb000c934ed330773ea"
+      },
+      {
+        "path": "third_party/medusa/upstream/packages/core/utils/src/modules-sdk/medusa-internal-service.ts",
+        "sha256": "d6bff4df9e3adc56ef8317dface9206710a81523bcbd1536186c291c18662e47"
+      },
+      {
+        "path": "third_party/medusa/upstream/packages/core/utils/src/dal/mikro-orm/mikro-orm-repository.ts",
+        "sha256": "7efb5c40aac138afa15c9f55b09e85ea307fe4bf1130b826a6d4a6df0b73906a"
+      },
+      {
+        "path": "packages/medusa-adapter/src/product-commands/reads.ts",
+        "sha256": "4cb78d3ddc810e433844db76d6b2fde209a572ccf7a7446877753a2a0de0bd3b"
+      },
+      {
+        "path": "packages/medusa-adapter/src/product-module.ts",
+        "sha256": "2a63089ff9f953179bdd937de3b2af6a7c486ffeebc2b76b2e68ca594be769ba"
+      },
+      {
+        "path": "packages/medusa-adapter/test/support/logical-product-runner.ts",
+        "sha256": "ab21ae39834c226198f27bc6efcea18730f72325b16c40448a96c03b99ef3ef0"
+      },
+      {
+        "path": "packages/medusa-adapter/test/support/logical-currency-fixture.ts",
+        "sha256": "3af81543c1a73c13b99d9af911dc5f2dacecc4576835b0ef110d8e96e0cc29dd"
+      },
+      {
+        "path": "packages/medusa-adapter/test/support/logical-product-fixture.ts",
+        "sha256": "c7af0c61167bad57b2feeb8324970f51facaf2f2a534789261a56b9222842d2b"
+      },
+      {
+        "path": "packages/persistence-postgres/test/logicalReadMetadataScalingTestSupport.ts",
+        "sha256": "77b13b319463ee323a451b92bc223cdd1ca3aee887214a7d2349d119bb39af3b"
+      },
+      {
+        "path": "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/fixtures.ts",
+        "sha256": "ce689c7931dfd69780f37eb09df2353b430177494b416d7468b3a926016b7b14"
+      },
+      {
+        "path": "packages/medusa-adapter/src/commerce-module.ts",
+        "sha256": "bcf2a61200db39e6903c2ec67c13522fdb525d84b9509be78084ee15d18af36b"
+      },
+      {
+        "path": "packages/medusa-adapter/src/module-definition.ts",
+        "sha256": "02ee070c5dcdc96b3e7e3128a10724c59cee492a3998381177ec06b3af534f41"
+      },
+      {
+        "path": "packages/medusa-adapter/src/product-module.ts",
+        "sha256": "2a63089ff9f953179bdd937de3b2af6a7c486ffeebc2b76b2e68ca594be769ba"
+      },
+      {
+        "path": "packages/persistence-postgres/test/fixtures/applicationNativeMutationTestFixture.ts",
+        "sha256": "c2030e9829b957ae3cfcbe4808bf4805abf57d8df9759576d6509d961be0ae88"
+      },
+      {
+        "path": "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/scenario.ts",
+        "sha256": "81fd9651f68e3ae421a4123380c120eef74e53b5ff6190175aa10283506e3f9d"
+      },
+      {
+        "path": "packages/medusa-adapter/vitest.native-retrieval.config.ts",
+        "sha256": "fe11658d3ad5c18258731795aafd093289bf970f3296f22098e2d7c7e20369d8"
+      },
+      {
+        "path": "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/observation.ts",
+        "sha256": "c4ddfbffed7c6f2a39cbdef8cb8432bd867f176f6798a6269cc3a649ee91f983"
+      },
+      {
+        "path": "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/server.ts",
+        "sha256": "a39a7e61069c1477d3e7e9bb158a8677bbb5dcae82c253d6b310e3d9bae9a39a"
+      },
+      {
+        "path": "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/tsconfig.json",
+        "sha256": "c03d287f2c399905a521a2a7c5b331c163e5da761fddd31b46a7ec5169b7279a"
+      },
+      {
+        "path": "third_party/medusa/upstream/packages/modules/product/dist/index.js",
+        "sha256": "704e5b9b69125fcab452aedf687c2648c2bd924365a3dcdd78afa4a873dcbe69"
+      },
+      {
+        "path": "third_party/medusa/upstream/packages/modules/product/dist/services/product-module-service.js",
+        "sha256": "b5ef8a9648016f4ffec9bc3c783591e050aedcbacb65ac888a42a505093af2e7"
+      },
+      {
+        "path": "third_party/medusa/upstream/packages/modules/product/dist/repositories/product.js",
+        "sha256": "84d74f3fe2b3e29ad3d26512f5b01374e1eed7f4e18f8cd179d786350f9e002b"
+      },
+      {
+        "path": "third_party/medusa/upstream/packages/modules/link-modules/dist/index.js",
+        "sha256": "6e1c8bb58ca066733316daff749bbf03aec4fe334812bd3de5a536400de52db1"
+      },
+      {
+        "path": "third_party/medusa/upstream/packages/medusa-test-utils/dist/module-test-runner.js",
+        "sha256": "3dc93b7bd3013db42d17d3978dbbe969955eec86a7c3cec3702c9dc86a4720d1"
+      },
+      {
+        "path": "third_party/medusa/upstream/packages/medusa-test-utils/dist/module-test-runner.d.ts",
+        "sha256": "c4bd7e05aef39fa412506220c91c2ad0bcdf5ad34787cb8d7ec501b2d692de2e"
+      },
+      {
+        "path": "third_party/medusa/upstream/packages/medusa-test-utils/src/module-test-runner.ts",
+        "sha256": "88ede3973f91226ef9f5d5d0d37ecbe42e006b9e48d05618ad9342448123f6a3"
+      },
+      {
+        "path": "third_party/medusa/upstream/packages/medusa-test-utils/dist/module-test-persistence-adapter.js",
+        "sha256": "c7c2090ec7c64366528b54aad2b43c80b41291e06245c58bf9a6f00b68f34166"
+      },
+      {
+        "path": "third_party/medusa/upstream/packages/medusa-test-utils/dist/init-modules.js",
+        "sha256": "0f8adeed3439ccddbba73c0209ddc538d952eb04a0bb9d30ad1bd23391ad25f0"
+      },
+      {
+        "path": "third_party/medusa/upstream/packages/medusa-test-utils/dist/database.js",
+        "sha256": "7d79f52ab3b4437d408f1231917087a9850607a0b5d8b1b10e04442193121b54"
+      },
+      {
+        "path": "packages/medusa-product/dist/services/product-module-service.js",
+        "sha256": "f71240360c0c0279090e752f8d83d411bfd31510f87dad39306de9b33eadaf40"
+      },
+      {
+        "path": "packages/medusa-utils/src/modules-sdk/medusa-internal-service.ts",
+        "sha256": "d6bff4df9e3adc56ef8317dface9206710a81523bcbd1536186c291c18662e47"
+      },
+      {
+        "path": "packages/medusa-utils/dist/modules-sdk/medusa-internal-service.js",
+        "sha256": "f6d72dca703487aad3e5bca301e02f9e29213bfae42d4dee2049056a1ef0b132"
+      },
+      {
+        "path": "packages/medusa-utils/package.json",
+        "sha256": "5cc5ade0fcf9275642f4cb81a8ae25cbd5f7ef129d2734420c570e6aed9c6180"
+      },
+      {
+        "path": "packages/medusa-utils/tsconfig.json",
+        "sha256": "3285f36a3f6446b5654662bd7b3a4d83721b2ebfb9cd4e1d18714b68ae726a1b"
+      },
+      {
+        "path": "packages/medusa-product/package.json",
+        "sha256": "72f5f7005ef0ddafa2eade1ccf812daf852cf5e02c8b591d3f076839d7461af3"
+      },
+      {
+        "path": "packages/medusa-product/tsconfig.json",
+        "sha256": "3285f36a3f6446b5654662bd7b3a4d83721b2ebfb9cd4e1d18714b68ae726a1b"
+      },
+      {
+        "path": "tools/medusa/tsconfig.fork.json",
+        "sha256": "813ea05628b446f78c2bcf52b34da4938134be2813aea3c4bc9b3205f2ccf392"
+      },
+      {
+        "path": "third_party/medusa/upstream/node_modules/pg-god/node_modules/tslib/tslib.js",
+        "sha256": "84df36bfcbbdfdbea006f78f150e70655d4801a402dc56a8e466806fe018e585"
+      },
+      {
+        "path": "third_party/medusa/upstream/node_modules/pg-god/node_modules/tslib/package.json",
+        "sha256": "f685f35daa1c75b3e6e3e2e9158de36130e34aee095498f65af9e508ea2d56b0"
+      },
+      {
+        "path": "packages/persistence-postgres/src/logicalDocuments/participantAdmission.ts",
+        "sha256": "4cb6721cd0be04099e5793b99519f4871ab0cd415011c65ab08bfe4bedbbc276"
+      },
+      {
+        "path": "packages/persistence-postgres/src/logicalDocuments/relationalAdmission.ts",
+        "sha256": "caa988f40cd3f0f5ec2fbec5f733f78535cd19b99c8baa4ce433a3ba8d803624"
+      },
+      {
+        "path": "packages/persistence-postgres/src/logicalDocuments/documentAdmission.ts",
+        "sha256": "43f6ecb3e9843009b5d854947ada61fbf0e8fec0569707caca0bc3dca7bd75ca"
+      },
+      {
+        "path": "packages/persistence-postgres/src/logicalDocuments/sourceAdmission.ts",
+        "sha256": "2ac8716a79b70af08a764860f428ac3a0b27242a73213b4b915c8e7140f681ee"
+      },
+      {
+        "path": "packages/persistence-postgres/src/logicalDocuments/workingSet.ts",
+        "sha256": "b70724cef5eb6b89fcd61026d45635113cb49d15ac76dac806aa0353a68e9575"
+      },
+      {
+        "path": "packages/persistence-postgres/src/logicalDocuments/relationalQuery.ts",
+        "sha256": "a9d68dd846d3c07a9ba17cf079756ba1b131b9f98036ef0d6a1691a2c67ad417"
+      },
+      {
+        "path": "packages/persistence-postgres/src/logicalDocuments/indexReads.ts",
+        "sha256": "fd6dbee36ad878edf096fd9cd42c5df3b3d975b38c92ba22d613d3150686002b"
+      },
+      {
+        "path": "packages/persistence-postgres/src/logicalStorageReadiness.ts",
+        "sha256": "c2aeb2ea7a19bc06f407b6c729303ada73dc2572fd9a271aba29cf7b4be3b6e6"
+      },
+      {
+        "path": "packages/persistence-postgres/src/applicationActivation.ts",
+        "sha256": "4f6bc4595856d822e0ab55a877bba0676e4ba67b9e21db7384be1d8c2c347f9f"
+      },
+      {
+        "path": "packages/persistence-postgres/src/applicationReadiness.ts",
+        "sha256": "2edcfd3953ceb8ce194bc087ae7c617ada908a1d6d0aefde66c9f2fd7540c020"
+      },
+      {
+        "path": "packages/persistence-postgres/src/applicationRelationReadinessFold.ts",
+        "sha256": "d6fae129dfb8faa9e6d4873bf992cffd2413cd423639374fa3f119ec2f41330f"
+      },
+      {
+        "path": "packages/persistence-postgres/src/applicationActiveHeadRead.ts",
+        "sha256": "6ae20222a735c1b9a70e3a7f108796a68b88b86706d0ceb93ab23b0bb4f3ed79"
+      },
+      {
+        "path": "packages/persistence-postgres/src/applicationBindingProjection.ts",
+        "sha256": "3a067ee39b343d44395cb03819c225de1946745f6e261cc46d105f6df8c6c024"
+      },
+      {
+        "path": "packages/persistence-postgres/src/physicalDefinitionLifecycle.ts",
+        "sha256": "24ad3276187ecea5be8ee989e84e95175cf74ccee56337f71210bd19cf33f499"
+      },
+      {
+        "path": "packages/persistence-postgres/src/preparedHostRuntime.ts",
+        "sha256": "0faf9ff27d80631d082d8c6bb88f26399d617b7c9adaffd7c45f319ef8d2872b"
+      },
+      {
+        "path": "packages/persistence-postgres/src/preparedMetadataEpoch.ts",
+        "sha256": "504d6289fe1e9f9db23cfd0130a3661aba8957370e8f0ac1389abec0e8a6d76d"
+      },
+      {
+        "path": "packages/persistence-postgres/src/exactRunningAttemptTail.ts",
+        "sha256": "89bf5342c70f8bc5ef45f7823829cc83969cc37fba405ea0c6efdf23e0bb5ec5"
+      },
+      {
+        "path": "packages/persistence-postgres/src/commerceTransaction/admission.ts",
+        "sha256": "8f35fcfc2b141d491d308d569d21c9120eb134256f1e70383a7fb4a5ce7b6e62"
+      },
+      {
+        "path": "packages/persistence-postgres/src/frameworkSchema/binding/repository.ts",
+        "sha256": "f4e6f868f0e70f0052770fec4b904aad9c88437cb2c6551787a874df7ed13ec3"
+      },
+      {
+        "path": "packages/persistence-postgres/src/frameworkSchema/installation/runtime.ts",
+        "sha256": "c1773529246df7c859cb64cc6542da5487e790c9715b1710d1fde5c4b88fa72f"
+      },
+      {
+        "path": "packages/persistence-postgres/src/commerceTransaction/host.ts",
+        "sha256": "83796de3f90cea8912c39ebf3ea6af645fc974fce927558b7b7429df5b7feb6c"
+      },
+      {
+        "path": "packages/persistence-postgres/src/commerceTransaction/borrowedLogicalAttempt.ts",
+        "sha256": "b90961ab1411be55673115d3e9c678c8c8d7a3c32e5ac24b4c482be7a6714c23"
+      },
+      {
+        "path": "packages/medusa-adapter/src/query/read.ts",
+        "sha256": "6233ea1d62ebea8a388ba80d043aca8bb1f4548aabb8c4563bb81a158740564a"
+      },
+      {
+        "path": "packages/medusa-adapter/src/commerce-relations.ts",
+        "sha256": "5bf35f142597d0cc77bded7ba9e3588ac80a06ded314998ebd35d42d1a8c1efd"
+      },
+      {
+        "path": "packages/persistence-postgres/src/appRows.ts",
+        "sha256": "49dc4a88a4c5748d67ff75882f367a2bdd6286de9a956e2fb5a20bd8b94627c5"
+      },
+      {
+        "path": "packages/persistence-postgres/src/postgres.ts",
+        "sha256": "b76aa338276a477c71ff32191dc525e816ad8e362d5d75a31c0243c78770f629"
+      },
+      {
+        "path": "packages/persistence-postgres/src/transactionSessionAttemptKernel.ts",
+        "sha256": "dde413833778386bc5f2dbd1d8c896f7955a5df9b76e441027a4b2f342ad51ad"
+      },
+      {
+        "path": "packages/persistence-postgres/drizzle/meta/_journal.json",
+        "sha256": "85150793d0d3ca64a24db1b33ae2c43cb1e3842c540691ed0ab1d863a8545d89"
+      },
+      {
+        "path": "packages/persistence-postgres/src/installationLifecycle.ts",
+        "sha256": "7c0a07c856375c0b746156fb989658d994f7e8ffdca39130b793512a5fe236e9"
+      },
+      {
+        "path": "packages/persistence-postgres/src/postgresInstallationMaintenance.ts",
+        "sha256": "773ba64dabb0b6e19059951791de0ce00c8b1fcba8800a29ec9e3a02bf6d84f2"
+      },
+      {
+        "path": "packages/persistence-postgres/src/applicationStandaloneBinding.ts",
+        "sha256": "52d40bbccf8c220a225f42f15933b89dabc55046f98acf9e49e65ca3bdd74074"
+      },
+      {
+        "path": "packages/persistence-postgres/src/standaloneReadTransaction.ts",
+        "sha256": "7b4b0d8b6f178fed317f0fc93a608441e1302a412b1780bdf2d1a047221df9a6"
+      },
+      {
+        "path": "packages/persistence-postgres/src/standaloneReadSnapshot.ts",
+        "sha256": "23422a0220eaa0f29fef8cbb4bb2c2771e7be1b9d7fd21cfe5ef8144257663e3"
+      },
+      {
+        "path": "packages/persistence-postgres/src/logicalReadMetadata.ts",
+        "sha256": "b0d59dfe20cabe43e51b41cd18141448939e765ade6b1ae9d7f265f5fcfa7edb"
+      },
+      {
+        "path": "packages/persistence-postgres/src/logicalDocuments/readAdmission.ts",
+        "sha256": "aa27b06de08ce5550d23c3288d5fc621417e5ca77d0e7f2dd6350271c4f270eb"
+      },
+      {
+        "path": "packages/persistence-postgres/src/commerceTransaction/readHost.ts",
+        "sha256": "9d72e9acb7a3cbb81392a9b259f458ddd61dbfe50738dec5988db9492b1480e7"
+      }
+    ],
+    "drivers": [
+      {
+        "path": "C:\\Users\\Admin\\Documents\\Codex\\2026-10-02\\new-chat\\flarex-read-redesign\\third_party\\medusa\\upstream\\packages\\core\\framework\\dist\\deps\\pg.js",
+        "sha256": "6caf9bfd771731a2725bd663246207baefe1c243adb44bdab7b3b8f2a017bd14"
+      },
+      {
+        "path": "C:\\Users\\Admin\\Documents\\Codex\\2026-10-02\\new-chat\\flarex-read-redesign\\third_party\\medusa\\upstream\\packages\\deps\\dist\\pg.js",
+        "sha256": "f6c20a70f5180a5178b315fb3ee63a105c1e0cac6a00c31693229059643cb2cf"
+      },
+      {
+        "path": "C:\\Users\\Admin\\Documents\\Codex\\2026-10-02\\new-chat\\flarex-read-redesign\\third_party\\medusa\\upstream\\node_modules\\pg\\lib\\index.js",
+        "sha256": "a012ecbe7fdefed8d2b36c3658e33dc4c291d0bb60df18d382300061211052b7"
+      },
+      {
+        "path": "C:\\Users\\Admin\\Documents\\Codex\\2026-10-02\\new-chat\\flarex-read-redesign\\node_modules\\.pnpm\\pg@8.22.0\\node_modules\\pg\\lib\\index.js",
+        "sha256": "3fad6e6d3d976edbabe0cbc9e1d39f4340bcb719bbbb186a0d3a24f3dbd4a94c"
+      },
+      {
+        "path": "C:\\Users\\Admin\\Documents\\Codex\\2026-10-02\\new-chat\\flarex-read-redesign\\packages\\medusa-product\\dist\\services\\index.js",
+        "sha256": "53efd54a25103037d8132dff96e98e6c36400173f9008c098acee46a4ecc33b3"
+      },
+      {
+        "path": "C:\\Users\\Admin\\Documents\\Codex\\2026-10-02\\new-chat\\flarex-read-redesign\\packages\\medusa-utils\\dist\\modules-sdk\\medusa-internal-service.js",
+        "sha256": "f6d72dca703487aad3e5bca301e02f9e29213bfae42d4dee2049056a1ef0b132"
+      }
+    ],
+    "methodHashes": [
+      {
+        "path": "packages/medusa-product/src/services/product-module-service.ts",
+        "methods": {
+          "retrieveProduct": "eae1c7fa8372bbee2f2588c66a92e65ebae81b8485c24a05109ee92aaaddd87e",
+          "getProductFindConfig_": "18a10c8a4092c495b70ad12b534d3ec58f513fd743f0fb509bc22292deabe745",
+          "buildVariantImagesFromProduct": "38e6c2b9aeeae20a9f53bc9f7820162c5098051891a59db82215d170d5b00ed4"
+        }
+      },
+      {
+        "path": "third_party/medusa/upstream/packages/modules/product/src/services/product-module-service.ts",
+        "methods": {
+          "retrieveProduct": "eae1c7fa8372bbee2f2588c66a92e65ebae81b8485c24a05109ee92aaaddd87e",
+          "getProductFindConfig_": "18a10c8a4092c495b70ad12b534d3ec58f513fd743f0fb509bc22292deabe745",
+          "buildVariantImagesFromProduct": "38e6c2b9aeeae20a9f53bc9f7820162c5098051891a59db82215d170d5b00ed4"
+        }
+      }
+    ],
+    "construction": "pinned native MikroORM constructor versus promoted Flarex constructor; selected method-body parity"
+  },
+  "sourcesAfter": {
+    "files": [
+      {
+        "path": "third_party/medusa/SOURCE.json",
+        "sha256": "9f97efb20da45f0995866e325c6372dc0d9aa4be835437d28b164325e703b5b1"
+      },
+      {
+        "path": "pnpm-lock.yaml",
+        "sha256": "41355e0a9754a32aad4bcf4fd9eeff2e294c2614f60dd0e292be3cb823b36893"
+      },
+      {
+        "path": "packages/medusa-adapter/package.json",
+        "sha256": "606c5ca8c062b44a71edf8a2653ccf2b897bc63f1e24bff9f83e77b78eebb516"
+      },
+      {
+        "path": "third_party/medusa/upstream/pnpm-lock.yaml",
+        "sha256": "2c9390dce87526e7f8ecef2c808f57ec2659befa0387bf88fb772c877c5204fe"
+      },
+      {
+        "path": "packages/medusa-product/src/services/product-module-service.ts",
+        "sha256": "0baea69c2a481b5f3467bf4c630a433dd82065d62a84e5463ecc4a59a24754dd"
+      },
+      {
+        "path": "third_party/medusa/upstream/packages/modules/product/src/services/product-module-service.ts",
+        "sha256": "eec1a1e378ad1bfc845bceb1fdcf2741d570f353d795ecb000c934ed330773ea"
+      },
+      {
+        "path": "third_party/medusa/upstream/packages/core/utils/src/modules-sdk/medusa-internal-service.ts",
+        "sha256": "d6bff4df9e3adc56ef8317dface9206710a81523bcbd1536186c291c18662e47"
+      },
+      {
+        "path": "third_party/medusa/upstream/packages/core/utils/src/dal/mikro-orm/mikro-orm-repository.ts",
+        "sha256": "7efb5c40aac138afa15c9f55b09e85ea307fe4bf1130b826a6d4a6df0b73906a"
+      },
+      {
+        "path": "packages/medusa-adapter/src/product-commands/reads.ts",
+        "sha256": "4cb78d3ddc810e433844db76d6b2fde209a572ccf7a7446877753a2a0de0bd3b"
+      },
+      {
+        "path": "packages/medusa-adapter/src/product-module.ts",
+        "sha256": "2a63089ff9f953179bdd937de3b2af6a7c486ffeebc2b76b2e68ca594be769ba"
+      },
+      {
+        "path": "packages/medusa-adapter/test/support/logical-product-runner.ts",
+        "sha256": "ab21ae39834c226198f27bc6efcea18730f72325b16c40448a96c03b99ef3ef0"
+      },
+      {
+        "path": "packages/medusa-adapter/test/support/logical-currency-fixture.ts",
+        "sha256": "3af81543c1a73c13b99d9af911dc5f2dacecc4576835b0ef110d8e96e0cc29dd"
+      },
+      {
+        "path": "packages/medusa-adapter/test/support/logical-product-fixture.ts",
+        "sha256": "c7af0c61167bad57b2feeb8324970f51facaf2f2a534789261a56b9222842d2b"
+      },
+      {
+        "path": "packages/persistence-postgres/test/logicalReadMetadataScalingTestSupport.ts",
+        "sha256": "77b13b319463ee323a451b92bc223cdd1ca3aee887214a7d2349d119bb39af3b"
+      },
+      {
+        "path": "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/fixtures.ts",
+        "sha256": "ce689c7931dfd69780f37eb09df2353b430177494b416d7468b3a926016b7b14"
+      },
+      {
+        "path": "packages/medusa-adapter/src/commerce-module.ts",
+        "sha256": "bcf2a61200db39e6903c2ec67c13522fdb525d84b9509be78084ee15d18af36b"
+      },
+      {
+        "path": "packages/medusa-adapter/src/module-definition.ts",
+        "sha256": "02ee070c5dcdc96b3e7e3128a10724c59cee492a3998381177ec06b3af534f41"
+      },
+      {
+        "path": "packages/medusa-adapter/src/product-module.ts",
+        "sha256": "2a63089ff9f953179bdd937de3b2af6a7c486ffeebc2b76b2e68ca594be769ba"
+      },
+      {
+        "path": "packages/persistence-postgres/test/fixtures/applicationNativeMutationTestFixture.ts",
+        "sha256": "c2030e9829b957ae3cfcbe4808bf4805abf57d8df9759576d6509d961be0ae88"
+      },
+      {
+        "path": "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/scenario.ts",
+        "sha256": "81fd9651f68e3ae421a4123380c120eef74e53b5ff6190175aa10283506e3f9d"
+      },
+      {
+        "path": "packages/medusa-adapter/vitest.native-retrieval.config.ts",
+        "sha256": "fe11658d3ad5c18258731795aafd093289bf970f3296f22098e2d7c7e20369d8"
+      },
+      {
+        "path": "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/observation.ts",
+        "sha256": "c4ddfbffed7c6f2a39cbdef8cb8432bd867f176f6798a6269cc3a649ee91f983"
+      },
+      {
+        "path": "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/server.ts",
+        "sha256": "a39a7e61069c1477d3e7e9bb158a8677bbb5dcae82c253d6b310e3d9bae9a39a"
+      },
+      {
+        "path": "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/tsconfig.json",
+        "sha256": "c03d287f2c399905a521a2a7c5b331c163e5da761fddd31b46a7ec5169b7279a"
+      },
+      {
+        "path": "third_party/medusa/upstream/packages/modules/product/dist/index.js",
+        "sha256": "704e5b9b69125fcab452aedf687c2648c2bd924365a3dcdd78afa4a873dcbe69"
+      },
+      {
+        "path": "third_party/medusa/upstream/packages/modules/product/dist/services/product-module-service.js",
+        "sha256": "b5ef8a9648016f4ffec9bc3c783591e050aedcbacb65ac888a42a505093af2e7"
+      },
+      {
+        "path": "third_party/medusa/upstream/packages/modules/product/dist/repositories/product.js",
+        "sha256": "84d74f3fe2b3e29ad3d26512f5b01374e1eed7f4e18f8cd179d786350f9e002b"
+      },
+      {
+        "path": "third_party/medusa/upstream/packages/modules/link-modules/dist/index.js",
+        "sha256": "6e1c8bb58ca066733316daff749bbf03aec4fe334812bd3de5a536400de52db1"
+      },
+      {
+        "path": "third_party/medusa/upstream/packages/medusa-test-utils/dist/module-test-runner.js",
+        "sha256": "3dc93b7bd3013db42d17d3978dbbe969955eec86a7c3cec3702c9dc86a4720d1"
+      },
+      {
+        "path": "third_party/medusa/upstream/packages/medusa-test-utils/dist/module-test-runner.d.ts",
+        "sha256": "c4bd7e05aef39fa412506220c91c2ad0bcdf5ad34787cb8d7ec501b2d692de2e"
+      },
+      {
+        "path": "third_party/medusa/upstream/packages/medusa-test-utils/src/module-test-runner.ts",
+        "sha256": "88ede3973f91226ef9f5d5d0d37ecbe42e006b9e48d05618ad9342448123f6a3"
+      },
+      {
+        "path": "third_party/medusa/upstream/packages/medusa-test-utils/dist/module-test-persistence-adapter.js",
+        "sha256": "c7c2090ec7c64366528b54aad2b43c80b41291e06245c58bf9a6f00b68f34166"
+      },
+      {
+        "path": "third_party/medusa/upstream/packages/medusa-test-utils/dist/init-modules.js",
+        "sha256": "0f8adeed3439ccddbba73c0209ddc538d952eb04a0bb9d30ad1bd23391ad25f0"
+      },
+      {
+        "path": "third_party/medusa/upstream/packages/medusa-test-utils/dist/database.js",
+        "sha256": "7d79f52ab3b4437d408f1231917087a9850607a0b5d8b1b10e04442193121b54"
+      },
+      {
+        "path": "packages/medusa-product/dist/services/product-module-service.js",
+        "sha256": "f71240360c0c0279090e752f8d83d411bfd31510f87dad39306de9b33eadaf40"
+      },
+      {
+        "path": "packages/medusa-utils/src/modules-sdk/medusa-internal-service.ts",
+        "sha256": "d6bff4df9e3adc56ef8317dface9206710a81523bcbd1536186c291c18662e47"
+      },
+      {
+        "path": "packages/medusa-utils/dist/modules-sdk/medusa-internal-service.js",
+        "sha256": "f6d72dca703487aad3e5bca301e02f9e29213bfae42d4dee2049056a1ef0b132"
+      },
+      {
+        "path": "packages/medusa-utils/package.json",
+        "sha256": "5cc5ade0fcf9275642f4cb81a8ae25cbd5f7ef129d2734420c570e6aed9c6180"
+      },
+      {
+        "path": "packages/medusa-utils/tsconfig.json",
+        "sha256": "3285f36a3f6446b5654662bd7b3a4d83721b2ebfb9cd4e1d18714b68ae726a1b"
+      },
+      {
+        "path": "packages/medusa-product/package.json",
+        "sha256": "72f5f7005ef0ddafa2eade1ccf812daf852cf5e02c8b591d3f076839d7461af3"
+      },
+      {
+        "path": "packages/medusa-product/tsconfig.json",
+        "sha256": "3285f36a3f6446b5654662bd7b3a4d83721b2ebfb9cd4e1d18714b68ae726a1b"
+      },
+      {
+        "path": "tools/medusa/tsconfig.fork.json",
+        "sha256": "813ea05628b446f78c2bcf52b34da4938134be2813aea3c4bc9b3205f2ccf392"
+      },
+      {
+        "path": "third_party/medusa/upstream/node_modules/pg-god/node_modules/tslib/tslib.js",
+        "sha256": "84df36bfcbbdfdbea006f78f150e70655d4801a402dc56a8e466806fe018e585"
+      },
+      {
+        "path": "third_party/medusa/upstream/node_modules/pg-god/node_modules/tslib/package.json",
+        "sha256": "f685f35daa1c75b3e6e3e2e9158de36130e34aee095498f65af9e508ea2d56b0"
+      },
+      {
+        "path": "packages/persistence-postgres/src/logicalDocuments/participantAdmission.ts",
+        "sha256": "4cb6721cd0be04099e5793b99519f4871ab0cd415011c65ab08bfe4bedbbc276"
+      },
+      {
+        "path": "packages/persistence-postgres/src/logicalDocuments/relationalAdmission.ts",
+        "sha256": "caa988f40cd3f0f5ec2fbec5f733f78535cd19b99c8baa4ce433a3ba8d803624"
+      },
+      {
+        "path": "packages/persistence-postgres/src/logicalDocuments/documentAdmission.ts",
+        "sha256": "43f6ecb3e9843009b5d854947ada61fbf0e8fec0569707caca0bc3dca7bd75ca"
+      },
+      {
+        "path": "packages/persistence-postgres/src/logicalDocuments/sourceAdmission.ts",
+        "sha256": "2ac8716a79b70af08a764860f428ac3a0b27242a73213b4b915c8e7140f681ee"
+      },
+      {
+        "path": "packages/persistence-postgres/src/logicalDocuments/workingSet.ts",
+        "sha256": "b70724cef5eb6b89fcd61026d45635113cb49d15ac76dac806aa0353a68e9575"
+      },
+      {
+        "path": "packages/persistence-postgres/src/logicalDocuments/relationalQuery.ts",
+        "sha256": "a9d68dd846d3c07a9ba17cf079756ba1b131b9f98036ef0d6a1691a2c67ad417"
+      },
+      {
+        "path": "packages/persistence-postgres/src/logicalDocuments/indexReads.ts",
+        "sha256": "fd6dbee36ad878edf096fd9cd42c5df3b3d975b38c92ba22d613d3150686002b"
+      },
+      {
+        "path": "packages/persistence-postgres/src/logicalStorageReadiness.ts",
+        "sha256": "c2aeb2ea7a19bc06f407b6c729303ada73dc2572fd9a271aba29cf7b4be3b6e6"
+      },
+      {
+        "path": "packages/persistence-postgres/src/applicationActivation.ts",
+        "sha256": "4f6bc4595856d822e0ab55a877bba0676e4ba67b9e21db7384be1d8c2c347f9f"
+      },
+      {
+        "path": "packages/persistence-postgres/src/applicationReadiness.ts",
+        "sha256": "2edcfd3953ceb8ce194bc087ae7c617ada908a1d6d0aefde66c9f2fd7540c020"
+      },
+      {
+        "path": "packages/persistence-postgres/src/applicationRelationReadinessFold.ts",
+        "sha256": "d6fae129dfb8faa9e6d4873bf992cffd2413cd423639374fa3f119ec2f41330f"
+      },
+      {
+        "path": "packages/persistence-postgres/src/applicationActiveHeadRead.ts",
+        "sha256": "6ae20222a735c1b9a70e3a7f108796a68b88b86706d0ceb93ab23b0bb4f3ed79"
+      },
+      {
+        "path": "packages/persistence-postgres/src/applicationBindingProjection.ts",
+        "sha256": "3a067ee39b343d44395cb03819c225de1946745f6e261cc46d105f6df8c6c024"
+      },
+      {
+        "path": "packages/persistence-postgres/src/physicalDefinitionLifecycle.ts",
+        "sha256": "24ad3276187ecea5be8ee989e84e95175cf74ccee56337f71210bd19cf33f499"
+      },
+      {
+        "path": "packages/persistence-postgres/src/preparedHostRuntime.ts",
+        "sha256": "0faf9ff27d80631d082d8c6bb88f26399d617b7c9adaffd7c45f319ef8d2872b"
+      },
+      {
+        "path": "packages/persistence-postgres/src/preparedMetadataEpoch.ts",
+        "sha256": "504d6289fe1e9f9db23cfd0130a3661aba8957370e8f0ac1389abec0e8a6d76d"
+      },
+      {
+        "path": "packages/persistence-postgres/src/exactRunningAttemptTail.ts",
+        "sha256": "89bf5342c70f8bc5ef45f7823829cc83969cc37fba405ea0c6efdf23e0bb5ec5"
+      },
+      {
+        "path": "packages/persistence-postgres/src/commerceTransaction/admission.ts",
+        "sha256": "8f35fcfc2b141d491d308d569d21c9120eb134256f1e70383a7fb4a5ce7b6e62"
+      },
+      {
+        "path": "packages/persistence-postgres/src/frameworkSchema/binding/repository.ts",
+        "sha256": "f4e6f868f0e70f0052770fec4b904aad9c88437cb2c6551787a874df7ed13ec3"
+      },
+      {
+        "path": "packages/persistence-postgres/src/frameworkSchema/installation/runtime.ts",
+        "sha256": "c1773529246df7c859cb64cc6542da5487e790c9715b1710d1fde5c4b88fa72f"
+      },
+      {
+        "path": "packages/persistence-postgres/src/commerceTransaction/host.ts",
+        "sha256": "83796de3f90cea8912c39ebf3ea6af645fc974fce927558b7b7429df5b7feb6c"
+      },
+      {
+        "path": "packages/persistence-postgres/src/commerceTransaction/borrowedLogicalAttempt.ts",
+        "sha256": "b90961ab1411be55673115d3e9c678c8c8d7a3c32e5ac24b4c482be7a6714c23"
+      },
+      {
+        "path": "packages/medusa-adapter/src/query/read.ts",
+        "sha256": "6233ea1d62ebea8a388ba80d043aca8bb1f4548aabb8c4563bb81a158740564a"
+      },
+      {
+        "path": "packages/medusa-adapter/src/commerce-relations.ts",
+        "sha256": "5bf35f142597d0cc77bded7ba9e3588ac80a06ded314998ebd35d42d1a8c1efd"
+      },
+      {
+        "path": "packages/persistence-postgres/src/appRows.ts",
+        "sha256": "49dc4a88a4c5748d67ff75882f367a2bdd6286de9a956e2fb5a20bd8b94627c5"
+      },
+      {
+        "path": "packages/persistence-postgres/src/postgres.ts",
+        "sha256": "b76aa338276a477c71ff32191dc525e816ad8e362d5d75a31c0243c78770f629"
+      },
+      {
+        "path": "packages/persistence-postgres/src/transactionSessionAttemptKernel.ts",
+        "sha256": "dde413833778386bc5f2dbd1d8c896f7955a5df9b76e441027a4b2f342ad51ad"
+      },
+      {
+        "path": "packages/persistence-postgres/drizzle/meta/_journal.json",
+        "sha256": "85150793d0d3ca64a24db1b33ae2c43cb1e3842c540691ed0ab1d863a8545d89"
+      },
+      {
+        "path": "packages/persistence-postgres/src/installationLifecycle.ts",
+        "sha256": "7c0a07c856375c0b746156fb989658d994f7e8ffdca39130b793512a5fe236e9"
+      },
+      {
+        "path": "packages/persistence-postgres/src/postgresInstallationMaintenance.ts",
+        "sha256": "773ba64dabb0b6e19059951791de0ce00c8b1fcba8800a29ec9e3a02bf6d84f2"
+      },
+      {
+        "path": "packages/persistence-postgres/src/applicationStandaloneBinding.ts",
+        "sha256": "52d40bbccf8c220a225f42f15933b89dabc55046f98acf9e49e65ca3bdd74074"
+      },
+      {
+        "path": "packages/persistence-postgres/src/standaloneReadTransaction.ts",
+        "sha256": "7b4b0d8b6f178fed317f0fc93a608441e1302a412b1780bdf2d1a047221df9a6"
+      },
+      {
+        "path": "packages/persistence-postgres/src/standaloneReadSnapshot.ts",
+        "sha256": "23422a0220eaa0f29fef8cbb4bb2c2771e7be1b9d7fd21cfe5ef8144257663e3"
+      },
+      {
+        "path": "packages/persistence-postgres/src/logicalReadMetadata.ts",
+        "sha256": "b0d59dfe20cabe43e51b41cd18141448939e765ade6b1ae9d7f265f5fcfa7edb"
+      },
+      {
+        "path": "packages/persistence-postgres/src/logicalDocuments/readAdmission.ts",
+        "sha256": "aa27b06de08ce5550d23c3288d5fc621417e5ca77d0e7f2dd6350271c4f270eb"
+      },
+      {
+        "path": "packages/persistence-postgres/src/commerceTransaction/readHost.ts",
+        "sha256": "9d72e9acb7a3cbb81392a9b259f458ddd61dbfe50738dec5988db9492b1480e7"
+      }
+    ],
+    "drivers": [
+      {
+        "path": "C:\\Users\\Admin\\Documents\\Codex\\2026-10-02\\new-chat\\flarex-read-redesign\\third_party\\medusa\\upstream\\packages\\core\\framework\\dist\\deps\\pg.js",
+        "sha256": "6caf9bfd771731a2725bd663246207baefe1c243adb44bdab7b3b8f2a017bd14"
+      },
+      {
+        "path": "C:\\Users\\Admin\\Documents\\Codex\\2026-10-02\\new-chat\\flarex-read-redesign\\third_party\\medusa\\upstream\\packages\\deps\\dist\\pg.js",
+        "sha256": "f6c20a70f5180a5178b315fb3ee63a105c1e0cac6a00c31693229059643cb2cf"
+      },
+      {
+        "path": "C:\\Users\\Admin\\Documents\\Codex\\2026-10-02\\new-chat\\flarex-read-redesign\\third_party\\medusa\\upstream\\node_modules\\pg\\lib\\index.js",
+        "sha256": "a012ecbe7fdefed8d2b36c3658e33dc4c291d0bb60df18d382300061211052b7"
+      },
+      {
+        "path": "C:\\Users\\Admin\\Documents\\Codex\\2026-10-02\\new-chat\\flarex-read-redesign\\node_modules\\.pnpm\\pg@8.22.0\\node_modules\\pg\\lib\\index.js",
+        "sha256": "3fad6e6d3d976edbabe0cbc9e1d39f4340bcb719bbbb186a0d3a24f3dbd4a94c"
+      },
+      {
+        "path": "C:\\Users\\Admin\\Documents\\Codex\\2026-10-02\\new-chat\\flarex-read-redesign\\packages\\medusa-product\\dist\\services\\index.js",
+        "sha256": "53efd54a25103037d8132dff96e98e6c36400173f9008c098acee46a4ecc33b3"
+      },
+      {
+        "path": "C:\\Users\\Admin\\Documents\\Codex\\2026-10-02\\new-chat\\flarex-read-redesign\\packages\\medusa-utils\\dist\\modules-sdk\\medusa-internal-service.js",
+        "sha256": "f6d72dca703487aad3e5bca301e02f9e29213bfae42d4dee2049056a1ef0b132"
+      }
+    ],
+    "methodHashes": [
+      {
+        "path": "packages/medusa-product/src/services/product-module-service.ts",
+        "methods": {
+          "retrieveProduct": "eae1c7fa8372bbee2f2588c66a92e65ebae81b8485c24a05109ee92aaaddd87e",
+          "getProductFindConfig_": "18a10c8a4092c495b70ad12b534d3ec58f513fd743f0fb509bc22292deabe745",
+          "buildVariantImagesFromProduct": "38e6c2b9aeeae20a9f53bc9f7820162c5098051891a59db82215d170d5b00ed4"
+        }
+      },
+      {
+        "path": "third_party/medusa/upstream/packages/modules/product/src/services/product-module-service.ts",
+        "methods": {
+          "retrieveProduct": "eae1c7fa8372bbee2f2588c66a92e65ebae81b8485c24a05109ee92aaaddd87e",
+          "getProductFindConfig_": "18a10c8a4092c495b70ad12b534d3ec58f513fd743f0fb509bc22292deabe745",
+          "buildVariantImagesFromProduct": "38e6c2b9aeeae20a9f53bc9f7820162c5098051891a59db82215d170d5b00ed4"
+        }
+      }
+    ],
+    "construction": "pinned native MikroORM constructor versus promoted Flarex constructor; selected method-body parity"
+  },
+  "checkpoint": "named entry statement; exact facets; definition-owned constructors; committed unique-row capture",
+  "status": "measurementPassed",
+  "activeStage": "runtimeSettingsAfter",
+  "runtimeStable": true,
+  "parityPassed": true,
+  "observedSuccessfulRetrievals": 12,
+  "settings": {
+    "mode": "trace",
+    "componentSpans": true,
+    "coldPoolClient": false,
+    "managedRead": true,
+    "coldPreparation": false,
+    "protocolTracing": true,
+    "warmups": 1,
+    "sampleCount": 1,
+    "concurrency": 1,
+    "nativeDatabase": "flarex_read_redesign_native",
+    "metadataEvidence": {
+      "metadataCounts": {
+        "sources": 4,
+        "tables": 16,
+        "indexes": 46,
+        "relations": 15
+      }
+    },
+    "preparationProfile": "retained hosts",
+    "logicalDatabase": "flarex_read_redesign_logical",
+    "selectedDatabaseIdentities": [
+      {
+        "database": "flarex_read_redesign_native",
+        "dbid": 16391
+      },
+      {
+        "database": "flarex_read_redesign_logical",
+        "dbid": 16392
+      }
+    ],
+    "node": "v24.16.0",
+    "platform": "win32",
+    "architecture": "x64",
+    "nativeLifetime": "existing MikroORM module and per-call injected manager; no benchmark-owned context",
+    "flarexLifetime": "existing standalone CommerceHost.read with actual fresh request lifetime",
+    "flarexPhysicalConnectionProfile": "existing retained pools",
+    "nativePhysicalConnectionProfile": "existing retained pool",
+    "protocolCoverage": "actual pg Connection method submissions; values and SQL bodies omitted; not server completion or wire bytes",
+    "diagnosticConnectionSettings": "unavailable in this mode",
+    "runtimeSettings": {
+      "native": {
+        "database": "flarex_read_redesign_native",
+        "role": "flarex_read_redesign_native",
+        "dbid": 16391,
+        "userid": 16388,
+        "pid": 3036,
+        "settings": {
+          "auto_explain.log_analyze": {
+            "status": "observed",
+            "value": "off"
+          },
+          "auto_explain.log_min_duration": {
+            "status": "observed",
+            "value": "-1"
+          },
+          "auto_explain.log_nested_statements": {
+            "status": "observed",
+            "value": "off"
+          },
+          "fsync": {
+            "status": "observed",
+            "value": "on"
+          },
+          "full_page_writes": {
+            "status": "observed",
+            "value": "on"
+          },
+          "pg_stat_statements.track": {
+            "status": "observed",
+            "value": "none"
+          },
+          "pg_stat_statements.track_planning": {
+            "status": "observed",
+            "value": "off"
+          },
+          "search_path": {
+            "status": "observed",
+            "value": "native_retrieval"
+          },
+          "server_version": {
+            "status": "observed",
+            "value": "18.3"
+          },
+          "synchronous_commit": {
+            "status": "observed",
+            "value": "on"
+          },
+          "track_functions": {
+            "status": "observed",
+            "value": "none"
+          },
+          "shared_preload_libraries": {
+            "status": "unavailable",
+            "reason": "restrictedOrUnknownSetting"
+          }
+        }
+      },
+      "flarex": {
+        "database": "flarex_read_redesign_logical",
+        "role": "flarex_runtime_1790947367790_xvkx309mh2",
+        "dbid": 16392,
+        "userid": 781722,
+        "pid": 9904,
+        "settings": {
+          "auto_explain.log_analyze": {
+            "status": "observed",
+            "value": "off"
+          },
+          "auto_explain.log_min_duration": {
+            "status": "observed",
+            "value": "-1"
+          },
+          "auto_explain.log_nested_statements": {
+            "status": "observed",
+            "value": "off"
+          },
+          "fsync": {
+            "status": "observed",
+            "value": "on"
+          },
+          "full_page_writes": {
+            "status": "observed",
+            "value": "on"
+          },
+          "pg_stat_statements.track": {
+            "status": "observed",
+            "value": "none"
+          },
+          "pg_stat_statements.track_planning": {
+            "status": "observed",
+            "value": "off"
+          },
+          "search_path": {
+            "status": "observed",
+            "value": "flarex_file_test_1790947366261_hk33hsrsmaw"
+          },
+          "server_version": {
+            "status": "observed",
+            "value": "18.3"
+          },
+          "synchronous_commit": {
+            "status": "observed",
+            "value": "on"
+          },
+          "track_functions": {
+            "status": "observed",
+            "value": "none"
+          },
+          "shared_preload_libraries": {
+            "status": "unavailable",
+            "reason": "restrictedOrUnknownSetting"
+          }
+        }
+      },
+      "flarexControl": {
+        "database": "flarex_read_redesign_logical",
+        "role": "flarex_runtime_1790947368083_c19b0kxhoh",
+        "dbid": 16392,
+        "userid": 781725,
+        "pid": 1320,
+        "settings": {
+          "auto_explain.log_analyze": {
+            "status": "observed",
+            "value": "off"
+          },
+          "auto_explain.log_min_duration": {
+            "status": "observed",
+            "value": "-1"
+          },
+          "auto_explain.log_nested_statements": {
+            "status": "observed",
+            "value": "off"
+          },
+          "fsync": {
+            "status": "observed",
+            "value": "on"
+          },
+          "full_page_writes": {
+            "status": "observed",
+            "value": "on"
+          },
+          "pg_stat_statements.track": {
+            "status": "observed",
+            "value": "none"
+          },
+          "pg_stat_statements.track_planning": {
+            "status": "observed",
+            "value": "off"
+          },
+          "search_path": {
+            "status": "observed",
+            "value": "flarex_file_test_1790947364699_324jcse5oe7"
+          },
+          "server_version": {
+            "status": "observed",
+            "value": "18.3"
+          },
+          "synchronous_commit": {
+            "status": "observed",
+            "value": "on"
+          },
+          "track_functions": {
+            "status": "observed",
+            "value": "none"
+          },
+          "shared_preload_libraries": {
+            "status": "unavailable",
+            "reason": "restrictedOrUnknownSetting"
+          }
+        }
+      }
+    },
+    "runtimeSettingsAfter": {
+      "native": {
+        "database": "flarex_read_redesign_native",
+        "role": "flarex_read_redesign_native",
+        "dbid": 16391,
+        "userid": 16388,
+        "pid": 3036,
+        "settings": {
+          "auto_explain.log_analyze": {
+            "status": "observed",
+            "value": "off"
+          },
+          "auto_explain.log_min_duration": {
+            "status": "observed",
+            "value": "-1"
+          },
+          "auto_explain.log_nested_statements": {
+            "status": "observed",
+            "value": "off"
+          },
+          "fsync": {
+            "status": "observed",
+            "value": "on"
+          },
+          "full_page_writes": {
+            "status": "observed",
+            "value": "on"
+          },
+          "pg_stat_statements.track": {
+            "status": "observed",
+            "value": "none"
+          },
+          "pg_stat_statements.track_planning": {
+            "status": "observed",
+            "value": "off"
+          },
+          "search_path": {
+            "status": "observed",
+            "value": "native_retrieval"
+          },
+          "server_version": {
+            "status": "observed",
+            "value": "18.3"
+          },
+          "synchronous_commit": {
+            "status": "observed",
+            "value": "on"
+          },
+          "track_functions": {
+            "status": "observed",
+            "value": "none"
+          },
+          "shared_preload_libraries": {
+            "status": "unavailable",
+            "reason": "restrictedOrUnknownSetting"
+          }
+        }
+      },
+      "flarex": {
+        "database": "flarex_read_redesign_logical",
+        "role": "flarex_runtime_1790947367790_xvkx309mh2",
+        "dbid": 16392,
+        "userid": 781722,
+        "pid": 9904,
+        "settings": {
+          "auto_explain.log_analyze": {
+            "status": "observed",
+            "value": "off"
+          },
+          "auto_explain.log_min_duration": {
+            "status": "observed",
+            "value": "-1"
+          },
+          "auto_explain.log_nested_statements": {
+            "status": "observed",
+            "value": "off"
+          },
+          "fsync": {
+            "status": "observed",
+            "value": "on"
+          },
+          "full_page_writes": {
+            "status": "observed",
+            "value": "on"
+          },
+          "pg_stat_statements.track": {
+            "status": "observed",
+            "value": "none"
+          },
+          "pg_stat_statements.track_planning": {
+            "status": "observed",
+            "value": "off"
+          },
+          "search_path": {
+            "status": "observed",
+            "value": "flarex_file_test_1790947366261_hk33hsrsmaw"
+          },
+          "server_version": {
+            "status": "observed",
+            "value": "18.3"
+          },
+          "synchronous_commit": {
+            "status": "observed",
+            "value": "on"
+          },
+          "track_functions": {
+            "status": "observed",
+            "value": "none"
+          },
+          "shared_preload_libraries": {
+            "status": "unavailable",
+            "reason": "restrictedOrUnknownSetting"
+          }
+        }
+      },
+      "flarexControl": {
+        "database": "flarex_read_redesign_logical",
+        "role": "flarex_runtime_1790947368083_c19b0kxhoh",
+        "dbid": 16392,
+        "userid": 781725,
+        "pid": 1320,
+        "settings": {
+          "auto_explain.log_analyze": {
+            "status": "observed",
+            "value": "off"
+          },
+          "auto_explain.log_min_duration": {
+            "status": "observed",
+            "value": "-1"
+          },
+          "auto_explain.log_nested_statements": {
+            "status": "observed",
+            "value": "off"
+          },
+          "fsync": {
+            "status": "observed",
+            "value": "on"
+          },
+          "full_page_writes": {
+            "status": "observed",
+            "value": "on"
+          },
+          "pg_stat_statements.track": {
+            "status": "observed",
+            "value": "none"
+          },
+          "pg_stat_statements.track_planning": {
+            "status": "observed",
+            "value": "off"
+          },
+          "search_path": {
+            "status": "observed",
+            "value": "flarex_file_test_1790947364699_324jcse5oe7"
+          },
+          "server_version": {
+            "status": "observed",
+            "value": "18.3"
+          },
+          "synchronous_commit": {
+            "status": "observed",
+            "value": "on"
+          },
+          "track_functions": {
+            "status": "observed",
+            "value": "none"
+          },
+          "shared_preload_libraries": {
+            "status": "unavailable",
+            "reason": "restrictedOrUnknownSetting"
+          }
+        }
+      }
+    },
+    "diagnosticObserverIdentity": "unavailable in this mode",
+    "serverStatementCoverage": "unavailable in this mode",
+    "nestedServerCoverage": "unavailable",
+    "functionTriggerCoverage": "unavailable unless separate server logs observe it"
+  },
+  "settingsSha256": "8201eedc71b21690993461f3539847a3a04d7d1efb894dfad4cfd8126a5e6b31",
+  "seed": {
+    "id": "prod_native_compare",
+    "title": "Native retrieval",
+    "handle": "native-retrieval",
+    "status": "published",
+    "discountable": true,
+    "is_giftcard": false
+  },
+  "collection": {
+    "id": "pcol_native_compare",
+    "title": "Native collection",
+    "handle": "native-collection"
+  },
+  "cases": [
+    {
+      "name": "scalar",
+      "operation": "retrieve",
+      "config": {
+        "select": [
+          "id",
+          "title",
+          "handle",
+          "status",
+          "discountable",
+          "is_giftcard"
+        ],
+        "relations": []
+      },
+      "expected": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "status": "published",
+        "discountable": true,
+        "is_giftcard": false
+      }
+    },
+    {
+      "name": "collection",
+      "operation": "retrieve",
+      "config": {
+        "select": [
+          "id",
+          "title",
+          "handle",
+          "collection.id",
+          "collection.title"
+        ],
+        "relations": [
+          "collection"
+        ]
+      },
+      "expected": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "collection_id": "pcol_native_compare",
+        "collection": {
+          "id": "pcol_native_compare",
+          "title": "Native collection"
+        }
+      }
+    }
+  ],
+  "setup": {
+    "flarexFixtureAndHostConstructionMs": 13665.5145,
+    "nativeSchemaPreparationMs": 188.1221000000005,
+    "nativeSchemaAndModuleConstructionMs": 290.78689999999915,
+    "nativePublicSeedMs": 30.26339999999982,
+    "flarexPublicSeedMs": 237.73630000000048
+  },
+  "parityResults": [
+    {
+      "demand": "scalar",
+      "lane": "native",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "is_giftcard": false,
+        "status": "published",
+        "discountable": true
+      }
+    },
+    {
+      "demand": "scalar",
+      "lane": "flarex",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "status": "published",
+        "discountable": true,
+        "is_giftcard": false
+      }
+    },
+    {
+      "demand": "collection",
+      "lane": "native",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "collection_id": "pcol_native_compare",
+        "collection": {
+          "id": "pcol_native_compare",
+          "title": "Native collection"
+        }
+      }
+    },
+    {
+      "demand": "collection",
+      "lane": "flarex",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "collection_id": "pcol_native_compare",
+        "collection": {
+          "id": "pcol_native_compare",
+          "title": "Native collection"
+        }
+      }
+    }
+  ],
+  "missingErrors": {
+    "native": {
+      "name": "Error",
+      "message": "Product with id: prod_native_missing was not found",
+      "type": "not_found"
+    },
+    "flarex": {
+      "name": "Error",
+      "message": "Product with id: prod_native_missing was not found",
+      "type": "not_found"
+    }
+  },
+  "samples": [
+    {
+      "lane": "flarex",
+      "demand": "scalar",
+      "sample": -1,
+      "warmup": true,
+      "elapsedMs": 12.438600000001315,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "status": "published",
+        "discountable": true,
+        "is_giftcard": false
+      },
+      "acceptingComponents": [
+        {
+          "name": "StandaloneReadTransaction.enter",
+          "spanId": "f41fce7e96f746c3",
+          "parentSpanId": "c873fae503047af1",
+          "startedMs": 0,
+          "completedMs": 2.0793,
+          "inclusiveElapsedMs": 2.0793,
+          "outcome": "success"
+        },
+        {
+          "name": "LogicalReadAdmission.with",
+          "spanId": "9a757ebcc103b5f9",
+          "parentSpanId": "b047feadb5ad30d2",
+          "startedMs": 2.1878,
+          "completedMs": 10.6696,
+          "inclusiveElapsedMs": 8.4818,
+          "outcome": "success"
+        },
+        {
+          "name": "LogicalReadMetadata.authenticateAndRegister",
+          "spanId": "452b223c8d518a12",
+          "parentSpanId": "9a757ebcc103b5f9",
+          "startedMs": 2.2351,
+          "completedMs": 2.2925,
+          "inclusiveElapsedMs": 0.0574,
+          "outcome": "success"
+        },
+        {
+          "name": "PreparedMetadataEpoch.authenticateTargetSnapshot",
+          "spanId": "af23fa05bb725dba",
+          "parentSpanId": "452b223c8d518a12",
+          "startedMs": 2.2509,
+          "completedMs": 2.2718,
+          "inclusiveElapsedMs": 0.0209,
+          "outcome": "success"
+        },
+        {
+          "name": "ApplicationBindingProjection.withStandaloneEvidence",
+          "spanId": "889f03d85e39b514",
+          "parentSpanId": "9a757ebcc103b5f9",
+          "startedMs": 2.6468,
+          "completedMs": 9.8043,
+          "inclusiveElapsedMs": 7.1575,
+          "outcome": "success"
+        },
+        {
+          "name": "ApplicationActivation.withStandaloneBinding",
+          "spanId": "9e88ba900d19d79b",
+          "parentSpanId": "889f03d85e39b514",
+          "startedMs": 2.6622,
+          "completedMs": 9.7989,
+          "inclusiveElapsedMs": 7.1367,
+          "outcome": "success"
+        },
+        {
+          "name": "PreparedMetadataEpoch.authenticateTargetSnapshot",
+          "spanId": "2d5b717d263dc60c",
+          "parentSpanId": "9e88ba900d19d79b",
+          "startedMs": 2.7092,
+          "completedMs": 2.7313,
+          "inclusiveElapsedMs": 0.0221,
+          "outcome": "success"
+        },
+        {
+          "name": "PreparedMetadataEpoch.acceptFinalBatch",
+          "spanId": "eeb3dd108c70ed07",
+          "parentSpanId": "9a757ebcc103b5f9",
+          "startedMs": 10.5489,
+          "completedMs": 10.6599,
+          "inclusiveElapsedMs": 0.111,
+          "outcome": "success"
+        }
+      ]
+    },
+    {
+      "lane": "native",
+      "demand": "scalar",
+      "sample": -1,
+      "warmup": true,
+      "elapsedMs": 1.7556000000004133,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "is_giftcard": false,
+        "status": "published",
+        "discountable": true
+      }
+    },
+    {
+      "lane": "native",
+      "demand": "scalar",
+      "sample": 0,
+      "warmup": false,
+      "elapsedMs": 2.6476000000002387,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "is_giftcard": false,
+        "status": "published",
+        "discountable": true
+      },
+      "observations": [
+        {
+          "kind": "call",
+          "label": "ProductModuleService.retrieveProduct",
+          "startedMs": 24737.1896,
+          "completedMs": 24739.5394,
+          "outcome": "success"
+        },
+        {
+          "kind": "call",
+          "label": "MedusaInternalService.retrieve",
+          "startedMs": 24737.2926,
+          "completedMs": 24739.4599,
+          "outcome": "success"
+        },
+        {
+          "kind": "call",
+          "label": "ProductRepository.find",
+          "startedMs": 24737.3355,
+          "completedMs": 24738.9843,
+          "outcome": "success",
+          "rows": 1,
+          "resultJsonBytes": 146
+        },
+        {
+          "kind": "sql",
+          "label": "select \"p0\".\"id\", \"p0\".\"title\", \"p0\".\"handle\", \"p0\".\"status\", \"p0\".\"discountable\", \"p0\".\"is_giftcard\" from \"native_retrieval\".\"product\" as \"p0\" where \"p0\".\"deleted_at\" is null and \"p0\".\"id\" = 'prod_native_compare' order by \"p0\".\"id\" asc",
+          "connection": 1,
+          "startedMs": 24738.2923,
+          "completedMs": 24738.7804,
+          "outcome": "success",
+          "rows": 1,
+          "resultJsonBytes": 146
+        },
+        {
+          "kind": "call",
+          "label": "BaseRepository.serialize",
+          "startedMs": 24739.4662,
+          "completedMs": 24739.5382,
+          "outcome": "success"
+        }
+      ],
+      "protocol": [
+        {
+          "method": "query",
+          "connection": 1,
+          "startedMs": 24738.3899,
+          "sqlBytes": 236,
+          "sqlSha256": "5840d4f266b7635dfef365ae756ca330b12f07720a1609cfd3a369db26622c57",
+          "outcome": "returned"
+        }
+      ]
+    },
+    {
+      "lane": "flarex",
+      "demand": "scalar",
+      "sample": 0,
+      "warmup": false,
+      "elapsedMs": 12.838999999999942,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "status": "published",
+        "discountable": true,
+        "is_giftcard": false
+      },
+      "observations": [
+        {
+          "kind": "sql",
+          "label": "begin",
+          "connection": 1,
+          "startedMs": 24740.5773,
+          "completedMs": 24740.8058,
+          "outcome": "success",
+          "rows": 0,
+          "resultJsonBytes": 2
+        },
+        {
+          "kind": "sql",
+          "label": "set transaction isolation level repeatable read",
+          "connection": 1,
+          "startedMs": 24740.9086,
+          "completedMs": 24741.0639,
+          "outcome": "success",
+          "rows": 0,
+          "resultJsonBytes": 2
+        },
+        {
+          "kind": "sql",
+          "label": "select set_config('lock_timeout', $1, true), set_config('statement_timeout', $2, true)",
+          "connection": 1,
+          "startedMs": 24741.1574,
+          "completedMs": 24741.4177,
+          "outcome": "success",
+          "rows": 1,
+          "resultJsonBytes": 25
+        },
+        {
+          "kind": "sql",
+          "label": "select installed.target_installation, installed.control_installation, pg_catalog.set_config('search_path', pg_catalog.format('%I, pg_temp', $1::text), true), placement.scope_id, placement.deployment_id, placement.active_schema_version_id, placement.isolation_kind, placement.physical_locator_json, placement.created_at, placement.receipt_scope_id, placement.receipt_protocol_version, placement.receipt_state, placement.receipt_physical_locator_json, placement.receipt_initial_epoch, placement.receipt_reserved_at, placement.receipt_ready_at, fx_system_scope_clock.\"scope_id\", fx_system_scope_clock.\"storage_generation\", fx_system_scope_clock.\"storage_generation_fence\", fx_system_scope_clock.\"last_commit_seq\", fx_system_scope_clock.\"oldest_available_commit_seq\", fx_system_scope_clock.\"authorization_revocation_epoch\", fx_system_scope_clock.\"epoch\", fx_system_scope_clock.\"updated_at\", fx_system_application_active_head.\"activation_sequence\", fx_system_application_active_head.\"readiness_contract_version\", fx_system_application_active_head.\"revision_id\", fx_system_application_active_head.\"head_sha256\", fx_system_application_active_head.\"activation_sha256\", fx_system_application_active_head.\"readiness_sha256\", fx_system_data_binding_head.\"scope_id\", fx_system_data_binding_head.\"storage_generation\", fx_system_data_binding_head.\"sha256\", fx_system_data_binding_head.\"canonical_byte_length\", fx_system_data_binding_head.\"sequence\", fx_system_data_binding_head.\"activation_sha256\", fx_system_data_binding_head.\"candidate_sha256\", case when\n          octet_length(fx_system_data_binding_head.\"canonical_bytes\") between 1 and $2 then fx_system_data_binding_head.\"canonical_bytes\" else null end, \"target_epoch\".database_name, \"target_epoch\".namespace_oid, \"target_epoch\".incarnation::text, \"target_epoch\".generation, session_user, \"control_epoch\".database_name, \"control_epoch\".namespace_oid, \"control_epoch\".incarnation::text, \"control_epoch\".generation, session_user, source_initialization.source_key, source_initialization.step_id, source_initialization.source_sha256, source_initialization.contract_sha256, source_initialization.dataset_sha256, source_initialization.row_count from (\n      with first_gate as materialized (select * from (select i.*, session_user as login, current_user = session_user as same_login,\n    current_database() as actual_database,\n    i.schema_name = $3 and\n      i.namespace_oid = $4::pg_catalog.regnamespace::oid::bigint as same_schema\n    from \"flarex_file_test_1790947364699_324jcse5oe7\".fx_lock_installation_admission() i join \"flarex_file_test_1790947364699_324jcse5oe7\".fx_system_installation_runtime p\n    on p.login = session_user and p.login_oid = session_user::pg_catalog.regrole::oid::bigint\n      and p.incarnation = i.incarnation and p.structural_generation = i.structural_generation\n      and p.endpoint_policy = $5 and p.access_profile = $6\n    where current_user = session_user and session_user = $7\n      and i.database_name = current_database() and i.database_name = $8\n      and i.schema_name = $9\n      and i.namespace_oid = $10::bigint\n      and i.namespace_oid = $11::pg_catalog.regnamespace::oid::bigint\n      and i.incarnation = $12::uuid\n      and i.structural_generation = $13::bigint\n      and p.metadata_incarnation = $14::uuid) as admitted_first),\n      second_gate as materialized (select admitted_second.* from first_gate cross join lateral\n        (select * from (select i.*, session_user as login, current_user = session_user as same_login,\n    current_database() as actual_database,\n    i.schema_name = $15 and\n      i.namespace_oid = $16::pg_catalog.regnamespace::oid::bigint as same_schema\n    from \"flarex_file_test_1790947366261_hk33hsrsmaw\".fx_lock_installation_admission() i join \"flarex_file_test_1790947366261_hk33hsrsmaw\".fx_system_installation_runtime p\n    on p.login = session_user and p.login_oid = session_user::pg_catalog.regrole::oid::bigint\n      and p.incarnation = i.incarnation and p.structural_generation = i.structural_generation\n      and p.endpoint_policy = $17 and p.access_profile = $18\n    where current_user = session_user and session_user = $19\n      and i.database_name = current_database() and i.database_name = $20\n      and i.schema_name = $21\n      and i.namespace_oid = $22::bigint\n      and i.namespace_oid = $23::pg_catalog.regnamespace::oid::bigint\n      and i.incarnation = $24::uuid\n      and i.structural_generation = $25::bigint\n      and p.metadata_incarnation = $26::uuid) as second_source where first_gate.namespace_oid > 0 offset 0) as admitted_second)\n      select jsonb_build_object('databaseName', \"second_gate\".database_name, 'schemaName', \"second_gate\".schema_name,\n        'namespaceOid', \"second_gate\".namespace_oid::text, 'incarnation', \"second_gate\".incarnation::text,\n        'structuralGeneration', \"second_gate\".structural_generation::text, 'login', \"second_gate\".login,\n        'sameLogin', \"second_gate\".same_login, 'actualDatabase', \"second_gate\".actual_database, 'sameSchema', \"second_gate\".same_schema) as target_installation,\n        jsonb_build_object('databaseName', \"first_gate\".database_name, 'schemaName', \"first_gate\".schema_name,\n        'namespaceOid', \"first_gate\".namespace_oid::text, 'incarnation', \"first_gate\".incarnation::text,\n        'structuralGeneration', \"first_gate\".structural_generation::text, 'login', \"first_gate\".login,\n        'sameLogin', \"first_gate\".same_login, 'actualDatabase', \"first_gate\".actual_database, 'sameSchema', \"first_gate\".same_schema) as control_installation,\n        first_gate.namespace_oid as first_oid, second_gate.namespace_oid as second_oid\n      from first_gate cross join second_gate\n    ) as installed\n    cross join lateral \"flarex_file_test_1790947364699_324jcse5oe7\".fx_lock_read_scope_placement($27,\n      case when installed.first_oid > 0 and installed.second_oid > 0 then $28 else null end) as placement\n    left join lateral (select * from \"flarex_file_test_1790947366261_hk33hsrsmaw\".fx_system_scope_clock\n      where scope_id = placement.scope_id for key share) as fx_system_scope_clock on true\n    left join lateral (select * from \"flarex_file_test_1790947366261_hk33hsrsmaw\".fx_system_data_binding_head\n      where scope_id = fx_system_scope_clock.scope_id and storage_generation = fx_system_scope_clock.storage_generation\n      for share) as fx_system_data_binding_head on true\n    left join lateral (select activation_sequence, readiness_contract_version, revision_id, head_sha256,\n      activation_sha256, readiness_sha256 from \"flarex_file_test_1790947366261_hk33hsrsmaw\".fx_system_application_active_head\n      where scope_id = coalesce(fx_system_data_binding_head.scope_id, fx_system_scope_clock.scope_id)\n      for share) as fx_system_application_active_head on true\n    left join \"flarex_file_test_1790947366261_hk33hsrsmaw\".fx_system_prepared_metadata_epoch as target_epoch on target_epoch.singleton_id = 1\n    left join \"flarex_file_test_1790947364699_324jcse5oe7\".fx_system_prepared_metadata_epoch as control_epoch on control_epoch.singleton_id = 1\n    left join \"flarex_file_test_1790947366261_hk33hsrsmaw\".fx_system_logical_source_initialization as source_initialization\n      on source_initialization.scope_uuid = fx_system_scope_clock.scope_uuid\n      and source_initialization.source_key = $29\n      and source_initialization.step_id = $30 limit $31",
+          "connection": 1,
+          "startedMs": 24741.8753,
+          "completedMs": 24743.5897,
+          "outcome": "success",
+          "rows": 1,
+          "resultJsonBytes": 3933
+        },
+        {
+          "kind": "call",
+          "label": "ProductModuleService.retrieveProduct",
+          "startedMs": 24746.2765,
+          "completedMs": 24751.1877,
+          "outcome": "success"
+        },
+        {
+          "kind": "call",
+          "label": "MedusaInternalService.retrieve",
+          "startedMs": 24746.2943,
+          "completedMs": 24751.0688,
+          "outcome": "success"
+        },
+        {
+          "kind": "call",
+          "label": "ProductRepository.find",
+          "startedMs": 24746.3541,
+          "completedMs": 24751.0589,
+          "outcome": "success",
+          "rows": 1,
+          "resultJsonBytes": 146
+        },
+        {
+          "kind": "sql",
+          "label": "select \"scope_id\", \"unique_constraint_definition_id\", \"storage_generation\", \"storage_generation_fence\", \"epoch\", \"start_commit_seq\", \"lifecycle\", \"covered_through_commit_seq\", \"maintenance_activation_sequence\", \"maintenance_bytes\", \"maintenance_sha256\", \"cursor_row_id\", \"attempt_fence\", \"created_at\", \"updated_at\" from \"fx_system_unique_constraint_build\" where (\"fx_system_unique_constraint_build\".\"scope_id\" = $1 and \"fx_system_unique_constraint_build\".\"unique_constraint_definition_id\" in ($2)) order by \"fx_system_unique_constraint_build\".\"unique_constraint_definition_id\" limit $3 for key share",
+          "connection": 1,
+          "startedMs": 24747.6987,
+          "completedMs": 24748.2683,
+          "outcome": "success",
+          "rows": 1,
+          "resultJsonBytes": 219
+        },
+        {
+          "kind": "sql",
+          "label": "select \"fx_app_unique_key\".\"scope_uuid\", \"fx_app_unique_key\".\"constraint_id\", \"fx_app_unique_key\".\"locale_key\", \"fx_app_unique_key\".\"canonical_key_sha256\", \"fx_app_unique_key\".\"key_codec_version\", \"fx_app_unique_key\".\"encoded_key\", \"fx_app_unique_key\".\"table_id\", \"fx_app_unique_key\".\"row_id\", \"fx_app_row_current\".\"commit_seq\", \"fx_app_row_rev\".\"is_tombstone\", \"fx_system_scope_clock\".\"last_commit_seq\", false, \"fx_system_scope_clock\".\"last_commit_seq\", \"fx_system_scope_clock\".\"epoch\", \"fx_app_row_current\".\"row_id\" is null or ($1 >= 1\n    and coalesce(octet_length(\"fx_app_row_rev\".\"value_bytes\"), 0) <= $2 and coalesce(octet_length(\"fx_app_row_rev\".\"value_bytes\"), 0) <= $3), false, \"fx_app_row_current\".\"scope_uuid\", \"fx_app_row_current\".\"table_id\", \"fx_app_row_current\".\"row_id\", \"fx_app_row_current\".\"commit_seq\", \"fx_app_row_rev\".\"scope_uuid\", \"fx_app_row_rev\".\"table_id\", \"fx_app_row_rev\".\"row_id\", \"fx_app_row_rev\".\"commit_seq\", \"fx_app_row_rev\".\"prev_commit_seq\", \"fx_app_row_rev\".\"write_epoch_uuid\", \"fx_app_row_rev\".\"schema_version_id\", \"fx_app_row_rev\".\"creation_time\", \"fx_app_row_rev\".\"value_codec_version\", \"fx_app_row_rev\".\"is_tombstone\", case when \"fx_app_row_current\".\"row_id\" is null or ($4 >= 1\n    and coalesce(octet_length(\"fx_app_row_rev\".\"value_bytes\"), 0) <= $5 and coalesce(octet_length(\"fx_app_row_rev\".\"value_bytes\"), 0) <= $6) then \"fx_app_row_rev\".\"value_bytes\" else null end, \"fx_app_row_rev\".\"value_sha256\" from \"fx_app_unique_key\" left join \"fx_app_row_current\" on (\"fx_app_row_current\".\"scope_uuid\" = \"fx_app_unique_key\".\"scope_uuid\" and \"fx_app_row_current\".\"table_id\" = \"fx_app_unique_key\".\"table_id\" and \"fx_app_row_current\".\"row_id\" = \"fx_app_unique_key\".\"row_id\") left join \"fx_app_row_rev\" on (\"fx_app_row_rev\".\"scope_uuid\" = \"fx_app_row_current\".\"scope_uuid\" and \"fx_app_row_rev\".\"table_id\" = \"fx_app_row_current\".\"table_id\" and \"fx_app_row_rev\".\"row_id\" = \"fx_app_row_current\".\"row_id\" and \"fx_app_row_rev\".\"commit_seq\" = \"fx_app_row_current\".\"commit_seq\") left join \"fx_system_scope_clock\" on \"fx_system_scope_clock\".\"scope_uuid\" = \"fx_app_unique_key\".\"scope_uuid\" where (\"fx_app_unique_key\".\"scope_uuid\" = $7 and \"fx_app_unique_key\".\"constraint_id\" = $8 and \"fx_app_unique_key\".\"locale_key\" = $9 and \"fx_app_unique_key\".\"canonical_key_sha256\" = $10) limit $11",
+          "connection": 1,
+          "startedMs": 24748.9544,
+          "completedMs": 24749.8024,
+          "outcome": "success",
+          "rows": 1,
+          "resultJsonBytes": 3230
+        },
+        {
+          "kind": "call",
+          "label": "BaseRepository.serialize",
+          "startedMs": 24751.076,
+          "completedMs": 24751.1608,
+          "outcome": "success"
+        },
+        {
+          "kind": "sql",
+          "label": "select final_guard.valid from (with \"epoch_guard_0\" as materialized (select\n        epoch.database_name = $1 and epoch.database_name = current_database()\n        and epoch.namespace_oid = $2::bigint\n        and epoch.incarnation = $3::uuid\n        and epoch.generation = $4::bigint\n        and session_user = $5 and current_user = session_user as valid\n        from \"flarex_file_test_1790947364699_324jcse5oe7\".fx_lock_prepared_metadata_epoch() epoch), \"epoch_guard_1\" as materialized (select\n        epoch.database_name = $6 and epoch.database_name = current_database()\n        and epoch.namespace_oid = $7::bigint\n        and epoch.incarnation = $8::uuid\n        and epoch.generation = $9::bigint\n        and session_user = $10 and current_user = session_user as valid\n        from \"flarex_file_test_1790947366261_hk33hsrsmaw\".fx_lock_prepared_metadata_epoch() epoch)\n      select coalesce((select bool_and(valid)\n      from \"epoch_guard_0\"),false) and coalesce((select bool_and(valid)\n      from \"epoch_guard_1\"),false) as valid) as final_guard",
+          "connection": 1,
+          "startedMs": 24751.6245,
+          "completedMs": 24752.0745,
+          "outcome": "success",
+          "rows": 1,
+          "resultJsonBytes": 8
+        },
+        {
+          "kind": "sql",
+          "label": "commit",
+          "connection": 1,
+          "startedMs": 24752.4041,
+          "completedMs": 24752.7098,
+          "outcome": "success",
+          "rows": 0,
+          "resultJsonBytes": 2
+        }
+      ],
+      "protocol": [
+        {
+          "method": "query",
+          "connection": 1,
+          "startedMs": 24740.5953,
+          "sqlBytes": 5,
+          "sqlSha256": "e6f07d43b5c21db0fbb9a31feac2dc599787763393dd5acbfad80e247eb02ad5",
+          "outcome": "returned"
+        },
+        {
+          "method": "query",
+          "connection": 1,
+          "startedMs": 24740.9179,
+          "sqlBytes": 47,
+          "sqlSha256": "69f5702b9c483fb179737aa369b45007aa87571fd829306f322e8525888f054d",
+          "outcome": "returned"
+        },
+        {
+          "method": "parse",
+          "connection": 1,
+          "startedMs": 24741.1893,
+          "sqlBytes": 86,
+          "sqlSha256": "99747caabebe10da11bbeb8c330470748baaae921ee36f3cafd262299bba55a7",
+          "outcome": "returned"
+        },
+        {
+          "method": "bind",
+          "connection": 1,
+          "startedMs": 24741.2099,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "describe",
+          "connection": 1,
+          "startedMs": 24741.2307,
+          "portalName": "",
+          "descriptionType": "P",
+          "outcome": "returned"
+        },
+        {
+          "method": "execute",
+          "connection": 1,
+          "startedMs": 24741.2406,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "sync",
+          "connection": 1,
+          "startedMs": 24741.2445,
+          "outcome": "returned"
+        },
+        {
+          "method": "bind",
+          "connection": 1,
+          "startedMs": 24741.8959,
+          "statementName": "fx_sr_f6bc031b5270f46bad0a7a2ae05b488222854c079e4af8dbdad7f6c1",
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "describe",
+          "connection": 1,
+          "startedMs": 24741.946,
+          "portalName": "",
+          "descriptionType": "P",
+          "outcome": "returned"
+        },
+        {
+          "method": "execute",
+          "connection": 1,
+          "startedMs": 24741.9659,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "sync",
+          "connection": 1,
+          "startedMs": 24741.9748,
+          "outcome": "returned"
+        },
+        {
+          "method": "parse",
+          "connection": 1,
+          "startedMs": 24747.7163,
+          "sqlBytes": 599,
+          "sqlSha256": "f92808d761769dd981c7dee2517b1c29f3d9c566b381968df751ac7d2394f3f3",
+          "outcome": "returned"
+        },
+        {
+          "method": "bind",
+          "connection": 1,
+          "startedMs": 24747.7633,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "describe",
+          "connection": 1,
+          "startedMs": 24747.7697,
+          "portalName": "",
+          "descriptionType": "P",
+          "outcome": "returned"
+        },
+        {
+          "method": "execute",
+          "connection": 1,
+          "startedMs": 24747.7721,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "sync",
+          "connection": 1,
+          "startedMs": 24747.7728,
+          "outcome": "returned"
+        },
+        {
+          "method": "parse",
+          "connection": 1,
+          "startedMs": 24748.9656,
+          "sqlBytes": 2305,
+          "sqlSha256": "0a243f44717809c71eebf855b7fc1b9a89ee0247ac52ab5e19eae82cc19cef9c",
+          "outcome": "returned"
+        },
+        {
+          "method": "bind",
+          "connection": 1,
+          "startedMs": 24748.9983,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "describe",
+          "connection": 1,
+          "startedMs": 24749.01,
+          "portalName": "",
+          "descriptionType": "P",
+          "outcome": "returned"
+        },
+        {
+          "method": "execute",
+          "connection": 1,
+          "startedMs": 24749.0112,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "sync",
+          "connection": 1,
+          "startedMs": 24749.012,
+          "outcome": "returned"
+        },
+        {
+          "method": "parse",
+          "connection": 1,
+          "startedMs": 24751.636,
+          "sqlBytes": 1047,
+          "sqlSha256": "46ea6824c211f32e00a1af4883463b0ddf3dedda02380e4e3bd3db639130d2fb",
+          "outcome": "returned"
+        },
+        {
+          "method": "bind",
+          "connection": 1,
+          "startedMs": 24751.6608,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "describe",
+          "connection": 1,
+          "startedMs": 24751.6704,
+          "portalName": "",
+          "descriptionType": "P",
+          "outcome": "returned"
+        },
+        {
+          "method": "execute",
+          "connection": 1,
+          "startedMs": 24751.6715,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "sync",
+          "connection": 1,
+          "startedMs": 24751.6722,
+          "outcome": "returned"
+        },
+        {
+          "method": "query",
+          "connection": 1,
+          "startedMs": 24752.4146,
+          "sqlBytes": 6,
+          "sqlSha256": "9505cacb7c710ed17125fcc6cb3669e8ddca6c8cd8af6a31f6b3cd64604c3098",
+          "outcome": "returned"
+        }
+      ],
+      "acceptingComponents": [
+        {
+          "name": "StandaloneReadTransaction.enter",
+          "spanId": "fd0d7ee517629504",
+          "parentSpanId": "e780bf036808ad45",
+          "startedMs": 0,
+          "completedMs": 2.3717,
+          "inclusiveElapsedMs": 2.3717,
+          "outcome": "success"
+        },
+        {
+          "name": "LogicalReadAdmission.with",
+          "spanId": "27ddcd9a873fcc90",
+          "parentSpanId": "138ef709400b7d98",
+          "startedMs": 2.4696,
+          "completedMs": 10.6645,
+          "inclusiveElapsedMs": 8.1949,
+          "outcome": "success"
+        },
+        {
+          "name": "LogicalReadMetadata.authenticateAndRegister",
+          "spanId": "e0851e80cf55bf51",
+          "parentSpanId": "27ddcd9a873fcc90",
+          "startedMs": 2.5108,
+          "completedMs": 2.5675,
+          "inclusiveElapsedMs": 0.0567,
+          "outcome": "success"
+        },
+        {
+          "name": "PreparedMetadataEpoch.authenticateTargetSnapshot",
+          "spanId": "335f52390f141be6",
+          "parentSpanId": "e0851e80cf55bf51",
+          "startedMs": 2.527,
+          "completedMs": 2.5484,
+          "inclusiveElapsedMs": 0.0214,
+          "outcome": "success"
+        },
+        {
+          "name": "ApplicationBindingProjection.withStandaloneEvidence",
+          "spanId": "0c0d806088fef837",
+          "parentSpanId": "27ddcd9a873fcc90",
+          "startedMs": 2.9403,
+          "completedMs": 9.9754,
+          "inclusiveElapsedMs": 7.0351,
+          "outcome": "success"
+        },
+        {
+          "name": "ApplicationActivation.withStandaloneBinding",
+          "spanId": "d4f2dca0cdaf5323",
+          "parentSpanId": "0c0d806088fef837",
+          "startedMs": 2.9576,
+          "completedMs": 9.971,
+          "inclusiveElapsedMs": 7.0134,
+          "outcome": "success"
+        },
+        {
+          "name": "PreparedMetadataEpoch.authenticateTargetSnapshot",
+          "spanId": "ec1bd1ea8261e947",
+          "parentSpanId": "d4f2dca0cdaf5323",
+          "startedMs": 2.995,
+          "completedMs": 3.0163,
+          "inclusiveElapsedMs": 0.0213,
+          "outcome": "success"
+        },
+        {
+          "name": "PreparedMetadataEpoch.acceptFinalBatch",
+          "spanId": "e8c80dac852d98f2",
+          "parentSpanId": "27ddcd9a873fcc90",
+          "startedMs": 10.5759,
+          "completedMs": 10.657,
+          "inclusiveElapsedMs": 0.0811,
+          "outcome": "success"
+        }
+      ]
+    },
+    {
+      "lane": "flarex",
+      "demand": "collection",
+      "sample": -1,
+      "warmup": true,
+      "elapsedMs": 15.88969999999972,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "collection_id": "pcol_native_compare",
+        "collection": {
+          "id": "pcol_native_compare",
+          "title": "Native collection"
+        }
+      },
+      "acceptingComponents": [
+        {
+          "name": "StandaloneReadTransaction.enter",
+          "spanId": "01eccf9540c5da78",
+          "parentSpanId": "b670c3e87d393954",
+          "startedMs": 0,
+          "completedMs": 2.0602,
+          "inclusiveElapsedMs": 2.0602,
+          "outcome": "success"
+        },
+        {
+          "name": "LogicalReadAdmission.with",
+          "spanId": "9230bd51bf2e98d1",
+          "parentSpanId": "93600fb41ba0fe7a",
+          "startedMs": 2.1745,
+          "completedMs": 14.2814,
+          "inclusiveElapsedMs": 12.1069,
+          "outcome": "success"
+        },
+        {
+          "name": "LogicalReadMetadata.authenticateAndRegister",
+          "spanId": "e85ff18a486f063e",
+          "parentSpanId": "9230bd51bf2e98d1",
+          "startedMs": 2.2041,
+          "completedMs": 2.2601,
+          "inclusiveElapsedMs": 0.056,
+          "outcome": "success"
+        },
+        {
+          "name": "PreparedMetadataEpoch.authenticateTargetSnapshot",
+          "spanId": "e4dcae89225cd31d",
+          "parentSpanId": "e85ff18a486f063e",
+          "startedMs": 2.2205,
+          "completedMs": 2.2414,
+          "inclusiveElapsedMs": 0.0209,
+          "outcome": "success"
+        },
+        {
+          "name": "ApplicationBindingProjection.withStandaloneEvidence",
+          "spanId": "6d2da2a4bed017b6",
+          "parentSpanId": "9230bd51bf2e98d1",
+          "startedMs": 2.6128,
+          "completedMs": 13.6267,
+          "inclusiveElapsedMs": 11.0139,
+          "outcome": "success"
+        },
+        {
+          "name": "ApplicationActivation.withStandaloneBinding",
+          "spanId": "422e0123d5912452",
+          "parentSpanId": "6d2da2a4bed017b6",
+          "startedMs": 2.6267,
+          "completedMs": 13.6214,
+          "inclusiveElapsedMs": 10.9947,
+          "outcome": "success"
+        },
+        {
+          "name": "PreparedMetadataEpoch.authenticateTargetSnapshot",
+          "spanId": "4e5b7db37a5221c3",
+          "parentSpanId": "422e0123d5912452",
+          "startedMs": 2.6553,
+          "completedMs": 2.673,
+          "inclusiveElapsedMs": 0.0177,
+          "outcome": "success"
+        },
+        {
+          "name": "PreparedMetadataEpoch.acceptFinalBatch",
+          "spanId": "030f7563559d55d9",
+          "parentSpanId": "9230bd51bf2e98d1",
+          "startedMs": 14.1925,
+          "completedMs": 14.2745,
+          "inclusiveElapsedMs": 0.082,
+          "outcome": "success"
+        }
+      ]
+    },
+    {
+      "lane": "native",
+      "demand": "collection",
+      "sample": -1,
+      "warmup": true,
+      "elapsedMs": 2.3781999999991967,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "collection_id": "pcol_native_compare",
+        "collection": {
+          "id": "pcol_native_compare",
+          "title": "Native collection"
+        }
+      }
+    },
+    {
+      "lane": "native",
+      "demand": "collection",
+      "sample": 0,
+      "warmup": false,
+      "elapsedMs": 2.2836999999999534,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "collection_id": "pcol_native_compare",
+        "collection": {
+          "id": "pcol_native_compare",
+          "title": "Native collection"
+        }
+      },
+      "observations": [
+        {
+          "kind": "call",
+          "label": "ProductModuleService.retrieveProduct",
+          "startedMs": 24772.3174,
+          "completedMs": 24774.555,
+          "outcome": "success"
+        },
+        {
+          "kind": "call",
+          "label": "MedusaInternalService.retrieve",
+          "startedMs": 24772.3649,
+          "completedMs": 24774.4284,
+          "outcome": "success"
+        },
+        {
+          "kind": "call",
+          "label": "ProductRepository.find",
+          "startedMs": 24772.3905,
+          "completedMs": 24774.0663,
+          "outcome": "success",
+          "rows": 1,
+          "resultJsonBytes": 155
+        },
+        {
+          "kind": "sql",
+          "label": "select \"p0\".\"id\", \"p0\".\"title\", \"p0\".\"handle\", \"p0\".\"collection_id\" as \"collection_id\", \"c1\".\"id\" as \"c1__id\", \"c1\".\"title\" as \"c1__title\" from \"native_retrieval\".\"product\" as \"p0\" left join \"native_retrieval\".\"product_collection\" as \"c1\" on \"p0\".\"collection_id\" = \"c1\".\"id\" and \"c1\".\"deleted_at\" is null where \"p0\".\"deleted_at\" is null and \"p0\".\"id\" = 'prod_native_compare' order by \"p0\".\"id\" asc",
+          "connection": 1,
+          "startedMs": 24773.3839,
+          "completedMs": 24773.7183,
+          "outcome": "success",
+          "rows": 1,
+          "resultJsonBytes": 186
+        },
+        {
+          "kind": "call",
+          "label": "BaseRepository.serialize",
+          "startedMs": 24774.4371,
+          "completedMs": 24774.5541,
+          "outcome": "success"
+        }
+      ],
+      "protocol": [
+        {
+          "method": "query",
+          "connection": 1,
+          "startedMs": 24773.3954,
+          "sqlBytes": 397,
+          "sqlSha256": "b356b5f4bc44f3cee6e1c6ed77f7e0295a12da423fbe77fc0c93ae22129fb741",
+          "outcome": "returned"
+        }
+      ]
+    },
+    {
+      "lane": "flarex",
+      "demand": "collection",
+      "sample": 0,
+      "warmup": false,
+      "elapsedMs": 14.730800000001182,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "collection_id": "pcol_native_compare",
+        "collection": {
+          "id": "pcol_native_compare",
+          "title": "Native collection"
+        }
+      },
+      "observations": [
+        {
+          "kind": "sql",
+          "label": "begin",
+          "connection": 1,
+          "startedMs": 24775.2686,
+          "completedMs": 24775.4036,
+          "outcome": "success",
+          "rows": 0,
+          "resultJsonBytes": 2
+        },
+        {
+          "kind": "sql",
+          "label": "set transaction isolation level repeatable read",
+          "connection": 1,
+          "startedMs": 24775.4915,
+          "completedMs": 24775.5824,
+          "outcome": "success",
+          "rows": 0,
+          "resultJsonBytes": 2
+        },
+        {
+          "kind": "sql",
+          "label": "select set_config('lock_timeout', $1, true), set_config('statement_timeout', $2, true)",
+          "connection": 1,
+          "startedMs": 24775.6662,
+          "completedMs": 24775.8323,
+          "outcome": "success",
+          "rows": 1,
+          "resultJsonBytes": 25
+        },
+        {
+          "kind": "sql",
+          "label": "select installed.target_installation, installed.control_installation, pg_catalog.set_config('search_path', pg_catalog.format('%I, pg_temp', $1::text), true), placement.scope_id, placement.deployment_id, placement.active_schema_version_id, placement.isolation_kind, placement.physical_locator_json, placement.created_at, placement.receipt_scope_id, placement.receipt_protocol_version, placement.receipt_state, placement.receipt_physical_locator_json, placement.receipt_initial_epoch, placement.receipt_reserved_at, placement.receipt_ready_at, fx_system_scope_clock.\"scope_id\", fx_system_scope_clock.\"storage_generation\", fx_system_scope_clock.\"storage_generation_fence\", fx_system_scope_clock.\"last_commit_seq\", fx_system_scope_clock.\"oldest_available_commit_seq\", fx_system_scope_clock.\"authorization_revocation_epoch\", fx_system_scope_clock.\"epoch\", fx_system_scope_clock.\"updated_at\", fx_system_application_active_head.\"activation_sequence\", fx_system_application_active_head.\"readiness_contract_version\", fx_system_application_active_head.\"revision_id\", fx_system_application_active_head.\"head_sha256\", fx_system_application_active_head.\"activation_sha256\", fx_system_application_active_head.\"readiness_sha256\", fx_system_data_binding_head.\"scope_id\", fx_system_data_binding_head.\"storage_generation\", fx_system_data_binding_head.\"sha256\", fx_system_data_binding_head.\"canonical_byte_length\", fx_system_data_binding_head.\"sequence\", fx_system_data_binding_head.\"activation_sha256\", fx_system_data_binding_head.\"candidate_sha256\", case when\n          octet_length(fx_system_data_binding_head.\"canonical_bytes\") between 1 and $2 then fx_system_data_binding_head.\"canonical_bytes\" else null end, \"target_epoch\".database_name, \"target_epoch\".namespace_oid, \"target_epoch\".incarnation::text, \"target_epoch\".generation, session_user, \"control_epoch\".database_name, \"control_epoch\".namespace_oid, \"control_epoch\".incarnation::text, \"control_epoch\".generation, session_user, source_initialization.source_key, source_initialization.step_id, source_initialization.source_sha256, source_initialization.contract_sha256, source_initialization.dataset_sha256, source_initialization.row_count from (\n      with first_gate as materialized (select * from (select i.*, session_user as login, current_user = session_user as same_login,\n    current_database() as actual_database,\n    i.schema_name = $3 and\n      i.namespace_oid = $4::pg_catalog.regnamespace::oid::bigint as same_schema\n    from \"flarex_file_test_1790947364699_324jcse5oe7\".fx_lock_installation_admission() i join \"flarex_file_test_1790947364699_324jcse5oe7\".fx_system_installation_runtime p\n    on p.login = session_user and p.login_oid = session_user::pg_catalog.regrole::oid::bigint\n      and p.incarnation = i.incarnation and p.structural_generation = i.structural_generation\n      and p.endpoint_policy = $5 and p.access_profile = $6\n    where current_user = session_user and session_user = $7\n      and i.database_name = current_database() and i.database_name = $8\n      and i.schema_name = $9\n      and i.namespace_oid = $10::bigint\n      and i.namespace_oid = $11::pg_catalog.regnamespace::oid::bigint\n      and i.incarnation = $12::uuid\n      and i.structural_generation = $13::bigint\n      and p.metadata_incarnation = $14::uuid) as admitted_first),\n      second_gate as materialized (select admitted_second.* from first_gate cross join lateral\n        (select * from (select i.*, session_user as login, current_user = session_user as same_login,\n    current_database() as actual_database,\n    i.schema_name = $15 and\n      i.namespace_oid = $16::pg_catalog.regnamespace::oid::bigint as same_schema\n    from \"flarex_file_test_1790947366261_hk33hsrsmaw\".fx_lock_installation_admission() i join \"flarex_file_test_1790947366261_hk33hsrsmaw\".fx_system_installation_runtime p\n    on p.login = session_user and p.login_oid = session_user::pg_catalog.regrole::oid::bigint\n      and p.incarnation = i.incarnation and p.structural_generation = i.structural_generation\n      and p.endpoint_policy = $17 and p.access_profile = $18\n    where current_user = session_user and session_user = $19\n      and i.database_name = current_database() and i.database_name = $20\n      and i.schema_name = $21\n      and i.namespace_oid = $22::bigint\n      and i.namespace_oid = $23::pg_catalog.regnamespace::oid::bigint\n      and i.incarnation = $24::uuid\n      and i.structural_generation = $25::bigint\n      and p.metadata_incarnation = $26::uuid) as second_source where first_gate.namespace_oid > 0 offset 0) as admitted_second)\n      select jsonb_build_object('databaseName', \"second_gate\".database_name, 'schemaName', \"second_gate\".schema_name,\n        'namespaceOid', \"second_gate\".namespace_oid::text, 'incarnation', \"second_gate\".incarnation::text,\n        'structuralGeneration', \"second_gate\".structural_generation::text, 'login', \"second_gate\".login,\n        'sameLogin', \"second_gate\".same_login, 'actualDatabase', \"second_gate\".actual_database, 'sameSchema', \"second_gate\".same_schema) as target_installation,\n        jsonb_build_object('databaseName', \"first_gate\".database_name, 'schemaName', \"first_gate\".schema_name,\n        'namespaceOid', \"first_gate\".namespace_oid::text, 'incarnation', \"first_gate\".incarnation::text,\n        'structuralGeneration', \"first_gate\".structural_generation::text, 'login', \"first_gate\".login,\n        'sameLogin', \"first_gate\".same_login, 'actualDatabase', \"first_gate\".actual_database, 'sameSchema', \"first_gate\".same_schema) as control_installation,\n        first_gate.namespace_oid as first_oid, second_gate.namespace_oid as second_oid\n      from first_gate cross join second_gate\n    ) as installed\n    cross join lateral \"flarex_file_test_1790947364699_324jcse5oe7\".fx_lock_read_scope_placement($27,\n      case when installed.first_oid > 0 and installed.second_oid > 0 then $28 else null end) as placement\n    left join lateral (select * from \"flarex_file_test_1790947366261_hk33hsrsmaw\".fx_system_scope_clock\n      where scope_id = placement.scope_id for key share) as fx_system_scope_clock on true\n    left join lateral (select * from \"flarex_file_test_1790947366261_hk33hsrsmaw\".fx_system_data_binding_head\n      where scope_id = fx_system_scope_clock.scope_id and storage_generation = fx_system_scope_clock.storage_generation\n      for share) as fx_system_data_binding_head on true\n    left join lateral (select activation_sequence, readiness_contract_version, revision_id, head_sha256,\n      activation_sha256, readiness_sha256 from \"flarex_file_test_1790947366261_hk33hsrsmaw\".fx_system_application_active_head\n      where scope_id = coalesce(fx_system_data_binding_head.scope_id, fx_system_scope_clock.scope_id)\n      for share) as fx_system_application_active_head on true\n    left join \"flarex_file_test_1790947366261_hk33hsrsmaw\".fx_system_prepared_metadata_epoch as target_epoch on target_epoch.singleton_id = 1\n    left join \"flarex_file_test_1790947364699_324jcse5oe7\".fx_system_prepared_metadata_epoch as control_epoch on control_epoch.singleton_id = 1\n    left join \"flarex_file_test_1790947366261_hk33hsrsmaw\".fx_system_logical_source_initialization as source_initialization\n      on source_initialization.scope_uuid = fx_system_scope_clock.scope_uuid\n      and source_initialization.source_key = $29\n      and source_initialization.step_id = $30 limit $31",
+          "connection": 1,
+          "startedMs": 24776.4197,
+          "completedMs": 24777.8835,
+          "outcome": "success",
+          "rows": 1,
+          "resultJsonBytes": 3933
+        },
+        {
+          "kind": "call",
+          "label": "ProductModuleService.retrieveProduct",
+          "startedMs": 24780.0958,
+          "completedMs": 24788.0208,
+          "outcome": "success"
+        },
+        {
+          "kind": "call",
+          "label": "MedusaInternalService.retrieve",
+          "startedMs": 24780.1134,
+          "completedMs": 24787.9236,
+          "outcome": "success"
+        },
+        {
+          "kind": "call",
+          "label": "ProductRepository.find",
+          "startedMs": 24780.1659,
+          "completedMs": 24787.9185,
+          "outcome": "success",
+          "rows": 1,
+          "resultJsonBytes": 193
+        },
+        {
+          "kind": "sql",
+          "label": "select \"scope_id\", \"unique_constraint_definition_id\", \"storage_generation\", \"storage_generation_fence\", \"epoch\", \"start_commit_seq\", \"lifecycle\", \"covered_through_commit_seq\", \"maintenance_activation_sequence\", \"maintenance_bytes\", \"maintenance_sha256\", \"cursor_row_id\", \"attempt_fence\", \"created_at\", \"updated_at\" from \"fx_system_unique_constraint_build\" where (\"fx_system_unique_constraint_build\".\"scope_id\" = $1 and \"fx_system_unique_constraint_build\".\"unique_constraint_definition_id\" in ($2)) order by \"fx_system_unique_constraint_build\".\"unique_constraint_definition_id\" limit $3 for key share",
+          "connection": 1,
+          "startedMs": 24781.4272,
+          "completedMs": 24781.9152,
+          "outcome": "success",
+          "rows": 1,
+          "resultJsonBytes": 219
+        },
+        {
+          "kind": "sql",
+          "label": "select \"fx_app_unique_key\".\"scope_uuid\", \"fx_app_unique_key\".\"constraint_id\", \"fx_app_unique_key\".\"locale_key\", \"fx_app_unique_key\".\"canonical_key_sha256\", \"fx_app_unique_key\".\"key_codec_version\", \"fx_app_unique_key\".\"encoded_key\", \"fx_app_unique_key\".\"table_id\", \"fx_app_unique_key\".\"row_id\", \"fx_app_row_current\".\"commit_seq\", \"fx_app_row_rev\".\"is_tombstone\", \"fx_system_scope_clock\".\"last_commit_seq\", false, \"fx_system_scope_clock\".\"last_commit_seq\", \"fx_system_scope_clock\".\"epoch\", \"fx_app_row_current\".\"row_id\" is null or ($1 >= 1\n    and coalesce(octet_length(\"fx_app_row_rev\".\"value_bytes\"), 0) <= $2 and coalesce(octet_length(\"fx_app_row_rev\".\"value_bytes\"), 0) <= $3), false, \"fx_app_row_current\".\"scope_uuid\", \"fx_app_row_current\".\"table_id\", \"fx_app_row_current\".\"row_id\", \"fx_app_row_current\".\"commit_seq\", \"fx_app_row_rev\".\"scope_uuid\", \"fx_app_row_rev\".\"table_id\", \"fx_app_row_rev\".\"row_id\", \"fx_app_row_rev\".\"commit_seq\", \"fx_app_row_rev\".\"prev_commit_seq\", \"fx_app_row_rev\".\"write_epoch_uuid\", \"fx_app_row_rev\".\"schema_version_id\", \"fx_app_row_rev\".\"creation_time\", \"fx_app_row_rev\".\"value_codec_version\", \"fx_app_row_rev\".\"is_tombstone\", case when \"fx_app_row_current\".\"row_id\" is null or ($4 >= 1\n    and coalesce(octet_length(\"fx_app_row_rev\".\"value_bytes\"), 0) <= $5 and coalesce(octet_length(\"fx_app_row_rev\".\"value_bytes\"), 0) <= $6) then \"fx_app_row_rev\".\"value_bytes\" else null end, \"fx_app_row_rev\".\"value_sha256\" from \"fx_app_unique_key\" left join \"fx_app_row_current\" on (\"fx_app_row_current\".\"scope_uuid\" = \"fx_app_unique_key\".\"scope_uuid\" and \"fx_app_row_current\".\"table_id\" = \"fx_app_unique_key\".\"table_id\" and \"fx_app_row_current\".\"row_id\" = \"fx_app_unique_key\".\"row_id\") left join \"fx_app_row_rev\" on (\"fx_app_row_rev\".\"scope_uuid\" = \"fx_app_row_current\".\"scope_uuid\" and \"fx_app_row_rev\".\"table_id\" = \"fx_app_row_current\".\"table_id\" and \"fx_app_row_rev\".\"row_id\" = \"fx_app_row_current\".\"row_id\" and \"fx_app_row_rev\".\"commit_seq\" = \"fx_app_row_current\".\"commit_seq\") left join \"fx_system_scope_clock\" on \"fx_system_scope_clock\".\"scope_uuid\" = \"fx_app_unique_key\".\"scope_uuid\" where (\"fx_app_unique_key\".\"scope_uuid\" = $7 and \"fx_app_unique_key\".\"constraint_id\" = $8 and \"fx_app_unique_key\".\"locale_key\" = $9 and \"fx_app_unique_key\".\"canonical_key_sha256\" = $10) limit $11",
+          "connection": 1,
+          "startedMs": 24782.5722,
+          "completedMs": 24783.3199,
+          "outcome": "success",
+          "rows": 1,
+          "resultJsonBytes": 3230
+        },
+        {
+          "kind": "sql",
+          "label": "select \"scope_id\", \"unique_constraint_definition_id\", \"storage_generation\", \"storage_generation_fence\", \"epoch\", \"start_commit_seq\", \"lifecycle\", \"covered_through_commit_seq\", \"maintenance_activation_sequence\", \"maintenance_bytes\", \"maintenance_sha256\", \"cursor_row_id\", \"attempt_fence\", \"created_at\", \"updated_at\" from \"fx_system_unique_constraint_build\" where (\"fx_system_unique_constraint_build\".\"scope_id\" = $1 and \"fx_system_unique_constraint_build\".\"unique_constraint_definition_id\" in ($2)) order by \"fx_system_unique_constraint_build\".\"unique_constraint_definition_id\" limit $3 for key share",
+          "connection": 1,
+          "startedMs": 24785.2892,
+          "completedMs": 24785.588,
+          "outcome": "success",
+          "rows": 1,
+          "resultJsonBytes": 219
+        },
+        {
+          "kind": "sql",
+          "label": "\n      with requested(ordinal, table_id) as (values ($1::integer, $2::integer))\n      select requested.ordinal as \"ordinal\", latest.commit_seq::text as \"commitSeqText\"\n      from requested\n      left join lateral (\n        select current_row.commit_seq from fx_app_row_current as current_row\n        where current_row.scope_uuid = $3 and current_row.table_id = requested.table_id\n        order by current_row.commit_seq desc limit 1\n      ) as latest on true\n      order by requested.ordinal\n    ",
+          "connection": 1,
+          "startedMs": 24785.7823,
+          "completedMs": 24786.0717,
+          "outcome": "success",
+          "rows": 1,
+          "resultJsonBytes": 35
+        },
+        {
+          "kind": "sql",
+          "label": "select \"fx_app_unique_key\".\"scope_uuid\", \"fx_app_unique_key\".\"constraint_id\", \"fx_app_unique_key\".\"locale_key\", \"fx_app_unique_key\".\"canonical_key_sha256\", \"fx_app_unique_key\".\"key_codec_version\", \"fx_app_unique_key\".\"encoded_key\", \"fx_app_unique_key\".\"table_id\", \"fx_app_unique_key\".\"row_id\", \"fx_app_row_current\".\"commit_seq\", \"fx_app_row_rev\".\"is_tombstone\", \"fx_system_scope_clock\".\"last_commit_seq\", false, \"fx_system_scope_clock\".\"last_commit_seq\", \"fx_system_scope_clock\".\"epoch\", \"fx_app_row_current\".\"row_id\" is null or ($1 >= 1\n    and coalesce(octet_length(\"fx_app_row_rev\".\"value_bytes\"), 0) <= $2 and coalesce(octet_length(\"fx_app_row_rev\".\"value_bytes\"), 0) <= $3), false, \"fx_app_row_current\".\"scope_uuid\", \"fx_app_row_current\".\"table_id\", \"fx_app_row_current\".\"row_id\", \"fx_app_row_current\".\"commit_seq\", \"fx_app_row_rev\".\"scope_uuid\", \"fx_app_row_rev\".\"table_id\", \"fx_app_row_rev\".\"row_id\", \"fx_app_row_rev\".\"commit_seq\", \"fx_app_row_rev\".\"prev_commit_seq\", \"fx_app_row_rev\".\"write_epoch_uuid\", \"fx_app_row_rev\".\"schema_version_id\", \"fx_app_row_rev\".\"creation_time\", \"fx_app_row_rev\".\"value_codec_version\", \"fx_app_row_rev\".\"is_tombstone\", case when \"fx_app_row_current\".\"row_id\" is null or ($4 >= 1\n    and coalesce(octet_length(\"fx_app_row_rev\".\"value_bytes\"), 0) <= $5 and coalesce(octet_length(\"fx_app_row_rev\".\"value_bytes\"), 0) <= $6) then \"fx_app_row_rev\".\"value_bytes\" else null end, \"fx_app_row_rev\".\"value_sha256\" from \"fx_app_unique_key\" left join \"fx_app_row_current\" on (\"fx_app_row_current\".\"scope_uuid\" = \"fx_app_unique_key\".\"scope_uuid\" and \"fx_app_row_current\".\"table_id\" = \"fx_app_unique_key\".\"table_id\" and \"fx_app_row_current\".\"row_id\" = \"fx_app_unique_key\".\"row_id\") left join \"fx_app_row_rev\" on (\"fx_app_row_rev\".\"scope_uuid\" = \"fx_app_row_current\".\"scope_uuid\" and \"fx_app_row_rev\".\"table_id\" = \"fx_app_row_current\".\"table_id\" and \"fx_app_row_rev\".\"row_id\" = \"fx_app_row_current\".\"row_id\" and \"fx_app_row_rev\".\"commit_seq\" = \"fx_app_row_current\".\"commit_seq\") left join \"fx_system_scope_clock\" on \"fx_system_scope_clock\".\"scope_uuid\" = \"fx_app_unique_key\".\"scope_uuid\" where (\"fx_app_unique_key\".\"scope_uuid\" = $7 and \"fx_app_unique_key\".\"constraint_id\" = $8 and \"fx_app_unique_key\".\"locale_key\" = $9 and \"fx_app_unique_key\".\"canonical_key_sha256\" = $10) limit $11",
+          "connection": 1,
+          "startedMs": 24786.5722,
+          "completedMs": 24787.1752,
+          "outcome": "success",
+          "rows": 1,
+          "resultJsonBytes": 2094
+        },
+        {
+          "kind": "call",
+          "label": "BaseRepository.serialize",
+          "startedMs": 24787.9324,
+          "completedMs": 24788.0195,
+          "outcome": "success"
+        },
+        {
+          "kind": "sql",
+          "label": "select final_guard.valid from (with \"epoch_guard_0\" as materialized (select\n        epoch.database_name = $1 and epoch.database_name = current_database()\n        and epoch.namespace_oid = $2::bigint\n        and epoch.incarnation = $3::uuid\n        and epoch.generation = $4::bigint\n        and session_user = $5 and current_user = session_user as valid\n        from \"flarex_file_test_1790947364699_324jcse5oe7\".fx_lock_prepared_metadata_epoch() epoch), \"epoch_guard_1\" as materialized (select\n        epoch.database_name = $6 and epoch.database_name = current_database()\n        and epoch.namespace_oid = $7::bigint\n        and epoch.incarnation = $8::uuid\n        and epoch.generation = $9::bigint\n        and session_user = $10 and current_user = session_user as valid\n        from \"flarex_file_test_1790947366261_hk33hsrsmaw\".fx_lock_prepared_metadata_epoch() epoch)\n      select coalesce((select bool_and(valid)\n      from \"epoch_guard_0\"),false) and coalesce((select bool_and(valid)\n      from \"epoch_guard_1\"),false) as valid) as final_guard",
+          "connection": 1,
+          "startedMs": 24788.3857,
+          "completedMs": 24788.7822,
+          "outcome": "success",
+          "rows": 1,
+          "resultJsonBytes": 8
+        },
+        {
+          "kind": "sql",
+          "label": "commit",
+          "connection": 1,
+          "startedMs": 24789.1133,
+          "completedMs": 24789.4249,
+          "outcome": "success",
+          "rows": 0,
+          "resultJsonBytes": 2
+        }
+      ],
+      "protocol": [
+        {
+          "method": "query",
+          "connection": 1,
+          "startedMs": 24775.2855,
+          "sqlBytes": 5,
+          "sqlSha256": "e6f07d43b5c21db0fbb9a31feac2dc599787763393dd5acbfad80e247eb02ad5",
+          "outcome": "returned"
+        },
+        {
+          "method": "query",
+          "connection": 1,
+          "startedMs": 24775.4976,
+          "sqlBytes": 47,
+          "sqlSha256": "69f5702b9c483fb179737aa369b45007aa87571fd829306f322e8525888f054d",
+          "outcome": "returned"
+        },
+        {
+          "method": "parse",
+          "connection": 1,
+          "startedMs": 24775.6761,
+          "sqlBytes": 86,
+          "sqlSha256": "99747caabebe10da11bbeb8c330470748baaae921ee36f3cafd262299bba55a7",
+          "outcome": "returned"
+        },
+        {
+          "method": "bind",
+          "connection": 1,
+          "startedMs": 24775.6895,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "describe",
+          "connection": 1,
+          "startedMs": 24775.6952,
+          "portalName": "",
+          "descriptionType": "P",
+          "outcome": "returned"
+        },
+        {
+          "method": "execute",
+          "connection": 1,
+          "startedMs": 24775.6974,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "sync",
+          "connection": 1,
+          "startedMs": 24775.6985,
+          "outcome": "returned"
+        },
+        {
+          "method": "bind",
+          "connection": 1,
+          "startedMs": 24776.4406,
+          "statementName": "fx_sr_f6bc031b5270f46bad0a7a2ae05b488222854c079e4af8dbdad7f6c1",
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "describe",
+          "connection": 1,
+          "startedMs": 24776.4681,
+          "portalName": "",
+          "descriptionType": "P",
+          "outcome": "returned"
+        },
+        {
+          "method": "execute",
+          "connection": 1,
+          "startedMs": 24776.4703,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "sync",
+          "connection": 1,
+          "startedMs": 24776.4716,
+          "outcome": "returned"
+        },
+        {
+          "method": "parse",
+          "connection": 1,
+          "startedMs": 24781.4402,
+          "sqlBytes": 599,
+          "sqlSha256": "f92808d761769dd981c7dee2517b1c29f3d9c566b381968df751ac7d2394f3f3",
+          "outcome": "returned"
+        },
+        {
+          "method": "bind",
+          "connection": 1,
+          "startedMs": 24781.4664,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "describe",
+          "connection": 1,
+          "startedMs": 24781.4725,
+          "portalName": "",
+          "descriptionType": "P",
+          "outcome": "returned"
+        },
+        {
+          "method": "execute",
+          "connection": 1,
+          "startedMs": 24781.4742,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "sync",
+          "connection": 1,
+          "startedMs": 24781.4754,
+          "outcome": "returned"
+        },
+        {
+          "method": "parse",
+          "connection": 1,
+          "startedMs": 24782.5805,
+          "sqlBytes": 2305,
+          "sqlSha256": "0a243f44717809c71eebf855b7fc1b9a89ee0247ac52ab5e19eae82cc19cef9c",
+          "outcome": "returned"
+        },
+        {
+          "method": "bind",
+          "connection": 1,
+          "startedMs": 24782.6116,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "describe",
+          "connection": 1,
+          "startedMs": 24782.6219,
+          "portalName": "",
+          "descriptionType": "P",
+          "outcome": "returned"
+        },
+        {
+          "method": "execute",
+          "connection": 1,
+          "startedMs": 24782.6234,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "sync",
+          "connection": 1,
+          "startedMs": 24782.6243,
+          "outcome": "returned"
+        },
+        {
+          "method": "parse",
+          "connection": 1,
+          "startedMs": 24785.2991,
+          "sqlBytes": 599,
+          "sqlSha256": "f92808d761769dd981c7dee2517b1c29f3d9c566b381968df751ac7d2394f3f3",
+          "outcome": "returned"
+        },
+        {
+          "method": "bind",
+          "connection": 1,
+          "startedMs": 24785.3224,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "describe",
+          "connection": 1,
+          "startedMs": 24785.3281,
+          "portalName": "",
+          "descriptionType": "P",
+          "outcome": "returned"
+        },
+        {
+          "method": "execute",
+          "connection": 1,
+          "startedMs": 24785.3293,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "sync",
+          "connection": 1,
+          "startedMs": 24785.3302,
+          "outcome": "returned"
+        },
+        {
+          "method": "parse",
+          "connection": 1,
+          "startedMs": 24785.7904,
+          "sqlBytes": 496,
+          "sqlSha256": "138539727e42b9056903b22ff6ea2f5f4e8c486f483641e46986b89a76751d93",
+          "outcome": "returned"
+        },
+        {
+          "method": "bind",
+          "connection": 1,
+          "startedMs": 24785.8088,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "describe",
+          "connection": 1,
+          "startedMs": 24785.8131,
+          "portalName": "",
+          "descriptionType": "P",
+          "outcome": "returned"
+        },
+        {
+          "method": "execute",
+          "connection": 1,
+          "startedMs": 24785.8141,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "sync",
+          "connection": 1,
+          "startedMs": 24785.8149,
+          "outcome": "returned"
+        },
+        {
+          "method": "parse",
+          "connection": 1,
+          "startedMs": 24786.5796,
+          "sqlBytes": 2305,
+          "sqlSha256": "0a243f44717809c71eebf855b7fc1b9a89ee0247ac52ab5e19eae82cc19cef9c",
+          "outcome": "returned"
+        },
+        {
+          "method": "bind",
+          "connection": 1,
+          "startedMs": 24786.6046,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "describe",
+          "connection": 1,
+          "startedMs": 24786.6129,
+          "portalName": "",
+          "descriptionType": "P",
+          "outcome": "returned"
+        },
+        {
+          "method": "execute",
+          "connection": 1,
+          "startedMs": 24786.614,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "sync",
+          "connection": 1,
+          "startedMs": 24786.6148,
+          "outcome": "returned"
+        },
+        {
+          "method": "parse",
+          "connection": 1,
+          "startedMs": 24788.3942,
+          "sqlBytes": 1047,
+          "sqlSha256": "46ea6824c211f32e00a1af4883463b0ddf3dedda02380e4e3bd3db639130d2fb",
+          "outcome": "returned"
+        },
+        {
+          "method": "bind",
+          "connection": 1,
+          "startedMs": 24788.4149,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "describe",
+          "connection": 1,
+          "startedMs": 24788.4205,
+          "portalName": "",
+          "descriptionType": "P",
+          "outcome": "returned"
+        },
+        {
+          "method": "execute",
+          "connection": 1,
+          "startedMs": 24788.4218,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "sync",
+          "connection": 1,
+          "startedMs": 24788.4227,
+          "outcome": "returned"
+        },
+        {
+          "method": "query",
+          "connection": 1,
+          "startedMs": 24789.1214,
+          "sqlBytes": 6,
+          "sqlSha256": "9505cacb7c710ed17125fcc6cb3669e8ddca6c8cd8af6a31f6b3cd64604c3098",
+          "outcome": "returned"
+        }
+      ],
+      "acceptingComponents": [
+        {
+          "name": "StandaloneReadTransaction.enter",
+          "spanId": "b498bcdcb8c91296",
+          "parentSpanId": "9dfb334e4725d770",
+          "startedMs": 0,
+          "completedMs": 2.2309,
+          "inclusiveElapsedMs": 2.2309,
+          "outcome": "success"
+        },
+        {
+          "name": "LogicalReadAdmission.with",
+          "spanId": "900cdccc6b9c053c",
+          "parentSpanId": "12ac39e124135133",
+          "startedMs": 2.3224,
+          "completedMs": 12.9487,
+          "inclusiveElapsedMs": 10.6263,
+          "outcome": "success"
+        },
+        {
+          "name": "LogicalReadMetadata.authenticateAndRegister",
+          "spanId": "2e5bf3ab262efec7",
+          "parentSpanId": "900cdccc6b9c053c",
+          "startedMs": 2.3504,
+          "completedMs": 2.3999,
+          "inclusiveElapsedMs": 0.0495,
+          "outcome": "success"
+        },
+        {
+          "name": "PreparedMetadataEpoch.authenticateTargetSnapshot",
+          "spanId": "3a6e7c64fa447fcc",
+          "parentSpanId": "2e5bf3ab262efec7",
+          "startedMs": 2.3649,
+          "completedMs": 2.383,
+          "inclusiveElapsedMs": 0.0181,
+          "outcome": "success"
+        },
+        {
+          "name": "ApplicationBindingProjection.withStandaloneEvidence",
+          "spanId": "d187f16294770f3a",
+          "parentSpanId": "900cdccc6b9c053c",
+          "startedMs": 2.7335,
+          "completedMs": 12.3562,
+          "inclusiveElapsedMs": 9.6227,
+          "outcome": "success"
+        },
+        {
+          "name": "ApplicationActivation.withStandaloneBinding",
+          "spanId": "b5fccde03c55a23b",
+          "parentSpanId": "d187f16294770f3a",
+          "startedMs": 2.7496,
+          "completedMs": 12.3519,
+          "inclusiveElapsedMs": 9.6023,
+          "outcome": "success"
+        },
+        {
+          "name": "PreparedMetadataEpoch.authenticateTargetSnapshot",
+          "spanId": "98b87e22d97576fb",
+          "parentSpanId": "b5fccde03c55a23b",
+          "startedMs": 2.7806,
+          "completedMs": 2.7973,
+          "inclusiveElapsedMs": 0.0167,
+          "outcome": "success"
+        },
+        {
+          "name": "PreparedMetadataEpoch.acceptFinalBatch",
+          "spanId": "cf5f8a0554055287",
+          "parentSpanId": "900cdccc6b9c053c",
+          "startedMs": 12.8672,
+          "completedMs": 12.9425,
+          "inclusiveElapsedMs": 0.0753,
+          "outcome": "success"
+        }
+      ]
+    }
+  ],
+  "notes": [
+    "All raw samples retained; assertions and diagnostic encoding are outside quiet intervals.",
+    "Optional component spans include tracer overhead; nested inclusive span distributions are not additive and unobserved spans are not zero-duration proof.",
+    "Server diagnostics include instrumentation overhead and are separate from quiet latency.",
+    "Query JSON bytes are not network wire bytes. Inclusive call or parent/nested server times are not additive."
+  ]
+}

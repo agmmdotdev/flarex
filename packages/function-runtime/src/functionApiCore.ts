@@ -85,6 +85,16 @@ export interface FunctionRuntimePointReaderV1<DocumentId, Document> {
   readonly get: FunctionRuntimePointReadV1<DocumentId, Document>;
 }
 
+export interface FunctionRuntimeQueryReaderV1<Query extends object> {
+  readonly query: (tableName: string) => Query;
+}
+
+export function createFunctionRuntimeQueryReaderV1<Query extends object>(
+  createQuery: (tableName: string) => Query,
+): Readonly<FunctionRuntimeQueryReaderV1<Query>> {
+  return freeze({ query: createQuery });
+}
+
 export interface FunctionRuntimeIndexRangeBoundsV1<EncodedBound> {
   readonly startInclusive?: EncodedBound;
   readonly endExclusive?: EncodedBound;

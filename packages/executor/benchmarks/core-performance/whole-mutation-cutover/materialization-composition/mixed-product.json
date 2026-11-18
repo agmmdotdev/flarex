@@ -1,0 +1,1278 @@
+{
+  "runId": "b3bddfea-6b27-4ed4-a3e0-cfe36625111c",
+  "scenario": "mixed-product",
+  "full": true,
+  "smoke": false,
+  "acceptance": false,
+  "size": "small",
+  "plan": {
+    "warmups": 3,
+    "measured": 20
+  },
+  "workload": {
+    "flow": "Application insert/patch + Product update/retrieve/indexed lookup",
+    "cardinality": null
+  },
+  "preparationReuse": {
+    "family": "mixed-product",
+    "reused": false
+  },
+  "measurementMode": "quiet",
+  "quietAcceptance": false,
+  "quietSamplingEligible": false,
+  "nativeComparison": {
+    "status": "reference-only",
+    "reference": {
+      "path": "packages/medusa-adapter/benchmarks/core-performance/native-business/reports/e5a156a5-c6d2-488e-880b-999391a32d63.json.gz",
+      "runId": "e5a156a5-c6d2-488e-880b-999391a32d63",
+      "sha256Hex": "e4418b9e19da58a1eb92a1c82ec5307bca10bbff441f96f7c1b6d34a92a7836f",
+      "warmups": 5,
+      "measured": 100
+    },
+    "nativeGraph": "mixed-product",
+    "nativeMedianMs": 9.277600000001257,
+    "nativeP95Ms": 11.38459999999759,
+    "observedCompleteCost": {
+      "samples": 20,
+      "medianMs": 161.38190000000031,
+      "minMs": 154.1036000000022,
+      "maxMs": 169.52790000000095,
+      "p95Ms": 165.97920000000158
+    },
+    "wholeGraphAddedBudget": {
+      "medianMs": 5,
+      "p95Ms": 10
+    },
+    "planningTotalBudget": {
+      "medianMs": 14.277600000001257,
+      "p95Ms": 21.38459999999759
+    },
+    "pairedExcess": null,
+    "acceptance": "pending-paired-comparison",
+    "remainingAttribution": [
+      "Fresh final-source matched pairs and stable tails are not captured by this runner.",
+      "Snapshot/OCC, revision history, journal, atomic outcome and durable publication costs remain to be attributed at their real owners."
+    ],
+    "limitations": [
+      "Native framework calls commit independently; Application writes are PostgreSQL surrogates.",
+      "This retained reference guides planning; independent percentile subtraction is not paired excess."
+    ]
+  },
+  "status": "passed",
+  "failureStage": null,
+  "failureTokens": [],
+  "method": "Node direct execution; fresh requests; real settlement; separate single SQL diagnostic",
+  "environment": {
+    "node": "v24.16.0",
+    "postgres": {
+      "postgresVersion": "18.3",
+      "role": "flarex_runtime_1791221608511_dqh4fdn36fc",
+      "superuser": false,
+      "bypassRls": false,
+      "createDb": false,
+      "createRole": false,
+      "synchronousCommit": "on",
+      "fsync": "on",
+      "fullPageWrites": "on"
+    },
+    "revision": "c6bbd01c5d9a9347e4475ff8d894294cb493f474",
+    "dirty": "true"
+  },
+  "latency": {
+    "samples": 20,
+    "medianMs": 161.38190000000031,
+    "minMs": 154.1036000000022,
+    "maxMs": 169.52790000000095,
+    "p95Ms": 165.97920000000158
+  },
+  "sql": {
+    "outcome": "ok",
+    "dispatches": 40,
+    "statements": 40,
+    "transactions": 2,
+    "openTransactions": 0,
+    "queryErrors": 0,
+    "lostContextDispatches": 0,
+    "unknownStatementDispatches": 0,
+    "unobservedDispatches": 0,
+    "incompleteSpans": 0,
+    "diagnosticDurationMs": 339.5023000000001,
+    "dispatchAwaitedMsSum": 133.81450000000768,
+    "dispatchAwaitedUnionMs": 133.81450000000768,
+    "checkoutAwaitedMsSum": 1.14520000000266,
+    "checkoutAwaitedUnionMs": 1.14520000000266,
+    "phases": [
+      {
+        "id": 0,
+        "parentId": null,
+        "name": "invocation",
+        "startMs": 0,
+        "endMs": 339.5023000000001,
+        "inclusiveMs": 339.5023000000001,
+        "exclusiveMs": 1.8866000000016356,
+        "complete": true
+      },
+      {
+        "id": 1,
+        "parentId": 0,
+        "name": "request admission",
+        "startMs": 0.3624999999992724,
+        "endMs": 66.84509999999864,
+        "inclusiveMs": 66.48259999999937,
+        "exclusiveMs": 7.493800000000192,
+        "complete": true
+      },
+      {
+        "id": 2,
+        "parentId": 1,
+        "name": "stored read and source preparation",
+        "startMs": 1.6987000000008265,
+        "endMs": 11.436499999999796,
+        "inclusiveMs": 9.73779999999897,
+        "exclusiveMs": 9.73779999999897,
+        "complete": true
+      },
+      {
+        "id": 3,
+        "parentId": 1,
+        "name": "finite outer entry activation",
+        "startMs": 16.34019999999873,
+        "endMs": 65.59119999999893,
+        "inclusiveMs": 49.251000000000204,
+        "exclusiveMs": 49.251000000000204,
+        "complete": true
+      },
+      {
+        "id": 4,
+        "parentId": 0,
+        "name": "portable runtime execution",
+        "startMs": 66.85589999999866,
+        "endMs": 247.04529999999795,
+        "inclusiveMs": 180.1893999999993,
+        "exclusiveMs": 5.0296999999991385,
+        "complete": true
+      },
+      {
+        "id": 5,
+        "parentId": 4,
+        "name": "Application point",
+        "startMs": 69.60120000000097,
+        "endMs": 106.84519999999975,
+        "inclusiveMs": 37.24399999999878,
+        "exclusiveMs": 37.24399999999878,
+        "complete": true
+      },
+      {
+        "id": 6,
+        "parentId": 4,
+        "name": "medusa.product:update",
+        "startMs": 108.01209999999992,
+        "endMs": 232.52939999999944,
+        "inclusiveMs": 124.51729999999952,
+        "exclusiveMs": 3.9311999999990803,
+        "complete": true
+      },
+      {
+        "id": 7,
+        "parentId": 6,
+        "name": "Product borrow and source checks",
+        "startMs": 110.58859999999913,
+        "endMs": 112.9268000000011,
+        "inclusiveMs": 2.3382000000019616,
+        "exclusiveMs": 2.3382000000019616,
+        "complete": true
+      },
+      {
+        "id": 8,
+        "parentId": 6,
+        "name": "native Product operation",
+        "startMs": 113.28429999999935,
+        "endMs": 231.53219999999783,
+        "inclusiveMs": 118.24789999999848,
+        "exclusiveMs": 117.87929999999687,
+        "complete": true
+      },
+      {
+        "id": 9,
+        "parentId": 8,
+        "name": "Product operation close",
+        "startMs": 229.99339999999938,
+        "endMs": 230.362000000001,
+        "inclusiveMs": 0.36860000000160653,
+        "exclusiveMs": 0.36860000000160653,
+        "complete": true
+      },
+      {
+        "id": 10,
+        "parentId": 4,
+        "name": "medusa.product:retrieve",
+        "startMs": 232.7072999999982,
+        "endMs": 238.23129999999946,
+        "inclusiveMs": 5.5240000000012515,
+        "exclusiveMs": 1.340200000002369,
+        "complete": true
+      },
+      {
+        "id": 11,
+        "parentId": 10,
+        "name": "Product borrow and source checks",
+        "startMs": 233.6229999999996,
+        "endMs": 234.58529999999882,
+        "inclusiveMs": 0.9622999999992317,
+        "exclusiveMs": 0.9622999999992317,
+        "complete": true
+      },
+      {
+        "id": 12,
+        "parentId": 10,
+        "name": "native Product operation",
+        "startMs": 234.63999999999942,
+        "endMs": 237.86149999999907,
+        "inclusiveMs": 3.2214999999996508,
+        "exclusiveMs": 3.0491999999976542,
+        "complete": true
+      },
+      {
+        "id": 13,
+        "parentId": 12,
+        "name": "Product operation close",
+        "startMs": 237.59599999999773,
+        "endMs": 237.76829999999973,
+        "inclusiveMs": 0.17230000000199652,
+        "exclusiveMs": 0.17230000000199652,
+        "complete": true
+      },
+      {
+        "id": 14,
+        "parentId": 4,
+        "name": "medusa.product:listByHandle",
+        "startMs": 238.39229999999952,
+        "endMs": 243.58719999999812,
+        "inclusiveMs": 5.194899999998597,
+        "exclusiveMs": 1.1131999999997788,
+        "complete": true
+      },
+      {
+        "id": 15,
+        "parentId": 14,
+        "name": "Product borrow and source checks",
+        "startMs": 239.08989999999903,
+        "endMs": 239.97099999999773,
+        "inclusiveMs": 0.8810999999986961,
+        "exclusiveMs": 0.8810999999986961,
+        "complete": true
+      },
+      {
+        "id": 16,
+        "parentId": 14,
+        "name": "native Product operation",
+        "startMs": 240.0113999999994,
+        "endMs": 243.21199999999953,
+        "inclusiveMs": 3.2006000000001222,
+        "exclusiveMs": 3.0320000000028813,
+        "complete": true
+      },
+      {
+        "id": 17,
+        "parentId": 16,
+        "name": "Product operation close",
+        "startMs": 242.94380000000092,
+        "endMs": 243.11239999999816,
+        "inclusiveMs": 0.16859999999724096,
+        "exclusiveMs": 0.16859999999724096,
+        "complete": true
+      },
+      {
+        "id": 18,
+        "parentId": 4,
+        "name": "Application point",
+        "startMs": 243.9507999999987,
+        "endMs": 246.63030000000072,
+        "inclusiveMs": 2.679500000002008,
+        "exclusiveMs": 2.679500000002008,
+        "complete": true
+      },
+      {
+        "id": 19,
+        "parentId": 0,
+        "name": "finite freeze and validation",
+        "startMs": 247.65589999999793,
+        "endMs": 253.7527999999984,
+        "inclusiveMs": 6.09690000000046,
+        "exclusiveMs": 0.1621000000013737,
+        "complete": true
+      },
+      {
+        "id": 20,
+        "parentId": 19,
+        "name": "freeze and verify",
+        "startMs": 247.72720000000118,
+        "endMs": 253.60619999999835,
+        "inclusiveMs": 5.878999999997177,
+        "exclusiveMs": 5.878999999997177,
+        "complete": true
+      },
+      {
+        "id": 21,
+        "parentId": 19,
+        "name": "Payload operation scopes close",
+        "startMs": 253.67919999999867,
+        "endMs": 253.73500000000058,
+        "inclusiveMs": 0.05580000000190921,
+        "exclusiveMs": 0.05580000000190921,
+        "complete": true
+      },
+      {
+        "id": 22,
+        "parentId": 0,
+        "name": "authoritative publication",
+        "startMs": 253.7556000000004,
+        "endMs": 338.60239999999976,
+        "inclusiveMs": 84.84679999999935,
+        "exclusiveMs": 84.84679999999935,
+        "complete": true
+      }
+    ],
+    "dispatchGroups": [
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation",
+          "request admission"
+        ],
+        "fingerprint": "e6f07d43b5c21db0fbb9a31feac2dc599787763393dd5acbfad80e247eb02ad5",
+        "template": "begin",
+        "dispatchCount": 1,
+        "statementCount": 1,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 0.372800000001007,
+        "awaitedMsMin": 0.372800000001007,
+        "awaitedMsMax": 0.372800000001007,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 0,
+        "decodedResultJsonUtf8Bytes": 2,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation",
+          "request admission"
+        ],
+        "fingerprint": "f65c0a2931ed21bbcd3a1be7b749ca2bef6b4f84bf3026bae8a0793a28bb18f2",
+        "template": "set transaction isolation level read committed",
+        "dispatchCount": 1,
+        "statementCount": 1,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 0.14019999999800348,
+        "awaitedMsMin": 0.14019999999800348,
+        "awaitedMsMax": 0.14019999999800348,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 0,
+        "decodedResultJsonUtf8Bytes": 2,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation",
+          "request admission"
+        ],
+        "fingerprint": "355ffbde7bc554eea3eb8896e3c81884e7eff6f1c4038cfb657413742fee09f0",
+        "template": "select installed . target_installation , installed . control_installation , pg_catalog . set_config ( ? , pg_catalog . format ( ? , $? : : text ) , true ) , placement . scope_id , placement . deployment_id , placement . active_schema_version_id , placement . isolation_kind , placement . physical_locator_json , placement . created_at , placement . receipt_scope_id , placement . receipt_protocol_version , placement . receipt_state , placement . receipt_physical_locator_json , placement . receipt_initial_epoch , placement . receipt_reserved_at , placement . receipt_ready_at , fx_system_scope_clock . scope_uuid , scope_authority . epoch_uuid , fx_system_scope_clock . \"scope_id\" , scope_authority . \"storage_generation\" , scope_authority . \"storage_generation_fence\" , fx_system_scope_clock . last_metadata_sequence , fx_system_scope_clock . \"last_commit_seq\" , scope_authority . \"oldest_available_commit_seq\" , scope_authority . \"authorization_revocation_epoch\" , scope_authority . \"epoch\" , greatest ( fx_system_scope_clock . updated_at , scope_authority . updated_at ) , \"target_epoch\" . database_name , \"target_epoch\" . namespace_oid , \"target_epoch\" . incarnation : : text , \"target_epoch\" . generation , session_user , \"control_epoch\" . database_name , \"control_epoch\" . namespace_oid , \"control_epoch\" . incarnation : : text , \"control_epoch\" . generation , session_user from ( with first_gate as materialized ( select * from ( select i . * , session_user as login , current_user = session_user as same_login , current_database ( ) as actual_database , i . schema_name = $? and i . namespace_oid = $? : : pg_catalog . regnamespace : : oid : : bigint as same_schema from \"flarex_file_test_1791221606149_go9cu8p8f2d\" . fx_lock_installation_admission ( ) i join \"flarex_file_test_1791221606149_go9cu8p8f2d\" . fx_system_installation_runtime p on p . login = session_user and p . login_oid = session_user : : pg_catalog . regrole : : oid : : bigint and p . incarnation = i . incarnation and p . structural_generation = i . structural_generation and p . endpoint_policy = $? and p . access_profile = $? where current_user = session_user and session_user = $? and i . database_name = current_database ( ) and i . database_name = $? and i . schema_name = $? and i . namespace_oid = $? : : bigint and i . namespace_oid = $? : : pg_catalog . regnamespace : : oid : : bigint and i . incarnation = $? : : uuid and i . structural_generation = $? : : bigint and p . metadata_incarnation = $? : : uuid ) as admitted_first ) , second_gate as materialized ( select admitted_second . * from first_gate cross join lateral ( select * from ( select i . * , session_user as login , current_user = session_user as same_login , current_database ( ) as actual_database , i . schema_name = $? and i . namespace_oid = $? : : pg_catalog . regnamespace : : oid : : bigint as same_schema from \"flarex_file_test_1791221606152_6jm2t2irvbh\" . fx_lock_installation_admission ( ) i join \"flarex_file_test_1791221606152_6jm2t2irvbh\" . fx_system_installation_runtime p on p . login = session_user and p . login_oid = session_user : : pg_catalog . regrole : : oid : : bigint and p . incarnation = i . incarnation and p . structural_generation = i . structural_generation and p . endpoint_policy = $? and p . access_profile = $? where current_user = session_user and session_user = $? and i . database_name = current_database ( ) and i . database_name = $? and i . schema_name = $? and i . namespace_oid = $? : : bigint and i . namespace_oid = $? : : pg_catalog . regnamespace : : oid : : bigint and i . incarnation = $? : : uuid and i . structural_generation = $? : : bigint and p . metadata_incarnation = $? : : uuid ) as second_source where first_gate . namespace_oid > ? offset ? ) as admitted_second ) select jsonb_build_object ( ? , \"second_gate\" . database_name , ? , \"second_gate\" . schema_name , ? , \"second_gate\" . namespace_oid : : text , ? , \"second_gate\" . incarnation : : text , ? , \"second_gate\" . structural_generation : : text , ? , \"second_gate\" . login , ? , \"second_gate\" . same_login , ? , \"second_gate\" . actual_database , ? , \"second_gate\" . same_schema ) as target_installation , jsonb_build_object ( ? , \"first_gate\" . database_name , ? , \"first_gate\" . schema_name , ? , \"first_gate\" . namespace_oid : : text , ? , \"first_gate\" . incarnation : : text , ? , \"first_gate\" . structural_generation : : text , ? , \"first_gate\" . login , ? , \"first_gate\" . same_login , ? , \"first_gate\" . actual_database , ? , \"first_gate\" . same_schema ) as control_installation , first_gate . namespace_oid as first_oid , second_gate . namespace_oid as second_oid from first_gate cross join second_gate ) as installed cross join lateral \"flarex_file_test_1791221606149_go9cu8p8f2d\" . fx_lock_read_scope_placement ( $? , case when installed . first_oid > ? and installed . second_oid > ? then $? else null end ) as placement join lateral ( select * from \"flarex_file_test_1791221606152_6jm2t2irvbh\" . \"fx_system_scope_execution_authority\" where \"scope_id\" = placement . scope_id for share ) as scope_authority on true join lateral ( select * from \"flarex_file_test_1791221606152_6jm2t2irvbh\" . \"fx_system_scope_clock\" where \"scope_id\" = scope_authority . \"scope_id\" for no key update ) as fx_system_scope_clock on true left join \"flarex_file_test_1791221606152_6jm2t2irvbh\" . \"fx_system_prepared_metadata_epoch\" as target_epoch on target_epoch . \"singleton_id\" = ? left join \"flarex_file_test_1791221606149_go9cu8p8f2d\" . \"fx_system_prepared_metadata_epoch\" as control_epoch on control_epoch . \"singleton_id\" = ? limit $?",
+        "dispatchCount": 1,
+        "statementCount": 1,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 5.193699999999808,
+        "awaitedMsMin": 5.193699999999808,
+        "awaitedMsMax": 5.193699999999808,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 1,
+        "decodedResultJsonUtf8Bytes": 1828,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation",
+          "request admission"
+        ],
+        "fingerprint": "53552c9eb8d526c7abe990d88275be71c6bc0c5b6882715bbf033ecbe05713a4",
+        "template": "select entry . has_session , entry . has_observation , entry . database_now , ( entry . session ) . \"scope_uuid\" , ( entry . session ) . \"session_id\" , ( entry . session ) . \"execution_profile\" , ( entry . session ) . \"finite_attempt_bytes\" , ( entry . session ) . \"finite_attempt_sha256\" , ( entry . session ) . \"finite_snapshot_epoch_uuid\" , ( entry . session ) . \"finite_snapshot_commit_seq\" , ( entry . session ) . \"finite_metadata_watermark\" , ( entry . session ) . \"finite_lease_expires_at\" , ( entry . session ) . \"finite_claim_owner\" , ( entry . session ) . \"finite_claim_fence\" , ( entry . session ) . \"finite_claimed_at\" , ( entry . session ) . \"finite_claim_expires_at\" , ( entry . session ) . \"storage_generation\" , ( entry . session ) . \"storage_generation_fence\" , ( entry . session ) . \"execution_authority_generation\" , ( entry . session ) . \"application_execution_authority_json\" , ( entry . session ) . \"application_execution_authority_canonical_bytes\" , ( entry . session ) . \"application_execution_authority_sha256\" , ( entry . session ) . \"package_id\" , ( entry . session ) . \"artifact_runtime\" , ( entry . session ) . \"artifact_id\" , ( entry . session ) . \"source_package_hash\" , ( entry . session ) . \"execution_module\" , ( entry . session ) . \"function_path\" , ( entry . session ) . \"function_kind\" , ( entry . session ) . \"schema_version_id\" , ( entry . session ) . \"policy_version\" , ( entry . session ) . \"identity_access_policy_sha256\" , ( entry . session ) . \"validated_args_json\" , ( entry . session ) . \"validated_args_value_codec_version\" , ( entry . session ) . \"validated_args_canonical_bytes\" , ( entry . session ) . \"validated_args_sha256\" , ( entry . session ) . \"authorization_grant_id\" , ( entry . session ) . \"authorization_grant_json\" , ( entry . session ) . \"authorization_grant_value_codec_version\" , ( entry . session ) . \"authorization_grant_canonical_bytes\" , ( entry . session ) . \"authorization_grant_sha256\" , ( entry . session ) . \"authorization_revocation_epoch\" , ( entry . session ) . \"authorization_grant_expires_at\" , ( entry . session ) . \"request_key\" , ( entry . session ) . \"request_sha256\" , ( entry . session ) . \"lifecycle\" , ( entry . session ) . \"attempt_fence\" , ( entry . session ) . \"protocol_version\" , ( entry . session ) . \"hard_expires_at\" , ( entry . session ) . \"created_at\" , ( entry . session ) . \"updated_at\" , ( entry . application_head ) . \"scope_id\" , ( entry . application_head ) . \"activation_sequence\" , ( entry . application_head ) . \"revision_id\" , ( entry . application_head ) . \"readiness_contract_version\" , ( entry . application_head ) . \"readiness_sha256\" , ( entry . application_head ) . \"relation_set_readiness_sha256\" , ( entry . application_head ) . \"relation_count\" , ( entry . application_head ) . \"write_policy_set_sha256\" , ( entry . application_head ) . \"write_ownership_sha256\" , ( entry . application_head ) . \"activation_sha256\" , ( entry . application_head ) . \"head_sha256\" , ( entry . application_head ) . \"head_bytes\" , ( entry . application_head ) . \"created_at\" , ( entry . application_head ) . \"updated_at\" , ( entry . application_activation ) . \"scope_id\" , ( entry . application_activation ) . \"activation_sequence\" , ( entry . application_activation ) . \"previous_activation_sequence\" , ( entry . application_activation ) . \"revision_id\" , ( entry . application_activation ) . \"readiness_contract_version\" , ( entry . application_activation ) . \"readiness_sha256\" , ( entry . application_activation ) . \"legacy_readiness_sha256\" , ( entry . application_activation ) . \"relation_readiness_sha256\" , ( entry . application_activation ) . \"relation_set_readiness_sha256\" , ( entry . application_activation ) . \"relation_count\" , ( entry . application_activation ) . \"write_policy_set_sha256\" , ( entry . application_activation ) . \"write_ownership_sha256\" , ( entry . application_activation ) . \"activation_request_sha256\" , ( entry . application_activation ) . \"activation_sha256\" , ( entry . application_activation ) . \"activation_bytes\" , ( entry . application_activation ) . \"activated_at\" , ( entry . binding_head ) . \"scope_id\" , ( entry . binding_head ) . \"storage_generation\" , ( entry . binding_head ) . \"sha256\" , case when octet_length ( ( entry . binding_head ) . \"canonical_bytes\" ) between ? and ? then ( entry . binding_head ) . \"canonical_bytes\" else null end , ( entry . binding_head ) . \"canonical_byte_length\" , ( entry . binding_head ) . \"sequence\" , ( entry . binding_head ) . \"activation_sha256\" , ( entry . binding_head ) . \"candidate_sha256\" , ( entry . binding_activation ) . \"scope_id\" , ( entry . binding_activation ) . \"storage_generation\" , ( entry . binding_activation ) . \"sha256\" , case when octet_length ( ( entry . binding_activation ) . \"canonical_bytes\" ) between ? and ? then ( entry . binding_activation ) . \"canonical_bytes\" else null end , ( entry . binding_activation ) . \"canonical_byte_length\" , ( entry . binding_activation ) . \"sequence\" , ( entry . binding_activation ) . \"request_id\" , ( entry . binding_activation ) . \"candidate_sha256\" , ( entry . binding_candidate ) . \"scope_id\" , ( entry . binding_candidate ) . \"storage_generation\" , ( entry . binding_candidate ) . \"sha256\" , case when octet_length ( ( entry . binding_candidate ) . \"canonical_bytes\" ) between ? and ? then ( entry . binding_candidate ) . \"canonical_bytes\" else null end , ( entry . binding_candidate ) . \"canonical_byte_length\" , ( entry . planning_head ) . \"scope_id\" , ( entry . planning_head ) . \"deployment_id\" , ( entry . planning_head ) . \"schema_version_id\" , ( entry . planning_head ) . \"schema_manifest_sha256\" , ( entry . planning_head ) . \"storage_generation\" , ( entry . planning_head ) . \"storage_generation_fence\" , ( entry . planning_head ) . \"epoch\" , ( entry . planning_head ) . \"frontier_commit_seq\" , ( entry . planning_head ) . \"attempt_fence\" , ( entry . planning_head ) . \"frame_codec_version\" , ( entry . planning_head ) . \"frame_kind\" , ( entry . planning_head ) . \"frame_byte_length\" , ( entry . planning_head ) . \"frame_sha256\" , ( entry . planning_head ) . \"frame_bytes\" , ( entry . planning_head ) . \"created_at\" , ( entry . planning_head ) . \"updated_at\" , ( entry . lane ) . \"scope_id\" , ( entry . lane ) . \"storage_generation\" , ( entry . lane ) . \"candidate_sha256\" , ( entry . lane ) . \"slot\" , ( entry . lane ) . \"installation_storage_id\" , ( entry . lane ) . \"installation_sha256\" , ( entry . lane ) . \"installation_receipt_sha256\" , ( entry . lane ) . \"readiness_storage_id\" , ( entry . lane ) . \"readiness_sha256\" , ( entry . lane ) . \"availability_history_storage_id\" , ( entry . lane ) . \"availability_sequence\" , ( entry . lane ) . \"availability_status\" , ( entry . lane ) . \"availability_history_sha256\" from \"flarex_file_test_1791221606152_6jm2t2irvbh\" . fx_observe_finite_entry ( $? : : text , $? : : uuid , $? : : text , $? : : text ) as entry",
+        "dispatchCount": 1,
+        "statementCount": 1,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 7.742999999998574,
+        "awaitedMsMin": 7.742999999998574,
+        "awaitedMsMax": 7.742999999998574,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 1,
+        "decodedResultJsonUtf8Bytes": 16487,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation",
+          "request admission"
+        ],
+        "fingerprint": "4e638179dc77cf1d861bc1ad9f13583259cbfbd2efe033be057fc330d5f50e92",
+        "template": "select epoch_guard . valid , completion . reason , completion . database_now , completion . lease_expires_at , completion . claim_expires_at , epoch_guard . verdict from ( with metadata_check as materialized ( select \"flarex_file_test_1791221606152_6jm2t2irvbh\" . fx_compare_finite_metadata ( $? : : text , $? : : bigint , $? : : jsonb ) as verdict ) , epoch_check as materialized ( select case when verdict - > > ? = ? then ( select valid from ( with \"epoch_guard_0\" as materialized ( select epoch . database_name = $? and epoch . database_name = current_database ( ) and epoch . namespace_oid = $? : : bigint and epoch . incarnation = $? : : uuid and epoch . generation = $? : : bigint and session_user = $? and current_user = session_user as valid from \"flarex_file_test_1791221606149_go9cu8p8f2d\" . fx_lock_prepared_metadata_epoch ( ) epoch ) , \"epoch_guard_1\" as materialized ( select epoch . database_name = $? and epoch . database_name = current_database ( ) and epoch . namespace_oid = $? : : bigint and epoch . incarnation = $? : : uuid and epoch . generation = $? : : bigint and session_user = $? and current_user = session_user as valid from \"flarex_file_test_1791221606152_6jm2t2irvbh\" . fx_lock_prepared_metadata_epoch ( ) epoch ) select coalesce ( ( select bool_and ( valid ) from \"epoch_guard_0\" ) , false ) and coalesce ( ( select bool_and ( valid ) from \"epoch_guard_1\" ) , false ) as valid ) as actual_epoch ( valid ) ) else null : : boolean end as valid , verdict from metadata_check ) select valid , verdict from epoch_check ) as epoch_guard ( valid , verdict ) cross join lateral \"flarex_file_test_1791221606152_6jm2t2irvbh\" . fx_complete_finite_entry ( row ( $? : : uuid , $? : : uuid , $? : : text , $? : : bytea , $? : : bytea , $? : : uuid , $? : : bigint , $? : : bigint , $? : : timestamp with time zone , $? : : uuid , $? : : bigint , $? : : timestamp with time zone , $? : : timestamp with time zone , $? : : text , $? : : bigint , $? : : text , $? : : jsonb , $? : : bytea , $? : : bytea , $? : : text , $? : : text , $? : : text , $? : : text , $? : : text , $? : : text , $? : : text , $? : : text , $? : : text , $? : : bytea , $? : : jsonb , $? : : integer , $? : : bytea , $? : : bytea , $? : : text , $? : : jsonb , $? : : integer , $? : : bytea , $? : : bytea , $? : : bigint , $? : : timestamp with time zone , $? : : text , $? : : bytea , $? : : text , $? : : bigint , $? : : integer , $? : : timestamp with time zone , $? : : timestamp with time zone , $? : : timestamp with time zone ) : : \"flarex_file_test_1791221606152_6jm2t2irvbh\" . fx_finite_entry_expected , epoch_guard . valid ) completion",
+        "dispatchCount": 1,
+        "statementCount": 1,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 8.24409999999989,
+        "awaitedMsMin": 8.24409999999989,
+        "awaitedMsMax": 8.24409999999989,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 1,
+        "decodedResultJsonUtf8Bytes": 128,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation",
+          "request admission"
+        ],
+        "fingerprint": "9505cacb7c710ed17125fcc6cb3669e8ddca6c8cd8af6a31f6b3cd64604c3098",
+        "template": "commit",
+        "dispatchCount": 1,
+        "statementCount": 1,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 0.45349999999962165,
+        "awaitedMsMin": 0.45349999999962165,
+        "awaitedMsMax": 0.45349999999962165,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 0,
+        "decodedResultJsonUtf8Bytes": 2,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation",
+          "portable runtime execution",
+          "Application point"
+        ],
+        "fingerprint": "a34e47ed04a612bd19c3f7dd827fc3fdbd636a17dde2a0c91989f9ed77d4bf99",
+        "template": "select case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then capture . reason else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then capture . database_now_epoch_milliseconds else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then capture . serving_commit_seq : : text else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then capture . table_frontier : : text else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then capture . historical_change else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . authority_row ) . oldest_available_commit_seq : : text else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . build_row ) . \"scope_id\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . build_row ) . \"index_definition_id\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . build_row ) . \"storage_generation\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . build_row ) . \"storage_generation_fence\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . build_row ) . \"epoch\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . build_row ) . \"start_commit_seq\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . build_row ) . \"covered_through_commit_seq\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . build_row ) . \"first_readable_commit_seq\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . build_row ) . \"maintenance_activation_sequence\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . build_row ) . \"maintenance_bytes\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . build_row ) . \"maintenance_sha256\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . build_row ) . \"lifecycle\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . build_row ) . \"cursor_codec_version\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . build_row ) . \"backfill_cursor_row_id\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . build_row ) . \"attempt_fence\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . build_row ) . \"created_at\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . build_row ) . \"updated_at\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . unique_row ) . \"scope_id\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . unique_row ) . \"unique_constraint_definition_id\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . unique_row ) . \"storage_generation\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . unique_row ) . \"storage_generation_fence\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . unique_row ) . \"epoch\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . unique_row ) . \"start_commit_seq\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . unique_row ) . \"lifecycle\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . unique_row ) . \"covered_through_commit_seq\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . unique_row ) . \"maintenance_activation_sequence\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . unique_row ) . \"maintenance_bytes\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . unique_row ) . \"maintenance_sha256\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . unique_row ) . \"cursor_row_id\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . unique_row ) . \"attempt_fence\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . unique_row ) . \"created_at\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . unique_row ) . \"updated_at\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"scope_uuid\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"session_id\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"attempt_fence\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"execution_profile\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"policy_version\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"protocol_version\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"execution_authority_generation\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"function_path\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"function_kind\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"execution_module\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"schema_version_id\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"package_id\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"artifact_runtime\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"artifact_id\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"source_package_hash\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"validated_args_value_codec_version\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"authorization_grant_value_codec_version\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"storage_generation\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"storage_generation_fence\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"identity_access_policy_sha256\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"request_sha256\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"validated_args_sha256\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"authorization_grant_id\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"authorization_grant_sha256\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"application_execution_authority_sha256\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"request_key\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"lifecycle\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"authorization_revocation_epoch\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"authorization_grant_expires_at\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"hard_expires_at\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"created_at\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"updated_at\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"finite_attempt_bytes\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"finite_attempt_sha256\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"finite_snapshot_epoch_uuid\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"finite_snapshot_commit_seq\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"finite_metadata_watermark\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"finite_lease_expires_at\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"finite_claim_owner\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"finite_claim_fence\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"finite_claimed_at\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"finite_claim_expires_at\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then target_epoch . generation : : text else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then control_epoch . generation : : text else null end , storage . ordinal is not null , storage . \"kind\" , storage . \"ordinal\" , storage . \"scopeId\" , storage . \"sequenceText\" , storage . \"previousSequenceText\" , storage . \"revisionId\" , storage . \"readinessContractVersion\" , storage . \"relationCount\" , storage . \"activatedAtText\" , storage . \"createdAtText\" , storage . \"updatedAtText\" , storage . \"evidenceLength\" , storage . \"evidenceBytes\" , storage . \"evidenceSha256\" , storage . \"bodyWithheld\" , storage . \"readinessSha256\" , storage . \"relationSetReadinessSha256\" , storage . \"writePolicySetSha256\" , storage . \"writeOwnershipSha256\" , storage . \"activationSha256\" , storage . \"activationRequestSha256\" , storage . \"legacyReadinessSha256\" , storage . \"relationReadinessSha256\" , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then current_timestamp : : text else null end , false from ( values ( ? ) ) capture_resource ( value ) left join lateral ( with first_gate as materialized ( with resource_gate as materialized ( select pg_catalog . current_setting ( ? ) : : interval > interval ? and pg_catalog . current_setting ( ? ) : : interval < = interval ? as accepted ) select admitted_first . * from resource_gate cross join lateral ( select * from ( select i . * , session_user as login , current_user = session_user as same_login , current_database ( ) as actual_database , i . schema_name = $? and i . namespace_oid = $? : : pg_catalog . regnamespace : : oid : : bigint as same_schema from \"flarex_file_test_1791221606149_go9cu8p8f2d\" . fx_lock_installation_admission ( ) i join \"flarex_file_test_1791221606149_go9cu8p8f2d\" . fx_system_installation_runtime p on p . login = session_user and p . login_oid = session_user : : pg_catalog . regrole : : oid : : bigint and p . incarnation = i . incarnation and p . structural_generation = i . structural_generation and p . endpoint_policy = $? and p . access_profile = $? where current_user = session_user and session_user = $? and i . database_name = current_database ( ) and i . database_name = $? and i . schema_name = $? and i . namespace_oid = $? : : bigint and i . namespace_oid = $? : : pg_catalog . regnamespace : : oid : : bigint and i . incarnation = $? : : uuid and i . structural_generation = $? : : bigint and p . metadata_incarnation = $? : : uuid ) as first_source where resource_gate . accepted offset ? ) as admitted_first ) , second_gate as materialized ( select admitted_second . * from first_gate cross join lateral ( select * from ( select i . * , session_user as login , current_user = session_user as same_login , current_database ( ) as actual_database , i . schema_name = $? and i . namespace_oid = $? : : pg_catalog . regnamespace : : oid : : bigint as same_schema from \"flarex_file_test_1791221606152_6jm2t2irvbh\" . fx_lock_installation_admission ( ) i join \"flarex_file_test_1791221606152_6jm2t2irvbh\" . fx_system_installation_runtime p on p . login = session_user and p . login_oid = session_user : : pg_catalog . regrole : : oid : : bigint and p . incarnation = i . incarnation and p . structural_generation = i . structural_generation and p . endpoint_policy = $? and p . access_profile = $? where current_user = session_user and session_user = $? and i . database_name = current_database ( ) and i . database_name = $? and i . schema_name = $? and i . namespace_oid = $? : : bigint and i . namespace_oid = $? : : pg_catalog . regnamespace : : oid : : bigint and i . incarnation = $? : : uuid and i . structural_generation = $? : : bigint and p . metadata_incarnation = $? : : uuid ) as second_source where first_gate . namespace_oid > ? offset ? ) as admitted_second ) select jsonb_build_object ( ? , \"second_gate\" . database_name , ? , \"second_gate\" . schema_name , ? , \"second_gate\" . namespace_oid : : text , ? , \"second_gate\" . incarnation : : text , ? , \"second_gate\" . structural_generation : : text , ? , \"second_gate\" . login , ? , \"second_gate\" . same_login , ? , \"second_gate\" . actual_database , ? , \"second_gate\" . same_schema ) as target_installation , jsonb_build_object ( ? , \"first_gate\" . database_name , ? , \"first_gate\" . schema_name , ? , \"first_gate\" . namespace_oid : : text , ? , \"first_gate\" . incarnation : : text , ? , \"first_gate\" . structural_generation : : text , ? , \"first_gate\" . login , ? , \"first_gate\" . same_login , ? , \"first_gate\" . actual_database , ? , \"first_gate\" . same_schema ) as control_installation , first_gate . namespace_oid as first_oid , second_gate . namespace_oid as second_oid from first_gate cross join second_gate ) installed on true left join lateral ( select * from \"flarex_file_test_1791221606149_go9cu8p8f2d\" . fx_lock_read_scope_placement ( $? , $? ) as admitted_placement where installed . first_oid > ? and installed . second_oid > ? offset ? ) placement on true left join \"flarex_file_test_1791221606152_6jm2t2irvbh\" . fx_system_prepared_metadata_epoch target_epoch on target_epoch . singleton_id = ? left join \"flarex_file_test_1791221606149_go9cu8p8f2d\" . fx_system_prepared_metadata_epoch control_epoch on control_epoch . singleton_id = ? cross join lateral \"flarex_file_test_1791221606152_6jm2t2irvbh\" . fx_accept_finite_storage_capture ( case when placement . scope_id = $? and target_epoch . database_name = $? and target_epoch . namespace_oid = $? : : bigint and target_epoch . incarnation = $? : : uuid and target_epoch . generation > ? and control_epoch . database_name = $? and control_epoch . namespace_oid = $? : : bigint and control_epoch . incarnation = $? : : uuid and control_epoch . generation > ? and session_user = $? and current_user = session_user and placement . deployment_id = $? and ( placement . active_schema_version_id is null or btrim ( placement . active_schema_version_id ) < > ? ) and placement . isolation_kind = $? and placement . physical_locator_json = jsonb_build_object ( ? , $? : : text , ? , $? : : text , ? , $? : : text ) and ( placement . receipt_scope_id is null or ( placement . receipt_scope_id = placement . scope_id and placement . receipt_protocol_version = ? and btrim ( placement . receipt_initial_epoch ) < > ? and placement . receipt_physical_locator_json - > > ? in ( ? , ? ) and case when jsonb_typeof ( placement . receipt_physical_locator_json ) = ? then ( select count ( * ) from jsonb_object_keys ( placement . receipt_physical_locator_json ) ) = ? else false end and btrim ( placement . receipt_physical_locator_json - > > ? ) < > ? and btrim ( placement . receipt_physical_locator_json - > > ? ) < > ? and placement . receipt_reserved_at is not null and isfinite ( placement . receipt_reserved_at ) and ( placement . receipt_state = ? and placement . receipt_ready_at is null or placement . receipt_state = ? and isfinite ( placement . receipt_ready_at ) and isfinite ( placement . receipt_ready_at ) and placement . receipt_ready_at > = placement . receipt_reserved_at ) ) ) and ( placement . isolation_kind = ? or ( placement . receipt_scope_id = placement . scope_id and placement . receipt_protocol_version = ? and placement . receipt_state = ? and placement . receipt_physical_locator_json = jsonb_build_object ( ? , $? : : text , ? , $? : : text , ? , $? : : text ) and btrim ( placement . receipt_initial_epoch ) < > ? and placement . receipt_reserved_at is not null and isfinite ( placement . receipt_reserved_at ) and isfinite ( placement . receipt_ready_at ) and placement . receipt_ready_at > = placement . receipt_reserved_at ) ) then placement . scope_id else null end , row ( $? : : uuid , $? : : uuid , $? : : bigint , $? : : text , $? : : integer , $? : : text , $? : : text , $? : : text , $? : : text , $? : : text , $? : : text , $? : : text , $? : : text , $? : : text , $? : : integer , $? : : integer , $? : : text , $? : : text , $? : : bigint , $? : : text , $? : : bigint , $? : : text , $? : : bigint , $? : : bigint , $? : : bigint , $? : : text , $? : : text , $? : : text , $? : : text , $? : : text ) : : \"flarex_file_test_1791221606152_6jm2t2irvbh\" . fx_finite_capture_expected , $? : : bytea , $? : : bytea , $? : : uuid , $? : : bigint , $? : : bigint , $? : : uuid , $? : : bigint , $? : : text , $? : : bigint , $? : : text , $? : : integer , $? : : integer , $? : : integer ) capture left join lateral ( select s . * , row_number ( ) over ( order by s . kind , s . ordinal ) as _capture_header_ordinal from ( select * from \"flarex_file_test_1791221606152_6jm2t2irvbh\" . fx_read_application_write_ownership_snapshot ( $? : : text , ? : : integer , ? : : integer ) ) s where capture . reason = ? and capture . body_eligible offset ? ) storage on true order by storage . _capture_header_ordinal",
+        "dispatchCount": 1,
+        "statementCount": 1,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 12.335699999999633,
+        "awaitedMsMin": 12.335699999999633,
+        "awaitedMsMax": 12.335699999999633,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 2,
+        "decodedResultJsonUtf8Bytes": 5266,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation",
+          "portable runtime execution",
+          "Application point"
+        ],
+        "fingerprint": "f87abe7262e2b735fae3a0481b42f1c94de3561a5e436e6e438f587367d74ce5",
+        "template": "select case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then capture . reason else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then capture . database_now_epoch_milliseconds else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then capture . serving_commit_seq : : text else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then capture . table_frontier : : text else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then capture . historical_change else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . authority_row ) . oldest_available_commit_seq : : text else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . build_row ) . \"scope_id\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . build_row ) . \"index_definition_id\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . build_row ) . \"storage_generation\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . build_row ) . \"storage_generation_fence\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . build_row ) . \"epoch\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . build_row ) . \"start_commit_seq\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . build_row ) . \"covered_through_commit_seq\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . build_row ) . \"first_readable_commit_seq\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . build_row ) . \"maintenance_activation_sequence\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . build_row ) . \"maintenance_bytes\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . build_row ) . \"maintenance_sha256\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . build_row ) . \"lifecycle\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . build_row ) . \"cursor_codec_version\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . build_row ) . \"backfill_cursor_row_id\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . build_row ) . \"attempt_fence\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . build_row ) . \"created_at\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . build_row ) . \"updated_at\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . unique_row ) . \"scope_id\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . unique_row ) . \"unique_constraint_definition_id\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . unique_row ) . \"storage_generation\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . unique_row ) . \"storage_generation_fence\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . unique_row ) . \"epoch\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . unique_row ) . \"start_commit_seq\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . unique_row ) . \"lifecycle\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . unique_row ) . \"covered_through_commit_seq\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . unique_row ) . \"maintenance_activation_sequence\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . unique_row ) . \"maintenance_bytes\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . unique_row ) . \"maintenance_sha256\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . unique_row ) . \"cursor_row_id\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . unique_row ) . \"attempt_fence\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . unique_row ) . \"created_at\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . unique_row ) . \"updated_at\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"scope_uuid\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"session_id\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"attempt_fence\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"execution_profile\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"policy_version\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"protocol_version\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"execution_authority_generation\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"function_path\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"function_kind\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"execution_module\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"schema_version_id\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"package_id\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"artifact_runtime\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"artifact_id\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"source_package_hash\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"validated_args_value_codec_version\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"authorization_grant_value_codec_version\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"storage_generation\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"storage_generation_fence\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"identity_access_policy_sha256\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"request_sha256\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"validated_args_sha256\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"authorization_grant_id\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"authorization_grant_sha256\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"application_execution_authority_sha256\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"request_key\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"lifecycle\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"authorization_revocation_epoch\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"authorization_grant_expires_at\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"hard_expires_at\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"created_at\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"updated_at\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"finite_attempt_bytes\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"finite_attempt_sha256\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"finite_snapshot_epoch_uuid\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"finite_snapshot_commit_seq\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"finite_metadata_watermark\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"finite_lease_expires_at\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"finite_claim_owner\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"finite_claim_fence\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"finite_claimed_at\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"finite_claim_expires_at\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then target_epoch . generation : : text else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then control_epoch . generation : : text else null end , storage . ordinal is not null , storage . \"ordinal\" , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then current_timestamp : : text else null end , case when capture . reason = ? and capture . body_eligible then ( select identity_exists from \"flarex_file_test_1791221606152_6jm2t2irvbh\" . fx_read_historical_row_identity ( ( capture . session_row ) . scope_uuid , $? : : integer , $? : : bytea ) ) else false end from ( values ( ? ) ) capture_resource ( value ) left join lateral ( with first_gate as materialized ( with resource_gate as materialized ( select pg_catalog . current_setting ( ? ) : : interval > interval ? and pg_catalog . current_setting ( ? ) : : interval < = interval ? as accepted ) select admitted_first . * from resource_gate cross join lateral ( select * from ( select i . * , session_user as login , current_user = session_user as same_login , current_database ( ) as actual_database , i . schema_name = $? and i . namespace_oid = $? : : pg_catalog . regnamespace : : oid : : bigint as same_schema from \"flarex_file_test_1791221606149_go9cu8p8f2d\" . fx_lock_installation_admission ( ) i join \"flarex_file_test_1791221606149_go9cu8p8f2d\" . fx_system_installation_runtime p on p . login = session_user and p . login_oid = session_user : : pg_catalog . regrole : : oid : : bigint and p . incarnation = i . incarnation and p . structural_generation = i . structural_generation and p . endpoint_policy = $? and p . access_profile = $? where current_user = session_user and session_user = $? and i . database_name = current_database ( ) and i . database_name = $? and i . schema_name = $? and i . namespace_oid = $? : : bigint and i . namespace_oid = $? : : pg_catalog . regnamespace : : oid : : bigint and i . incarnation = $? : : uuid and i . structural_generation = $? : : bigint and p . metadata_incarnation = $? : : uuid ) as first_source where resource_gate . accepted offset ? ) as admitted_first ) , second_gate as materialized ( select admitted_second . * from first_gate cross join lateral ( select * from ( select i . * , session_user as login , current_user = session_user as same_login , current_database ( ) as actual_database , i . schema_name = $? and i . namespace_oid = $? : : pg_catalog . regnamespace : : oid : : bigint as same_schema from \"flarex_file_test_1791221606152_6jm2t2irvbh\" . fx_lock_installation_admission ( ) i join \"flarex_file_test_1791221606152_6jm2t2irvbh\" . fx_system_installation_runtime p on p . login = session_user and p . login_oid = session_user : : pg_catalog . regrole : : oid : : bigint and p . incarnation = i . incarnation and p . structural_generation = i . structural_generation and p . endpoint_policy = $? and p . access_profile = $? where current_user = session_user and session_user = $? and i . database_name = current_database ( ) and i . database_name = $? and i . schema_name = $? and i . namespace_oid = $? : : bigint and i . namespace_oid = $? : : pg_catalog . regnamespace : : oid : : bigint and i . incarnation = $? : : uuid and i . structural_generation = $? : : bigint and p . metadata_incarnation = $? : : uuid ) as second_source where first_gate . namespace_oid > ? offset ? ) as admitted_second ) select jsonb_build_object ( ? , \"second_gate\" . database_name , ? , \"second_gate\" . schema_name , ? , \"second_gate\" . namespace_oid : : text , ? , \"second_gate\" . incarnation : : text , ? , \"second_gate\" . structural_generation : : text , ? , \"second_gate\" . login , ? , \"second_gate\" . same_login , ? , \"second_gate\" . actual_database , ? , \"second_gate\" . same_schema ) as target_installation , jsonb_build_object ( ? , \"first_gate\" . database_name , ? , \"first_gate\" . schema_name , ? , \"first_gate\" . namespace_oid : : text , ? , \"first_gate\" . incarnation : : text , ? , \"first_gate\" . structural_generation : : text , ? , \"first_gate\" . login , ? , \"first_gate\" . same_login , ? , \"first_gate\" . actual_database , ? , \"first_gate\" . same_schema ) as control_installation , first_gate . namespace_oid as first_oid , second_gate . namespace_oid as second_oid from first_gate cross join second_gate ) installed on true left join lateral ( select * from \"flarex_file_test_1791221606149_go9cu8p8f2d\" . fx_lock_read_scope_placement ( $? , $? ) as admitted_placement where installed . first_oid > ? and installed . second_oid > ? offset ? ) placement on true left join \"flarex_file_test_1791221606152_6jm2t2irvbh\" . fx_system_prepared_metadata_epoch target_epoch on target_epoch . singleton_id = ? left join \"flarex_file_test_1791221606149_go9cu8p8f2d\" . fx_system_prepared_metadata_epoch control_epoch on control_epoch . singleton_id = ? cross join lateral \"flarex_file_test_1791221606152_6jm2t2irvbh\" . fx_accept_finite_storage_capture ( case when placement . scope_id = $? and target_epoch . database_name = $? and target_epoch . namespace_oid = $? : : bigint and target_epoch . incarnation = $? : : uuid and target_epoch . generation > ? and control_epoch . database_name = $? and control_epoch . namespace_oid = $? : : bigint and control_epoch . incarnation = $? : : uuid and control_epoch . generation > ? and session_user = $? and current_user = session_user and placement . deployment_id = $? and ( placement . active_schema_version_id is null or btrim ( placement . active_schema_version_id ) < > ? ) and placement . isolation_kind = $? and placement . physical_locator_json = jsonb_build_object ( ? , $? : : text , ? , $? : : text , ? , $? : : text ) and ( placement . receipt_scope_id is null or ( placement . receipt_scope_id = placement . scope_id and placement . receipt_protocol_version = ? and btrim ( placement . receipt_initial_epoch ) < > ? and placement . receipt_physical_locator_json - > > ? in ( ? , ? ) and case when jsonb_typeof ( placement . receipt_physical_locator_json ) = ? then ( select count ( * ) from jsonb_object_keys ( placement . receipt_physical_locator_json ) ) = ? else false end and btrim ( placement . receipt_physical_locator_json - > > ? ) < > ? and btrim ( placement . receipt_physical_locator_json - > > ? ) < > ? and placement . receipt_reserved_at is not null and isfinite ( placement . receipt_reserved_at ) and ( placement . receipt_state = ? and placement . receipt_ready_at is null or placement . receipt_state = ? and isfinite ( placement . receipt_ready_at ) and isfinite ( placement . receipt_ready_at ) and placement . receipt_ready_at > = placement . receipt_reserved_at ) ) ) and ( placement . isolation_kind = ? or ( placement . receipt_scope_id = placement . scope_id and placement . receipt_protocol_version = ? and placement . receipt_state = ? and placement . receipt_physical_locator_json = jsonb_build_object ( ? , $? : : text , ? , $? : : text , ? , $? : : text ) and btrim ( placement . receipt_initial_epoch ) < > ? and placement . receipt_reserved_at is not null and isfinite ( placement . receipt_reserved_at ) and isfinite ( placement . receipt_ready_at ) and placement . receipt_ready_at > = placement . receipt_reserved_at ) ) then placement . scope_id else null end , row ( $? : : uuid , $? : : uuid , $? : : bigint , $? : : text , $? : : integer , $? : : text , $? : : text , $? : : text , $? : : text , $? : : text , $? : : text , $? : : text , $? : : text , $? : : text , $? : : integer , $? : : integer , $? : : text , $? : : text , $? : : bigint , $? : : text , $? : : bigint , $? : : text , $? : : bigint , $? : : bigint , $? : : bigint , $? : : text , $? : : text , $? : : text , $? : : text , $? : : text ) : : \"flarex_file_test_1791221606152_6jm2t2irvbh\" . fx_finite_capture_expected , $? : : bytea , $? : : bytea , $? : : uuid , $? : : bigint , $? : : bigint , $? : : uuid , $? : : bigint , $? : : text , $? : : bigint , $? : : text , $? : : integer , $? : : integer , $? : : integer ) capture left join lateral ( select s . * , row_number ( ) over ( order by s . ordinal ) as _capture_header_ordinal from ( select ? as ordinal ) s where capture . reason = ? and capture . body_eligible offset ? ) storage on true order by storage . _capture_header_ordinal",
+        "dispatchCount": 1,
+        "statementCount": 1,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 7.4935999999979686,
+        "awaitedMsMin": 7.4935999999979686,
+        "awaitedMsMax": 7.4935999999979686,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 1,
+        "decodedResultJsonUtf8Bytes": 475,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation",
+          "portable runtime execution",
+          "medusa.product:update",
+          "native Product operation"
+        ],
+        "fingerprint": "4efc37de525832b73dc1311739b15776d3636b5272e6ca3bfce4495afb4e849f",
+        "template": "select case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then capture . reason else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then capture . database_now_epoch_milliseconds else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then capture . serving_commit_seq : : text else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then capture . table_frontier : : text else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then capture . historical_change else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . authority_row ) . oldest_available_commit_seq : : text else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . build_row ) . \"scope_id\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . build_row ) . \"index_definition_id\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . build_row ) . \"storage_generation\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . build_row ) . \"storage_generation_fence\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . build_row ) . \"epoch\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . build_row ) . \"start_commit_seq\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . build_row ) . \"covered_through_commit_seq\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . build_row ) . \"first_readable_commit_seq\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . build_row ) . \"maintenance_activation_sequence\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . build_row ) . \"maintenance_bytes\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . build_row ) . \"maintenance_sha256\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . build_row ) . \"lifecycle\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . build_row ) . \"cursor_codec_version\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . build_row ) . \"backfill_cursor_row_id\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . build_row ) . \"attempt_fence\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . build_row ) . \"created_at\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . build_row ) . \"updated_at\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . unique_row ) . \"scope_id\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . unique_row ) . \"unique_constraint_definition_id\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . unique_row ) . \"storage_generation\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . unique_row ) . \"storage_generation_fence\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . unique_row ) . \"epoch\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . unique_row ) . \"start_commit_seq\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . unique_row ) . \"lifecycle\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . unique_row ) . \"covered_through_commit_seq\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . unique_row ) . \"maintenance_activation_sequence\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . unique_row ) . \"maintenance_bytes\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . unique_row ) . \"maintenance_sha256\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . unique_row ) . \"cursor_row_id\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . unique_row ) . \"attempt_fence\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . unique_row ) . \"created_at\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . unique_row ) . \"updated_at\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"scope_uuid\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"session_id\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"attempt_fence\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"execution_profile\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"policy_version\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"protocol_version\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"execution_authority_generation\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"function_path\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"function_kind\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"execution_module\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"schema_version_id\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"package_id\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"artifact_runtime\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"artifact_id\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"source_package_hash\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"validated_args_value_codec_version\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"authorization_grant_value_codec_version\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"storage_generation\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"storage_generation_fence\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"identity_access_policy_sha256\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"request_sha256\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"validated_args_sha256\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"authorization_grant_id\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"authorization_grant_sha256\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"application_execution_authority_sha256\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"request_key\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"lifecycle\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"authorization_revocation_epoch\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"authorization_grant_expires_at\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"hard_expires_at\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"created_at\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"updated_at\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"finite_attempt_bytes\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"finite_attempt_sha256\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"finite_snapshot_epoch_uuid\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"finite_snapshot_commit_seq\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"finite_metadata_watermark\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"finite_lease_expires_at\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"finite_claim_owner\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"finite_claim_fence\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"finite_claimed_at\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"finite_claim_expires_at\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then target_epoch . generation : : text else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then control_epoch . generation : : text else null end , storage . \"captureGroup\" is not null , storage . \"captureGroup\" , storage . \"index_ordinal\" , storage . \"index_tableIdText\" , storage . \"index_keyCodecVersionText\" , storage . \"index_physicalSpecSha256\" , storage . \"index_encodedKeyBytes\" , storage . \"index_keySha256\" , storage . \"index_rowIdBytes\" , storage . \"index_commitSeqText\" , storage . \"index_isTombstone\" , storage . \"row_ordinal\" , storage . \"row_requestedRowId\" , storage . \"row_rowPresent\" , storage . \"row_scopeUuid\" , storage . \"row_tableId\" , storage . \"row_rowId\" , storage . \"row_commitSeq\" , storage . \"row_prevCommitSeq\" , storage . \"row_writeEpochUuid\" , storage . \"row_schemaVersionId\" , storage . \"row_creationTime\" , storage . \"row_valueCodecVersion\" , storage . \"row_isTombstone\" , storage . \"row_valueSha256\" , storage . \"row_valueBytes\" , storage . \"row_bodyWithheld\" , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then current_timestamp : : text else null end , false from ( values ( ? ) ) capture_resource ( value ) left join lateral ( with first_gate as materialized ( with resource_gate as materialized ( select pg_catalog . current_setting ( ? ) : : interval > interval ? and pg_catalog . current_setting ( ? ) : : interval < = interval ? as accepted ) select admitted_first . * from resource_gate cross join lateral ( select * from ( select i . * , session_user as login , current_user = session_user as same_login , current_database ( ) as actual_database , i . schema_name = $? and i . namespace_oid = $? : : pg_catalog . regnamespace : : oid : : bigint as same_schema from \"flarex_file_test_1791221606149_go9cu8p8f2d\" . fx_lock_installation_admission ( ) i join \"flarex_file_test_1791221606149_go9cu8p8f2d\" . fx_system_installation_runtime p on p . login = session_user and p . login_oid = session_user : : pg_catalog . regrole : : oid : : bigint and p . incarnation = i . incarnation and p . structural_generation = i . structural_generation and p . endpoint_policy = $? and p . access_profile = $? where current_user = session_user and session_user = $? and i . database_name = current_database ( ) and i . database_name = $? and i . schema_name = $? and i . namespace_oid = $? : : bigint and i . namespace_oid = $? : : pg_catalog . regnamespace : : oid : : bigint and i . incarnation = $? : : uuid and i . structural_generation = $? : : bigint and p . metadata_incarnation = $? : : uuid ) as first_source where resource_gate . accepted offset ? ) as admitted_first ) , second_gate as materialized ( select admitted_second . * from first_gate cross join lateral ( select * from ( select i . * , session_user as login , current_user = session_user as same_login , current_database ( ) as actual_database , i . schema_name = $? and i . namespace_oid = $? : : pg_catalog . regnamespace : : oid : : bigint as same_schema from \"flarex_file_test_1791221606152_6jm2t2irvbh\" . fx_lock_installation_admission ( ) i join \"flarex_file_test_1791221606152_6jm2t2irvbh\" . fx_system_installation_runtime p on p . login = session_user and p . login_oid = session_user : : pg_catalog . regrole : : oid : : bigint and p . incarnation = i . incarnation and p . structural_generation = i . structural_generation and p . endpoint_policy = $? and p . access_profile = $? where current_user = session_user and session_user = $? and i . database_name = current_database ( ) and i . database_name = $? and i . schema_name = $? and i . namespace_oid = $? : : bigint and i . namespace_oid = $? : : pg_catalog . regnamespace : : oid : : bigint and i . incarnation = $? : : uuid and i . structural_generation = $? : : bigint and p . metadata_incarnation = $? : : uuid ) as second_source where first_gate . namespace_oid > ? offset ? ) as admitted_second ) select jsonb_build_object ( ? , \"second_gate\" . database_name , ? , \"second_gate\" . schema_name , ? , \"second_gate\" . namespace_oid : : text , ? , \"second_gate\" . incarnation : : text , ? , \"second_gate\" . structural_generation : : text , ? , \"second_gate\" . login , ? , \"second_gate\" . same_login , ? , \"second_gate\" . actual_database , ? , \"second_gate\" . same_schema ) as target_installation , jsonb_build_object ( ? , \"first_gate\" . database_name , ? , \"first_gate\" . schema_name , ? , \"first_gate\" . namespace_oid : : text , ? , \"first_gate\" . incarnation : : text , ? , \"first_gate\" . structural_generation : : text , ? , \"first_gate\" . login , ? , \"first_gate\" . same_login , ? , \"first_gate\" . actual_database , ? , \"first_gate\" . same_schema ) as control_installation , first_gate . namespace_oid as first_oid , second_gate . namespace_oid as second_oid from first_gate cross join second_gate ) installed on true left join lateral ( select * from \"flarex_file_test_1791221606149_go9cu8p8f2d\" . fx_lock_read_scope_placement ( $? , $? ) as admitted_placement where installed . first_oid > ? and installed . second_oid > ? offset ? ) placement on true left join \"flarex_file_test_1791221606152_6jm2t2irvbh\" . fx_system_prepared_metadata_epoch target_epoch on target_epoch . singleton_id = ? left join \"flarex_file_test_1791221606149_go9cu8p8f2d\" . fx_system_prepared_metadata_epoch control_epoch on control_epoch . singleton_id = ? cross join lateral \"flarex_file_test_1791221606152_6jm2t2irvbh\" . fx_accept_finite_storage_capture ( case when placement . scope_id = $? and target_epoch . database_name = $? and target_epoch . namespace_oid = $? : : bigint and target_epoch . incarnation = $? : : uuid and target_epoch . generation > ? and control_epoch . database_name = $? and control_epoch . namespace_oid = $? : : bigint and control_epoch . incarnation = $? : : uuid and control_epoch . generation > ? and session_user = $? and current_user = session_user and placement . deployment_id = $? and ( placement . active_schema_version_id is null or btrim ( placement . active_schema_version_id ) < > ? ) and placement . isolation_kind = $? and placement . physical_locator_json = jsonb_build_object ( ? , $? : : text , ? , $? : : text , ? , $? : : text ) and ( placement . receipt_scope_id is null or ( placement . receipt_scope_id = placement . scope_id and placement . receipt_protocol_version = ? and btrim ( placement . receipt_initial_epoch ) < > ? and placement . receipt_physical_locator_json - > > ? in ( ? , ? ) and case when jsonb_typeof ( placement . receipt_physical_locator_json ) = ? then ( select count ( * ) from jsonb_object_keys ( placement . receipt_physical_locator_json ) ) = ? else false end and btrim ( placement . receipt_physical_locator_json - > > ? ) < > ? and btrim ( placement . receipt_physical_locator_json - > > ? ) < > ? and placement . receipt_reserved_at is not null and isfinite ( placement . receipt_reserved_at ) and ( placement . receipt_state = ? and placement . receipt_ready_at is null or placement . receipt_state = ? and isfinite ( placement . receipt_ready_at ) and isfinite ( placement . receipt_ready_at ) and placement . receipt_ready_at > = placement . receipt_reserved_at ) ) ) and ( placement . isolation_kind = ? or ( placement . receipt_scope_id = placement . scope_id and placement . receipt_protocol_version = ? and placement . receipt_state = ? and placement . receipt_physical_locator_json = jsonb_build_object ( ? , $? : : text , ? , $? : : text , ? , $? : : text ) and btrim ( placement . receipt_initial_epoch ) < > ? and placement . receipt_reserved_at is not null and isfinite ( placement . receipt_reserved_at ) and isfinite ( placement . receipt_ready_at ) and placement . receipt_ready_at > = placement . receipt_reserved_at ) ) then placement . scope_id else null end , row ( $? : : uuid , $? : : uuid , $? : : bigint , $? : : text , $? : : integer , $? : : text , $? : : text , $? : : text , $? : : text , $? : : text , $? : : text , $? : : text , $? : : text , $? : : text , $? : : integer , $? : : integer , $? : : text , $? : : text , $? : : bigint , $? : : text , $? : : bigint , $? : : text , $? : : bigint , $? : : bigint , $? : : bigint , $? : : text , $? : : text , $? : : text , $? : : text , $? : : text ) : : \"flarex_file_test_1791221606152_6jm2t2irvbh\" . fx_finite_capture_expected , $? : : bytea , $? : : bytea , $? : : uuid , $? : : bigint , $? : : bigint , $? : : uuid , $? : : bigint , $? : : text , $? : : bigint , $? : : text , $? : : integer , $? : : integer , $? : : integer ) capture left join lateral ( select s . * , row_number ( ) over ( order by s . \"captureGroup\" , s . index_ordinal , s . row_ordinal ) as _capture_header_ordinal from ( with membership as materialized ( select r . ordinal , r . table_id_text as \"tableIdText\" , r . key_codec_version_text as \"keyCodecVersionText\" , r . physical_spec_sha256 as \"physicalSpecSha256\" , r . encoded_key_bytes as \"encodedKeyBytes\" , r . key_sha256 as \"keySha256\" , r . row_id_bytes as \"rowIdBytes\" , r . commit_seq_text as \"commitSeqText\" , r . is_tombstone as \"isTombstone\" from \"flarex_file_test_1791221606152_6jm2t2irvbh\" . fx_read_snapshot_index_page ( $? : : uuid , $? : : integer , $? : : bigint , $? : : bytea , $? : : bytea , $? : : bytea , $? : : bytea , $? : : integer ) r order by r . ordinal ) select ? : : text as \"captureGroup\" , i . \"ordinal\" as \"index_ordinal\" , i . \"tableIdText\" as \"index_tableIdText\" , i . \"keyCodecVersionText\" as \"index_keyCodecVersionText\" , i . \"physicalSpecSha256\" as \"index_physicalSpecSha256\" , i . \"encodedKeyBytes\" as \"index_encodedKeyBytes\" , i . \"keySha256\" as \"index_keySha256\" , i . \"rowIdBytes\" as \"index_rowIdBytes\" , i . \"commitSeqText\" as \"index_commitSeqText\" , i . \"isTombstone\" as \"index_isTombstone\" , null : : integer as \"row_ordinal\" , null : : bytea as \"row_requestedRowId\" , null : : boolean as \"row_rowPresent\" , null : : uuid as \"row_scopeUuid\" , null : : integer as \"row_tableId\" , null : : bytea as \"row_rowId\" , null : : text as \"row_commitSeq\" , null : : text as \"row_prevCommitSeq\" , null : : uuid as \"row_writeEpochUuid\" , null : : text as \"row_schemaVersionId\" , null : : double precision as \"row_creationTime\" , null : : integer as \"row_valueCodecVersion\" , null : : boolean as \"row_isTombstone\" , null : : bytea as \"row_valueSha256\" , null : : bytea as \"row_valueBytes\" , null : : boolean as \"row_bodyWithheld\" from membership i union all select ? : : text , null : : integer , null : : text , null : : text , null : : bytea , null : : bytea , null : : bytea , null : : bytea , null : : text , null : : boolean , r . \"ordinal\" , r . \"requestedRowId\" , r . \"rowPresent\" , r . \"scopeUuid\" , r . \"tableId\" , r . \"rowId\" , r . \"commitSeq\" , r . \"prevCommitSeq\" , r . \"writeEpochUuid\" , r . \"schemaVersionId\" , r . \"creationTime\" , r . \"valueCodecVersion\" , r . \"isTombstone\" , r . \"valueSha256\" , r . \"valueBytes\" , r . \"bodyWithheld\" from ( select r . ordinal , r . requested_row_id as \"requestedRowId\" , r . row_present as \"rowPresent\" , r . scope_uuid as \"scopeUuid\" , r . table_id as \"tableId\" , r . row_id as \"rowId\" , r . commit_seq_text as \"commitSeq\" , r . prev_commit_seq_text as \"prevCommitSeq\" , r . write_epoch_uuid as \"writeEpochUuid\" , r . schema_version_id as \"schemaVersionId\" , r . creation_time as \"creationTime\" , r . value_codec_version as \"valueCodecVersion\" , r . is_tombstone as \"isTombstone\" , r . value_sha256 as \"valueSha256\" , r . value_bytes as \"valueBytes\" , r . body_withheld as \"bodyWithheld\" from \"flarex_file_test_1791221606152_6jm2t2irvbh\" . fx_read_snapshot_rows ( $? : : uuid , $? : : integer , case when ( select count ( * ) from membership ) < = coalesce ( $? : : integer , $? : : integer ) and not exists ( select ? from membership where \"tableIdText\" is distinct from $? : : text ) and ( select count ( distinct \"rowIdBytes\" ) from membership where encode ( \"rowIdBytes\" , ? ) < > all ( $? : : text [ ] ) ) < = ? then coalesce ( ( select array_agg ( id order by first_ordinal ) from ( select \"rowIdBytes\" id , min ( ordinal ) first_ordinal from membership where encode ( \"rowIdBytes\" , ? ) < > all ( $? : : text [ ] ) group by \"rowIdBytes\" ) selected ) , array [ ] : : bytea [ ] ) else array [ ] : : bytea [ ] end : : bytea [ ] , $? : : bigint , $? : : bigint , false : : boolean ) r order by r . ordinal ) r ) s where capture . reason = ? and capture . body_eligible offset ? ) storage on true order by storage . _capture_header_ordinal",
+        "dispatchCount": 10,
+        "statementCount": 10,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 46.40200000000914,
+        "awaitedMsMin": 3.236400000001595,
+        "awaitedMsMax": 7.952900000000227,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 21,
+        "decodedResultJsonUtf8Bytes": 37726,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation",
+          "portable runtime execution",
+          "medusa.product:update",
+          "native Product operation"
+        ],
+        "fingerprint": "ccbfb48be7e215bb19e17d6192acae48cf5f7193df838cbafc5a5b8cc4613451",
+        "template": "select case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then capture . reason else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then capture . database_now_epoch_milliseconds else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then capture . serving_commit_seq : : text else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then capture . table_frontier : : text else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then capture . historical_change else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . authority_row ) . oldest_available_commit_seq : : text else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . build_row ) . \"scope_id\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . build_row ) . \"index_definition_id\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . build_row ) . \"storage_generation\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . build_row ) . \"storage_generation_fence\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . build_row ) . \"epoch\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . build_row ) . \"start_commit_seq\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . build_row ) . \"covered_through_commit_seq\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . build_row ) . \"first_readable_commit_seq\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . build_row ) . \"maintenance_activation_sequence\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . build_row ) . \"maintenance_bytes\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . build_row ) . \"maintenance_sha256\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . build_row ) . \"lifecycle\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . build_row ) . \"cursor_codec_version\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . build_row ) . \"backfill_cursor_row_id\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . build_row ) . \"attempt_fence\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . build_row ) . \"created_at\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . build_row ) . \"updated_at\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . unique_row ) . \"scope_id\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . unique_row ) . \"unique_constraint_definition_id\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . unique_row ) . \"storage_generation\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . unique_row ) . \"storage_generation_fence\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . unique_row ) . \"epoch\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . unique_row ) . \"start_commit_seq\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . unique_row ) . \"lifecycle\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . unique_row ) . \"covered_through_commit_seq\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . unique_row ) . \"maintenance_activation_sequence\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . unique_row ) . \"maintenance_bytes\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . unique_row ) . \"maintenance_sha256\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . unique_row ) . \"cursor_row_id\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . unique_row ) . \"attempt_fence\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . unique_row ) . \"created_at\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . unique_row ) . \"updated_at\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"scope_uuid\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"session_id\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"attempt_fence\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"execution_profile\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"policy_version\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"protocol_version\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"execution_authority_generation\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"function_path\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"function_kind\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"execution_module\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"schema_version_id\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"package_id\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"artifact_runtime\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"artifact_id\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"source_package_hash\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"validated_args_value_codec_version\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"authorization_grant_value_codec_version\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"storage_generation\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"storage_generation_fence\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"identity_access_policy_sha256\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"request_sha256\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"validated_args_sha256\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"authorization_grant_id\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"authorization_grant_sha256\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"application_execution_authority_sha256\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"request_key\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"lifecycle\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"authorization_revocation_epoch\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"authorization_grant_expires_at\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"hard_expires_at\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"created_at\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"updated_at\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"finite_attempt_bytes\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"finite_attempt_sha256\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"finite_snapshot_epoch_uuid\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"finite_snapshot_commit_seq\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"finite_metadata_watermark\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"finite_lease_expires_at\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"finite_claim_owner\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"finite_claim_fence\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"finite_claimed_at\" else null end , case when capture . reason = ? and coalesce ( storage . _capture_header_ordinal , ? ) = ? then ( capture . session_row ) . \"finite_claim_expires_at\" else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then target_epoch . generation : : text else null end , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then control_epoch . generation : : text else null end , storage . ordinal is not null , storage . \"ordinal\" , case when coalesce ( storage . _capture_header_ordinal , ? ) = ? then current_timestamp : : text else null end , false from ( values ( ? ) ) capture_resource ( value ) left join lateral ( with first_gate as materialized ( with resource_gate as materialized ( select pg_catalog . current_setting ( ? ) : : interval > interval ? and pg_catalog . current_setting ( ? ) : : interval < = interval ? as accepted ) select admitted_first . * from resource_gate cross join lateral ( select * from ( select i . * , session_user as login , current_user = session_user as same_login , current_database ( ) as actual_database , i . schema_name = $? and i . namespace_oid = $? : : pg_catalog . regnamespace : : oid : : bigint as same_schema from \"flarex_file_test_1791221606149_go9cu8p8f2d\" . fx_lock_installation_admission ( ) i join \"flarex_file_test_1791221606149_go9cu8p8f2d\" . fx_system_installation_runtime p on p . login = session_user and p . login_oid = session_user : : pg_catalog . regrole : : oid : : bigint and p . incarnation = i . incarnation and p . structural_generation = i . structural_generation and p . endpoint_policy = $? and p . access_profile = $? where current_user = session_user and session_user = $? and i . database_name = current_database ( ) and i . database_name = $? and i . schema_name = $? and i . namespace_oid = $? : : bigint and i . namespace_oid = $? : : pg_catalog . regnamespace : : oid : : bigint and i . incarnation = $? : : uuid and i . structural_generation = $? : : bigint and p . metadata_incarnation = $? : : uuid ) as first_source where resource_gate . accepted offset ? ) as admitted_first ) , second_gate as materialized ( select admitted_second . * from first_gate cross join lateral ( select * from ( select i . * , session_user as login , current_user = session_user as same_login , current_database ( ) as actual_database , i . schema_name = $? and i . namespace_oid = $? : : pg_catalog . regnamespace : : oid : : bigint as same_schema from \"flarex_file_test_1791221606152_6jm2t2irvbh\" . fx_lock_installation_admission ( ) i join \"flarex_file_test_1791221606152_6jm2t2irvbh\" . fx_system_installation_runtime p on p . login = session_user and p . login_oid = session_user : : pg_catalog . regrole : : oid : : bigint and p . incarnation = i . incarnation and p . structural_generation = i . structural_generation and p . endpoint_policy = $? and p . access_profile = $? where current_user = session_user and session_user = $? and i . database_name = current_database ( ) and i . database_name = $? and i . schema_name = $? and i . namespace_oid = $? : : bigint and i . namespace_oid = $? : : pg_catalog . regnamespace : : oid : : bigint and i . incarnation = $? : : uuid and i . structural_generation = $? : : bigint and p . metadata_incarnation = $? : : uuid ) as second_source where first_gate . namespace_oid > ? offset ? ) as admitted_second ) select jsonb_build_object ( ? , \"second_gate\" . database_name , ? , \"second_gate\" . schema_name , ? , \"second_gate\" . namespace_oid : : text , ? , \"second_gate\" . incarnation : : text , ? , \"second_gate\" . structural_generation : : text , ? , \"second_gate\" . login , ? , \"second_gate\" . same_login , ? , \"second_gate\" . actual_database , ? , \"second_gate\" . same_schema ) as target_installation , jsonb_build_object ( ? , \"first_gate\" . database_name , ? , \"first_gate\" . schema_name , ? , \"first_gate\" . namespace_oid : : text , ? , \"first_gate\" . incarnation : : text , ? , \"first_gate\" . structural_generation : : text , ? , \"first_gate\" . login , ? , \"first_gate\" . same_login , ? , \"first_gate\" . actual_database , ? , \"first_gate\" . same_schema ) as control_installation , first_gate . namespace_oid as first_oid , second_gate . namespace_oid as second_oid from first_gate cross join second_gate ) installed on true left join lateral ( select * from \"flarex_file_test_1791221606149_go9cu8p8f2d\" . fx_lock_read_scope_placement ( $? , $? ) as admitted_placement where installed . first_oid > ? and installed . second_oid > ? offset ? ) placement on true left join \"flarex_file_test_1791221606152_6jm2t2irvbh\" . fx_system_prepared_metadata_epoch target_epoch on target_epoch . singleton_id = ? left join \"flarex_file_test_1791221606149_go9cu8p8f2d\" . fx_system_prepared_metadata_epoch control_epoch on control_epoch . singleton_id = ? cross join lateral \"flarex_file_test_1791221606152_6jm2t2irvbh\" . fx_accept_finite_storage_capture ( case when placement . scope_id = $? and target_epoch . database_name = $? and target_epoch . namespace_oid = $? : : bigint and target_epoch . incarnation = $? : : uuid and target_epoch . generation > ? and control_epoch . database_name = $? and control_epoch . namespace_oid = $? : : bigint and control_epoch . incarnation = $? : : uuid and control_epoch . generation > ? and session_user = $? and current_user = session_user and placement . deployment_id = $? and ( placement . active_schema_version_id is null or btrim ( placement . active_schema_version_id ) < > ? ) and placement . isolation_kind = $? and placement . physical_locator_json = jsonb_build_object ( ? , $? : : text , ? , $? : : text , ? , $? : : text ) and ( placement . receipt_scope_id is null or ( placement . receipt_scope_id = placement . scope_id and placement . receipt_protocol_version = ? and btrim ( placement . receipt_initial_epoch ) < > ? and placement . receipt_physical_locator_json - > > ? in ( ? , ? ) and case when jsonb_typeof ( placement . receipt_physical_locator_json ) = ? then ( select count ( * ) from jsonb_object_keys ( placement . receipt_physical_locator_json ) ) = ? else false end and btrim ( placement . receipt_physical_locator_json - > > ? ) < > ? and btrim ( placement . receipt_physical_locator_json - > > ? ) < > ? and placement . receipt_reserved_at is not null and isfinite ( placement . receipt_reserved_at ) and ( placement . receipt_state = ? and placement . receipt_ready_at is null or placement . receipt_state = ? and isfinite ( placement . receipt_ready_at ) and isfinite ( placement . receipt_ready_at ) and placement . receipt_ready_at > = placement . receipt_reserved_at ) ) ) and ( placement . isolation_kind = ? or ( placement . receipt_scope_id = placement . scope_id and placement . receipt_protocol_version = ? and placement . receipt_state = ? and placement . receipt_physical_locator_json = jsonb_build_object ( ? , $? : : text , ? , $? : : text , ? , $? : : text ) and btrim ( placement . receipt_initial_epoch ) < > ? and placement . receipt_reserved_at is not null and isfinite ( placement . receipt_reserved_at ) and isfinite ( placement . receipt_ready_at ) and placement . receipt_ready_at > = placement . receipt_reserved_at ) ) then placement . scope_id else null end , row ( $? : : uuid , $? : : uuid , $? : : bigint , $? : : text , $? : : integer , $? : : text , $? : : text , $? : : text , $? : : text , $? : : text , $? : : text , $? : : text , $? : : text , $? : : text , $? : : integer , $? : : integer , $? : : text , $? : : text , $? : : bigint , $? : : text , $? : : bigint , $? : : text , $? : : bigint , $? : : bigint , $? : : bigint , $? : : text , $? : : text , $? : : text , $? : : text , $? : : text ) : : \"flarex_file_test_1791221606152_6jm2t2irvbh\" . fx_finite_capture_expected , $? : : bytea , $? : : bytea , $? : : uuid , $? : : bigint , $? : : bigint , $? : : uuid , $? : : bigint , $? : : text , $? : : bigint , $? : : text , $? : : integer , $? : : integer , $? : : integer ) capture left join lateral ( select s . * , row_number ( ) over ( order by s . ordinal ) as _capture_header_ordinal from ( select ? as ordinal ) s where capture . reason = ? and capture . body_eligible offset ? ) storage on true order by storage . _capture_header_ordinal",
+        "dispatchCount": 1,
+        "statementCount": 1,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 5.761999999998807,
+        "awaitedMsMin": 5.761999999998807,
+        "awaitedMsMax": 5.761999999998807,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 1,
+        "decodedResultJsonUtf8Bytes": 475,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation",
+          "authoritative publication"
+        ],
+        "fingerprint": "fece6890d3b72cd781a9ec7c99b1a99dbc1fadf39a343aad86d1d7d8c4597b63",
+        "template": "select \"fx_system_idempotency\" . \"scope_uuid\" , \"fx_system_idempotency\" . \"request_key\" , octet_length ( \"fx_system_idempotency\" . \"identity_access_policy_sha256\" ) , \"fx_system_idempotency\" . \"identity_access_policy_sha256\" = $? , btrim ( \"fx_system_idempotency\" . \"function_path\" , u & ? ) < > ? , \"fx_system_idempotency\" . \"function_path\" = $? , octet_length ( \"fx_system_idempotency\" . \"request_sha256\" ) , \"fx_system_idempotency\" . \"request_sha256\" = $? , \"fx_system_idempotency\" . \"epoch_uuid\" , \"fx_system_idempotency\" . \"commit_seq\" , \"fx_system_idempotency\" . \"result_state\" , \"fx_system_idempotency\" . \"result_encoding\" , \"fx_system_idempotency\" . \"result_value_codec_version\" , \"fx_system_idempotency\" . \"result_semantic_bytes\" , case when \"fx_system_idempotency\" . \"result_bytes\" is null then null else octet_length ( \"fx_system_idempotency\" . \"result_bytes\" ) end , case when \"fx_system_idempotency\" . \"result_sha256\" is null then null else octet_length ( \"fx_system_idempotency\" . \"result_sha256\" ) end , \"fx_system_idempotency\" . \"result_expired_at\" , \"fx_system_idempotency\" . \"created_at\" , \"fx_system_scope_clock\" . \"scope_uuid\" , \"fx_system_scope_clock\" . \"last_commit_seq\" , \"fx_system_scope_execution_authority\" . \"oldest_available_commit_seq\" , \"fx_system_commit\" . \"scope_uuid\" , \"fx_system_commit\" . \"epoch_uuid\" , \"fx_system_commit\" . \"commit_seq\" , case when \"fx_system_idempotency\" . \"result_state\" = ? and \"fx_system_idempotency\" . \"identity_access_policy_sha256\" = $? and \"fx_system_idempotency\" . \"function_path\" = $? and \"fx_system_idempotency\" . \"request_sha256\" = $? and \"fx_system_idempotency\" . \"result_encoding\" = $? and \"fx_system_idempotency\" . \"result_value_codec_version\" = ? and \"fx_system_idempotency\" . \"result_semantic_bytes\" between ? and $? and octet_length ( \"fx_system_idempotency\" . \"result_bytes\" ) between ? and $? and octet_length ( \"fx_system_idempotency\" . \"result_sha256\" ) = ? and \"fx_system_idempotency\" . \"result_expired_at\" is null and isfinite ( \"fx_system_idempotency\" . \"created_at\" ) and \"fx_system_scope_clock\" . \"scope_uuid\" = \"fx_system_idempotency\" . \"scope_uuid\" and \"fx_system_scope_clock\" . \"last_commit_seq\" between ? and $? and \"fx_system_scope_execution_authority\" . \"oldest_available_commit_seq\" between ? and \"fx_system_scope_clock\" . \"last_commit_seq\" and \"fx_system_idempotency\" . \"commit_seq\" between ? and \"fx_system_scope_clock\" . \"last_commit_seq\" and ( ( \"fx_system_commit\" . \"scope_uuid\" = \"fx_system_idempotency\" . \"scope_uuid\" and \"fx_system_commit\" . \"commit_seq\" = \"fx_system_idempotency\" . \"commit_seq\" and \"fx_system_commit\" . \"epoch_uuid\" = \"fx_system_idempotency\" . \"epoch_uuid\" ) or ( \"fx_system_commit\" . \"scope_uuid\" is null and \"fx_system_commit\" . \"commit_seq\" is null and \"fx_system_commit\" . \"epoch_uuid\" is null and \"fx_system_scope_execution_authority\" . \"oldest_available_commit_seq\" > ? and \"fx_system_idempotency\" . \"commit_seq\" < \"fx_system_scope_execution_authority\" . \"oldest_available_commit_seq\" ) ) then \"fx_system_idempotency\" . \"result_bytes\" else null end , case when \"fx_system_idempotency\" . \"result_state\" = ? and \"fx_system_idempotency\" . \"identity_access_policy_sha256\" = $? and \"fx_system_idempotency\" . \"function_path\" = $? and \"fx_system_idempotency\" . \"request_sha256\" = $? and \"fx_system_idempotency\" . \"result_encoding\" = $? and \"fx_system_idempotency\" . \"result_value_codec_version\" = ? and \"fx_system_idempotency\" . \"result_semantic_bytes\" between ? and $? and octet_length ( \"fx_system_idempotency\" . \"result_bytes\" ) between ? and $? and octet_length ( \"fx_system_idempotency\" . \"result_sha256\" ) = ? and \"fx_system_idempotency\" . \"result_expired_at\" is null and isfinite ( \"fx_system_idempotency\" . \"created_at\" ) and \"fx_system_scope_clock\" . \"scope_uuid\" = \"fx_system_idempotency\" . \"scope_uuid\" and \"fx_system_scope_clock\" . \"last_commit_seq\" between ? and $? and \"fx_system_scope_execution_authority\" . \"oldest_available_commit_seq\" between ? and \"fx_system_scope_clock\" . \"last_commit_seq\" and \"fx_system_idempotency\" . \"commit_seq\" between ? and \"fx_system_scope_clock\" . \"last_commit_seq\" and ( ( \"fx_system_commit\" . \"scope_uuid\" = \"fx_system_idempotency\" . \"scope_uuid\" and \"fx_system_commit\" . \"commit_seq\" = \"fx_system_idempotency\" . \"commit_seq\" and \"fx_system_commit\" . \"epoch_uuid\" = \"fx_system_idempotency\" . \"epoch_uuid\" ) or ( \"fx_system_commit\" . \"scope_uuid\" is null and \"fx_system_commit\" . \"commit_seq\" is null and \"fx_system_commit\" . \"epoch_uuid\" is null and \"fx_system_scope_execution_authority\" . \"oldest_available_commit_seq\" > ? and \"fx_system_idempotency\" . \"commit_seq\" < \"fx_system_scope_execution_authority\" . \"oldest_available_commit_seq\" ) ) then \"fx_system_idempotency\" . \"result_sha256\" else null end from \"fx_system_idempotency\" left join \"fx_system_scope_clock\" on \"fx_system_scope_clock\" . \"scope_uuid\" = \"fx_system_idempotency\" . \"scope_uuid\" left join \"fx_system_scope_execution_authority\" on \"fx_system_scope_execution_authority\" . \"scope_id\" = \"fx_system_scope_clock\" . \"scope_id\" left join \"fx_system_commit\" on ( \"fx_system_commit\" . \"scope_uuid\" = \"fx_system_idempotency\" . \"scope_uuid\" and \"fx_system_commit\" . \"commit_seq\" = \"fx_system_idempotency\" . \"commit_seq\" ) where ( \"fx_system_idempotency\" . \"scope_uuid\" = $? and \"fx_system_idempotency\" . \"request_key\" = $? ) limit $?",
+        "dispatchCount": 1,
+        "statementCount": 1,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 1.2132000000019616,
+        "awaitedMsMin": 1.2132000000019616,
+        "awaitedMsMax": 1.2132000000019616,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 0,
+        "decodedResultJsonUtf8Bytes": 2,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation",
+          "authoritative publication"
+        ],
+        "fingerprint": "e6f07d43b5c21db0fbb9a31feac2dc599787763393dd5acbfad80e247eb02ad5",
+        "template": "begin",
+        "dispatchCount": 1,
+        "statementCount": 1,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 0.2132000000019616,
+        "awaitedMsMin": 0.2132000000019616,
+        "awaitedMsMax": 0.2132000000019616,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 0,
+        "decodedResultJsonUtf8Bytes": 2,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation",
+          "authoritative publication"
+        ],
+        "fingerprint": "f65c0a2931ed21bbcd3a1be7b749ca2bef6b4f84bf3026bae8a0793a28bb18f2",
+        "template": "set transaction isolation level read committed",
+        "dispatchCount": 1,
+        "statementCount": 1,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 0.09869999999864376,
+        "awaitedMsMin": 0.09869999999864376,
+        "awaitedMsMax": 0.09869999999864376,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 0,
+        "decodedResultJsonUtf8Bytes": 2,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation",
+          "authoritative publication"
+        ],
+        "fingerprint": "355ffbde7bc554eea3eb8896e3c81884e7eff6f1c4038cfb657413742fee09f0",
+        "template": "select installed . target_installation , installed . control_installation , pg_catalog . set_config ( ? , pg_catalog . format ( ? , $? : : text ) , true ) , placement . scope_id , placement . deployment_id , placement . active_schema_version_id , placement . isolation_kind , placement . physical_locator_json , placement . created_at , placement . receipt_scope_id , placement . receipt_protocol_version , placement . receipt_state , placement . receipt_physical_locator_json , placement . receipt_initial_epoch , placement . receipt_reserved_at , placement . receipt_ready_at , fx_system_scope_clock . scope_uuid , scope_authority . epoch_uuid , fx_system_scope_clock . \"scope_id\" , scope_authority . \"storage_generation\" , scope_authority . \"storage_generation_fence\" , fx_system_scope_clock . last_metadata_sequence , fx_system_scope_clock . \"last_commit_seq\" , scope_authority . \"oldest_available_commit_seq\" , scope_authority . \"authorization_revocation_epoch\" , scope_authority . \"epoch\" , greatest ( fx_system_scope_clock . updated_at , scope_authority . updated_at ) , \"target_epoch\" . database_name , \"target_epoch\" . namespace_oid , \"target_epoch\" . incarnation : : text , \"target_epoch\" . generation , session_user , \"control_epoch\" . database_name , \"control_epoch\" . namespace_oid , \"control_epoch\" . incarnation : : text , \"control_epoch\" . generation , session_user from ( with first_gate as materialized ( select * from ( select i . * , session_user as login , current_user = session_user as same_login , current_database ( ) as actual_database , i . schema_name = $? and i . namespace_oid = $? : : pg_catalog . regnamespace : : oid : : bigint as same_schema from \"flarex_file_test_1791221606149_go9cu8p8f2d\" . fx_lock_installation_admission ( ) i join \"flarex_file_test_1791221606149_go9cu8p8f2d\" . fx_system_installation_runtime p on p . login = session_user and p . login_oid = session_user : : pg_catalog . regrole : : oid : : bigint and p . incarnation = i . incarnation and p . structural_generation = i . structural_generation and p . endpoint_policy = $? and p . access_profile = $? where current_user = session_user and session_user = $? and i . database_name = current_database ( ) and i . database_name = $? and i . schema_name = $? and i . namespace_oid = $? : : bigint and i . namespace_oid = $? : : pg_catalog . regnamespace : : oid : : bigint and i . incarnation = $? : : uuid and i . structural_generation = $? : : bigint and p . metadata_incarnation = $? : : uuid ) as admitted_first ) , second_gate as materialized ( select admitted_second . * from first_gate cross join lateral ( select * from ( select i . * , session_user as login , current_user = session_user as same_login , current_database ( ) as actual_database , i . schema_name = $? and i . namespace_oid = $? : : pg_catalog . regnamespace : : oid : : bigint as same_schema from \"flarex_file_test_1791221606152_6jm2t2irvbh\" . fx_lock_installation_admission ( ) i join \"flarex_file_test_1791221606152_6jm2t2irvbh\" . fx_system_installation_runtime p on p . login = session_user and p . login_oid = session_user : : pg_catalog . regrole : : oid : : bigint and p . incarnation = i . incarnation and p . structural_generation = i . structural_generation and p . endpoint_policy = $? and p . access_profile = $? where current_user = session_user and session_user = $? and i . database_name = current_database ( ) and i . database_name = $? and i . schema_name = $? and i . namespace_oid = $? : : bigint and i . namespace_oid = $? : : pg_catalog . regnamespace : : oid : : bigint and i . incarnation = $? : : uuid and i . structural_generation = $? : : bigint and p . metadata_incarnation = $? : : uuid ) as second_source where first_gate . namespace_oid > ? offset ? ) as admitted_second ) select jsonb_build_object ( ? , \"second_gate\" . database_name , ? , \"second_gate\" . schema_name , ? , \"second_gate\" . namespace_oid : : text , ? , \"second_gate\" . incarnation : : text , ? , \"second_gate\" . structural_generation : : text , ? , \"second_gate\" . login , ? , \"second_gate\" . same_login , ? , \"second_gate\" . actual_database , ? , \"second_gate\" . same_schema ) as target_installation , jsonb_build_object ( ? , \"first_gate\" . database_name , ? , \"first_gate\" . schema_name , ? , \"first_gate\" . namespace_oid : : text , ? , \"first_gate\" . incarnation : : text , ? , \"first_gate\" . structural_generation : : text , ? , \"first_gate\" . login , ? , \"first_gate\" . same_login , ? , \"first_gate\" . actual_database , ? , \"first_gate\" . same_schema ) as control_installation , first_gate . namespace_oid as first_oid , second_gate . namespace_oid as second_oid from first_gate cross join second_gate ) as installed cross join lateral \"flarex_file_test_1791221606149_go9cu8p8f2d\" . fx_lock_read_scope_placement ( $? , case when installed . first_oid > ? and installed . second_oid > ? then $? else null end ) as placement join lateral ( select * from \"flarex_file_test_1791221606152_6jm2t2irvbh\" . \"fx_system_scope_execution_authority\" where \"scope_id\" = placement . scope_id for share ) as scope_authority on true join lateral ( select * from \"flarex_file_test_1791221606152_6jm2t2irvbh\" . \"fx_system_scope_clock\" where \"scope_id\" = scope_authority . \"scope_id\" for no key update ) as fx_system_scope_clock on true left join \"flarex_file_test_1791221606152_6jm2t2irvbh\" . \"fx_system_prepared_metadata_epoch\" as target_epoch on target_epoch . \"singleton_id\" = ? left join \"flarex_file_test_1791221606149_go9cu8p8f2d\" . \"fx_system_prepared_metadata_epoch\" as control_epoch on control_epoch . \"singleton_id\" = ? limit $?",
+        "dispatchCount": 1,
+        "statementCount": 1,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 1.6489000000001397,
+        "awaitedMsMin": 1.6489000000001397,
+        "awaitedMsMax": 1.6489000000001397,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 1,
+        "decodedResultJsonUtf8Bytes": 1828,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation",
+          "authoritative publication"
+        ],
+        "fingerprint": "90c2ca5555cd114fe574320f2562ac137d2a80735299e5754380ca6a13fe8d2a",
+        "template": "select publication . reason , publication . database_now , publication . \"lifecycle\" , publication . \"updated_at\" , publication . \"finite_lease_expires_at\" , publication . \"finite_claim_owner\" , publication . \"finite_claim_fence\" , publication . \"finite_claimed_at\" , publication . \"finite_claim_expires_at\" , ( publication . outcome ) . \"scope_uuid\" , ( publication . outcome ) . \"request_key\" , octet_length ( ( publication . outcome ) . \"identity_access_policy_sha256\" ) , ( publication . outcome ) . \"identity_access_policy_sha256\" = $? , btrim ( ( publication . outcome ) . \"function_path\" , u & ? ) < > ? , ( publication . outcome ) . \"function_path\" = $? , octet_length ( ( publication . outcome ) . \"request_sha256\" ) , ( publication . outcome ) . \"request_sha256\" = $? , ( publication . outcome ) . \"epoch_uuid\" , ( publication . outcome ) . \"commit_seq\" , ( publication . outcome ) . \"result_state\" , ( publication . outcome ) . \"result_encoding\" , ( publication . outcome ) . \"result_value_codec_version\" , ( publication . outcome ) . \"result_semantic_bytes\" , octet_length ( ( publication . outcome ) . \"result_bytes\" ) , octet_length ( ( publication . outcome ) . \"result_sha256\" ) , ( publication . outcome ) . \"result_expired_at\" , ( publication . outcome ) . \"created_at\" , ( publication . retained_header ) . \"scope_uuid\" , ( publication . retained_header ) . \"epoch_uuid\" , ( publication . retained_header ) . \"commit_seq\" from \"flarex_file_test_1791221606152_6jm2t2irvbh\" . fx_observe_finite_publication ( $? : : uuid , $? : : uuid , $? : : text , $? : : jsonb ) as publication",
+        "dispatchCount": 1,
+        "statementCount": 1,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 1.5923000000002503,
+        "awaitedMsMin": 1.5923000000002503,
+        "awaitedMsMax": 1.5923000000002503,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 1,
+        "decodedResultJsonUtf8Bytes": 320,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation",
+          "authoritative publication"
+        ],
+        "fingerprint": "6a38dacf3380a3fd2177213945bb2804a8ca92d13587a8feb68c4734c370419c",
+        "template": "select \"flarex_file_test_1791221606152_6jm2t2irvbh\" . fx_compare_finite_metadata ( $? : : text , $? : : bigint , $? : : jsonb ) , ( select coalesce ( jsonb_agg ( \"flarex_file_test_1791221606152_6jm2t2irvbh\" . fx_compare_finite_metadata ( $? : : text , null : : bigint , page . value ) order by page . ordinality ) , ? : : jsonb ) from jsonb_array_elements ( $? : : jsonb ) with ordinality as page ( value , ordinality ) ) , jsonb_build_object ( ? , \"fx_system_application_active_head\" . \"readiness_contract_version\" , ? , exists ( select ? from \"fx_system_application_write_ownership\" where \"fx_system_application_write_ownership\" . \"scope_id\" = $? ) ) , ( select coalesce ( jsonb_agg ( ( select coalesce ( jsonb_agg ( \"flarex_file_test_1791221606152_6jm2t2irvbh\" . fx_compare_finite_metadata ( $? : : text , null : : bigint , page . value ) order by page . ordinality ) , ? : : jsonb ) from jsonb_array_elements ( source . value ) with ordinality as page ( value , ordinality ) ) order by source . ordinality ) , ? : : jsonb ) from jsonb_array_elements ( $? : : jsonb ) with ordinality as source ( value , ordinality ) ) from \"fx_system_scope_clock\" left join \"fx_system_application_active_head\" on \"fx_system_application_active_head\" . \"scope_id\" = \"fx_system_scope_clock\" . \"scope_id\" where \"fx_system_scope_clock\" . \"scope_id\" = $? limit $?",
+        "dispatchCount": 1,
+        "statementCount": 1,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 3.0018999999992957,
+        "awaitedMsMin": 3.0018999999992957,
+        "awaitedMsMax": 3.0018999999992957,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 1,
+        "decodedResultJsonUtf8Bytes": 107,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation",
+          "authoritative publication"
+        ],
+        "fingerprint": "982e0689a5ac7dca93235f17399657d31ff945b60f0924455feac94e3a9626bb",
+        "template": "select \"fx_app_unique_key\" . \"scope_uuid\" , \"fx_app_unique_key\" . \"constraint_id\" , \"fx_app_unique_key\" . \"locale_key\" , \"fx_app_unique_key\" . \"canonical_key_sha256\" , \"fx_app_unique_key\" . \"key_codec_version\" , \"fx_app_unique_key\" . \"encoded_key\" , \"fx_app_unique_key\" . \"table_id\" , \"fx_app_unique_key\" . \"row_id\" , \"fx_app_row_current\" . \"commit_seq\" , \"fx_app_row_rev\" . \"is_tombstone\" , \"fx_system_scope_clock\" . \"last_commit_seq\" , exists ( select ? from \"fx_system_commit_app_row_change\" as fact where fact . scope_uuid = \"fx_app_unique_key\" . \"scope_uuid\" and fact . commit_seq = \"fx_app_row_current\" . \"commit_seq\" and fact . table_id = \"fx_app_unique_key\" . \"table_id\" and fact . row_id = \"fx_app_unique_key\" . \"row_id\" ) from \"fx_app_unique_key\" left join \"fx_app_row_current\" on ( \"fx_app_row_current\" . \"scope_uuid\" = \"fx_app_unique_key\" . \"scope_uuid\" and \"fx_app_row_current\" . \"table_id\" = \"fx_app_unique_key\" . \"table_id\" and \"fx_app_row_current\" . \"row_id\" = \"fx_app_unique_key\" . \"row_id\" ) left join \"fx_app_row_rev\" on ( \"fx_app_row_rev\" . \"scope_uuid\" = \"fx_app_row_current\" . \"scope_uuid\" and \"fx_app_row_rev\" . \"table_id\" = \"fx_app_row_current\" . \"table_id\" and \"fx_app_row_rev\" . \"row_id\" = \"fx_app_row_current\" . \"row_id\" and \"fx_app_row_rev\" . \"commit_seq\" = \"fx_app_row_current\" . \"commit_seq\" ) left join \"fx_system_scope_clock\" on \"fx_system_scope_clock\" . \"scope_uuid\" = \"fx_app_unique_key\" . \"scope_uuid\" left join \"fx_system_scope_execution_authority\" on \"fx_system_scope_execution_authority\" . \"scope_id\" = \"fx_system_scope_clock\" . \"scope_id\" where ( ( \"fx_app_unique_key\" . \"scope_uuid\" = $? and \"fx_app_unique_key\" . \"constraint_id\" = $? and \"fx_app_unique_key\" . \"locale_key\" = $? and \"fx_app_unique_key\" . \"canonical_key_sha256\" = $? ) or ( \"fx_app_unique_key\" . \"scope_uuid\" = $? and \"fx_app_unique_key\" . \"constraint_id\" = $? and \"fx_app_unique_key\" . \"locale_key\" = $? and \"fx_app_unique_key\" . \"canonical_key_sha256\" = $? ) or ( \"fx_app_unique_key\" . \"scope_uuid\" = $? and \"fx_app_unique_key\" . \"constraint_id\" = $? and \"fx_app_unique_key\" . \"locale_key\" = $? and \"fx_app_unique_key\" . \"canonical_key_sha256\" = $? ) or ( \"fx_app_unique_key\" . \"scope_uuid\" = $? and \"fx_app_unique_key\" . \"constraint_id\" = $? and \"fx_app_unique_key\" . \"locale_key\" = $? and \"fx_app_unique_key\" . \"canonical_key_sha256\" = $? ) )",
+        "dispatchCount": 1,
+        "statementCount": 1,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 0.8924999999981083,
+        "awaitedMsMin": 0.8924999999981083,
+        "awaitedMsMax": 0.8924999999981083,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 3,
+        "decodedResultJsonUtf8Bytes": 1397,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation",
+          "authoritative publication"
+        ],
+        "fingerprint": "c4f8c65b9a024baeef487999a2cfefd3fda5e67578ea9269fe6f208b7baedfa9",
+        "template": "select * from ( select $? : : integer as \"ordinal\" , member . * from ( values ( ? ) ) as request ( present ) left join lateral ( select true as \"present\" , page . * from ( with page as materialized ( select current_entry . scope_uuid , current_entry . index_definition_id , current_entry . encoded_key , current_entry . row_id , current_entry . commit_seq from fx_app_index_entry_current as current_entry where current_entry . scope_uuid = $? and current_entry . index_definition_id = $? and current_entry . encoded_key > = $? and current_entry . encoded_key < $? order by current_entry . encoded_key asc , current_entry . row_id asc limit $? ) select revision . table_id : : text as \"tableIdText\" , revision . key_codec_version : : text as \"keyCodecVersionText\" , revision . physical_spec_sha256 as \"physicalSpecSha256\" , revision . encoded_key as \"encodedKeyBytes\" , revision . key_sha256 as \"keySha256\" , revision . row_id as \"rowIdBytes\" , revision . commit_seq : : text as \"commitSeqText\" , revision . is_tombstone as \"isTombstone\" from page as current_entry join fx_app_index_entry_rev as revision on revision . scope_uuid = current_entry . scope_uuid and revision . index_definition_id = current_entry . index_definition_id and revision . encoded_key = current_entry . encoded_key and revision . row_id = current_entry . row_id and revision . commit_seq = current_entry . commit_seq order by current_entry . encoded_key asc , current_entry . row_id asc ) as page ) as member on true union all select $? : : integer as \"ordinal\" , member . * from ( values ( ? ) ) as request ( present ) left join lateral ( select true as \"present\" , page . * from ( with page as materialized ( select current_entry . scope_uuid , current_entry . index_definition_id , current_entry . encoded_key , current_entry . row_id , current_entry . commit_seq from fx_app_index_entry_current as current_entry where current_entry . scope_uuid = $? and current_entry . index_definition_id = $? and current_entry . encoded_key > = $? and current_entry . encoded_key < $? order by current_entry . encoded_key asc , current_entry . row_id asc limit $? ) select revision . table_id : : text as \"tableIdText\" , revision . key_codec_version : : text as \"keyCodecVersionText\" , revision . physical_spec_sha256 as \"physicalSpecSha256\" , revision . encoded_key as \"encodedKeyBytes\" , revision . key_sha256 as \"keySha256\" , revision . row_id as \"rowIdBytes\" , revision . commit_seq : : text as \"commitSeqText\" , revision . is_tombstone as \"isTombstone\" from page as current_entry join fx_app_index_entry_rev as revision on revision . scope_uuid = current_entry . scope_uuid and revision . index_definition_id = current_entry . index_definition_id and revision . encoded_key = current_entry . encoded_key and revision . row_id = current_entry . row_id and revision . commit_seq = current_entry . commit_seq order by current_entry . encoded_key asc , current_entry . row_id asc ) as page ) as member on true union all select $? : : integer as \"ordinal\" , member . * from ( values ( ? ) ) as request ( present ) left join lateral ( select true as \"present\" , page . * from ( with page as materialized ( select current_entry . scope_uuid , current_entry . index_definition_id , current_entry . encoded_key , current_entry . row_id , current_entry . commit_seq from fx_app_index_entry_current as current_entry where current_entry . scope_uuid = $? and current_entry . index_definition_id = $? and current_entry . encoded_key > = $? and current_entry . encoded_key < $? order by current_entry . encoded_key asc , current_entry . row_id asc limit $? ) select revision . table_id : : text as \"tableIdText\" , revision . key_codec_version : : text as \"keyCodecVersionText\" , revision . physical_spec_sha256 as \"physicalSpecSha256\" , revision . encoded_key as \"encodedKeyBytes\" , revision . key_sha256 as \"keySha256\" , revision . row_id as \"rowIdBytes\" , revision . commit_seq : : text as \"commitSeqText\" , revision . is_tombstone as \"isTombstone\" from page as current_entry join fx_app_index_entry_rev as revision on revision . scope_uuid = current_entry . scope_uuid and revision . index_definition_id = current_entry . index_definition_id and revision . encoded_key = current_entry . encoded_key and revision . row_id = current_entry . row_id and revision . commit_seq = current_entry . commit_seq order by current_entry . encoded_key asc , current_entry . row_id asc ) as page ) as member on true union all select $? : : integer as \"ordinal\" , member . * from ( values ( ? ) ) as request ( present ) left join lateral ( select true as \"present\" , page . * from ( with page as materialized ( select current_entry . scope_uuid , current_entry . index_definition_id , current_entry . encoded_key , current_entry . row_id , current_entry . commit_seq from fx_app_index_entry_current as current_entry where current_entry . scope_uuid = $? and current_entry . index_definition_id = $? and current_entry . encoded_key > = $? and current_entry . encoded_key < $? order by current_entry . encoded_key asc , current_entry . row_id asc limit $? ) select revision . table_id : : text as \"tableIdText\" , revision . key_codec_version : : text as \"keyCodecVersionText\" , revision . physical_spec_sha256 as \"physicalSpecSha256\" , revision . encoded_key as \"encodedKeyBytes\" , revision . key_sha256 as \"keySha256\" , revision . row_id as \"rowIdBytes\" , revision . commit_seq : : text as \"commitSeqText\" , revision . is_tombstone as \"isTombstone\" from page as current_entry join fx_app_index_entry_rev as revision on revision . scope_uuid = current_entry . scope_uuid and revision . index_definition_id = current_entry . index_definition_id and revision . encoded_key = current_entry . encoded_key and revision . row_id = current_entry . row_id and revision . commit_seq = current_entry . commit_seq order by current_entry . encoded_key asc , current_entry . row_id asc ) as page ) as member on true union all select $? : : integer as \"ordinal\" , member . * from ( values ( ? ) ) as request ( present ) left join lateral ( select true as \"present\" , page . * from ( with page as materialized ( select current_entry . scope_uuid , current_entry . index_definition_id , current_entry . encoded_key , current_entry . row_id , current_entry . commit_seq from fx_app_index_entry_current as current_entry where current_entry . scope_uuid = $? and current_entry . index_definition_id = $? and current_entry . encoded_key > = $? and current_entry . encoded_key < $? order by current_entry . encoded_key asc , current_entry . row_id asc limit $? ) select revision . table_id : : text as \"tableIdText\" , revision . key_codec_version : : text as \"keyCodecVersionText\" , revision . physical_spec_sha256 as \"physicalSpecSha256\" , revision . encoded_key as \"encodedKeyBytes\" , revision . key_sha256 as \"keySha256\" , revision . row_id as \"rowIdBytes\" , revision . commit_seq : : text as \"commitSeqText\" , revision . is_tombstone as \"isTombstone\" from page as current_entry join fx_app_index_entry_rev as revision on revision . scope_uuid = current_entry . scope_uuid and revision . index_definition_id = current_entry . index_definition_id and revision . encoded_key = current_entry . encoded_key and revision . row_id = current_entry . row_id and revision . commit_seq = current_entry . commit_seq order by current_entry . encoded_key asc , current_entry . row_id asc ) as page ) as member on true union all select $? : : integer as \"ordinal\" , member . * from ( values ( ? ) ) as request ( present ) left join lateral ( select true as \"present\" , page . * from ( with page as materialized ( select current_entry . scope_uuid , current_entry . index_definition_id , current_entry . encoded_key , current_entry . row_id , current_entry . commit_seq from fx_app_index_entry_current as current_entry where current_entry . scope_uuid = $? and current_entry . index_definition_id = $? and current_entry . encoded_key > = $? and current_entry . encoded_key < $? order by current_entry . encoded_key asc , current_entry . row_id asc limit $? ) select revision . table_id : : text as \"tableIdText\" , revision . key_codec_version : : text as \"keyCodecVersionText\" , revision . physical_spec_sha256 as \"physicalSpecSha256\" , revision . encoded_key as \"encodedKeyBytes\" , revision . key_sha256 as \"keySha256\" , revision . row_id as \"rowIdBytes\" , revision . commit_seq : : text as \"commitSeqText\" , revision . is_tombstone as \"isTombstone\" from page as current_entry join fx_app_index_entry_rev as revision on revision . scope_uuid = current_entry . scope_uuid and revision . index_definition_id = current_entry . index_definition_id and revision . encoded_key = current_entry . encoded_key and revision . row_id = current_entry . row_id and revision . commit_seq = current_entry . commit_seq order by current_entry . encoded_key asc , current_entry . row_id asc ) as page ) as member on true union all select $? : : integer as \"ordinal\" , member . * from ( values ( ? ) ) as request ( present ) left join lateral ( select true as \"present\" , page . * from ( with page as materialized ( select current_entry . scope_uuid , current_entry . index_definition_id , current_entry . encoded_key , current_entry . row_id , current_entry . commit_seq from fx_app_index_entry_current as current_entry where current_entry . scope_uuid = $? and current_entry . index_definition_id = $? and current_entry . encoded_key > = $? and current_entry . encoded_key < $? order by current_entry . encoded_key asc , current_entry . row_id asc limit $? ) select revision . table_id : : text as \"tableIdText\" , revision . key_codec_version : : text as \"keyCodecVersionText\" , revision . physical_spec_sha256 as \"physicalSpecSha256\" , revision . encoded_key as \"encodedKeyBytes\" , revision . key_sha256 as \"keySha256\" , revision . row_id as \"rowIdBytes\" , revision . commit_seq : : text as \"commitSeqText\" , revision . is_tombstone as \"isTombstone\" from page as current_entry join fx_app_index_entry_rev as revision on revision . scope_uuid = current_entry . scope_uuid and revision . index_definition_id = current_entry . index_definition_id and revision . encoded_key = current_entry . encoded_key and revision . row_id = current_entry . row_id and revision . commit_seq = current_entry . commit_seq order by current_entry . encoded_key asc , current_entry . row_id asc ) as page ) as member on true union all select $? : : integer as \"ordinal\" , member . * from ( values ( ? ) ) as request ( present ) left join lateral ( select true as \"present\" , page . * from ( with page as materialized ( select current_entry . scope_uuid , current_entry . index_definition_id , current_entry . encoded_key , current_entry . row_id , current_entry . commit_seq from fx_app_index_entry_current as current_entry where current_entry . scope_uuid = $? and current_entry . index_definition_id = $? and current_entry . encoded_key > = $? and current_entry . encoded_key < $? order by current_entry . encoded_key asc , current_entry . row_id asc limit $? ) select revision . table_id : : text as \"tableIdText\" , revision . key_codec_version : : text as \"keyCodecVersionText\" , revision . physical_spec_sha256 as \"physicalSpecSha256\" , revision . encoded_key as \"encodedKeyBytes\" , revision . key_sha256 as \"keySha256\" , revision . row_id as \"rowIdBytes\" , revision . commit_seq : : text as \"commitSeqText\" , revision . is_tombstone as \"isTombstone\" from page as current_entry join fx_app_index_entry_rev as revision on revision . scope_uuid = current_entry . scope_uuid and revision . index_definition_id = current_entry . index_definition_id and revision . encoded_key = current_entry . encoded_key and revision . row_id = current_entry . row_id and revision . commit_seq = current_entry . commit_seq order by current_entry . encoded_key asc , current_entry . row_id asc ) as page ) as member on true union all select $? : : integer as \"ordinal\" , member . * from ( values ( ? ) ) as request ( present ) left join lateral ( select true as \"present\" , page . * from ( with page as materialized ( select current_entry . scope_uuid , current_entry . index_definition_id , current_entry . encoded_key , current_entry . row_id , current_entry . commit_seq from fx_app_index_entry_current as current_entry where current_entry . scope_uuid = $? and current_entry . index_definition_id = $? and current_entry . encoded_key > = $? and current_entry . encoded_key < $? order by current_entry . encoded_key asc , current_entry . row_id asc limit $? ) select revision . table_id : : text as \"tableIdText\" , revision . key_codec_version : : text as \"keyCodecVersionText\" , revision . physical_spec_sha256 as \"physicalSpecSha256\" , revision . encoded_key as \"encodedKeyBytes\" , revision . key_sha256 as \"keySha256\" , revision . row_id as \"rowIdBytes\" , revision . commit_seq : : text as \"commitSeqText\" , revision . is_tombstone as \"isTombstone\" from page as current_entry join fx_app_index_entry_rev as revision on revision . scope_uuid = current_entry . scope_uuid and revision . index_definition_id = current_entry . index_definition_id and revision . encoded_key = current_entry . encoded_key and revision . row_id = current_entry . row_id and revision . commit_seq = current_entry . commit_seq order by current_entry . encoded_key asc , current_entry . row_id asc ) as page ) as member on true union all select $? : : integer as \"ordinal\" , member . * from ( values ( ? ) ) as request ( present ) left join lateral ( select true as \"present\" , page . * from ( with page as materialized ( select current_entry . scope_uuid , current_entry . index_definition_id , current_entry . encoded_key , current_entry . row_id , current_entry . commit_seq from fx_app_index_entry_current as current_entry where current_entry . scope_uuid = $? and current_entry . index_definition_id = $? and current_entry . encoded_key > = $? and current_entry . encoded_key < $? order by current_entry . encoded_key asc , current_entry . row_id asc limit $? ) select revision . table_id : : text as \"tableIdText\" , revision . key_codec_version : : text as \"keyCodecVersionText\" , revision . physical_spec_sha256 as \"physicalSpecSha256\" , revision . encoded_key as \"encodedKeyBytes\" , revision . key_sha256 as \"keySha256\" , revision . row_id as \"rowIdBytes\" , revision . commit_seq : : text as \"commitSeqText\" , revision . is_tombstone as \"isTombstone\" from page as current_entry join fx_app_index_entry_rev as revision on revision . scope_uuid = current_entry . scope_uuid and revision . index_definition_id = current_entry . index_definition_id and revision . encoded_key = current_entry . encoded_key and revision . row_id = current_entry . row_id and revision . commit_seq = current_entry . commit_seq order by current_entry . encoded_key asc , current_entry . row_id asc ) as page ) as member on true ) as demands order by \"ordinal\" , \"encodedKeyBytes\" , \"rowIdBytes\"",
+        "dispatchCount": 1,
+        "statementCount": 1,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 4.270000000000437,
+        "awaitedMsMin": 4.270000000000437,
+        "awaitedMsMax": 4.270000000000437,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 11,
+        "decodedResultJsonUtf8Bytes": 7815,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation",
+          "authoritative publication"
+        ],
+        "fingerprint": "13f54b3e7bf7a210c3919a769e4c7299a878aa8adae3bc59f1d18492cafb1281",
+        "template": "select \"scope_id\" , \"index_definition_id\" , \"storage_generation\" , \"storage_generation_fence\" , \"epoch\" , \"start_commit_seq\" , \"covered_through_commit_seq\" , \"first_readable_commit_seq\" , \"maintenance_activation_sequence\" , \"maintenance_bytes\" , \"maintenance_sha256\" , \"lifecycle\" , \"cursor_codec_version\" , \"backfill_cursor_row_id\" , \"attempt_fence\" , \"created_at\" , \"updated_at\" from \"fx_system_index_build_state\" where ( \"fx_system_index_build_state\" . \"scope_id\" = $? and \"fx_system_index_build_state\" . \"index_definition_id\" in ( $? , $? ) ) order by case \"fx_system_index_build_state\" . \"index_definition_id\" when $? then $? when $? then $? end for share",
+        "dispatchCount": 1,
+        "statementCount": 1,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 1.0351000000009662,
+        "awaitedMsMin": 1.0351000000009662,
+        "awaitedMsMax": 1.0351000000009662,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 2,
+        "decodedResultJsonUtf8Bytes": 3190,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation",
+          "authoritative publication"
+        ],
+        "fingerprint": "dc3cbcd1f291a0d0816e84cfe302cb549071721e016e82dfd9c0100760f96faa",
+        "template": "select observed . kind , ( observed . developer_build ) . \"scope_id\" , ( observed . developer_build ) . \"index_definition_id\" , ( observed . developer_build ) . \"storage_generation\" , ( observed . developer_build ) . \"storage_generation_fence\" , ( observed . developer_build ) . \"epoch\" , ( observed . developer_build ) . \"start_commit_seq\" , ( observed . developer_build ) . \"covered_through_commit_seq\" , ( observed . developer_build ) . \"first_readable_commit_seq\" , ( observed . developer_build ) . \"maintenance_activation_sequence\" , ( observed . developer_build ) . \"maintenance_bytes\" , ( observed . developer_build ) . \"maintenance_sha256\" , ( observed . developer_build ) . \"lifecycle\" , ( observed . developer_build ) . \"cursor_codec_version\" , ( observed . developer_build ) . \"backfill_cursor_row_id\" , ( observed . developer_build ) . \"attempt_fence\" , ( observed . developer_build ) . \"created_at\" , ( observed . developer_build ) . \"updated_at\" , observed . ordinal : : text , observed . pointer_commit_seq_text , observed . latest_commit_seq_text , observed . latest_is_tombstone , observed . latest_creation_time_text , observed . original_scope_uuid , observed . original_write_epoch_uuid , observed . original_prev_commit_seq_text , observed . original_schema_version_id , observed . original_codec_version , observed . original_byte_length_text , observed . original_stored_sha256 , observed . original_actual_sha256 from \"flarex_file_test_1791221606152_6jm2t2irvbh\" . fx_observe_app_developer_heads ( $? : : text , $? : : uuid , array [ $? : : integer , $? : : integer , $? : : integer , $? : : integer , $? : : integer , $? : : integer , $? : : integer , $? : : integer , $? : : integer ] : : integer [ ] , array [ $? : : integer , $? : : integer , $? : : integer , $? : : integer , $? : : integer , $? : : integer , $? : : integer , $? : : integer , $? : : integer , $? : : integer , $? : : integer ] : : integer [ ] , array [ $? : : bytea , $? : : bytea , $? : : bytea , $? : : bytea , $? : : bytea , $? : : bytea , $? : : bytea , $? : : bytea , $? : : bytea , $? : : bytea , $? : : bytea ] : : bytea [ ] , array [ $? : : integer , $? : : integer , $? : : integer , $? : : integer , $? : : integer , $? : : integer , $? : : integer , $? : : integer , $? : : integer , $? : : integer , $? : : integer ] : : integer [ ] ) observed",
+        "dispatchCount": 1,
+        "statementCount": 1,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 2.416300000000774,
+        "awaitedMsMin": 2.416300000000774,
+        "awaitedMsMax": 2.416300000000774,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 20,
+        "decodedResultJsonUtf8Bytes": 6964,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation",
+          "authoritative publication"
+        ],
+        "fingerprint": "576bf858018f7a05c8631ae70f5b6c171f551db9082c63ecac88fe651032667b",
+        "template": "select observed . reason , observed . database_now , ( observed . application_head ) . \"scope_id\" , ( observed . application_head ) . \"activation_sequence\" , ( observed . application_head ) . \"revision_id\" , ( observed . application_head ) . \"readiness_contract_version\" , ( observed . application_head ) . \"readiness_sha256\" , ( observed . application_head ) . \"relation_set_readiness_sha256\" , ( observed . application_head ) . \"relation_count\" , ( observed . application_head ) . \"write_policy_set_sha256\" , ( observed . application_head ) . \"write_ownership_sha256\" , ( observed . application_head ) . \"activation_sha256\" , ( observed . application_head ) . \"head_sha256\" , ( observed . application_head ) . \"head_bytes\" , ( observed . application_head ) . \"created_at\" , ( observed . application_head ) . \"updated_at\" , ( observed . application_activation ) . \"scope_id\" , ( observed . application_activation ) . \"activation_sequence\" , ( observed . application_activation ) . \"previous_activation_sequence\" , ( observed . application_activation ) . \"revision_id\" , ( observed . application_activation ) . \"readiness_contract_version\" , ( observed . application_activation ) . \"readiness_sha256\" , ( observed . application_activation ) . \"legacy_readiness_sha256\" , ( observed . application_activation ) . \"relation_readiness_sha256\" , ( observed . application_activation ) . \"relation_set_readiness_sha256\" , ( observed . application_activation ) . \"relation_count\" , ( observed . application_activation ) . \"write_policy_set_sha256\" , ( observed . application_activation ) . \"write_ownership_sha256\" , ( observed . application_activation ) . \"activation_request_sha256\" , ( observed . application_activation ) . \"activation_sha256\" , ( observed . application_activation ) . \"activation_bytes\" , ( observed . application_activation ) . \"activated_at\" , ( observed . legacy_schema ) . \"scope_id\" , ( observed . legacy_schema ) . \"revision_id\" , ( observed . legacy_schema ) . \"deployment_id\" , ( observed . legacy_schema ) . \"application_schema_sha256\" , ( observed . legacy_schema ) . \"schema_version_id\" , ( observed . legacy_schema ) . \"schema_version\" , ( observed . legacy_schema ) . \"schema_manifest_sha256\" , ( observed . legacy_schema ) . \"schema_binding_sha256\" , ( observed . legacy_schema ) . \"bound_at\" , ( observed . relation_schema ) . \"scope_id\" , ( observed . relation_schema ) . \"revision_id\" , ( observed . relation_schema ) . \"deployment_id\" , ( observed . relation_schema ) . \"manifest_sha256\" , ( observed . relation_schema ) . \"publication_sha256\" , ( observed . relation_schema ) . \"application_schema_sha256\" , ( observed . relation_schema ) . \"schema_version_id\" , ( observed . relation_schema ) . \"schema_version\" , ( observed . relation_schema ) . \"schema_manifest_sha256\" , ( observed . relation_schema ) . \"manifest_schema_binding_sha256\" , ( observed . relation_schema ) . \"bound_publication_sha256\" , ( observed . relation_schema ) . \"bound_at\" from \"flarex_file_test_1791221606152_6jm2t2irvbh\" . fx_begin_app_materialization ( $? : : text , $? : : timestamptz , $? : : boolean ) observed",
+        "dispatchCount": 1,
+        "statementCount": 1,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 2.808600000000297,
+        "awaitedMsMin": 2.808600000000297,
+        "awaitedMsMax": 2.808600000000297,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 1,
+        "decodedResultJsonUtf8Bytes": 4922,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation",
+          "authoritative publication"
+        ],
+        "fingerprint": "28f5878b585b48d00a5d786197ed6980b57df058895239e2c9c3d327f51d7638",
+        "template": "with requested ( ordinal , scope_uuid , index_definition_id , encoded_key , row_id ) as ( values ( $? : : integer , $? : : uuid , $? : : integer , $? : : bytea , $? : : bytea ) , ( $? : : integer , $? : : uuid , $? : : integer , $? : : bytea , $? : : bytea ) , ( $? : : integer , $? : : uuid , $? : : integer , $? : : bytea , $? : : bytea ) , ( $? : : integer , $? : : uuid , $? : : integer , $? : : bytea , $? : : bytea ) , ( $? : : integer , $? : : uuid , $? : : integer , $? : : bytea , $? : : bytea ) , ( $? : : integer , $? : : uuid , $? : : integer , $? : : bytea , $? : : bytea ) , ( $? : : integer , $? : : uuid , $? : : integer , $? : : bytea , $? : : bytea ) , ( $? : : integer , $? : : uuid , $? : : integer , $? : : bytea , $? : : bytea ) , ( $? : : integer , $? : : uuid , $? : : integer , $? : : bytea , $? : : bytea ) , ( $? : : integer , $? : : uuid , $? : : integer , $? : : bytea , $? : : bytea ) , ( $? : : integer , $? : : uuid , $? : : integer , $? : : bytea , $? : : bytea ) ) select requested . ordinal : : text as \"ordinal\" , current_entry . commit_seq : : text as \"currentCommitSeq\" , latest . table_id : : text as \"tableIdText\" , latest . key_codec_version : : text as \"keyCodecVersionText\" , latest . physical_spec_sha256 as \"physicalSpecSha256\" , latest . encoded_key as \"encodedKeyBytes\" , latest . key_sha256 as \"keySha256\" , latest . row_id as \"rowIdBytes\" , latest . commit_seq : : text as \"commitSeqText\" , latest . is_tombstone as \"isTombstone\" from requested left join fx_app_index_entry_current as current_entry on current_entry . scope_uuid = requested . scope_uuid and current_entry . index_definition_id = requested . index_definition_id and current_entry . encoded_key = requested . encoded_key and current_entry . row_id = requested . row_id left join lateral ( select revision . * from fx_app_index_entry_rev as revision where revision . scope_uuid = requested . scope_uuid and revision . index_definition_id = requested . index_definition_id and revision . encoded_key = requested . encoded_key and revision . row_id = requested . row_id order by revision . commit_seq desc limit ? ) as latest on true order by requested . ordinal",
+        "dispatchCount": 1,
+        "statementCount": 1,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 1.1473000000005413,
+        "awaitedMsMin": 1.1473000000005413,
+        "awaitedMsMax": 1.1473000000005413,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 11,
+        "decodedResultJsonUtf8Bytes": 6224,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation",
+          "authoritative publication"
+        ],
+        "fingerprint": "61618e8093b7c4d27062b58821937fa570a96aee877597a8639158f4c92fe29c",
+        "template": "select \"scope_uuid\" , \"constraint_id\" , \"locale_key\" , \"canonical_key_sha256\" , \"key_codec_version\" , \"encoded_key\" , \"table_id\" , \"row_id\" from \"fx_app_unique_key\" where ( \"fx_app_unique_key\" . \"scope_uuid\" = $? and ( ( \"fx_app_unique_key\" . \"constraint_id\" = $? and \"fx_app_unique_key\" . \"table_id\" = $? and \"fx_app_unique_key\" . \"row_id\" = $? ) or ( \"fx_app_unique_key\" . \"constraint_id\" = $? and \"fx_app_unique_key\" . \"table_id\" = $? and \"fx_app_unique_key\" . \"row_id\" = $? ) ) ) order by \"fx_app_unique_key\" . \"constraint_id\" , \"fx_app_unique_key\" . \"table_id\" , \"fx_app_unique_key\" . \"row_id\" , \"fx_app_unique_key\" . \"locale_key\" limit $?",
+        "dispatchCount": 1,
+        "statementCount": 1,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 0.4320000000006985,
+        "awaitedMsMin": 0.4320000000006985,
+        "awaitedMsMax": 0.4320000000006985,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 2,
+        "decodedResultJsonUtf8Bytes": 903,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation",
+          "authoritative publication"
+        ],
+        "fingerprint": "e7038552a97cc5bc1877653e4b2a4e1a05b8c92eb471536a2f37ef68bfe19cb5",
+        "template": "select \"scope_id\" , \"deployment_id\" , \"schema_version_id\" , \"schema_manifest_sha256\" , \"storage_generation\" , \"storage_generation_fence\" , \"epoch\" , \"frontier_commit_seq\" , \"attempt_fence\" , \"frame_codec_version\" , \"frame_kind\" , \"frame_byte_length\" , \"frame_sha256\" , \"frame_bytes\" , \"created_at\" , \"updated_at\" from \"fx_system_app_schema_candidate_validation\" where \"fx_system_app_schema_candidate_validation\" . \"scope_id\" = $? limit $? for update",
+        "dispatchCount": 1,
+        "statementCount": 1,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 0.28720000000248547,
+        "awaitedMsMin": 0.28720000000248547,
+        "awaitedMsMax": 0.28720000000248547,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 1,
+        "decodedResultJsonUtf8Bytes": 3632,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation",
+          "authoritative publication"
+        ],
+        "fingerprint": "9d44e3daa0c61d1a594227d17497e9ae6cb49d7c06be7d3b61f137dbaa7a85eb",
+        "template": "select \"scope_id\" , \"unique_constraint_definition_id\" , \"storage_generation\" , \"storage_generation_fence\" , \"epoch\" , \"start_commit_seq\" , \"lifecycle\" , \"covered_through_commit_seq\" , \"maintenance_activation_sequence\" , \"maintenance_bytes\" , \"maintenance_sha256\" , \"cursor_row_id\" , \"attempt_fence\" , \"created_at\" , \"updated_at\" from \"fx_system_unique_constraint_build\" where ( \"fx_system_unique_constraint_build\" . \"scope_id\" = $? and \"fx_system_unique_constraint_build\" . \"unique_constraint_definition_id\" in ( $? , $? ) ) order by \"fx_system_unique_constraint_build\" . \"unique_constraint_definition_id\" limit $? for share",
+        "dispatchCount": 1,
+        "statementCount": 1,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 0.2734000000018568,
+        "awaitedMsMin": 0.2734000000018568,
+        "awaitedMsMax": 0.2734000000018568,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 2,
+        "decodedResultJsonUtf8Bytes": 437,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation",
+          "authoritative publication"
+        ],
+        "fingerprint": "26bcd0e600a6c600787dad3ad55bfb5beccce86ec18be781ea35b347fd8fd573",
+        "template": "with requested ( ordinal , scope_uuid , index_definition_id , encoded_key , row_id ) as ( values ( $? : : integer , $? : : uuid , $? : : integer , $? : : bytea , $? : : bytea ) , ( $? : : integer , $? : : uuid , $? : : integer , $? : : bytea , $? : : bytea ) ) select requested . ordinal : : text as \"ordinal\" , current_entry . commit_seq : : text as \"currentCommitSeq\" , latest . table_id : : text as \"tableIdText\" , latest . key_codec_version : : text as \"keyCodecVersionText\" , latest . physical_spec_sha256 as \"physicalSpecSha256\" , latest . encoded_key as \"encodedKeyBytes\" , latest . key_sha256 as \"keySha256\" , latest . row_id as \"rowIdBytes\" , latest . commit_seq : : text as \"commitSeqText\" , latest . is_tombstone as \"isTombstone\" from requested left join fx_app_index_entry_current as current_entry on current_entry . scope_uuid = requested . scope_uuid and current_entry . index_definition_id = requested . index_definition_id and current_entry . encoded_key = requested . encoded_key and current_entry . row_id = requested . row_id left join lateral ( select revision . * from fx_app_index_entry_rev as revision where revision . scope_uuid = requested . scope_uuid and revision . index_definition_id = requested . index_definition_id and revision . encoded_key = requested . encoded_key and revision . row_id = requested . row_id order by revision . commit_seq desc limit ? ) as latest on true order by requested . ordinal",
+        "dispatchCount": 1,
+        "statementCount": 1,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 0.48949999999967986,
+        "awaitedMsMin": 0.48949999999967986,
+        "awaitedMsMax": 0.48949999999967986,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 2,
+        "decodedResultJsonUtf8Bytes": 820,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation",
+          "authoritative publication"
+        ],
+        "fingerprint": "940784ec78536dd75815ffed01cf4b748bf2366db24f530c386b6d338cfb3b5e",
+        "template": "select reason , row_count , index_count , unique_count , validation_count , coverage_count , search_count , search_build_count from \"flarex_file_test_1791221606152_6jm2t2irvbh\" . fx_apply_app_materialization ( array [ row ( $? : : uuid , $? : : integer , $? : : bytea , $? : : bigint , $? : : bigint , $? : : uuid , $? : : text , $? : : double precision , $? : : integer , $? : : boolean , $? : : bytea , $? : : bytea ) : : \"flarex_file_test_1791221606152_6jm2t2irvbh\" . \"fx_app_row_write\" , row ( $? : : uuid , $? : : integer , $? : : bytea , $? : : bigint , $? : : bigint , $? : : uuid , $? : : text , $? : : double precision , $? : : integer , $? : : boolean , $? : : bytea , $? : : bytea ) : : \"flarex_file_test_1791221606152_6jm2t2irvbh\" . \"fx_app_row_write\" ] : : \"flarex_file_test_1791221606152_6jm2t2irvbh\" . \"fx_app_row_write\" [ ] , array [ $? : : integer ] : : integer [ ] , array [ row ( $? : : uuid , $? : : integer , $? : : integer , $? : : integer , $? : : bytea , $? : : bytea , $? : : bytea , $? : : bytea , $? : : bigint , $? : : boolean ) : : \"flarex_file_test_1791221606152_6jm2t2irvbh\" . \"fx_app_index_write\" , row ( $? : : uuid , $? : : integer , $? : : integer , $? : : integer , $? : : bytea , $? : : bytea , $? : : bytea , $? : : bytea , $? : : bigint , $? : : boolean ) : : \"flarex_file_test_1791221606152_6jm2t2irvbh\" . \"fx_app_index_write\" , row ( $? : : uuid , $? : : integer , $? : : integer , $? : : integer , $? : : bytea , $? : : bytea , $? : : bytea , $? : : bytea , $? : : bigint , $? : : boolean ) : : \"flarex_file_test_1791221606152_6jm2t2irvbh\" . \"fx_app_index_write\" , row ( $? : : uuid , $? : : integer , $? : : integer , $? : : integer , $? : : bytea , $? : : bytea , $? : : bytea , $? : : bytea , $? : : bigint , $? : : boolean ) : : \"flarex_file_test_1791221606152_6jm2t2irvbh\" . \"fx_app_index_write\" , row ( $? : : uuid , $? : : integer , $? : : integer , $? : : integer , $? : : bytea , $? : : bytea , $? : : bytea , $? : : bytea , $? : : bigint , $? : : boolean ) : : \"flarex_file_test_1791221606152_6jm2t2irvbh\" . \"fx_app_index_write\" ] : : \"flarex_file_test_1791221606152_6jm2t2irvbh\" . \"fx_app_index_write\" [ ] , array [ $? : : bigint , $? : : bigint , $? : : bigint , $? : : bigint , $? : : bigint ] : : bigint [ ] , array [ $? : : boolean , $? : : boolean , $? : : boolean , $? : : boolean , $? : : boolean ] : : boolean [ ] , array [ row ( $? : : uuid , $? : : integer , $? : : text , $? : : integer , $? : : bytea ) : : \"flarex_file_test_1791221606152_6jm2t2irvbh\" . fx_app_unique_owner ] : : \"flarex_file_test_1791221606152_6jm2t2irvbh\" . fx_app_unique_owner [ ] , array [ row ( $? : : uuid , $? : : integer , $? : : text , $? : : bytea , $? : : integer , $? : : bytea , $? : : integer , $? : : bytea ) : : \"flarex_file_test_1791221606152_6jm2t2irvbh\" . \"fx_app_unique_write\" ] : : \"flarex_file_test_1791221606152_6jm2t2irvbh\" . \"fx_app_unique_write\" [ ] , array [ row ( $? : : uuid , $? : : integer , $? : : text , $? : : bytea , $? : : integer , $? : : bytea , $? : : integer , $? : : bytea ) : : \"flarex_file_test_1791221606152_6jm2t2irvbh\" . \"fx_app_unique_write\" ] : : \"flarex_file_test_1791221606152_6jm2t2irvbh\" . \"fx_app_unique_write\" [ ] , array [ ] : : \"flarex_file_test_1791221606152_6jm2t2irvbh\" . fx_app_index_coverage [ ] , array [ row ( $? : : text , $? : : integer , $? : : bigint , $? : : text , $? : : bigint ) : : \"flarex_file_test_1791221606152_6jm2t2irvbh\" . fx_app_index_coverage , row ( $? : : text , $? : : integer , $? : : bigint , $? : : text , $? : : bigint ) : : \"flarex_file_test_1791221606152_6jm2t2irvbh\" . fx_app_index_coverage , row ( $? : : text , $? : : integer , $? : : bigint , $? : : text , $? : : bigint ) : : \"flarex_file_test_1791221606152_6jm2t2irvbh\" . fx_app_index_coverage , row ( $? : : text , $? : : integer , $? : : bigint , $? : : text , $? : : bigint ) : : \"flarex_file_test_1791221606152_6jm2t2irvbh\" . fx_app_index_coverage , row ( $? : : text , $? : : integer , $? : : bigint , $? : : text , $? : : bigint ) : : \"flarex_file_test_1791221606152_6jm2t2irvbh\" . fx_app_index_coverage , row ( $? : : text , $? : : integer , $? : : bigint , $? : : text , $? : : bigint ) : : \"flarex_file_test_1791221606152_6jm2t2irvbh\" . fx_app_index_coverage , row ( $? : : text , $? : : integer , $? : : bigint , $? : : text , $? : : bigint ) : : \"flarex_file_test_1791221606152_6jm2t2irvbh\" . fx_app_index_coverage , row ( $? : : text , $? : : integer , $? : : bigint , $? : : text , $? : : bigint ) : : \"flarex_file_test_1791221606152_6jm2t2irvbh\" . fx_app_index_coverage , row ( $? : : text , $? : : integer , $? : : bigint , $? : : text , $? : : bigint ) : : \"flarex_file_test_1791221606152_6jm2t2irvbh\" . fx_app_index_coverage , row ( $? : : text , $? : : integer , $? : : bigint , $? : : text , $? : : bigint ) : : \"flarex_file_test_1791221606152_6jm2t2irvbh\" . fx_app_index_coverage ] : : \"flarex_file_test_1791221606152_6jm2t2irvbh\" . fx_app_index_coverage [ ] , array [ row ( $? : : text , $? : : integer , $? : : bigint , $? : : text , $? : : bigint ) : : \"flarex_file_test_1791221606152_6jm2t2irvbh\" . fx_app_unique_coverage , row ( $? : : text , $? : : integer , $? : : bigint , $? : : text , $? : : bigint ) : : \"flarex_file_test_1791221606152_6jm2t2irvbh\" . fx_app_unique_coverage ] : : \"flarex_file_test_1791221606152_6jm2t2irvbh\" . fx_app_unique_coverage [ ] , $? : : bigint , $? : : uuid , array [ $? : : integer ] : : integer [ ] , array [ $? : : integer ] : : integer [ ] , array [ $? : : text ] : : text [ ] , array [ $? : : boolean ] : : boolean [ ] , array [ $? : : integer ] : : integer [ ] , array [ $? : : bytea ] : : bytea [ ] , array [ $? : : integer ] : : integer [ ] , array [ row ( $? : : uuid , $? : : integer , $? : : integer , $? : : text , $? : : text , $? : : bytea , $? : : bigint , $? : : text ) : : \"flarex_file_test_1791221606152_6jm2t2irvbh\" . \"fx_app_search_write\" ] : : \"flarex_file_test_1791221606152_6jm2t2irvbh\" . \"fx_app_search_write\" [ ] , array [ $? : : integer ] : : integer [ ] , array [ ] : : \"flarex_file_test_1791221606152_6jm2t2irvbh\" . \"fx_app_json_write\" [ ] )",
+        "dispatchCount": 1,
+        "statementCount": 1,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 9.247199999997974,
+        "awaitedMsMin": 9.247199999997974,
+        "awaitedMsMax": 9.247199999997974,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 1,
+        "decodedResultJsonUtf8Bytes": 151,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation",
+          "authoritative publication"
+        ],
+        "fingerprint": "b3433a047fab32e0db4a16733e5e59ea0d33080ec98413831917c75dadf900e2",
+        "template": "select \"flarex_file_test_1791221606152_6jm2t2irvbh\" . \"fx_write_scope_publication_prefix\" ( $? : : jsonb ) from ( values ( ? ) ) as publication_input",
+        "dispatchCount": 1,
+        "statementCount": 1,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 6.978100000000268,
+        "awaitedMsMin": 6.978100000000268,
+        "awaitedMsMax": 6.978100000000268,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 1,
+        "decodedResultJsonUtf8Bytes": 8,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation",
+          "authoritative publication"
+        ],
+        "fingerprint": "7464e06c4e1f45b1b698b6e4a186488f214fb560157823e9d06c9570ab1cda4d",
+        "template": "select \"sha256\" , case when octet_length ( \"canonical_bytes\" ) between ? and ? then \"canonical_bytes\" else null end , \"canonical_byte_length\" , \"candidate_sha256\" , \"activation_sha256\" , \"sequence\" from \"fx_system_data_binding_head\" where ( \"fx_system_data_binding_head\" . \"scope_id\" = $? and \"fx_system_data_binding_head\" . \"storage_generation\" = $? ) limit $?",
+        "dispatchCount": 1,
+        "statementCount": 1,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 0.3712000000014086,
+        "awaitedMsMin": 0.3712000000014086,
+        "awaitedMsMax": 0.3712000000014086,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 1,
+        "decodedResultJsonUtf8Bytes": 1413,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation",
+          "authoritative publication"
+        ],
+        "fingerprint": "f8839626c423a09fc20aac4e4fa873a759c3a3eb0e2d7b84c76e3d11245fb6a5",
+        "template": "select advanced . last_commit_seq , case when advanced . reason = ? then case when ( select metadata_guard . valid from ( with \"epoch_guard_0\" as materialized ( select epoch . database_name = $? and epoch . database_name = current_database ( ) and epoch . namespace_oid = $? : : bigint and epoch . incarnation = $? : : uuid and epoch . generation = $? : : bigint and session_user = $? and current_user = session_user as valid from \"flarex_file_test_1791221606149_go9cu8p8f2d\" . fx_lock_prepared_metadata_epoch ( ) epoch ) , \"epoch_guard_1\" as materialized ( select epoch . database_name = $? and epoch . database_name = current_database ( ) and epoch . namespace_oid = $? : : bigint and epoch . incarnation = $? : : uuid and epoch . generation = $? : : bigint and session_user = $? and current_user = session_user as valid from \"flarex_file_test_1791221606152_6jm2t2irvbh\" . fx_lock_prepared_metadata_epoch ( ) epoch ) select coalesce ( ( select bool_and ( valid ) from \"epoch_guard_0\" ) , false ) and coalesce ( ( select bool_and ( valid ) from \"epoch_guard_1\" ) , false ) as valid ) as metadata_guard ) then true else \"flarex_file_test_1791221606152_6jm2t2irvbh\" . fx_refuse_scope_publication_metadata ( ) end else false end from \"flarex_file_test_1791221606152_6jm2t2irvbh\" . fx_advance_scope_publication_clock ( $? : : uuid , $? : : bigint , $? : : bigint , $? : : timestamptz ) advanced",
+        "dispatchCount": 1,
+        "statementCount": 1,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 0.7344999999986612,
+        "awaitedMsMin": 0.7344999999986612,
+        "awaitedMsMax": 0.7344999999986612,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 1,
+        "decodedResultJsonUtf8Bytes": 12,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation",
+          "authoritative publication"
+        ],
+        "fingerprint": "9505cacb7c710ed17125fcc6cb3669e8ddca6c8cd8af6a31f6b3cd64604c3098",
+        "template": "commit",
+        "dispatchCount": 1,
+        "statementCount": 1,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 0.5227999999988242,
+        "awaitedMsMin": 0.5227999999988242,
+        "awaitedMsMax": 0.5227999999988242,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 0,
+        "decodedResultJsonUtf8Bytes": 2,
+        "unknownResultEncodingDispatches": 0
+      }
+    ],
+    "sqlByPhase": [
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation",
+          "request admission"
+        ],
+        "dispatches": 6,
+        "statements": 6,
+        "awaitedMsSum": 22.147299999996903
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation",
+          "portable runtime execution",
+          "Application point"
+        ],
+        "dispatches": 2,
+        "statements": 2,
+        "awaitedMsSum": 19.829299999997602
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation",
+          "portable runtime execution",
+          "medusa.product:update",
+          "native Product operation"
+        ],
+        "dispatches": 11,
+        "statements": 11,
+        "awaitedMsSum": 52.164000000007945
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation",
+          "authoritative publication"
+        ],
+        "dispatches": 21,
+        "statements": 21,
+        "awaitedMsSum": 39.67390000000523
+      }
+    ]
+  },
+  "timings": {
+    "loadMs": null,
+    "prepareMs": 23740.8153,
+    "preparation": {
+      "provisionAndPrepareMs": 14329.2707,
+      "runtimeConstructionMs": 2124.9230000000025,
+      "initialSeedMs": 1654.8676999999989,
+      "installation": {
+        "migrationMs": 4724.6813,
+        "managedSetupMs": 676.966699999999,
+        "coLocatedSetupMs": 494.2368999999999,
+        "totalInstallationMs": 5895.884899999999
+      },
+      "fixturePreparation": {
+        "provisionAndMigrateMs": 3039.3783000000003,
+        "applicationAndReadInstallationMs": 1162.297199999999,
+        "compositionAndCompilationMs": 110.83110000000124,
+        "logicalAdmissionMs": 1920.8154999999988,
+        "indexAndUniqueBuildMs": 6365.4331999999995,
+        "bindingAndInitializationMs": 1728.910899999999
+      }
+    },
+    "cleanupMs": 1156.2788,
+    "sharedCleanupReport": "families.json",
+    "runnerTotalMs": 47916.1527
+  },
+  "samples": [
+    {
+      "id": "mixed-product-sql-0",
+      "kind": "sql",
+      "requestMs": 340.5246999999981,
+      "seedMs": 0.13079999999899883,
+      "verifyMs": 374.21370000000024,
+      "cleanupMs": 0.010699999998905696,
+      "failureStage": null,
+      "failureTokens": []
+    },
+    {
+      "id": "mixed-product-warmup-1",
+      "kind": "warmup",
+      "requestMs": 180.78819999999905,
+      "seedMs": 488.66469999999754,
+      "verifyMs": 352.57640000000174,
+      "cleanupMs": 0.0023999999975785613,
+      "failureStage": null,
+      "failureTokens": []
+    },
+    {
+      "id": "mixed-product-warmup-2",
+      "kind": "warmup",
+      "requestMs": 170.50250000000233,
+      "seedMs": 466.65010000000257,
+      "verifyMs": 345.77750000000015,
+      "cleanupMs": 0.002300000000104774,
+      "failureStage": null,
+      "failureTokens": []
+    },
+    {
+      "id": "mixed-product-warmup-3",
+      "kind": "warmup",
+      "requestMs": 196.02020000000266,
+      "seedMs": 460.6133000000009,
+      "verifyMs": 352.5508000000009,
+      "cleanupMs": 0.0020000000004074536,
+      "failureStage": null,
+      "failureTokens": []
+    },
+    {
+      "id": "mixed-product-measured-4",
+      "kind": "measured",
+      "requestMs": 169.52790000000095,
+      "seedMs": 458.02960000000166,
+      "verifyMs": 349.22169999999824,
+      "cleanupMs": 0.0018999999992956873,
+      "failureStage": null,
+      "failureTokens": []
+    },
+    {
+      "id": "mixed-product-measured-5",
+      "kind": "measured",
+      "requestMs": 164.97759999999835,
+      "seedMs": 465.6703000000016,
+      "verifyMs": 339.2953000000016,
+      "cleanupMs": 0.001999999996769475,
+      "failureStage": null,
+      "failureTokens": []
+    },
+    {
+      "id": "mixed-product-measured-6",
+      "kind": "measured",
+      "requestMs": 161.6335999999974,
+      "seedMs": 476.97469999999885,
+      "verifyMs": 339.5860999999968,
+      "cleanupMs": 0.0022000000026309863,
+      "failureStage": null,
+      "failureTokens": []
+    },
+    {
+      "id": "mixed-product-measured-7",
+      "kind": "measured",
+      "requestMs": 161.60829999999987,
+      "seedMs": 448.5443000000014,
+      "verifyMs": 334.77750000000015,
+      "cleanupMs": 0.002300000000104774,
+      "failureStage": null,
+      "failureTokens": []
+    },
+    {
+      "id": "mixed-product-measured-8",
+      "kind": "measured",
+      "requestMs": 161.38190000000031,
+      "seedMs": 452.29099999999744,
+      "verifyMs": 373.40719999999783,
+      "cleanupMs": 0.0020000000004074536,
+      "failureStage": null,
+      "failureTokens": []
+    },
+    {
+      "id": "mixed-product-measured-9",
+      "kind": "measured",
+      "requestMs": 165.97920000000158,
+      "seedMs": 484.90940000000046,
+      "verifyMs": 348.1125000000029,
+      "cleanupMs": 0.002400000004854519,
+      "failureStage": null,
+      "failureTokens": []
+    },
+    {
+      "id": "mixed-product-measured-10",
+      "kind": "measured",
+      "requestMs": 162.37800000000425,
+      "seedMs": 456.443299999999,
+      "verifyMs": 344.078499999996,
+      "cleanupMs": 0.0025000000023283064,
+      "failureStage": null,
+      "failureTokens": []
+    },
+    {
+      "id": "mixed-product-measured-11",
+      "kind": "measured",
+      "requestMs": 156.15299999999843,
+      "seedMs": 450.37749999999505,
+      "verifyMs": 343.7635999999984,
+      "cleanupMs": 0.005600000004051253,
+      "failureStage": null,
+      "failureTokens": []
+    },
+    {
+      "id": "mixed-product-measured-12",
+      "kind": "measured",
+      "requestMs": 157.18529999999737,
+      "seedMs": 449.11439999999857,
+      "verifyMs": 339.7946000000011,
+      "cleanupMs": 0.002899999999499414,
+      "failureStage": null,
+      "failureTokens": []
+    },
+    {
+      "id": "mixed-product-measured-13",
+      "kind": "measured",
+      "requestMs": 162.60779999999795,
+      "seedMs": 459.77939999999944,
+      "verifyMs": 345.6583000000028,
+      "cleanupMs": 0.0031999999991967343,
+      "failureStage": null,
+      "failureTokens": []
+    },
+    {
+      "id": "mixed-product-measured-14",
+      "kind": "measured",
+      "requestMs": 154.1036000000022,
+      "seedMs": 454.4029999999984,
+      "verifyMs": 340.43709999999555,
+      "cleanupMs": 0.0026999999972758815,
+      "failureStage": null,
+      "failureTokens": []
+    },
+    {
+      "id": "mixed-product-measured-15",
+      "kind": "measured",
+      "requestMs": 159.78590000000258,
+      "seedMs": 451.2314999999944,
+      "verifyMs": 340.55920000000333,
+      "cleanupMs": 0.0031000000017229468,
+      "failureStage": null,
+      "failureTokens": []
+    },
+    {
+      "id": "mixed-product-measured-16",
+      "kind": "measured",
+      "requestMs": 154.54009999999835,
+      "seedMs": 457.32770000000164,
+      "verifyMs": 338.55369999999675,
+      "cleanupMs": 0.001799999998183921,
+      "failureStage": null,
+      "failureTokens": []
+    },
+    {
+      "id": "mixed-product-measured-17",
+      "kind": "measured",
+      "requestMs": 159.67900000000373,
+      "seedMs": 455.5564000000013,
+      "verifyMs": 354.9233000000022,
+      "cleanupMs": 0.0020000000004074536,
+      "failureStage": null,
+      "failureTokens": []
+    },
+    {
+      "id": "mixed-product-measured-18",
+      "kind": "measured",
+      "requestMs": 160.11000000000058,
+      "seedMs": 469.1402999999991,
+      "verifyMs": 345.6869000000006,
+      "cleanupMs": 0.0018999999956577085,
+      "failureStage": null,
+      "failureTokens": []
+    },
+    {
+      "id": "mixed-product-measured-19",
+      "kind": "measured",
+      "requestMs": 163.2624000000069,
+      "seedMs": 466.3602000000028,
+      "verifyMs": 340.44779999999446,
+      "cleanupMs": 0.0014000000010128133,
+      "failureStage": null,
+      "failureTokens": []
+    },
+    {
+      "id": "mixed-product-measured-20",
+      "kind": "measured",
+      "requestMs": 162.98479999999836,
+      "seedMs": 453.64390000000276,
+      "verifyMs": 335.6962000000058,
+      "cleanupMs": 0.0018000000054598786,
+      "failureStage": null,
+      "failureTokens": []
+    },
+    {
+      "id": "mixed-product-measured-21",
+      "kind": "measured",
+      "requestMs": 160.90819999999803,
+      "seedMs": 459.78660000000673,
+      "verifyMs": 337.91429999999673,
+      "cleanupMs": 0.0014000000010128133,
+      "failureStage": null,
+      "failureTokens": []
+    },
+    {
+      "id": "mixed-product-measured-22",
+      "kind": "measured",
+      "requestMs": 163.91760000000068,
+      "seedMs": 476.8695000000007,
+      "verifyMs": 335.41040000000066,
+      "cleanupMs": 0.0014999999984866008,
+      "failureStage": null,
+      "failureTokens": []
+    },
+    {
+      "id": "mixed-product-measured-23",
+      "kind": "measured",
+      "requestMs": 156.54620000000432,
+      "seedMs": 458.0725999999995,
+      "verifyMs": 336.24199999999837,
+      "cleanupMs": 0.0017000000007101335,
+      "failureStage": null,
+      "failureTokens": []
+    }
+  ]
+}

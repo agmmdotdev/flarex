@@ -39,7 +39,7 @@ followed by unchanged native operations on both drivers. The correction must
 also serve neutral fresh and admitted one-hop additive plans. It must not know
 Medusa module names or grant a new framework capability.
 
-Primary owners under `packages/persistence-postgres/src/migrationCoordination`:
+Primary owners under `packages/persistence-postgres/src/installation/migrationCoordination`:
 
 - `migrationCollisionHeadRepository.ts`: locked claim restoration and the
   read-only preparation before head CAS; fresh post-write restoration.

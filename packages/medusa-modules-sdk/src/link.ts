@@ -2,6 +2,12 @@ import type {
   Context,
   ILinkModule,
   LinkDefinition,
+  LinkOperationCompensation,
+  LinkOperationHandle,
+  LinkOperationRequest,
+  LinkOperationResult,
+  LinkPreimageOperationHandle,
+  LinkPreimageOperationRequest,
   LoadedModule,
   ModuleJoinerRelationship,
 } from "@medusajs/types"
@@ -158,6 +164,48 @@ export class Link {
     return this.relations
   }
 
+  /** A durable operation always belongs to one explicit native Link family.
+   * Ordinary router create/dismiss calls cannot stand in for this capability. */
+  async applyOperation(serviceName: string, request: LinkOperationRequest,
+    @MedusaContext() sharedContext: Context = {}): Promise<LinkOperationResult> {
+    const selected = this.modulesMap.get(serviceName)
+    if (selected?.__joinerConfig.isLink !== true || selected.__joinerConfig.serviceName !== serviceName ||
+      typeof selected.applyOperation !== "function") {
+      throw new MedusaError(MedusaError.Types.NOT_ALLOWED, "Selected native Link family does not support durable operations")
+    }
+    return await selected.applyOperation(request, sharedContext)
+  }
+
+  async compensateOperation(handle: LinkOperationHandle,
+    @MedusaContext() sharedContext: Context = {}): Promise<LinkOperationCompensation> {
+    const selected = this.modulesMap.get(handle.serviceName)
+    if (selected?.__joinerConfig.isLink !== true || selected.__joinerConfig.serviceName !== handle.serviceName ||
+      typeof selected.compensateOperation !== "function") {
+      throw new MedusaError(MedusaError.Types.NOT_ALLOWED, "Selected native Link family does not support durable compensation")
+    }
+    return await selected.compensateOperation(handle, sharedContext)
+  }
+
+  async applyPreimageOperation(serviceName: string, request: LinkPreimageOperationRequest,
+    @MedusaContext() sharedContext: Context = {}): Promise<LinkOperationResult> {
+    const selected = this.modulesMap.get(serviceName)
+    if (selected?.__joinerConfig.isLink !== true || selected.__joinerConfig.serviceName !== serviceName ||
+      typeof selected.applyPreimageOperation !== "function") {
+      throw new MedusaError(MedusaError.Types.NOT_ALLOWED, "Selected native Link family does not support preimage operations")
+    }
+    return await selected.applyPreimageOperation(request, sharedContext)
+  }
+
+  async compensatePreimageOperation(handle: LinkPreimageOperationHandle,
+    @MedusaContext() sharedContext: Context = {}): Promise<LinkOperationCompensation> {
+    const selected = this.modulesMap.get(handle.serviceName)
+    if (selected?.__joinerConfig.isLink !== true || selected.__joinerConfig.serviceName !== handle.serviceName ||
+      typeof selected.compensatePreimageOperation !== "function") {
+      throw new MedusaError(MedusaError.Types.NOT_ALLOWED, "Selected native Link family does not support preimage compensation")
+    }
+    return await selected.compensatePreimageOperation(handle, sharedContext)
+  }
+
   private getLinkableKeys(mod: LoadedLinkModule) {
     return (
       (mod.__joinerConfig.linkableKeys &&
@@ -287,22 +335,26 @@ export class Link {
                   ...deletedEntities,
                 }
               } else {
-                const [mainKey] = returnFields
+                const mainKey = returnFields.find((field) =>
+                  Object.prototype.hasOwnProperty.call(deletedEntities, field)
+                )
 
-                if (!returnIdsList[serviceName]) {
-                  returnIdsList[serviceName] = {}
-                }
-                if (!returnIdsList[serviceName][mainKey]) {
-                  returnIdsList[serviceName][mainKey] = []
-                }
+                if (mainKey !== undefined) {
+                  if (!returnIdsList[serviceName]) {
+                    returnIdsList[serviceName] = {}
+                  }
+                  if (!returnIdsList[serviceName][mainKey]) {
+                    returnIdsList[serviceName][mainKey] = []
+                  }
 
-                returnIdsList[serviceName][mainKey] = [
-                  ...new Set(
-                    returnIdsList[serviceName][mainKey].concat(
-                      deletedEntities[mainKey]
-                    )
-                  ),
-                ]
+                  returnIdsList[serviceName][mainKey] = [
+                    ...new Set(
+                      returnIdsList[serviceName][mainKey].concat(
+                        deletedEntities[mainKey]
+                      )
+                    ),
+                  ]
+                }
               }
 
               Object.keys(deletedEntities).forEach((key) => {

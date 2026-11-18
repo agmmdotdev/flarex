@@ -3,6 +3,41 @@
   "version": "2.13.4",
   "private": true,
   "exports": {
+    "./common/is-email": {
+      "types": "./dist/common/is-email.d.ts",
+      "source": "./src/common/is-email.ts",
+      "default": "./dist/common/is-email.js"
+    },
+    "./common/deep-flat-map": {
+      "types": "./dist/common/deep-flat-map.d.ts",
+      "source": "./src/common/deep-flat-map.ts",
+      "default": "./dist/common/deep-flat-map.js"
+    },
+    "./caching/index": {
+      "types": "./dist/caching/index.d.ts",
+      "source": "./src/caching/index.ts",
+      "default": "./dist/caching/index.js"
+    },
+    "./feature-flags/flag-router": {
+      "types": "./dist/feature-flags/flag-router.d.ts",
+      "source": "./src/feature-flags/flag-router.ts",
+      "default": "./dist/feature-flags/flag-router.js"
+    },
+    "./dal/json-assignment": {
+      "types": "./dist/dal/json-assignment.d.ts",
+      "source": "./src/dal/json-assignment.ts",
+      "default": "./dist/dal/json-assignment.js"
+    },
+    "./common/trim-zeros": {
+      "types": "./dist/common/trim-zeros.d.ts",
+      "source": "./src/common/trim-zeros.ts",
+      "default": "./dist/common/trim-zeros.js"
+    },
+    "./common/merge-metadata": {
+      "types": "./dist/common/merge-metadata.d.ts",
+      "source": "./src/common/merge-metadata.ts",
+      "default": "./dist/common/merge-metadata.js"
+    },
     "./modules-sdk/definition": {
       "types": "./dist/modules-sdk/definition.d.ts",
       "source": "./src/modules-sdk/definition.ts",
@@ -92,6 +127,16 @@
       "types": "./dist/dal/mikro-orm/mikro-orm-repository.d.ts",
       "source": "./src/dal/mikro-orm/mikro-orm-repository.ts",
       "default": "./dist/dal/mikro-orm/mikro-orm-repository.js"
+    },
+    "./dal/upsert-planning": {
+      "types": "./dist/dal/upsert-planning.d.ts",
+      "source": "./src/dal/upsert-planning.ts",
+      "default": "./dist/dal/upsert-planning.js"
+    },
+    "./dal/create-planning": {
+      "types": "./dist/dal/create-planning.d.ts",
+      "source": "./src/dal/create-planning.ts",
+      "default": "./dist/dal/create-planning.js"
     },
     "./dml/helpers/create-mikro-orm-entity": {
       "types": "./dist/dml/helpers/create-mikro-orm-entity.d.ts",
@@ -283,6 +328,11 @@
       "source": "./src/common/camel-to-snake-case.ts",
       "default": "./dist/common/camel-to-snake-case.js"
     },
+    "./common/to-camel-case": {
+      "types": "./dist/common/to-camel-case.d.ts",
+      "source": "./src/common/to-camel-case.ts",
+      "default": "./dist/common/to-camel-case.js"
+    },
     "./common/lower-case-first": {
       "types": "./dist/common/lower-case-first.d.ts",
       "source": "./src/common/lower-case-first.ts",
@@ -427,6 +477,241 @@
       "types": "./dist/common/is-date.d.ts",
       "source": "./src/common/is-date.ts",
       "default": "./dist/common/is-date.js"
+    },
+    "./core-flows/events": {
+      "types": "./dist/core-flows/events.d.ts",
+      "source": "./src/core-flows/events.ts",
+      "default": "./dist/core-flows/events.js"
+    },
+    "./dml/properties/computed": {
+      "types": "./dist/dml/properties/computed.d.ts",
+      "source": "./src/dml/properties/computed.ts",
+      "default": "./dist/dml/properties/computed.js"
+    },
+    "./dml/relations/has-one": {
+      "types": "./dist/dml/relations/has-one.d.ts",
+      "source": "./src/dml/relations/has-one.ts",
+      "default": "./dist/dml/relations/has-one.js"
+    },
+    "./product/csv-normalizer": {
+      "types": "./dist/product/csv-normalizer.d.ts",
+      "source": "./src/product/csv-normalizer.ts",
+      "default": "./dist/product/csv-normalizer.js"
+    },
+    "./product/validators": {
+      "types": "./dist/product/validators.d.ts",
+      "source": "./src/product/validators.ts",
+      "default": "./dist/product/validators.js"
+    },
+    "./common/normalize-csv-value": {
+      "types": "./dist/common/normalize-csv-value.d.ts",
+      "source": "./src/common/normalize-csv-value.ts",
+      "default": "./dist/common/normalize-csv-value.js"
+    },
+    "./common/try-convert-to-boolean": {
+      "types": "./dist/common/try-convert-to-boolean.d.ts",
+      "source": "./src/common/try-convert-to-boolean.ts",
+      "default": "./dist/common/try-convert-to-boolean.js"
+    },
+    "./common/try-convert-to-number": {
+      "types": "./dist/common/try-convert-to-number.d.ts",
+      "source": "./src/common/try-convert-to-number.ts",
+      "default": "./dist/common/try-convert-to-number.js"
+    },
+    "./common/convert-item-response-to-update-request": {
+      "types": "./dist/common/convert-item-response-to-update-request.d.ts",
+      "source": "./src/common/convert-item-response-to-update-request.ts",
+      "default": "./dist/common/convert-item-response-to-update-request.js"
+    },
+    "./notification/common": {
+      "types": "./dist/notification/common.d.ts",
+      "source": "./src/notification/common.ts",
+      "default": "./dist/notification/common.js"
+    },
+    "./notification/abstract-notification-provider": {
+      "types": "./dist/notification/abstract-notification-provider.d.ts",
+      "source": "./src/notification/abstract-notification-provider.ts",
+      "default": "./dist/notification/abstract-notification-provider.js"
+    },
+    "./dml/properties/array": {
+      "types": "./dist/dml/properties/array.d.ts",
+      "source": "./src/dml/properties/array.ts",
+      "default": "./dist/dml/properties/array.js"
+    },
+    "./orchestration/types": {
+      "types": "./dist/orchestration/types.d.ts",
+      "source": "./src/orchestration/types.ts",
+      "default": "./dist/orchestration/types.js"
+    },
+    "./orchestration/symbol": {
+      "types": "./dist/orchestration/symbol.d.ts",
+      "source": "./src/orchestration/symbol.ts",
+      "default": "./dist/orchestration/symbol.js"
+    },
+    "./common/create-portable-id": {
+      "types": "./dist/common/create-portable-id.d.ts",
+      "source": "./src/common/create-portable-id.ts",
+      "default": "./dist/common/create-portable-id.js"
+    },
+    "./common/is-error-like": {
+      "types": "./dist/common/is-error-like.d.ts",
+      "source": "./src/common/is-error-like.ts",
+      "default": "./dist/common/is-error-like.js"
+    },
+    "./common/serialize-error": {
+      "types": "./dist/common/serialize-error.d.ts",
+      "source": "./src/common/serialize-error.ts",
+      "default": "./dist/common/serialize-error.js"
+    },
+    "./common/parse-stringify-if-necessary": {
+      "types": "./dist/common/parse-stringify-if-necessary.d.ts",
+      "source": "./src/common/parse-stringify-if-necessary.ts",
+      "default": "./dist/common/parse-stringify-if-necessary.js"
+    },
+    "./common/get-duplicates": {
+      "types": "./dist/common/get-duplicates.d.ts",
+      "source": "./src/common/get-duplicates.ts",
+      "default": "./dist/common/get-duplicates.js"
+    },
+    "./fulfillment/provider": {
+      "types": "./dist/fulfillment/provider.d.ts",
+      "source": "./src/fulfillment/provider.ts",
+      "default": "./dist/fulfillment/provider.js"
+    },
+    "./link/links": {
+      "types": "./dist/link/links.d.ts",
+      "source": "./src/link/links.ts",
+      "default": "./dist/link/links.js"
+    },
+    "./pricing/price-list-rules": {
+      "types": "./dist/pricing/price-list-rules.d.ts",
+      "source": "./src/pricing/price-list-rules.ts",
+      "default": "./dist/pricing/price-list-rules.js"
+    },
+    "./common/filter-object-by-keys": {
+      "types": "./dist/common/filter-object-by-keys.d.ts",
+      "source": "./src/common/filter-object-by-keys.ts",
+      "default": "./dist/common/filter-object-by-keys.js"
+    },
+    "./totals/cart/index": {
+      "types": "./dist/totals/cart/index.d.ts",
+      "source": "./src/totals/cart/index.ts",
+      "default": "./dist/totals/cart/index.js"
+    },
+    "./totals/create-raw-properties-from-bignumber": {
+      "types": "./dist/totals/create-raw-properties-from-bignumber.d.ts",
+      "source": "./src/totals/create-raw-properties-from-bignumber.ts",
+      "default": "./dist/totals/create-raw-properties-from-bignumber.js"
+    },
+    "./totals/transform-properties-to-bignumber": {
+      "types": "./dist/totals/transform-properties-to-bignumber.d.ts",
+      "source": "./src/totals/transform-properties-to-bignumber.ts",
+      "default": "./dist/totals/transform-properties-to-bignumber.js"
+    },
+    "./totals/promotion/index": {
+      "types": "./dist/totals/promotion/index.d.ts",
+      "source": "./src/totals/promotion/index.ts",
+      "default": "./dist/totals/promotion/index.js"
+    },
+    "./payment/abstract-payment-provider": {
+      "types": "./dist/payment/abstract-payment-provider.d.ts",
+      "source": "./src/payment/abstract-payment-provider.ts",
+      "default": "./dist/payment/abstract-payment-provider.js"
+    },
+    "./payment/payment-collection": {
+      "types": "./dist/payment/payment-collection.d.ts",
+      "source": "./src/payment/payment-collection.ts",
+      "default": "./dist/payment/payment-collection.js"
+    },
+    "./payment/payment-session": {
+      "types": "./dist/payment/payment-session.d.ts",
+      "source": "./src/payment/payment-session.ts",
+      "default": "./dist/payment/payment-session.js"
+    },
+    "./payment/webhook": {
+      "types": "./dist/payment/webhook.d.ts",
+      "source": "./src/payment/webhook.ts",
+      "default": "./dist/payment/webhook.js"
+    },
+    "./promotion/index": {
+      "types": "./dist/promotion/index.d.ts",
+      "source": "./src/promotion/index.ts",
+      "default": "./dist/promotion/index.js"
+    },
+    "./dml/properties/float": {
+      "types": "./dist/dml/properties/float.d.ts",
+      "source": "./src/dml/properties/float.ts",
+      "default": "./dist/dml/properties/float.js"
+    },
+    "./dml/properties/autoincrement": {
+      "types": "./dist/dml/properties/autoincrement.d.ts",
+      "source": "./src/dml/properties/autoincrement.ts",
+      "default": "./dist/dml/properties/autoincrement.js"
+    },
+    "./totals/shipping-method/index": {
+      "types": "./dist/totals/shipping-method/index.d.ts",
+      "source": "./src/totals/shipping-method/index.ts",
+      "default": "./dist/totals/shipping-method/index.js"
+    },
+    "./order/status": {
+      "types": "./dist/order/status.d.ts",
+      "source": "./src/order/status.ts",
+      "default": "./dist/order/status.js"
+    },
+    "./order/order-change": {
+      "types": "./dist/order/order-change.d.ts",
+      "source": "./src/order/order-change.ts",
+      "default": "./dist/order/order-change.js"
+    },
+    "./order/order-change-action": {
+      "types": "./dist/order/order-change-action.d.ts",
+      "source": "./src/order/order-change-action.ts",
+      "default": "./dist/order/order-change-action.js"
+    },
+    "./order/index": {
+      "types": "./dist/order/index.d.ts",
+      "source": "./src/order/index.ts",
+      "default": "./dist/order/index.js"
+    },
+    "./modules-sdk/prepare-update-metadata": {
+      "types": "./dist/modules-sdk/prepare-update-metadata.d.ts",
+      "source": "./src/modules-sdk/prepare-update-metadata.ts",
+      "default": "./dist/modules-sdk/prepare-update-metadata.js"
+    },
+    "./dal/database-constraint": {
+      "types": "./dist/dal/database-constraint.d.ts",
+      "source": "./src/dal/database-constraint.ts",
+      "default": "./dist/dal/database-constraint.js"
+    },
+    "./dal/required-validation": {
+      "types": "./dist/dal/required-validation.d.ts",
+      "source": "./src/dal/required-validation.ts",
+      "default": "./dist/dal/required-validation.js"
+    },
+    "./api-key/api-key-type": {
+      "types": "./dist/api-key/api-key-type.d.ts",
+      "source": "./src/api-key/api-key-type.ts",
+      "default": "./dist/api-key/api-key-type.js"
+    },
+    "./totals/native-number": {
+      "types": "./dist/totals/native-number.d.ts",
+      "source": "./src/totals/native-number.ts",
+      "default": "./dist/totals/native-number.js"
+    },
+    "./modules-sdk/build-models-name-to-linkable-keys-map": {
+      "types": "./dist/modules-sdk/build-models-name-to-linkable-keys-map.d.ts",
+      "source": "./src/modules-sdk/build-models-name-to-linkable-keys-map.ts",
+      "default": "./dist/modules-sdk/build-models-name-to-linkable-keys-map.js"
+    },
+    "./translations/apply-translations": {
+      "types": "./dist/translations/apply-translations.d.ts",
+      "source": "./src/translations/apply-translations.ts",
+      "default": "./dist/translations/apply-translations.js"
+    },
+    "./translations/apply-translations-to-tax-lines": {
+      "types": "./dist/translations/apply-translations-to-tax-lines.d.ts",
+      "source": "./src/translations/apply-translations-to-tax-lines.ts",
+      "default": "./dist/translations/apply-translations-to-tax-lines.js"
     }
   },
   "license": "MIT",

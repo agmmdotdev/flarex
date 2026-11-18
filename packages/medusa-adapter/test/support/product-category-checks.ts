@@ -1,165 +1,157 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { Effect } from "effect";
-import { ScopeIdSchema } from "flarex-protocol/storage-authority";
-import { fxSystemScopeClocks } from "../../../persistence-postgres/src/schema";
-import { commerceInventory } from "../../../persistence-postgres/test/commerceInventory";
-import { captureProductSchema } from "../../src/product-schema";
-import { productRuntimeMetadata } from "../../src/product-runtime-metadata";
-import { productLocalEventPolicy } from "../../src/product-local-events";
-import { decodeCategoryProjection } from "../../src/product-category-projection";
-import { clearProductRunnerRows, getProductRunnerFixture, takeProductRunnerEvents } from "./product-runner";
+import type { Json } from "@flarex/persistence-postgres/internal/commerce-values";
+import type { CommerceCommand } from "../../../persistence-postgres/src/frameworks/commerceTransaction/commands";
+import { decodeCategoryProjection } from "../../src/modules/product/category-projection";
+import { coreProductSnapshot, coreProductNewMessages, createCoreProductScopePair, installCoreProductDocumentFault } from "./core-product-checks";
+import type { CoreProductFixture } from "./core-product-fixture";
+import { getCoreProductRunnerFixture, productIntegrationTestRunner, runCoreProductCommand } from "./core-product-runner";
+
 const run = Effect.runPromise;
-const quote = (name: string) => '"' + name.replaceAll('"', '""') + '"';
+const decoded = (value: Parameters<typeof decodeCategoryProjection>[0]) =>
+  run(Effect.fromResult(decodeCategoryProjection(value)));
 
-describe("Product Category boundary", () => {
-  beforeEach(clearProductRunnerRows);
+productIntegrationTestRunner({ moduleName: "product", testSuite: () => describe("Product Category boundary", () => {
   it("isolates inverse products and tree reads from colliding foreign scope rows", async () => {
-    const { fixture, runtime } = getProductRunnerFixture();
-    await run(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.create, { id: "product_owned", title: "local", handle: "local" }));
-    await run(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.createCategories, { id: "root", name: "local root", products: [{ id: "product_owned" }] }));
-    await run(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.createCategories, { id: "child", name: "local child", parent_category_id: "root" }));
-    const clock = (await fixture.persistence.drizzle.select().from(fxSystemScopeClocks))[0];
-    if (clock === undefined) throw new Error("Missing scope clock");
-    const alien = "432bce99-65d0-4a4e-9c50-788af579ce12";
-    await fixture.persistence.drizzle.insert(fxSystemScopeClocks).values({ scopeId: ScopeIdSchema.make("scope_" + alien), storageGeneration: clock.storageGeneration, epoch: clock.epoch });
-    const insertForeign = async (table: string, row: Readonly<Record<string, string>>) => {
-      const layout = fixture.descriptor.layout.frame;
-      const physical = layout.tables.find(item => item.identity.tableId === table);
-      if (physical === undefined) throw new Error("Missing fixture table");
-      const columns = Object.keys(row).map(name => {
-        const column = physical.columns.find(item => item.identity.columnId === name);
-        if (column === undefined) throw new Error("Missing fixture column");
-        return quote(column.name);
-      });
-      await fixture.persistence.query(`insert into ${quote(layout.targetNamespace.schemaName)}.${quote(physical.name)}
-        ("scope_uuid", ${columns.join(", ")}) values ($1::uuid, ${columns.map((_, index) => "$" + (index + 2)).join(", ")})`, [alien, ...Object.values(row)]);
-    };
-    await insertForeign("product", { id: "product_owned", title: "foreign", handle: "foreign" });
-    await insertForeign("product_category", { id: "root", name: "foreign root", handle: "foreign-root", mpath: "root" });
-    await insertForeign("product_category", { id: "child", name: "foreign child", handle: "foreign-child", parent_category_id: "root", mpath: "root.child" });
-    await insertForeign("product_category", { id: "foreign_only", name: "foreign only", handle: "foreign-only", parent_category_id: "root", mpath: "root.foreign_only" });
-    const before = await commerceInventory(fixture);
-    const result = await run(fixture.host.read(runtime.commands.countCategories, { filters: { id: "root", include_descendants_tree: true }, config: { relations: ["products"], select: ["id", "name", "products.title"], take: 1 } }).pipe(Effect.flatMap(value => Effect.fromResult(decodeCategoryProjection(value)))));
-    expect(result).toMatchObject([[{ id: "root", name: "local root", products: [{ id: "product_owned", title: "local" }], category_children: [{ id: "child", name: "local child", category_children: [] }] }], 1]);
-    const internal = await run(fixture.host.read(runtime.commands.internalCategoryCount, { filters: { parent_category_id: ["root"] }, config: { relations: ["parent_category"] } }).pipe(Effect.flatMap(value => Effect.fromResult(decodeCategoryProjection(value)))));
-    expect(internal).toMatchObject([[{ id: "child", name: "local child", parent_category: { id: "root", name: "local root" } }], 1]);
-    expect(await commerceInventory(fixture)).toEqual(before);
-    expect(await run(Effect.result(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.updateCategories, { id: "child", data: { parent_category_id: "foreign_only" } })))).toMatchObject({ _tag: "Failure" });
-    expect(await commerceInventory(fixture)).toEqual(before);
-    await run(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.deleteCategories, "child"));
-    expect((await commerceInventory(fixture)).tables.product_category?.filter(row => row.name !== "local root")).toEqual(before.tables.product_category?.filter(row => typeof row.name === "string" && row.name.startsWith("foreign")));
-  });
-
-  it("rolls back sibling and descendant changes after a late move failure and replays", async () => {
-    const { fixture, runtime } = getProductRunnerFixture();
-    for (const category of [{ id: "old", name: "old" }, { id: "new", name: "new" }, { id: "moving", name: "moving", parent_category_id: "old" }, { id: "leaf", name: "leaf", parent_category_id: "moving" }, { id: "sibling", name: "sibling", parent_category_id: "old" }])
-      await run(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.createCategories, category));
-    const layout = fixture.descriptor.layout.frame;
-    const table = layout.tables.find(row => row.identity.tableId === "product_category");
-    const idColumn = table?.columns.find(column => column.identity.columnId === "id");
-    if (table === undefined || idColumn === undefined) throw new Error("Missing Category layout");
-    const target = quote(layout.targetNamespace.schemaName) + "." + quote(table.name);
-    const before = await commerceInventory(fixture);
-    takeProductRunnerEvents();
-    await fixture.persistence.exec("create sequence fx_category_move_attempts");
-    await fixture.persistence.exec(`create function fx_category_move_fail() returns trigger language plpgsql as $$ begin if old.${quote(idColumn.name)} = 'leaf' then perform nextval('fx_category_move_attempts'); raise exception 'injected descendant failure'; end if; return new; end $$`);
-    await fixture.persistence.exec(`create trigger fx_category_move_fail before update on ${target} for each row execute function fx_category_move_fail()`);
-    const input = { id: "moving", data: { parent_category_id: "new", rank: 0 } };
+    const pair = await createCoreProductScopePair(getCoreProductRunnerFixture().product);
+    const { product, foreign } = pair, { runtime } = product;
+    const write = (selected: CoreProductFixture, command: CommerceCommand, input: Json) =>
+      selected.run(selected.host.run(selected.host.newRequestKey(), command, input));
     try {
-      expect(await run(Effect.result(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.updateCategories, input)))).toMatchObject({ _tag: "Failure" });
-      expect((await fixture.persistence.query("select last_value::integer as last_value, is_called from fx_category_move_attempts")).rows).toEqual([{ last_value: 1, is_called: true }]);
-      expect(await commerceInventory(fixture)).toEqual(before);
-      expect(takeProductRunnerEvents()).toEqual([]);
-    } finally {
-      await fixture.persistence.exec(`drop trigger fx_category_move_fail on ${target}`);
-      await fixture.persistence.exec("drop function fx_category_move_fail()");
-      await fixture.persistence.exec("drop sequence fx_category_move_attempts");
-    }
-    const key = fixture.host.newRequestKey();
-    const result = await run(fixture.host.run(key, runtime.commands.updateCategories, input));
-    const after = await commerceInventory(fixture);
-    expect(after.tables.product_category).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: "moving", parent_category_id: "new", mpath: "new.moving", rank: 0 }),
-      expect.objectContaining({ id: "leaf", parent_category_id: "moving", mpath: "new.moving.leaf" }),
-      expect.objectContaining({ id: "sibling", rank: 0 }),
-    ]));
-    expect(after.facts.slice(before.facts.length)).toHaveLength(3);
-    expect(takeProductRunnerEvents()).toHaveLength(3);
-    expect(await run(fixture.host.run(key, runtime.commands.updateCategories, input))).toEqual(result);
-    expect(await commerceInventory(fixture)).toEqual(after);
-    expect(takeProductRunnerEvents()).toEqual([]);
-  });
+      for (const [selected, label] of [[product, "local"], [foreign, "foreign"]] as const) {
+        await write(selected, selected.runtime.commands.internalProductCreate, { id: "product_owned", title: label, handle: label });
+        await write(selected, selected.runtime.commands.createCategories, { id: "root", name: label + " root", products: [{ id: "product_owned" }] });
+        await write(selected, selected.runtime.commands.createCategories, { id: "child", name: label + " child", parent_category_id: "root" });
+      }
+      await write(foreign, foreign.runtime.commands.createCategories, { id: "foreign_only", name: "foreign only", parent_category_id: "root" });
+      const query = { filters: { id: "root", include_descendants_tree: true },
+        config: { relations: ["products"], select: ["id", "name", "products.title"], take: 1 } };
+      expect(await decoded(await product.run(product.host.read(runtime.commands.countCategories, query))))
+        .toMatchObject([[{ id: "root", name: "local root", products: [{ id: "product_owned", title: "local" }],
+          category_children: [{ id: "child", name: "local child", category_children: [] }] }], 1]);
+      expect(await decoded(await foreign.run(foreign.host.read(foreign.runtime.commands.countCategories, query))))
+        .toMatchObject([[{ id: "root", name: "foreign root", products: [{ id: "product_owned", title: "foreign" }],
+          category_children: expect.arrayContaining([expect.objectContaining({ id: "child", name: "foreign child" }),
+            expect.objectContaining({ id: "foreign_only", name: "foreign only" })]) }], 1]);
+      const internal = { filters: { parent_category_id: ["root"] }, config: { relations: ["parent_category"] } };
+      expect(await decoded(await product.run(product.host.read(runtime.commands.internalCategoryCount, internal))))
+        .toMatchObject([[{ id: "child", name: "local child", parent_category: { id: "root", name: "local root" } }], 1]);
+      const before = await coreProductSnapshot(product);
+      await expect(write(product, runtime.commands.updateCategories, { id: "child", data: { parent_category_id: "foreign_only" } }))
+        .rejects.toMatchObject({ _tag: "CommerceTransactionError" });
+      expect(await coreProductSnapshot(product)).toEqual(before);
+      await write(product, runtime.commands.deleteCategories, "child");
+      expect(await decoded(await product.run(product.host.read(runtime.commands.internalCategoryCount, internal)))).toEqual([[], 0]);
+      expect(await decoded(await foreign.run(foreign.host.read(foreign.runtime.commands.internalCategoryCount, internal))))
+        .toMatchObject([[{ id: "child", name: "foreign child" }, { id: "foreign_only", name: "foreign only" }], 2]);
+    } finally { await pair.close(); }
+  }, 180_000);
 
-  it("preserves products while deleting leaf membership and closing sibling ranks", async () => {
-    const { fixture, runtime } = getProductRunnerFixture();
-    await run(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.create, { id: "product", title: "product", handle: "product" }));
-    await run(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.createCategories, { id: "root", name: "root" }));
-    await run(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.createCategories, { id: "leaf", name: "leaf", parent_category_id: "root", products: [{ id: "product" }] }));
-    await run(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.createCategories, { id: "sibling", name: "sibling", parent_category_id: "root" }));
-    const before = await commerceInventory(fixture);
-    takeProductRunnerEvents();
-    const key = fixture.host.newRequestKey();
-    const result = await run(fixture.host.run(key, runtime.commands.deleteCategories, "leaf"));
-    const after = await commerceInventory(fixture);
-    expect(after.tables.product).toHaveLength(1);
-    expect(after.tables.product).toEqual(before.tables.product);
-    expect(after.tables.product_category).toHaveLength(2);
-    expect(after.tables.product_category).toContainEqual(expect.objectContaining({ id: "sibling", rank: 0 }));
-    const facts = after.facts.slice(before.facts.length);
-    expect(facts).toHaveLength(3);
-    expect(facts.filter(fact => fact.operation === "delete")).toHaveLength(2);
-    expect(takeProductRunnerEvents()).toHaveLength(2);
-    expect(await run(fixture.host.run(key, runtime.commands.deleteCategories, "leaf"))).toEqual(result);
-    expect(await commerceInventory(fixture)).toEqual(after);
-    expect(takeProductRunnerEvents()).toEqual([]);
-  });
+  it("rolls back a native tree move after a late materialization failure and replays", async () => {
+    const { product, product: { runtime, host: writer }, reader } =
+      getCoreProductRunnerFixture();
+    for (const category of [{ id: "old", name: "old" }, { id: "new", name: "new" },
+      { id: "moving", name: "moving", parent_category_id: "old" },
+      { id: "leaf", name: "leaf", parent_category_id: "moving" },
+      { id: "sibling", name: "sibling", parent_category_id: "old" }])
+      await run(runCoreProductCommand(runtime.commands.createCategories, category));
+    const input = { id: "moving", data: { parent_category_id: "new", rank: 0 } };
+    const before = await coreProductSnapshot(product);
+    const fault = await installCoreProductDocumentFault(product, { target: "business", at: 2 });
+    try {
+      await expect(run(runCoreProductCommand(runtime.commands.updateCategories, input)))
+        .rejects.toMatchObject({ reason: "resourceFailure" });
+      expect(await fault.visits()).toEqual([{ count: 2, is_called: true }]);
+      expect(await coreProductSnapshot(product)).toEqual(before);
+    } finally { await fault.close(); }
+    const key = writer.newRequestKey();
+    const result = await run(runCoreProductCommand(runtime.commands.updateCategories, input, key));
+    const after = await coreProductSnapshot(product);
+    expect(await decoded(await run(reader.read(runtime.commands.countCategories,
+      { filters: { id: ["moving", "leaf", "sibling"] } }))))
+      .toMatchObject([expect.arrayContaining([
+        expect.objectContaining({ id: "moving", parent_category_id: "new", mpath: "new.moving", rank: 0 }),
+        expect.objectContaining({ id: "leaf", parent_category_id: "moving", mpath: "new.moving.leaf" }),
+        expect.objectContaining({ id: "sibling", rank: 0 }),
+      ]), 3]);
+    expect(after.revisions.length - before.revisions.length).toBe(3);
+    expect(coreProductNewMessages(before, after).length).toBe(3);
+    expect(await run(runCoreProductCommand(runtime.commands.updateCategories, input, key))).toEqual(result);
+    expect(await coreProductSnapshot(product)).toEqual(after);
+  }, 180_000);
 
-  it("retains repeated rank facts while authenticating aggregated batch events and replay", async () => {
-    const { fixture, runtime } = getProductRunnerFixture();
-    await run(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.createCategories, { id: "existing", name: "existing" }));
-    const before = await commerceInventory(fixture);
-    takeProductRunnerEvents();
-    const key = fixture.host.newRequestKey();
+  it("preserves the Product while deleting leaf membership and closing sibling ranks", async () => {
+    const { product, product: { runtime, host: writer }, reader } = getCoreProductRunnerFixture();
+    await run(runCoreProductCommand(runtime.commands.create,
+      { id: "product", title: "product", handle: "product" }));
+    await run(runCoreProductCommand(runtime.commands.createCategories, { id: "root", name: "root" }));
+    await run(runCoreProductCommand(runtime.commands.createCategories,
+      { id: "leaf", name: "leaf", parent_category_id: "root", products: [{ id: "product" }] }));
+    await run(runCoreProductCommand(runtime.commands.createCategories,
+      { id: "sibling", name: "sibling", parent_category_id: "root" }));
+    const before = await coreProductSnapshot(product);
+    const key = writer.newRequestKey();
+    const result = await run(runCoreProductCommand(runtime.commands.deleteCategories, "leaf", key));
+    const after = await coreProductSnapshot(product);
+    expect(await run(reader.read(runtime.commands.retrieve, { id: "product" })))
+      .toMatchObject({ id: "product", title: "product" });
+    expect(await decoded(await run(reader.read(runtime.commands.countCategories,
+      { filters: {}, config: { relations: ["products"] } }))))
+      .toMatchObject([expect.arrayContaining([
+        expect.objectContaining({ id: "root" }),
+        expect.objectContaining({ id: "sibling", rank: 0 }),
+      ]), 2]);
+    expect(after.revisions.length - before.revisions.length).toBe(3);
+    expect(after.revisions.filter(row => row.deleted).length -
+      before.revisions.filter(row => row.deleted).length).toBe(2);
+    expect(coreProductNewMessages(before, after).length).toBe(2);
+    expect(await run(runCoreProductCommand(runtime.commands.deleteCategories, "leaf", key))).toEqual(result);
+    expect(await coreProductSnapshot(product)).toEqual(after);
+  }, 180_000);
+
+  it("records final rank facts and authenticated batch events on replay", async () => {
+    const { product, product: { runtime, host: writer }, reader } = getCoreProductRunnerFixture();
+    await run(runCoreProductCommand(runtime.commands.createCategories,
+      { id: "existing", name: "existing" }));
+    const before = await coreProductSnapshot(product);
     const input = [{ id: "first", name: "first", rank: 0 }, { id: "second", name: "second", rank: 0 }];
-    const result = await run(fixture.host.run(key, runtime.commands.createCategories, input));
-    const after = await commerceInventory(fixture);
-    expect(after.tables.product_category).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: "existing", rank: 2 }), expect.objectContaining({ id: "first", rank: 1 }), expect.objectContaining({ id: "second", rank: 0 }),
-    ]));
-    const facts = after.facts.slice(before.facts.length);
-    expect(facts).toHaveLength(5);
-    expect(facts.filter(fact => fact.operation === "update")).toHaveLength(3);
-    const events = takeProductRunnerEvents();
-    expect(events).toHaveLength(3);
-    const catalog = await run(captureProductSchema("category-batch-events").pipe(Effect.flatMap(value => productRuntimeMetadata(value.metadata.frame))));
-    const policy = productLocalEventPolicy(fixture.descriptor, catalog, () => Effect.void);
-    const rowFacts = facts.map((fact): Parameters<typeof policy.validate>[1][number] => {
-      const codecVersion = fact.codecVersion;
-      if (codecVersion !== 1 && codecVersion !== 2) throw new Error("Unexpected published Category key codec");
-      return { ...fact, codecVersion };
-    });
-    for (const malformed of [events.slice(1), [...events, ...events]])
-      expect(await run(Effect.result(policy.validate(malformed, rowFacts, "productCreatecategory")))).toMatchObject({ _tag: "Failure", failure: { reason: "receiptMismatch" } });
-    expect(await run(Effect.result(policy.validate(events, rowFacts, "productOtherCommand")))).toMatchObject({ _tag: "Failure", failure: { reason: "receiptMismatch" } });
-    expect(await run(fixture.host.run(key, runtime.commands.createCategories, input))).toEqual(result);
-    expect(await commerceInventory(fixture)).toEqual(after);
-    expect(takeProductRunnerEvents()).toEqual([]);
-  });
+    // Opaque command/event authority is verified by the native host and event
+    // closure. The retired LogicalCall transcript forgery observer has no Core API.
+    const key = writer.newRequestKey();
+    const result = await run(runCoreProductCommand(runtime.commands.createCategories, input, key));
+    const after = await coreProductSnapshot(product);
+    expect(await decoded(await run(reader.read(runtime.commands.countCategories, { filters: {} }))))
+      .toMatchObject([expect.arrayContaining([
+        expect.objectContaining({ id: "existing", rank: 2 }),
+        expect.objectContaining({ id: "first", rank: 1 }),
+        expect.objectContaining({ id: "second", rank: 0 }),
+      ]), 3]);
+    expect(after.revisions.length - before.revisions.length).toBe(3);
+    expect(coreProductNewMessages(before, after)).toHaveLength(3);
+    expect(await run(runCoreProductCommand(runtime.commands.createCategories, input, key))).toEqual(result);
+    expect(await coreProductSnapshot(product)).toEqual(after);
+  }, 180_000);
 
   it("refuses cycles, forged paths, invalid ranks and foreign inputs without publication", async () => {
-    const { fixture, runtime } = getProductRunnerFixture();
-    for (const category of [{ id: "root", name: "root" }, { id: "other", name: "other" }, { id: "child", name: "child", parent_category_id: "root" }])
-      await run(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.createCategories, category));
-    const before = await commerceInventory(fixture);
-    takeProductRunnerEvents();
-    for (const input of [{ id: "root", data: { parent_category_id: "child" } }, { id: "root", data: { parent_category_id: "root" } }, { id: "child", data: { mpath: "forged" } }, { id: "child", data: { rank: -1 } }, { id: "child", data: { scopeId: "foreign" } }])
-      expect(await run(Effect.result(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.updateCategories, input)))).toMatchObject({ _tag: "Failure" });
-    expect(await run(Effect.result(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.upsertCategories, [
+    const { product, product: { runtime } } = getCoreProductRunnerFixture();
+    for (const category of [{ id: "root", name: "root" }, { id: "other", name: "other" },
+      { id: "child", name: "child", parent_category_id: "root" }])
+      await run(runCoreProductCommand(runtime.commands.createCategories, category));
+    const before = await coreProductSnapshot(product);
+    for (const input of [{ id: "root", data: { parent_category_id: "child" } },
+      { id: "root", data: { parent_category_id: "root" } },
+      { id: "child", data: { mpath: "forged" } }, { id: "child", data: { rank: -1 } },
+      { id: "child", data: { scopeId: "foreign" } }])
+      await expect(run(runCoreProductCommand(runtime.commands.updateCategories, input)))
+        .rejects.toMatchObject({ _tag: "CommerceTransactionError" });
+    await expect(run(runCoreProductCommand(runtime.commands.upsertCategories, [
       { id: "root", parent_category_id: "other" }, { id: "other", parent_category_id: "root" },
-    ])))).toMatchObject({ _tag: "Failure" });
-    for (const input of [{ id: "ambiguous.id", name: "bad" }, { id: "__root__", name: "bad" }, { name: "bad", parent_category_id: "__root__" }, { name: "bad", products: [{ id: "missing" }] }])
-      expect(await run(Effect.result(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.createCategories, input)))).toMatchObject({ _tag: "Failure" });
-    expect(await commerceInventory(fixture)).toEqual(before);
-    expect(takeProductRunnerEvents()).toEqual([]);
-  });
-});
+    ]))).rejects.toMatchObject({ _tag: "CommerceTransactionError" });
+    for (const input of [{ id: "ambiguous.id", name: "bad" }, { id: "__root__", name: "bad" },
+      { name: "bad", parent_category_id: "__root__" },
+      { name: "bad", products: [{ id: "missing" }] }])
+      await expect(run(runCoreProductCommand(runtime.commands.createCategories, input)))
+        .rejects.toMatchObject({ _tag: "CommerceTransactionError" });
+    expect(await coreProductSnapshot(product)).toEqual(before);
+  }, 180_000);
+}) });

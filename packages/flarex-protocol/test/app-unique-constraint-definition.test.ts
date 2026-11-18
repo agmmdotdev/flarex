@@ -1,4 +1,4 @@
-import { Result } from "effect";
+import { Result, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -6,6 +6,7 @@ import {
   APP_UNIQUE_KEY_CODEC_VERSION_V1,
   canonicalizeAppUniqueConstraintPhysicalSpecV1,
   decodeAppUniqueConstraintPhysicalSpecV1Result,
+  LogicalDocumentUniqueConstraintDeclarationSchema,
 } from "../src/app-unique-constraint-definition";
 
 const spec = (sparse: boolean) => ({
@@ -19,6 +20,58 @@ const spec = (sparse: boolean) => ({
 });
 
 describe("app unique constraint physical definition", () => {
+  it("commits Boolean membership without widening document producer declarations", async () => {
+    const predicate = { kind: "fieldIsNullAndBooleanEquals", nullField: "retired", booleanField: "selected", value: true };
+    const selected = await canonicalizeAppUniqueConstraintPhysicalSpecV1({ ...spec(false), predicate, nullsDistinct: true });
+    predicate.value = false;
+    expect(selected.physicalSpec.predicate).toEqual({ ...predicate, value: true });
+    expect(Object.isFrozen(selected.physicalSpec.predicate)).toBe(true);
+    expect(selected.canonicalText).toContain('"predicate":{"booleanField":"selected","kind":"fieldIsNullAndBooleanEquals","nullField":"retired","value":true}');
+    expect(await canonicalizeAppUniqueConstraintPhysicalSpecV1(selected.physicalSpec)).toEqual(selected);
+    for (const changed of [predicate, { ...predicate, value: true, nullField: "other" },
+      { ...predicate, value: true, booleanField: "other" }]) {
+      expect((await canonicalizeAppUniqueConstraintPhysicalSpecV1({ ...spec(false), predicate: changed, nullsDistinct: true })).sha256Hex)
+        .not.toBe(selected.sha256Hex);
+    }
+    for (const invalid of [{ ...predicate, value: "false" }, { ...predicate, value: 0 },
+      { ...predicate, value: null }, { ...predicate, value: undefined }, { ...predicate, booleanField: "retired" },
+      { ...predicate, booleanField: "" }, { ...predicate, unknown: true }]) {
+      expect(Result.isFailure(decodeAppUniqueConstraintPhysicalSpecV1Result({ ...spec(false), predicate: invalid }))).toBe(true);
+    }
+    const declaration = { tableLogicalName: "members", descriptor: "selected-parent", fields: ["parent"], sparse: false, nullsDistinct: false };
+    const decodeDeclaration = Schema.decodeUnknownResult(LogicalDocumentUniqueConstraintDeclarationSchema);
+    expect(Result.isSuccess(decodeDeclaration({ ...declaration, predicate: { kind: "fieldIsNull", field: "retired" } }))).toBe(true);
+    expect(Result.isFailure(decodeDeclaration({ ...declaration, predicate }))).toBe(true);
+  });
+
+  it("preserves the existing null-predicate canonical bytes", async () => {
+    const base = await canonicalizeAppUniqueConstraintPhysicalSpecV1(spec(false));
+    const conditional = await canonicalizeAppUniqueConstraintPhysicalSpecV1({ ...spec(false),
+      predicate: { kind: "fieldIsNull", field: "retired" } });
+    expect(conditional.canonicalText).toBe(base.canonicalText.replace('"sparse":false',
+      '"predicate":{"field":"retired","kind":"fieldIsNull"},"sparse":false'));
+  });
+
+  it("authenticates predicate paths and null semantics without changing native bytes", async () => {
+    const native = await canonicalizeAppUniqueConstraintPhysicalSpecV1(spec(false));
+    const predicate = { kind: "fieldIsNull", field: "deleted_at" };
+    const conditional = await canonicalizeAppUniqueConstraintPhysicalSpecV1({ ...spec(false), predicate, nullsDistinct: true });
+    predicate.field = "changed";
+    expect(conditional.physicalSpec.predicate).toEqual({ kind: "fieldIsNull", field: "deleted_at" });
+    expect(Object.isFrozen(conditional.physicalSpec.predicate)).toBe(true);
+    expect(await canonicalizeAppUniqueConstraintPhysicalSpecV1(conditional.physicalSpec)).toEqual(conditional);
+    expect(conditional.sha256Hex).not.toBe(native.sha256Hex);
+    for (const changed of [{ ...spec(false), nullsDistinct: true },
+      { ...spec(false), predicate: { kind: "fieldIsNull", field: "deleted_at" } },
+      { ...spec(false), predicate: { kind: "fieldIsNull", field: "other" }, nullsDistinct: true }]) {
+      expect((await canonicalizeAppUniqueConstraintPhysicalSpecV1(changed)).sha256Hex).not.toBe(conditional.sha256Hex);
+    }
+    for (const invalid of [{ ...spec(false), nullsDistinct: false }, { ...spec(false), predicate: "deleted_at IS NULL" },
+      { ...spec(false), predicate: { kind: "fieldIsNull", field: "" } },
+      { ...spec(false), predicate: { kind: "fieldEquals", field: "deleted_at", value: null } }]) {
+      expect(Result.isFailure(decodeAppUniqueConstraintPhysicalSpecV1Result(invalid))).toBe(true);
+    }
+  });
   it("canonicalizes the same non-localized spec deterministically", async () => {
     const first = await canonicalizeAppUniqueConstraintPhysicalSpecV1(spec(false));
     const replay = await canonicalizeAppUniqueConstraintPhysicalSpecV1(spec(false));

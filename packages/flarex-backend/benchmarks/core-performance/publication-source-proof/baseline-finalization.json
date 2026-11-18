@@ -1,0 +1,16 @@
+{
+  "directoryCreationMs": 0.8231999999989057,
+  "sourceHashStartMs": 7.723499999998239,
+  "sourceHashEndMs": 9.767300000006799,
+  "finalSerializationMs": 120.6583999999857,
+  "finalWriteMs": 83.74829999997746,
+  "finalArtifactHashMs": 54.624500000005355,
+  "artifactHashes": {
+    "raw": "b206498ec7e4b6dad1c16b02f8f409407d46674beb0658a48ca690b056aef271",
+    "report": "0f22d887fa18f330f35da04a7028eae680c7ce0981b862d19d30d8a019bc7603"
+  },
+  "diagnosticSecondaryFailures": [],
+  "failure": null,
+  "harnessElapsedBeforeReceiptWriteMs": 122794.0535,
+  "receiptOwnSerializationAndWriteMs": "unavailable within this receipt; external process envelope retained by root"
+}

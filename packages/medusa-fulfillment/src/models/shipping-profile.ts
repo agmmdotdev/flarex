@@ -7,7 +7,7 @@ export const ShippingProfile = model
     id: model.id({ prefix: "sp" }).primaryKey(),
     name: model.text(),
     type: model.text(),
-    shipping_options: model.hasMany(() => ShippingOption, {
+    shipping_options: model.hasMany((): typeof ShippingOption => ShippingOption, {
       mappedBy: "shipping_profile",
     }),
     metadata: model.json().nullable(),

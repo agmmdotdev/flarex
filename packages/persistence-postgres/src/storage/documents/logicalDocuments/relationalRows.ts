@@ -1,0 +1,697 @@
+import { Data, Effect, Result, Schema } from "effect";
+import { inspectLogicalRelationalFailure, retainLogicalRelationalFailure, type LogicalRelationalUniqueValue } from "./relationalFailure";
+import { sql } from "drizzle-orm";
+import type { CatalogIndexDefinitionId, CatalogTableId } from "flarex-protocol/catalog";
+import type { FlarexMetadataTransaction } from "../../../database/metadataTransaction";
+import { runDrizzleStatementEffect } from "../../../database/drizzleStatementEffect";
+import { rowsFromDriverExecuteResult } from "../../../database/driverExecuteResult";
+import { compareBytesLexicographically, copyBytes } from "@flarex/utils/bytes";
+import { validateRelationalRowColumns, type RelationalPersistenceCapability, type RelationalTableDefinition } from "flarex-protocol/internal/relational-schema";
+import { isJsonObject, type Json, type JsonObject } from "flarex-protocol/json";
+import type { LogicalDocumentFailure, LogicalDocumentFailureReason } from "./model";
+import { canonicalizeFlarexValueV1Effect, copyCanonicalFlarexValueBytesV1, copyFlarexValueSha256V1, type CanonicalFlarexValueV1 } from "flarex-protocol/value";
+import type { AppDocumentIdV1 } from "flarex-protocol/app-document-id";
+import type { AppCreationTimeV1 } from "flarex-protocol/app-document";
+import type { OrderedIndexKeyHexV1 } from "flarex-protocol/ordered-index";
+import { capturePrivateJsonData, inspectCapturedPrivateJsonData, useCapturedPrivateJsonData } from "../../../values/privateJsonData";
+import { prepareRelationalRows, prepareRelationalRowValues, type RelationalRowFailure } from "../../../values/relationalRows";
+import { detachStoredAppDocumentEvidence, detachStoredAppRowRevisionEvidence, inspectStoredAppDocumentEvidence, protectStoredAppDocumentEvidence } from "../appRowCanonicalEvidence";
+import { MAX_BOUNDED_APP_ROW_READ_IDENTITIES, MAX_BOUNDED_APP_ROW_READ_VALUE_BYTES, type AppRowReadResultV1 } from "../appRows";
+import { snapshotDecodedProtocolPlainData } from "flarex-protocol/internal/decoded-protocol-snapshot";
+import { isLocatedAppIndexDefinitionV1, sameLocatedAppIndexDefinition, type LocatedAppIndexDefinitionV1 } from "../../indexes/locatedAppIndexDefinition";
+import { isLocatedAppUniqueConstraintDefinitionV1, type LocatedAppUniqueConstraintDefinitionV1 } from "../../unique/locatedAppUniqueConstraintDefinition";
+import { lowerAppDeveloperIndexKeyV1 } from "../../indexes/appDeveloperIndexKeys";
+import { lowerCanonicalAppUniqueConstraintV1Result } from "../../unique/appUniqueConstraintKeys";
+import { inspectCanonicalFlarexValueOwnershipV1, isCanonicalFlarexRuntimeObjectV1,
+  type CanonicalFlarexRuntimeObjectV1 } from "flarex-protocol/value";
+
+export { relationalTextIdentity, relationalManagedUpdatedColumns as logicalManagedUpdatedColumns } from "../../../values/relationalRows";
+
+/** Keep the retained execution owner's exact failure objects and diagnostic
+ * issuance while the shared value owner performs the row-local checks. */
+const rowFailure = <Failure>(table: RelationalTableDefinition,
+  error: LogicalDocumentFailure<Failure>): RelationalRowFailure<Failure> => (reason, cause, diagnostic) => {
+  const failure = error(reason, cause);
+  if (diagnostic !== undefined) retainLogicalRelationalFailure(failure, { ...diagnostic, table: table.identity });
+  return failure;
+};
+
+export function prepareLogicalRelationalRowValues<Failure>(table: RelationalTableDefinition,
+  capabilities: readonly RelationalPersistenceCapability[], error: LogicalDocumentFailure<Failure>) {
+  return prepareRelationalRowValues(table, capabilities, rowFailure(table, error));
+}
+
+/** Canonical/REAL provenance remains lexical to this retained execution owner.
+ * The shared rules normalize values without issuing conversion authority. */
+export function prepareLogicalRelationalRows<Failure>(table: RelationalTableDefinition,
+  capabilities: readonly RelationalPersistenceCapability[], error: LogicalDocumentFailure<Failure>) {
+  return compileLogicalRelationalRows(table, capabilities, error);
+}
+
+function compileLogicalRelationalRows<Failure>(table: RelationalTableDefinition,
+  capabilities: readonly RelationalPersistenceCapability[], error: LogicalDocumentFailure<Failure>) {
+  return prepareRelationalRows(table, capabilities, rowFailure(table, error)).pipe(Result.map(rows => {
+    const real = table.columns.some(column => column.type === "real");
+    const normalize = (...args: Parameters<typeof rows.normalize>) => rows.normalize(...args).pipe(Result.map(row => {
+      (real ? realCandidates : normalizedRows).set(row, normalize);
+      return row;
+    }));
+    const validate = (row: JsonObject, reason: "documentInvalid" | "storedCorruption") =>
+      real && normalizedRows.get(row) !== normalize ? Result.fail(error(reason)) : rows.validate(row, reason);
+    return Object.freeze({ ...rows, normalize, validate });
+  }));
+}
+
+export class LogicalRelationalMechanicsError extends Data.TaggedError("LogicalRelationalMechanicsError")<{
+  readonly reason: LogicalDocumentFailureReason; readonly cause?: unknown;
+}> {}
+const mechanicError: LogicalDocumentFailure<LogicalRelationalMechanicsError> = (reason, cause) =>
+  new LogicalRelationalMechanicsError({ reason, ...(cause === undefined ? {} : { cause }) });
+const issuedTableMechanics = new WeakMap<object, Readonly<{ table: RelationalTableDefinition;
+  capabilities: readonly RelationalPersistenceCapability[] }>>();
+const normalizedRows = new WeakMap<JsonObject, object>();
+const realCandidates = new WeakMap<JsonObject, object>();
+const realNormalizedInputs = new WeakMap<JsonObject, JsonObject>();
+interface CanonicalRowVerdict {
+  readonly derived?: WeakMap<ReadonlySet<CanonicalFlarexValueV1>, CanonicalDerivedKeys>;
+  readonly kind: "relational";
+  /** Stored captures acquire table semantics only at actual query/write inspection. */
+  readonly mechanics: PreparedLogicalRelationalTableMechanics | undefined;
+  readonly bytes: Uint8Array;
+  readonly digest: Uint8Array;
+  readonly runtime: JsonObject;
+  readonly native: JsonObject;
+  /** Original complete REAL fields from this exact successful SQL conversion. */
+  readonly realNormalization?: JsonObject;
+}
+interface CanonicalDocumentVerdict {
+  readonly derived?: WeakMap<ReadonlySet<CanonicalFlarexValueV1>, CanonicalDerivedKeys>;
+  readonly kind: "document";
+  readonly owner: PreparedLogicalCanonicalDocumentSemantics;
+  readonly bytes: Uint8Array;
+  readonly digest: Uint8Array;
+  readonly read: () => CanonicalFlarexRuntimeObjectV1;
+  readonly intact: () => boolean;
+}
+type PreparedLogicalCanonicalDocumentSemantics = ReturnType<typeof prepareLogicalCanonicalDocumentSemantics>;
+const canonicalRows = new WeakMap<CanonicalFlarexValueV1, CanonicalRowVerdict | CanonicalDocumentVerdict>();
+const canonicalJsonRows = new WeakMap<JsonObject, CanonicalFlarexValueV1>();
+
+/** Called only after the unique owner selects a real conflict. Borrow its exact
+ * canonical relational candidate; this diagnostic never revalidates the row. */
+export function retainLogicalRelationalUniqueFailure(failure: unknown,
+  definition: LocatedAppUniqueConstraintDefinitionV1, document: CanonicalFlarexValueV1) {
+  const verdict = canonicalRows.get(document);
+  if (!isLocatedAppUniqueConstraintDefinitionV1(definition) || verdict?.kind !== "relational" || verdict.mechanics === undefined) return;
+  const columns = definition.physicalSpec.orderedFields;
+  const values: LogicalRelationalUniqueValue[] = [];
+  for (const column of columns) {
+    const value = verdict.native[column];
+    // Relational unique lowering supports scalar columns. A document-profile
+    // projection or unavailable native field cannot acquire this evidence.
+    if (value !== null && typeof value !== "string" && typeof value !== "number" && typeof value !== "boolean") return;
+    values.push(value);
+  }
+  retainLogicalRelationalFailure(failure, { origin: "row", kind: "unique", table: verdict.mechanics.table.identity,
+    key: { kind: "unique", definitionId: definition.uniqueConstraintDefinitionId }, columns, values, candidate: verdict.native });
+}
+const detachedActivityJson = new WeakMap<object, Json>();
+const canonicalBytesMatch = (document: CanonicalFlarexValueV1, verdict: CanonicalRowVerdict | CanonicalDocumentVerdict) =>
+  compareBytesLexicographically(document.canonicalBytes, verdict.bytes) === 0 &&
+  compareBytesLexicographically(document.sha256, verdict.digest) === 0;
+interface CanonicalDerivedKeys {
+  readonly unique: Map<LocatedAppUniqueConstraintDefinitionV1, Readonly<{ key: Result.Result.Success<ReturnType<typeof lowerCanonicalAppUniqueConstraintV1Result>>; bytes?: Uint8Array }>>;
+  readonly index: Map<CatalogIndexDefinitionId, Readonly<{ definition: LocatedAppIndexDefinitionV1;
+    keys: Map<AppCreationTimeV1, OrderedIndexKeyHexV1 | null> }>>;
+}
+export interface LogicalCanonicalKeyOwner<Failure> {
+  /** The existing root/local retained-document owner is the cache lifetime. */
+  readonly identity: ReadonlySet<CanonicalFlarexValueV1>;
+  readonly retain: (document: CanonicalFlarexValueV1, bytes: number) => Result.Result<void, Failure>;
+  readonly retainIndex?: (definition: LocatedAppIndexDefinitionV1, document: CanonicalFlarexValueV1,
+    creationTime: AppCreationTimeV1, key: OrderedIndexKeyHexV1 | null, bytes: number) => Result.Result<void, Failure>;
+  readonly error: LogicalDocumentFailure<Failure>;
+}
+/** Existing owner-held key evidence can share its payload with a private index.
+ * Independently issued genuine handles must qualify through the catalog owner;
+ * a structural lookalike or corrupted document byte loan supplies no proof. */
+export function hasRetainedLogicalCanonicalIndexKey(definition: LocatedAppIndexDefinitionV1,
+  document: CanonicalFlarexValueV1, creationTime: AppCreationTimeV1,
+  owner: ReadonlySet<CanonicalFlarexValueV1>, key: OrderedIndexKeyHexV1 | null): boolean {
+  const verdict = canonicalRows.get(document);
+  if (!isLocatedAppIndexDefinitionV1(definition) || verdict === undefined || !canonicalBytesMatch(document, verdict) ||
+      verdict.kind === "document" && !verdict.intact()) return false;
+  const retained = verdict.derived?.get(owner)?.index.get(definition.indexDefinitionId);
+  return retained !== undefined && sameLocatedAppIndexDefinition(retained.definition, definition) &&
+    retained.keys.has(creationTime) && retained.keys.get(creationTime) === key;
+}
+function derivedKeys(document: CanonicalFlarexValueV1, verdict: CanonicalRowVerdict | CanonicalDocumentVerdict, owner: ReadonlySet<CanonicalFlarexValueV1>) {
+  const owners = verdict.derived ?? new WeakMap<ReadonlySet<CanonicalFlarexValueV1>, CanonicalDerivedKeys>();
+  const retained = owners.get(owner);
+  if (retained !== undefined) return retained;
+  const derived: CanonicalDerivedKeys = { unique: new Map(), index: new Map() };
+  owners.set(owner, derived);
+  canonicalRows.set(document, Object.freeze({ ...verdict, derived: owners }));
+  return derived;
+}
+export function forgetLogicalCanonicalDerivedKeys(document: CanonicalFlarexValueV1, owner: ReadonlySet<CanonicalFlarexValueV1>) {
+  canonicalRows.get(document)?.derived?.delete(owner);
+}
+export function logicalUniqueKeyRetentionBytes(key: Result.Result.Success<ReturnType<typeof lowerCanonicalAppUniqueConstraintV1Result>>) {
+  return key.kind === "claim" ? 128 + 32 * key.projection.values.length + 2 * key.encodedKey.length
+    + 2 * key.canonicalKeyBytes.byteLength + 2 * key.localeKey.length : 128 + 2 * key.localeKey.length;
+}
+
+/** Interpretation belongs to the actual canonical revision, separate from its
+ * preimage. Only genuine catalog definitions and canonical owner verdicts can
+ * retain it; every use still checks the original mutable byte/digest evidence. */
+export function lowerLogicalCanonicalUniqueKey<Failure>(definition: LocatedAppUniqueConstraintDefinitionV1, document: CanonicalFlarexValueV1,
+  owner: LogicalCanonicalKeyOwner<Failure>, reason: "documentInvalid" | "storedCorruption" | "invalidInput") {
+  return Result.gen(function* () {
+    const verdict = canonicalRows.get(document);
+    if (verdict !== undefined && (!canonicalBytesMatch(document, verdict) || verdict.kind === "document" && !verdict.intact()))
+      return yield* Result.fail(owner.error(reason));
+    const eligible = verdict !== undefined && isLocatedAppUniqueConstraintDefinitionV1(definition);
+    const retained = verdict?.derived?.get(owner.identity)?.unique.get(definition);
+    if (retained !== undefined) {
+      if (retained.key.kind === "claim" && (retained.bytes === undefined ||
+          compareBytesLexicographically(retained.key.canonicalKeyBytes, retained.bytes) !== 0))
+        return yield* Result.fail(owner.error(reason));
+      return retained.key;
+    }
+    const lowered = yield* lowerCanonicalAppUniqueConstraintV1Result(definition, document).pipe(Result.mapError(cause => owner.error(reason, cause)));
+    if (verdict !== undefined && eligible) {
+      const bytes = lowered.kind === "claim" ? lowered.canonicalKeyBytes : undefined;
+      // Account both native/projection storage and the protected integrity copy.
+      yield* owner.retain(document, logicalUniqueKeyRetentionBytes(lowered));
+      derivedKeys(document, verdict, owner.identity).unique.set(definition,
+        Object.freeze({ key: lowered, ...(bytes === undefined ? {} : { bytes: copyBytes(bytes) }) }));
+    }
+    return lowered;
+  });
+}
+
+export function lowerLogicalCanonicalIndexKey<Failure>(definition: LocatedAppIndexDefinitionV1, document: CanonicalFlarexValueV1, creationTime: AppCreationTimeV1,
+  owner: LogicalCanonicalKeyOwner<Failure>, reason: "documentInvalid" | "storedCorruption" | "invalidInput",
+  interpret?: (fallback: () => Result.Result<OrderedIndexKeyHexV1 | null, Failure>) => Result.Result<OrderedIndexKeyHexV1 | null, Failure>) {
+  return Result.gen(function* () {
+    const verdict = canonicalRows.get(document);
+    if (verdict !== undefined && (!canonicalBytesMatch(document, verdict) || verdict.kind === "document" && !verdict.intact()))
+      return yield* Result.fail(owner.error(reason));
+    const eligible = verdict !== undefined && isLocatedAppIndexDefinitionV1(definition);
+    const retained = eligible ? verdict.derived?.get(owner.identity)?.index.get(definition.indexDefinitionId) : undefined;
+    if (retained !== undefined && !sameLocatedAppIndexDefinition(retained.definition, definition))
+      return yield* Result.fail(owner.error(reason));
+    if (retained?.keys.has(creationTime)) return retained.keys.get(creationTime) ?? null;
+    const fallback = () => lowerAppDeveloperIndexKeyV1(definition, document, creationTime).pipe(Result.mapError(cause => owner.error(reason, cause)));
+    const lowered = yield* (interpret === undefined ? fallback() : interpret(fallback));
+    if (verdict !== undefined && eligible) {
+      const bytes = 128 + 2 * (lowered?.length ?? 0);
+      yield* (owner.retainIndex === undefined ? owner.retain(document, bytes)
+        : owner.retainIndex(definition, document, creationTime, lowered, bytes));
+      const entry = retained ?? Object.freeze({ definition, keys: new Map<AppCreationTimeV1, OrderedIndexKeyHexV1 | null>() });
+      entry.keys.set(creationTime, lowered);
+      derivedKeys(document, verdict, owner.identity).index.set(definition.indexDefinitionId, entry);
+    }
+    return lowered;
+  });
+}
+const decodeDocument = Schema.decodeUnknownResult(Schema.JsonObject);
+
+/** The existing canonical document owner retains complete source semantics,
+ * never admission or budgets. Foreign wrappers receive their original complete
+ * validation and acquire no verdict, even when their values are frozen. */
+function validateLogicalDocumentCanonicalSemantics<Failure>(document: CanonicalFlarexValueV1,
+  owner: PreparedLogicalCanonicalDocumentSemantics, validate: (runtime: CanonicalFlarexRuntimeObjectV1) => Result.Result<boolean, Failure>,
+  error: () => Failure): Result.Result<void, Failure> {
+  return Result.gen(function* () {
+    const prior = canonicalRows.get(document);
+    if (prior !== undefined && !canonicalBytesMatch(document, prior)) return yield* Result.fail(error());
+    if (prior?.kind === "document" && !prior.intact()) return yield* Result.fail(error());
+    if (prior?.kind === "document" && prior.owner === owner) return;
+    const issued = inspectCanonicalFlarexValueOwnershipV1(document);
+    if (issued !== undefined && !issued.intact) return yield* Result.fail(error());
+    const runtime = issued?.read() ?? document.value;
+    if (!isCanonicalFlarexRuntimeObjectV1(runtime)) return yield* Result.fail(error());
+    const reuseEligible = yield* validate(runtime);
+    if (!reuseEligible || issued === undefined || document.profile !== "appDocument") return;
+    // read() is a defensive runtime loan; its containers and protected binary
+    // storage were normalized/owned by the actual codec before any escape.
+    const read = () => {
+      const value = issued.read();
+      if (!isCanonicalFlarexRuntimeObjectV1(value)) throw new Error("Canonical document issuer lost its object runtime");
+      return value;
+    };
+    canonicalRows.set(document, Object.freeze({ kind: "document", owner, read,
+      intact: () => inspectCanonicalFlarexValueOwnershipV1(document)?.intact === true,
+      bytes: copyBytes(document.canonicalBytes), digest: copyBytes(document.sha256) }));
+  });
+}
+
+/** Exact source/table/generation identity only; changed bytes are corruption,
+ * while a different owner or foreign document retains full validation. */
+function inspectLogicalDocumentCanonicalSemantics<Failure>(document: CanonicalFlarexValueV1,
+  owner: PreparedLogicalCanonicalDocumentSemantics, error: () => Failure): Result.Result<CanonicalFlarexRuntimeObjectV1 | undefined, Failure> {
+  const prior = canonicalRows.get(document);
+  if (prior !== undefined && !canonicalBytesMatch(document, prior)) return Result.fail(error());
+  if (prior?.kind === "document" && !prior.intact()) return Result.fail(error());
+  const issued = inspectCanonicalFlarexValueOwnershipV1(document);
+  if (issued !== undefined && !issued.intact) return Result.fail(error());
+  return Result.succeed(prior?.kind === "document" && prior.owner === owner ? prior.read() : undefined);
+}
+
+/** The exact source construction captures its full table/validator/ID policy.
+ * The immutable validate/inspect owner is the retained identity; another table
+ * factory cannot register a verdict for this source by supplying its table. */
+export function prepareLogicalCanonicalDocumentSemantics<Failure>(
+  validate: (runtime: CanonicalFlarexRuntimeObjectV1) => Result.Result<boolean, Failure>,
+  error: () => Failure,
+) {
+  const validateDocument = (document: CanonicalFlarexValueV1): Result.Result<void, Failure> =>
+    validateLogicalDocumentCanonicalSemantics(document, owner, validate, error);
+  const inspectDocument = (document: CanonicalFlarexValueV1): Result.Result<CanonicalFlarexRuntimeObjectV1 | undefined, Failure> =>
+    inspectLogicalDocumentCanonicalSemantics(document, owner, error);
+  const owner = Object.freeze({ validate: validateDocument, inspect: inspectDocument });
+  return owner;
+}
+
+/** Canonicalization is issued here, after this table's complete immutable row
+ * verdict. Neither a structural match nor a consumer-supplied Boolean can
+ * associate validation evidence with a canonical document. */
+export const canonicalizeLogicalRelationalRow = Effect.fnUntraced(function* (
+  mechanics: PreparedLogicalRelationalTableMechanics, fields: JsonObject,
+  documentId: AppDocumentIdV1, creationTime: AppCreationTimeV1,
+) {
+  yield* Effect.fromResult(Result.gen(function* () {
+    if (!issuedTableMechanics.has(mechanics)) return yield* Result.fail(mechanicError("invalidAuthority"));
+    const rows = yield* mechanics.rows;
+    if (normalizedRows.get(fields) !== rows.normalize) return yield* Result.fail(mechanicError("invalidAuthority"));
+  }));
+  const document = yield* canonicalizeFlarexValueV1Effect({ ...fields, _id: documentId, _creationTime: creationTime }, "appDocument")
+    .pipe(Effect.mapError(cause => mechanicError("documentInvalid", cause)));
+  // Capture the actual runtime representation once. valueJson is the policy
+  // representation and may contain codec tags where runtime contains -0.
+  yield* Effect.fromResult(Result.gen(function* () {
+    const captured = yield* capturePrivateJsonData(document.value, Number.MAX_SAFE_INTEGER, mechanicError);
+    if (!isJsonObject(captured.value)) return yield* Result.fail(mechanicError("documentInvalid"));
+    const native = yield* useCapturedPrivateJsonData(Object.fromEntries(Object.entries(captured.value)
+      .filter(([name]) => name !== "_id" && name !== "_creationTime")), Number.MAX_SAFE_INTEGER, mechanicError);
+    if (!isJsonObject(native.value)) return yield* Result.fail(mechanicError("documentInvalid"));
+    const realNormalization = realNormalizedInputs.get(fields);
+    canonicalRows.set(document, Object.freeze({ kind: "relational", mechanics, bytes: document.canonicalBytes.slice(), digest: document.sha256.slice(),
+      runtime: captured.value, native: native.value,
+      ...(realNormalization === undefined ? {} : { realNormalization }) }));
+    if (isJsonObject(document.valueJson)) canonicalJsonRows.set(document.valueJson, document);
+  }));
+  return document;
+});
+
+/** The return owner still applies its own bound and charge. Genuine canonical
+ * issuers lend the retained runtime tree; foreign rows capture fully. */
+export function captureLogicalRelationalCanonicalRow<Failure>(document: CanonicalFlarexValueV1,
+  maximum: number, error: LogicalDocumentFailure<Failure>): Result.Result<Readonly<{ value: Json; bytes: number }>, Failure> {
+  const verdict = canonicalRows.get(document);
+  if (verdict !== undefined) return canonicalBytesMatch(document, verdict)
+    ? useCapturedPrivateJsonData(verdict.kind === "relational" ? verdict.runtime : verdict.read(), maximum, error) : Result.fail(error("storedCorruption"));
+  return Result.gen(function* () {
+    const stored = yield* inspectStoredAppDocumentEvidence(document).pipe(Result.mapError(cause => error("storedCorruption", cause)));
+    // Full capture stays at its original accepting bound. Decoder provenance
+    // cannot make mutable binary leaves or a failed JSON capture reusable.
+    const captured = yield* capturePrivateJsonData(document.value, maximum, error);
+    if (stored === undefined || !isJsonObject(captured.value)) return captured;
+    const native = yield* useCapturedPrivateJsonData(Object.fromEntries(Object.entries(captured.value)
+      .filter(([name]) => name !== "_id" && name !== "_creationTime")), Number.MAX_SAFE_INTEGER, error);
+    if (!isJsonObject(native.value)) return yield* Result.fail(error("storedCorruption"));
+    canonicalRows.set(document, Object.freeze({ kind: "relational", mechanics: undefined, runtime: captured.value, native: native.value,
+      bytes: copyBytes(document.canonicalBytes), digest: copyBytes(document.sha256) }));
+    if (isJsonObject(stored.policy)) canonicalJsonRows.set(stored.policy, document);
+    return captured;
+  });
+}
+
+/** Activity policy borrows its distinct JSON representation, never runtime.
+ * Retain the existing canonical JSON projection identity only after capture. */
+export function captureLogicalRelationalActivityJson<Failure>(document: CanonicalFlarexValueV1,
+  error: LogicalDocumentFailure<Failure>): Result.Result<Readonly<{ value: Json; bytes: number }>, Failure> {
+  return Result.gen(function* () {
+    const verdict = canonicalRows.get(document);
+    if (verdict !== undefined && !canonicalBytesMatch(document, verdict)) return yield* Result.fail(error("storedCorruption"));
+    const stored = verdict === undefined ? yield* inspectStoredAppDocumentEvidence(document)
+      .pipe(Result.mapError(cause => error("storedCorruption", cause))) : undefined;
+    const original = document.valueJson;
+    const owned = isJsonObject(original) && (canonicalJsonRows.has(original) || stored !== undefined);
+    const prior = owned ? detachedActivityJson.get(original) : undefined;
+    const captured = yield* useCapturedPrivateJsonData(prior ?? original, Number.MAX_SAFE_INTEGER,
+      (_reason, cause) => error("storedCorruption", cause));
+    if (owned) {
+      canonicalJsonRows.set(original, document);
+      detachedActivityJson.set(original, captured.value);
+    }
+    return captured;
+  });
+}
+
+/** Complete semantic validation precedes predicate/projection. A copied row or
+ * changed mechanics cannot borrow the issuer's native-field verdict. */
+export function inspectLogicalRelationalCanonicalRow(mechanics: PreparedLogicalRelationalTableMechanics,
+  document: CanonicalFlarexValueV1, runtime: JsonObject,
+  reason: "documentInvalid" | "storedCorruption"): Result.Result<JsonObject | undefined, LogicalRelationalMechanicsError> {
+  if (!issuedTableMechanics.has(mechanics)) return Result.fail(mechanicError("invalidAuthority"));
+  const verdict = canonicalRows.get(document);
+  if (verdict !== undefined && !canonicalBytesMatch(document, verdict)) return Result.fail(mechanicError(reason));
+  if (verdict?.kind !== "relational" || verdict.runtime !== runtime)
+    return Result.succeed(undefined);
+  if (verdict.mechanics === mechanics) return Result.succeed(verdict.native);
+  if (verdict.mechanics !== undefined) return Result.succeed(undefined);
+  if (mechanics.table.columns.some(column => column.type === "real")) return Result.fail(mechanicError(reason));
+  // A genuine stored runtime capture retains no table acceptance until this
+  // original inspection position. Failed verdicts remain uncached.
+  return mechanics.validate(verdict.native, reason).pipe(Result.map(() => {
+    canonicalRows.set(document, Object.freeze({ ...verdict, mechanics }));
+    return verdict.native;
+  }));
+}
+
+/** The same native view feeds writes and lifecycle observations. Foreign rows
+ * receive the accepting owner's complete value and table validation each time. */
+export function nativeLogicalRelationalCanonicalRow<Failure>(mechanics: PreparedLogicalRelationalTableMechanics,
+  document: CanonicalFlarexValueV1, maximum: number, error: LogicalDocumentFailure<Failure>): Result.Result<JsonObject, Failure> {
+  return Result.gen(function* () {
+    const captured = yield* captureLogicalRelationalCanonicalRow(document, maximum, error);
+    if (!isJsonObject(captured.value)) return yield* Result.fail(error("storedCorruption"));
+    const native = yield* inspectLogicalRelationalCanonicalRow(mechanics, document, captured.value, "storedCorruption")
+      .pipe(Result.mapError(cause => error(cause.reason, cause.cause)));
+    if (native !== undefined) return native;
+    const fields = Object.fromEntries(Object.entries(captured.value).filter(([name]) => name !== "_id" && name !== "_creationTime"));
+    yield* mechanics.validate(fields, "storedCorruption").pipe(Result.mapError(cause => error(cause.reason, cause.cause)));
+    const owned = yield* useCapturedPrivateJsonData(fields, Number.MAX_SAFE_INTEGER, error);
+    if (!isJsonObject(owned.value)) return yield* Result.fail(error("storedCorruption"));
+    return owned.value;
+  });
+}
+
+/** Validation evidence has value provenance only; admission and liveness stay
+ * with their accepting owners. Mutable buffers are checked against protected
+ * copies on every reuse, without decoding/revalidating the complete row. */
+export function validateLogicalRelationalCanonicalRow(mechanics: PreparedLogicalRelationalTableMechanics,
+  document: CanonicalFlarexValueV1, reason: "documentInvalid" | "storedCorruption") {
+  return Result.gen(function* () {
+    if (!issuedTableMechanics.has(mechanics)) return yield* Result.fail(mechanicError("invalidAuthority"));
+    const verdict = canonicalRows.get(document);
+    if (verdict !== undefined && !canonicalBytesMatch(document, verdict)) return yield* Result.fail(mechanicError(reason));
+    if (verdict?.kind === "relational") {
+      const native = yield* inspectLogicalRelationalCanonicalRow(mechanics, document, verdict.runtime, reason);
+      if (native !== undefined) return;
+    }
+    const value = yield* decodeDocument(document.value).pipe(Result.mapError(cause => mechanicError(reason, cause)));
+    const fields: JsonObject = {};
+    for (const [name, member] of Object.entries(value)) {
+      if (name !== "_id" && name !== "_creationTime") Object.defineProperty(fields, name, { value: member, enumerable: true });
+    }
+    yield* mechanics.validate(fields, reason);
+  });
+}
+
+/** Root retention owns an immutable canonical frame, independently of public
+ * mutable detach projections. A genuine native verdict transfers its exact
+ * private semantic/REAL identities; copying grants no new verdict or keys.
+ * Original expected bytes and a failed intact verdict survive the capture. */
+export function protectLogicalCanonicalDocument(document: CanonicalFlarexValueV1): CanonicalFlarexValueV1 {
+  const protectedDocument = protectStoredAppDocumentEvidence(document);
+  if (protectedDocument === document) return document;
+  const verdict = canonicalRows.get(document);
+  if (verdict === undefined) return protectedDocument;
+  const { derived: _derived, ...interpretation } = verdict;
+  const intact = verdict.kind === "document" ? verdict.intact() : true;
+  canonicalRows.set(protectedDocument, interpretation.kind === "document"
+    ? Object.freeze({ ...interpretation, intact: () => intact }) : Object.freeze(interpretation));
+  if (isJsonObject(protectedDocument.valueJson)) canonicalJsonRows.set(protectedDocument.valueJson, protectedDocument);
+  return protectedDocument;
+}
+/** Only this owner clones and issues a detached canonical copy. Foreign
+ * documents gain no verdict. Canonical trees are already immutable;
+ * owned copies share those trees and detach every mutable buffer. */
+export function detachLogicalCanonicalDocument(document: CanonicalFlarexValueV1): CanonicalFlarexValueV1 {
+  const verdict = canonicalRows.get(document);
+  if (verdict === undefined) return detachStoredAppDocumentEvidence(document);
+  // Keep a changed buffer's original verdict, so detachment cannot launder a
+  // corruption into a foreign row that only requires semantic validation.
+  // Derived keys belong to the retaining root/local revision owner. Neither
+  // the new verdict nor its runtime getter retains another revision's keys.
+  const { derived: _derived, ...interpretation } = verdict;
+  const detached = Object.freeze({ profile: document.profile, codecVersion: document.codecVersion,
+    valueJson: document.valueJson, semanticSizeBytes: document.semanticSizeBytes, nestingDepth: document.nestingDepth,
+    canonicalText: document.canonicalText, get value() { return interpretation.kind === "document" ? interpretation.read() : interpretation.runtime; },
+    canonicalBytes: copyCanonicalFlarexValueBytesV1(document.canonicalBytes), sha256: copyFlarexValueSha256V1(document.sha256) });
+  const intact = verdict.kind === "document" ? verdict.intact() : true;
+  canonicalRows.set(detached, interpretation.kind === "document" ? Object.freeze({ ...interpretation, intact: () => intact }) : Object.freeze(interpretation));
+  return detached;
+}
+
+/** The root receives an owner-created full revision copy, at its original
+ * post-budget frontier. Only an actual issued document transfers interpretation;
+ * no caller-supplied destination or structurally matching clone is accepted. */
+export function detachLogicalCanonicalRevision(revision: AppRowReadResultV1, sourceDocument: CanonicalFlarexValueV1 | null): AppRowReadResultV1 {
+  const copy = detachStoredAppRowRevisionEvidence(revision, sourceDocument);
+  const detached = copy.revision;
+  if (copy.sourceDocument === null || detached.kind !== "live") return detached;
+  const verdict = canonicalRows.get(copy.sourceDocument);
+  if (verdict === undefined) return detached;
+  const { derived: _derived, ...interpretation } = verdict;
+  const intact = interpretation.kind === "document" ? interpretation.intact() : true;
+  const document = Object.freeze({ ...detached.document, valueJson: copy.sourceDocument.valueJson,
+    get value() { return interpretation.kind === "document" ? interpretation.read() : interpretation.runtime; } });
+  canonicalRows.set(document, interpretation.kind === "document" ? Object.freeze({ ...interpretation, intact: () => intact }) : Object.freeze(interpretation));
+  return { ...detached, document };
+}
+
+function freezeDetachedActivityJson(member: Json): void {
+  if (member === null || typeof member !== "object") return;
+  for (const child of Array.isArray(member) ? member : Object.values(member)) freezeDetachedActivityJson(child);
+  Object.freeze(member);
+}
+
+/** Own the detached immutable policy value. Only exact canonical/captured JSON
+ * provenance retains its projection; arbitrary frozen structures clone fully. */
+export function detachLogicalRelationalActivityJson(value: JsonObject): JsonObject;
+export function detachLogicalRelationalActivityJson(value: JsonObject | null): JsonObject | null;
+export function detachLogicalRelationalActivityJson(value: Json): Json;
+export function detachLogicalRelationalActivityJson(value: Json): Json {
+  if (value === null || typeof value !== "object") return value;
+  // The capture issuer already owns a detached immutable JSON tree. Sharing
+  // that value exposes no mutable byte storage or original caller references.
+  if (inspectCapturedPrivateJsonData(value)?.value === value) return value;
+  const owned = isJsonObject(value) && canonicalJsonRows.has(value);
+  const previous = owned ? detachedActivityJson.get(value) : undefined;
+  if (previous !== undefined) return previous;
+  const detached = structuredClone(value);
+  freezeDetachedActivityJson(detached);
+  if (owned) detachedActivityJson.set(value, detached);
+  return detached;
+}
+
+/** Compile only immutable table mechanics. A failed table identity remains a
+ * lazy verdict consumed where that operation previously prepared its table. */
+export function prepareLogicalRelationalTableMechanics(sourceTable: RelationalTableDefinition,
+  sourceCapabilities: readonly RelationalPersistenceCapability[]) {
+  // This existing issuer owns the decoded source snapshot. A caller's readonly
+  // type or a frozen outer wrapper cannot make nested schema inputs immutable.
+  const table = snapshotDecodedProtocolPlainData(sourceTable);
+  const capabilities = snapshotDecodedProtocolPlainData(sourceCapabilities);
+  const validate = prepareLogicalRelationalRowValues(table, capabilities, mechanicError);
+  const rows = Object.freeze(compileLogicalRelationalRows(table, capabilities, mechanicError));
+  const columns = new Map<string, typeof table.columns[number]>(table.columns.map(column => [column.identity.columnId, column]));
+  const mechanics = Object.freeze({ table, capabilities,
+    column: (name: string) => columns.get(name), columnNames: Object.freeze([...columns.keys()]),
+    identity: Object.freeze(rows.pipe(Result.map(policy => policy.keyColumns))), rows,
+    validate: table.columns.some(column => column.type === "real")
+      ? (row: JsonObject, reason: "documentInvalid" | "storedCorruption") => rows.pipe(Result.flatMap(policy => policy.validate(row, reason)))
+      : validate,
+  });
+  issuedTableMechanics.set(mechanics, Object.freeze({ table: sourceTable, capabilities: sourceCapabilities }));
+  return mechanics;
+}
+export type PreparedLogicalRelationalTableMechanics = ReturnType<typeof prepareLogicalRelationalTableMechanics>;
+export const hasPreparedLogicalRelationalTableMechanics = (mechanics: PreparedLogicalRelationalTableMechanics,
+  table: RelationalTableDefinition, capabilities?: readonly RelationalPersistenceCapability[]) => {
+  const issued = issuedTableMechanics.get(mechanics);
+  return issued !== undefined && (issued.table === table || mechanics.table === table) &&
+    (capabilities === undefined || issued.capabilities === capabilities || mechanics.capabilities === capabilities);
+};
+
+export function bindPreparedLogicalRelationalRows<Failure>(mechanics: PreparedLogicalRelationalTableMechanics,
+  error: LogicalDocumentFailure<Failure>) {
+  if (!issuedTableMechanics.has(mechanics)) return Result.fail(error("invalidAuthority"));
+  const project = (cause: LogicalRelationalMechanicsError) => {
+    const failure = error(cause.reason, cause.cause);
+    const evidence = inspectLogicalRelationalFailure(cause);
+    if (evidence !== undefined) retainLogicalRelationalFailure(failure, evidence);
+    return failure;
+  };
+  return mechanics.rows.pipe(Result.mapError(project), Result.map(rows => Object.freeze({
+    keyColumns: rows.keyColumns, deletedAt: rows.deletedAt, managedColumns: rows.managedColumns,
+    normalize: (...args: Parameters<typeof rows.normalize>) => rows.normalize(...args).pipe(Result.mapError(project)),
+    validate: (...args: Parameters<typeof rows.validate>) => rows.validate(...args).pipe(Result.mapError(project)),
+    validateInput: (...args: Parameters<typeof rows.validateInput>) => rows.validateInput(...args).pipe(Result.mapError(project)),
+    validateInsertRequired: (...args: Parameters<typeof rows.validateInsertRequired>) => rows.validateInsertRequired(...args).pipe(Result.mapError(project)),
+  })));
+}
+
+
+/** A closed scalar conversion request, issued only for genuine immutable table
+ * mechanics. It contains no SQL, session, settlement or framework capability. */
+declare const realBatchBrand: unique symbol;
+export interface LogicalRelationalRealBatch { readonly [realBatchBrand]: true }
+type RealBatch = Readonly<{ mechanics: PreparedLogicalRelationalTableMechanics; tableId: CatalogTableId;
+  rows: readonly JsonObject[]; documents: readonly CanonicalFlarexValueV1[] | undefined;
+  cells: readonly Readonly<{ row: number; column: string; value: string | null }>[];
+  payload: string; inputBytes: number; maximumBytes: number; mode: "normalize" | "validate" }>;
+const realBatches = new WeakMap<LogicalRelationalRealBatch, RealBatch>();
+export const hasLogicalRelationalRealVerdict = (mechanics: PreparedLogicalRelationalTableMechanics, document: CanonicalFlarexValueV1) => {
+  const prior = canonicalRows.get(document);
+  return issuedTableMechanics.has(mechanics) && prior?.kind === "relational" && prior.mechanics === mechanics && canonicalBytesMatch(document, prior);
+};
+
+/** Private write evidence only. A successful validation read grants no original
+ * input representation, and foreign canonical structures cannot issue one. */
+export function inspectLogicalRelationalRealNormalization<Failure>(document: CanonicalFlarexValueV1,
+  error: LogicalDocumentFailure<Failure>): Result.Result<JsonObject | undefined, Failure> {
+  const verdict = canonicalRows.get(document);
+  if (verdict?.kind !== "relational") return Result.succeed(undefined);
+  return canonicalBytesMatch(document, verdict) ? Result.succeed(verdict.realNormalization) : Result.fail(error("storedCorruption"));
+}
+
+/** Canonical detachment retains the exact private runtime/native verdict. A
+ * structural copy, including matching byte buffers, cannot acquire that loan. */
+export function isLogicalRelationalCanonicalCopy(original: CanonicalFlarexValueV1 | null,
+  detached: CanonicalFlarexValueV1 | null): boolean {
+  if (original === detached) return true;
+  if (original === null || detached === null) return false;
+  const left = canonicalRows.get(original), right = canonicalRows.get(detached);
+  return left?.kind === "relational" && right?.kind === "relational" && left.runtime === right.runtime &&
+    left.native === right.native && left.mechanics === right.mechanics && left.realNormalization === right.realNormalization;
+}
+const RealBounds = Schema.Struct({ rows: Schema.Number.check(Schema.isInt(), Schema.isBetween({ minimum: 1, maximum: MAX_BOUNDED_APP_ROW_READ_IDENTITIES })),
+  bytes: Schema.Number.check(Schema.isInt(), Schema.isBetween({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER })) });
+const decodeRealBounds = Schema.decodeUnknownResult(RealBounds, { onExcessProperty: "error" });
+const RealWire = Schema.String.check(Schema.isMaxLength(64),
+  Schema.isPattern(/^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:e[+-]?[0-9]+)?(?![\s\S])/));
+const RealResult = Schema.Array(Schema.Struct({ ordinal: Schema.String, setting: Schema.String,
+  converted: Schema.NullOr(RealWire) }));
+const decodeRealResult = Schema.decodeUnknownResult(RealResult, { onExcessProperty: "error" });
+
+export function prepareLogicalRelationalRealBatch<Failure>(mechanics: PreparedLogicalRelationalTableMechanics,
+  tableId: CatalogTableId, input: Readonly<{ mode: "normalize"; rows: readonly JsonObject[] }> |
+    Readonly<{ mode: "validate"; documents: readonly CanonicalFlarexValueV1[] }>,
+  bounds: Readonly<{ rows: number; bytes: number }>, error: LogicalDocumentFailure<Failure>) {
+  return Result.gen(function* () {
+    if (!issuedTableMechanics.has(mechanics)) return yield* Result.fail(error("invalidAuthority"));
+    const maximum = yield* decodeRealBounds(bounds).pipe(Result.mapError(cause => error("invalidInput", cause)));
+    const columns = mechanics.table.columns.filter(column => column.type === "real");
+    if (columns.length === 0) return yield* Result.fail(error("invalidAuthority"));
+    const policy = yield* mechanics.rows.pipe(Result.mapError(cause => error(cause.reason, cause.cause)));
+    const documents = input.mode === "validate" ? Object.freeze([...input.documents]) : undefined;
+    const rows: JsonObject[] = [];
+    if (input.mode === "normalize") {
+      for (const row of input.rows) {
+        if (realCandidates.get(row) !== policy.normalize) return yield* Result.fail(error("invalidAuthority"));
+        rows.push(row);
+      }
+    } else for (const document of input.documents) {
+      const captured = yield* captureLogicalRelationalCanonicalRow(document, maximum.bytes, error);
+      if (!isJsonObject(captured.value)) return yield* Result.fail(error("storedCorruption"));
+      rows.push(Object.fromEntries(Object.entries(captured.value).filter(([key]) => key !== "_id" && key !== "_creationTime")));
+    }
+    if (rows.length === 0 || rows.length > maximum.rows) return yield* Result.fail(error("limitExceeded"));
+    const reason = input.mode === "normalize" ? "documentInvalid" : "storedCorruption";
+    const cells: { row: number; column: string; value: string | null }[] = [];
+    for (const [ordinal, row] of rows.entries()) {
+      yield* validateRelationalRowColumns(mechanics.table, row).pipe(Result.mapError(cause => error(reason, cause)));
+      for (const column of columns) {
+        const value = row[column.identity.columnId];
+        if (value !== null && typeof value !== "number") return yield* Result.fail(error(reason));
+        cells.push(Object.freeze({ row: ordinal, column: column.identity.columnId, value: value === null ? null : String(value) }));
+      }
+    }
+    const payload = JSON.stringify(cells), inputBytes = new TextEncoder().encode(payload).byteLength;
+    const maximumBytes = Math.min(maximum.bytes, MAX_BOUNDED_APP_ROW_READ_VALUE_BYTES);
+    // Each actual SQL cell has a bounded finite REAL text and ordinal. Reserve
+    // its complete transport envelope before the driver transfers any results.
+    if (inputBytes > maximumBytes || cells.length * 128 > maximumBytes - inputBytes)
+      return yield* Result.fail(error("limitExceeded"));
+    // SAFETY: only this issuer creates and registers the frozen nominal token.
+    const batch = Object.freeze({}) as LogicalRelationalRealBatch;
+    realBatches.set(batch, Object.freeze({ mechanics, tableId, rows: Object.freeze(rows), documents,
+      cells: Object.freeze(cells), payload, inputBytes, maximumBytes, mode: input.mode }));
+    return batch;
+  });
+}
+
+export function inspectLogicalRelationalRealBatch<Failure>(batch: LogicalRelationalRealBatch, tableId: CatalogTableId,
+  error: LogicalDocumentFailure<Failure>) {
+  const value = realBatches.get(batch);
+  return value === undefined || value.tableId !== tableId ? Result.fail(error("invalidAuthority")) :
+    Result.succeed(Object.freeze({ table: value.mechanics.table, inputBytes: value.inputBytes, rows: value.rows.length }));
+}
+
+/** Executes on the accepting owner's borrowed transaction. There is no public
+ * decoder that can turn caller-supplied result rows into a normalization proof. */
+export const executeLogicalRelationalRealBatch = Effect.fn("LogicalRelationalRows.real")(function* <Failure>(
+  tx: FlarexMetadataTransaction, batch: LogicalRelationalRealBatch, tableId: CatalogTableId,
+  error: LogicalDocumentFailure<Failure>,
+) {
+  const facts = realBatches.get(batch);
+  if (facts === undefined || facts.tableId !== tableId) return yield* Effect.fail(error("invalidAuthority"));
+  const captured = yield* runDrizzleStatementEffect(tx.execute(sql`select ordinal::text as ordinal,
+    current_setting('extra_float_digits') as setting,
+    case when current_setting('extra_float_digits') = '1' and cell ->> 'value' is not null
+      and pg_input_is_valid(cell ->> 'value', 'real')
+      then (cell ->> 'value')::real::text else null end as converted
+    from jsonb_array_elements(${facts.payload}::jsonb) with ordinality as cells(cell, ordinal)
+    order by ordinal`), cause => error("resourceFailure", cause));
+  const raw = yield* Effect.try({ try: () => rowsFromDriverExecuteResult(captured,
+    () => { throw new Error("Malformed REAL scalar conversion result"); }), catch: cause => error("storedCorruption", cause) });
+  const result = yield* Effect.fromResult(decodeRealResult(raw).pipe(Result.mapError(cause => error("storedCorruption", cause))));
+  if (result.length !== facts.cells.length) return yield* Effect.fail(error("storedCorruption"));
+  const outputBytes = new TextEncoder().encode(JSON.stringify(result)).byteLength;
+  if (outputBytes > facts.maximumBytes - facts.inputBytes) return yield* Effect.fail(error("limitExceeded"));
+  const rows = facts.rows.map(row => ({ ...row })), reason = facts.mode === "normalize" ? "documentInvalid" : "storedCorruption";
+  for (const [index, cell] of facts.cells.entries()) {
+    const selected = result[index];
+    if (selected === undefined || selected.ordinal !== String(index + 1)) return yield* Effect.fail(error("storedCorruption"));
+    if (selected.setting !== "1") return yield* Effect.fail(error("unsupportedProfile"));
+    const value = selected.converted === null ? null : Number(selected.converted);
+    if (cell.value !== null && (value === null || !Number.isFinite(value)) || cell.value === null && value !== null)
+      return yield* Effect.fail(error(reason));
+    const row = rows[cell.row];
+    if (row === undefined) return yield* Effect.fail(error("storedCorruption"));
+    if (facts.mode === "validate" && !Object.is(row[cell.column], value)) return yield* Effect.fail(error("storedCorruption"));
+    row[cell.column] = value;
+  }
+  const policy = yield* Effect.fromResult(facts.mechanics.rows.pipe(Result.mapError(cause => error(cause.reason, cause.cause))));
+  const validate = prepareLogicalRelationalRowValues(facts.mechanics.table, facts.mechanics.capabilities, error);
+  const accepted: JsonObject[] = [];
+  for (const [index, row] of rows.entries()) {
+    const capturedRow = yield* Effect.fromResult(useCapturedPrivateJsonData(row, facts.maximumBytes, error));
+    if (!isJsonObject(capturedRow.value)) return yield* Effect.fail(error(reason));
+    yield* Effect.fromResult(validate(capturedRow.value, reason));
+    accepted.push(capturedRow.value);
+    normalizedRows.set(capturedRow.value, policy.normalize);
+    if (facts.mode === "normalize") {
+      const original = facts.rows[index];
+      if (original === undefined) return yield* Effect.fail(error("storedCorruption"));
+      // Scalars are already captured and bounded by the SQL batch owner. Keep
+      // every REAL column, including null and unchanged values, without another
+      // normalization query or a second representation/rounding policy.
+      realNormalizedInputs.set(capturedRow.value, Object.freeze(Object.fromEntries(facts.mechanics.table.columns
+        .filter(column => column.type === "real").map(column => [column.identity.columnId, original[column.identity.columnId]!]))));
+    }
+    const document = facts.documents?.[index];
+    if (document !== undefined) {
+      const prior = canonicalRows.get(document);
+      if (prior?.kind !== "relational" || !canonicalBytesMatch(document, prior)) return yield* Effect.fail(error("storedCorruption"));
+      canonicalRows.set(document, Object.freeze({ ...prior, mechanics: facts.mechanics, native: capturedRow.value }));
+    }
+  }
+  return Object.freeze({ rows: Object.freeze(accepted), bytes: outputBytes });
+});

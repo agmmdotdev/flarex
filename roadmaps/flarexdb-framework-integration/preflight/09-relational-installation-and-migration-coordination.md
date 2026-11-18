@@ -638,9 +638,9 @@ plans; they never appear as generated Drizzle migrations.
 Likely private domain placement is:
 
 ```text
-packages/persistence-postgres/src/frameworkSchema/installation/
-packages/persistence-postgres/src/migrationCoordination/
-packages/persistence-postgres/src/relationalSchema/physical/
+packages/persistence-postgres/src/installation/frameworkSchema/installation/
+packages/persistence-postgres/src/installation/migrationCoordination/
+packages/persistence-postgres/src/storage/relationalSchema/physical/
 ```
 
 No root export, package export-map entry, workspace package, service singleton,
@@ -876,9 +876,9 @@ byte ceiling under the Worker memory limit. This is an activation gate, not
 authority to weaken stored-shape or digest verification.
 
 The code remains private under
-`packages/persistence-postgres/src/relationalSchema/physical/`,
-`packages/persistence-postgres/src/migrationCoordination/`, and
-`packages/persistence-postgres/src/frameworkSchema/installation/`. It adds no
+`packages/persistence-postgres/src/storage/relationalSchema/physical/`,
+`packages/persistence-postgres/src/installation/migrationCoordination/`, and
+`packages/persistence-postgres/src/installation/frameworkSchema/installation/`. It adds no
 root export or package export-map entry. Focused proof lives in
 `privateCanonicalValue.test.ts`, `relationalSchemaPhysical.test.ts`,
 `migrationCoordinationValues.test.ts`, and

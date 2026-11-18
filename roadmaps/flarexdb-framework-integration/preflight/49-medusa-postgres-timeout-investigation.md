@@ -205,9 +205,9 @@ claim that the intermittent failure has been resolved.
 Local sources: `packages/medusa-adapter/test/support/product-runner.ts`,
 `packages/medusa-product/integration-tests/__tests__/product-module-service/product-collections.spec.ts`,
 `packages/medusa-product/integration-tests/__tests__/product.spec.ts`,
-`packages/persistence-postgres/src/commerceTransaction/{host,context,store}.ts`,
-`packages/persistence-postgres/src/boundedRequestLifetime.ts`, and
-`packages/persistence-postgres/src/physicalSession/postgres.ts`.
+`packages/persistence-postgres/src/frameworks/commerceTransaction/{host,context,store}.ts`,
+`packages/persistence-postgres/src/execution/preparation/boundedRequestLifetime.ts`, and
+`packages/persistence-postgres/src/database/physicalSession/postgres.ts`.
 
 Official PostgreSQL 18 references:
 [statement timeout](https://www.postgresql.org/docs/18/runtime-config-client.html#GUC-STATEMENT-TIMEOUT),

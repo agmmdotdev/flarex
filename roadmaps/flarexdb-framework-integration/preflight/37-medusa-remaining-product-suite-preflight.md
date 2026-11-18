@@ -79,21 +79,21 @@ barriers, not an exhaustive prediction of every future failure.
   closure, provenance hashes and test-utils boundary mapping. Do not import the
   source island directly or bulk-promote all eight files.
 - **module-command-admission:** the private
-  [`command set`](../../../packages/medusa-adapter/src/product-service.ts) and
+  [`command set`](../../../packages/medusa-adapter/src/modules/product/service.ts) and
   [`runner`](../../../packages/medusa-adapter/test/support/product-runner.ts)
   expose Product root reads, but no related-entity list/count/retrieve methods.
   Each of the six public suites needs its own three related read entry points.
   Options additionally need `deleteProductOptions`; variants need
   `removeImageFromVariant` and `softDeleteProductVariants`.
 - **related-scalar-filter:**
-  [`findProductRelated`](../../../packages/medusa-adapter/src/product-related.ts)
+  [`findProductRelated`](../../../packages/medusa-adapter/src/modules/product/related.ts)
   currently admits ID/FK selectors and a bounded ID-only `$or`. It refuses the
   original Type/Tag `value`, Collection `title`/`handle` and Option `title` filters.
   These are deliberate capability limits, not observed database defects.
 - **related-projection-review:** that reader accepts only scalar field names and
   directly registered relation names. It does not implement dotted selected fields
   or nested related paths. The current
-  [`relation catalog`](../../../packages/medusa-adapter/src/product-runtime-metadata.ts)
+  [`relation catalog`](../../../packages/medusa-adapter/src/modules/product/runtime-metadata.ts)
   contains root Product paths plus option.values and variant.options, not reverse
   tag/collection/category.products, option/variant.product or image.variants.
   Reuse pinned Medusa relation descriptors, grouping and projection mechanics;
@@ -102,7 +102,7 @@ barriers, not an exhaustive prediction of every future failure.
   `products.collection` together with `collection_id: null`.
 - **product-tags-input:** every Tag case first calls createProducts with
   `tags: [{ id }]` (source lines 15-41). The current
-  [`value profile`](../../../packages/medusa-adapter/src/product-value-profile.ts)
+  [`value profile`](../../../packages/medusa-adapter/src/modules/product/value-profile.ts)
   accepts `tag_ids` on creation and rejects `tags` there. This needs an adapter
   input admission following the pinned service, not a fixture rewrite.
 - **tag-upsert-dto:** Tag line 319 spreads a list result into upsert input. Current

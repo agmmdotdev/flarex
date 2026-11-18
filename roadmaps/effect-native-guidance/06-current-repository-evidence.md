@@ -4,7 +4,7 @@
 
 This evidence was collected from the 2026-07-15 current working tree. It
 includes uncommitted C03 journal work already present in the workspace and
-therefore must be refreshed before a later implementation preflight.
+therefore must be refreshed before later implementation.
 
 The scan covered production `.ts` files under the named `src` roots, excluding
 tests and declarations. Counts are line hits, not AST nodes or quality scores.
@@ -47,7 +47,7 @@ every throw, Promise, switch, or nullable value mechanically.
 
 ### Executor
 
-[`../../packages/executor/src/pointMutationJournal.ts`](../../packages/executor/src/pointMutationJournal.ts)
+[`../../packages/executor/src/mutation/journal/pointMutationJournal.ts`](../../packages/executor/src/mutation/journal/pointMutationJournal.ts)
 already has several good choices: named `Effect.fn` operations, a generator for
 the multi-step seal flow, typed errors, semaphore-based serialization, and narrow
 `tryPromise` calls around the current persistence port.
@@ -63,7 +63,7 @@ Its transitional debt is equally instructive:
 - `Semaphore.makeUnsafe` is used even though construction already happens in
   an Effect operation.
 
-[`../../packages/executor/src/pointMutationSessionActivation.ts`](../../packages/executor/src/pointMutationSessionActivation.ts)
+[`../../packages/executor/src/mutation/session/pointMutationSessionActivation.ts`](../../packages/executor/src/mutation/session/pointMutationSessionActivation.ts)
 shows the directly connected older style: Promise-returning services and plain
 `Error` subclasses. The mismatch explains why the new journal needs an adapter;
 it should not become precedent for another Effect-native operation.
@@ -74,7 +74,7 @@ an evidence gap, not proof that a Layer is currently required.
 
 ### Postgres Persistence
 
-[`../../packages/persistence-postgres/src/sessionJournalStore.ts`](../../packages/persistence-postgres/src/sessionJournalStore.ts)
+[`../../packages/persistence-postgres/src/execution/sessionJournalStore.ts`](../../packages/persistence-postgres/src/execution/sessionJournalStore.ts)
 defines a Promise/throw `SessionJournalStorePersistenceV1` port even though its
 errors use `Data.TaggedError`. Expected capability and input errors, driver
 rejections, trusted corruption, and internal invariant throws all travel
@@ -86,7 +86,7 @@ in selected planners. Some raw `Error` throws correctly represent impossible
 trusted invariants, but broad Promise catches can accidentally normalize those
 defects unless the new Effect boundary classifies them deliberately.
 
-[`../../packages/persistence-postgres/src/postgres.ts`](../../packages/persistence-postgres/src/postgres.ts)
+[`../../packages/persistence-postgres/src/database/postgres.ts`](../../packages/persistence-postgres/src/database/postgres.ts)
 also demonstrates behavior that must survive a port: connection acquisition,
 transaction ownership, rollback-error capture, and release in `finally`.
 Effect adoption must strengthen typed composition without weakening this
@@ -169,5 +169,5 @@ deterministic concurrency or lifecycle testing provides concrete value.
   capability-bearing platform dispatch, and which external calls require
   bounded streaming before Schema decoding.
 
-Those questions belong in the preflight for the first concrete vertical port,
+Resolve those questions for the first concrete vertical port,
 not in a speculative file-by-file migration checklist.

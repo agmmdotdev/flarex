@@ -1,24 +1,61 @@
 import { Data } from "effect";
 import type { StepResponse } from "./responses";
-import type { PreparedWorkflow } from "./definition";
+import type { PreparedWorkflow, WorkflowDefinition } from "./definition";
+import type { SkipStepResponse } from "@medusajs/orchestration/transaction/errors";
 
 /** Medusa's staged authoring type: values are references until runtime resolution. */
 export declare const dataBrand: unique symbol;
-export type WorkflowData<T> = [T] extends [never] ? { readonly [dataBrand]: T }
-  : T extends null | void ? { readonly [dataBrand]: T } : T & { readonly [dataBrand]: T };
+type StagedValue<T> = T extends null | void ? { readonly [dataBrand]: T } : T & { readonly [dataBrand]: T };
+export type WorkflowData<T> = 0 extends 1 & T ? T
+  : [T] extends [never] ? { readonly [dataBrand]: T }
+  : [Extract<T, null | undefined>] extends [never] ? StagedValue<T>
+  : [NonNullable<T>] extends [never] ? StagedValue<T>
+  : [NonNullable<T>] extends [object]
+    ? { readonly [Key in keyof NonNullable<T>]: NonNullable<T>[Key] | undefined } & { readonly [dataBrand]: T }
+    : StagedValue<T>;
 export type StepOutput<Output> = WorkflowData<Output> & {
-  readonly config: (options: { readonly name: string }) => StepOutput<Output>;
+  readonly config: (options: { readonly name: string; readonly noCompensation?: true } | { readonly noCompensation: true; readonly name?: string }) => StepOutput<Output>;
 };
-export interface StepFunction<Input, Output> { (input: Input | WorkflowData<Input>): StepOutput<Output> }
-export type Resolved<T> = T extends { readonly [dataBrand]: infer Value } ? Value : T extends readonly unknown[]
-  ? { [Key in keyof T]: Resolved<T[Key]> } : T extends object ? { [Key in keyof T]: Resolved<T[Key]> } : T;
+/** Definition inputs may place typed references at any resolved data member.
+ * Branded references must match that member's value type; they cannot enter
+ * through an otherwise structurally compatible literal record or array. */
+export type WorkflowInput<T> = WorkflowData<T> | (T extends Date | ((...args: never[]) => unknown) ? T
+  : T extends readonly unknown[] ? { [Key in keyof T]: WorkflowInput<T[Key]> } & { readonly [dataBrand]?: never }
+  : T extends object ? Pick<T, keyof T> extends T
+    ? { [Key in keyof T]: WorkflowInput<T[Key]> } & { readonly [dataBrand]?: never } : T : T);
+export interface StepFunction<Input, Output> { (input: WorkflowInput<Input>): StepOutput<Output> }
+/** Resolve structural authoring records without projecting nominal values into
+ * public member bags. A private/protected identity is absent from Pick's keys;
+ * preserving its type does not admit class instances at a runtime boundary. */
+export type Resolved<T> = T extends { readonly [dataBrand]: infer Value } ? Value
+  : T extends Date | ((...args: never[]) => unknown) ? T
+  : T extends object ? Pick<T, keyof T> extends T ? { [Key in keyof T]: Resolved<T[Key]> } : T : T;
 /** Narrow, trusted resource view. The adapter authenticates every resolved method. */
-export interface WorkflowContainer { resolve<T>(name: string): T }
-export interface StepExecutionContext { readonly container: WorkflowContainer; readonly eventGroupId: string }
+export interface WorkflowContainer {
+  resolve<T>(name: string): T;
+  resolve<T>(name: string, options: { readonly allowUnregistered: true }): T | undefined;
+}
+export interface StepExecutionContext {
+  readonly container: WorkflowContainer;
+  readonly eventGroupId: string;
+  /** Trusted root and complete prepared-node occurrence identity. Identifies
+   * an invocation; it grants no resource, storage or compensation authority. */
+  readonly idempotencyKey?: string;
+  /** Derived from the actual runAsStep occurrence; absent for a standalone root. */
+  readonly parentStepIdempotencyKey?: string;
+}
 export type Invoke<Input, Output, Compensation = Output> = (input: Input, context: StepExecutionContext) =>
-  Output | StepResponse<Output, Compensation> | Promise<Output | StepResponse<Output, Compensation>>;
-export type Compensate<Input> = (input: Input | undefined, context: StepExecutionContext) => void | Promise<void>;
-export interface StepOptions { readonly name: string; readonly compensation?: "transactionCovered" }
+  Output | StepResponse<Output, Compensation> | SkipStepResponse | Promise<Output | StepResponse<Output, Compensation> | SkipStepResponse>;
+/** Native compensator return values do not become forward step outputs or
+ * settlement authority. Preserve the native callback's ignored-result ABI. */
+export type Compensate<Input> = (input: Input | undefined, context: StepExecutionContext) =>
+  unknown | Promise<unknown>;
+export interface StepOptions {
+  readonly name: string;
+  readonly compensation?: "transactionCovered";
+  /** Each declared child may be invoked once by this callback occurrence. */
+  readonly invokedWorkflows?: readonly Pick<WorkflowDefinition<never, unknown, readonly []>, "name" | "prepare">[];
+}
 export class WorkflowDefinitionError extends Data.TaggedError("WorkflowDefinitionError")<{
   readonly reason: "unsupportedProfile" | "outsideComposer" | "duplicateStep" | "duplicateHook" | "invalidReference" | "invalidDefinition";
   readonly detail: string;
@@ -30,6 +67,8 @@ interface WorkflowNodeBase {
   readonly name: string;
   readonly input: unknown;
 }
+export interface ParallelBranch { readonly start: number; readonly end: number }
+export interface ParallelGroup { readonly branches: readonly ParallelBranch[] }
 export type WorkflowNode = WorkflowNodeBase & ({
   readonly kind: "workflow";
   readonly workflow: PreparedWorkflow;
@@ -40,6 +79,9 @@ export type WorkflowNode = WorkflowNodeBase & ({
   readonly compensation: "transactionCovered" | undefined;
   readonly hook: boolean;
   readonly boundHook?: boolean;
+  readonly hookValidator?: "nativePricingContextResult";
+  readonly hookResult?: { readonly handler: object; readonly validator: "nativePricingContextResult" };
+  readonly invokedWorkflows?: readonly { readonly definition: object; readonly workflow: PreparedWorkflow }[];
 });
 export interface Reference {
   readonly kind: "input" | "step" | "transform" | "property";

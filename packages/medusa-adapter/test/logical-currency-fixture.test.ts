@@ -1,0 +1,479 @@
+import { describe, expect, it, vi } from "vitest";
+import { Cause, Effect, Exit, Result, Schema } from "effect";
+import { getTableName, sql } from "drizzle-orm";
+import { PgDialect } from "drizzle-orm/pg-core";
+import { AppCreationTimeV1Schema } from "flarex-protocol/app-document";
+import { CommitSeqSchema } from "flarex-protocol/storage-authority";
+import { decodeCatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
+import { compilePayloadCollections } from "../../payload-adapter/src/collections";
+import { prepareLogicalDocumentSourceAdmission, requireLogicalDocumentSourceAdmission,
+  type LogicalDocumentSourceAdmission } from "../../persistence-postgres/src/storage/documents/logicalDocuments/documentAdmission";
+import { makeSourceCmsDocuments, consumeSourceCmsDocumentClosure } from "../../persistence-postgres/src/frameworks/cmsTransaction/documents";
+import { prepareSourceCmsDocumentDelta, prepareSourceCmsDocumentMaterialization, validateSourceCmsDocumentContribution } from "../../persistence-postgres/src/frameworks/cmsTransaction/contribution";
+import { retainPreparedHost } from "../../persistence-postgres/src/execution/preparation/preparedHostRuntime";
+import { prepareRetainedApplicationBindingSelection } from "../../persistence-postgres/src/application/activation/repositoryIdentity";
+import { cmsError, cmsLimits } from "../../persistence-postgres/src/frameworks/cmsTransaction/model";
+import { makeBoundedRequestLifetime } from "../../persistence-postgres/src/execution/preparation/boundedRequestLifetime";
+import { defineCmsCommand } from "../../persistence-postgres/src/frameworks/cmsTransaction/commands";
+import { makeCmsHost } from "../../persistence-postgres/src/frameworks/cmsTransaction/host";
+import { DataBindingError } from "../../persistence-postgres/src/installation/frameworkSchema/binding/errors";
+import { makeDataBindingHost, dataBindingActivationRequest } from "../../persistence-postgres/src/installation/frameworkSchema/binding/host";
+import { readAdmittedDataBinding } from "../../persistence-postgres/src/installation/frameworkSchema/binding/selection";
+import { preparedHostTestRuntime } from "../../persistence-postgres/test/execution/preparation/preparedHostRuntimeTestSupport";
+import { runEffectTransaction } from "../../persistence-postgres/src/database/effectTransaction";
+import type { FlarexMetadataTransaction } from "../../persistence-postgres/src/database/metadataTransaction";
+import { resolveLocatedTrustedScopeAuthorityEffect } from "../../persistence-postgres/src/scope/scopeAuthorityResolution";
+import { prepareLogicalApplicationSourceAdmission, requireLogicalApplicationSourceAdmission } from "../../persistence-postgres/src/storage/documents/logicalDocuments/applicationAdmission";
+import { makeSourceApplicationInsertParticipant, applicationCommandError } from "../../persistence-postgres/src/storage/materialization/insertParticipant";
+import { lockScopeClockForUpdateInTransactionEffect } from "../../persistence-postgres/src/scope/scopeClock";
+import { fxAppRowCurrent, fxAppRowRevisions, fxAppIndexEntryRevisions } from "../../persistence-postgres/src/database/schema";
+import { closeInstallationAdmission, lockInstallationForCurrentTransaction, requireAdmittedTargetInstallationSchema } from "../../persistence-postgres/src/installation/installationLifecycle";
+import { runDrizzleStatementEffect } from "../../persistence-postgres/src/database/drizzleStatementEffect";
+import { postgresUrl } from "../../persistence-postgres/test/support/postgresHelpers";
+import { currencyAnnouncementWrite, currencyCommands } from "../src/modules/currency/service";
+import { withCurrencyService } from "../src/modules/currency/service";
+import { commerceError } from "../../persistence-postgres/src/frameworks/commerceTransaction/model";
+import { defineCommerceCommand } from "../../persistence-postgres/src/frameworks/commerceTransaction/commands";
+import { makeCommerceHost } from "../../persistence-postgres/src/frameworks/commerceTransaction/host";
+import { logicalCurrencyFixture } from "./support/logical-currency-fixture";
+import { logicalCurrencyInventory } from "./support/logical-currency-inventory";
+
+describe("native Currency on the selected shared logical schema", () => {
+  it("refuses an unbound logical Currency source and resumes after rebinding on PGlite", async () => {
+    const cleanup: Array<() => Promise<void>> = [];
+    try {
+      const fixture = await logicalCurrencyFixture("pglite", close => cleanup.push(close));
+      const bindingBase = { database: fixture.persistence.drizzle,
+        selection: { deploymentId: fixture.deploymentId, scopeId: fixture.application.authority.scopeId },
+        target: fixture.bindingTarget, authority: fixture.application.authorityPorts,
+        application: fixture.application.activation };
+      const input = { ...bindingBase,
+        logicalStorage: { controlDb: fixture.control.drizzle, schemaVersionId: fixture.schemaVersionId,
+          unique: fixture.application.uniqueConstraintEligibility } };
+      const configured = await Effect.runPromise(makeDataBindingHost(input));
+      const unconfigured = await Effect.runPromise(makeDataBindingHost(bindingBase));
+      const original = await Effect.runPromise(configured.withCurrent(readAdmittedDataBinding));
+      const query = { filters: { code: "usd" }, config: { select: ["code", "name"] } };
+      const before = await Effect.runPromise(fixture.host.read(currencyCommands.list, query));
+      let unbound = false;
+      try {
+        const candidate = await Effect.runPromise(unconfigured.prepare({ ...original.frame, logicalSchema: null }));
+        await Effect.runPromise(unconfigured.activate(dataBindingActivationRequest(original.frame.application.scopeId,
+          original.frame.application.storageGeneration, "pglite-logical-unbind", candidate.sha256, original.head)));
+        unbound = true;
+        const unboundBefore = await logicalCurrencyInventory(fixture);
+        await expect(Effect.runPromise(fixture.host.read(currencyCommands.list, query)))
+          .rejects.toMatchObject({ reason: "bindingChanged" });
+        expect(await logicalCurrencyInventory(fixture)).toEqual(unboundBefore);
+      } finally {
+        if (unbound) {
+          const current = await Effect.runPromise(unconfigured.withCurrent(readAdmittedDataBinding));
+          const candidate = await Effect.runPromise(configured.prepare(original.frame));
+          await Effect.runPromise(configured.activate(dataBindingActivationRequest(original.frame.application.scopeId,
+            original.frame.application.storageGeneration, "pglite-logical-rebind", candidate.sha256, current.head)));
+        }
+      }
+      expect(await Effect.runPromise(fixture.host.read(currencyCommands.list, query))).toEqual(before);
+    } finally { for (const close of cleanup.reverse()) await close(); }
+  }, 180_000);
+
+  for (const driver of ["pglite", "postgres"] as const) {
+    it.skipIf(driver === "postgres" && postgresUrl === null)(`admits independently compiled Payload in the same candidate on ${driver}`, async () => {
+      const cleanup: Array<() => Promise<void>> = [];
+      try {
+        const fixture = await logicalCurrencyFixture(driver, close => cleanup.push(close));
+        const db = fixture.persistence.drizzle;
+        const before = await db.select().from(fxAppRowCurrent);
+        await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+          const compiled = yield* compilePayloadCollections([{ slug: "news", fields: [
+            { name: "title", type: "text", required: true, unique: true },
+          ] }]);
+          const source = compiled.sourceContract;
+          const input = { deploymentId: fixture.deploymentId, scopeId: fixture.application.authority.scopeId,
+            schemaVersionId: fixture.schemaVersionId };
+          const ports = { controlDb: fixture.control.drizzle, authority: fixture.application.authorityPorts };
+          const outage = new DOMException("Payload policy digest unavailable", "OperationError");
+          const unavailable = yield* Effect.acquireUseRelease(
+            Effect.sync(() => vi.spyOn(crypto.subtle, "digest").mockRejectedValueOnce(outage)),
+            () => Effect.result(prepareLogicalDocumentSourceAdmission(ports,
+              fixture.application.uniqueConstraintEligibility, input, source, { kind: "standalone" })),
+            digest => Effect.sync(() => digest.mockRestore()));
+          expect(unavailable).toMatchObject({ _tag: "Failure", failure: { reason: "resourceFailure",
+            cause: { reason: "digestUnavailable" } } });
+          const digestDefect = new Error("Unexpected digest defect");
+          const defectivePreparation = yield* Effect.acquireUseRelease(
+            Effect.sync(() => vi.spyOn(crypto.subtle, "digest").mockRejectedValueOnce(digestDefect)),
+            () => Effect.exit(prepareLogicalDocumentSourceAdmission(ports,
+              fixture.application.uniqueConstraintEligibility, input, source, { kind: "standalone" })),
+            digest => Effect.sync(() => digest.mockRestore()));
+          expect(Exit.isFailure(defectivePreparation)).toBe(true);
+          if (Exit.isFailure(defectivePreparation)) expect(defectivePreparation.cause.reasons.some(reason =>
+            Cause.isDieReason(reason) && reason.defect === digestDefect)).toBe(true);
+          const mutablePorts = { ...ports };
+          const mutableInput = { ...input };
+          const select = fixture.control.drizzle.select.bind(fixture.control.drizzle);
+          const sourceLease = yield* Effect.acquireRelease(retainPreparedHost(preparedHostTestRuntime(db), Effect.gen(function* () {
+            const originalBinding = yield* prepareRetainedApplicationBindingSelection(fixture.application.activation);
+            const prepared = yield* Effect.acquireUseRelease(
+              Effect.sync(() => vi.spyOn(fixture.control.drizzle, "select").mockImplementationOnce(fields => {
+                mutablePorts.controlDb = db;
+                mutableInput.deploymentId = "changed-deployment";
+                mutableInput.schemaVersionId = decodeCatalogSchemaVersionId("changed-payload-version");
+                return select(fields);
+              })),
+              () => prepareLogicalDocumentSourceAdmission(mutablePorts,
+                fixture.application.uniqueConstraintEligibility, mutableInput, source, { kind: "standalone" }),
+              firstRead => Effect.sync(() => firstRead.mockRestore()));
+            const sourceTemplate = yield* prepareSourceCmsDocumentMaterialization(yield* prepared.lendPreparation(), {},
+              originalBinding, fixture.control.drizzle);
+            return { prepared, sourceTemplate };
+          })), lease => lease.close);
+          const { prepared, sourceTemplate } = yield* sourceLease.use(value => Effect.succeed(value));
+          expect(yield* Effect.result(prepareLogicalDocumentSourceAdmission(ports,
+            fixture.application.uniqueConstraintEligibility, input, { ...source, evidence: {} }, { kind: "standalone" })))
+            .toMatchObject({ _tag: "Failure", failure: { reason: "sourceMismatch" } });
+          const active = yield* fixture.application.activation.readActive();
+          const mutableAppPorts = { ...ports };
+          const mutableAppInput = { ...input };
+          const appSource = yield* Effect.acquireUseRelease(
+            Effect.sync(() => vi.spyOn(fixture.control.drizzle, "select").mockImplementationOnce(fields => {
+              mutableAppPorts.controlDb = db;
+              mutableAppInput.deploymentId = "changed-application-deployment";
+              mutableAppInput.schemaVersionId = decodeCatalogSchemaVersionId("changed-application-version");
+              return select(fields);
+            })),
+            () => prepareLogicalApplicationSourceAdmission(mutableAppPorts,
+              fixture.application.uniqueConstraintEligibility, mutableAppInput, fixture.applicationSource, { kind: "standalone" }),
+            firstRead => Effect.sync(() => firstRead.mockRestore()));
+          const located = yield* resolveLocatedTrustedScopeAuthorityEffect(fixture.deploymentId,
+            fixture.application.authorityPorts);
+          let lowered = false;
+          const rolledBack = yield* Effect.exit(runEffectTransaction(work => db.transaction(work), "Payload logical source witness",
+            (tx: FlarexMetadataTransaction) => Effect.scoped(Effect.gen(function* () {
+              const clock = yield* lockScopeClockForUpdateInTransactionEffect(tx, located.authority.scopeId);
+              let defectToken: LogicalDocumentSourceAdmission | undefined;
+              const defect = new Error("Payload callback defect");
+              const defective = yield* Effect.exit(prepared.withAdmission(active.selection, tx, located.authority, clock,
+                admission => Effect.sync(() => { defectToken = admission; }).pipe(Effect.andThen(Effect.die(defect)))));
+              expect(Exit.isFailure(defective)).toBe(true);
+              if (Exit.isFailure(defective)) expect(defective.cause.reasons.some(reason =>
+                Cause.isDieReason(reason) && reason.defect === defect)).toBe(true);
+              if (defectToken === undefined) throw new Error("Missing defect callback token");
+              expect(yield* Effect.result(requireLogicalDocumentSourceAdmission(defectToken, tx)))
+                .toMatchObject({ _tag: "Failure", failure: { reason: "invalidAuthority" } });
+              const leaked = yield* prepared.withAdmission(active.selection, tx, located.authority, clock,
+                admission => Effect.scoped(Effect.gen(function* () {
+                  const selected = yield* requireLogicalDocumentSourceAdmission(admission, tx);
+                  const escapedLifetime = yield* Effect.acquireRelease(makeBoundedRequestLifetime(applicationCommandError,
+                    cmsLimits, {}, {}, "application-escaped", "write"), value => value.close);
+                  const closingLifetime = yield* Effect.acquireRelease(makeBoundedRequestLifetime(applicationCommandError,
+                    cmsLimits, {}, {}, "application-closing", "write"), value => value.close);
+                  const closedLifetime = yield* Effect.acquireRelease(makeBoundedRequestLifetime(applicationCommandError,
+                    cmsLimits, {}, {}, "application-closed", "write"), value => value.close);
+                  const application = yield* appSource.withAdmission(active.selection, tx, located.authority, clock,
+                    appAdmission => Effect.scoped(Effect.gen(function* () {
+                      const appLifetime = yield* Effect.acquireRelease(makeBoundedRequestLifetime(applicationCommandError,
+                        cmsLimits, {}, {}, "application-logical", "write"), value => value.close);
+                      const appState = yield* requireLogicalApplicationSourceAdmission(appAdmission, tx);
+                      expect(appState.head).toEqual(selected.head);
+                      expect(appState.schemaVersionId).toBe(selected.schemaVersionId);
+                      expect(appState.tables.map(table => table.localName)).toEqual(["users"]);
+                      expect(yield* Effect.result(makeSourceApplicationInsertParticipant(appAdmission, tx,
+                        appLifetime, "application-logical", "news"))).toMatchObject({ _tag: "Failure",
+                          failure: { reason: "invalidAuthority" } });
+                      const insert = yield* makeSourceApplicationInsertParticipant(appAdmission, tx,
+                        appLifetime, "application-logical", "users");
+                      const id = yield* insert.insert(appLifetime.context, { name: "Native Application" });
+                      expect((yield* insert.readPending(appLifetime.context))._tag).toBe("Some");
+                      yield* appLifetime.seal;
+                      const changes = yield* insert.consume(yield* insert.close());
+                      expect(changes).toHaveLength(1);
+                      const escaped = yield* makeSourceApplicationInsertParticipant(appAdmission, tx,
+                        escapedLifetime, "application-escaped", "users");
+                      yield* escaped.insert(escapedLifetime.context, { name: "Escaped Application" });
+                      const closing = yield* makeSourceApplicationInsertParticipant(appAdmission, tx,
+                        closingLifetime, "application-closing", "users");
+                      yield* closing.insert(closingLifetime.context, { name: "Closing Application" });
+                      yield* closingLifetime.seal;
+                      const closed = yield* makeSourceApplicationInsertParticipant(appAdmission, tx,
+                        closedLifetime, "application-closed", "users");
+                      yield* closed.insert(closedLifetime.context, { name: "Closed Application" });
+                      yield* closedLifetime.seal;
+                      const closure = yield* closed.close();
+                      return { id, escaped, closing, closed, closure };
+                    })));
+                  expect(typeof application.id).toBe("string");
+                  expect(yield* Effect.result(application.escaped.readPending(escapedLifetime.context)))
+                    .toMatchObject({ _tag: "Failure", failure: { reason: "invalidAuthority" } });
+                  expect(yield* Effect.result(application.closing.close()))
+                    .toMatchObject({ _tag: "Failure", failure: { reason: "invalidAuthority" } });
+                  expect(yield* Effect.result(application.closed.consume(application.closure)))
+                    .toMatchObject({ _tag: "Failure", failure: { reason: "invalidAuthority" } });
+                  expect(selected.schemaVersionId).toBe(input.schemaVersionId);
+                  expect(selected.tables.map(table => table.localName)).toEqual(["news"]);
+                  expect(selected.unique).toHaveLength(1);
+                  expect(yield* Effect.result(requireLogicalDocumentSourceAdmission({ ...admission } as LogicalDocumentSourceAdmission, tx)))
+                    .toMatchObject({ _tag: "Failure", failure: { reason: "invalidAuthority" } });
+                  const lifetime = yield* Effect.acquireRelease(makeBoundedRequestLifetime(cmsError,
+                    cmsLimits, {}, {}, "payload-logical", "write"),
+                  current => current.close);
+                  const working = yield* makeSourceCmsDocuments(admission, tx, lifetime, AppCreationTimeV1Schema.make(1));
+                  const id = yield* lifetime.begin(lifetime.context);
+                  const row = yield* working.documents.insert(lifetime.context, id, "news",
+                    { title: "Payload-owned", createdAt: "2026-09-23T00:00:00.000Z", updatedAt: "2026-09-23T00:00:00.000Z" });
+                  expect((yield* working.documents.get(lifetime.context, id, String(row._id)))?.title).toBe("Payload-owned");
+                  yield* lifetime.seal;
+                  const { changes: closed, preferenceIntents } = yield* consumeSourceCmsDocumentClosure(yield* working.close(), admission, tx, lifetime);
+                  expect(preferenceIntents).toEqual([]);
+                  const contribution = yield* validateSourceCmsDocumentContribution(admission, tx, closed);
+                  expect(contribution.changes).toEqual(closed.changes);
+                  const delta = yield* prepareSourceCmsDocumentDelta(admission, tx, clock, closed, sourceTemplate);
+                  expect(delta.changes).toEqual(closed.changes);
+                  const change = closed.changes[0];
+                  if (change?.kind !== "live") throw new Error("Missing Payload pending row");
+                  expect(Result.isSuccess(selected.validate({ operation: "insert", tableName: "news", tableId: change.tableId,
+                    documentId: change.documentId, creationTime: change.creationTime, document: change.document }))).toBe(true);
+                  expect(selected.validate({ operation: "insert", tableName: "users", tableId: change.tableId,
+                    documentId: change.documentId, creationTime: change.creationTime, document: change.document }))
+                    .toMatchObject({ _tag: "Failure", failure: { reason: "invalidAuthority" } });
+                  yield* delta.lower(CommitSeqSchema.make(clock.lastCommitSeq + 1n));
+                  lowered = true;
+                  const visible = yield* runDrizzleStatementEffect(tx.select().from(fxAppRowCurrent), cause =>
+                    cmsError("statementFailure", cause));
+                  expect(visible).toHaveLength(before.length + 1);
+                  return admission;
+                })));
+              expect(yield* Effect.result(requireLogicalDocumentSourceAdmission(leaked, tx)))
+                .toMatchObject({ _tag: "Failure", failure: { reason: "invalidAuthority" } });
+              return yield* Effect.fail(new Error("Deliberate Payload lowering rollback"));
+            })), cause => new Error("Payload logical source transaction", { cause })));
+          expect(lowered, Exit.isFailure(rolledBack) ? Cause.pretty(rolledBack.cause) : "Unexpected successful settlement").toBe(true);
+          expect(Exit.isFailure(rolledBack)).toBe(true);
+          yield* sourceLease.close;
+          expect(yield* Effect.result(sourceTemplate.read))
+            .toMatchObject({ _tag: "Failure", failure: { reason: "invalidAuthority" } });
+        })));
+        expect(await db.select().from(fxAppRowCurrent)).toEqual(before);
+      } finally {
+        const failures: unknown[] = [];
+        for (const close of cleanup.reverse()) await close().catch(cause => { failures.push(cause); });
+        if (failures.length) throw new AggregateError(failures, "Payload source witness cleanup failed");
+      }
+    }, 180_000);
+
+    it.skipIf(driver === "postgres" && postgresUrl === null)(`publishes selected Payload through the CMS host on ${driver}`, async () => {
+      const cleanup: Array<() => Promise<void>> = [];
+      try {
+        const fixture = await logicalCurrencyFixture(driver, close => cleanup.push(close));
+        const compiled = await Effect.runPromise(compilePayloadCollections([{ slug: "news", fields: [
+          { name: "title", type: "text", required: true, unique: true },
+        ] }]));
+        const create = defineCmsCommand({ name: "createLogicalNews", mode: "write", run: (ctx, args) =>
+          ctx.documents.insert(ctx.context, ctx.transactionId, "news", args) });
+        const read = defineCmsCommand({ name: "readLogicalNews", mode: "read", run: (ctx, args) =>
+          ctx.documents.get(ctx.context, ctx.transactionId, String(args)) });
+        const db = fixture.persistence.drizzle;
+        const before = await db.select().from(fxAppRowCurrent);
+        const durableBefore = await logicalCurrencyInventory(fixture);
+        let reachedMaterialization = false;
+        const latePublicationFault = new Error("Late source CMS publication fault");
+        const hostInput = { hostRuntime: preparedHostTestRuntime(db), database: db,
+          controlDatabase: fixture.control.drizzle, session: fixture.session, deploymentId: fixture.deploymentId,
+          scopeId: fixture.application.authority.scopeId,
+          authority: fixture.application.authorityPorts,
+          application: fixture.application.activation, commands: [create, read], identityAndAccessPolicy: { profile: "logical-news" },
+          materialization: { afterTransactionStep: async ({ step }: { readonly step: string }) => {
+            if (step === "commitHeaderWritten") { reachedMaterialization = true; throw latePublicationFault; }
+          } }, expectedContentIdentity: compiled.contentIdentity,
+          logicalStorage: { ports: { controlDb: fixture.control.drizzle, authority: fixture.application.authorityPorts },
+            unique: fixture.application.uniqueConstraintEligibility, schemaVersionId: fixture.schemaVersionId,
+            source: compiled.sourceContract } };
+        expect(await Effect.runPromise(Effect.result(makeCmsHost({ ...hostInput,
+          application: { readActive: () => Effect.fail(new DataBindingError({ reason: "resourceFailure" })) } }))))
+          .toMatchObject({ _tag: "Failure", failure: { reason: "invalidAuthority" } });
+        const failing = await Effect.runPromise(makeCmsHost(hostInput));
+        cleanup.push(() => Effect.runPromise(failing.close));
+        const key = failing.newRequestKey();
+        const input = { title: "Source-owned news", createdAt: "2026-09-23T00:00:00.000Z", updatedAt: "2026-09-23T00:00:00.000Z" };
+        const schemaName = await db.transaction(async tx => {
+          await Effect.runPromise(lockInstallationForCurrentTransaction(tx));
+          try { return await Effect.runPromise(Effect.fromResult(requireAdmittedTargetInstallationSchema(tx))); }
+          finally { closeInstallationAdmission(tx); }
+        });
+        const qualified = (name: string) => new PgDialect().sqlToQuery(sql`${sql.identifier(schemaName)}.${sql.identifier(name)}`).sql;
+        const indexTable = qualified(getTableName(fxAppIndexEntryRevisions));
+        const currentTable = qualified(getTableName(fxAppRowCurrent));
+        const historyTable = qualified(getTableName(fxAppRowRevisions));
+        const triggerFunction = qualified("source_cms_late_index_fault");
+        const indexFaultMessage = "Source CMS late index trigger fault after provisional row/history";
+        await fixture.persistence.query(`create function ${triggerFunction}() returns trigger language plpgsql as $$
+          begin
+            if exists (select 1 from ${currentTable} c join ${historyTable} r
+                on r."${fxAppRowRevisions.scopeUuid.name}"=c."${fxAppRowCurrent.scopeUuid.name}"
+                and r."${fxAppRowRevisions.tableId.name}"=c."${fxAppRowCurrent.tableId.name}"
+                and r."${fxAppRowRevisions.rowId.name}"=c."${fxAppRowCurrent.rowId.name}"
+                and r."${fxAppRowRevisions.commitSeq.name}"=c."${fxAppRowCurrent.commitSeq.name}"
+              where c."${fxAppRowCurrent.scopeUuid.name}"=NEW."${fxAppIndexEntryRevisions.scopeUuid.name}"
+                and c."${fxAppRowCurrent.tableId.name}"=NEW."${fxAppIndexEntryRevisions.tableId.name}"
+                and c."${fxAppRowCurrent.rowId.name}"=NEW."${fxAppIndexEntryRevisions.rowId.name}"
+                and c."${fxAppRowCurrent.commitSeq.name}"=NEW."${fxAppIndexEntryRevisions.commitSeq.name}") then
+              raise exception '${indexFaultMessage}';
+            end if;
+            raise exception 'Source CMS index trigger lacked provisional row/history';
+          end $$`);
+        try {
+          await fixture.persistence.query(`create trigger source_cms_late_index_fault before insert on ${indexTable}
+            for each row execute function ${triggerFunction}()`);
+          try {
+            const indexFailure = await Effect.runPromise(Effect.exit(failing.run(key, create, input)));
+            expect(Exit.isFailure(indexFailure)).toBe(true);
+            if (Exit.isFailure(indexFailure)) {
+              expect(indexFailure.cause.reasons.every(Cause.isFailReason)).toBe(true);
+              const errors = indexFailure.cause.reasons.filter(Cause.isFailReason).map(reason => reason.error);
+              expect(errors.map(error => error.reason)).toEqual(driver === "postgres"
+                ? ["statementFailure", "resourceFailure"] : ["statementFailure"]);
+              // PostgreSQL retains the same rejected native query in its
+              // callback and tracked drain channels; neither evidence is lost.
+              for (const error of errors) expect(Cause.pretty(Cause.fail(error))).toContain(indexFaultMessage);
+            }
+            expect(reachedMaterialization).toBe(false);
+            expect(await logicalCurrencyInventory(fixture)).toEqual(durableBefore);
+          } finally { await fixture.persistence.query(`drop trigger source_cms_late_index_fault on ${indexTable}`); }
+        } finally { await fixture.persistence.query(`drop function ${triggerFunction}()`); }
+        const failed = await Effect.runPromise(Effect.exit(failing.run(key, create, input)));
+        expect(Exit.isFailure(failed)).toBe(true);
+        if (Exit.isFailure(failed)) expect(failed.cause.reasons.some(reason =>
+          Cause.isDieReason(reason) && reason.defect === latePublicationFault)).toBe(true);
+        expect(reachedMaterialization).toBe(true);
+        expect(await logicalCurrencyInventory(fixture)).toEqual(durableBefore);
+        const host = await Effect.runPromise(makeCmsHost({ ...hostInput, materialization: {} }));
+        cleanup.push(() => Effect.runPromise(host.close));
+        const created = await Effect.runPromise(host.run(key, create, input));
+        expect(created).toMatchObject({ title: input.title });
+        if (created === null || typeof created !== "object" || !("_id" in created) || typeof created._id !== "string")
+          throw new Error("CMS host returned no document id");
+        expect(await Effect.runPromise(host.read(read, created._id))).toMatchObject({ title: input.title });
+        expect(await db.select().from(fxAppRowCurrent)).toHaveLength(before.length + 1);
+        expect(await Effect.runPromise(host.run(key, create, input))).toEqual(created);
+        expect(await db.select().from(fxAppRowCurrent)).toHaveLength(before.length + 1);
+      } finally {
+        const failures: unknown[] = [];
+        for (const close of cleanup.reverse()) await close().catch(cause => { failures.push(cause); });
+        if (failures.length) throw new AggregateError(failures, "Source CMS host cleanup failed");
+      }
+    }, 180_000);
+
+    it.skipIf(driver === "postgres" && postgresUrl === null)(`prepares Payload relationships and refuses unadmitted incoming reads on ${driver}`, async () => {
+      const cleanup: Array<() => Promise<void>> = [];
+      try {
+        const collections = [{ slug: "news", fields: [
+          { name: "title", type: "text", required: true },
+          { name: "relatedPost", type: "relationship", relationTo: "news" },
+        ] }] as const;
+        const fixture = await logicalCurrencyFixture(driver, close => cleanup.push(close), { payloadCollections: collections });
+        const compiled = await Effect.runPromise(compilePayloadCollections(collections));
+        const prepared = await Effect.runPromise(prepareLogicalDocumentSourceAdmission(
+          { controlDb: fixture.control.drizzle, authority: fixture.application.authorityPorts },
+          fixture.application.uniqueConstraintEligibility,
+          { deploymentId: fixture.deploymentId, scopeId: fixture.application.authority.scopeId,
+            schemaVersionId: fixture.schemaVersionId }, compiled.sourceContract, { kind: "standalone" }));
+        expect(typeof prepared.withAdmission).toBe("function");
+        const create = defineCmsCommand({ name: "createRelationshipReadTarget", mode: "write", run: (ctx, args) =>
+          ctx.documents.insert(ctx.context, ctx.transactionId, "news", args) });
+        const incoming = defineCmsCommand({ name: "unadmittedSourceIncomingRead", mode: "read", run: Effect.fn(function* (ctx, args) {
+          if (typeof args !== "string") return yield* Effect.fail(cmsError("invalidInput"));
+          yield* ctx.relations.incoming(ctx.context, ctx.transactionId, "relatedPost", args, 8);
+          return null;
+        }) });
+        const host = await Effect.runPromise(makeCmsHost({ hostRuntime: preparedHostTestRuntime(fixture.persistence.drizzle),
+          database: fixture.persistence.drizzle, controlDatabase: fixture.control.drizzle, session: fixture.session,
+          deploymentId: fixture.deploymentId, scopeId: fixture.application.authority.scopeId,
+          authority: fixture.application.authorityPorts, application: fixture.application.activation,
+          commands: [create, incoming], identityAndAccessPolicy: { profile: "logical-source-incoming-refusal" },
+          materialization: {},
+          expectedContentIdentity: compiled.contentIdentity,
+          logicalStorage: { ports: { controlDb: fixture.control.drizzle, authority: fixture.application.authorityPorts },
+            unique: fixture.application.uniqueConstraintEligibility, schemaVersionId: fixture.schemaVersionId,
+            source: compiled.sourceContract } }));
+        cleanup.push(() => Effect.runPromise(host.close));
+        const created = await Effect.runPromise(host.run(host.newRequestKey(), create,
+          { title: "Existing incoming-read target", createdAt: "2026-09-23T00:00:00.000Z", updatedAt: "2026-09-23T00:00:00.000Z" }));
+        const target = Schema.decodeUnknownSync(Schema.Struct({ _id: Schema.String }))(created);
+        const beforeRead = await logicalCurrencyInventory(fixture);
+        expect(await Effect.runPromise(Effect.result(host.read(incoming, target._id))))
+          .toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedProfile" } });
+        expect(await logicalCurrencyInventory(fixture)).toEqual(beforeRead);
+      } finally {
+        const failures: unknown[] = [];
+        for (const close of cleanup.reverse()) await close().catch(cause => { failures.push(cause); });
+        if (failures.length) throw new AggregateError(failures, "Payload relationship refusal cleanup failed");
+      }
+    }, 180_000);
+
+    it.skipIf(driver === "postgres" && postgresUrl === null)(`serves and publishes on ${driver} without Currency module tables`, async () => {
+      const cleanup: Array<() => Promise<void>> = [];
+      try {
+        const fixture = await logicalCurrencyFixture(driver, close => cleanup.push(close));
+        expect(await fixture.service.retrieveCurrency("USD")).toMatchObject({ code: "usd" });
+        expect(await fixture.service.listAndCountCurrencies({ code: ["usd"] }, { take: 1 }))
+          .toMatchObject([[{ code: "usd" }], 1]);
+        const initial = await logicalCurrencyInventory(fixture);
+        expect(initial.rows).toHaveLength(123);
+        expect(initial.initialization)
+          .toMatchObject([{ sourceKey: "medusa.currency", rowCount: 123 }]);
+        expect(initial.physicalFacts).toEqual([]);
+        const key = fixture.host.newRequestKey();
+        const input = { code: "zzz", name: "Logical native Currency", symbol: "Z", symbol_native: "Z" };
+        const created = await Effect.runPromise(fixture.host.run(key, currencyAnnouncementWrite, input));
+        expect(created).toMatchObject({ code: "zzz", name: input.name });
+        const published = await logicalCurrencyInventory(fixture);
+        expect(published.rows).toHaveLength(124);
+        expect(published.physicalFacts).toEqual([]);
+        expect(published.outcomes).toHaveLength(initial.outcomes.length + 1);
+        expect(await Effect.runPromise(fixture.host.run(key, currencyAnnouncementWrite, input))).toEqual(created);
+        expect(await logicalCurrencyInventory(fixture)).toEqual(published);
+        const swallowed = defineCommerceCommand("logicalCurrencyCaughtRefusal", "write", ctx =>
+          ctx.nested(currencyAnnouncementWrite, { code: "yyy", name: "Must roll back", symbol: "Y", symbol_native: "Y" }).pipe(
+            Effect.andThen(ctx.refuse(commerceError("invalidInput"))),
+            Effect.catchTag("CommerceTransactionError", () => Effect.succeed(null))));
+        const lifecycle = defineCommerceCommand("logicalCurrencyLifecycle", "write", (ctx, action) =>
+          withCurrencyService(ctx, async ({ repository, context }) => {
+            if (action === "softDelete") return repository.softDelete({ code: "zzz" }, context);
+            if (action === "restore") return repository.restore({ code: "zzz" }, context);
+            return repository.delete({ code: "zzz" }, context);
+          }));
+        const active = await Effect.runPromise(makeCommerceHost({ ...fixture.hostInput,
+          commands: [...fixture.hostInput.commands, swallowed, lifecycle] }));
+        cleanup.push(() => Effect.runPromise(active.close));
+        const refused = await Effect.runPromise(Effect.exit(active.run(active.newRequestKey(), swallowed, null)));
+        expect(Exit.isFailure(refused)).toBe(true);
+        if (Exit.isFailure(refused)) expect(refused.cause.reasons.filter(Cause.isFailReason).map(reason => reason.error.reason))
+          .toEqual(["rollbackOnly", "invalidInput"]);
+        expect(await logicalCurrencyInventory(fixture)).toEqual(published);
+        await Effect.runPromise(active.run(active.newRequestKey(), lifecycle, "softDelete"));
+        await expect(fixture.service.retrieveCurrency("zzz")).rejects.toThrow("was not found");
+        await Effect.runPromise(active.run(active.newRequestKey(), lifecycle, "restore"));
+        expect(await fixture.service.retrieveCurrency("ZZZ")).toMatchObject({ name: input.name });
+        expect(await Effect.runPromise(active.initialize(fixture.initialization.rows))).toEqual({ rowCount: 123 });
+        const beforeDelete = await logicalCurrencyInventory(fixture);
+        await Effect.runPromise(active.run(active.newRequestKey(), lifecycle, "delete"));
+        await expect(fixture.service.retrieveCurrency("zzz")).rejects.toThrow("was not found");
+        const afterDelete = await logicalCurrencyInventory(fixture);
+        expect(afterDelete.rows).toHaveLength(beforeDelete.rows.length);
+        expect(afterDelete.revisions.filter(row => row.isTombstone))
+          .toHaveLength(beforeDelete.revisions.filter(row => row.isTombstone).length + 1);
+        expect(afterDelete.uniqueKeys.length).toBeLessThan(beforeDelete.uniqueKeys.length);
+        expect(afterDelete.physicalFacts).toEqual([]);
+        await Effect.runPromise(active.run(active.newRequestKey(), currencyAnnouncementWrite, input));
+        expect(await fixture.service.retrieveCurrency("ZZZ")).toMatchObject({ name: input.name });
+        const physical = await fixture.persistence.query<{ table_name: string }>(
+          "select table_name from information_schema.tables where table_schema = current_schema() and left(table_name, 5) = 'fxrt_'");
+        expect(physical.rows).toEqual([]);
+      } finally {
+        const failures: unknown[] = [];
+        for (const close of cleanup.reverse()) await close().catch(cause => { failures.push(cause); });
+        if (failures.length) throw new AggregateError(failures, "Logical Currency fixture cleanup failed");
+      }
+    }, 180_000);
+  }
+});

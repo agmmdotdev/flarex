@@ -1,0 +1,240 @@
+{
+  "checkpoint": "read-admission-construction-working-tree@e6bd105ea",
+  "scope": "Protected standalone scalar/collection native Product retrieval; full request preparation included",
+  "methods": {
+    "quiet": "5 warmups/30 samples per lane/case; alternating serial pairs; median middle-pair mean, p95 nearest-rank",
+    "trace": "Separate diagnostic sample, all driver statements/rows/JSON bytes",
+    "server": "Separate diagnostic sample, all-role authenticated database coverage; top-level totals; nested entries separate"
+  },
+  "modes": [
+    {
+      "mode": "quiet",
+      "status": "measurementPassed",
+      "sourceStable": true,
+      "sourceEvidenceSha256": "bc91dde4b7489a0dd3b3ef7aa77d829e878e1e061424eb5ef116397141f9697c",
+      "runtimeStable": true,
+      "sampleFailures": 0
+    },
+    {
+      "mode": "trace",
+      "status": "measurementPassed",
+      "sourceStable": true,
+      "sourceEvidenceSha256": "bc91dde4b7489a0dd3b3ef7aa77d829e878e1e061424eb5ef116397141f9697c",
+      "runtimeStable": true,
+      "sampleFailures": 0
+    },
+    {
+      "mode": "server",
+      "status": "measurementPassed",
+      "sourceStable": true,
+      "sourceEvidenceSha256": "bc91dde4b7489a0dd3b3ef7aa77d829e878e1e061424eb5ef116397141f9697c",
+      "runtimeStable": true,
+      "sampleFailures": 0
+    }
+  ],
+  "quiet": {
+    "scalar/native": {
+      "n": 30,
+      "failures": 0,
+      "medianMs": 1.4420500000014727,
+      "p95Ms": 1.9017000000021653,
+      "minMs": 0.797100000003411,
+      "maxMs": 5.444400000000314
+    },
+    "scalar/flarex": {
+      "n": 30,
+      "failures": 0,
+      "medianMs": 58.48545000000013,
+      "p95Ms": 67.47830000000249,
+      "minMs": 52.912100000001374,
+      "maxMs": 75.88969999999972
+    },
+    "collection/native": {
+      "n": 30,
+      "failures": 0,
+      "medianMs": 1.7855999999992491,
+      "p95Ms": 2.159700000003795,
+      "minMs": 1.1012999999948079,
+      "maxMs": 5.237700000005134
+    },
+    "collection/flarex": {
+      "n": 30,
+      "failures": 0,
+      "medianMs": 56.6082499999975,
+      "p95Ms": 61.183899999996356,
+      "minMs": 53.08060000000114,
+      "maxMs": 61.231800000001385
+    }
+  },
+  "trace": [
+    {
+      "demand": "scalar",
+      "lane": "native",
+      "dispatches": 1,
+      "transactions": 0,
+      "rows": 1,
+      "jsonBytes": 146,
+      "beforeProductDispatches": 0,
+      "beforeProductRows": 0,
+      "beforeProductJsonBytes": 0,
+      "insideProductDispatches": 1,
+      "afterProductDispatches": 0
+    },
+    {
+      "demand": "scalar",
+      "lane": "flarex",
+      "dispatches": 70,
+      "transactions": 3,
+      "rows": 192,
+      "jsonBytes": 160668,
+      "beforeProductDispatches": 67,
+      "beforeProductRows": 190,
+      "beforeProductJsonBytes": 157427,
+      "insideProductDispatches": 2,
+      "afterProductDispatches": 1
+    },
+    {
+      "demand": "collection",
+      "lane": "native",
+      "dispatches": 1,
+      "transactions": 0,
+      "rows": 1,
+      "jsonBytes": 186,
+      "beforeProductDispatches": 0,
+      "beforeProductRows": 0,
+      "beforeProductJsonBytes": 0,
+      "insideProductDispatches": 1,
+      "afterProductDispatches": 0
+    },
+    {
+      "demand": "collection",
+      "lane": "flarex",
+      "dispatches": 72,
+      "transactions": 3,
+      "rows": 194,
+      "jsonBytes": 162786,
+      "beforeProductDispatches": 67,
+      "beforeProductRows": 190,
+      "beforeProductJsonBytes": 157427,
+      "insideProductDispatches": 4,
+      "afterProductDispatches": 1
+    }
+  ],
+  "server": [
+    {
+      "demand": "scalar",
+      "lane": "native",
+      "topLevelCalls": 1,
+      "topLevelPlanningMs": 0.11150000000000004,
+      "topLevelExecutionMs": 0.0189,
+      "nestedEntries": 0,
+      "sharedBlockReads": 0
+    },
+    {
+      "demand": "scalar",
+      "lane": "flarex",
+      "topLevelCalls": 70,
+      "topLevelPlanningMs": 8.777399999999997,
+      "topLevelExecutionMs": 2.3797999999999955,
+      "nestedEntries": 0,
+      "sharedBlockReads": 0
+    },
+    {
+      "demand": "collection",
+      "lane": "native",
+      "topLevelCalls": 1,
+      "topLevelPlanningMs": 0.1835,
+      "topLevelExecutionMs": 0.032799999999999996,
+      "nestedEntries": 0,
+      "sharedBlockReads": 0
+    },
+    {
+      "demand": "collection",
+      "lane": "flarex",
+      "topLevelCalls": 72,
+      "topLevelPlanningMs": 9.398900000000015,
+      "topLevelExecutionMs": 2.290700000000002,
+      "nestedEntries": 0,
+      "sharedBlockReads": 0
+    }
+  ],
+  "scalarOwnerAttribution": [
+    {
+      "owner": "scope/placement resolution",
+      "firstSqlOrdinal": 1,
+      "lastSqlOrdinal": 6,
+      "dispatches": 6,
+      "rows": 6,
+      "jsonBytes": 1674
+    },
+    {
+      "owner": "bounded Application target capture",
+      "firstSqlOrdinal": 7,
+      "lastSqlOrdinal": 21,
+      "dispatches": 15,
+      "rows": 17,
+      "jsonBytes": 45810
+    },
+    {
+      "owner": "detached schema/unique/lifecycle/control authentication",
+      "firstSqlOrdinal": 22,
+      "lastSqlOrdinal": 37,
+      "dispatches": 16,
+      "rows": 11,
+      "jsonBytes": 9849
+    },
+    {
+      "owner": "fresh business binding/Application acceptance",
+      "firstSqlOrdinal": 38,
+      "lastSqlOrdinal": 59,
+      "dispatches": 22,
+      "rows": 24,
+      "jsonBytes": 71307
+    },
+    {
+      "owner": "full logical-source readiness",
+      "firstSqlOrdinal": 60,
+      "lastSqlOrdinal": 66,
+      "dispatches": 7,
+      "rows": 131,
+      "jsonBytes": 28505
+    },
+    {
+      "owner": "source initialization admission",
+      "firstSqlOrdinal": 67,
+      "lastSqlOrdinal": 67,
+      "dispatches": 1,
+      "rows": 1,
+      "jsonBytes": 282
+    },
+    {
+      "owner": "native scalar storage demand",
+      "firstSqlOrdinal": 68,
+      "lastSqlOrdinal": 69,
+      "dispatches": 2,
+      "rows": 2,
+      "jsonBytes": 3239
+    },
+    {
+      "owner": "business COMMIT",
+      "firstSqlOrdinal": 70,
+      "lastSqlOrdinal": 70,
+      "dispatches": 1,
+      "rows": 0,
+      "jsonBytes": 2
+    }
+  ],
+  "setup": {
+    "flarexFixtureAndHostConstructionMs": 12012.452100000002,
+    "nativeSchemaPreparationMs": 289.54120000000694,
+    "nativeSchemaAndModuleConstructionMs": 1136.4232000000047,
+    "nativePublicSeedMs": 30.7670999999973,
+    "flarexPublicSeedMs": 227.06470000000263
+  },
+  "limitations": [
+    "Before/after quiet observations and separate diagnostics do not establish exact causal CPU/latency attribution.",
+    "All raw samples/outliers retained; no independent nested entries does not prove absent function/trigger work.",
+    "Application accepting reauthentication is largest remaining region by statements/bytes; full logical-source readiness is largest metadata row growth.",
+    "Scalar/collection local standalone proof does not close retained finite, full mixed, scaling, whole-goal latency or hosted/production acceptance."
+  ]
+}

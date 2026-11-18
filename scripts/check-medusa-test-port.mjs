@@ -1,8 +1,616 @@
 // @ts-check
 import ts from "@typescript/typescript6";
 
+/** The named154 allowance belongs to this authenticated workflow selection.
+ * Caller configuration cannot increase calls, events or participant resources.
+ * @param {string} facade @param {string} policy */
+export function verifyPriceListDeleteSelection(facade, policy) {
+  const failure = "Changed PriceList deletion resource selection";
+  const parsed = ts.createSourceFile("price-list-delete-selection.ts", facade, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS);
+  const policyFile = ts.createSourceFile("policy.ts", policy, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS);
+  /** @param {ts.SourceFile} file @param {string} name */
+  const declarations = (file, name) => file.statements.filter(ts.isVariableStatement)
+    .flatMap(statement => statement.declarationList.declarations).filter(node => ts.isIdentifier(node.name) && node.name.text === name);
+  const selected = declarations(parsed, "prepareDeletePriceListsWorkflow"), resources = declarations(policyFile, "priceListDeletionResources");
+  const initializer = selected[0]?.initializer, allowance = resources[0]?.initializer;
+  const expected = `const workflow = Effect.fn("PricingWorkflow.deletePriceLists")(function* (input: {
+    readonly execution: AtomicWorkflowExecution;
+    readonly pricing: InstalledWorkflowModule<Pricing>;
+    readonly link: Links;
+    readonly revision: string;
+    readonly subscribers: AtomicCommerceEvents["subscribers"];
+  }) {
+    const options = yield* Effect.fromResult(captureWorkflowRecord(input));
+    if (Object.keys(options).some(key => !["execution", "pricing", "link", "revision", "subscribers"].includes(key)))
+      return yield* Effect.fail(commerceError("unsupportedProfile"));
+    const installed = yield* Effect.fromResult(captureInstalledWorkflowModules({ pricing: options.pricing }, ["pricing"]));
+    const definition = workflowModuleDefinition(installed.pricing.module);
+    if (definition?.source.name !== "flarex-pricing-local" || definition.source.profile !== "pricing-price-list-deletions")
+      return yield* Effect.fail(commerceError("invalidAuthority"));
+    if (installed.pricing.logicalResources !== undefined && !jsonEqual(installed.pricing.logicalResources, priceListDeletionResources))
+      return yield* Effect.fail(commerceError("unsupportedProfile"));
+    const modules = { pricing: { ...installed.pricing, logicalResources: priceListDeletionResources } };
+    const resources = yield* Effect.fromResult(prepareWorkflowResources({
+      pricing: { module: modules.pricing.module, methods: ["softDeletePriceLists", "restorePriceLists"], graph: false },
+    }, true, { link: options.link }));
+    const prepared = yield* Effect.fromResult(deletePriceListsWorkflow.prepare())
+      .pipe(Effect.mapError(cause => commerceError("unsupportedProfile", cause)));
+    return yield* prepareAtomicWorkflowHost({ execution: options.execution, revision: options.revision, subscribers: options.subscribers,
+      modules, operationScheduling: "queued", requestCallLimit: priceListDeletionResources.calls,
+      workflow: { name: "deletePriceListsWorkflow", resources, prepared,
+        input: PriceListDeletionWorkflowInput, output: Schema.Null, events: internalModuleWorkflowEvents } });
+  });`;
+  const expectedAllowance = "const resources = Object.freeze({ ...defaultCommerceResources, calls: 128 });";
+  const imports = parsed.statements.filter(ts.isImportDeclaration).filter(node =>
+    node.importClause?.namedBindings !== undefined && ts.isNamedImports(node.importClause.namedBindings) &&
+    node.importClause.namedBindings.elements.some(element => element.name.text === "priceListDeletionResources"));
+  const defaultImports = policyFile.statements.filter(ts.isImportDeclaration).filter(node =>
+    node.importClause?.namedBindings !== undefined && ts.isNamedImports(node.importClause.namedBindings) &&
+    node.importClause.namedBindings.elements.some(element => element.name.text === "defaultCommerceResources"));
+  const allowanceStatement = resources[0]?.parent.parent, selectedStatement = selected[0]?.parent.parent;
+  if (selected.length !== 1 || initializer === undefined || resources.length !== 1 || allowance === undefined ||
+    selectedStatement === undefined || !ts.isVariableStatement(selectedStatement) ||
+    (selectedStatement.declarationList.flags & ts.NodeFlags.Const) === 0 ||
+    !selectedStatement.modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.ExportKeyword) ||
+    allowanceStatement === undefined || !ts.isVariableStatement(allowanceStatement) ||
+    (allowanceStatement.declarationList.flags & ts.NodeFlags.Const) === 0 ||
+    !allowanceStatement.modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.ExportKeyword) ||
+    imports.length !== 1 || imports[0]?.getText(parsed) !== 'import { priceListDeletionResources } from "../../workflow/policy";' ||
+    defaultImports.length !== 1 || defaultImports[0]?.getText(policyFile) !== 'import { defaultCommerceResources } from "@flarex/persistence-postgres/internal/commerce-values";' ||
+    nativeWorkflowProgram("const workflow = " + initializer.getText(parsed), failure, true) !== nativeWorkflowProgram(expected, failure, true) ||
+    nativeWorkflowProgram("const workflow = " + initializer.getText(parsed), failure) !== nativeWorkflowProgram(expected, failure) ||
+    nativeWorkflowProgram("const resources = " + allowance.getText(policyFile), failure, true) !== nativeWorkflowProgram(expectedAllowance, failure, true)) throw new Error(failure);
+}
+
+/** Native154 retains raw IDs, the direct void step return, required empty
+ * forward calls and the original guarded restore callback.
+ * @param {string} nativeWorkflow @param {string} workflow
+ * @param {string} nativeStep @param {string} step */
+export function verifyPriceListDeleteCallbacks(nativeWorkflow, workflow, nativeStep, step) {
+  const failure = "Changed native PriceList deletion callback behavior";
+  /** @param {string} text @param {string} before @param {string} after */
+  const replace = (text, before, after) => {
+    if (text.split(before).length !== 2) throw new Error(failure + ": missing native adaptation anchor");
+    return text.replace(before, after);
+  };
+  /** @param {string} text */
+  const relocate = text => text.replaceAll("\r\n", "\n")
+    .replace('from "@medusajs/framework/types"', 'from "@medusajs/types"')
+    .replace('from "@medusajs/framework/utils"', 'from "@medusajs/framework/utils/portable"')
+    .replace('from "@medusajs/framework/workflows-sdk"', 'from "@medusajs/workflows-sdk"');
+  const expectedWorkflow = replace(replace(relocate(nativeWorkflow), 'from "../steps"', 'from "../steps/delete-price-lists"'),
+    "): WorkflowData<void> => {", ") => {");
+  const expectedStep = replace(relocate(nativeStep), "  deletePriceListsStepId,",
+    '  { name: deletePriceListsStepId, compensation: "transactionCovered" },');
+  const printer = ts.createPrinter({ removeComments: true, newLine: ts.NewLineKind.LineFeed });
+  /** @param {string} text */
+  const program = text => printer.printFile(ts.createSourceFile("price-list-delete.ts", text,
+    ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS));
+  for (const [expected, target] of [[expectedWorkflow, workflow], [expectedStep, step]]) {
+    if (nativeWorkflowProgram(expected, failure) !== nativeWorkflowProgram(target, failure) || program(expected) !== program(target))
+      throw new Error(failure);
+  }
+}
+
+/** Native153 preserves validation, sparse preimages and the complete rule
+ * replacement inverse, including the original undefined root result.
+ * @param {string} nativeWorkflow @param {string} workflow
+ * @param {string} nativeUpdate @param {string} update
+ * @param {string} nativeValidation @param {string} validation */
+export function verifyPriceListUpdateCallbacks(nativeWorkflow, workflow, nativeUpdate, update, nativeValidation, validation) {
+  const failure = "Changed native PriceList update callback behavior";
+  /** @param {string} text @param {string} before @param {string} after */
+  const replace = (text, before, after) => {
+    if (text.split(before).length !== 2) throw new Error(failure + ": missing native adaptation anchor");
+    return text.replace(before, after);
+  };
+  /** @param {string} text */
+  const relocate = text => text.replaceAll("\r\n", "\n")
+    .replace('from "@medusajs/framework/types"', 'from "@medusajs/types"')
+    .replace('from "@medusajs/framework/utils"', 'from "@medusajs/framework/utils/portable"')
+    .replace('from "@medusajs/framework/workflows-sdk"', 'from "@medusajs/workflows-sdk"');
+  const expectedWorkflow = replace(replace(relocate(nativeWorkflow),
+    'import { updatePriceListsStep, validatePriceListsStep } from "../steps"',
+    'import { updatePriceListsStep } from "../steps/update-price-lists"\nimport { validatePriceListsStep } from "../steps/validate-price-lists"'),
+    "): WorkflowData<void> => {", "): void => {");
+  const expectedUpdate = replace(replace(relocate(nativeUpdate), "  updatePriceListsStepId,",
+    '  { name: updatePriceListsStepId, compensation: "transactionCovered" },'),
+    "rules: buildPriceListRules(priceListRules),", "rules: buildPriceListRules(priceListRules)!,");
+  const printer = ts.createPrinter({ removeComments: true, newLine: ts.NewLineKind.LineFeed });
+  /** @param {string} text */
+  const program = text => printer.printFile(ts.createSourceFile("price-list-update.ts", text,
+    ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS));
+  for (const [expected, target] of [[expectedWorkflow, workflow], [expectedUpdate, update], [relocate(nativeValidation), validation]]) {
+    if (nativeWorkflowProgram(expected, failure) !== nativeWorkflowProgram(target, failure) || program(expected) !== program(target))
+      throw new Error(failure);
+  }
+}
+
+/** Promote only the complete original pure rule builder and its type import.
+ * @param {string} native @param {string} target */
+export function verifyNativePriceListRuleBuilder(native, target) {
+  const failure = "Changed native PriceList rule builder extraction";
+  const source = native.replaceAll("\r\n", "\n");
+  const parsed = ts.createSourceFile("builders.ts", source, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS);
+  const selected = parsed.statements.filter(node => ts.isFunctionDeclaration(node) && node.name?.text === "buildPriceListRules");
+  const declaration = selected[0];
+  if (selected.length !== 1 || declaration === undefined) throw new Error(failure);
+  const expected = 'import type { PriceListRuleDTO } from "@medusajs/types"\n\n' +
+    source.slice(declaration.getStart(parsed), declaration.end);
+  const printer = ts.createPrinter({ removeComments: true, newLine: ts.NewLineKind.LineFeed });
+  /** @param {string} text */
+  const program = text => printer.printFile(ts.createSourceFile("price-list-rules.ts", text,
+    ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS));
+  if (nativeWorkflowProgram(expected, failure) !== nativeWorkflowProgram(target, failure) || program(expected) !== program(target))
+    throw new Error(failure);
+}
+
+/** Native152 preserves both complete steps, required empty calls, raw variant
+ * selectors, complete results and retained physical deletion.
+ * @param {string} nativeWorkflow @param {string} workflow
+ * @param {string} nativeCreation @param {string} creation
+ * @param {string} nativeValidation @param {string} validation */
+export function verifyPriceListCreateCallbacks(nativeWorkflow, workflow, nativeCreation, creation, nativeValidation, validation) {
+  const failure = "Changed native PriceList creation callback behavior";
+  /** @param {string} text @param {string} before @param {string} after */
+  const replace = (text, before, after) => {
+    if (text.split(before).length !== 2) throw new Error(failure + ": missing native adaptation anchor");
+    return text.replace(before, after);
+  };
+  /** @param {string} text */
+  const relocate = text => text.replaceAll("\r\n", "\n")
+    .replace('from "@medusajs/framework/types"', 'from "@medusajs/types"')
+    .replace('from "@medusajs/framework/utils"', 'from "@medusajs/framework/utils/portable"')
+    .replace('from "@medusajs/framework/workflows-sdk"', 'from "@medusajs/workflows-sdk"');
+  const expectedWorkflow = replace(relocate(nativeWorkflow),
+    'import { createPriceListsStep, validateVariantPriceLinksStep } from "../steps"',
+    'import { createPriceListsStep } from "../steps/create-price-lists"\nimport { validateVariantPriceLinksStep } from "../steps/validate-variant-price-links"');
+  const expectedCreation = replace(replace(relocate(nativeCreation), "  createPriceListsStepId,",
+    '  { name: createPriceListsStepId, compensation: "transactionCovered" },'),
+    "variantPriceMap[price.variant_id]", "variantPriceMap![price.variant_id]!");
+  const expectedValidation = 'import type { RemoteQueryFunction } from "@medusajs/types"\n' +
+    replace(relocate(nativeValidation), "container.resolve(", "container.resolve<RemoteQueryFunction>(");
+  const printer = ts.createPrinter({ removeComments: true, newLine: ts.NewLineKind.LineFeed });
+  /** @param {string} text */
+  const program = text => printer.printFile(ts.createSourceFile("price-list-create.ts", text,
+    ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS));
+  for (const [expected, target] of [[expectedWorkflow, workflow], [expectedCreation, creation], [expectedValidation, validation]]) {
+    if (nativeWorkflowProgram(expected, failure) !== nativeWorkflowProgram(target, failure) || program(expected) !== program(target))
+      throw new Error(failure);
+  }
+}
+
+/** Native151 keeps raw retained IDs, required Link calls and native inverses.
+ * @param {string} nativeWorkflow @param {string} workflow
+ * @param {string} nativeStep @param {string} step */
+export function verifyPricePreferenceDeleteCallbacks(nativeWorkflow, workflow, nativeStep, step) {
+  const failure = "Changed native PricePreference deletion callback behavior";
+  /** @param {string} text @param {string} before @param {string} after */
+  const replace = (text, before, after) => {
+    if (text.split(before).length !== 2) throw new Error(failure + ": missing native adaptation anchor");
+    return text.replace(before, after);
+  };
+  let expectedWorkflow = replace(nativeWorkflow.replaceAll("\r\n", "\n"), 'from "@medusajs/framework/utils"', 'from "@medusajs/framework/utils/portable"');
+  expectedWorkflow = replace(expectedWorkflow, 'from "@medusajs/framework/workflows-sdk"', 'from "@medusajs/workflows-sdk"');
+  expectedWorkflow = replace(expectedWorkflow, 'from "../steps"', 'from "../steps/delete-price-preferences"');
+  let expectedStep = replace(nativeStep.replaceAll("\r\n", "\n"), 'from "@medusajs/framework/types"', 'from "@medusajs/types"');
+  expectedStep = replace(expectedStep, 'from "@medusajs/framework/utils"', 'from "@medusajs/framework/utils/portable"');
+  expectedStep = replace(expectedStep, 'from "@medusajs/framework/workflows-sdk"', 'from "@medusajs/workflows-sdk"');
+  expectedStep = replace(expectedStep, "  deletePricePreferencesStepId,", '  { name: deletePricePreferencesStepId, compensation: "transactionCovered" },');
+  const printer = ts.createPrinter({ removeComments: true, newLine: ts.NewLineKind.LineFeed });
+  /** @param {string} text */
+  const program = text => printer.printFile(ts.createSourceFile("price-preference-delete.ts", text,
+    ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS));
+  for (const [expected, target] of [[expectedWorkflow, workflow], [expectedStep, step]]) {
+    if (nativeWorkflowProgram(expected, failure) !== nativeWorkflowProgram(target, failure) || program(expected) !== program(target))
+      throw new Error(failure);
+  }
+}
+
+/** Native150 retains the complete selector update, sparse list and inverse
+ * upsert callbacks, including the original public type references.
+ * @param {string} nativeWorkflow @param {string} workflow
+ * @param {string} nativeStep @param {string} step */
+export function verifyPricePreferenceUpdateCallbacks(nativeWorkflow, workflow, nativeStep, step) {
+  const failure = "Changed native PricePreference update callback behavior";
+  /** @param {string} text @param {string} before @param {string} after */
+  const replace = (text, before, after) => {
+    if (text.split(before).length !== 2) throw new Error(failure + ": missing native adaptation anchor");
+    return text.replace(before, after);
+  };
+  let expectedWorkflow = replace(nativeWorkflow.replaceAll("\r\n", "\n"), 'from "@medusajs/framework/types"', 'from "@medusajs/types"');
+  expectedWorkflow = replace(expectedWorkflow, 'from "@medusajs/framework/workflows-sdk"', 'from "@medusajs/workflows-sdk"');
+  expectedWorkflow = replace(expectedWorkflow, 'from "../steps"', 'from "../steps/update-price-preferences"');
+  let expectedStep = replace(nativeStep.replaceAll("\r\n", "\n"), "import {\n  IPricingModuleService,", "import type {\n  IPricingModuleService,");
+  expectedStep = replace(expectedStep, 'from "@medusajs/framework/types"', 'from "@medusajs/types"');
+  expectedStep = replace(expectedStep, 'from "@medusajs/framework/utils"', 'from "@medusajs/framework/utils/portable"');
+  expectedStep = replace(expectedStep, 'from "@medusajs/framework/workflows-sdk"', 'from "@medusajs/workflows-sdk"');
+  expectedStep = replace(expectedStep, "  updatePricePreferencesStepId,", '  { name: updatePricePreferencesStepId, compensation: "transactionCovered" },');
+  const printer = ts.createPrinter({ removeComments: true, newLine: ts.NewLineKind.LineFeed });
+  /** @param {string} text */
+  const program = text => printer.printFile(ts.createSourceFile("price-preference-update.ts", text,
+    ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS));
+  for (const [expected, target] of [[expectedWorkflow, workflow], [expectedStep, step]]) {
+    if (nativeWorkflowProgram(expected, failure) !== nativeWorkflowProgram(target, failure) || program(expected) !== program(target))
+      throw new Error(failure);
+  }
+}
+
+/** Native149 creation keeps the complete native workflow and retained physical
+ * deletion callback. Only direct imports and covered metadata differ.
+ * @param {string} nativeWorkflow @param {string} workflow
+ * @param {string} nativeStep @param {string} step */
+export function verifyPricePreferenceCreateCallbacks(nativeWorkflow, workflow, nativeStep, step) {
+  const failure = "Changed native PricePreference creation callback behavior";
+  /** @param {string} text @param {string} before @param {string} after */
+  const replace = (text, before, after) => {
+    if (text.split(before).length !== 2) throw new Error(failure + ": missing native adaptation anchor");
+    return text.replace(before, after);
+  };
+  let expectedWorkflow = replace(nativeWorkflow.replaceAll("\r\n", "\n"), 'from "@medusajs/framework/types"', 'from "@medusajs/types"');
+  expectedWorkflow = replace(expectedWorkflow, 'from "@medusajs/framework/workflows-sdk"', 'from "@medusajs/workflows-sdk"');
+  expectedWorkflow = replace(expectedWorkflow, 'from "../steps"', 'from "../steps/create-price-preferences"');
+  let expectedStep = replace(nativeStep.replaceAll("\r\n", "\n"), "import {\n  IPricingModuleService,", "import type {\n  IPricingModuleService,");
+  expectedStep = replace(expectedStep, 'from "@medusajs/framework/types"', 'from "@medusajs/types"');
+  expectedStep = replace(expectedStep, 'from "@medusajs/framework/workflows-sdk"', 'from "@medusajs/workflows-sdk"');
+  expectedStep = replace(expectedStep, 'from "@medusajs/framework/utils"', 'from "@medusajs/utils/modules-sdk/definition"');
+  expectedStep = replace(expectedStep, "  createPricePreferencesStepId,", '  { name: createPricePreferencesStepId, compensation: "transactionCovered" },');
+  const printer = ts.createPrinter({ removeComments: true, newLine: ts.NewLineKind.LineFeed });
+  /** @param {string} text @param {string} name */
+  const contract = (text, name) => {
+    const file = ts.createSourceFile("price-preference.ts", text, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS);
+    const declarations = file.statements.filter(node => ts.isTypeAliasDeclaration(node) && node.name.text === name);
+    const selected = declarations[0];
+    if (declarations.length !== 1 || selected === undefined) throw new Error(failure);
+    const typeImports = file.statements.filter(node => ts.isImportDeclaration(node) && node.importClause?.isTypeOnly);
+    return [selected, ...typeImports].map(node => printer.printNode(ts.EmitHint.Unspecified, node, file)).join("\n");
+  };
+  /** @type {Array<[string,string,string]>} */
+  const pairs = [[expectedWorkflow, workflow, "CreatePricePreferencesWorkflowInput"],
+    [expectedStep, step, "CreatePricePreferencesStepInput"]];
+  for (const [expected, target, name] of pairs) {
+    if (nativeWorkflowProgram(expected, failure) !== nativeWorkflowProgram(target, failure) || contract(expected, name) !== contract(target, name))
+      throw new Error(failure);
+  }
+}
+
+/** Native148 Product/Channel membership: only the existing finite SDK input/
+ * void wrappers, leaf imports, optional-link types and transaction-covered
+ * compensation metadata differ. All native callbacks and empty guards remain.
+ * @param {string} nativeWorkflow @param {string} workflow
+ * @param {string} nativeAssociation @param {string} association
+ * @param {string} nativeDetachment @param {string} detachment */
+export function verifySalesChannelProductLinkCallbacks(nativeWorkflow, workflow, nativeAssociation, association, nativeDetachment, detachment) {
+  const failure = "Changed native SalesChannel Product membership callback behavior";
+  /** @param {string} text @param {string} before @param {string} after @param {number} count */
+  const replace = (text, before, after, count = 1) => {
+    if (text.split(before).length !== count + 1) throw new Error(failure + ": missing native adaptation anchor");
+    return text.replaceAll(before, after);
+  };
+  /** @param {string} text @param {string} id */
+  const step = (text, id) => {
+    text = replace(text.replaceAll("\r\n", "\n"),
+      'import { ContainerRegistrationKeys, Modules } from "@medusajs/framework/utils"',
+      'import { ContainerRegistrationKeys } from "@medusajs/utils/common/container"\nimport type { Link } from "@medusajs/modules-sdk/link"\nimport { Modules } from "@medusajs/utils/modules-sdk/definition"');
+    text = replace(text, 'from "@medusajs/framework/workflows-sdk"', 'from "@medusajs/workflows-sdk"');
+    text = replace(text, "  links: {", "  links?: {");
+    text = replace(text, "  }[]\n}", "  }[] | undefined\n}");
+    text = replace(text, "  " + id + ",", '  { name: ' + id + ', compensation: "transactionCovered" },');
+    return replace(text, "container.resolve(ContainerRegistrationKeys.LINK)",
+      'container.resolve<Pick<Link, "create" | "dismiss">>(ContainerRegistrationKeys.LINK)', 2);
+  };
+  let expectedWorkflow = replace(nativeWorkflow.replaceAll("\r\n", "\n"), 'from "@medusajs/framework/types"', 'from "@medusajs/types"');
+  expectedWorkflow = replace(expectedWorkflow, 'import { WorkflowData, createWorkflow } from "@medusajs/framework/workflows-sdk"',
+    'import { type WorkflowData, createWorkflow, WorkflowResponse, transform } from "@medusajs/workflows-sdk"');
+  expectedWorkflow = replace(expectedWorkflow, 'import { transform } from "@medusajs/framework/workflows-sdk"\n', "");
+  expectedWorkflow = replace(expectedWorkflow, 'from "../steps"', 'from "../steps/detach-products-from-sales-channels"');
+  expectedWorkflow = replace(expectedWorkflow, "  ): WorkflowData<void> => {", "  ) => {");
+  for (const field of ["add", "remove"]) expectedWorkflow = replace(expectedWorkflow,
+    "return data.input." + field + "?.map((productId) => ({", "return { links: data.input." + field + "?.map((productId) => ({");
+  expectedWorkflow = replace(expectedWorkflow, "        product_id: productId,\n      }))", "        product_id: productId,\n      })) }", 2);
+  expectedWorkflow = replace(expectedWorkflow, "associateProductsWithSalesChannelsStep({ links: toAdd })", "associateProductsWithSalesChannelsStep(toAdd)");
+  expectedWorkflow = replace(expectedWorkflow, "detachProductsFromSalesChannelsStep({ links: toRemove })", "detachProductsFromSalesChannelsStep(toRemove)\n    return new WorkflowResponse(void 0)");
+  /** @type {Array<[string,string,string]>} */
+  const pairs = [[expectedWorkflow, workflow, "LinkProductsToSalesChannelWorkflowInput"],
+    [step(nativeAssociation, "associateProductsWithSalesChannelsStepId"), association, "AssociateProductsWithSalesChannelsStepInput"],
+    [step(nativeDetachment, "detachProductsFromSalesChannelsStepId"), detachment, "DetachProductsFromSalesChannelsStepInput"]];
+  const printer = ts.createPrinter({ removeComments: true, newLine: ts.NewLineKind.LineFeed });
+  /** @param {string} text @param {string} name */
+  const contract = (text, name) => {
+    const file = ts.createSourceFile("membership.ts", text, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS);
+    const declarations = file.statements.filter(node => (ts.isInterfaceDeclaration(node) || ts.isTypeAliasDeclaration(node)) && node.name.text === name);
+    const selected = declarations[0];
+    if (declarations.length !== 1 || selected === undefined) throw new Error(failure);
+    return printer.printNode(ts.EmitHint.Unspecified, selected, file);
+  };
+  for (const [expected, target, name] of pairs) {
+    if (nativeWorkflowProgram(expected, failure) !== nativeWorkflowProgram(target, failure) || contract(expected, name) !== contract(target, name)) throw new Error(failure);
+  }
+}
+
 const vitestBindings = new Set(["afterAll", "afterEach", "beforeAll", "beforeEach", "describe", "expect", "it", "test", "vi"]);
 const currencyImports = new Map([["../index", "@medusajs/currency/index"], ["../static-manifest", "@medusajs/currency/static-manifest"], ["../models", "@medusajs/currency/models"]]);
+
+/** The complete native CSV suite changes only its explicit test-runner import.
+ * Its fixtures remain the exact native files, including their formatting.
+ * @param {string} source @param {string} target
+ * @param {Record<string, string>} sourceFixtures
+ * @param {Record<string, string>} targetFixtures */
+export function verifyCsvNormalizerTests(source, target, sourceFixtures, targetFixtures) {
+  verifyTestPort(source, target);
+  const file = ts.createSourceFile("csv-normalizer.spec.ts", target, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS);
+  const first = file.statements[0];
+  if (first === undefined || !ts.isImportDeclaration(first) || first.getStart(file) !== 0 ||
+    !ts.isStringLiteral(first.moduleSpecifier) || first.moduleSpecifier.text !== "vitest")
+    throw new Error("Changed native CSV test-runner import");
+  const bindings = first.importClause?.namedBindings;
+  if (first.importClause?.isTypeOnly || first.importClause?.name || bindings === undefined || !ts.isNamedImports(bindings) ||
+    bindings.elements.map(binding => binding.isTypeOnly || binding.propertyName ? null : binding.name.text).join(",") !== "describe,expect,it")
+    throw new Error("Changed native CSV test-runner import");
+  const nativeText = target.slice(first.end).replace(/^\r?\n/, "").replace(/\r\n/g, "\n");
+  if (nativeText !== source.replace(/\r\n/g, "\n")) throw new Error("Changed native CSV suite beyond the test-runner import");
+  const names = ["multiple-products-multiple-variants.json", "same-product-multiple-rows.json",
+    "same-product-multiple-variant-options.json", "single-row-create.json"].sort();
+  if (JSON.stringify(Object.keys(sourceFixtures).sort()) !== JSON.stringify(names) ||
+    JSON.stringify(Object.keys(targetFixtures).sort()) !== JSON.stringify(names) ||
+    names.some(name => sourceFixtures[name] !== targetFixtures[name]))
+    throw new Error("Changed native CSV fixtures");
+}
+
+/** Two unchanged native item creation bodies.
+ * @param {string} source @param {string} target */
+export function verifyInventoryCreateTests(source, target) {
+  verifyInventoryTests(source, target, new Set(["should create an inventory item", "should create inventory items from array"]), false);
+}
+
+/** Preserve both native update bodies and their complete beforeEach seed.
+ * @param {string} source @param {string} target */
+export function verifyInventoryUpdateTests(source, target) {
+  verifyInventoryTests(source, target, new Set(["should update the inventory item", "should update multiple inventory items"]), true);
+}
+
+/** Preserve both native absolute Level update bodies and their original seed.
+ * @param {string} source @param {string} target */
+export function verifyInventoryLevelUpdateTests(source, target) {
+  verifyInventoryTests(source, target, new Set(["should update inventory level", "should fail to update inventory level for item in location that isn't stocked"]), true);
+}
+
+/** Exact callback extraction is shared by the Inventory deletion provenance
+ * guards; testPortProgram owns type erasure and executable AST comparison.
+ * @param {string} text @param {string} name @param {string} factory
+ * @param {readonly number[]} indexes */
+function inventoryDeletionCallbacks(text, name, factory, indexes) {
+  const file = ts.createSourceFile("inventory-delete.ts", text, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS);
+  /** @type {ts.CallExpression[]} */
+  const calls = [];
+  /** @param {ts.Node} node */
+  const visit = node => {
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.name.text === name) {
+      if (calls.length !== 0 || node.initializer === undefined || !ts.isCallExpression(node.initializer)
+        || !ts.isIdentifier(node.initializer.expression) || node.initializer.expression.text !== factory)
+        throw new Error("Invalid native Inventory deletion callback declaration");
+      calls.push(node.initializer);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(file);
+  const call = calls[0];
+  if (call === undefined) throw new Error("Missing native Inventory deletion callback declaration");
+  return indexes.map(index => {
+    const callback = call.arguments[index];
+    if (callback === undefined || (!ts.isFunctionExpression(callback) && !ts.isArrowFunction(callback)))
+      throw new Error("Missing native Inventory deletion callback");
+    return { file, call, callback, text: callback.getText(file) };
+  });
+}
+
+/** Exact named top-level declarations share the callback guards' existing AST
+ * normalizer; source import/type relocation never changes executable bodies.
+ * @param {string} text @param {string} name */
+function inventoryNamedDeclaration(text, name) {
+  const file = ts.createSourceFile("inventory-creation.ts", text, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS);
+  const matches = file.statements.filter(ts.isVariableStatement).flatMap(statement => statement.declarationList.declarations
+    .filter(declaration => ts.isIdentifier(declaration.name) && declaration.name.text === name));
+  const declaration = matches[0];
+  if (matches.length !== 1 || declaration === undefined) throw new Error("Changed native Inventory Item creation callback behavior");
+  return { file, declaration, text: "const " + declaration.getText(file) };
+}
+
+/** Authenticate the existing Item root's sole child-options seam, both native
+ * ordinal helpers, unchanged Level child and retained Item/Level callbacks.
+ * The location Query bridge is checked exactly before restoring its native
+ * remoteQuery preamble; the native difference/error tail remains unchanged.
+ * @param {string} nativeWorkflow @param {string} workflow
+ * @param {string} nativeItem @param {string} item
+ * @param {string} nativeLevels @param {string} levels
+ * @param {string} nativeLevel @param {string} level
+ * @param {string} nativeLocations @param {string} locations */
+export function verifyInventoryItemCreateCallbacks(nativeWorkflow, workflow, nativeItem, item, nativeLevels, levels, nativeLevel, level, nativeLocations, locations) {
+  const failure = "Changed native Inventory Item creation callback behavior";
+  /** @param {string} text */
+  const shape = text => testPortProgram("const callback = " + text);
+  /** @param {string} source @param {string} target @param {string} name */
+  const sameVariable = (source, target, name) => {
+    if (testPortProgram(inventoryNamedDeclaration(source, name).text) !== testPortProgram(inventoryNamedDeclaration(target, name).text)) throw new Error(failure);
+  };
+  for (const name of ["buildLocationLevelMapAndItemData", "buildInventoryLevelsInput", "createInventoryItemsWorkflowId"]) sameVariable(nativeWorkflow, workflow, name);
+  const original = inventoryDeletionCallbacks(nativeWorkflow, "createInventoryItemsWorkflow", "createWorkflow", [1])[0];
+  const promoted = inventoryDeletionCallbacks(workflow, "createInventoryItemsWorkflow", "createWorkflow", [1])[0];
+  if (original === undefined || promoted === undefined || !ts.isBlock(promoted.callback.body) || promoted.call.arguments[0]?.getText(promoted.file) !== "createInventoryItemsWorkflowId") throw new Error(failure);
+  const seam = promoted.callback.body.statements[3];
+  const expected = "createInventoryLevelsWorkflow.runAsStep({ input: inventoryLevelsInput.input })";
+  if (seam === undefined || testPortProgram(seam.getText(promoted.file)) !== testPortProgram(expected)) throw new Error(failure);
+  const restored = promoted.text.replace(seam.getText(promoted.file), "createInventoryLevelsWorkflow.runAsStep(inventoryLevelsInput)");
+  if (shape(original.text) !== shape(restored)) throw new Error(failure);
+  /** @type {readonly (readonly [string, string, string, string, readonly number[]])[]} */
+  const unchanged = [
+    [nativeItem, item, "createInventoryItemsStep", "createStep", [1, 2]],
+    [nativeLevels, levels, "createInventoryLevelsWorkflow", "createWorkflow", [1]],
+    [nativeLevel, level, "createInventoryLevelsStep", "createStep", [1, 2]],
+  ];
+  for (const [source, target, name, factory, indexes] of unchanged) {
+    const sourceCallbacks = inventoryDeletionCallbacks(source, name, factory, indexes);
+    const targetCallbacks = inventoryDeletionCallbacks(target, name, factory, indexes);
+    for (const [index, callback] of sourceCallbacks.entries()) if (shape(callback.text) !== shape(targetCallbacks[index]?.text ?? "")) throw new Error(failure);
+    sameVariable(source, target, name + "Id");
+    const selected = targetCallbacks[0], options = selected?.call.arguments[0];
+    if (selected === undefined || options === undefined || testPortProgram("const options = " + options.getText(selected.file)) !== testPortProgram(factory === "createStep"
+      ? `const options = { name: ${name}Id, compensation: "transactionCovered" }` : `const options = ${name}Id`)) throw new Error(failure);
+  }
+  const nativeValidation = inventoryDeletionCallbacks(nativeLocations, "validateInventoryLocationsStep", "createStep", [1])[0];
+  const validation = inventoryDeletionCallbacks(locations, "validateInventoryLocationsStep", "createStep", [1])[0];
+  if (nativeValidation === undefined || validation === undefined || !ts.isBlock(nativeValidation.callback.body) || !ts.isBlock(validation.callback.body)) throw new Error(failure);
+  const nativeStatements = nativeValidation.callback.body.statements, statements = validation.callback.body.statements;
+  const query = statements[0], result = statements[1], completeness = statements[2], nativeQuery = nativeStatements[0], nativeResult = nativeStatements[1];
+  if (query === undefined || result === undefined || completeness === undefined || nativeQuery === undefined || nativeResult === undefined) throw new Error(failure);
+  const querySeam = `const query = container.resolve<WorkflowGraphResource>("query")`;
+  const resultSeam = `const { data: stockLocations, metadata } = await query.graph({ entity: "stock_location", filters: { id: data.map((d) => d.location_id) }, fields: ["id"], pagination: { take: query.maxPageSize } })`;
+  const completenessSeam = `if (metadata.count !== stockLocations.length || metadata.skip !== 0) throw new WorkflowDefinitionError({ reason: "unsupportedProfile", detail: "Inventory validation requires a complete bounded ID result" })`;
+  if (testPortProgram(query.getText(validation.file)) !== testPortProgram(querySeam) || testPortProgram(result.getText(validation.file)) !== testPortProgram(resultSeam) ||
+    testPortProgram(completeness.getText(validation.file)) !== testPortProgram(completenessSeam)) throw new Error(failure);
+  const nativeRestored = validation.text.replace(completeness.getText(validation.file), "")
+    .replace(result.getText(validation.file), nativeResult.getText(nativeValidation.file)).replace(query.getText(validation.file), nativeQuery.getText(nativeValidation.file));
+  if (shape(nativeValidation.text) !== shape(nativeRestored)) throw new Error(failure);
+  sameVariable(nativeLocations, locations, "validateInventoryLocationsStepId");
+  if (validation.call.arguments[0]?.getText(validation.file) !== "validateInventoryLocationsStepId") throw new Error(failure);
+}
+
+/** Preserve the exact emitted native deletion guard and generic callbacks.
+ * @param {string} nativeWorkflow @param {string} workflow
+ * @param {string} nativeStep @param {string} step */
+export function verifyInventoryLevelDeleteCallbacks(nativeWorkflow, workflow, nativeStep, step) {
+  /** @param {string} text @param {string} name @param {readonly number[]} indexes */
+  const callbacks = (text, name, indexes) => inventoryDeletionCallbacks(text, name, "createStep", indexes)
+    .map(callback => testPortProgram("const callback = " + callback.text));
+  if (JSON.stringify(callbacks(nativeWorkflow, "validateInventoryLevelsDelete", [1])) !==
+    JSON.stringify(callbacks(workflow, "validateInventoryLevelsDelete", [1])) ||
+    JSON.stringify(callbacks(nativeStep, "deleteEntitiesStep", [1, 2])) !==
+    JSON.stringify(callbacks(step, "deleteEntitiesStep", [1, 2])))
+    throw new Error("Changed native Inventory Level deletion callback behavior");
+}
+
+/** Preserve the singular native Item root after authenticating its one authored
+ * checked-projection seam; all native guard and lifecycle callbacks erase only types.
+ * @param {string} nativeWorkflow @param {string} workflow
+ * @param {string} nativeStep @param {string} step
+ * @param {string} nativeLink @param {string} link */
+export function verifyInventoryItemDeleteCallbacks(nativeWorkflow, workflow, nativeStep, step, nativeLink, link) {
+  const failure = "Changed native Inventory Item deletion callback behavior";
+  /** @param {string} source @param {string} target @param {string} name @param {readonly number[]} indexes */
+  const sameCallbacks = (source, target, name, indexes) => {
+    const native = inventoryDeletionCallbacks(source, name, "createStep", indexes);
+    const promoted = inventoryDeletionCallbacks(target, name, "createStep", indexes);
+    if (native.some((callback, index) => testPortProgram("const callback = " + callback.text) !==
+      testPortProgram("const callback = " + promoted[index]?.text))) throw new Error(failure);
+  };
+  sameCallbacks(nativeStep, step, "validateInventoryDeleteStep", [1]);
+  sameCallbacks(nativeStep, step, "deleteInventoryItemStep", [1, 2]);
+  sameCallbacks(nativeLink, link, "removeRemoteLinkStep", [1, 2]);
+  const native = inventoryDeletionCallbacks(nativeWorkflow, "deleteInventoryItemWorkflow", "createWorkflow", [1])[0];
+  const promoted = inventoryDeletionCallbacks(workflow, "deleteInventoryItemWorkflow", "createWorkflow", [1])[0];
+  if (native === undefined || promoted === undefined || !ts.isBlock(promoted.callback.body)) throw new Error(failure);
+  const statements = promoted.callback.body.statements, query = statements[0], seam = statements[1];
+  const checkedProjection = `const inventoryItemsToDelete = transform(inventoryRows, (value) => Result.getOrThrow(decodeInventoryDeletionRows(value).pipe(
+    Result.mapError(() => new WorkflowDefinitionError({ reason: "unsupportedProfile", detail: "Inventory deletion requires checked reserved quantities" })),
+  )).map(row => ({ ...row })))`;
+  if (query === undefined || seam === undefined || testPortProgram(seam.getText(promoted.file)) !== testPortProgram(checkedProjection)) throw new Error(failure);
+  const queryText = query.getText(promoted.file);
+  if (queryText.split("inventoryRows").length !== 2) throw new Error(failure);
+  const restoredComposer = promoted.text.replace(seam.getText(promoted.file), "")
+    .replace(queryText, queryText.replace("inventoryRows", "inventoryItemsToDelete"));
+  if (testPortProgram("const callback = " + native.text) !== testPortProgram("const callback = " + restoredComposer)) throw new Error(failure);
+  // The older Product deletion consumer requires the existing eight-row native
+  // projection. A four-raw-ID standalone boundary must not reduce that decoder.
+  const decoderFile = ts.createSourceFile("item-deletion-projection.ts", workflow, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS);
+  const decoders = decoderFile.statements.filter(ts.isVariableStatement).flatMap(statement =>
+    statement.declarationList.declarations.filter(declaration => ts.isIdentifier(declaration.name) && declaration.name.text === "decodeInventoryDeletionRows"));
+  const decoder = decoders[0];
+  const expectedDecoder = `const decodeInventoryDeletionRows = Schema.decodeUnknownResult(Schema.Array(Schema.Struct({
+    id: Schema.String.check(Schema.isLengthBetween(1, 256)), reserved_quantity: Schema.Number.check(Schema.isFinite()),
+  })).check(Schema.isMaxLength(8)), { onExcessProperty: "error" })`;
+  if (decoders.length !== 1 || decoder === undefined || testPortProgram("const " + decoder.getText(decoderFile)) !== testPortProgram(expectedDecoder)) throw new Error(failure);
+}
+
+/** The native Level batch composer and both direct step callbacks erase only
+ * types. Existing Level deletion provenance authenticates its nested child.
+ * @param {string} nativeWorkflow @param {string} workflow
+ * @param {string} nativeCreate @param {string} create
+ * @param {string} nativeUpdate @param {string} update */
+export function verifyInventoryLevelBatchCallbacks(nativeWorkflow, workflow, nativeCreate, create, nativeUpdate, update) {
+  const failure = "Changed native Inventory Level batch callback behavior";
+  /** @type {readonly (readonly [string, string, string, string, readonly number[]])[]} */
+  const selections = [
+    [nativeWorkflow, workflow, "batchInventoryItemLevelsWorkflow", "createWorkflow", [1]],
+    [nativeCreate, create, "createInventoryLevelsStep", "createStep", [1, 2]],
+    [nativeUpdate, update, "updateInventoryLevelsStep", "createStep", [1, 2]],
+  ];
+  for (const [source, target, name, factory, indexes] of selections) {
+    // The tuple list above is deliberately literal; no caller chooses callbacks.
+    const original = inventoryDeletionCallbacks(source, name, factory, indexes);
+    const promoted = inventoryDeletionCallbacks(target, name, factory, indexes);
+    for (const [index, callback] of original.entries()) {
+      const selected = promoted[index];
+      if (selected === undefined || testPortProgram("const callback = " + callback.text) !== testPortProgram("const callback = " + selected.text)) throw new Error(failure);
+    }
+    if (factory === "createStep") {
+      const selected = promoted[0], options = selected?.call.arguments[0];
+      const id = name === "createInventoryLevelsStep" ? "createInventoryLevelsStepId" : "updateInventoryLevelsStepId";
+      if (selected === undefined || options === undefined || testPortProgram("const options = " + options.getText(selected.file)) !==
+        testPortProgram(`const options = { name: ${id}, compensation: "transactionCovered" }`)) throw new Error(failure);
+    }
+  }
+  const constant = "batchInventoryItemLevelsWorkflowId";
+  /** @param {string} text */
+  const identity = text => {
+    const file = ts.createSourceFile("level-batch-identity.ts", text, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS);
+    const matches = file.statements.filter(ts.isVariableStatement).flatMap(statement => statement.declarationList.declarations
+      .filter(declaration => ts.isIdentifier(declaration.name) && declaration.name.text === constant));
+    if (matches.length !== 1 || matches[0] === undefined) throw new Error(failure);
+    return testPortProgram("const " + matches[0].getText(file));
+  };
+  if (identity(nativeWorkflow) !== identity(workflow)) throw new Error(failure);
+}
+
+/** @param {string} source @param {string} target @param {Set<string>} names @param {boolean} verifySeed */
+function verifyInventoryTests(source, target, names, verifySeed) {
+  /** @param {string} text @param {boolean} onlySelected */
+  const tests = (text, onlySelected) => {
+    const file = ts.createSourceFile("inventory.ts", text, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS);
+    /** @type {Map<string, string>} */
+    const bodies = new Map();
+    /** @param {ts.Node} node */
+    const visit = node => {
+      if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === "it") {
+        const name = node.arguments[0];
+        if (name === undefined || !ts.isStringLiteral(name)) {
+          if (onlySelected) throw new Error("Invalid Inventory test selection");
+          return;
+        }
+        if (onlySelected && !names.has(name.text)) throw new Error("Invalid Inventory test selection");
+        if (names.has(name.text)) {
+          if (bodies.has(name.text)) throw new Error("Duplicate native Inventory selection");
+          let seed = "";
+          if (verifySeed) {
+            const block = node.parent.parent;
+            if (!ts.isBlock(block)) throw new Error("Missing native Inventory seed block");
+            const seeds = block.statements.filter(statement => ts.isExpressionStatement(statement) &&
+              ts.isCallExpression(statement.expression) && ts.isIdentifier(statement.expression.expression) &&
+              statement.expression.expression.text === "beforeEach");
+            if (seeds.length !== 1) throw new Error("Invalid native Inventory seed");
+            seed = seeds[0].getText(file) + ";\n";
+          }
+          bodies.set(name.text, JSON.stringify(testPortProgram(seed + node.getText(file) + ";")));
+        }
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(file);
+    return bodies;
+  };
+  const original = tests(source, false), selected = tests(target, true);
+  if (original.size !== names.size || selected.size !== names.size || [...names].some(name => selected.get(name) !== original.get(name)))
+    throw new Error("Changed selected native Inventory test bodies");
+}
 
 /** Preserve the admitted Pricing bodies and their complete native seed.
  * @param {string} source @param {string} target */
@@ -42,23 +650,533 @@ export function verifyPricingCreateTests(source, target) {
     throw new Error("Changed selected native Pricing test bodies or seed");
 }
 
-/** Every native Pricing business method except createPriceSets is an explicit
- * workflow refusal; module infrastructure fields are not business methods.
- * @param {string} source @param {string} target */
-export function verifyPricingWorkflowRefusals(source, target) {
+/** Pricing retains its Product and Shipping creation/lifecycle profiles. The
+ * named preference profile shares native creation with Store lookup/upsert and
+ * physical deletion. Native preference updates retain a separate selector,
+ * sparse preimage and inverse-upsert view. Preference deletion separately admits
+ * native soft deletion and its event-free restore. Shipping updates keep their four native methods and full
+ * mutation/causal receipt inputs. Variant item pricing admits only its count
+ * query and native calculation callback, with no public creation methods.
+ * @param {string} source @param {string} target @param {string} repositorySource */
+export function verifyPricingWorkflowSelection(source, target, repositorySource) {
   const contract = ts.createSourceFile("native.ts", source, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS);
   const declaration = contract.statements.find(node => ts.isInterfaceDeclaration(node) && node.name.text === "IPricingModuleService");
   if (declaration === undefined || !ts.isInterfaceDeclaration(declaration)) throw new Error("Missing native Pricing interface");
   const methods = new Set(declaration.members.filter(ts.isMethodSignature).map(member => member.name.getText(contract)));
-  if (!methods.delete("createPriceSets") || methods.size === 0) throw new Error("Missing native Pricing creation method");
+  if (["createPriceSets", "createPriceLists", "addPriceListPrices", "removePrices", "updatePriceListPrices", "deletePriceLists", "softDeletePriceLists", "restorePriceLists", "listPriceLists", "updatePriceLists", "createPricePreferences", "listPricePreferences", "updatePricePreferences", "upsertPricePreferences", "deletePricePreferences", "softDeletePricePreferences", "restorePricePreferences", "deletePriceSets",
+    "updatePriceSets", "listPrices", "softDeletePrices", "restorePrices", "listPriceRules", "createPriceRules", "calculatePrices"]
+    .some(method => !methods.has(method))) throw new Error("Missing native Pricing admitted methods");
   const adapter = ts.createSourceFile("adapter.ts", target, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS);
-  const selections = adapter.statements.filter(ts.isVariableStatement).flatMap(statement => statement.declarationList.declarations)
-    .filter(node => ts.isIdentifier(node.name) && node.name.text === "pricingRefusedMethods");
-  const initializer = selections[0]?.initializer;
-  const array = initializer !== undefined && ts.isSatisfiesExpression(initializer) ? initializer.expression : initializer;
-  if (selections.length !== 1 || array === undefined || !ts.isArrayLiteralExpression(array) ||
-    array.elements.length !== methods.size || array.elements.some(value => !ts.isStringLiteral(value) || !methods.delete(value.text)) || methods.size !== 0)
-    throw new Error("Incomplete native Pricing workflow refusals");
+  /** @type {ts.CallExpression[]} */
+  const selections = [];
+  /** @type {ts.VariableDeclaration[]} */
+  const admissions = [];
+  /** @type {ts.VariableDeclaration[]} */
+  const lifecycles = [];
+  /** @type {ts.VariableDeclaration[]} */
+  const preferences = [];
+  /** @type {ts.VariableDeclaration[]} */
+  const preferenceUpdates = [];
+  /** @type {ts.VariableDeclaration[]} */
+  const preferenceDeletions = [];
+  /** @type {ts.VariableDeclaration[]} */
+  const preferenceContracts = [];
+  /** @type {ts.VariableDeclaration[]} */
+  const preferencePolicies = [];
+  /** @type {ts.VariableDeclaration[]} */
+  const shippings = [];
+  /** @type {ts.VariableDeclaration[]} */
+  const shippingUpdates = [];
+  /** @type {ts.VariableDeclaration[]} */
+  const admitted = [];
+  /** @type {ts.VariableDeclaration[]} */
+  const graphs = [];
+  /** @type {ts.CallExpression[]} */
+  const modules = [];
+  /** @type {ts.CallExpression[]} */
+  const repositories = [];
+  /** @type {ts.ParameterDeclaration[]} */
+  const parameters = [];
+  /** @type {ts.CallExpression[]} */
+  const shippingCaptures = [];
+  /** @type {Map<string, ts.VariableDeclaration[]>} */
+  const listOwners = new Map(["listPriceUpdates", "listPrices", "listPriceUpdateContracts", "listPriceUpdateRead", "listPriceSnapshot", "listPriceUpdate", "listPriceRestore", "listPriceListsForPriceUpdate", "updateListPriceArguments", "restoreListPriceArguments", "snapshotPriceListPricesForUpdate", "updatePriceListPrices", "restorePriceListPrices", "listPriceCreations", "listPriceContracts", "listPriceRead", "addListPrices", "removeListPrices", "listPriceReadArguments", "listPriceListsForPriceCreation", "priceCreationEvents", "addPriceListPrices", "removePrices", "listDeletions", "listDeletionContracts", "listSoftDelete", "listRestore", "softDeletePriceLists", "restorePriceLists", "listUpdates", "listUpdateContracts", "listUpdateRead", "listUpdate", "listUpdateReadArguments", "decodeListUpdateArguments", "listPriceListsForUpdate", "updatePriceLists", "listCreations", "listContracts", "existingPolicy", "policy", "bind", "createList", "deleteList", "createPriceLists", "deletePriceLists", "decodeCreateListArguments"].map(name => [name, []]));
+  for (const name of ["listPriceRemovals", "listPriceRemovalContracts", "priceRemovalRead", "priceRemovalSoftDelete", "priceRemovalRestore",
+    "listPricesForRemoval", "softDeletePricesForRemoval", "restorePricesForRemoval", "cartCreationPricing", "variantItemPricing", "calculate", "calculatePrices"]) listOwners.set(name, []);
+  /** @param {ts.Node} node */
+  const visit = node => {
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name)) listOwners.get(node.name.text)?.push(node);
+    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === "defineWorkflowModule") selections.push(node);
+    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === "defineCommerceModule") modules.push(node);
+    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === "preparePricingRepository") repositories.push(node);
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.name.text === "mutable") admissions.push(node);
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.name.text === "lifecycle") lifecycles.push(node);
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.name.text === "preferences") preferences.push(node);
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.name.text === "preferenceUpdates") preferenceUpdates.push(node);
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.name.text === "preferenceDeletions") preferenceDeletions.push(node);
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.name.text === "preferenceContracts") preferenceContracts.push(node);
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.name.text === "preferencePolicy") preferencePolicies.push(node);
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.name.text === "shipping") shippings.push(node);
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.name.text === "shippingUpdates") shippingUpdates.push(node);
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.name.text === "admitted") admitted.push(node);
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.name.text === "graph") graphs.push(node);
+    if (ts.isParameter(node) && ts.isIdentifier(node.name) && node.name.text === "admission") parameters.push(node);
+    if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)
+      && ts.isIdentifier(node.expression.expression) && node.expression.expression.text === "shippingLifecycleServices"
+      && node.expression.name.text === "set") shippingCaptures.push(node);
+    ts.forEachChild(node, visit);
+  };
+  visit(adapter);
+  const input = selections[0]?.arguments[0];
+  // A later spread, getter or computed key can replace an earlier literal.
+  // This maintained registration must remain an unambiguous data literal.
+  if (input === undefined || !ts.isObjectLiteralExpression(input) || input.properties.some(property =>
+    (!ts.isPropertyAssignment(property) && !ts.isShorthandPropertyAssignment(property)) ||
+    !ts.isIdentifier(property.name) || (ts.isShorthandPropertyAssignment(property) && property.name.text === "methods")))
+    throw new Error("Ambiguous native Pricing workflow selection");
+  const selected = input !== undefined && ts.isObjectLiteralExpression(input)
+    ? input.properties.filter(ts.isPropertyAssignment).filter(property => property.name.getText(adapter) === "methods") : [];
+  const initializer = selected[0]?.initializer;
+  const expectedMethods = `const methods = {
+    ...(variantItemPricing ? { calculatePrices } : {}),
+    ...(listPriceRemovals ? { listPrices: listPricesForRemoval, softDeletePrices: softDeletePricesForRemoval, restorePrices: restorePricesForRemoval } : {}),
+    ...(listPriceUpdates ? { listPriceLists: listPriceListsForPriceUpdate, snapshotPriceListPricesForUpdate, updatePriceListPrices, restorePriceListPrices } : {}),
+    ...(listPriceCreations ? { listPriceLists: listPriceListsForPriceCreation, addPriceListPrices, removePrices } : {}),
+    ...(listDeletions ? { softDeletePriceLists, restorePriceLists } : {}),
+    ...(listUpdates ? { listPriceLists: listPriceListsForUpdate, updatePriceLists } : {}),
+    ...(listCreations ? { createPriceLists, deletePriceLists } : {}),
+    ...(shippingUpdates ? { updatePriceSets: updateShippingPriceSets, listPrices: listShippingPrices,
+      listPriceRules: listShippingPriceRules, createPriceRules: createShippingPriceRules } : {}),
+    ...(preferences && !preferenceUpdates && !preferenceDeletions ? { createPricePreferences, listPricePreferences, upsertPricePreferences, deletePricePreferences } : {}),
+    ...(preferenceUpdates ? { listPricePreferences: listUpdatePricePreferences, updatePricePreferences, upsertPricePreferences: upsertUpdatePricePreferences } : {}),
+    ...(preferenceDeletions ? { softDeletePricePreferences, restorePricePreferences } : {}),
+    ...(!variantItemPricing && !preferences && !shippingUpdates && !listCreations && !listUpdates && !listDeletions && !listPrices ? { createPriceSets, ...(!shipping ? { createPriceLists, createPricePreferences } : {}),
+      ...(mutable ? { upsertPriceSets, updatePriceSets, listPriceSets } : {}),
+      ...(lifecycle || shipping ? { softDeletePriceSets } : {}), ...(shipping ? { restorePriceSets, deletePriceSets } : {}) } : {})
+  };`;
+  const exactMethods = initializer !== undefined && ts.isObjectLiteralExpression(initializer)
+    && nativeWorkflowProgram('const methods = ' + initializer.getText(adapter), "Invalid Pricing selection") ===
+      nativeWorkflowProgram(expectedMethods, "Invalid Pricing selection");
+  const policies = input.properties.filter(ts.isPropertyAssignment).filter(property => property.name.getText(adapter) === "logical");
+  const policy = policies[0]?.initializer;
+  const policyProperties = policy !== undefined && ts.isObjectLiteralExpression(policy) ? [...policy.properties] : [];
+  const policySpread = policyProperties[0];
+  const commands = policyProperties[1];
+  const graph = graphs[0]?.initializer;
+  const moduleInput = modules[0]?.arguments[0];
+  const profiles = moduleInput !== undefined && ts.isObjectLiteralExpression(moduleInput)
+    ? moduleInput.properties.filter(ts.isPropertyAssignment).filter(property => property.name.getText(adapter) === "profile") : [];
+  const profile = profiles[0]?.initializer;
+  const profileNames = profile !== undefined && ts.isObjectLiteralExpression(profile)
+    ? profile.properties.filter(ts.isPropertyAssignment).filter(property => property.name.getText(adapter) === "name") : [];
+  const services = moduleInput !== undefined && ts.isObjectLiteralExpression(moduleInput)
+    ? moduleInput.properties.filter(ts.isPropertyAssignment).filter(property => property.name.getText(adapter) === "service") : [];
+  const service = services[0]?.initializer;
+  const expectedService = `const service = ({ binding, dependencies, context }) => {
+    const container = { ...dependencies, [Modules.EVENT_BUS]: binding.eventBus };
+    const native = new PricingModuleService(container, { scope: "internal" });
+    return { service: {
+      createPriceSets: variantItemPricing || preferences || listCreations || listUpdates || listDeletions || listPrices ? binding.refuse : native.createPriceSets.bind(native),
+      createPriceLists: variantItemPricing || preferences || shipping || listUpdates || listDeletions || listPrices ? binding.refuse : native.createPriceLists.bind(native),
+      deletePriceLists: listCreations ? native.deletePriceLists.bind(native) : binding.refuse,
+      softDeletePriceLists: listDeletions ? native.softDeletePriceLists.bind(native) : binding.refuse,
+      restorePriceLists: listDeletions ? native.restorePriceLists.bind(native) : binding.refuse,
+      listPriceLists: listUpdates || listPriceCreations || listPriceUpdates ? native.listPriceLists.bind(native) : binding.refuse,
+      snapshotPriceListPricesForUpdate: listPriceUpdates ? native.snapshotPriceListPricesForUpdate.bind(native) : binding.refuse,
+      updatePriceListPrices: listPriceUpdates ? native.updatePriceListPrices.bind(native) : binding.refuse,
+      restorePriceListPrices: listPriceUpdates ? native.restorePriceListPrices.bind(native) : binding.refuse,
+      addPriceListPrices: listPriceCreations ? native.addPriceListPrices.bind(native) : binding.refuse,
+      removePrices: listPriceCreations ? native.removePrices.bind(native) : binding.refuse,
+      updatePriceLists: listUpdates ? native.updatePriceLists.bind(native) : binding.refuse,
+      createPricePreferences: variantItemPricing || shipping || preferenceUpdates || preferenceDeletions || listCreations || listUpdates || listDeletions || listPrices ? binding.refuse : native.createPricePreferences.bind(native),
+      listPriceSets: preferences || listCreations || listUpdates || listDeletions || listPrices ? binding.refuse : native.listPriceSets.bind(native),
+      retrievePriceSet: preferences || listCreations || listUpdates || listDeletions || listPrices ? binding.refuse : native.retrievePriceSet.bind(native),
+      listAndCountPriceSets: preferences || listCreations || listUpdates || listDeletions || listPrices ? binding.refuse : native.listAndCountPriceSets.bind(native),
+      calculatePrices: preferences || shipping || listCreations || listUpdates || listDeletions || listPrices ? binding.refuse : native.calculatePrices.bind(native),
+      upsertPriceSets: mutable ? native.upsertPriceSets.bind(native) : binding.refuse,
+      updatePriceSets: mutable || shippingUpdates ? native.updatePriceSets.bind(native) : binding.refuse,
+      listPrices: shippingUpdates || listPriceRemovals ? native.listPrices.bind(native) : binding.refuse,
+      softDeletePrices: listPriceRemovals ? native.softDeletePrices.bind(native) : binding.refuse,
+      restorePrices: listPriceRemovals ? native.restorePrices.bind(native) : binding.refuse,
+      listPriceRules: shippingUpdates ? native.listPriceRules.bind(native) : binding.refuse,
+      createPriceRules: shippingUpdates ? native.createPriceRules.bind(native) : binding.refuse,
+      softDeletePriceSets: lifecycle || shipping ? native.softDeletePriceSets.bind(native) : binding.refuse,
+      restorePriceSets: shipping ? native.restorePriceSets.bind(native) : binding.refuse,
+      deletePriceSets: shipping ? native.deletePriceSets.bind(native) : binding.refuse,
+      listPricePreferences: preferences && !preferenceDeletions ? native.listPricePreferences.bind(native) : binding.refuse,
+      updatePricePreferences: preferenceUpdates ? native.updatePricePreferences.bind(native) : binding.refuse,
+      upsertPricePreferences: preferences && !preferenceDeletions ? native.upsertPricePreferences.bind(native) : binding.refuse,
+      deletePricePreferences: preferences && !preferenceUpdates && !preferenceDeletions ? native.deletePricePreferences.bind(native) : binding.refuse,
+      softDeletePricePreferences: preferenceDeletions ? native.softDeletePricePreferences.bind(native) : binding.refuse,
+      restorePricePreferences: preferenceDeletions ? native.restorePricePreferences.bind(native) : binding.refuse
+    }, context };
+  };`;
+  const shippingCapture = shippingCaptures[0]?.parent.parent;
+  if (admissions.length !== 1 || admissions[0]?.initializer?.getText(adapter).replace(/\s/g, "") !== 'admission==="variant-updates"||admission==="product-updates"' ||
+    lifecycles.length !== 1 || lifecycles[0]?.initializer?.getText(adapter).replace(/\s/g, "") !== 'admission==="product-updates"' ||
+    preferenceUpdates.length !== 1 || preferenceUpdates[0]?.initializer?.getText(adapter).replace(/\s/g, "") !== 'admission==="price-preference-updates"' ||
+    preferenceDeletions.length !== 1 || preferenceDeletions[0]?.initializer?.getText(adapter).replace(/\s/g, "") !== 'admission==="price-preference-deletions"' ||
+    preferences.length !== 1 || preferences[0]?.initializer?.getText(adapter).replace(/\s/g, "") !== 'admission==="price-preferences"||preferenceUpdates||preferenceDeletions' ||
+    preferenceContracts.length !== 1 || preferenceContracts[0]?.initializer?.getText(adapter).replace(/\s/g, "") !== 'yield*compilePricePreferenceContracts(metadata.frame)' ||
+    preferencePolicies.length !== 1 || preferencePolicies[0]?.initializer?.getText(adapter).replace(/\s/g, "") !== 'pricingPreferencePolicy(preferenceContracts)' ||
+    shippings.length !== 1 || shippings[0]?.initializer?.getText(adapter).replace(/\s/g, "") !== 'admission==="shipping-options"||shippingUpdates' ||
+    shippingUpdates.length !== 1 || shippingUpdates[0]?.initializer?.getText(adapter).replace(/\s/g, "") !== 'admission==="shipping-option-updates"' ||
+    shippingCaptures.length !== 1 || shippingCapture === undefined || !ts.isIfStatement(shippingCapture) ||
+    nativeWorkflowProgram(shippingCapture.getText(adapter), "Invalid Pricing selection") !== nativeWorkflowProgram(
+      'if (shipping && !shippingUpdates) shippingLifecycleServices.set(workflow, { routing: nativePricingRouting, softDelete: softDeletePriceSets, restore: restorePriceSets });', "Invalid Pricing selection") ||
+    parameters.length !== 1 || parameters[0]?.initializer?.getText(adapter) !== '"create"' ||
+    parameters[0]?.type?.getText(adapter) !== 'PricingRepositoryAdmission' ||
+    selections.length !== 1 || selected.length !== 1 || !exactMethods ||
+    modules.length !== 1 || repositories.length !== 1 || repositories[0]?.arguments.map(argument => argument.getText(adapter).replace(/\s/g, "")).join(",") !== 'metadata.frame,admission' ||
+    services.length !== 1 || service === undefined || nativeWorkflowProgram('const service = ' + service.getText(adapter), "Invalid Pricing selection") !== nativeWorkflowProgram(expectedService, "Invalid Pricing selection") ||
+    moduleInput === undefined || !ts.isObjectLiteralExpression(moduleInput) || moduleInput.properties.some(property => !ts.isPropertyAssignment(property) || !ts.isIdentifier(property.name)) ||
+    profiles.length !== 1 || profile === undefined || !ts.isObjectLiteralExpression(profile) ||
+    profile.properties.some(property => (!ts.isPropertyAssignment(property) && !ts.isShorthandPropertyAssignment(property)) || !ts.isIdentifier(property.name)) ||
+    profileNames.length !== 1 || profileNames[0]?.initializer.getText(adapter).replace(/\s/g, "") !==
+      'cartCreationPricing?"pricing-cart-creation":variantItemPricing?"pricing-variant-item-pricing":listPriceRemovals?"pricing-price-list-price-removals":listPriceUpdates?"pricing-price-list-price-updates":listPriceCreations?"pricing-price-list-price-creations":listDeletions?"pricing-price-list-deletions":listUpdates?"pricing-price-list-updates":listCreations?"pricing-price-list-creations":shippingUpdates?"pricing-shipping-option-updates":shipping?"pricing-shipping-options":preferenceDeletions?"pricing-price-preference-deletions":preferenceUpdates?"pricing-price-preference-updates":preferences?"pricing-price-preferences":lifecycle?"pricing-product-updates":mutable?"pricing-variant-updates":"pricing-base-prices"' ||
+    admitted.length !== 1 || admitted[0]?.initializer?.getText(adapter).replace(/\s/g, "") !==
+      'variantItemPricing?[count,calculate]:listPriceRemovals?[priceRemovalRead,priceRemovalSoftDelete,priceRemovalRestore]:listPriceUpdates?[listPriceUpdateRead,listPriceSnapshot,listPriceUpdate,listPriceRestore]:listPriceCreations?[listPriceRead,addListPrices,removeListPrices]:listDeletions?[listSoftDelete,listRestore]:listUpdates?[listUpdateRead,listUpdate]:listCreations?[createList,deleteList]:preferenceDeletions?[preferenceSoftDelete,preferenceRestore]:preferenceUpdates?[preferenceUpdateList,preferenceUpdate,preferenceUpdateUpsert]:shippingUpdates?[shippingUpdate,shippingListPrices,shippingListRules,shippingCreateRules,list,count,retrieve]:shipping?[create,list,count,retrieve,softDeletePriceSetsCommand,restorePriceSetsCommand,deletePriceSetsCommand]:preferences?[createPreference,preferenceList,preferenceUpsert,preferenceDelete]:[create,createList,createPreference,list,count,retrieve,calculate,...(mutable?[upsert,update]:[]),...(lifecycle?[softDeletePriceSetsCommand]:[])]' ||
+    graphs.length !== 1 || graph === undefined || !ts.isConditionalExpression(graph) ||
+    graph.condition.getText(adapter).replace(/\s/g, "") !== "preferences||listCreations||listUpdates||listDeletions||listPrices" || graph.whenTrue.getText(adapter).replace(/\s/g, "") !== '{aliases:[],reads:[]}' ||
+    policies.length !== 1 || policyProperties.length !== 2 || policySpread === undefined || !ts.isSpreadAssignment(policySpread) ||
+    policySpread.expression.getText(adapter).replace(/\s/g, "") !==
+      'policy' ||
+    commands === undefined || !ts.isPropertyAssignment(commands) || commands.name.getText(adapter) !== "commands" || commands.initializer.getText(adapter) !== "admitted")
+    throw new Error("Unadmitted native Pricing workflow selection");
+
+  // Keep the existing Product preference lookup grammar unchanged. The named
+  // preference repository retains Store's four-pair lookup decoder and explicit
+  // profile selection; standalone creation does not widen either read grammar.
+  const repository = ts.createSourceFile("repository.ts", repositorySource, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS);
+  const expectedListOwners = new Map([
+    ["cartCreationPricing", 'admission === "cart-creation"'],
+    ["variantItemPricing", 'admission === "variant-item-pricing" || cartCreationPricing'],
+    ["calculate", `variantItemPricing
+      ? commands.read(cartCreationPricing ? "pricingCalculateCartCreation" : "pricingCalculateVariantItems", prepare(decodeVariantItemPricingCalculation), ({ service, context }, args): Promise<unknown> =>
+        Reflect.apply(service.calculatePrices, service, [{ id: [...args.filters.id] }, args.pricingContext, context]))
+      : commands.read("pricingCalculate", prepare(decodePricingCalculation), ({ service, context }, args) =>
+        service.calculatePrices({ id: [...args.filters.id] }, args.pricingContext, context))`],
+    ["calculatePrices", `yield* defineWorkflowMethod({ command: calculate,
+      arguments: commerceDecoder(Schema.Tuple([VariantItemPricingCalculationInput.fields.filters, VariantItemPricingCalculationInput.fields.pricingContext]), "invalidInput"),
+      encode: ([filters, pricingContext]: readonly [typeof VariantItemPricingCalculationInput.fields.filters.Type,
+        typeof VariantItemPricingCalculationInput.fields.pricingContext.Type]) => ({ filters, pricingContext }),
+      output: commerceDecoder(VariantItemPricingCalculationOutput, "storedCorruption") })`],
+    ["listPriceRemovals", 'admission === "price-list-price-removals"'],
+    ["listPriceRemovalContracts", 'yield* compilePriceListPriceRemovalContracts(metadata.frame)'],
+    ["priceRemovalRead", `commands.read("pricingListPricesForRemovalWorkflow", prepare(decodePriceListPriceRemovalRead),
+      ({ service, context }, data): Promise<unknown> => Reflect.apply(service.listPrices, service,
+        [structuredClone(data.filters), structuredClone(data.config), context]))`],
+    ["priceRemovalSoftDelete", `commands.write("pricingPriceSoftDeleteForRemovalWorkflow", prepare(decodePriceListPriceRemovalIds),
+      ({ service, context }, ids): Promise<unknown> => Reflect.apply(service.softDeletePrices, service, [[...ids], {}, context]))`],
+    ["priceRemovalRestore", `commands.write("pricingPriceRestoreForRemovalWorkflow", prepare(decodePriceListPriceRemovalIds),
+      ({ service, context }, ids): Promise<unknown> => Reflect.apply(service.restorePrices, service, [[...ids], {}, context]))`],
+    ["listPricesForRemoval", `yield* defineWorkflowMethod({ command: priceRemovalRead,
+      arguments: commerceDecoder(Schema.Tuple([PriceListPriceRemovalReadInput.fields.filters, PriceListPriceRemovalReadInput.fields.config]), "invalidInput"),
+      encode: ([filters, config]) => ({ filters, config }), output: listPriceRemovalContracts.decodeReadOutput })`],
+    ["softDeletePricesForRemoval", `yield* defineWorkflowMethod({ command: priceRemovalSoftDelete,
+      arguments: decodePriceListPriceRemovalLifecycleArguments, encode: ([ids]) => ids, output: listPriceRemovalContracts.decodeOutput,
+      moduleEvents: ["price", "price_rule"].flatMap(objectName => ["deleted", "updated"].map(action =>
+        buildModuleResourceEventName({ prefix: Modules.PRICING, objectName, action }))) })`],
+    ["restorePricesForRemoval", `yield* defineWorkflowMethod({ command: priceRemovalRestore,
+      arguments: decodePriceListPriceRemovalLifecycleArguments, encode: ([ids]) => ids, output: listPriceRemovalContracts.decodeOutput })`],
+    ["listPriceUpdates", 'admission === "price-list-price-updates"'],
+    ["listPrices", 'listPriceCreations || listPriceUpdates || listPriceRemovals'],
+    ["listPriceUpdateContracts", 'yield* compilePriceListPriceUpdateContracts(metadata.frame)'],
+    ["listPriceUpdateRead", `commands.read("pricingListPriceUpdateRead", prepare(decodePriceListPriceRead),
+      ({ service, context }, data): Promise<unknown> => Reflect.apply(service.listPriceLists, service,
+        [structuredClone(data.filters), structuredClone(data.config), context]))`],
+    ["listPriceSnapshot", `commands.read("pricingListPriceSnapshot", prepare(decodeUpdatePriceListPrices),
+      ({ service, context }, data): Promise<unknown> => Reflect.apply(service.snapshotPriceListPricesForUpdate, service, [structuredClone(data), context]))`],
+    ["listPriceUpdate", `commands.write("pricingListPriceUpdate", prepare(decodeUpdatePriceListPrices),
+      ({ service, context }, data): Promise<unknown> => Reflect.apply(service.updatePriceListPrices, service, [structuredClone(data), context]))`],
+    ["listPriceRestore", `commands.write("pricingListPriceRestore", prepare(listPriceUpdateContracts.decodeCompensation),
+      async ({ service, context }, data) => {
+        const result: unknown = await Reflect.apply(service.restorePriceListPrices, service, [structuredClone(data), context]);
+        if (result !== undefined) throw commerceError("storedCorruption"); return null;
+      })`],
+    ["listPriceListsForPriceUpdate", `yield* defineWorkflowMethod({ command: listPriceUpdateRead, arguments: listPriceReadArguments,
+      encode: args => ({ filters: args[0], config: args[1] ?? {} }), output: listPriceUpdateContracts.listReadContracts.decodeReadOutput })`],
+    ["updateListPriceArguments", 'commerceDecoder(Schema.Tuple([UpdatePriceListPricesInput]), "invalidInput")'],
+    ["snapshotPriceListPricesForUpdate", `yield* defineWorkflowMethod({ command: listPriceSnapshot,
+      arguments: updateListPriceArguments, encode: ([data]) => data, output: listPriceUpdateContracts.decodeSnapshot })`],
+    ["updatePriceListPrices", `yield* defineWorkflowMethod({ command: listPriceUpdate,
+      arguments: updateListPriceArguments, encode: ([data]) => data, output: listPriceUpdateContracts.decodeOutput, moduleEvents: priceCreationEvents })`],
+    ["restoreListPriceArguments", 'commerceDecoder(Schema.Tuple([Schema.Unknown]), "invalidInput")'],
+    ["restorePriceListPrices", `yield* defineWorkflowMethod({ command: listPriceRestore,
+      arguments: input => restoreListPriceArguments(input).pipe(Result.flatMap(([data]) =>
+        listPriceUpdateContracts.decodeCompensation(data).pipe(Result.map(value => [value] as const)))), encode: ([data]) => data,
+      output: commerceDecoder(Schema.Null, "storedCorruption"), moduleEvents: priceCreationEvents })`],
+    ["listPriceCreations", 'admission === "price-list-price-creations"'],
+    ["listPriceContracts", 'yield* compilePriceListPriceCreationContracts(metadata.frame)'],
+    ["listPriceRead", `commands.read("pricingPriceListPriceRead", prepare(decodePriceListPriceRead),
+      ({ service, context }, data): Promise<unknown> => Reflect.apply(service.listPriceLists, service,
+        [structuredClone(data.filters), structuredClone(data.config), context]))`],
+    ["addListPrices", `commands.write("pricingAddPriceListPrices", prepare(decodeAddPriceListPrices),
+      ({ service, context }, data): Promise<unknown> => Reflect.apply(service.addPriceListPrices, service, [structuredClone(data), context]))`],
+    ["removeListPrices", `commands.write("pricingRemovePriceListPrices", prepare(decodePriceListPriceRemovalIds),
+      async ({ service, context }, ids) => {
+        const result = await service.removePrices([...ids], context);
+        if (result !== undefined) throw commerceError("storedCorruption"); return null;
+      })`],
+    ["listPriceReadArguments", `commerceDecoder(Schema.Union([Schema.Tuple([PriceListPriceReadInput.fields.filters]),
+      Schema.Tuple([PriceListPriceReadInput.fields.filters, Schema.Struct({})])]), "invalidInput")`],
+    ["listPriceListsForPriceCreation", `yield* defineWorkflowMethod({ command: listPriceRead, arguments: listPriceReadArguments,
+      encode: args => ({ filters: args[0], config: args[1] ?? {} }), output: listPriceContracts.listReadContracts.decodeReadOutput })`],
+    ["priceCreationEvents", `["created", "updated", "deleted"].flatMap(action => ["price", "price_rule"].map(objectName =>
+      buildModuleResourceEventName({ prefix: Modules.PRICING, objectName, action })))`],
+    ["addPriceListPrices", `yield* defineWorkflowMethod({ command: addListPrices,
+      arguments: commerceDecoder(Schema.Tuple([AddPriceListPricesInput]), "invalidInput"), encode: ([data]) => data,
+      output: listPriceContracts.decodeOutput, moduleEvents: priceCreationEvents })`],
+    ["removePrices", `yield* defineWorkflowMethod({ command: removeListPrices,
+      arguments: commerceDecoder(Schema.Tuple([PriceListPriceRemovalIds]), "invalidInput"), encode: ([ids]) => ids,
+      output: commerceDecoder(Schema.Null, "storedCorruption"),
+      moduleEvents: [buildModuleResourceEventName({ prefix: Modules.PRICING, objectName: "price", action: "deleted" })] })`],
+    ["listDeletions", 'admission === "price-list-deletions"'],
+    ["listDeletionContracts", 'yield* compilePriceListDeletionContracts(metadata.frame)'],
+    ["listSoftDelete", `commands.write("pricingListSoftDeleteForWorkflow", prepare(decodePriceListDeletionIds),
+      ({ service, context }, ids): Promise<unknown> => Reflect.apply(service.softDeletePriceLists, service, [[...ids], {}, context]))`],
+    ["listRestore", `commands.write("pricingListRestoreForWorkflow", prepare(decodePriceListDeletionIds),
+      ({ service, context }, ids): Promise<unknown> => Reflect.apply(service.restorePriceLists, service, [[...ids], {}, context]))`],
+    ["softDeletePriceLists", `yield* defineWorkflowMethod({ command: listSoftDelete,
+      arguments: decodePriceListDeletionArguments, encode: ([ids]) => ids, output: listDeletionContracts.decodeOutput,
+      moduleEvents: ["price_list", "price", "price_list_rule", "price_rule"].flatMap(objectName => ["deleted", "updated"].map(action =>
+        buildModuleResourceEventName({ prefix: Modules.PRICING, objectName, action }))) })`],
+    ["restorePriceLists", `yield* defineWorkflowMethod({ command: listRestore,
+      arguments: decodePriceListDeletionArguments, encode: ([ids]) => ids, output: listDeletionContracts.decodeOutput })`],
+    ["listUpdates", 'admission === "price-list-updates"'],
+    ["listUpdateContracts", 'yield* compilePriceListUpdateContracts(metadata.frame)'],
+    ["listUpdateRead", `commands.read("pricingListUpdateRead", prepare(decodePriceListUpdateRead),
+      ({ service, context }, data): Promise<unknown> => Reflect.apply(service.listPriceLists, service,
+        [structuredClone(data.filters), structuredClone(data.config ?? {}), context]))`],
+    ["listUpdate", `commands.write("pricingListUpdate", prepare(decodePriceListUpdate),
+      ({ service, context }, data): Promise<unknown> => Reflect.apply(service.updatePriceLists, service, [structuredClone(data), context]))`],
+    ["decodeListUpdateArguments", 'commerceDecoder(Schema.Tuple([PriceListUpdatesInput]), "invalidInput")'],
+    ["listUpdateReadArguments", `commerceDecoder(Schema.Union([
+      Schema.Tuple([PriceListUpdateReadInput.fields.filters]), Schema.Tuple([PriceListUpdateReadInput.fields.filters, PriceListUpdateReadConfig]),
+    ]), "invalidInput")`],
+    ["listPriceListsForUpdate", `yield* defineWorkflowMethod({ command: listUpdateRead, arguments: listUpdateReadArguments,
+      encode: args => ({ filters: args[0], config: args[1] ?? {} }), output: listUpdateContracts.decodeReadOutput })`],
+    ["updatePriceLists", `yield* defineWorkflowMethod({ command: listUpdate,
+      arguments: decodeListUpdateArguments, encode: ([rows]) => rows,
+      output: listUpdateContracts.decodeUpdateOutput,
+      moduleEvents: [buildModuleResourceEventName({ prefix: Modules.PRICING, objectName: "price_list_rule", action: "created" }),
+        buildModuleResourceEventName({ prefix: Modules.PRICING, objectName: "price_list", action: "updated" }),
+        buildModuleResourceEventName({ prefix: Modules.PRICING, objectName: "price_list_rule", action: "deleted" })] })`],
+    ["listCreations", 'admission === "price-list-creations"'],
+    ["listContracts", 'yield* compilePriceListCreationContracts(metadata.frame)'],
+    ["decodeCreateListArguments", 'commerceDecoder(Schema.Tuple([PriceListsInput]), "invalidInput")'],
+    ["existingPolicy", 'shipping ? pricingShippingOptionPolicy(preferencePolicy, shippingOutput, shippingUpdates ? shippingMutation : undefined, shippingUpdates ? prepared : undefined) : preferences ? preferencePolicy : lifecycle ? pricingLogicalProductUpdateEventPolicy(preferencePolicy) : mutable ? pricingLogicalMutationEventPolicy(preferencePolicy) : pricingLogicalCreateEventPolicy(preferencePolicy)'],
+    ["policy", 'listPriceRemovals ? pricingPriceListPriceRemovalPolicy(listPriceRemovalContracts) : listPriceUpdates ? pricingListPriceUpdatePolicy(listPriceUpdateContracts) : listPriceCreations ? pricingListPriceCreationPolicy(listPriceContracts) : listDeletions ? pricingListDeletionPolicy(listDeletionContracts) : listUpdates ? pricingListUpdatePolicy(listUpdateContracts) : listCreations ? pricingListCreationPolicy(listContracts) : !preferences && !shipping ? pricingListCreationPolicy(listContracts, existingPolicy) : existingPolicy'],
+    ["createList", `commands.write("pricingCreateList", prepare(decodePriceListCreate),
+      ({ service, context }, data): Promise<unknown> => Reflect.apply(service.createPriceLists, service, [structuredClone(data), context]))`],
+    ["deleteList", `commands.write("pricingDeleteList", prepare(decodePriceListDeletionIds), async ({ service, context }, ids) => {
+      const result = await service.deletePriceLists([...ids], context);
+      if (result !== undefined) throw commerceError("storedCorruption"); return null;
+    })`],
+    ["createPriceLists", `yield* defineWorkflowMethod({ command: createList, arguments: decodeCreateListArguments,
+      encode: ([lists]) => lists, output: listContracts.decodeOutput,
+      moduleEvents: ["price_list", "price", "price_list_rule", "price_rule"].map(objectName =>
+        buildModuleResourceEventName({ prefix: Modules.PRICING, objectName, action: "created" })) })`],
+    ["deletePriceLists", `yield* defineWorkflowMethod({ command: deleteList, arguments: decodePriceListDeletionArguments,
+      encode: ([ids]) => ids, output: commerceDecoder(Schema.Null, "storedCorruption"),
+      moduleEvents: [buildModuleResourceEventName({ prefix: Modules.PRICING, objectName: "price_list", action: "deleted" })] })`],
+    ["bind", `(ctx: CommerceCommandContext, owner: CommercePromiseOwner) => {
+      const bound = prepared.bind(ctx, owner);
+      const eventBus = commerceModuleEventBus({ owner, resources: ctx.resources,
+        capture: message => bound.bridge.current().captureLocalEvent(message), check: work => bound.bridge.checked(ctx, work), refuse: bound.refuse });
+      return { baseRepository: bound.repository, repository: (model: typeof Price | typeof PriceSet | typeof PriceRule | typeof PriceList | typeof PriceListRule | typeof PricePreference) =>
+        preferences ? model === PricePreference ? bound.preferenceRepository : bound.denied :
+        listPriceRemovals ? model === Price ? bound.priceRepository : bound.denied :
+        listPrices ? model === PriceList ? bound.listRepository : model === Price ? bound.priceRepository : listPriceUpdates && model === PriceRule ? bound.ruleRepository : bound.denied :
+        listCreations || listUpdates || listDeletions ? model === PriceList ? bound.listRepository : bound.denied :
+        model === PriceSet ? bound.repository : model === Price ? bound.priceRepository : model === PriceList ? bound.listRepository : model === PriceRule ? bound.ruleRepository :
+        model === PricePreference ? bound.preferenceRepository : bound.denied,
+        events: bound.mutationEvents, eventBus, refuse: bound.refuse, calculatePrices: bound.calculatePrices };
+    }`],
+  ]);
+  const repositoryAdmission = repository.statements.filter(node => ts.isTypeAliasDeclaration(node) && node.name.text === "PricingRepositoryAdmission");
+  const repositoryFactory = repository.statements.filter(node => ts.isFunctionDeclaration(node) && node.name?.text === "preparePricingRepository");
+  const admissionImports = adapter.statements.filter(ts.isImportDeclaration).filter(node => node.moduleSpecifier.getText(adapter) === '"./repository"');
+  /** @type {[ts.SourceFile, string, string][]} */
+  const updateImports = [
+    [adapter, "./calculation", 'import { decodePricingCalculation, decodeVariantItemPricingCalculation, VariantItemPricingCalculationInput, VariantItemPricingCalculationOutput } from "./calculation";'],
+    [adapter, "./price-list-price-update-input", 'import { UpdatePriceListPricesInput, decodeUpdatePriceListPrices, compilePriceListPriceUpdateContracts } from "./price-list-price-update-input";'],
+    [adapter, "./price-list-price-update-receipt", 'import { pricingListPriceUpdatePolicy } from "./price-list-price-update-receipt";'],
+    [repository, "./price-list-price-update-input", 'import { compilePriceListPriceUpdateContracts } from "./price-list-price-update-input";'],
+    [repository, "./price-list-price-update-repository", 'import { readPriceListPriceUpdateRows, readPriceListPriceSnapshotRules, preparePriceListPriceReplay } from "./price-list-price-update-repository";'],
+    [adapter, "./price-list-price-removal-input", `import { compilePriceListPriceRemovalContracts, PriceListPriceRemovalReadInput, decodePriceListPriceRemovalRead,
+      decodePriceListPriceRemovalLifecycleArguments } from "./price-list-price-removal-input";`],
+    [adapter, "./price-list-price-removal-receipt", 'import { pricingPriceListPriceRemovalPolicy } from "./price-list-price-removal-receipt";'],
+    [repository, "./price-list-price-removal-input", 'import { compilePriceListPriceRemovalContracts } from "./price-list-price-removal-input";'],
+    [repository, "./price-list-price-removal-repository", 'import { readPriceListPriceRemovalRows } from "./price-list-price-removal-repository";'],
+    [repository, "./price-list-price-removal-lifecycle", 'import { priceListPriceRemovalLifecycleMethods } from "./price-list-price-removal-lifecycle";'],
+  ];
+  for (const [file, path, expected] of updateImports) {
+    const imports = file.statements.filter(ts.isImportDeclaration).filter(node => ts.isStringLiteral(node.moduleSpecifier) && node.moduleSpecifier.text === path);
+    const selectedImport = imports[0];
+    if (imports.length !== 1 || selectedImport === undefined || nativeWorkflowProgram(selectedImport.getText(file), "Invalid Pricing selection", true) !==
+      nativeWorkflowProgram(expected, "Invalid Pricing selection", true)) throw new Error("Unadmitted native Pricing workflow selection");
+  }
+  /** @type {Map<string, ts.VariableDeclaration[]>} */
+  const repositoryOwners = new Map(["mutationEvents", "listPriceUpdates", "listPriceUpdateContracts", "listPriceReplay", "ruleRepository", "listPriceCreations", "listPrice", "listPriceRepository", "listDeletions", "listDeletionContracts", "listLifecycle", "mutable", "lifecycle", "preferenceUpdates", "preferenceDeletions", "preferences", "shippingUpdates", "shipping", "listCreations", "listUpdates", "listUpdate", "listRepository"].map(name => [name, []]));
+  for (const name of ["listPriceRemovals", "listPriceRemovalContracts", "priceRemovalRepository", "cartCreationPricing", "variantItemPricing", "repository", "preferenceRepository", "calculatePrices"]) repositoryOwners.set(name, []);
+  /** @type {ts.CallExpression[]} */
+  const preferenceRepositories = [];
+  /** @type {ts.ObjectLiteralExpression[]} */
+  const bindingReturns = [];
+  /** @param {ts.Node} node */
+  const visitRepositoryOwners = node => {
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name)) repositoryOwners.get(node.name.text)?.push(node);
+    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === "preparePricingPreferenceRepository") preferenceRepositories.push(node);
+    if (ts.isReturnStatement(node) && node.expression !== undefined && ts.isObjectLiteralExpression(node.expression) &&
+      node.expression.properties.some(property => ts.isPropertyAssignment(property) && property.name.getText(repository) === "priceRepository")) bindingReturns.push(node.expression);
+    ts.forEachChild(node, visitRepositoryOwners);
+  };
+  visitRepositoryOwners(repository);
+  const expectedRepositoryOwners = new Map([
+    ["cartCreationPricing", 'admission === "cart-creation"'],
+    ["variantItemPricing", 'admission === "variant-item-pricing" || cartCreationPricing'],
+    ["calculatePrices", `(filters, pricingContext, shared) => bridge.execute(shared, ctx => bridge.checked(ctx,
+      calculateLogicalPrices(ctx, { filters, pricingContext }, cartCreationPricing ? "cart-creation" : variantItemPricing ? "variant-item-pricing" : "scalar")))`],
+    ["preferenceRepository", `{ ...denied, serialize: repository.serialize,
+      create: variantItemPricing ? refuse : preferenceCreate,
+      find: (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {
+        const query = yield* Effect.fromResult(decodePreferenceFind(yield* Effect.fromResult(captureCommerceInput(input, ctx.resources))));
+        const pairs = [...new Map(query.where.$or.map(member =>
+          [JSON.stringify([member.attribute, member.value]), [member.attribute, member.value]])).values()];
+        if (pairs.length === 0) return [];
+        const rows = yield* readCommerceRelationRows(ctx, "price_preference", { kind: "and", children: [
+          { kind: "indexedPoints", columns: ["attribute", "value"], values: pairs },
+          { kind: "isNull", column: "deleted_at" },
+        ] });
+        return [...yield* Effect.fromResult(decodePreferences(rows))];
+      }))),
+    }`],
+    ["mutationEvents", `{ createEventSubscriber: events.createSubscriber, registerEventSubscriber: events.registerSubscriber,
+      dispatchMutationEvent: (event, args, shared, subscriber) => bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {
+        if ((!events.isSubscribed(shared) && (subscriber === undefined || !events.ownsSubscriber(subscriber))) ||
+          !(listUpdates || listPriceCreations || listPriceUpdates ? ["afterCreate", "afterUpdate", "afterDelete"] : mutable || shipping || listDeletions || listPriceRemovals ? ["afterDelete", "afterUpdate"] : ["afterDelete"]).includes(event)) return yield* ctx.refuse(commerceError("unadmittedEvent"));
+        yield* events.dispatch(event, args, shared, subscriber);
+      }))) }`],
+    ["listPriceUpdates", 'admission === "price-list-price-updates"'],
+    ["listPriceRemovals", 'admission === "price-list-price-removals"'],
+    ["listPriceRemovalContracts", 'listPriceRemovals ? yield* compilePriceListPriceRemovalContracts(metadata) : undefined'],
+    ["priceRemovalRepository", `listPriceRemovalContracts === undefined ? undefined : {
+      ...denied, serialize: repository.serialize,
+      ...priceListPriceRemovalLifecycleMethods(listPriceRemovalContracts, bridge, events),
+      find: (input, shared) => bridge.executeInput(shared, input, (ctx, captured) => bridge.checked(ctx,
+        readPriceListPriceRemovalRows(ctx, listPriceRemovalContracts, captured))),
+    }`],
+    ["listPriceUpdateContracts", 'listPriceUpdates ? yield* compilePriceListPriceUpdateContracts(metadata) : undefined'],
+    ["listPriceReplay", 'listPriceUpdateContracts === undefined ? undefined : yield* preparePriceListPriceReplay(listPriceUpdateContracts)'],
+    ["ruleRepository", `{ ...denied, serialize: repository.serialize,
+      find: listPriceUpdateContracts === undefined ? (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, findTaxRules(ctx, input)))
+        : (input, shared) => bridge.executeInput(shared, input, (ctx, captured) => bridge.checked(ctx,
+          readPriceListPriceSnapshotRules(ctx, listPriceUpdateContracts, captured))) }`],
+    ["listPriceCreations", 'admission === "price-list-price-creations"'],
+    ["listPrice", `listPriceCreations || listPriceUpdates ? yield* Result.gen(function* () {
+      const contracts = listPriceUpdateContracts ?? (yield* compilePriceListPriceCreationContracts(metadata));
+      const replacement = yield* preparePriceListPriceReplacement(contracts, listPriceUpdates ? "update" : "creation");
+      return { contracts, ...replacement };
+    }) : undefined`],
+    ["listPriceRepository", `listPrice === undefined ? undefined : {
+      ...denied, serialize: repository.serialize,
+      find: (input, shared) => bridge.executeInput(shared, input, (ctx, captured) => bridge.checked(ctx,
+        listPriceUpdateContracts === undefined ? readPriceListPriceCandidates(ctx, listPrice.contracts, captured)
+          : readPriceListPriceUpdateRows(ctx, listPriceUpdateContracts, captured))),
+      upsertWithReplace: (input, config, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {
+        const captured = yield* Effect.fromResult(captureCommerceInput(input, ctx.resources));
+        if (listPriceReplay !== undefined && Array.isArray(captured) && captured.some(row => isJsonObject(row) && Object.hasOwn(row, "created_at")))
+          return yield* listPriceReplay.replay(ctx, captured, config);
+        return yield* listPrice.replace(ctx, captured, config);
+      }))),
+      delete: (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {
+        const selected = yield* Effect.fromResult(captureCommerceInput(input, ctx.resources).pipe(Result.flatMap(decodePriceListPricePhysicalSelection)));
+        return yield* deletePricingPriceRows(ctx, listPrice.root, listPrice.rule, selected, ctx.resources.queryRows, "storageInsertion");
+      }))) }`],
+    ["listDeletions", 'admission === "price-list-deletions"'],
+    ["listDeletionContracts", 'listDeletions ? yield* compilePriceListDeletionContracts(metadata) : undefined'],
+    ["listLifecycle", 'listDeletionContracts === undefined ? undefined : priceListLifecycleMethods(listDeletionContracts, bridge, events)'],
+    ["mutable", 'admission === "variant-updates" || admission === "product-updates"'], ["lifecycle", 'admission === "product-updates"'],
+    ["preferenceUpdates", 'admission === "price-preference-updates"'], ["preferenceDeletions", 'admission === "price-preference-deletions"'],
+    ["preferences", 'admission === "price-preferences" || preferenceUpdates || preferenceDeletions'],
+    ["shippingUpdates", 'admission === "shipping-option-updates"'], ["shipping", 'admission === "shipping-options" || shippingUpdates'],
+    ["listCreations", 'admission === "price-list-creations"'],
+    ["listUpdates", 'admission === "price-list-updates"'],
+    ["listUpdate", `listUpdates ? yield* Result.gen(function* () {
+      const contracts = yield* compilePriceListUpdateContracts(metadata);
+      const replacement = yield* preparePriceListUpdateReplacement(contracts);
+      return { contracts, ...replacement };
+    }) : undefined`],
+    ["listRepository", `{ ...denied, serialize: repository.serialize,
+      ...(listLifecycle === undefined ? {} : listLifecycle),
+      create: variantItemPricing || listUpdates || listDeletions || listPriceCreations || listPriceUpdates || listPriceRemovals ? refuse : (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, createGraph(ctx, listCreation, input, shared))),
+      find: listPrice !== undefined ? (input, shared) => bridge.executeInput(shared, input, (ctx, captured) => bridge.checked(ctx,
+        readPriceListUpdateRows(ctx, listPrice.contracts.listReadContracts, captured))) : listUpdate === undefined ? refuse :
+        (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, readPriceListUpdateRows(ctx, listUpdate.contracts, input))),
+      upsertWithReplace: listUpdate === undefined ? refuse : (input, config, shared) => bridge.execute(shared, ctx => bridge.checked(ctx,
+        listUpdate.replace(ctx, input, config))),
+      delete: listCreations ? (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {
+        const result = yield* deletePricingPriceLists(ctx, metadata, input); const ids: string[] = [];
+        for (const row of result.roots) { if (typeof row.id !== "string") return yield* ctx.refuse(commerceError("storedCorruption")); ids.push(row.id); }
+        return ids;
+      }))) : refuse }`],
+  ]);
+  const admissionOwner = parameters[0]?.parent;
+  const admissionGuard = admissionOwner !== undefined && ts.isFunctionExpression(admissionOwner) ? admissionOwner.body.statements[0] : undefined;
+  const admissionDeclaration = repositoryAdmission[0], factoryDeclaration = repositoryFactory[0];
+  const bindingReturn = bindingReturns[0];
+  const rootRepositories = repositoryOwners.get("repository"), rootRepository = rootRepositories?.[0]?.initializer;
+  const rootCreates = rootRepository !== undefined && ts.isObjectLiteralExpression(rootRepository)
+    ? rootRepository.properties.filter(ts.isPropertyAssignment).filter(node => node.name.getText(repository) === "create") : [];
+  if (admissionDeclaration === undefined || !ts.isTypeAliasDeclaration(admissionDeclaration)
+    || factoryDeclaration === undefined || !ts.isFunctionDeclaration(factoryDeclaration))
+    throw new Error("Unadmitted native Pricing workflow selection");
+  if (rootRepositories?.length !== 1 || rootRepository === undefined || !ts.isObjectLiteralExpression(rootRepository) ||
+    rootRepository.properties.some(node => !ts.isPropertyAssignment(node) || !ts.isIdentifier(node.name)) ||
+    rootCreates.length !== 1 || nativeWorkflowProgram("const create = " + rootCreates[0]?.initializer.getText(repository), "Invalid Pricing selection") !==
+      nativeWorkflowProgram(`const create = variantItemPricing ? refuse : (input, shared) =>
+        bridge.execute(shared, ctx => bridge.checked(ctx, createGraph(ctx, creation, input, shared)))`, "Invalid Pricing selection") ||
+    [...expectedListOwners].some(([name, expected]) => {
+    const owners = listOwners.get(name), actual = owners?.[0]?.initializer;
+    return owners?.length !== 1 || actual === undefined || nativeWorkflowProgram("const owner = " + actual.getText(adapter), "Invalid Pricing selection") !==
+      nativeWorkflowProgram("const owner = " + expected, "Invalid Pricing selection");
+  }) || [...expectedRepositoryOwners].some(([name, expected]) => {
+    const owners = repositoryOwners.get(name), actual = owners?.[0]?.initializer;
+    return owners?.length !== 1 || actual === undefined || nativeWorkflowProgram("const owner = " + actual.getText(repository), "Invalid Pricing selection") !==
+      nativeWorkflowProgram("const owner = " + expected, "Invalid Pricing selection");
+  }) || bindingReturns.length !== 1 || bindingReturn === undefined || nativeWorkflowProgram("const binding = " + bindingReturn.getText(repository), "Invalid Pricing selection") !==
+    nativeWorkflowProgram(`const binding = { repository, denied, listRepository, ruleRepository: mutationRepositories?.ruleRepository ?? ruleRepository,
+      priceRepository: priceRemovalRepository ?? listPriceRepository ?? mutationRepositories?.priceRepository ?? denied, preferenceRepository, mutationEvents, bridge, refuse, calculatePrices };`, "Invalid Pricing selection") ||
+    preferenceRepositories.length !== 2 || preferenceRepositories[0]?.arguments.map(argument => argument.getText(repository).replace(/\s/g, "")).join(",") !==
+    'metadata,preferenceDeletions?"deletions":preferenceUpdates?"updates":"store"' ||
+    preferenceRepositories[1]?.arguments.map(argument => argument.getText(repository)).join(",") !== "metadata" ||
+    repositoryAdmission.length !== 1 || admissionDeclaration.type.getText(repository).replace(/\s/g, "") !==
+    '"create"|"variant-updates"|"product-updates"|"price-preferences"|"price-preference-updates"|"price-preference-deletions"|"price-list-creations"|"price-list-updates"|"price-list-deletions"|"price-list-price-creations"|"price-list-price-updates"|"price-list-price-removals"|"shipping-options"|"shipping-option-updates"|"variant-item-pricing"|"cart-creation"' ||
+    repositoryFactory.length !== 1 || factoryDeclaration.parameters.length !== 2 ||
+    factoryDeclaration.parameters[1]?.getText(repository) !== 'admission: PricingRepositoryAdmission = "create"' ||
+    adapter.statements.some(node => (ts.isTypeAliasDeclaration(node) || ts.isInterfaceDeclaration(node)) && node.name.text === "PricingRepositoryAdmission") ||
+    admissionGuard === undefined || nativeWorkflowProgram(admissionGuard.getText(adapter), "Invalid Pricing selection") !== nativeWorkflowProgram(
+      'if (admission !== "create" && admission !== "variant-updates" && admission !== "product-updates" && admission !== "price-preferences" && admission !== "price-preference-updates" && admission !== "price-preference-deletions" && admission !== "price-list-creations" && admission !== "price-list-updates" && admission !== "price-list-deletions" && admission !== "price-list-price-creations" && admission !== "price-list-price-updates" && admission !== "price-list-price-removals" && admission !== "shipping-options" && admission !== "shipping-option-updates" && admission !== "variant-item-pricing" && admission !== "cart-creation") return yield* Effect.fail(commerceError("unsupportedProfile"));', "Invalid Pricing selection") ||
+    profile.properties.length !== 3 || profile.properties[1]?.getText(adapter) !== "capabilities: []" || profile.properties[2]?.getText(adapter) !== "bind" ||
+    nativeWorkflowProgram("const graph = " + graph.getText(adapter), "Invalid Pricing selection") !== nativeWorkflowProgram(`const graph = preferences || listCreations || listUpdates || listDeletions || listPrices ? { aliases: [], reads: [] } : {
+      aliases: yield* moduleAliases({ ...joiner, alias: (Array.isArray(joiner.alias) ? joiner.alias : joiner.alias === undefined ? [] : [joiner.alias]).filter(alias => alias.entity === "PriceSet") }),
+      reads: [{ model: "PriceSet", command: count, table: prepared.table, paths: variantItemPricing ? [] : prepared.paths, orderable: ["id"], uniqueOrder: ["id"], multipleOrder: false, decode: decodeGraphCount }] };`, "Invalid Pricing selection") ||
+    admissionImports.length !== 1 || admissionImports[0].getText(adapter).replace(/\s/g, "") !==
+      'import{preparePricingRepository,typePricingRepositoryAdmission}from"./repository";')
+    throw new Error("Unadmitted native Pricing workflow selection");
+  /** @type {ts.VariableDeclaration[]} */
+  const lookups = [];
+  /** @param {ts.Node} node */
+  const visitRepository = node => {
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.name.text === "decodePreferenceFind") lookups.push(node);
+    ts.forEachChild(node, visitRepository);
+  };
+  visitRepository(repository);
+  const lookup = lookups[0]?.initializer;
+  if (lookups.length !== 1 || lookup === undefined || testPortProgram("const lookup = " + lookup.getText(repository)) !==
+    testPortProgram('const lookup = commerceDecoder(Schema.Struct({where:Schema.Struct({$or:Schema.Array(Schema.Struct({attribute:Schema.String,value:Schema.String})).check(Schema.isMaxLength(2))}),options:Schema.Unknown}),"unsupportedProfile")'))
+    throw new Error("Changed existing Pricing preference lookup admission");
 }
 
 /** The admitted ShippingProfile subset preserves two complete native bodies;
@@ -175,4 +1293,857 @@ export function verifyTestPort(source, target, options = {}) {
   if (testPortProgram(source, options) !== testPortProgram(target, options)) {
     throw new Error("Test port changed executable scenario, assertion, or runtime import");
   }
+}
+
+/** Authenticate the complete Store root and step after only the portable import,
+ * response-wrapper and transaction-covered declaration seams. The existing Link
+ * callbacks remain native, including grouped empty endpoints and their inverse.
+ * @param {string} nativeWorkflow @param {string} workflow
+ * @param {string} nativeStep @param {string} step
+ * @param {string} nativeLink @param {string} link */
+export function verifyStoreDeleteCallbacks(nativeWorkflow, workflow, nativeStep, step, nativeLink, link) {
+  const failure = "Changed native Store deletion callback behavior";
+  const expectedWorkflow = nativeWorkflow
+    .replace('from "@medusajs/framework/utils"', 'from "@medusajs/framework/utils/portable"')
+    .replace('WorkflowData, createWorkflow } from "@medusajs/framework/workflows-sdk"', 'WorkflowData, createWorkflow, WorkflowResponse } from "@medusajs/workflows-sdk"')
+    .replace('from "../steps"', 'from "../steps/delete-stores"')
+    .replace("return deletedStores", "return new WorkflowResponse(deletedStores)");
+  const expectedStep = nativeStep
+    .replace('from "@medusajs/framework/utils"', 'from "@medusajs/framework/utils/portable"')
+    .replace('from "@medusajs/framework/workflows-sdk"', 'from "@medusajs/workflows-sdk"')
+    .replace("  deleteStoresStepId,", '  { name: deleteStoresStepId, compensation: "transactionCovered" },');
+  if (testPortProgram(expectedWorkflow) !== testPortProgram(workflow) ||
+    testPortProgram(expectedStep) !== testPortProgram(step)) throw new Error(failure);
+  const original = inventoryDeletionCallbacks(nativeLink, "removeRemoteLinkStep", "createStep", [1, 2]);
+  const promoted = inventoryDeletionCallbacks(link, "removeRemoteLinkStep", "createStep", [1, 2]);
+  for (const [index, callback] of original.entries()) {
+    if (testPortProgram("const callback = " + callback.text) !==
+      testPortProgram("const callback = " + promoted[index]?.text)) throw new Error(failure);
+  }
+  const selected = promoted[0], options = selected?.call.arguments[0];
+  if (selected === undefined || options === undefined ||
+    testPortProgram("const options = " + options.getText(selected.file)) !==
+    testPortProgram('const options = { name: removeRemoteLinkStepId, compensation: "transactionCovered" }') ||
+    testPortProgram(inventoryNamedDeclaration(nativeLink, "removeRemoteLinkStepId").text) !==
+    testPortProgram(inventoryNamedDeclaration(link, "removeRemoteLinkStepId").text)) throw new Error(failure);
+}
+
+/** Complete emitted Store creation graph and both native step files. Only
+ * portable/direct imports, erased annotations and covered metadata may differ.
+ * @param {string} nativeWorkflow @param {string} workflow
+ * @param {string} nativeStore @param {string} store
+ * @param {string} nativePreferences @param {string} preferences */
+export function verifyStoreCreateCallbacks(nativeWorkflow, workflow, nativeStore, store, nativePreferences, preferences) {
+  const failure = "Changed native Store creation callback behavior";
+  const expectedWorkflow = nativeWorkflow
+    .replace('from "@medusajs/framework/workflows-sdk"', 'from "@medusajs/workflows-sdk"')
+    .replace('from "../steps"', 'from "../steps/create-stores"')
+    .replace('from "../../pricing"', 'from "../../pricing/steps/update-price-preferences-as-array"');
+  /** @param {string} text @param {string} id */
+  const covered = (text, id) => text
+    .replace('from "@medusajs/framework/utils"', 'from "@medusajs/framework/utils/portable"')
+    .replace('from "@medusajs/framework/workflows-sdk"', 'from "@medusajs/workflows-sdk"')
+    .replace(`  ${id},`, `  { name: ${id}, compensation: "transactionCovered" },`);
+  if (testPortProgram(expectedWorkflow) !== testPortProgram(workflow) ||
+    testPortProgram(covered(nativeStore, "createStoresStepId")) !== testPortProgram(store) ||
+    testPortProgram(covered(nativePreferences, "updatePricePreferencesAsArrayStepId")) !== testPortProgram(preferences)) throw new Error(failure);
+}
+
+/** Type erasure cannot authenticate the selected native workflow contracts.
+ * Preserve their complete source, allowing only the named type-only HTTP import
+ * relocation and line-ending representation. No parallel handwritten DTOs.
+ * @param {string} nativeStore @param {string} store
+ * @param {string} nativePricing @param {string} pricing
+ * @param {string} nativePayload @param {string} payload */
+export function verifyStoreCreationTypes(nativeStore, store, nativePricing, pricing, nativePayload, payload) {
+  /** @param {string} text */
+  const normalize = text => text.replace(/\r\n/g, "\n");
+  const expectedStore = nativeStore.replace('from "../../http"', 'from "../../http/store/admin/payloads"');
+  const expectedPricing = normalize(nativePricing).replace("  is_tax_inclusive?: boolean\n}\n\nexport interface UpdatePricePreferencesWorkflowInput",
+    "  is_tax_inclusive?: boolean | undefined\n}\n\nexport interface UpdatePricePreferencesWorkflowInput");
+  if (normalize(expectedStore) !== normalize(store) || expectedPricing !== normalize(pricing) ||
+    normalize(nativePayload) !== normalize(payload)) throw new Error("Changed native Store creation type contract");
+}
+
+/** Authenticate the complete emitted native Line Item root and step. Only the
+ * direct/portable imports, WorkflowResponse wrapper and covered metadata differ.
+ * @param {string} nativeWorkflow @param {string} workflow
+ * @param {string} nativeStep @param {string} step */
+export function verifyReservationLineItemDeletionCallbacks(nativeWorkflow, workflow, nativeStep, step) {
+  const expectedWorkflow = nativeWorkflow
+    .replace('WorkflowData, createWorkflow } from "@medusajs/framework/workflows-sdk"', 'WorkflowData, WorkflowResponse, createWorkflow } from "@medusajs/workflows-sdk"')
+    .replace('from "../steps"', 'from "../steps/delete-reservations-by-line-items"')
+    .replace("return deleteReservationsByLineItemsStep(input.ids)", "return new WorkflowResponse(deleteReservationsByLineItemsStep(input.ids))");
+  const expectedStep = nativeStep
+    .replace('from "@medusajs/framework/workflows-sdk"', 'from "@medusajs/workflows-sdk"')
+    .replace('from "@medusajs/framework/utils"', 'from "@medusajs/framework/utils/portable"')
+    .replace("  deleteReservationsByLineItemsStepId,", '  { name: deleteReservationsByLineItemsStepId, compensation: "transactionCovered" },');
+  const program = (/** @type {string} */ source) => nativeWorkflowProgram(source, "Invalid native Reservation Line Item callback syntax");
+  if (program(expectedWorkflow) !== program(workflow) || program(expectedStep) !== program(step))
+    throw new Error("Changed native Reservation Line Item deletion callback behavior");
+}
+
+/** Complete structural shape: runtime by default, or the original typed tree
+ * when explicitly requested. Both modes ignore source layout, without the
+ * unused-result or test-runner exceptions of the test-port comparison.
+ * @param {string} source @param {string} syntaxFailure @param {boolean} [retainTypes] */
+function nativeWorkflowProgram(source, syntaxFailure, retainTypes = false) {
+  const emitted = ts.transpileModule(source, { reportDiagnostics: true, compilerOptions: {
+    target: ts.ScriptTarget.ESNext, module: ts.ModuleKind.ESNext, removeComments: true,
+    newLine: ts.NewLineKind.LineFeed, moduleDetection: ts.ModuleDetectionKind.Force,
+  } });
+  if (emitted.diagnostics?.some(diagnostic => diagnostic.category === ts.DiagnosticCategory.Error))
+    throw new Error(syntaxFailure);
+  const file = ts.createSourceFile(retainTypes ? "workflow.ts" : "workflow.js", retainTypes ? source : emitted.outputText,
+    ts.ScriptTarget.ESNext, true, retainTypes ? ts.ScriptKind.TS : ts.ScriptKind.JS);
+  /** @param {ts.Node} node @returns {unknown} */
+  const shape = node => {
+    /** @type {unknown[]} */
+    const children = [];
+    ts.forEachChild(node, child => { children.push(shape(child)); });
+    return [node.kind, ts.isIdentifier(node) || ts.isLiteralExpression(node) ? node.text : undefined,
+      ts.isVariableDeclarationList(node) ? node.flags & ts.NodeFlags.BlockScoped : undefined,
+      ts.isPrefixUnaryExpression(node) || ts.isPostfixUnaryExpression(node) ? node.operator : undefined,
+      ts.isTemplateLiteralToken(node) ? node.rawText : undefined,
+      ts.isMetaProperty(node) ? node.keywordToken : undefined,
+      ts.isImportAttributes(node) ? node.token : undefined, children];
+  };
+  return JSON.stringify(shape(file));
+}
+
+/** Authenticate the complete native Store update root, selectors, projections,
+ * retained callback, transform and conditional Pricing branch.
+ * @param {string} nativeWorkflow @param {string} workflow
+ * @param {string} nativeStep @param {string} step */
+export function verifyStoreUpdateCallbacks(nativeWorkflow, workflow, nativeStep, step) {
+  const expectedWorkflow = nativeWorkflow
+    .replace('from "@medusajs/framework/workflows-sdk"', 'from "@medusajs/workflows-sdk"')
+    .replace('from "../steps"', 'from "../steps/update-stores"')
+    .replace('from "../../pricing"', 'from "../../pricing/steps/update-price-preferences-as-array"');
+  const expectedStep = nativeStep
+    .replace('from "@medusajs/framework/utils"', 'from "@medusajs/framework/utils/portable"')
+    .replace('from "@medusajs/framework/workflows-sdk"', 'from "@medusajs/workflows-sdk"')
+    .replace("  updateStoresStepId,", '  { name: updateStoresStepId, compensation: "transactionCovered" },');
+  const failure = "Invalid native Store update callback syntax";
+  if (nativeWorkflowProgram(expectedWorkflow, failure) !== nativeWorkflowProgram(workflow, failure) ||
+    nativeWorkflowProgram(expectedStep, failure) !== nativeWorkflowProgram(step, failure))
+    throw new Error("Changed native Store update callback behavior");
+}
+
+/** Authenticate the entire native ShippingProfile update root, selector reads,
+ * returned array and retained preimages without altering native metadata behavior.
+ * @param {string} nativeWorkflow @param {string} workflow
+ * @param {string} nativeStep @param {string} step */
+export function verifyShippingProfileUpdateCallbacks(nativeWorkflow, workflow, nativeStep, step) {
+  const expectedWorkflow = nativeWorkflow
+    .replace('from "@medusajs/framework/workflows-sdk"', 'from "@medusajs/workflows-sdk"');
+  const expectedStep = nativeStep
+    .replace('from "@medusajs/framework/utils"', 'from "@medusajs/framework/utils/portable"')
+    .replace('from "@medusajs/framework/workflows-sdk"', 'from "@medusajs/workflows-sdk"')
+    .replace("  updateShippingProfilesStepId,", '  { name: updateShippingProfilesStepId, compensation: "transactionCovered" },');
+  const failure = "Invalid native ShippingProfile update callback syntax";
+  if (nativeWorkflowProgram(expectedWorkflow, failure) !== nativeWorkflowProgram(workflow, failure) ||
+    nativeWorkflowProgram(expectedStep, failure) !== nativeWorkflowProgram(step, failure))
+    throw new Error("Changed native ShippingProfile update callback behavior");
+}
+
+
+/** Authenticate the complete singular native ShippingProfile root, its pure
+ * Product-Link guard, retained profile inverse and real common Link callbacks.
+ * Only portable/direct imports, covered metadata and the void response differ.
+ * @param {string} nativeWorkflow @param {string} workflow
+ * @param {string} nativeStep @param {string} step
+ * @param {string} nativeLink @param {string} link */
+export function verifyShippingProfileDeleteCallbacks(nativeWorkflow, workflow, nativeStep, step, nativeLink, link) {
+  const failure = "Invalid native ShippingProfile deletion callback syntax";
+  const expectedWorkflow = nativeWorkflow.replaceAll("\r\n", "\n")
+    .replace('  WorkflowData,\n', '  WorkflowData,\n  WorkflowResponse,\n')
+    .replace('from "@medusajs/framework/workflows-sdk"', 'from "@medusajs/workflows-sdk"')
+    .replace('from "@medusajs/framework/utils"', 'from "@medusajs/framework/utils/portable"')
+    .replace('from "../steps"', 'from "../steps/delete-shipping-profile"')
+    .replace('import { removeRemoteLinkStep, useQueryGraphStep } from "../../common"',
+      'import { removeRemoteLinkStep } from "../../common/steps/remove-remote-links"\nimport { useQueryGraphStep } from "../../common/steps/use-query-graph"')
+    .replace('    })\n  }\n)', '    })\n    return new WorkflowResponse(void 0)\n  }\n)');
+  const expectedStep = nativeStep
+    .replace('from "@medusajs/framework/workflows-sdk"', 'from "@medusajs/workflows-sdk"')
+    .replace('from "@medusajs/framework/utils"', 'from "@medusajs/framework/utils/portable"')
+    .replace('  deleteShippingProfilesStepId,', '  { name: deleteShippingProfilesStepId, compensation: "transactionCovered" },');
+  const expectedLink = nativeLink.replace('  removeRemoteLinkStepId,', '  { name: removeRemoteLinkStepId, compensation: "transactionCovered" },');
+  if (nativeWorkflowProgram(expectedWorkflow, failure) !== nativeWorkflowProgram(workflow, failure) ||
+    nativeWorkflowProgram(expectedStep, failure) !== nativeWorkflowProgram(step, failure) ||
+    nativeWorkflowProgram(expectedLink, failure) !== nativeWorkflowProgram(link, failure))
+    throw new Error("Changed native ShippingProfile deletion callback behavior");
+  // Query's private partial-record callback annotation is erased. Keep the
+  // original public exported input types intact rather than widening their ABI.
+  /** @param {string} source @param {string} name */
+  const declaredType = (source, name) => {
+    const parsed = ts.createSourceFile("shipping-profile.ts", source, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS);
+    const declarations = parsed.statements.filter(node => ts.isTypeAliasDeclaration(node) && node.name.text === name);
+    if (declarations.length !== 1 || declarations[0] === undefined) throw new Error("Changed native ShippingProfile deletion public input type");
+    return ts.createPrinter({ removeComments: true, newLine: ts.NewLineKind.LineFeed }).printNode(ts.EmitHint.Unspecified, declarations[0], parsed);
+  };
+  for (const name of ["ValidateStepShippingProfileDeleteInput", "DeleteShippingProfilesWorkflowInput"])
+    if (declaredType(nativeWorkflow, name) !== declaredType(workflow, name)) throw new Error("Changed native ShippingProfile deletion public input type");
+  if (declaredType(nativeStep, "DeleteShippingProfilesStepInput") !== declaredType(step, "DeleteShippingProfilesStepInput"))
+    throw new Error("Changed native ShippingProfile deletion public input type");
+}
+
+/** The complete native Type creation root and retained physical inverse. Only
+ * direct portable imports and covered compensation metadata may differ.
+ * @param {string} nativeWorkflow @param {string} workflow
+ * @param {string} nativeStep @param {string} step */
+export function verifyShippingOptionTypeCreateCallbacks(nativeWorkflow, workflow, nativeStep, step) {
+  const expectedWorkflow = nativeWorkflow
+    .replace('from "@medusajs/framework/types"', 'from "@medusajs/types"')
+    .replace('from "@medusajs/framework/utils"', 'from "@medusajs/utils/core-flows/events"')
+    .replace('from "@medusajs/framework/workflows-sdk"', 'from "@medusajs/workflows-sdk"')
+    .replace('from "../../common"', 'from "../../common/steps/emit-event"')
+    .replace('from "../steps"', 'from "../steps/create-shipping-option-types"');
+  const expectedStep = nativeStep
+    .replace('from "@medusajs/framework/types"', 'from "@medusajs/types"')
+    .replace('from "@medusajs/framework/utils"', 'from "@medusajs/utils/modules-sdk/definition"')
+    .replace('from "@medusajs/framework/workflows-sdk"', 'from "@medusajs/workflows-sdk"')
+    .replace("  createShippingOptionTypesStepId,", '  { name: createShippingOptionTypesStepId, compensation: "transactionCovered" },');
+  const syntaxFailure = "Invalid native ShippingOptionType creation callback syntax";
+  if (nativeWorkflowProgram(expectedWorkflow, syntaxFailure) !== nativeWorkflowProgram(workflow, syntaxFailure)
+    || nativeWorkflowProgram(expectedStep, syntaxFailure) !== nativeWorkflowProgram(step, syntaxFailure))
+    throw new Error("Changed native ShippingOptionType creation callback behavior");
+  /** Retain original public type aliases despite their erased runtime status.
+   * @param {string} source @param {string} name */
+  const inputType = (source, name) => {
+    const file = ts.createSourceFile("shipping-option-type.ts", source, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS);
+    const declarations = file.statements.filter(node => ts.isTypeAliasDeclaration(node) && node.name.text === name);
+    const declaration = declarations[0];
+    if (declarations.length !== 1 || declaration === undefined)
+      throw new Error("Changed native ShippingOptionType creation public input type");
+    return ts.createPrinter({ removeComments: true }).printNode(ts.EmitHint.Unspecified, declaration, file);
+  };
+  if (inputType(nativeWorkflow, "CreateShippingOptionTypesWorkflowInput") !== inputType(workflow, "CreateShippingOptionTypesWorkflowInput")
+    || inputType(nativeStep, "CreateShippingOptionTypesStepInput") !== inputType(step, "CreateShippingOptionTypesStepInput"))
+    throw new Error("Changed native ShippingOptionType creation public input type");
+}
+
+/** Preserve the complete native Region root and both callbacks. The first
+ * native Step import is explicitly type-only in the portable target; the
+ * existing Tax comparator owns every other import/type/runtime comparison.
+ * @param {string} nativeWorkflow @param {string} workflow
+ * @param {string} nativeStep @param {string} step */
+export function verifyTaxRegionCreateCallbacks(nativeWorkflow, workflow, nativeStep, step) {
+  if (!nativeStep.startsWith("import {")) throw new Error("Changed native Tax Region creation source: first type import");
+  verifyTaxWorkflowCallbacks({ label: "Tax Region creation", stem: "create-tax-regions", stepId: "createTaxRegionsStepId", workflowTypes: true },
+    nativeWorkflow, workflow, nativeStep.replace(/^import \{/, "import type {"), step);
+}
+
+/** Keep the complete native Tax Rate creation root, both step callbacks and
+ * erased public contracts. Only exact type/portable/direct import relocations
+ * and covered host metadata are admitted. The physical inverse stays native.
+ * @param {string} nativeWorkflow @param {string} workflow
+ * @param {string} nativeStep @param {string} step */
+export function verifyTaxRateCreateCallbacks(nativeWorkflow, workflow, nativeStep, step) {
+  verifyTaxWorkflowCallbacks({ label: "Tax Rate creation", stem: "create-tax-rates", stepId: "createTaxRatesStepId", workflowTypes: true },
+    nativeWorkflow, workflow, nativeStep, step);
+}
+
+/** Preserve the standalone Rule root's complete native typed/emitted modules.
+ * @param {string} nativeWorkflow @param {string} workflow
+ * @param {string} nativeStep @param {string} step */
+export function verifyTaxRuleCreateCallbacks(nativeWorkflow, workflow, nativeStep, step) {
+  verifyTaxWorkflowCallbacks({ label: "Tax Rate Rule creation", stem: "create-tax-rate-rules", stepId: "createTaxRateRulesStepId", workflowTypes: true },
+    nativeWorkflow, workflow, nativeStep, step);
+}
+
+/** Preserve native soft-delete, original retained IDs and restore callbacks.
+ * @param {string} nativeWorkflow @param {string} workflow
+ * @param {string} nativeStep @param {string} step */
+export function verifyTaxRuleDeleteCallbacks(nativeWorkflow, workflow, nativeStep, step) {
+  verifyTaxWorkflowCallbacks({ label: "Tax Rate Rule deletion", stem: "delete-tax-rate-rules", stepId: "deleteTaxRateRulesStepId", workflowTypes: false },
+    nativeWorkflow, workflow, nativeStep, step);
+}
+
+/** @param {{label: string, stem: string, stepId: string, workflowTypes: boolean}} selection
+ * @param {string} nativeWorkflow @param {string} workflow
+ * @param {string} nativeStep @param {string} step */
+function verifyTaxWorkflowCallbacks(selection, nativeWorkflow, workflow, nativeStep, step) {
+  const { stem, stepId } = selection, failure = "Changed native " + selection.label + " source";
+  /** @param {string} text @param {string} before @param {string} after */
+  const replace = (text, before, after) => {
+    if (text.split(before).length !== 2) throw new Error(failure + ": relocation anchor");
+    return text.replace(before, after);
+  };
+  let expectedWorkflow = selection.workflowTypes
+    ? replace(nativeWorkflow, 'from "@medusajs/framework/types"', 'from "@medusajs/types/tax/index"') : nativeWorkflow;
+  expectedWorkflow = replace(expectedWorkflow, 'from "@medusajs/framework/workflows-sdk"', 'from "@medusajs/workflows-sdk"');
+  expectedWorkflow = replace(expectedWorkflow, 'from "../steps"', `from "../steps/${stem}"`);
+  // The portable SDK brands unresolved void references. Keep the native resolved
+  // void contract while describing the existing staged value at authoring time.
+  if (stem === "delete-tax-rate-rules") {
+    expectedWorkflow = replace(expectedWorkflow, "  createWorkflow,", "  createWorkflow,\n  type WorkflowDefinition,");
+    expectedWorkflow = replace(expectedWorkflow, "export const deleteTaxRateRulesWorkflow = createWorkflow(",
+      "export const deleteTaxRateRulesWorkflow: WorkflowDefinition<\n  DeleteTaxRateRulesWorkflowInput,\n  WorkflowData<void>,\n  readonly []\n> = createWorkflow(");
+    expectedWorkflow = replace(expectedWorkflow, "WorkflowResponse<void>", "WorkflowResponse<WorkflowData<void>>");
+  }
+  let expectedStep = replace(nativeStep, 'from "@medusajs/framework/types"', 'from "@medusajs/types/tax/index"');
+  expectedStep = replace(expectedStep, 'from "@medusajs/framework/utils"', 'from "@medusajs/framework/utils/portable"');
+  expectedStep = replace(expectedStep, 'from "@medusajs/framework/workflows-sdk"', 'from "@medusajs/workflows-sdk"');
+  expectedStep = replace(expectedStep, `  ${stepId},`, `  { name: ${stepId}, compensation: "transactionCovered" },`);
+  /** The shared shape owner retains the complete typed and emitted modules.
+   * Import printing additionally authenticates erased import type flags.
+   * @param {string} text */
+  const imports = text => {
+    const parsed = ts.createSourceFile("tax-workflow.ts", text, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS);
+    const printer = ts.createPrinter({ removeComments: true });
+    return parsed.statements.filter(ts.isImportDeclaration)
+      .map(node => printer.printNode(ts.EmitHint.Unspecified, node, parsed)).join("\n");
+  };
+  for (const [expected, actual] of [[expectedWorkflow, workflow], [expectedStep, step]]) {
+    if (nativeWorkflowProgram(expected, failure, true) !== nativeWorkflowProgram(actual, failure, true)
+      || nativeWorkflowProgram(expected, failure) !== nativeWorkflowProgram(actual, failure)
+      || imports(expected) !== imports(actual)) throw new Error(failure);
+  }
+}
+
+/** Authenticate the generic native creation-result initializer. SQL-specific
+ * descriptor types may be erased; the full function body must remain native.
+ * @param {string} nativeRepository @param {string} relationOwner */
+export function verifyNativeToManyInitialization(nativeRepository, relationOwner) {
+  /** @param {string} source */
+  const select = source => {
+    const file = ts.createSourceFile("relations.ts", source, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS);
+    const declarations = file.statements.filter(node => ts.isFunctionDeclaration(node) && node.name?.text === "fillEmptyToManyRelations");
+    const declaration = declarations[0];
+    if (declarations.length !== 1 || declaration === undefined || !ts.isFunctionDeclaration(declaration) || declaration.body === undefined)
+      throw new Error("Changed native zero-to-many initialization extraction");
+    return declaration.getText(file).replace(/^export\s+/, "");
+  };
+  const syntaxFailure = "Invalid native zero-to-many initialization syntax";
+  if (nativeWorkflowProgram(select(nativeRepository), syntaxFailure) !== nativeWorkflowProgram(select(relationOwner), syntaxFailure))
+    throw new Error("Changed native zero-to-many initialization extraction");
+}
+
+/** Select a complete native function, refusing ambiguous extraction anchors.
+ * @param {string} source @param {string} name @param {string} failure */
+function nativeHelperDeclaration(source, name, failure) {
+  const file = ts.createSourceFile("native-helper.ts", source, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS);
+  const declarations = file.statements.filter(node => ts.isFunctionDeclaration(node) && node.name?.text === name);
+  const declaration = declarations[0];
+  if (declarations.length !== 1 || declaration === undefined || !ts.isFunctionDeclaration(declaration) || declaration.body === undefined)
+    throw new Error(failure);
+  return declaration.getText(file).replace(/^export\s+/, "");
+}
+
+/** The whole SQL-free scalar helper is native; only its export is added.
+ * Comparing the complete target also refuses extra runtime imports or effects.
+ * @param {string} nativeRepository @param {string} filterOwner */
+export function verifyNativeFilterValue(nativeRepository, filterOwner) {
+  const failure = "Changed native scalar filter-value extraction";
+  const expected = "export " + nativeHelperDeclaration(nativeRepository, "coerceFilterValue", failure);
+  if (nativeWorkflowProgram(expected, failure) !== nativeWorkflowProgram(filterOwner, failure)) throw new Error(failure);
+}
+
+/** Authenticate the complete nullable to-one initializer after descriptor type
+ * erasure. Other relation helpers retain their separate source proofs.
+ * @param {string} nativeRepository @param {string} relationOwner */
+export function verifyNativeNullToOneInitialization(nativeRepository, relationOwner) {
+  const failure = "Changed native nullable to-one initialization extraction";
+  const native = nativeHelperDeclaration(nativeRepository, "fillNullToOneRelations", failure);
+  const portable = nativeHelperDeclaration(relationOwner, "fillNullToOneRelations", failure);
+  if (nativeWorkflowProgram(native, failure) !== nativeWorkflowProgram(portable, failure)) throw new Error(failure);
+}
+
+/** Native singleton/multiple-alias rules, including duplicate failure order.
+ * mergeFieldAlias moves out of its class without changing its body. The exact
+ * parseAlias array block takes its already-resolved parent entity as an argument;
+ * its checked metadata lookup is the only removed native statement. The entire
+ * extracted module must match, including the direct isString import relocation.
+ * @param {string} nativeJoiner @param {string} aliasOwner */
+export function verifyNativeJoinerFieldAlias(nativeJoiner, aliasOwner) {
+  const failure = "Changed native Joiner field-alias extraction";
+  const file = ts.createSourceFile("remote-joiner.ts", nativeJoiner, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS);
+  const classes = file.statements.filter(node => ts.isClassDeclaration(node) && node.name?.text === "RemoteJoiner");
+  const owner = classes[0];
+  if (classes.length !== 1 || owner === undefined || !ts.isClassDeclaration(owner)) throw new Error(failure);
+  /** @param {string} name */
+  const method = name => {
+    const declarations = owner.members.filter(node => ts.isMethodDeclaration(node) && ts.isIdentifier(node.name) && node.name.text === name);
+    const declaration = declarations[0];
+    if (declarations.length !== 1 || declaration === undefined || !ts.isMethodDeclaration(declaration) || declaration.body === undefined)
+      throw new Error(failure);
+    return declaration;
+  };
+  const merge = method("mergeFieldAlias");
+  const parse = method("parseAlias");
+  if (merge.body === undefined || parse.body === undefined) throw new Error(failure);
+  const selections = parse.body.statements.filter(statement => ts.isIfStatement(statement)
+    && nativeWorkflowProgram(statement.expression.getText(file), failure) === nativeWorkflowProgram("Array.isArray(alias)", failure));
+  const selection = selections[0];
+  if (selections.length !== 1 || selection === undefined || !ts.isIfStatement(selection)
+    || selection.elseStatement !== undefined || !ts.isBlock(selection.thenStatement)) throw new Error(failure);
+  const entityLookup = selection.thenStatement.statements[0];
+  if (entityLookup === undefined || nativeWorkflowProgram(entityLookup.getText(file), failure) !== nativeWorkflowProgram(
+    'const currentPathEntity = parsedExpands.get([BASE_PATH, ...currentPath].join("."))?.entity', failure)) throw new Error(failure);
+  const nativeSelection = `if (${selection.expression.getText(file)}) {\n${selection.thenStatement.statements.slice(1).map(statement => statement.getText(file)).join("\n")}\n}`;
+  const expected = 'import { isString } from "@medusajs/utils/common/is-string"\n'
+    + `export function mergeFieldAlias(${merge.parameters.map(parameter => parameter.getText(file)).join(", ")}) ${merge.body.getText(file)}\n`
+    + `export function selectFieldAlias(value, currentPathEntity, currentPath) { let alias = value; ${nativeSelection}\nreturn alias; }`;
+  if (nativeWorkflowProgram(expected, failure) !== nativeWorkflowProgram(aliasOwner, failure)) throw new Error(failure);
+}
+
+/** Preserve the complete native Type update root and its projected upsert
+ * inverse. Only portable imports and covered step metadata may differ.
+ * @param {string} nativeWorkflow @param {string} workflow
+ * @param {string} nativeStep @param {string} step */
+export function verifyShippingOptionTypeUpdateCallbacks(nativeWorkflow, workflow, nativeStep, step) {
+  const expectedWorkflow = nativeWorkflow
+    .replace('from "@medusajs/framework/types"', 'from "@medusajs/types"')
+    .replace('from "@medusajs/framework/utils"', 'from "@medusajs/utils/core-flows/events"')
+    .replace('from "@medusajs/framework/workflows-sdk"', 'from "@medusajs/workflows-sdk"')
+    .replace('from "../steps"', 'from "../steps/update-shipping-option-types"');
+  const expectedStep = nativeStep
+    .replace('from "@medusajs/framework/types"', 'from "@medusajs/types"')
+    .replace('from "@medusajs/framework/utils"', 'from "@medusajs/framework/utils/portable"')
+    .replace('from "@medusajs/framework/workflows-sdk"', 'from "@medusajs/workflows-sdk"')
+    .replace("  updateShippingOptionTypesStepId,", '  { name: updateShippingOptionTypesStepId, compensation: "transactionCovered" },');
+  const syntaxFailure = "Invalid native ShippingOptionType update callback syntax";
+  if (nativeWorkflowProgram(expectedWorkflow, syntaxFailure) !== nativeWorkflowProgram(workflow, syntaxFailure)
+    || nativeWorkflowProgram(expectedStep, syntaxFailure) !== nativeWorkflowProgram(step, syntaxFailure))
+    throw new Error("Changed native ShippingOptionType update callback behavior");
+  /** @param {string} source @param {string} name */
+  const declaredType = (source, name) => {
+    const parsed = ts.createSourceFile("shipping-option-type.ts", source, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS);
+    const declarations = parsed.statements.filter(node => ts.isTypeAliasDeclaration(node) && node.name.text === name);
+    if (declarations.length !== 1 || declarations[0] === undefined)
+      throw new Error("Changed native ShippingOptionType update public input type");
+    return ts.createPrinter({ removeComments: true, newLine: ts.NewLineKind.LineFeed }).printNode(ts.EmitHint.Unspecified, declarations[0], parsed);
+  };
+  if (declaredType(nativeWorkflow, "UpdateShippingOptionTypesWorkflowInput") !== declaredType(workflow, "UpdateShippingOptionTypesWorkflowInput")
+    || declaredType(nativeStep, "UpdateShippingOptionTypesStepInput") !== declaredType(step, "UpdateShippingOptionTypesStepInput"))
+    throw new Error("Changed native ShippingOptionType update public input type");
+}
+
+/** Preserve the complete native Type deletion graph, Option guard, hook,
+ * parallel Link/event siblings, void result and raw-ID restoration callback.
+ * @param {string} nativeWorkflow @param {string} workflow
+ * @param {string} nativeStep @param {string} step */
+export function verifyShippingOptionTypeDeleteCallbacks(nativeWorkflow, workflow, nativeStep, step) {
+  const expectedWorkflow = nativeWorkflow.replaceAll("\r\n", "\n")
+    .replace('import {\n  MedusaError,\n  Modules,\n  ShippingOptionTypeWorkflowEvents,\n} from "@medusajs/framework/utils"',
+      'import { MedusaError } from "@medusajs/utils/common/errors"\nimport { Modules } from "@medusajs/utils/modules-sdk/definition"\nimport { ShippingOptionTypeWorkflowEvents } from "@medusajs/utils/core-flows/events"')
+    .replaceAll('from "@medusajs/framework/workflows-sdk"', 'from "@medusajs/workflows-sdk"')
+    .replace('from "../steps"', 'from "../steps/delete-shipping-option-types"')
+    .replace('from "../../common"', 'from "../../common/steps/use-query-graph"');
+  const expectedStep = nativeStep
+    .replace('from "@medusajs/framework/types"', 'from "@medusajs/types"')
+    .replace('from "@medusajs/framework/utils"', 'from "@medusajs/utils/modules-sdk/definition"')
+    .replace('from "@medusajs/framework/workflows-sdk"', 'from "@medusajs/workflows-sdk"')
+    .replace("  deleteShippingOptionTypesStepId,", '  { name: deleteShippingOptionTypesStepId, compensation: "transactionCovered" },');
+  const syntaxFailure = "Invalid native ShippingOptionType deletion callback syntax";
+  if (nativeWorkflowProgram(expectedWorkflow, syntaxFailure) !== nativeWorkflowProgram(workflow, syntaxFailure)
+    || nativeWorkflowProgram(expectedStep, syntaxFailure) !== nativeWorkflowProgram(step, syntaxFailure))
+    throw new Error("Changed native ShippingOptionType deletion callback behavior");
+  /** @param {string} source @param {string} name */
+  const declaredType = (source, name) => {
+    const parsed = ts.createSourceFile("shipping-option-type.ts", source, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS);
+    const declarations = parsed.statements.filter(node => ts.isTypeAliasDeclaration(node) && node.name.text === name);
+    if (declarations.length !== 1 || declarations[0] === undefined)
+      throw new Error("Changed native ShippingOptionType deletion public input type");
+    return ts.createPrinter({ removeComments: true, newLine: ts.NewLineKind.LineFeed }).printNode(ts.EmitHint.Unspecified, declarations[0], parsed);
+  };
+  if (declaredType(nativeWorkflow, "DeleteShippingOptionTypesWorkflowInput") !== declaredType(workflow, "DeleteShippingOptionTypesWorkflowInput")
+    || declaredType(nativeStep, "DeleteShippingOptionTypesStepInput") !== declaredType(step, "DeleteShippingOptionTypesStepInput"))
+    throw new Error("Changed native ShippingOptionType deletion public input type");
+}
+
+/** Preserve native creation, original type seam, full nested result and physical
+ * inverse. Only direct imports and covered step metadata may differ.
+ * @param {string} nativeWorkflow @param {string} workflow
+ * @param {string} nativeStep @param {string} step
+ * @param {string} nativeTypes @param {string} types */
+export function verifyServiceZoneCreateCallbacks(nativeWorkflow, workflow, nativeStep, step, nativeTypes, types) {
+  const expectedWorkflow = nativeWorkflow.replaceAll("\r\n", "\n")
+    .replace('import type {\n  FulfillmentWorkflow,\n  ServiceZoneDTO,\n} from "@medusajs/framework/types"',
+      'import type * as FulfillmentWorkflow from "@medusajs/types/workflow/fulfillment/service-zones"\nimport type { ServiceZoneDTO } from "@medusajs/types/fulfillment/index"')
+    .replace('from "@medusajs/framework/workflows-sdk"', 'from "@medusajs/workflows-sdk"')
+    .replace('from "../steps"', 'from "../steps/create-service-zones"');
+  const expectedStep = nativeStep
+    .replace('from "@medusajs/framework/types"', 'from "@medusajs/types/fulfillment/index"')
+    .replace('from "@medusajs/framework/utils"', 'from "@medusajs/utils/modules-sdk/definition"')
+    .replace('from "@medusajs/framework/workflows-sdk"', 'from "@medusajs/workflows-sdk"')
+    .replace("  createServiceZonesStepId,", '  { name: createServiceZonesStepId, compensation: "transactionCovered" },');
+  const syntaxFailure = "Invalid native ServiceZone creation callback syntax";
+  if (nativeWorkflowProgram(expectedWorkflow, syntaxFailure) !== nativeWorkflowProgram(workflow, syntaxFailure)
+    || nativeWorkflowProgram(expectedStep, syntaxFailure) !== nativeWorkflowProgram(step, syntaxFailure))
+    throw new Error("Changed native ServiceZone creation callback behavior");
+  /** @param {string} source */
+  const typedProgram = source => ts.createPrinter({ removeComments: true, newLine: ts.NewLineKind.LineFeed })
+    .printFile(ts.createSourceFile("service-zone.ts", source, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS));
+  if (typedProgram(expectedWorkflow) !== typedProgram(workflow) || typedProgram(expectedStep) !== typedProgram(step)
+    || nativeTypes.replaceAll("\r\n", "\n") !== types.replaceAll("\r\n", "\n"))
+    throw new Error("Changed native ServiceZone creation public contract");
+}
+
+/** Preserve native cascade deletion and raw restore, original public input and
+ * the existing portable void-result representation seam.
+ * @param {string} nativeWorkflow @param {string} workflow
+ * @param {string} nativeStep @param {string} step */
+export function verifyServiceZoneDeleteCallbacks(nativeWorkflow, workflow, nativeStep, step) {
+  const expectedWorkflow = nativeWorkflow.replaceAll("\r\n", "\n")
+    .replace('import { WorkflowData, createWorkflow } from "@medusajs/framework/workflows-sdk"',
+      'import { WorkflowData, WorkflowResponse, createWorkflow } from "@medusajs/workflows-sdk"')
+    .replace('from "../steps"', 'from "../steps/delete-service-zones"')
+    .replace("    deleteServiceZonesStep(input.ids)\n", "    deleteServiceZonesStep(input.ids)\n    return new WorkflowResponse(void 0)\n");
+  const expectedStep = nativeStep
+    .replace('from "@medusajs/framework/types"', 'from "@medusajs/types/fulfillment/index"')
+    .replace('from "@medusajs/framework/utils"', 'from "@medusajs/utils/modules-sdk/definition"')
+    .replace('from "@medusajs/framework/workflows-sdk"', 'from "@medusajs/workflows-sdk"')
+    .replace("  deleteServiceZonesStepId,", '  { name: deleteServiceZonesStepId, compensation: "transactionCovered" },');
+  const syntaxFailure = "Invalid native ServiceZone deletion callback syntax";
+  if (nativeWorkflowProgram(expectedWorkflow, syntaxFailure) !== nativeWorkflowProgram(workflow, syntaxFailure)
+    || nativeWorkflowProgram(expectedStep, syntaxFailure) !== nativeWorkflowProgram(step, syntaxFailure))
+    throw new Error("Changed native ServiceZone deletion callback behavior");
+  /** @param {string} source */
+  const typedProgram = source => ts.createPrinter({ removeComments: true, newLine: ts.NewLineKind.LineFeed })
+    .printFile(ts.createSourceFile("service-zone-delete.ts", source, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS));
+  if (typedProgram(expectedWorkflow) !== typedProgram(workflow) || typedProgram(expectedStep) !== typedProgram(step))
+    throw new Error("Changed native ServiceZone deletion public contract");
+}
+
+/** Preserve native Profile creation, full returned rows, exact retained IDs and
+ * physical inverse. Existing step adaptation is fixed, not changed by this root.
+ * @param {string} nativeWorkflow @param {string} workflow
+ * @param {string} nativeStep @param {string} step
+ * @param {string} nativeTypes @param {string} types */
+export function verifyShippingProfileCreateCallbacks(nativeWorkflow, workflow, nativeStep, step, nativeTypes, types) {
+  const expectedWorkflow = nativeWorkflow.replaceAll("\r\n", "\n")
+    .replace('from "@medusajs/framework/workflows-sdk"', 'from "@medusajs/workflows-sdk"')
+    .replace('from "../steps"', 'from "../steps/create-shipping-profiles"');
+  const expectedStep = nativeStep
+    .replace('from "@medusajs/framework/types"', 'from "@medusajs/types"')
+    .replace('from "@medusajs/framework/utils"', 'from "@medusajs/utils/modules-sdk/definition"')
+    .replace('from "@medusajs/framework/workflows-sdk"', 'from "@medusajs/workflows-sdk"')
+    .replace("  createShippingProfilesStepId,", '  { name: createShippingProfilesStepId, compensation: "transactionCovered" },');
+  const syntaxFailure = "Invalid native ShippingProfile creation callback syntax";
+  if (nativeWorkflowProgram(expectedWorkflow, syntaxFailure) !== nativeWorkflowProgram(workflow, syntaxFailure)
+    || nativeWorkflowProgram(expectedStep, syntaxFailure) !== nativeWorkflowProgram(step, syntaxFailure))
+    throw new Error("Changed native ShippingProfile creation callback behavior");
+  /** @param {string} source */
+  const typedProgram = source => ts.createPrinter({ removeComments: true, newLine: ts.NewLineKind.LineFeed })
+    .printFile(ts.createSourceFile("shipping-profile-create.ts", source, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS));
+  if (typedProgram(expectedWorkflow) !== typedProgram(workflow) || typedProgram(expectedStep) !== typedProgram(step))
+    throw new Error("Changed native ShippingProfile creation public contract");
+  /** @param {string} source */
+  const creationTypes = source => {
+    const parsed = ts.createSourceFile("shipping-profile-create-types.ts", source, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS);
+    const names = ["CreateShippingProfile", "CreateShippingProfilesWorkflowInput", "CreateShippingProfilesWorkflowOutput"];
+    return names.map(name => {
+      const declarations = parsed.statements.filter(node => (ts.isInterfaceDeclaration(node) || ts.isTypeAliasDeclaration(node)) && node.name.text === name);
+      if (declarations.length !== 1 || declarations[0] === undefined) throw new Error("Changed native ShippingProfile creation public contract");
+      return ts.createPrinter({ removeComments: true, newLine: ts.NewLineKind.LineFeed }).printNode(ts.EmitHint.Unspecified, declarations[0], parsed);
+    }).join("\n");
+  };
+  if (creationTypes(nativeTypes) !== creationTypes(types)) throw new Error("Changed native ShippingProfile creation public contract");
+}
+
+/** Preserve native Location/Set creation, endpoint links and physical inverse.
+ * The only runtime representation seam is the existing explicit void response;
+ * imports, erased types and transaction-covered step metadata are fixed below.
+ * @param {string} nativeWorkflow @param {string} workflow
+ * @param {string} nativeSetStep @param {string} setStep
+ * @param {string} nativeAssociation @param {string} association
+ * @param {string} nativeDefinition @param {string} definition
+ * @param {string} nativeTypes @param {string} types */
+export function verifyLocationFulfillmentSetCallbacks(nativeWorkflow, workflow, nativeSetStep, setStep, nativeAssociation, association, nativeDefinition, definition, nativeTypes, types) {
+  const expectedWorkflow = nativeWorkflow.replaceAll("\r\n", "\n")
+    .replace('from "@medusajs/framework/types"', 'from "@medusajs/types/workflows/stock-locations/mutations"')
+    .replace("  transform,", "  transform,\n  WorkflowResponse,")
+    .replace('from "@medusajs/framework/workflows-sdk"', 'from "@medusajs/workflows-sdk"')
+    .replace('from "../../fulfillment"', 'from "../../fulfillment/steps/create-fulfillment-set"')
+    .replace("        fulfillment_set_ids: [data.fulfillmentSet[0].id],",
+      "        // @ts-expect-error Native creation assumes a first Set; preserve its missing-first property-read failure.\n        fulfillment_set_ids: [data.fulfillmentSet[0].id],")
+    .replace("      input: data,\n    })", "      input: data,\n    })\n    return new WorkflowResponse(void 0)");
+  const expectedSetStep = nativeSetStep.replaceAll("\r\n", "\n")
+    .replace("import {", "import type {")
+    .replace('from "@medusajs/framework/types"', 'from "@medusajs/types/fulfillment/index"')
+    .replace('from "@medusajs/framework/utils"', 'from "@medusajs/utils/modules-sdk/definition"')
+    .replace('from "@medusajs/framework/workflows-sdk"', 'from "@medusajs/workflows-sdk"')
+    .replace("  createFulfillmentSetsId,", '  { name: createFulfillmentSetsId, compensation: "transactionCovered" },');
+  const expectedAssociation = nativeAssociation.replaceAll("\r\n", "\n")
+    .replace('import { ContainerRegistrationKeys, Modules } from "@medusajs/framework/utils"',
+      'import { ContainerRegistrationKeys } from "@medusajs/utils/common/container"\nimport { Modules } from "@medusajs/utils/modules-sdk/definition"\nimport type { Link } from "@medusajs/modules-sdk/link"')
+    .replace('from "@medusajs/framework/workflows-sdk"', 'from "@medusajs/workflows-sdk"')
+    .replace("  associateFulfillmentSetsWithLocationStepId,", '  { name: associateFulfillmentSetsWithLocationStepId, compensation: "transactionCovered" },')
+    .replaceAll("container.resolve(ContainerRegistrationKeys.LINK)", 'container.resolve<Pick<Link, "create" | "dismiss">>(ContainerRegistrationKeys.LINK)');
+  const expectedDefinition = nativeDefinition.replaceAll("\r\n", "\n")
+    .replace("import { ModuleJoinerConfig }", "import type { ModuleJoinerConfig }")
+    .replace('import { LINKS, Modules } from "@medusajs/framework/utils"',
+      'import { Modules } from "@medusajs/framework/utils/portable"\nimport { composeLinkName } from "@medusajs/utils/link/compose-link-name"')
+    .replaceAll("LINKS.LocationFulfillmentSet", 'composeLinkName(Modules.STOCK_LOCATION, "stock_location_id", Modules.FULFILLMENT, "fulfillment_set_id")');
+  const pairs = [[expectedWorkflow, workflow], [expectedSetStep, setStep],
+    [expectedAssociation, association], [expectedDefinition, definition], [nativeTypes, types]];
+  const syntaxFailure = "Invalid native LocationFulfillmentSet callback syntax";
+  for (const [expected, target] of pairs) {
+    if (expected === undefined || target === undefined ||
+      nativeWorkflowProgram(expected, syntaxFailure) !== nativeWorkflowProgram(target, syntaxFailure))
+      throw new Error("Changed native LocationFulfillmentSet callback behavior");
+  }
+  /** @param {string} source */
+  const typedProgram = source => ts.createPrinter({ removeComments: true, newLine: ts.NewLineKind.LineFeed })
+    .printFile(ts.createSourceFile("location-fulfillment-set.ts", source, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS));
+  for (const [expected, target] of pairs) {
+    if (expected === undefined || target === undefined || typedProgram(expected) !== typedProgram(target))
+      throw new Error("Changed native LocationFulfillmentSet public contract");
+  }
+  const firstResultComment = "// @ts-expect-error Native creation assumes a first Set; preserve its missing-first property-read failure.";
+  const normalizedWorkflow = workflow.replaceAll("\r\n", "\n");
+  if (normalizedWorkflow.split(firstResultComment).length !== 2 ||
+    !normalizedWorkflow.includes(firstResultComment + "\n        fulfillment_set_ids: [data.fulfillmentSet[0].id],"))
+    throw new Error("Changed native LocationFulfillmentSet first-result type seam");
+}
+
+/** Preserve all native batch branches, public DTOs, real projected preimages,
+ * absence and physical recreation. The named composer result expresses actual
+ * empty-branch absence without leaking SDK brands; exported native DTOs remain
+ * exact. Other seams are imports/metadata only.
+ * @param {string} nativeWorkflow @param {string} workflow
+ * @param {string} nativeCreate @param {string} create
+ * @param {string} nativeUpdate @param {string} update
+ * @param {string} nativeDelete @param {string} deleted */
+export function verifyShippingOptionRuleBatchCallbacks(nativeWorkflow, workflow, nativeCreate, create, nativeUpdate, update, nativeDelete, deleted) {
+  const expectedWorkflow = nativeWorkflow.replaceAll("\r\n", "\n")
+    .replace('import {\n  BatchWorkflowInput,\n  BatchWorkflowOutput,\n',
+      'import type { BatchWorkflowInput, BatchWorkflowOutput } from "@medusajs/types"\nimport type {\n')
+    .replace('from "@medusajs/framework/types"', 'from "@medusajs/types/fulfillment/index"')
+    .replace('from "@medusajs/framework/workflows-sdk"', 'from "@medusajs/workflows-sdk"')
+    .replace('): WorkflowResponse<BatchShippingOptionRulesOutput> => {',
+      '): WorkflowResponse<BatchShippingOptionRulesComposerResult> => {')
+    .replace('export const batchShippingOptionRulesWorkflowId =',
+      'type BatchShippingOptionRulesComposerResult = {\n  created: BatchShippingOptionRulesOutput["created"]\n  updated: BatchShippingOptionRulesOutput["updated"] | undefined\n  deleted: BatchShippingOptionRulesOutput["deleted"] | undefined\n}\n\nexport const batchShippingOptionRulesWorkflowId =')
+    .replace('import {\n  createShippingOptionRulesStep,\n  deleteShippingOptionRulesStep,\n} from "../steps"',
+      'import { createShippingOptionRulesStep } from "../steps/create-shipping-option-rules"\nimport { deleteShippingOptionRulesStep } from "../steps/delete-shipping-option-rules"');
+  /** @param {string} source @param {"create"|"update"|"delete"} kind */
+  const expectedStep = (source, kind) => {
+    let expected = source.replaceAll("\r\n", "\n")
+      .replace('import {', 'import type {')
+      .replace('from "@medusajs/framework/types"', 'from "@medusajs/types/fulfillment/index"')
+      .replace('from "@medusajs/framework/utils"', 'from "@medusajs/utils/modules-sdk/definition"')
+      .replace('from "@medusajs/framework/workflows-sdk"', 'from "@medusajs/workflows-sdk"')
+      .replace(`  ${kind}ShippingOptionRulesStepId,`, `  { name: ${kind}ShippingOptionRulesStepId, compensation: "transactionCovered" },`);
+    if (kind === "delete") expected = expected.replace("  RuleOperatorType,\n", "")
+      .replace('from "@medusajs/types/fulfillment/index"',
+        'from "@medusajs/types/fulfillment/index"\nimport type { RuleOperatorType } from "@medusajs/types/common/rule"');
+    return expected;
+  };
+  const pairs = [[expectedWorkflow, workflow], [expectedStep(nativeCreate, "create"), create],
+    [expectedStep(nativeUpdate, "update"), update], [expectedStep(nativeDelete, "delete"), deleted]];
+  const syntaxFailure = "Invalid native ShippingOptionRule batch callback syntax";
+  for (const [expected, target] of pairs) {
+    if (expected === undefined || target === undefined ||
+      nativeWorkflowProgram(expected, syntaxFailure) !== nativeWorkflowProgram(target, syntaxFailure))
+      throw new Error("Changed native ShippingOptionRule batch callback behavior");
+  }
+  /** @param {string} source */
+  const typedProgram = source => ts.createPrinter({ removeComments: true, newLine: ts.NewLineKind.LineFeed })
+    .printFile(ts.createSourceFile("shipping-option-rule-batch.ts", source, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS));
+  for (const [expected, target] of pairs) {
+    if (expected === undefined || target === undefined || typedProgram(expected) !== typedProgram(target))
+      throw new Error("Changed native ShippingOptionRule batch public contract");
+  }
+}
+
+/** Preserve the complete native Set/Link deletion topology, raw-ID restoration,
+ * public input aliases and established portable void-result representation.
+ * @param {string} nativeWorkflow @param {string} workflow
+ * @param {string} nativeStep @param {string} step */
+export function verifyFulfillmentSetDeleteCallbacks(nativeWorkflow, workflow, nativeStep, step) {
+  const expectedWorkflow = nativeWorkflow.replaceAll("\r\n", "\n")
+    .replace('import { createWorkflow, WorkflowData } from "@medusajs/framework/workflows-sdk"',
+      'import { createWorkflow, WorkflowData, WorkflowResponse } from "@medusajs/workflows-sdk"')
+    .replace('from "../steps"', 'from "../steps/delete-fulfillment-sets"')
+    .replace('from "../../common"', 'from "../../common/steps/remove-remote-links"')
+    .replace('from "@medusajs/framework/utils"', 'from "@medusajs/utils/modules-sdk/definition"')
+    .replace('      [Modules.FULFILLMENT]: { fulfillment_set_id: input.ids },\n    })',
+      '      [Modules.FULFILLMENT]: { fulfillment_set_id: input.ids },\n    })\n    return new WorkflowResponse(void 0)');
+  const expectedStep = nativeStep
+    .replace('from "@medusajs/framework/types"', 'from "@medusajs/types/fulfillment/index"')
+    .replace('from "@medusajs/framework/utils"', 'from "@medusajs/utils/modules-sdk/definition"')
+    .replace('from "@medusajs/framework/workflows-sdk"', 'from "@medusajs/workflows-sdk"')
+    .replace("  deleteFulfillmentSetsStepId,", '  { name: deleteFulfillmentSetsStepId, compensation: "transactionCovered" },');
+  const syntaxFailure = "Invalid native FulfillmentSet deletion callback syntax";
+  if (nativeWorkflowProgram(expectedWorkflow, syntaxFailure) !== nativeWorkflowProgram(workflow, syntaxFailure)
+    || nativeWorkflowProgram(expectedStep, syntaxFailure) !== nativeWorkflowProgram(step, syntaxFailure))
+    throw new Error("Changed native FulfillmentSet deletion callback behavior");
+  /** @param {string} source */
+  const typedProgram = source => ts.createPrinter({ removeComments: true, newLine: ts.NewLineKind.LineFeed })
+    .printFile(ts.createSourceFile("fulfillment-set-delete.ts", source, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS));
+  if (typedProgram(expectedWorkflow) !== typedProgram(workflow) || typedProgram(expectedStep) !== typedProgram(step))
+    throw new Error("Changed native FulfillmentSet deletion public contract");
+}
+
+/** Preserve the full native update/list/projection/upsert contract. Only narrow
+ * imports and the existing transaction-covered metadata may differ.
+ * @param {string} nativeWorkflow @param {string} workflow
+ * @param {string} nativeStep @param {string} step
+ * @param {string} nativeTypes @param {string} types */
+export function verifyServiceZoneUpdateCallbacks(nativeWorkflow, workflow, nativeStep, step, nativeTypes, types) {
+  const expectedWorkflow = nativeWorkflow.replaceAll("\r\n", "\n")
+    .replace('import type {\n  FulfillmentWorkflow,\n  ServiceZoneDTO,\n} from "@medusajs/framework/types"',
+      'import type * as FulfillmentWorkflow from "@medusajs/types/workflow/fulfillment/service-zones"\nimport type { ServiceZoneDTO } from "@medusajs/types/fulfillment/index"')
+    .replace('from "@medusajs/framework/workflows-sdk"', 'from "@medusajs/workflows-sdk"');
+  const expectedStep = nativeStep.replaceAll("\r\n", "\n")
+    .replace('import {\n  FulfillmentWorkflow,\n  IFulfillmentModuleService,\n} from "@medusajs/framework/types"',
+      'import type * as FulfillmentWorkflow from "@medusajs/types/workflow/fulfillment/service-zones"\nimport type { IFulfillmentModuleService } from "@medusajs/types/fulfillment/index"')
+    .replace('import {\n  Modules,\n  getSelectsAndRelationsFromObjectArray,\n} from "@medusajs/framework/utils"',
+      'import { Modules } from "@medusajs/utils/modules-sdk/definition"\nimport { getSelectsAndRelationsFromObjectArray } from "@medusajs/utils/common/get-selects-and-relations-from-object-array"')
+    .replace('from "@medusajs/framework/workflows-sdk"', 'from "@medusajs/workflows-sdk"')
+    .replace("  updateServiceZonesStepId,", '  { name: updateServiceZonesStepId, compensation: "transactionCovered" },');
+  const syntaxFailure = "Invalid native ServiceZone update callback syntax";
+  if (nativeWorkflowProgram(expectedWorkflow, syntaxFailure) !== nativeWorkflowProgram(workflow, syntaxFailure)
+    || nativeWorkflowProgram(expectedStep, syntaxFailure) !== nativeWorkflowProgram(step, syntaxFailure))
+    throw new Error("Changed native ServiceZone update callback behavior");
+  /** @param {string} source */
+  const typedProgram = source => ts.createPrinter({ removeComments: true, newLine: ts.NewLineKind.LineFeed })
+    .printFile(ts.createSourceFile("service-zone-update.ts", source, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS));
+  if (typedProgram(expectedWorkflow) !== typedProgram(workflow) || typedProgram(expectedStep) !== typedProgram(step)
+    || nativeTypes.replaceAll("\r\n", "\n") !== types.replaceAll("\r\n", "\n"))
+    throw new Error("Changed native ServiceZone update public contract");
+}
+
+/** Authenticate native metadata-only scalar-field projection extraction,
+ * including raw aliases and virtual terminal fields. No SQL body is retained.
+ * @param {string} nativeRepository @param {string} relationOwner */
+export function verifyNativeRelationScalarFields(nativeRepository, relationOwner) {
+  /** @param {string} source @param {string} name @param {boolean} isInterface */
+  const select = (source, name, isInterface = false) => {
+    const file = ts.createSourceFile("relations.ts", source, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS);
+    const candidates = isInterface ? file.statements.filter(ts.isInterfaceDeclaration) : file.statements.filter(ts.isFunctionDeclaration);
+    const declarations = candidates.filter(node => node.name?.text === name);
+    const declaration = declarations[0];
+    if (declarations.length !== 1 || declaration === undefined)
+      throw new Error("Changed native relation scalar-field extraction");
+    return declaration.getText(file).replace(/^export\s+/, "");
+  };
+  const native = select(nativeRepository, "relationScalarFieldPaths");
+  const portable = select(relationOwner, "relationScalarFieldPaths");
+  const syntaxFailure = "Invalid native relation scalar-field extraction syntax";
+  if (nativeWorkflowProgram(native, syntaxFailure) !== nativeWorkflowProgram(portable, syntaxFailure))
+    throw new Error("Changed native relation scalar-field extraction");
+  const expected = native
+    .replace("descriptors: Map<string, RelationDescriptor>", "descriptors: ReadonlyMap<string, ScalarFieldRelationDescriptor>")
+    .replace("descriptorsByModel: Map<string, Map<string, RelationDescriptor>>", "descriptorsByModel: ReadonlyMap<string, ReadonlyMap<string, ScalarFieldRelationDescriptor>>")
+    .replace("currentModel: PortableEntity | undefined", 'currentModel: ScalarFieldRelationDescriptor["targetModel"] | undefined');
+  const expectedInterface = `interface ScalarFieldRelationDescriptor {
+    readonly targetModel: { parse(): { schema: Readonly<Record<string, unknown>> } }
+    readonly relationship: { readonly targetModel: string }
+  }`;
+  /** @param {string} source */
+  const typedProgram = source => ts.createPrinter({ removeComments: true, newLine: ts.NewLineKind.LineFeed })
+    .printFile(ts.createSourceFile("relation-fields.ts", source, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS));
+  if (typedProgram(expected) !== typedProgram(portable)
+    || typedProgram(expectedInterface) !== typedProgram(select(relationOwner, "ScalarFieldRelationDescriptor", true)))
+    throw new Error("Changed native relation scalar-field public contract");
+}
+
+/** Exact named156 allowance, native method closure and both queue selections.
+ * @param {string} facade @param {string} policy */
+export function verifyPriceListPriceUpdateSelection(facade, policy) {
+  const failure = "Changed PriceList Price update resource selection";
+  const parsed = ts.createSourceFile("price-list-price-update-selection.ts", facade, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS);
+  const policyFile = ts.createSourceFile("policy.ts", policy, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS);
+  /** @param {ts.SourceFile} file @param {string} name */
+  const declarations = (file, name) => file.statements.filter(ts.isVariableStatement)
+    .flatMap(statement => statement.declarationList.declarations).filter(node => ts.isIdentifier(node.name) && node.name.text === name);
+  const selected = declarations(parsed, "prepareUpdatePriceListPricesWorkflow"), resources = declarations(policyFile, "priceListPriceUpdateResources");
+  const initializer = selected[0]?.initializer, allowance = resources[0]?.initializer;
+  const expected = `const workflow = Effect.fn("PricingWorkflow.updatePriceListPrices")(function* (input: {
+  readonly execution: AtomicWorkflowExecution;
+  readonly modules: {
+    readonly pricing: InstalledWorkflowModule<Effect.Success<ReturnType<typeof makeLocalPricingCommands>>["workflow"]>;
+    readonly link: InstalledWorkflowModule<Effect.Success<ReturnType<typeof prepareVariantPricingLink>>["workflow"]>;
+  };
+  readonly revision: string;
+  readonly subscribers: AtomicCommerceEvents["subscribers"];
+}) {
+  const options = yield* Effect.fromResult(captureWorkflowRecord(input));
+  if (Object.keys(options).some(key => !["execution", "modules", "revision", "subscribers"].includes(key)))
+    return yield* Effect.fail(commerceError("unsupportedProfile"));
+  const registrations = yield* Effect.fromResult(captureWorkflowRecord(options.modules));
+  const installed = yield* Effect.fromResult(captureInstalledWorkflowModules(registrations, ["pricing", "link"]));
+  if (Object.keys(registrations).length !== 2) return yield* Effect.fail(commerceError("unsupportedProfile"));
+  const pricing = workflowModuleDefinition(installed.pricing.module), link = workflowModuleDefinition(installed.link.module);
+  if (pricing?.source.name !== "flarex-pricing-local" || pricing.source.profile !== "pricing-price-list-price-updates" ||
+    link?.source.profile !== "medusa.variant-pricing.link-workflow")
+    return yield* Effect.fail(commerceError("invalidAuthority"));
+  for (const binding of [installed.pricing, installed.link]) {
+    if (binding.logicalResources !== undefined && !jsonEqual(binding.logicalResources, priceListPriceUpdateResources))
+      return yield* Effect.fail(commerceError("unsupportedProfile"));
+  }
+  const modules = {
+    pricing: { ...installed.pricing, logicalResources: priceListPriceUpdateResources, logicalPublication: "mixed" as const },
+    link: { ...installed.link, logicalResources: priceListPriceUpdateResources },
+  };
+  const contracts = yield* Effect.fromResult(compilePriceListPriceUpdateContracts((yield* capturePricingMetadata()).frame));
+  const resources = yield* Effect.fromResult(prepareWorkflowResources({
+    pricing: { module: modules.pricing.module, methods: ["listPriceLists", "snapshotPriceListPricesForUpdate", "updatePriceListPrices", "restorePriceListPrices"], graph: false },
+    link: { module: modules.link.module, methods: [], graph: true, expose: false },
+  }, true));
+  const prepared = yield* Effect.fromResult(updatePriceListPricesWorkflow.prepare())
+    .pipe(Effect.mapError(cause => commerceError("unsupportedProfile", cause)));
+  return yield* prepareAtomicWorkflowHost({ execution: options.execution, modules,
+    operationScheduling: "queued", borrowedOperationScheduling: "queued",
+    revision: options.revision, subscribers: options.subscribers, requestCallLimit: priceListPriceUpdateResources.calls, workflow: {
+      name: "updatePriceListPricesWorkflow", resources, prepared, input: PriceListPriceUpdateWorkflowInput,
+      output: contracts.Output, events: internalModuleWorkflowEvents,
+    } });
+});`;
+  const expectedAllowance = "const resources = Object.freeze({ ...defaultCommerceResources, calls: 128 });";
+  const imports = parsed.statements.filter(ts.isImportDeclaration).filter(node =>
+    node.importClause?.namedBindings !== undefined && ts.isNamedImports(node.importClause.namedBindings) &&
+    node.importClause.namedBindings.elements.some(element => element.name.text === "priceListPriceUpdateResources"));
+  const defaultImports = policyFile.statements.filter(ts.isImportDeclaration).filter(node =>
+    node.importClause?.namedBindings !== undefined && ts.isNamedImports(node.importClause.namedBindings) &&
+    node.importClause.namedBindings.elements.some(element => element.name.text === "defaultCommerceResources"));
+  const allowanceStatement = resources[0]?.parent.parent, selectedStatement = selected[0]?.parent.parent;
+  if (selected.length !== 1 || initializer === undefined || resources.length !== 1 || allowance === undefined ||
+    selectedStatement === undefined || !ts.isVariableStatement(selectedStatement) ||
+    (selectedStatement.declarationList.flags & ts.NodeFlags.Const) === 0 ||
+    !selectedStatement.modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.ExportKeyword) ||
+    allowanceStatement === undefined || !ts.isVariableStatement(allowanceStatement) ||
+    (allowanceStatement.declarationList.flags & ts.NodeFlags.Const) === 0 ||
+    !allowanceStatement.modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.ExportKeyword) ||
+    imports.length !== 1 || imports[0]?.getText(parsed) !== 'import { priceListPriceUpdateResources } from "../../workflow/policy";' ||
+    defaultImports.length !== 1 || defaultImports[0]?.getText(policyFile) !== 'import { defaultCommerceResources } from "@flarex/persistence-postgres/internal/commerce-values";' ||
+    nativeWorkflowProgram("const workflow = " + initializer.getText(parsed), failure, true) !== nativeWorkflowProgram(expected, failure, true) ||
+    nativeWorkflowProgram("const workflow = " + initializer.getText(parsed), failure) !== nativeWorkflowProgram(expected, failure) ||
+    nativeWorkflowProgram("const resources = " + allowance.getText(policyFile), failure, true) !== nativeWorkflowProgram(expectedAllowance, failure, true)) throw new Error(failure);
+}
+
+/** The replay and timestamp capabilities belong only to the complete156
+ * receipt dispatch, rather than the creation receipt or a caller selection.
+ * @param {string} source */
+export function verifyPriceListPriceUpdatePolicySelection(source) {
+  const failure = "Changed PriceList Price update receipt policy selection";
+  const file = ts.createSourceFile("price-list-price-update-receipt.ts", source, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS);
+  const selected = file.statements.filter(node => ts.isFunctionDeclaration(node) && node.name?.text === "pricingListPriceUpdatePolicy");
+  const declaration = selected[0];
+  const expected = `export function pricingListPriceUpdatePolicy(contracts: PriceListPriceUpdateContracts) {
+  const { capture } = pricingListPriceCreationPolicy(contracts);
+  const validateLogicalCall: LogicalCallReceiptValidation = Effect.fn("PricingLists.validatePriceUpdateCall")(function* (call, activity) {
+    if (call.commandName === "pricingListPriceUpdateRead") {
+      yield* Effect.fromResult(decodePriceListPriceRead(call.input));
+      return yield* validatePriceListReadReceipt(contracts.listReadContracts, call, activity, "pricingListPriceUpdateRead");
+    }
+    if (call.commandName === "pricingListPriceSnapshot") return yield* validateSnapshot(contracts, call, activity);
+    if (call.commandName === "pricingListPriceUpdate") {
+      if (call.mode !== "write" || activity.lifecycle.length || activity.setNull.length || activity.referenceReplacements.length)
+        return yield* Effect.fail(commerceError("receiptMismatch"));
+      return yield* validatePriceListPriceWriteReceipt(contracts, call, activity, contracts);
+    }
+    if (call.commandName === "pricingListPriceRestore") return yield* validateRestore(contracts, call, activity);
+    return yield* Effect.fail(commerceError("receiptMismatch"));
+  }, Effect.mapError((cause: ReturnType<typeof commerceError>) => cause.reason === "receiptMismatch" ? cause : commerceError("receiptMismatch", cause)));
+  return { capture, validateLogicalCall, allowStorageInsertionOrder: true as const, allowRecordedRowReplay: true as const,
+    allowPreservingDeletionUpsert: "preserveTimestamps" as const };
+}`;
+  if (selected.length !== 1 || declaration === undefined ||
+    nativeWorkflowProgram(declaration.getText(file), failure, true) !== nativeWorkflowProgram(expected, failure, true) ||
+    nativeWorkflowProgram(declaration.getText(file), failure) !== nativeWorkflowProgram(expected, failure)) throw new Error(failure);
 }

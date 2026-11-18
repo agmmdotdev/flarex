@@ -16,6 +16,7 @@ import { MAX_POINT_MUTATION_ARGUMENT_ARRAY_SEMANTIC_BYTES_V1 } from
 
 import { applicationErrorPlatformSourceV1 } from
   "./ApplicationErrorExactRuntimeWorkerSource";
+import { pointMutationExactRuntimeFunctionWireV1 } from "./PointMutationExactRuntimeWorkerSource";
 
 export interface PointMutationInternalQueryExactRuntimeWorkerSourceOptionsV1 {
   readonly moduleTime: number;
@@ -49,10 +50,10 @@ export const exactRuntimeConfigurationV1 = Object.freeze({
   maxAuthSemanticBytes: ${MAX_POINT_MUTATION_EXACT_RUNTIME_AUTH_SEMANTIC_BYTES_V1},
   randomSeedBytes: ${POINT_MUTATION_INTERNAL_QUERY_EXACT_RUNTIME_RANDOM_SEED_BYTES_V1},
   maxArgumentArraySemanticBytes: ${MAX_POINT_MUTATION_ARGUMENT_ARRAY_SEMANTIC_BYTES_V1},
-  function: Object.freeze(${JSON.stringify(options.function)}),
+  function: Object.freeze(JSON.parse(${JSON.stringify(JSON.stringify(pointMutationExactRuntimeFunctionWireV1(options.function)))})),
   rootFunctionOrdinal: ${JSON.stringify(Number(options.rootFunctionOrdinal))},
-  internalQueryCatalog: Object.freeze(${JSON.stringify(
-    options.internalQueryCatalog.map(entry => ({
+  internalQueryCatalog: Object.freeze(JSON.parse(${JSON.stringify(JSON.stringify(
+    options.internalQueryCatalog.map(entry => pointMutationExactRuntimeFunctionWireV1({
       ordinal: Number(entry.functionOrdinal),
       path: entry.functionPath,
       kind: "query",
@@ -60,7 +61,7 @@ export const exactRuntimeConfigurationV1 = Object.freeze({
       argsValidator: entry.argsValidator,
       returnsValidator: entry.returnsValidator,
     })),
-  )}.map(Object.freeze)),
+  ))}).map(Object.freeze)),
 });
 `;
 }

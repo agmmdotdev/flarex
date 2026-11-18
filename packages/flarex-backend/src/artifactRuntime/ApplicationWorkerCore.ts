@@ -13,8 +13,9 @@ import {
 import {
   createFunctionRuntimeAuthV1,
   createFunctionRuntimeIncomingRelationReaderV1,
-  createFunctionRuntimeIndexedPointDatabaseWriterV1,
   createFunctionRuntimePointReaderV1,
+  createFunctionRuntimePointDatabaseWriterV1,
+  createFunctionRuntimeQueryReaderV1,
   createFunctionRuntimeRunQueryContextV1,
   createMutationFunctionRuntimeContextV1,
 } from "@flarex/function-runtime/internal/function-api-core-v1";
@@ -72,9 +73,12 @@ import type {
 } from "@flarex/standard-application-definition/internal/application-task-binding-v1";
 import type { CanonicalTaskManifestV1 } from
   "@flarex/standard-application-definition/internal/task-definition-v1";
-import { Effect, Result } from "effect";
+import { Effect, Option, Result, Schema } from "effect";
 import { decodeAppDocumentIdentityV1Result } from
   "flarex-protocol/app-document-id";
+import { decodeDocumentId as decodeCoreDocumentId, normalizeDocumentId } from "flarex-protocol/document-id";
+import { captureIndexRangeExpressions } from "flarex-protocol/index-range";
+import { SchemaManifestAppIdentifierSchema } from "flarex-protocol/schema-manifest";
 import { MAX_COMMIT_INDEXED_QUERY_PAGE_SIZE_V1 } from
   "flarex-protocol/commit-protocol";
 import { RELATION_INCOMING_PAGE_MAXIMUM_IDENTITIES_V1 } from
@@ -83,9 +87,11 @@ import {
   APPLICATION_WORKER_RESULT_FORMAT_V1,
   APPLICATION_WORKER_RESULT_VERSION_V1,
   MAX_APPLICATION_WORKER_RESULT_SEMANTIC_BYTES_V1,
+  MAX_CORE_APPLICATION_WORKER_TABLES,
   ApplicationWorkerProtocolV1Error,
   decodeApplicationActionWorkerRequestV1Effect,
   decodeApplicationTransactionWorkerRequestV1Effect,
+  decodeCoreApplicationInsertResult,
   type ApplicationActionWorkerRequestV1,
   type ApplicationTransactionWorkerRequestV1,
   type ApplicationWorkerResultV1,
@@ -93,13 +99,22 @@ import {
 } from "flarex-protocol/internal/application-worker-v1";
 import type { EdgeActionHostPolicyFrameV1 } from
   "flarex-protocol/internal/edge-action-host-policy-v1";
+import type { ValidatorIdentityEncoding } from "flarex-protocol/internal/application-runtime-target-v1";
 import {
   isCanonicalFlarexRuntimeObjectV1,
   normalizeFlarexValueV1,
   type CanonicalFlarexRuntimeObjectV1,
 } from "flarex-protocol/value";
 import { FlarexError } from "flarex/values";
-import { validateValidatorValueIssueV1 } from
+import {
+  createQueryInitializer,
+  databaseQueryError,
+  isDatabaseQueryError,
+  type DatabaseQueryRequest,
+  type DatabaseQueryResult,
+  type DatabaseQueryTerminal,
+} from "flarex/internal/query";
+import { validateValidatorValueIssueV1, type ValidatorIdPolicyV1 } from
   "flarex-protocol/internal/validator-engine-core";
 
 export * from "flarex/server";
@@ -174,7 +189,19 @@ const NATIVE_PERFORMANCE = globalThis.performance;
 const NATIVE_SCHEDULER = globalThis.scheduler;
 const NATIVE_WEB_ASSEMBLY = globalThis.WebAssembly;
 const NAMED_ERRORS = new WeakSet<object>();
+const TABLE_LIMIT_FAILURES = new WEAK_SET<Error>();
 const MAXIMUM_INDEX_PAGE_SEMANTIC_BYTES = 8 * 1_048_576;
+const decodeTableName = Schema.decodeUnknownSync(SchemaManifestAppIdentifierSchema);
+const decodeManagedQueryResponse = Schema.decodeUnknownSync(Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("ok"), value: Schema.Unknown }),
+  Schema.Struct({ kind: Schema.Literal("queryError"), message: Schema.String }),
+]), { onExcessProperty: "error" });
+const decodeManagedQueryStart = Schema.decodeUnknownSync(Schema.Struct({
+  queryId: Schema.String.check(Schema.isMinLength(1)),
+}), { onExcessProperty: "error" });
+const decodeManagedQueryPageFrame = Schema.decodeUnknownSync(Schema.Struct({
+  page: Schema.Array(Schema.Unknown), isDone: Schema.Boolean, continueCursor: Schema.String,
+}), { onExcessProperty: "error" });
 const APPLICATION_DOCUMENT_VALIDATION_ERROR_NAME:
   typeof import("flarex-protocol/internal/application-revision-syscall-validation-v1")
     .APPLICATION_REVISION_SYSCALL_DOCUMENT_VALIDATION_ERROR_NAME_V1 =
@@ -199,6 +226,7 @@ let importGuardActive = false;
 let importForbiddenAttempted = false;
 
 export interface ApplicationWorkerDefinitionV1 {
+  readonly validatorIdentityEncoding?: ValidatorIdentityEncoding;
   readonly target: ApplicationTransactionWorkerRequestV1["target"];
   readonly rootFunction: ApplicationFunctionRuntimeFunctionV1;
   readonly internalFunctionCatalog: ReadonlyArray<
@@ -206,6 +234,7 @@ export interface ApplicationWorkerDefinitionV1 {
   >;
   readonly hostPolicy: EdgeActionHostPolicyFrameV1;
   readonly hostPolicySha256Hex: string;
+  readonly documentIdFormat?: "convex";
 }
 
 export interface ApplicationWorkerExecutionInputV1 {
@@ -273,15 +302,17 @@ interface TransactionCapability {
   readonly receiver: object;
   readonly revalidate: () => unknown | PromiseLike<unknown>;
   readonly readPointDocument: (
-    tableName: string,
-    documentId: string,
+    ...argumentsValue: readonly string[]
   ) => unknown | PromiseLike<unknown>;
-  readonly queryIndexRange: (
+  readonly queryIndexRange: ((
     tableName: string,
     indexDescriptor: unknown,
     bounds: unknown,
     limit: number,
-  ) => unknown | PromiseLike<unknown>;
+  ) => unknown | PromiseLike<unknown>) | undefined;
+  readonly queryStart: ((request: DatabaseQueryRequest, terminal: DatabaseQueryTerminal) => unknown | PromiseLike<unknown>) | undefined;
+  readonly queryNext: ((queryId: string, maxResults: number) => unknown | PromiseLike<unknown>) | undefined;
+  readonly queryCleanup: ((queryId: string) => unknown | PromiseLike<unknown>) | undefined;
   readonly takeIncomingRelationSources: ((
     input: unknown,
   ) => unknown | PromiseLike<unknown>) | undefined;
@@ -333,7 +364,7 @@ export async function executeApplicationTransactionWorkerV1(
   let capabilityBoundary = "ApplicationWorkerReadBoundaryV1Error";
   try {
     admitSingleRun();
-    const request = await decodeTransactionRequest(input.request);
+    const request = await decodeTransactionRequest(input.request, input.definition.documentIdFormat, input.definition.validatorIdentityEncoding ?? 2);
     requireTarget(request.target, input.definition);
     installRuntimeGlobals(
       request.context.executionTime,
@@ -343,7 +374,7 @@ export async function executeApplicationTransactionWorkerV1(
     capabilityBoundary = request.context.mode === "query"
       ? "ApplicationWorkerReadBoundaryV1Error"
       : "ApplicationWorkerJournalBoundaryV1Error";
-    capability = transactionCapability(input.capability, request.context.mode);
+    capability = transactionCapability(input.capability, request.context.mode, input.definition.documentIdFormat);
     try {
       await invokeCapability(capability.revalidate, capability.receiver, []);
     } catch (cause) {
@@ -351,12 +382,15 @@ export async function executeApplicationTransactionWorkerV1(
     }
     const registry = await loadRegistry(input.loadExecution);
     const state: BoundaryState = { open: true, pending: new SET() };
+    const coreTables = input.definition.documentIdFormat === "convex" ? coreWorkerTables(request.tables) : undefined;
     const boundaryKind = request.context.mode === "query" ? "read" : "journal";
     const invocations = transactionInvocations(
       request,
       capability,
       state,
       boundaryKind,
+      input.definition.documentIdFormat,
+      coreTables,
     );
     let value: ApplicationWorkerSuccessResultV1["value"];
     try {
@@ -368,6 +402,7 @@ export async function executeApplicationTransactionWorkerV1(
           callBudget: INTERNAL_CALL_BUDGET,
           arguments: request.arguments,
           tables: request.tables,
+          ...(coreTables === undefined ? {} : { idPolicy: coreTables.idPolicy }),
         }),
         registry,
         invocations,
@@ -402,7 +437,7 @@ export async function executeApplicationActionWorkerV1(
   let settledFailure: Error | undefined;
   try {
     admitSingleRun();
-    const request = await decodeActionRequest(input.request);
+    const request = await decodeActionRequest(input.request, input.definition.validatorIdentityEncoding ?? 2);
     requireTarget(request.target, input.definition);
     if (
       hex(request.context.hostPolicySha256) !==
@@ -1173,6 +1208,8 @@ function transactionInvocations(
   capability: TransactionCapability,
   state: BoundaryState,
   boundaryKind: BoundaryKind,
+  documentIdFormat: "convex" | undefined,
+  coreTables: ReturnType<typeof coreWorkerTables> | undefined,
 ): ApplicationFunctionRuntimeInvocationFactoryV1 {
   let opened = false;
   return OBJECT_FREEZE({
@@ -1187,7 +1224,7 @@ function transactionInvocations(
           () => invokeCapability(
             capability.readPointDocument,
             capability.receiver,
-            [tableNameForDocument(request.tables, documentId), documentId],
+            coreTables === undefined ? [tableNameForDocument(request.tables, documentId), documentId] : [documentId],
           ).then(decodePointRead),
         ),
       );
@@ -1200,7 +1237,7 @@ function transactionInvocations(
         ) => trackBoundaryOperation(
           state,
           boundaryKind,
-          () => invokeCapability(
+          () => invokeRequiredCapability(
             capability.queryIndexRange,
             capability.receiver,
             [tableName, indexDescriptor, bounds, limit],
@@ -1232,7 +1269,7 @@ function transactionInvocations(
           },
         ),
       );
-      const database = createFunctionRuntimeIndexedPointDatabaseWriterV1(
+      const pointDatabase = createFunctionRuntimePointDatabaseWriterV1(
         reader,
         OBJECT_FREEZE({
           insertPointDocument: (tableName: string, value: unknown) =>
@@ -1241,7 +1278,8 @@ function transactionInvocations(
                 capability.insertPointDocument,
                 capability.receiver,
                 [tableName, value] as const,
-              ).then(decodeDocumentId)),
+              ).then(value => coreTables === undefined ? decodeDocumentId(value, documentIdFormat)
+                : coreTables.insertResult(tableName, value))),
           patchPointDocument: (documentId: string, value: unknown) =>
             trackBoundaryOperation(state, boundaryKind, () =>
               invokeRequiredCapability(
@@ -1264,9 +1302,26 @@ function transactionInvocations(
                 [documentId] as const,
               ).then(decodeVoid)),
         }),
-        indexReader,
       );
-      const queryDatabase = OBJECT_FREEZE({
+      const logicalQueryReader = createFunctionRuntimeQueryReaderV1(
+        (tableName: string) => createQueryInitializer(
+          tableName,
+          (queryRequest, terminal) => {
+            if (terminal === undefined) throw new ERROR("Managed query terminal is missing.");
+            return executeManagedDatabaseQuery(capability, queryRequest, terminal);
+          },
+          operation => trackBoundaryOperation(state, boundaryKind, operation, true),
+        ),
+      );
+      const database = coreTables !== undefined
+        ? OBJECT_FREEZE({ ...pointDatabase, ...logicalQueryReader, normalizeId: coreTables.normalizeId })
+        : OBJECT_FREEZE({ ...pointDatabase, queryIndexRange: indexReader.queryIndexRange });
+      const queryDatabase = coreTables !== undefined ? OBJECT_FREEZE({
+        get: reader.get,
+        query: logicalQueryReader.query,
+        normalizeId: coreTables.normalizeId,
+        takeIncomingRelationSources: relationReader.takeIncomingRelationSources,
+      }) : OBJECT_FREEZE({
         get: reader.get,
         queryIndexRange: indexReader.queryIndexRange,
         takeIncomingRelationSources:
@@ -1281,17 +1336,16 @@ function transactionInvocations(
           },
         }),
         createQueryContext: (runQuery: ApplicationFunctionRuntimeRunQueryV1) =>
-          createFunctionRuntimeRunQueryContextV1(auth, queryDatabase, runQuery),
+          "query" in queryDatabase
+            ? createFunctionRuntimeRunQueryContextV1(auth, queryDatabase, runQuery)
+            : createFunctionRuntimeRunQueryContextV1(auth, queryDatabase, runQuery),
         createMutationContext: (
           runQuery: ApplicationFunctionRuntimeRunQueryV1,
           runMutation: ApplicationFunctionRuntimeRunMutationV1,
         ) =>
-          createMutationFunctionRuntimeContextV1(
-            auth,
-            database,
-            runQuery,
-            runMutation,
-          ),
+          "query" in database
+            ? createMutationFunctionRuntimeContextV1(auth, database, runQuery, runMutation)
+            : createMutationFunctionRuntimeContextV1(auth, database, runQuery, runMutation),
         recordCallFrame: () => undefined,
         isApplicationError: isCoreApplicationError,
         isCoreApplicationError,
@@ -1308,6 +1362,7 @@ function trackBoundaryOperation<Value>(
   state: BoundaryState,
   kind: BoundaryKind,
   operation: () => Promise<Value>,
+  ordinaryQueryFailure = false,
 ): Promise<Value> {
   if (!state.open) {
     const failure = boundaryError(kind, new ERROR("Boundary is closed."));
@@ -1316,8 +1371,20 @@ function trackBoundaryOperation<Value>(
     void rejected.catch(() => undefined);
     return rejected;
   }
-  const pending = PROMISE.resolve().then(operation).catch(cause => {
-    if (kind === "journal" && isApplicationDocumentValidationFailure(cause)) {
+  // Terminal construction captures operands before developer code can mutate them.
+  let admitted: Promise<Value>;
+  try {
+    admitted = ordinaryQueryFailure ? PROMISE.resolve(operation()) : PROMISE.resolve().then(operation);
+  } catch (cause) {
+    admitted = PROMISE.reject(cause);
+  }
+  const pending = admitted.catch(cause => {
+    if (ordinaryQueryFailure && isDatabaseQueryError(cause)) {
+      if (!state.open) state.failure ??= boundaryError(kind, cause);
+      throw cause;
+    }
+    if (kind === "journal" && (isApplicationDocumentValidationFailure(cause)
+      || (cause instanceof ERROR && TABLE_LIMIT_FAILURES.has(cause)))) {
       throw cause;
     }
     const failure = boundaryError(kind, cause);
@@ -1328,6 +1395,113 @@ function trackBoundaryOperation<Value>(
   const cleanup = () => state.pending.delete(pending);
   void pending.then(cleanup, cleanup);
   return pending;
+}
+
+async function executeManagedDatabaseQuery(
+  capability: TransactionCapability,
+  request: DatabaseQueryRequest,
+  terminal: DatabaseQueryTerminal,
+): Promise<DatabaseQueryResult> {
+  const logicalRequest = { ...request };
+  delete logicalRequest.limit;
+  if (logicalRequest.range !== undefined) {
+    const rangeObject = asObject(logicalRequest.range);
+    const expressions = rangeObject === undefined ? undefined : ownDataValue(rangeObject, "expressions");
+    if (expressions?.kind !== "value") throw databaseQueryError("Invalid query range.");
+    logicalRequest.range = {
+      expressions: captureIndexRangeExpressions(expressions.value).pipe(Result.match({
+        onFailure: cause => { throw databaseQueryError(cause.message); },
+        onSuccess: captured => captured,
+      })),
+    };
+  }
+  const started = decodeManagedQueryValue(await invokeRequiredCapability(
+    capability.queryStart,
+    capability.receiver,
+    [logicalRequest, terminal] as const,
+  ));
+  const { queryId: id } = decodeManagedQueryStart(captureManagedQueryFrame(started));
+  const maximum = terminal.kind === "collect" ? Infinity
+    : terminal.kind === "take" ? terminal.count : terminal.numItems;
+  const page: unknown[] = [];
+  let isDone = false;
+  let continueCursor = "";
+  let queryFailed = false;
+  let queryFailure: unknown;
+  try {
+    while (!isDone && page.length < maximum) {
+      const maxResults = MATH_MIN(MAX_COMMIT_INDEXED_QUERY_PAGE_SIZE_V1, maximum - page.length);
+      const chunk = decodeManagedQueryPage(decodeManagedQueryValue(
+        await invokeRequiredCapability(
+          capability.queryNext,
+          capability.receiver,
+          [id, maxResults] as const,
+        ),
+      ), maxResults);
+      for (const document of chunk.page) page[page.length] = document;
+      isDone = chunk.isDone;
+      continueCursor = chunk.continueCursor;
+    }
+    return { page, isDone, continueCursor };
+  } catch (cause) {
+    queryFailed = true;
+    queryFailure = cause;
+    throw cause;
+  } finally {
+    try {
+      const cleaned = decodeManagedQueryValue(await invokeRequiredCapability(
+        capability.queryCleanup,
+        capability.receiver,
+        [id] as const,
+      ));
+      if (cleaned !== null) throw new ERROR("Invalid managed query cleanup.");
+    } catch (cleanupFailure) {
+      if (queryFailed) throw namedError("ApplicationWorkerQueryCleanupV1Error", OBJECT_FREEZE({
+        queryFailure, cleanupFailure,
+      }));
+      throw cleanupFailure;
+    }
+  }
+}
+
+/** RPC frames are captured without invoking accessors before structural decoding. */
+function captureManagedQueryFrame(input: unknown): Readonly<Record<string, unknown>> {
+  const record = asRecord(input);
+  if (record === undefined) throw new ERROR("Invalid managed query response.");
+  const captured = OBJECT_CREATE(null) as Record<string, unknown>;
+  for (const key of REFLECT_OWN_KEYS(record)) {
+    // Cloudflare attaches local disposal metadata to RPC return objects.
+    if (key === SYMBOL_DISPOSE) continue;
+    if (typeof key !== "string") throw new ERROR("Invalid managed query response.");
+    const value = ownDataValue(record, key);
+    if (value.kind !== "value") throw new ERROR("Invalid managed query response.");
+    captured[key] = value.value;
+  }
+  return captured;
+}
+
+function decodeManagedQueryValue(input: unknown): unknown {
+  const response = decodeManagedQueryResponse(captureManagedQueryFrame(input));
+  switch (response.kind) {
+    case "ok": return response.value;
+    case "queryError": throw databaseQueryError(response.message);
+  }
+}
+
+function decodeManagedQueryPage(input: unknown, maxResults: number): DatabaseQueryResult {
+  const frame = captureManagedQueryFrame(input);
+  const normalized = normalizeFlarexValueV1(frame);
+  if (normalized.semanticSizeBytes > MAXIMUM_INDEX_PAGE_SEMANTIC_BYTES) {
+    throw new ERROR("Invalid managed query page.");
+  }
+  const page = decodeManagedQueryPageFrame(normalized.value);
+  const captured = normalized.value;
+  if (!isCanonicalFlarexRuntimeObjectV1(captured) || !ARRAY_IS_ARRAY(captured.page) ||
+      captured.page.length > maxResults || (captured.page.length === 0 && !page.isDone) ||
+      !captured.page.every(isCanonicalFlarexRuntimeObjectV1)) {
+    throw new ERROR("Invalid managed query page.");
+  }
+  return { page: ARRAY_FROM(captured.page), isDone: page.isDone, continueCursor: page.continueCursor };
 }
 
 function isApplicationDocumentValidationFailure(cause: unknown): boolean {
@@ -1342,10 +1516,12 @@ function isApplicationDocumentValidationFailure(cause: unknown): boolean {
 
 async function decodeTransactionRequest(
   input: unknown,
+  documentIdFormat?: "convex",
+  validatorIdentityEncoding: ValidatorIdentityEncoding = 2,
 ): Promise<ApplicationTransactionWorkerRequestV1> {
   try {
     return await runWorkerProtocolDecoder(
-      decodeApplicationTransactionWorkerRequestV1Effect(input),
+      decodeApplicationTransactionWorkerRequestV1Effect(input, documentIdFormat, validatorIdentityEncoding),
     );
   } catch (cause) {
     throw cause instanceof ApplicationWorkerProtocolV1Error
@@ -1356,10 +1532,11 @@ async function decodeTransactionRequest(
 
 async function decodeActionRequest(
   input: unknown,
+  validatorIdentityEncoding: ValidatorIdentityEncoding = 2,
 ): Promise<ApplicationActionWorkerRequestV1> {
   try {
     return await runWorkerProtocolDecoder(
-      decodeApplicationActionWorkerRequestV1Effect(input),
+      decodeApplicationActionWorkerRequestV1Effect(input, validatorIdentityEncoding),
     );
   } catch (cause) {
     throw cause instanceof ApplicationWorkerProtocolV1Error
@@ -1501,6 +1678,7 @@ function runtimeIntrinsicsIntact(): boolean {
 function transactionCapability(
   input: unknown,
   mode: "query" | "write",
+  documentIdFormat: "convex" | undefined,
 ): TransactionCapability {
   const boundary = mode === "query"
     ? "ApplicationWorkerReadBoundaryV1Error"
@@ -1511,6 +1689,9 @@ function transactionCapability(
     const revalidate = method(record, "revalidate");
     const readPointDocument = method(record, "readPointDocument");
     const queryIndexRange = method(record, "queryIndexRange");
+    const queryStart = method(record, "queryStart");
+    const queryNext = method(record, "queryNext");
+    const queryCleanup = method(record, "queryCleanup");
     const takeIncomingRelationSources = method(
       record,
       "takeIncomingRelationSources",
@@ -1529,7 +1710,9 @@ function transactionCapability(
       : undefined;
     if (
       revalidate === undefined || readPointDocument === undefined ||
-      queryIndexRange === undefined ||
+      (documentIdFormat === "convex"
+        ? queryStart === undefined || queryNext === undefined || queryCleanup === undefined
+        : queryIndexRange === undefined) ||
       (mode === "write" && (
         insertPointDocument === undefined || patchPointDocument === undefined ||
         replacePointDocument === undefined || deletePointDocument === undefined
@@ -1540,6 +1723,9 @@ function transactionCapability(
       revalidate,
       readPointDocument,
       queryIndexRange,
+      queryStart,
+      queryNext,
+      queryCleanup,
       takeIncomingRelationSources,
       insertPointDocument,
       patchPointDocument,
@@ -1907,7 +2093,7 @@ function normalizeTaskValue(
   );
 }
 
-function detachCapabilityValue(value: unknown, failureName: string): unknown {
+export function detachCapabilityValue(value: unknown, failureName: string): unknown {
   if (value === null ||
     (typeof value !== "object" && typeof value !== "function")) return value;
   if (value instanceof ARRAY_BUFFER) return value.slice(0);
@@ -2017,7 +2203,12 @@ function decodeIndexPage(value: unknown): Readonly<{
   });
 }
 
-function decodeDocumentId(value: unknown): string {
+function decodeDocumentId(value: unknown, documentIdFormat?: "convex"): string {
+  if (documentIdFormat === "convex") return decodeCoreDocumentId(value).pipe(
+    Result.map(identity => identity.id),
+    Result.mapError(() => new ERROR("Journal capability returned an invalid document id.")),
+    Result.getOrThrow,
+  );
   return decodeAppDocumentIdentityV1Result(value).pipe(
     Result.map(identity => identity.id),
     Result.mapError(() =>
@@ -2041,6 +2232,51 @@ function tableNameForDocument(
   const tableId = NUMBER(documentId.slice(0, separator));
   const table = tables.find(candidate => candidate.tableId === tableId);
   return separator > 0 && table !== undefined ? table.logicalName : "";
+}
+
+function coreWorkerTables(tables: ReadonlyArray<ApplicationFunctionRuntimeTableV1>) {
+  const numbers = new MAP(tables.map(table => [table.logicalName, table.tableId] as const));
+  const names = new MAP(tables.map(table => [table.tableId, table.logicalName] as const));
+  const idPolicy: Extract<ValidatorIdPolicyV1, { readonly mode: "tableAware" }> = OBJECT_FREEZE({
+    mode: "tableAware", check: (tableName: string, value: string) => {
+    const number = numbers.get(tableName);
+    if (number === undefined) return "unavailable";
+    return decodeCoreDocumentId(value).pipe(Result.match({ onFailure: () => "invalid" as const,
+      onSuccess: identity => identity.tableNumber === number ? "valid" as const : "invalid" as const }));
+  } });
+  return OBJECT_FREEZE({
+    idPolicy,
+    normalizeId: (tableName: string, value: string): string | null => {
+      decodeTableName(tableName);
+      if (typeof value !== "string") throw new ERROR("Invalid normalizeId arguments.");
+      const number = numbers.get(tableName);
+      if (number === undefined) return null;
+      return normalizeDocumentId(number, value).pipe(Result.getOrThrow, Option.getOrNull);
+    },
+    insertResult: (tableName: string, value: unknown): string => {
+      const frame = decodeCoreApplicationInsertResult(
+        detachCapabilityValue(value, "ApplicationWorkerJournalBoundaryV1Error"),
+      ).pipe(Result.getOrThrow);
+      if (frame.kind === "tooManyTables") {
+        const failure = new ERROR(`Number of tables cannot exceed ${MAX_CORE_APPLICATION_WORKER_TABLES}.`);
+        // Error.prototype.name is frozen; an own property preserves the intended refusal.
+        OBJECT_DEFINE_PROPERTY(failure, "name", { value: "TooManyTables" });
+        TABLE_LIMIT_FAILURES.add(failure);
+        throw failure;
+      }
+      if (frame.table.logicalName !== tableName) throw new ERROR("Insert result table mismatch.");
+      const previous = numbers.get(tableName);
+      if (previous !== undefined && previous !== frame.table.tableId) throw new ERROR("Insert result table identity changed.");
+      const previousName = names.get(frame.table.tableId);
+      if (previousName !== undefined && previousName !== tableName) throw new ERROR("Insert result table identity is ambiguous.");
+      numbers.set(tableName, frame.table.tableId);
+      names.set(frame.table.tableId, tableName);
+      if (frame.kind === "inserted") return frame.id;
+      const refusal = new ERROR(APPLICATION_DOCUMENT_VALIDATION_ERROR_MESSAGE);
+      OBJECT_DEFINE_PROPERTY(refusal, "name", { value: APPLICATION_DOCUMENT_VALIDATION_ERROR_NAME });
+      throw refusal;
+    },
+  });
 }
 
 function tableIdForLogicalName(
@@ -2498,7 +2734,7 @@ function disposeApplicationTaskCapabilities(
   );
 }
 
-function disposeReceivedCapability(value: unknown): void {
+export function disposeReceivedCapability(value: unknown): void {
   const object = asObject(value);
   if (object === undefined) return;
   const dispose = REFLECT_GET(object, SYMBOL_DISPOSE);

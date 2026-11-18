@@ -15,7 +15,7 @@ import {
   type SchemaManifestAppTableName,
   type SchemaManifestTableDefinitionsV1,
 } from "../src/schema-manifest";
-import type { ObjectValidatorJsonV1 } from "../src/validator-json";
+import type { DocumentValidatorJsonV1 } from "../src/validator-json";
 
 describe("FlarexDB semantic table-definition manifest section", () => {
   it("keeps stable table IDs and logical names nominal", () => {
@@ -32,7 +32,7 @@ describe("FlarexDB semantic table-definition manifest section", () => {
       .toEqualTypeOf<CatalogTableId>();
     expectTypeOf<
       SchemaManifestAppTableDefinitionV1["definition"]["documentType"]
-    >().toEqualTypeOf<ObjectValidatorJsonV1>();
+    >().toEqualTypeOf<DocumentValidatorJsonV1>();
     expectTypeOf<number>().not.toMatchTypeOf<CatalogTableId>();
     expectTypeOf<SchemaManifestAppTableName>().toMatchTypeOf<string>();
     expectTypeOf<string>()

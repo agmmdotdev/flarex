@@ -1,0 +1,8 @@
+{
+  "status": "measurementFailed",
+  "evidence": "trace-matched-complete-dto.json",
+  "owner": "benchmark native method observation",
+  "scenario": "The native MikroORM repository get trap returns a wrapper that dynamically invokes target[prop]. Installing an observer around that returned wrapper made its next lookup invoke the observer recursively, causing RangeError: Maximum call stack size exceeded.",
+  "disposition": "Observe the actual method value obtained from its defining property descriptor without invoking the get trap, and restore that exact descriptor afterward. Keep the original native repository object, dynamic receiver binding and database error mapping.",
+  "preservation": "The original failed trace report remains unchanged. Quiet complete DTO/error parity previously passed, but its harness source hash predates this observer correction and needs a matching final-checkpoint rerun."
+}

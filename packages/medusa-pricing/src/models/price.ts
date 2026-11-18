@@ -12,14 +12,14 @@ const Price = model
     min_quantity: model.bigNumber().nullable(),
     max_quantity: model.bigNumber().nullable(),
     rules_count: model.number().default(0).nullable(),
-    price_set: model.belongsTo(() => PriceSet, {
+    price_set: model.belongsTo((): typeof PriceSet => PriceSet, {
       mappedBy: "prices",
     }),
-    price_rules: model.hasMany(() => PriceRule, {
+    price_rules: model.hasMany((): typeof PriceRule => PriceRule, {
       mappedBy: "price",
     }),
     price_list: model
-      .belongsTo(() => PriceList, {
+      .belongsTo((): typeof PriceList => PriceList, {
         mappedBy: "prices",
       })
       .nullable(),

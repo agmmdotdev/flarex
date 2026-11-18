@@ -48,11 +48,11 @@ flowchart TD
 | --- | --- |
 | [medusa-core-flows](../../packages/medusa-core-flows/src/product/workflows/create-product-tags.ts) | Original business sequence: create tags, invoke the named hook, transform IDs, emit workflow events and return tags. |
 | [medusa-workflows-sdk](../../packages/medusa-workflows-sdk/src/definition.ts) | Staged definitions, ordered builder, references, transforms, responses, immutable prepared hook registrations and selected execution through caller-owned ports. |
-| [Product-tag adapter](../../packages/medusa-adapter/src/product-tag-workflow.ts) | Select module resources, validate native input/hook views and correlate workflow event IDs with successful creation output. |
+| [Product-tag adapter](../../packages/medusa-adapter/src/workflows/product/tag.ts) | Select module resources, validate native input/hook views and correlate workflow event IDs with successful creation output. |
 | [Shared workflow host](../../packages/medusa-adapter/src/workflow/host.ts) | Derive participants, command allowlists, graph/event bindings and scoped resources from module-owned registrations. |
-| [Native runner](../../packages/medusa-adapter/src/workflow-runtime.ts) | Own foreign callbacks and scoped service runners, charge root budgets and preserve sticky refusal/cancellation. |
-| [Atomic commerce](../../packages/persistence-postgres/src/atomicCommerce/host.ts) | Authenticate installations, share one lifetime and transaction, validate participant facts, seal the result and event contribution, and use existing root recovery. |
-| [Committed events](../../packages/persistence-postgres/src/commitEvents/store.ts) | Durable intent, completeness verification, fresh scope authority, fenced delivery claims and retained subscriber outcomes. |
+| [Native runner](../../packages/medusa-adapter/src/workflow/runtime.ts) | Own foreign callbacks and scoped service runners, charge root budgets and preserve sticky refusal/cancellation. |
+| [Atomic commerce](../../packages/persistence-postgres/src/frameworks/atomicCommerce/host.ts) | Authenticate installations, share one lifetime and transaction, validate participant facts, seal the result and event contribution, and use existing root recovery. |
+| [Committed events](../../packages/persistence-postgres/src/commit/events/store.ts) | Durable intent, completeness verification, fresh scope authority, fenced delivery claims and retained subscriber outcomes. |
 
 The author defines steps, transforms, the response and exposed hooks. Trusted
 host assembly supplies the reviewed code/hook revision and subscriber revisions.
@@ -73,6 +73,29 @@ restored on every exit and never selects request resources. The ordered builder
 retains the pinned add-action/find-last-step mechanics. Named conditions guard
 that finite order; parallel graph movement and persisted-transaction loading
 are not part of this profile.
+
+A composer returns `WorkflowResponse`, an authentic full staged step owned by
+its current definition, or no value (`undefined`). Direct reference returns must
+identify an actual regular step or child-workflow node; input, transform,
+property, hook-only, foreign and forged references remain refused. The SDK
+normalizes admitted direct returns through the existing response capture and
+result resolver, preserving undefined/null distinction, graph identity,
+available-node checks and synchronous construction. An implicit void or explicit
+undefined composer retains every staged node and uses the same absent result as
+`WorkflowResponse(undefined)`. Authoring infers the callback's return before
+admitting void; runtime checks the actual value, so a callback typed as void
+cannot return an unrelated literal unnoticed. Bare null, scalar/object values
+and Promises remain refused. Exposed hooks continue to require the existing
+explicit response options. Native Price Preference deletion, Price List update
+and Price List deletion therefore retain their original business callbacks and
+execution owner.
+
+Step inputs can compose typed references inside literal records, arrays and
+tuples, including optional results. The authoring type recursively describes
+those existing runtime shapes, preserves Date/function leaves and refuses
+incompatible branded references. Executed undefined-result omission, literal
+undefined and null retain their existing resolution semantics; this type
+contract adds no runtime capture, resource or settlement capability.
 
 Each definition owns authentic deferred references and an immutable captured
 graph. Literal capture rejects cycles, accessors, custom prototypes, sparse
@@ -185,7 +208,13 @@ restart after result expiry, stale claims, subscriber independence, corruption
 and retention. Actual competing claims and outside-transaction visibility are
 ordinary-role PostgreSQL proofs; PGlite is not a concurrency substitute.
 
-Preserve original Product/Currency suites and atomic/graph, publication, recovery,
+The [SDK resolution scenarios](../../packages/medusa-workflows-sdk/test/resolution.test.ts)
+cover inferred void/undefined authoring and refusal controls, retained staged
+effects and compensation capture, identical absent-result identity, child
+continuation, late failure and cancellation. Void construction adds no lifetime,
+budget, settlement or compensation execution path.
+
+Preserve native Product/Currency behavior and atomic/graph, publication, recovery,
 wake and migration regressions. Promotion/portable checks inspect the resulting
 import closure. Node/database and browser-bundle checks do not establish deployed
 Cloudflare or production dispatcher readiness.

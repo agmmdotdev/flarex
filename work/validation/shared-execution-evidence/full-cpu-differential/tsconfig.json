@@ -1,0 +1,5 @@
+{
+  "extends": "../representation-lifetime/tsconfig.json",
+  "include": ["./*.ts"],
+  "exclude": []
+}

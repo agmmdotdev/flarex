@@ -1,0 +1,140 @@
+import { Effect } from "effect";
+import { productGraphDefinition } from "./graph-query";
+import { productWorkflowModule } from "./workflow";
+import { productVariantUpdateWorkflowModule } from "./variant-update-workflow";
+import { productUpdateWorkflowModule } from "./product-update-workflow";
+import { productUpdateGraphReceipt } from "./product-update-receipt";
+import { productDeletionCommands } from "./commands/deletion";
+import { productDeletionWorkflowModule } from "./product-deletion-workflow";
+import { productBatchWorkflowModule } from "./product-batch-workflow";
+import { productTypeWorkflowModule } from "./product-type-workflow";
+import { productTypeCommands } from "./commands/type";
+import { productCollectionWorkflowModule } from "./product-collection-workflow";
+import { productCollectionCommands } from "./commands/collection";
+import { productCategoryCommands } from "./commands/category";
+import { productCategoryWorkflowModule } from "./product-category-workflow";
+import { productOptionCommands } from "./commands/option";
+import { productOptionWorkflowModule } from "./product-option-workflow";
+import { productImageVariantCommands } from "./commands/image-variants";
+import type { WorkflowLogicalPolicy } from "../../workflow/module";
+import { prepareProductCommandServices } from "./commands/services";
+import { productReadCommands } from "./commands/reads";
+import { productInternalCommands } from "./commands/internal";
+import { productMutationCommands } from "./commands/mutations";
+import { commerceCommandIdentity, type LogicalCommerceCallValidation } from "@flarex/persistence-postgres/internal/commerce-adapter";
+import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
+import { productCallReceipts } from "./events/call-receipts";
+import { productReferenceReplacementEventLimit } from "../../workflow/policy";
+import { Modules, CommonEvents } from "@medusajs/framework/utils/portable";
+
+/** Private Product composition entry point. Callers receive the complete command,
+ * graph and workflow definitions; no request selects a profile, manager or table. */
+export const makeLocalProductCommands = Effect.fn("ProductAdapter.commands")(function* () {
+  const services = yield* prepareProductCommandServices();
+  const { metadata, description, withService } = services;
+  const { internalProductRead, internalProductChange, internalCategoryRead, internalCategoryChange } = productInternalCommands(services);
+  const reads = productReadCommands(services);
+  const writes = productMutationCommands(services);
+  const deletion = productDeletionCommands(services);
+  const type = productTypeCommands(services);
+  const collection = productCollectionCommands(services);
+  const category = productCategoryCommands(services);
+  const option = productOptionCommands(services);
+  const imageVariants = productImageVariantCommands(services);
+  const commands = Object.freeze({
+    internalProductList: internalProductRead("list"), internalProductRetrieve: internalProductRead("retrieve"),
+    internalProductCreate: internalProductChange("create"), internalProductUpdate: internalProductChange("update"),
+    internalProductSoftDelete: internalProductChange("softDelete"), internalProductRestore: internalProductChange("restore"),
+    internalCategoryList: internalCategoryRead("list"), internalCategoryRetrieve: internalCategoryRead("retrieve"), internalCategoryCount: internalCategoryRead("count"),
+    internalCategoryCreate: internalCategoryChange("create"), internalCategoryUpdate: internalCategoryChange("update"), internalCategoryDelete: internalCategoryChange("delete"),
+    create: writes.create, list: reads.list, retrieve: reads.retrieve,
+    count: reads.count, listCategories: reads.listCategories, retrieveCategory: reads.retrieveCategory,
+    countCategories: reads.countCategories, listTypes: reads.listTypes, retrieveType: reads.retrieveType,
+    countTypes: reads.countTypes, listVariants: reads.listVariants, retrieveVariant: reads.retrieveVariant,
+    countVariants: reads.countVariants, removeImageFromVariant: writes.removeImageFromVariant, softDeleteVariants: writes.softDeleteVariants,
+    listOptions: reads.listOptions, retrieveOption: reads.retrieveOption, countOptions: reads.countOptions,
+    deleteOptions: writes.deleteOptions, listCollections: reads.listCollections, retrieveCollection: reads.retrieveCollection,
+    countCollections: reads.countCollections, listTags: reads.listTags, retrieveTag: reads.retrieveTag,
+    countTags: reads.countTags, delete: writes.delete, deleteTags: writes.deleteTags,
+    deleteTypes: writes.deleteTypes, deleteCategories: writes.deleteCategories, deleteCollections: writes.deleteCollections,
+    softDelete: writes.softDelete, restore: writes.restore, softDeleteTags: writes.softDeleteTags,
+    createTags: writes.createTags, createTypes: writes.createTypes, createCollections: writes.createCollections,
+    createImages: writes.createImages, updateTags: writes.updateTags, updateTagsBySelector: writes.updateTagsBySelector,
+    updateTypes: writes.updateTypes, upsertTags: writes.upsertTags, upsertTypes: writes.upsertTypes,
+    update: writes.update, upsert: writes.upsert, upsertRelationships: writes.upsertRelationships, createOptions: writes.createOptions,
+    createVariants: writes.createVariants, createCategories: writes.createCategories, addImageToVariant: writes.addImageToVariant,
+    updateOptions: writes.updateOptions, updateVariants: writes.updateVariants, updateVariantsBySelector: writes.updateVariantsBySelector,
+    updateVariantsForWorkflow: writes.updateVariantsForWorkflow,
+    updateProductsForWorkflow: writes.updateProductsForWorkflow,
+    softDeleteProductsForWorkflow: deletion.softDeleteProducts, softDeleteVariantsForWorkflow: deletion.softDeleteVariants,
+    countVariantsForDeletion: deletion.countVariants,
+    createTypesForWorkflow: type.createTypes, listTypesForWorkflow: type.listTypes,
+    updateTypesBySelector: type.updateTypesBySelector, softDeleteTypesForWorkflow: type.softDeleteTypes,
+    createCollectionsForWorkflow: collection.createCollections, listCollectionsForWorkflow: collection.listCollections,
+    updateCollectionsBySelector: collection.updateCollectionsBySelector, softDeleteCollectionsForWorkflow: collection.softDeleteCollections,
+    createCategoriesForWorkflow: category.createCategories, listCategoriesForWorkflow: category.listCategories,
+    updateCategoriesBySelector: category.updateCategoriesBySelector, softDeleteCategoriesForWorkflow: category.softDeleteCategories,
+    createOptionsForWorkflow: option.createOptions, listOptionsForWorkflow: option.listOptions,
+    updateOptionsBySelector: option.updateOptionsBySelector, softDeleteOptionsForWorkflow: option.softDeleteOptions,
+    countOptionsForWorkflow: reads.countOptionsForWorkflow,
+    addImageToVariantForImageWorkflow: imageVariants.addImageToVariant,
+    removeImageFromVariantForImageWorkflow: imageVariants.removeImageFromVariant,
+    listVariantsForImageWorkflow: imageVariants.listVariants,
+    updateVariantsBySelectorForImageWorkflow: imageVariants.updateVariantsBySelector,
+    countImages: reads.countImages, updateValues: writes.updateValues, updateCollections: writes.updateCollections,
+    updateCategories: writes.updateCategories, upsertOptions: writes.upsertOptions, upsertVariants: writes.upsertVariants,
+    upsertCollections: writes.upsertCollections, upsertCategories: writes.upsertCategories });
+  const graph = yield* Effect.fromResult(productGraphDefinition(metadata, commands));
+  const receipts = productCallReceipts(metadata);
+  const admitted = new Set(Object.values(commands));
+  const validateLogicalCall: LogicalCommerceCallValidation = Effect.fnUntraced(
+    function* (call, activity, command) {
+      const identity = commerceCommandIdentity(command);
+      if (!admitted.has(command) || identity?.name !== call.commandName || identity.mode !== call.mode)
+        return yield* Effect.fail(commerceError("invalidAuthority"));
+      yield* receipts.validateLogicalCall(call, activity);
+    }, effect => Effect.withSpan(effect, "Product.validateNativeCall", { captureStackTrace: false }));
+  const logicalPolicy = Object.freeze({ capture: receipts.capture, validateLogicalCall });
+  const workflowEvents = { created: metadata.tag.createdEvent, updated: metadata.tag.updatedEvent, deleted: metadata.tag.deletedEvent,
+      variantUpdated: metadata.variant.updatedEvent, variantCreated: metadata.variant.createdEvent,
+      productCreated: metadata.product.createdEvent, productUpdated: metadata.product.updatedEvent,
+      optionCreated: metadata.option.createdEvent, valueCreated: metadata.value.createdEvent,
+      imageCreated: metadata.image.createdEvent, collectionUpdated: metadata.collection.updatedEvent };
+  const workflowPolicy: WorkflowLogicalPolicy = {
+        ...logicalPolicy, commands: Object.values(commands), setNullPolicy: { managedUpdate: "advance" },
+        referenceReplacement: { commands: [commands.updateCollections, commands.upsertCollections],
+          eventName: metadata.product.updatedEvent,
+          metadata: { source: Modules.PRODUCT, object: metadata.product.eventObject, action: CommonEvents.UPDATED }, eventLimit: productReferenceReplacementEventLimit },
+      };
+  const workflow = yield* Effect.fromResult(productWorkflowModule(description, commands, graph, workflowEvents, workflowPolicy));
+  const productImageVariantWorkflow = yield* Effect.fromResult(productWorkflowModule({ ...description,
+    profile: description.profile + ".product-image-variant-workflows" }, { ...commands, ...imageVariants }, graph, workflowEvents,
+    { ...logicalPolicy, commands: Object.values(commands) }));
+  const variantUpdateWorkflow = yield* Effect.fromResult(productVariantUpdateWorkflowModule(description, commands, graph,
+    metadata.variant.updatedEvent, { ...logicalPolicy, commands: Object.values(commands) }));
+  const productUpdateWorkflow = yield* Effect.fromResult(productUpdateWorkflowModule(description, commands, graph,
+    [metadata.product.updatedEvent, ...[metadata.option, metadata.value, metadata.variant, metadata.image]
+      .flatMap(entity => [entity.createdEvent, entity.updatedEvent, entity.deletedEvent])],
+    { ...logicalPolicy, validateLogicalCall: productUpdateGraphReceipt(metadata, validateLogicalCall), commands: Object.values(commands) }));
+  const productDeletionWorkflow = yield* Effect.fromResult(productDeletionWorkflowModule(description,
+    { list: commands.list, softDeleteProducts: deletion.softDeleteProducts, softDeleteVariants: deletion.softDeleteVariants, countVariants: deletion.countVariants }, graph,
+    { product: [metadata.product, metadata.image, metadata.option, metadata.value, metadata.variant].map(entity => entity.deletedEvent), variant: metadata.variant.deletedEvent },
+    { ...logicalPolicy, commands: Object.values(commands) }));
+  const productBatchWorkflow = yield* Effect.fromResult(productBatchWorkflowModule(description, metadata,
+    { creation: workflow, update: productUpdateWorkflow, variantUpdate: variantUpdateWorkflow, deletion: productDeletionWorkflow },
+    { ...logicalPolicy, commands: Object.values(commands) }));
+  const productTypeWorkflow = yield* Effect.fromResult(productTypeWorkflowModule(description, type, graph,
+    { created: metadata.type.createdEvent, updated: metadata.type.updatedEvent, deleted: metadata.type.deletedEvent },
+    { ...logicalPolicy, commands: Object.values(commands) }));
+  const productCollectionWorkflow = yield* Effect.fromResult(productCollectionWorkflowModule(description, collection, graph,
+    { created: metadata.collection.createdEvent, updated: metadata.collection.updatedEvent, deleted: metadata.collection.deletedEvent,
+      productUpdated: metadata.product.updatedEvent }, { ...logicalPolicy, commands: Object.values(commands) }));
+  const productCategoryWorkflow = yield* Effect.fromResult(productCategoryWorkflowModule(description, category, graph,
+    { created: metadata.category.createdEvent, updated: metadata.category.updatedEvent, deleted: metadata.category.deletedEvent },
+    { ...logicalPolicy, commands: Object.values(commands) }));
+  const productOptionWorkflow = yield* Effect.fromResult(productOptionWorkflowModule(description, { ...option, countOptions: reads.countOptionsForWorkflow }, graph,
+    { created: metadata.option.createdEvent, updated: metadata.option.updatedEvent, deleted: metadata.option.deletedEvent,
+      valueCreated: metadata.value.createdEvent, valueUpdated: metadata.value.updatedEvent, valueDeleted: metadata.value.deletedEvent },
+    { ...logicalPolicy, commands: Object.values(commands) }));
+  return { metadata, commands, withService, graph, workflow, variantUpdateWorkflow, productUpdateWorkflow, productDeletionWorkflow, productBatchWorkflow, productTypeWorkflow, productCollectionWorkflow, productCategoryWorkflow, productOptionWorkflow, productImageVariantWorkflow, logicalPolicy };
+});

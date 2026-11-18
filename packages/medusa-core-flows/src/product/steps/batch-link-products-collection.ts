@@ -38,11 +38,11 @@ export const batchLinkProductsToCollectionStep = createStep(
       ...(data.add ?? []),
     ]
 
-    await service.updateProductCollections(data.id, {
+    const updated = await service.updateProductCollections(data.id, {
       product_ids: newProductIds,
     })
 
-    return new StepResponse(void 0, {
+    return new StepResponse(updated, {
       id: data.id,
       productIds: existingProductIds,
     })

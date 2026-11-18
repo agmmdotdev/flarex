@@ -6,5 +6,6 @@ export * from "./PersistenceCodec.js";
 export * from "./PersistenceProjection.js";
 export * from "./Policy.js";
 export * from "./Schema.js";
+export * from "./WorkflowContinuation.js";
 export * from "./Services/RunAttemptLifecycle.js";
 export * from "./Services/TaskSystemRunAttemptStore.js";

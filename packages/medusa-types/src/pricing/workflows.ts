@@ -255,7 +255,7 @@ export interface CreatePriceListsWorkflowStepDTO {
   /**
    * An object whose keys are variant IDs and values are price set IDs.
    */
-  variant_price_map: Record<string, string>
+  variant_price_map: Record<string, string> | undefined
 }
 
 /**

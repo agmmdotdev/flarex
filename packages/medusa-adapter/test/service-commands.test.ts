@@ -1,14 +1,24 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
-import { Cause, Effect, Exit, Schema } from "effect";
-import { commerceError, commerceLimits, defaultCommerceResources, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
+import { mockRelationalRead } from "./mock-relational-read";
+import { Cause, Effect, Exit, Result, Schema } from "effect";
+import { commerceError, commerceLimits, defaultCommerceResources, useCapturedPrivateJsonData, inspectCapturedPrivateJsonData, isJsonObject, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
 import type { CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
-import { getCommerceCommand } from "../../persistence-postgres/src/commerceTransaction/commands";
-import { makeBoundedRequestLifetime } from "../../persistence-postgres/src/boundedRequestLifetime";
-import { makeCommerceCommandContext } from "../../persistence-postgres/src/commerceTransaction/context";
-import { commerceServiceCommands } from "../src/service-commands";
-import { withCommerceService } from "../src/commerce-service-bridge";
-import { commerceDecoder } from "../src/commerce-decoder";
+import { getCommerceCommand } from "../../persistence-postgres/src/frameworks/commerceTransaction/commands";
+import { makeBoundedRequestLifetime } from "../../persistence-postgres/src/execution/preparation/boundedRequestLifetime";
+import { makeCommerceCommandContext } from "../../persistence-postgres/src/frameworks/commerceTransaction/context";
+import { commerceServiceCommands, commerceCommandPreparation } from "../src/module/commands";
+import { withCommerceService } from "../src/module/service-bridge";
+import { commerceDecoder } from "../src/value/decoder";
 import { isGraphReadCommand } from "../src/local-graph/commands";
+import { captureProductSchema } from "../src/modules/product/schema";
+import { productRuntimeMetadata } from "../src/modules/product/runtime-metadata";
+import { productRepository } from "../src/modules/product/repository";
+import { capturePricingMetadata } from "../src/modules/pricing/schema";
+import { preparePricingRepository } from "../src/modules/pricing/repository";
+import { projectRows } from "../src/query/projection";
+import { captureSalesChannelMetadata } from "../src/modules/sales-channel/schema";
+import { prepareSalesChannelRepository } from "../src/modules/sales-channel/repository";
+import { encodeOptionalServiceResult, decodeOptionalServiceResult } from "../src/module/result";
 
 const fixture = Effect.gen(function* () {
   const lifetime = yield* Effect.acquireRelease(
@@ -17,15 +27,12 @@ const fixture = Effect.gen(function* () {
   );
   const unused = () => Effect.fail(commerceError("unsupportedProfile"));
   const ctx = makeCommerceCommandContext(lifetime, { resources: defaultCommerceResources,
-    store: { find: unused, count: unused, write: unused, delete: unused, lifecycle: unused }, table: unused,
+    store: { prepareRead(query: unknown) { return mockRelationalRead(this, query); }, findPage: () => Effect.fail(commerceError("unsupportedProfile")), aggregate: () => Effect.fail(commerceError("unsupportedProfile")), find: unused, count: unused, write: unused, delete: unused, lifecycle: unused }, table: unused,
   }, "command-bindings", lifetime.context, unused, unused);
   return { ctx, lifetime };
 });
-const decode = commerceDecoder(Schema.Struct({ code: Schema.String, values: Schema.Array(Schema.String) }), "invalidInput");
-const prepare = Effect.fn("ServiceCommandsTest.prepare")(function* (ctx: CommerceCommandContext, input: Json) {
-  const decoded = yield* Effect.fromResult(decode(input)).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
-  return { code: decoded.code, values: [...decoded.values] };
-});
+const decode = commerceDecoder(Schema.Struct({ code: Schema.String, values: Schema.Array(Schema.String).pipe(Schema.mutable) }), "invalidInput");
+const prepare = commerceCommandPreparation("ServiceCommandsTest.prepare")(decode);
 type Input = Effect.Success<ReturnType<typeof prepare>>;
 
 function bindings(label: string) {
@@ -61,6 +68,110 @@ function bindings(label: string) {
 }
 
 describe("scoped Medusa service command construction", () => {
+  it("validates nested Pricing companions before retaining an unchanged captured graph", async () => {
+    await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+      const metadata = yield* capturePricingMetadata();
+      const prepared = yield* Effect.fromResult(preparePricingRepository(metadata.frame));
+      const { ctx } = yield* fixture;
+      const compose = (owner: Parameters<typeof prepared.bind>[1]) => prepared.bind(ctx, owner).repository;
+      const source = [{ id: "set", metadata: { signed: -0 }, prices: [
+        { id: "price", amount: "1", raw_amount: { value: "1", precision: 20 } },
+      ] }];
+      const projected = yield* withCommerceService(ctx, compose, repository => repository.serialize(source));
+      expect(projected).toEqual([{ ...source[0], prices: [{ ...source[0]!.prices[0], amount: 1 }] }]);
+      expect(projected).not.toBe(source);
+      expect(source[0]!.prices[0]!.amount).toBe("1");
+      expect(yield* withCommerceService(ctx, compose, repository => repository.serialize(projected))).toBe(projected);
+      const corrupt = [{ id: "set", prices: [{ id: "price", amount: 1, raw_amount: { value: "2", precision: 20 } }] }];
+      expect(yield* Effect.flip(withCommerceService(ctx, compose, repository => repository.serialize(corrupt))))
+        .toMatchObject({ reason: "storedCorruption" });
+    })));
+  });
+  it("transports native optional results without changing ordinary JSON commands", async () => {
+    const nativeValues = [undefined, null, { id: "native", metadata: { value: true } }, { kind: "absent" }];
+    for (const value of nativeValues) {
+      await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+        const { ctx } = yield* fixture;
+        const use = (ctx: CommerceCommandContext, work: (service: object) => Promise<unknown>) =>
+          withCommerceService(ctx, () => ({}), work);
+        const commands = commerceServiceCommands(use);
+        const command = commands.write("nativeOptionalResult", prepare, async () => encodeOptionalServiceResult(value));
+        const definition = getCommerceCommand(command);
+        if (!definition) throw new Error("Missing optional command");
+        const wire = yield* definition.run(ctx, { code: "optional", values: [] });
+        expect(Result.getOrThrow(decodeOptionalServiceResult(wire))).toEqual(value);
+        expect(wire).toEqual(value === undefined ? { kind: "absent" } : { kind: "present", value });
+      })));
+    }
+    for (const malformed of [{ kind: "other" }, { kind: "present" }, { kind: "absent", value: null },
+      { kind: "present", value: null, extra: true }])
+      expect(decodeOptionalServiceResult(malformed)).toMatchObject({ _tag: "Failure", failure: { reason: "storedCorruption" } });
+  });
+
+  it.each(["getter", "oversized"] as const)("captures the complete optional service result (%s)", async malformed => {
+    let getterCalls = 0;
+    const value = malformed === "oversized" ? { large: "x".repeat(defaultCommerceResources.commandBytes) }
+      : Object.defineProperty({}, "hidden", { enumerable: true, get() { getterCalls++; return "bad"; } });
+    await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+      const { ctx, lifetime } = yield* fixture;
+      const use = (ctx: CommerceCommandContext, work: (service: object) => Promise<unknown>) =>
+        withCommerceService(ctx, () => ({}), work);
+      const command = commerceServiceCommands(use).write("nativeOptionalMalformed", prepare,
+        async () => encodeOptionalServiceResult(value));
+      const definition = getCommerceCommand(command);
+      if (!definition) throw new Error("Missing optional command");
+      expect(yield* Effect.flip(definition.run(ctx, { code: "optional", values: [] })))
+        .toMatchObject({ reason: malformed === "oversized" ? "limitExceeded" : "invalidInput" });
+      expect(yield* Effect.flip(lifetime.seal)).toMatchObject({ reason: "rollbackOnly" });
+    })));
+    expect(getterCalls).toBe(0);
+  });
+
+  it("preserves native undefined serialization before private command capture", async () => {
+    await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+      const metadata = yield* captureSalesChannelMetadata();
+      const repository = yield* Effect.fromResult(prepareSalesChannelRepository(metadata.frame));
+      const { ctx } = yield* fixture;
+      const result = yield* withCommerceService(ctx, owner => repository.bind(ctx, owner).repository,
+        async native => ({ serializedUndefined: await native.serialize(undefined) === undefined }));
+      expect(result).toEqual({ serializedUndefined: true });
+    })));
+  });
+  it("retains genuine projections through actual Product and Pricing serializers and the native service return", async () => {
+    await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+      const product = yield* captureProductSchema("serializer-handoff").pipe(Effect.flatMap(schema => productRuntimeMetadata(schema.metadata.frame)));
+      const pricing = yield* capturePricingMetadata();
+      const pricingRepository = yield* Effect.fromResult(preparePricingRepository(pricing.frame));
+      const { ctx } = yield* fixture;
+      const native = Result.getOrThrow(useCapturedPrivateJsonData({ id: "native-row", metadata: { signed: -0, value: "retained" },
+        amount: 1, raw_amount: { value: "1", precision: 20 }, extra: "selected-away" }, 65_536, commerceError)).value;
+      if (!isJsonObject(native)) throw new Error("Missing complete native row");
+      const selected = Result.getOrThrow(projectRows([native], { fields: new Set(["id", "metadata", "amount", "raw_amount"]), children: [], nullRelations: [] }));
+      expect(selected[0]?.metadata).toBe(native.metadata);
+      const input = Result.getOrThrow(useCapturedPrivateJsonData(selected, 65_536, commerceError)).value;
+      for (const compose of [
+        (owner: Parameters<typeof productRepository>[1]) => productRepository(ctx, owner, product).repository,
+        (owner: Parameters<typeof productRepository>[1]) => pricingRepository.bind(ctx, owner).repository,
+      ]) {
+        const serialized = yield* withCommerceService(ctx, compose, repository => repository.serialize(input));
+        expect(serialized).toBe(input);
+        expect(serialized).toEqual([{ id: "native-row", metadata: { signed: -0, value: "retained" }, amount: 1, raw_amount: { value: "1", precision: 20 } }]);
+        expect(inspectCapturedPrivateJsonData(serialized)?.negativeZero).toBe(true);
+        if (!Array.isArray(serialized) || serialized[0] === undefined || !isJsonObject(serialized[0]) ||
+          serialized[0].metadata === undefined || !isJsonObject(serialized[0].metadata))
+          throw new Error("Missing serialized native metadata");
+        expect(Object.is(serialized[0].metadata.signed, -0)).toBe(true);
+        expect(Reflect.set(serialized[0].metadata, "signed", 1)).toBe(false);
+        // Foreign scalar results still capture completely and omit undefined
+        // exactly as the native serialization contract requires.
+        const foreign = { id: "foreign", metadata: { value: "original" }, omitted: undefined };
+        const captured = yield* withCommerceService(ctx, compose, repository => repository.serialize(foreign));
+        foreign.metadata.value = "escaped";
+        expect(captured).toEqual({ id: "foreign", metadata: { value: "original" } });
+      }
+    })));
+  });
+
   it("is lazy, preserves identities and marks only read tokens for graph use", () => {
     const bound = bindings("volume");
     expect(bound.constructions()).toBe(0);

@@ -29,16 +29,16 @@ export const ServiceZone = model
     id: model.id({ prefix: "serzo" }).primaryKey(),
     name: model.text(),
     fulfillment_set: model.belongsTo<() => typeof FulfillmentSet>(
-      () => FulfillmentSet,
+      (): typeof FulfillmentSet => FulfillmentSet,
       {
         mappedBy: "service_zones",
       }
     ),
-    geo_zones: model.hasMany<() => typeof GeoZone>(() => GeoZone, {
+    geo_zones: model.hasMany<() => typeof GeoZone>((): typeof GeoZone => GeoZone, {
       mappedBy: "service_zone",
     }),
     shipping_options: model.hasMany<() => typeof ShippingOption>(
-      () => ShippingOption,
+      (): typeof ShippingOption => ShippingOption,
       {
         mappedBy: "service_zone",
       }

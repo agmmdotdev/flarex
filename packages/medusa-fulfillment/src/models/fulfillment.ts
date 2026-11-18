@@ -18,25 +18,25 @@ export const Fulfillment = model
     canceled_at: model.dateTime().nullable(),
     data: model.json().nullable(),
     requires_shipping: model.boolean().default(true),
-    items: model.hasMany(() => FulfillmentItem, {
+    items: model.hasMany((): typeof FulfillmentItem => FulfillmentItem, {
       mappedBy: "fulfillment",
     }),
-    labels: model.hasMany(() => FulfillmentLabel, {
+    labels: model.hasMany((): typeof FulfillmentLabel => FulfillmentLabel, {
       mappedBy: "fulfillment",
     }),
     provider: model
-      .hasOne(() => FulfillmentProvider, {
+      .hasOne((): typeof FulfillmentProvider => FulfillmentProvider, {
         foreignKey: true,
         mappedBy: undefined,
       })
       .nullable(),
     shipping_option: model
-      .belongsTo(() => ShippingOption, {
+      .belongsTo((): typeof ShippingOption => ShippingOption, {
         mappedBy: "fulfillments",
       })
       .nullable(),
     delivery_address: model
-      .hasOne(() => FulfillmentAddress, {
+      .hasOne((): typeof FulfillmentAddress => FulfillmentAddress, {
         foreignKey: true,
         mappedBy: undefined,
       })

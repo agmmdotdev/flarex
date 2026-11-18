@@ -1,16 +1,23 @@
-import { Result } from "effect";
+import { Result, Schema } from "effect";
 import { WorkflowResponse } from "./responses";
-import { definitionError, WorkflowDefinitionError, type Compensate, type Hook, type HookHandlers, type Invoke, type Resolved, type StepExecutionContext, type StepOptions, type WorkflowData, type WorkflowNode } from "./model";
+import { definitionError, WorkflowDefinitionError, type Compensate, type Hook, type HookHandlers, type Invoke, type ParallelBranch, type ParallelGroup, type Resolved, type StepExecutionContext, type StepOptions, type WorkflowData, type WorkflowInput, type WorkflowNode } from "./model";
 import { proxify, transformer, referenceOf } from "./references";
 import type { StepFunction, StepOutput } from "./model";
 import { OrchestratorBuilder } from "./orchestrator-builder";
 import { workflowIdentity, type WorkflowIdentity } from "./identity";
+import { prepareWorkflowResolution } from "./resolution";
+import { callbackWorkflowView, prepareCallbackWorkflow, registerCallbackWorkflow } from "./callback-binding";
+import type { WorkflowContainer } from "./model";
+import { captureNativeCartCreationProfile, nativeCartCreationProfile } from "./native-cart-creation-profile";
+import { captureNativePricingContextProfile, nativePricingContextResult, parseNativePricingContext, type NativePricingContext } from "./native-pricing-context";
 
 interface Composer {
   readonly owner: object;
   readonly nodes: WorkflowNode[];
   readonly hooks: Set<string>;
   readonly pending: Set<object>;
+  readonly parallel: ParallelGroup[];
+  anonymousConditions: number;
   guards: readonly object[];
 }
 // Construction-only ambient state, restored even if a nested composer throws.
@@ -28,20 +35,37 @@ function assertSynchronous(value: unknown): void {
   }
 }
 function options(value: string | StepOptions): StepOptions {
+  if (typeof value !== "string") {
+    if (typeof value !== "object" || value === null || (Object.getPrototypeOf(value) !== Object.prototype && Object.getPrototypeOf(value) !== null) ||
+      Reflect.ownKeys(value).some(key => {
+        const property = Object.getOwnPropertyDescriptor(value, key);
+        return typeof key !== "string" || !["name", "compensation", "invokedWorkflows"].includes(key) ||
+          property === undefined || !("value" in property) || !property.enumerable;
+      })) throw definitionError("unsupportedProfile", "Invalid finite step options");
+  }
   const input = typeof value === "string" ? { name: value } : { ...value };
-  if (typeof input.name !== "string" || !/^[a-zA-Z][a-zA-Z0-9_-]{0,127}$/.test(input.name) || Object.keys(input).some(key => !["name", "compensation"].includes(key)) ||
+  if (typeof input.name !== "string" || !/^[a-zA-Z][a-zA-Z0-9_-]{0,127}$/.test(input.name) ||
     (input.compensation !== undefined && input.compensation !== "transactionCovered")) throw definitionError("unsupportedProfile", "Only finite ordered atomic steps are admitted");
   return input;
 }
 function stage<Output>(context: Composer, node: WorkflowNode & { name: string }): StepOutput<Output> {
   context.nodes.push(node);
+  let staged: WorkflowNode = node;
   const result = proxify<Output>({ kind: "step", owner: context.owner, step: node.id }, value => {
     if (current !== context) throw definitionError("outsideComposer", "Configure a step in its own active composer");
     const captured = captureDefinition(value, context.owner);
-    if (typeof captured !== "object" || captured === null || Reflect.ownKeys(captured).length !== 1 || !("name" in captured) || typeof captured.name !== "string") {
-      throw definitionError("unsupportedProfile", "Only an explicit step name can be configured");
+    if (typeof captured !== "object" || captured === null || Reflect.ownKeys(captured).length === 0 ||
+      Reflect.ownKeys(captured).some(key => key !== "name" && key !== "noCompensation") ||
+      ("name" in captured && typeof captured.name !== "string") ||
+      ("noCompensation" in captured && (captured.noCompensation !== true || staged.kind !== "step"))) {
+      throw definitionError("unsupportedProfile", "Only a step name and explicit noCompensation:true can be configured");
     }
-    node.name = options(captured.name).name;
+    const name = "name" in captured && typeof captured.name === "string" ? options(captured.name).name : staged.name;
+    const index = context.nodes.indexOf(staged);
+    if (index < 0) throw definitionError("invalidReference", "Missing staged step configuration");
+    staged = staged.kind === "step" && "noCompensation" in captured
+      ? { ...staged, name, compensate: undefined, compensation: undefined } : { ...staged, name };
+    context.nodes[index] = staged;
   });
   // SAFETY: this root reference alone carries the authenticated configuration callback.
   return result as StepOutput<Output>;
@@ -50,6 +74,20 @@ export function createStep<Input, Output, Compensation = Output>(nameOrConfig: s
   invoke: Invoke<Input, Output, Compensation>, compensate?: Compensate<Compensation>,
 ): StepFunction<Input, Output> {
   const config = options(nameOrConfig);
+  const invokedWorkflows = config.invokedWorkflows === undefined ? undefined : (() => {
+    const children = config.invokedWorkflows;
+    if (!Array.isArray(children) || children.length === 0 || children.length > 64 ||
+      Reflect.ownKeys(children).length !== children.length + 1) throw definitionError("unsupportedProfile", "Invalid callback child closure");
+    const seen = new Set<object>();
+    return Object.freeze(Array.from({ length: children.length }, (_, index) => {
+      const property = Object.getOwnPropertyDescriptor(children, String(index));
+      if (property === undefined || !("value" in property) || !property.enumerable ||
+        typeof property.value !== "function" || seen.has(property.value)) throw definitionError("invalidDefinition", "Invalid or duplicate callback child");
+      const definition = property.value;
+      seen.add(definition);
+      return Object.freeze({ definition, workflow: prepareCallbackWorkflow(definition) });
+    }));
+  })();
   if (compensate !== undefined && config.compensation !== "transactionCovered") throw definitionError("unsupportedProfile", "Compensation must be explicitly transaction covered");
   return input => {
     const context = composer();
@@ -57,7 +95,8 @@ export function createStep<Input, Output, Compensation = Output>(nameOrConfig: s
     // the heterogeneous graph. The private runtime resolves this same edge.
     const node = { id: Object.freeze({}), kind: "step" as const, guards: context.guards,
       name: config.name, input: captureDefinition(input, context.owner), invoke: invoke as Invoke<unknown, unknown>,
-      compensate: compensate as Compensate<unknown> | undefined, compensation: config.compensation, hook: false };
+      compensate: compensate as Compensate<unknown> | undefined, compensation: config.compensation, hook: false,
+      ...(invokedWorkflows === undefined ? {} : { invokedWorkflows }) };
     return stage<Output>(context, node);
   };
 }
@@ -81,22 +120,90 @@ export function transform(input: unknown, ...functions: readonly unknown[]): Wor
   // SAFETY: at least one transformer was constructed above.
   return staged as WorkflowData<unknown>;
 }
-export function createHook<const Name extends string, Input, Output = unknown>(name: Name, input: Input, options_: Record<string, never> = {}): Hook<Name, Input, Output> {
-  if (Reflect.ownKeys(options_).length !== 0) throw definitionError("unsupportedProfile", "Hook validators require a separately admitted profile");
+export function createHook<const Name extends string, Input>(name: Name, input: Input,
+  options_: { readonly resultValidator: typeof nativePricingContextResult }): Hook<Name, Resolved<Input>, NativePricingContext>;
+export function createHook<const Name extends string, Input, Output = unknown>(name: Name, input: Input,
+  options_?: Record<string, never>): Hook<Name, Resolved<Input>, Output>;
+export function createHook<const Name extends string, Input, Output = unknown>(name: Name, input: Input, options_: unknown = {}): Hook<Name, Resolved<Input>, Output> {
+  if (typeof options_ !== "object" || options_ === null) throw definitionError("unsupportedProfile", "Invalid finite hook options");
+  const keys = Reflect.ownKeys(options_);
+  const validator = keys.length === 0 ? undefined : (() => {
+    const property = Object.getOwnPropertyDescriptor(options_, "resultValidator");
+    if (keys.length !== 1 || keys[0] !== "resultValidator" || property === undefined || !("value" in property) || !property.enumerable ||
+      Object.getPrototypeOf(options_) !== Object.prototype && Object.getPrototypeOf(options_) !== null)
+      throw definitionError("unsupportedProfile", "Invalid finite hook validator options");
+    return captureNativePricingContextProfile(property.value);
+  })();
   const context = composer();
   if (context.hooks.has(name)) throw definitionError("duplicateHook", `Cannot define multiple hook handlers for the ${name} hook`);
   options(name);
   context.hooks.add(name);
   // No-op hook resolves to undefined in this profile, preserving getResult absence.
   const id = Object.freeze({});
-  context.nodes.push({ id, kind: "step", guards: context.guards, name, input: captureDefinition(input, context.owner), invoke: () => undefined, compensate: undefined, compensation: undefined, hook: true });
+  context.nodes.push({ id, kind: "step", guards: context.guards, name, input: captureDefinition(input, context.owner), invoke: () => undefined, compensate: undefined, compensation: undefined, hook: true,
+    ...(validator === undefined ? {} : { hookValidator: validator }) });
   const result = proxify<Output | undefined>({ kind: "step", owner: context.owner, step: id });
-  return Object.freeze({ name, getResult: () => result });
+  if (validator === undefined) return Object.freeze({ name, getResult: () => result });
+  let cached: WorkflowData<Output | undefined> | undefined;
+  return Object.freeze({ name, getResult: () => {
+    if (cached !== undefined) return cached;
+    if (current !== context) throw definitionError("outsideComposer", "Read a hook result in its own active composer");
+    const resultId = Object.freeze({});
+    context.nodes.push({ id: resultId, kind: "step", guards: context.guards, name: `get-${name}-result`, input: result,
+      invoke: parseNativePricingContext, compensate: undefined, compensation: undefined, hook: false,
+      hookResult: Object.freeze({ handler: id, validator }) });
+    cached = proxify<Output | undefined>({ kind: "step", owner: context.owner, step: resultId });
+    return cached;
+  } });
+}
+/** Mark actual staged sibling regions. The positional results retain their
+ * references; preparation and execution own the new parallel arrangement. */
+export function parallelize<const Values extends readonly (WorkflowData<unknown> | undefined)[]>(...steps: Values): Values {
+  const context = composer();
+  if (steps.length < 2) throw definitionError("unsupportedProfile", "Parallel composition requires at least two sibling regions");
+  const sameGuards = (left: readonly object[], right: readonly object[]) => left.length === right.length && left.every((guard, index) => guard === right[index]);
+  const branches: ParallelBranch[] = steps.map(step => {
+    const reference = referenceOf(step);
+    if (reference?.kind !== "step" || reference.owner !== context.owner) throw definitionError("invalidReference", "Parallel results must be this composer's staged steps");
+    const index = context.nodes.findIndex(node => node.id === reference.step), node = context.nodes[index];
+    if (node === undefined) throw definitionError("invalidReference", "Unknown parallel step");
+    let start = index;
+    if (node.kind === "branchResult") {
+      const condition = node.guards.at(-1);
+      start = context.nodes.findIndex(candidate => candidate.id === condition && candidate.kind === "condition");
+    }
+    const first = context.nodes[start];
+    if (first === undefined || !sameGuards(first.guards, context.guards)) throw definitionError("invalidDefinition", "Parallel regions require the same enclosing conditions");
+    return Object.freeze({ start, end: index + 1 });
+  }).sort((left, right) => left.start - right.start);
+  for (let index = 1; index < branches.length; index++)
+    if (branches[index - 1]!.end !== branches[index]!.start) throw definitionError("invalidDefinition", "Parallel regions must be consecutive and non-overlapping");
+  const start = branches[0]!.start, end = branches.at(-1)!.end;
+  for (const existing of context.parallel) {
+    const first = existing.branches[0]!.start, last = existing.branches.at(-1)!.end;
+    if (first >= end || last <= start) continue;
+    if (!branches.some(branch => branch.start <= first && branch.end >= last && (branch.start !== first || branch.end !== last)))
+      throw definitionError("invalidDefinition", "Parallel groups cannot overlap or regroup an existing region");
+  }
+  context.parallel.push(Object.freeze({ branches: Object.freeze(branches) }));
+  return steps;
 }
 /** A finite construction-time region. Its predicate belongs to each invocation,
  * while both its steps and deferred transforms inherit the enclosing guards. */
-export function when<Input>(name: string, input: Input, predicate: (input: Resolved<Input>) => boolean) {
+type ConditionalData<Value> = WorkflowData<Value | undefined> & (Value extends object ? {
+  readonly [Key in keyof Value]: Value[Key] | undefined;
+} : unknown);
+interface ConditionalRegion {
+  readonly then: <Output>(build: () => Output, ...synchronous: [Extract<Output, PromiseLike<unknown>>] extends [never] ? [] : [never]) => ConditionalData<Resolved<Output>>;
+}
+export function when<Input>(input: Input, predicate: (input: Resolved<Input>) => boolean): ConditionalRegion;
+export function when<Input>(name: string, input: Input, predicate: (input: Resolved<Input>) => boolean): ConditionalRegion;
+export function when<Input>(nameOrInput: string | Input, inputOrPredicate: Input | ((input: Resolved<Input>) => boolean), predicate_?: (input: Resolved<Input>) => boolean): ConditionalRegion {
   const context = composer();
+  const anonymous = arguments.length === 2;
+  const name = anonymous ? `when-${context.anonymousConditions++}` : nameOrInput;
+  const input = anonymous ? nameOrInput : inputOrPredicate;
+  const predicate = anonymous ? inputOrPredicate : predicate_;
   if (typeof name !== "string") throw definitionError("unsupportedProfile", "A condition requires a string name");
   options(name);
   if (typeof predicate !== "function") throw definitionError("invalidDefinition", "A condition requires a synchronous Boolean predicate");
@@ -106,7 +213,8 @@ export function when<Input>(name: string, input: Input, predicate: (input: Resol
     // SAFETY: the authoring signature binds the captured input before graph erasure.
     invoke: predicate as Invoke<unknown, unknown>, compensate: undefined, compensation: undefined, hook: false });
   context.pending.add(id);
-  return Object.freeze({ then<Output>(build: () => Output & ([Extract<Output, PromiseLike<unknown>>] extends [never] ? unknown : never)): WorkflowData<Resolved<Output> | undefined> {
+  function then<Output>(build: () => Output, ...synchronous: [Extract<Output, PromiseLike<unknown>>] extends [never] ? [] : [never]): ConditionalData<Resolved<Output>>;
+  function then(build: () => unknown, ..._synchronous: readonly never[]): unknown {
     if (current !== context || context.guards !== parents || !context.pending.delete(id) || typeof build !== "function") {
       throw definitionError("invalidDefinition", "Complete each condition once in its own composer region");
     }
@@ -120,8 +228,11 @@ export function when<Input>(name: string, input: Input, predicate: (input: Resol
       context.nodes.push({ id: resultId, kind: "branchResult", guards, name: `$${name}`, input: result,
         invoke: value => value, compensate: undefined, compensation: undefined, hook: false });
     } finally { context.guards = parents; }
+    // The overload retains whole-value absence while authoring member access
+    // remains valid on the staged proxy even when the branch will be skipped.
     return proxify({ kind: "step", owner: context.owner, step: resultId });
-  } });
+  }
+  return Object.freeze({ then });
 }
 export interface PreparedWorkflow {
   readonly name: string;
@@ -130,39 +241,97 @@ export interface PreparedWorkflow {
   readonly result: unknown;
   readonly nodeCount: number;
   readonly identity: WorkflowIdentity;
+  readonly resolution: ReturnType<typeof prepareWorkflowResolution>;
+  readonly parallel?: readonly ParallelGroup[];
 }
 const preparedWorkflows = new WeakSet<object>();
 /** Only SDK preparation establishes the frozen graph and reference ownership. */
 export const isPreparedWorkflow = (value: unknown): value is PreparedWorkflow =>
   typeof value === "object" && value !== null && preparedWorkflows.has(value);
 export interface WorkflowDefinition<Input, Output, Hooks extends readonly unknown[]> {
+  (container: WorkflowContainer): { readonly run: (options: { readonly input: Input }) => Promise<{ readonly result: Resolved<Output> }> };
   readonly name: string;
   readonly prepare: (hooks?: HookHandlers<Hooks>, ...additional: readonly HookHandlers<Hooks>[]) => Result.Result<PreparedWorkflow, ReturnType<typeof definitionError>>;
-  readonly runAsStep: (input: { readonly input: Input | WorkflowData<Input>; readonly hooks?: HookHandlers<Hooks> }) => StepOutput<Resolved<Output>>;
+  readonly runAsStep: (input: { readonly input: WorkflowInput<Input>; readonly hooks?: HookHandlers<Hooks> }) => StepOutput<Resolved<Output>>;
   readonly " input"?: Input;
   readonly " output"?: Output;
 }
-export function createWorkflow<Input, Output, const Hooks extends readonly unknown[]>(name: string,
+const WorkflowDeclarationConfig = Schema.Union([
+  Schema.Struct({ name: Schema.String, idempotent: Schema.Literal(false) }),
+  Schema.Struct({ name: Schema.String, idempotent: Schema.Literal(false),
+    store: Schema.Literal(true), retentionTime: Schema.Literal(259200) }),
+]);
+type WorkflowDeclaration = string | typeof WorkflowDeclarationConfig.Type | {
+  readonly name: string; readonly constructionProfile: typeof nativeCartCreationProfile;
+};
+const decodeWorkflowDeclaration = Schema.decodeUnknownResult(WorkflowDeclarationConfig, { onExcessProperty: "error" });
+const decodeProfileName = Schema.decodeUnknownResult(Schema.String);
+
+function captureWorkflowDeclaration(input: WorkflowDeclaration) {
+  if (typeof input === "string") return { name: input };
+  const profile = typeof input === "object" && input !== null ? Object.getOwnPropertyDescriptor(input, "constructionProfile") : undefined;
+  if (profile !== undefined) {
+    const keys = Reflect.ownKeys(input), name = Object.getOwnPropertyDescriptor(input, "name");
+    if (keys.length !== 2 || keys.some(key => key !== "name" && key !== "constructionProfile") ||
+      Object.getPrototypeOf(input) !== Object.prototype && Object.getPrototypeOf(input) !== null ||
+      name === undefined || !("value" in name) || !name.enumerable || !("value" in profile) || !profile.enumerable)
+      throw definitionError("unsupportedProfile", "Invalid native Cart construction declaration");
+    const selected = captureNativeCartCreationProfile(profile.value);
+    const declaredName = Result.getOrThrow(decodeProfileName(name.value).pipe(
+      Result.mapError(() => definitionError("unsupportedProfile", "Invalid native Cart construction name"))));
+    return { name: declaredName, constructionProfile: selected };
+  }
+  return Result.getOrThrow(decodeWorkflowDeclaration(captureDefinition(input, Object.freeze({}))).pipe(
+    Result.mapError(() => definitionError("unsupportedProfile", "Unsupported finite workflow declaration"))));
+}
+export function createWorkflow<Input, Output, const Hooks extends readonly unknown[]>(nameOrConfig: WorkflowDeclaration,
   build: (input: Input) => WorkflowResponse<Output, Hooks>,
+): WorkflowDefinition<Resolved<Input>, Output, Hooks>;
+export function createWorkflow<Input, const Output extends StepOutput<unknown>>(nameOrConfig: WorkflowDeclaration,
+  build: (input: Input) => Output,
+): WorkflowDefinition<Resolved<Input>, Output, readonly []>;
+export function createWorkflow<Input, const Output>(nameOrConfig: WorkflowDeclaration,
+  build: ((input: Input) => Output) & ([Output] extends [void] ? unknown : never),
+): WorkflowDefinition<Resolved<Input>, Output, readonly []>;
+export function createWorkflow<Input, Output, const Hooks extends readonly unknown[]>(nameOrConfig: WorkflowDeclaration,
+  build: (input: Input) => WorkflowResponse<Output, Hooks> | Output,
 ): WorkflowDefinition<Resolved<Input>, Output, Hooks> {
-  if (typeof name !== "string") throw definitionError("unsupportedProfile", "Workflow configuration is not admitted in this atomic profile");
+  const configuration = captureWorkflowDeclaration(nameOrConfig);
+  const maximumNodes = "constructionProfile" in configuration ? configuration.constructionProfile.maximumNodes : 64;
+  const name = configuration.name;
   options(name);
-  const context: Composer = { owner: Object.freeze({}), nodes: [], hooks: new Set(), pending: new Set(), guards: Object.freeze([]) };
+  const context: Composer = { owner: Object.freeze({}), nodes: [], hooks: new Set(), pending: new Set(), parallel: [], anonymousConditions: 0, guards: Object.freeze([]) };
   const previous = current;
   let response: WorkflowResponse<Output, Hooks>;
   try {
     current = context;
     // SAFETY: the composer receives an authenticated staged input facade. Infer
     // its annotation directly so branded Boolean/union inputs retain all members.
-    response = build(proxify({ kind: "input", owner: context.owner }) as Input);
-    assertSynchronous(response);
-    if (!(response instanceof WorkflowResponse)) throw definitionError("invalidDefinition", "The composer must synchronously return WorkflowResponse");
+    const built = build(proxify({ kind: "input", owner: context.owner }) as Input);
+    assertSynchronous(built);
+    if (built instanceof WorkflowResponse) response = built;
+    // Native side-effect composers may return no value. Normalize only literal
+    // undefined through ordinary response capture; every staged node remains
+    // subject to the same ownership, ordering, preparation and runtime checks.
+    else if (built === undefined) response = new WorkflowResponse<Output, Hooks>(built);
+    else {
+      const reference = referenceOf(built);
+      if (reference?.kind !== "step" || reference.owner !== context.owner ||
+        !context.nodes.some(node => node.id === reference.step &&
+          (node.kind === "workflow" || node.kind === "step" && !node.hook)))
+        throw definitionError("invalidReference", "Return this composer's staged step or WorkflowResponse");
+      // The pinned native exporter resolves a returned staged step directly.
+      // Normalize only this authentic current graph member through the existing
+      // response capture, availability checks, result identity and resolver.
+      response = new WorkflowResponse<Output, Hooks>(built);
+    }
   } finally { current = previous; }
   if (context.pending.size !== 0) throw definitionError("invalidDefinition", "Every condition requires then");
   let nodeCount = 0;
   for (const node of context.nodes) {
-    nodeCount += 1 + (node.kind === "workflow" ? node.workflow.nodeCount : 0);
-    if (nodeCount > 64) throw definitionError("unsupportedProfile", "Too many workflow nodes");
+    nodeCount += 1 + (node.kind === "workflow" ? node.workflow.nodeCount :
+      node.invokedWorkflows?.reduce((count, child) => count + child.workflow.nodeCount, 0) ?? 0);
+    if (nodeCount > maximumNodes) throw definitionError("unsupportedProfile", "Too many workflow nodes");
   }
   const flow = new OrchestratorBuilder();
   const byName = new Map<string, WorkflowNode>();
@@ -176,11 +345,23 @@ export function createWorkflow<Input, Output, const Hooks extends readonly unkno
   for (let step = flow.build(); step !== undefined; step = step.next) {
     const node = byName.get(step.action);
     if (node === undefined) throw definitionError("invalidDefinition", "Missing step handler");
-    ordered.push(Object.freeze({ ...node, input: captureDefinition(node.input, context.owner, available) }));
+    const index = ordered.length;
+    let permitted: ReadonlySet<object> = available;
+    for (const group of context.parallel) {
+      const branch = group.branches.find(branch => index >= branch.start && index < branch.end);
+      if (branch === undefined) continue;
+      const own = new Set(permitted);
+      for (const sibling of group.branches) if (sibling !== branch)
+        for (let position = sibling.start; position < sibling.end; position++) own.delete(context.nodes[position]!.id);
+      permitted = own;
+    }
+    ordered.push(Object.freeze({ ...node, input: captureDefinition(node.input, context.owner, permitted) }));
     available.add(node.id);
   }
   const nodes = Object.freeze(ordered);
+  const parallel = context.parallel.length === 0 ? undefined : Object.freeze([...context.parallel]);
   const result = captureDefinition(response.$result, context.owner, available);
+  const resolution = prepareWorkflowResolution(nodes.map(node => node.input), result);
   const exposed = new Set((response.options?.hooks ?? []).map(hook => {
     if (typeof hook !== "object" || hook === null || !("name" in hook) || typeof hook.name !== "string" || !context.hooks.has(hook.name)) throw definitionError("invalidDefinition", "Unknown exposed hook");
     return hook.name;
@@ -205,14 +386,29 @@ export function createWorkflow<Input, Output, const Hooks extends readonly unkno
         return Object.freeze({ ...node, invoke: handler as Invoke<unknown, unknown>, boundHook: true });
       });
       const prepared = Object.freeze({ name, owner: context.owner, nodes: Object.freeze(bound), result, nodeCount,
-        identity: workflowIdentity(name, bound, result) });
+        identity: Object.freeze({ ...workflowIdentity(name, bound, result, parallel),
+          ...("idempotent" in configuration ? { idempotent: false as const } : {}),
+          ...("store" in configuration ? { store: true as const, retentionTime: 259200 as const } : {}),
+          ...("constructionProfile" in configuration ? { constructionProfile: configuration.constructionProfile } : {}) }),
+        resolution, ...(parallel === undefined ? {} : { parallel }) });
       preparedWorkflows.add(prepared);
       return prepared;
     },
     catch: cause => cause instanceof WorkflowDefinitionError ? cause : definitionError("invalidDefinition", "Invalid hook registration"),
   });
-  const definition: WorkflowDefinition<Resolved<Input>, Output, Hooks> = Object.freeze({ name, prepare,
-    runAsStep: (input: { readonly input: Resolved<Input> | WorkflowData<Resolved<Input>>; readonly hooks?: HookHandlers<Hooks> }) => {
+  // Native factories are callable; only an SDK-issued live callback facade can
+  // bind this definition to execution. Preparation remains construction-only.
+  const factory = (container: WorkflowContainer) => {
+    const view = callbackWorkflowView(factory, container);
+    return Object.freeze({ run: (options: { readonly input: Resolved<Input> }) => {
+      // SAFETY: the declared child graph binds Output before the heterogeneous
+      // execution port erases it. Runtime captures preserve that same edge.
+      return view.run(options) as Promise<{ readonly result: Resolved<Output> }>;
+    } });
+  };
+  Object.defineProperty(factory, "name", { value: name, configurable: false });
+  const definition = Object.freeze(Object.assign(factory, { prepare,
+    runAsStep: (input: { readonly input: WorkflowInput<Resolved<Input>>; readonly hooks?: HookHandlers<Hooks> }) => {
       const context = composer();
       // Unlike definition data, this boundary deliberately accepts hook functions.
       // Inspect descriptors before extracting either input or registration data.
@@ -238,7 +434,8 @@ export function createWorkflow<Input, Output, const Hooks extends readonly unkno
       return stage<Resolved<Output>>(context, { id: Object.freeze({}), kind: "workflow", guards: context.guards,
         name: `${name}-as-step`, input: captured, workflow: child });
     },
-  });
+  }));
+  registerCallbackWorkflow(definition, () => Result.getOrThrow(prepare()));
   return definition;
 }
 

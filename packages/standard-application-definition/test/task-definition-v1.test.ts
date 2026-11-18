@@ -55,6 +55,66 @@ const sha256 = makeStandardApplicationTaskSha256V1((input) =>
 );
 
 describe("Standard Application task definition V1", () => {
+  it.each(["__proto__", "constructor", "toString"])("preserves own %s fields through Task metadata capture", fieldName => {
+    const literal = { type: "literal", value: -0 };
+    const fields = Object.fromEntries([[fieldName, { fieldType: literal, optional: false }]]);
+    const payloadValidator = { type: "object", value: fields };
+    const input = { ...makeManifest("reserved.fields"), payloadValidator,
+      outputValidator: { type: "array", value: payloadValidator } };
+    const captured = success(decodeCanonicalTaskManifestV1(input));
+    const nested = captured.outputValidator;
+    if (captured.payloadValidator.type !== "object" || nested?.type !== "array" || nested.value.type !== "object") {
+      throw new Error("Expected captured object validators.");
+    }
+    for (const validator of [captured.payloadValidator, nested.value]) {
+      expect(Object.hasOwn(validator.value, fieldName)).toBe(true);
+      const field = validator.value[fieldName];
+      if (field?.fieldType.type !== "literal") throw new Error("Expected captured literal field.");
+      expect(Object.is(field.fieldType.value, -0)).toBe(true);
+      expect(Object.isFrozen(validator.value)).toBe(true);
+      expect(Object.isFrozen(field)).toBe(true);
+    }
+    const bytes = success(encodeCanonicalTaskManifestPreimageV1(captured));
+    expect(UTF8.decode(bytes)).toContain(`${JSON.stringify(fieldName)}:`);
+    expect(success(decodeCanonicalTaskManifestPreimageV1(bytes))).toEqual(captured);
+    expect(Object.isFrozen(literal)).toBe(false);
+    literal.value = 0;
+    const capturedField = captured.payloadValidator.value[fieldName];
+    if (capturedField?.fieldType.type !== "literal") throw new Error("Expected detached literal field.");
+    expect(Object.is(capturedField.fieldType.value, -0)).toBe(true);
+  });
+  it("preserves numeric literal identity in canonical Task manifests and cold wire decoding", () => {
+    const values = [-9_223_372_036_854_775_808n, 9_223_372_036_854_775_807n, 1n, 1, -0, 0];
+    const texts = values.map(value => {
+      const manifest = { ...makeManifest("literal.run"), payloadValidator: { type: "literal", value } };
+      const bytes = success(encodeCanonicalTaskManifestPreimageV1(manifest));
+      const decoded = success(decodeCanonicalTaskManifestPreimageV1(bytes));
+      expect(decoded.payloadValidator.type).toBe("literal");
+      if (decoded.payloadValidator.type === "literal") expect(Object.is(decoded.payloadValidator.value, value)).toBe(true);
+      expect(success(encodeCanonicalTaskManifestPreimageV1(decoded))).toEqual(bytes);
+      return UTF8.decode(bytes);
+    });
+    expect(new Set(texts).size).toBe(values.length);
+    for (const value of [NaN, Infinity, -Infinity]) {
+      expect(Result.isFailure(encodeCanonicalTaskManifestPreimageV1({ ...makeManifest("literal.run"),
+        payloadValidator: { type: "literal", value },
+      }))).toBe(true);
+    }
+  });
+
+  it("round-trips current record wrappers while refusing bare records on wire ingress", () => {
+    const payloadValidator = { type: "record", keys: { type: "string" }, values: { type: "commitTs" } } as const;
+    const input = { ...makeManifest("record.run"), payloadValidator,
+      outputValidator: { type: "union", value: [payloadValidator, { type: "null" }] } };
+    expect(success(decodeCanonicalTaskManifestV1(input)).payloadValidator).toEqual(payloadValidator);
+    const bytes = success(encodeCanonicalTaskManifestPreimageV1(input));
+    const reopened = success(decodeCanonicalTaskManifestPreimageV1(bytes));
+    expect(reopened.payloadValidator).toEqual(payloadValidator);
+    expect(success(encodeCanonicalTaskManifestPreimageV1(reopened))).toEqual(bytes);
+    const legacyBareBytes = UTF8_ENCODER.encode(JSON.stringify({ codec: CANONICAL_TASK_MANIFEST_CODEC_V1, task: input }));
+    expect(Result.isFailure(decodeCanonicalTaskManifestPreimageV1(legacyBareBytes))).toBe(true);
+  });
+
   it("keeps task-definition codecs outside the prepared-definition contract", () => {
     expect("decodeTaskIdV1" in PreparedDefinition).toBe(false);
     const effect: Effect.Effect<
@@ -153,6 +213,28 @@ describe("Standard Application task definition V1", () => {
       reason: "catalog_validator_budget_exceeded",
       maximum: 65_536,
     });
+  });
+
+  it("counts logical validator occurrences with a bounded shared DAG traversal", () => {
+    let validator: CanonicalTaskManifestV1["payloadValidator"] = { type: "string" };
+    for (let depth = 0; depth < 30; depth += 1) {
+      validator = { type: "union", value: [validator, validator] };
+    }
+    expect(failure(decodeCanonicalTaskCatalogV1({ version: 1, tasks: [
+      { ...makeManifest("dag"), payloadValidator: validator },
+    ] }))).toMatchObject({ reason: "catalog_validator_budget_exceeded", path: "tasks[0]", observed: 65_537, maximum: 65_536 });
+    expect(failure(encodeCanonicalTaskManifestPreimageV1({ ...makeManifest("dag"), payloadValidator: validator })))
+      .toMatchObject({ reason: "canonical_bytes_exceeded" });
+    let smaller: CanonicalTaskManifestV1["payloadValidator"] = { type: "string" };
+    for (let depth = 0; depth < 15; depth += 1) smaller = { type: "union", value: [smaller, smaller] };
+    // Exactly 65,535 occurrences fit. Reusing the same graph as output exceeds
+    // the catalog budget even though it introduces no new validator objects.
+    expect(Result.isSuccess(decodeCanonicalTaskCatalogV1({ version: 1, tasks: [
+      { ...makeManifest("fits"), payloadValidator: smaller },
+    ] }))).toBe(true);
+    expect(failure(decodeCanonicalTaskCatalogV1({ version: 1, tasks: [
+      { ...makeManifest("twice"), payloadValidator: smaller, outputValidator: smaller },
+    ] }))).toMatchObject({ reason: "catalog_validator_budget_exceeded", observed: 65_537 });
   });
 
   it("reuses strict validator, retry-policy, compute, duration, and queue owners", () => {

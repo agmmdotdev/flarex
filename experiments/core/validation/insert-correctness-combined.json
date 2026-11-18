@@ -1,0 +1,2276 @@
+{
+  "base": "3ef829d6cfc823b12607ccef9e1e7decbb00f3c6",
+  "status": "complete-affected-files-replaced",
+  "sources": {
+    "full": "insert-correctness.json",
+    "replacement": "insert-owner-final.json"
+  },
+  "replacementReason": "Both complete affected files replace their initial results; two obsolete storage.point barriers timed out before moving dropped-insert fault injection to the actual decoder. Runtime bytes unchanged.",
+  "passed": 396,
+  "failed": 0,
+  "skipped": 26,
+  "originalFailedCases": [
+    "standalone experimental Application (pglite) drains dropped insert promises without losing an owned defect or leaking a rejection",
+    "standalone experimental Application (postgres) drains dropped insert promises without losing an owned defect or leaking a rejection"
+  ],
+  "replacedFiles": [
+    "application.test.ts",
+    "new-id-validation.test.ts"
+  ],
+  "groups": {
+    "comparison.test.mjs": {
+      "passed": 0,
+      "skipped": 1
+    },
+    "framework-neutral root and native boundary contracts": {
+      "passed": 10,
+      "skipped": 0
+    },
+    "complete experimental Payload create (pglite)": {
+      "passed": 10,
+      "skipped": 2
+    },
+    "complete experimental Payload create (postgres)": {
+      "passed": 12,
+      "skipped": 0
+    },
+    "bounded text equality (pglite)": {
+      "passed": 17,
+      "skipped": 0
+    },
+    "bounded text equality (postgres)": {
+      "passed": 17,
+      "skipped": 0
+    },
+    "selected-table accepting owner (pglite)": {
+      "passed": 17,
+      "skipped": 0
+    },
+    "selected-table accepting owner (postgres)": {
+      "passed": 17,
+      "skipped": 0
+    },
+    "measurement-contracts.test.mjs": {
+      "passed": 5,
+      "skipped": 0
+    },
+    "measurement-costs.test.mjs": {
+      "passed": 4,
+      "skipped": 0
+    },
+    "measurement.test.mjs": {
+      "passed": 0,
+      "skipped": 1
+    },
+    "native Application/Product/Payload mixed graph (pglite)": {
+      "passed": 27,
+      "skipped": 0
+    },
+    "native Application/Product/Payload mixed graph (postgres)": {
+      "passed": 27,
+      "skipped": 0
+    },
+    "owned query and accepting inputs (pglite)": {
+      "passed": 4,
+      "skipped": 9
+    },
+    "owned query and accepting inputs (postgres)": {
+      "passed": 13,
+      "skipped": 0
+    },
+    "native Payload CRUD (pglite)": {
+      "passed": 17,
+      "skipped": 0
+    },
+    "native Payload CRUD (postgres)": {
+      "passed": 17,
+      "skipped": 0
+    },
+    "postgres.test.ts": {
+      "passed": 3,
+      "skipped": 0
+    },
+    "product-comparison.test.mjs": {
+      "passed": 0,
+      "skipped": 1
+    },
+    "native experimental Product (pglite)": {
+      "passed": 16,
+      "skipped": 1
+    },
+    "native experimental Product (postgres)": {
+      "passed": 17,
+      "skipped": 0
+    },
+    "read-guard-plans.test.mjs": {
+      "passed": 1,
+      "skipped": 0
+    },
+    "compiled read guards (pglite)": {
+      "passed": 5,
+      "skipped": 1
+    },
+    "compiled read guards (postgres)": {
+      "passed": 6,
+      "skipped": 0
+    },
+    "scaling-corpus.test.mjs": {
+      "passed": 3,
+      "skipped": 0
+    },
+    "scaling.test.mjs": {
+      "passed": 0,
+      "skipped": 1
+    },
+    "combined settlement observations (pglite)": {
+      "passed": 7,
+      "skipped": 5
+    },
+    "combined settlement observations (postgres)": {
+      "passed": 12,
+      "skipped": 0
+    },
+    "standalone experimental Application (pglite)": {
+      "passed": 36,
+      "skipped": 1
+    },
+    "standalone experimental Application (postgres)": {
+      "passed": 37,
+      "skipped": 0
+    },
+    "batched generated identities (pglite)": {
+      "passed": 18,
+      "skipped": 3
+    },
+    "batched generated identities (postgres)": {
+      "passed": 21,
+      "skipped": 0
+    }
+  },
+  "tests": [
+    {
+      "file": "comparison.test.mjs",
+      "name": "compares complete Payload create across native, active and experimental cores",
+      "status": "skipped"
+    },
+    {
+      "file": "contracts.test.ts",
+      "name": "framework-neutral root and native boundary contracts rejects table identities outside the authoritative catalog range",
+      "status": "passed"
+    },
+    {
+      "file": "contracts.test.ts",
+      "name": "framework-neutral root and native boundary contracts maintains ordered pending updates/deletes and prunes selective ranges as state grows",
+      "status": "passed"
+    },
+    {
+      "file": "contracts.test.ts",
+      "name": "framework-neutral root and native boundary contracts detaches and freezes each compiled unique definition",
+      "status": "passed"
+    },
+    {
+      "file": "contracts.test.ts",
+      "name": "framework-neutral root and native boundary contracts classifies unsupported native definitions as typed failures",
+      "status": "passed"
+    },
+    {
+      "file": "contracts.test.ts",
+      "name": "framework-neutral root and native boundary contracts bounds CRUD identities and combined update input before native access or database work",
+      "status": "passed"
+    },
+    {
+      "file": "contracts.test.ts",
+      "name": "framework-neutral root and native boundary contracts supervises prepared create native access through host shutdown",
+      "status": "passed"
+    },
+    {
+      "file": "contracts.test.ts",
+      "name": "framework-neutral root and native boundary contracts supervises prepared updated-result native access through host shutdown",
+      "status": "passed"
+    },
+    {
+      "file": "contracts.test.ts",
+      "name": "framework-neutral root and native boundary contracts revokes and drains a dropped native DAL continuation before it can stage a late replacement",
+      "status": "passed"
+    },
+    {
+      "file": "contracts.test.ts",
+      "name": "framework-neutral root and native boundary contracts preserves a combined storage failure and cleanup defect across Payload",
+      "status": "passed"
+    },
+    {
+      "file": "contracts.test.ts",
+      "name": "framework-neutral root and native boundary contracts refuses concurrent duplicate identities without losing a successful row",
+      "status": "passed"
+    },
+    {
+      "file": "create.test.ts",
+      "name": "complete experimental Payload create (pglite) runs the native lifecycle/default, returns the complete document and commits once",
+      "status": "passed"
+    },
+    {
+      "file": "create.test.ts",
+      "name": "complete experimental Payload create (pglite) refuses malformed native input and rolls back a hook failure",
+      "status": "passed"
+    },
+    {
+      "file": "create.test.ts",
+      "name": "complete experimental Payload create (pglite) refuses duplicate unique claims including concurrent commands atomically",
+      "status": "passed"
+    },
+    {
+      "file": "create.test.ts",
+      "name": "complete experimental Payload create (pglite) resolves a lost accepting response without repeating native hooks",
+      "status": "passed"
+    },
+    {
+      "file": "create.test.ts",
+      "name": "complete experimental Payload create (pglite) checks revocation after native work and before accepting data",
+      "status": "passed"
+    },
+    {
+      "file": "create.test.ts",
+      "name": "complete experimental Payload create (pglite) prevents serving-role table/definition/gate bypass and foreign-scope entry",
+      "status": "passed"
+    },
+    {
+      "file": "create.test.ts",
+      "name": "complete experimental Payload create (pglite) refuses an expired command and cancellation before settlement",
+      "status": "passed"
+    },
+    {
+      "file": "create.test.ts",
+      "name": "complete experimental Payload create (pglite) uses a constant number of local key lookups per batch insert",
+      "status": "passed"
+    },
+    {
+      "file": "create.test.ts",
+      "name": "complete experimental Payload create (pglite) preserves callable defaults and checks current native access on replay",
+      "status": "passed"
+    },
+    {
+      "file": "create.test.ts",
+      "name": "complete experimental Payload create (pglite) cancels and drains a pending native hook without holding a database transaction",
+      "status": "passed"
+    },
+    {
+      "file": "create.test.ts",
+      "name": "complete experimental Payload create (pglite) discards the checked-out connection after failed BEGIN",
+      "status": "skipped"
+    },
+    {
+      "file": "create.test.ts",
+      "name": "complete experimental Payload create (pglite) holds the selected grant through accepting work blocked on commit order",
+      "status": "skipped"
+    },
+    {
+      "file": "create.test.ts",
+      "name": "complete experimental Payload create (postgres) runs the native lifecycle/default, returns the complete document and commits once",
+      "status": "passed"
+    },
+    {
+      "file": "create.test.ts",
+      "name": "complete experimental Payload create (postgres) refuses malformed native input and rolls back a hook failure",
+      "status": "passed"
+    },
+    {
+      "file": "create.test.ts",
+      "name": "complete experimental Payload create (postgres) refuses duplicate unique claims including concurrent commands atomically",
+      "status": "passed"
+    },
+    {
+      "file": "create.test.ts",
+      "name": "complete experimental Payload create (postgres) resolves a lost accepting response without repeating native hooks",
+      "status": "passed"
+    },
+    {
+      "file": "create.test.ts",
+      "name": "complete experimental Payload create (postgres) checks revocation after native work and before accepting data",
+      "status": "passed"
+    },
+    {
+      "file": "create.test.ts",
+      "name": "complete experimental Payload create (postgres) prevents serving-role table/definition/gate bypass and foreign-scope entry",
+      "status": "passed"
+    },
+    {
+      "file": "create.test.ts",
+      "name": "complete experimental Payload create (postgres) refuses an expired command and cancellation before settlement",
+      "status": "passed"
+    },
+    {
+      "file": "create.test.ts",
+      "name": "complete experimental Payload create (postgres) uses a constant number of local key lookups per batch insert",
+      "status": "passed"
+    },
+    {
+      "file": "create.test.ts",
+      "name": "complete experimental Payload create (postgres) preserves callable defaults and checks current native access on replay",
+      "status": "passed"
+    },
+    {
+      "file": "create.test.ts",
+      "name": "complete experimental Payload create (postgres) cancels and drains a pending native hook without holding a database transaction",
+      "status": "passed"
+    },
+    {
+      "file": "create.test.ts",
+      "name": "complete experimental Payload create (postgres) discards the checked-out connection after failed BEGIN",
+      "status": "passed"
+    },
+    {
+      "file": "create.test.ts",
+      "name": "complete experimental Payload create (postgres) holds the selected grant through accepting work blocked on commit order",
+      "status": "passed"
+    },
+    {
+      "file": "equality.test.ts",
+      "name": "bounded text equality (pglite) projects matching identities without hydrating large values and publishes exact tombstones",
+      "status": "passed"
+    },
+    {
+      "file": "equality.test.ts",
+      "name": "bounded text equality (pglite) merges indexed pending additions, removals and repeated edits without duplicate cleanup",
+      "status": "passed"
+    },
+    {
+      "file": "equality.test.ts",
+      "name": "bounded text equality (pglite) hydrates a projected predecessor only at the accepted revision",
+      "status": "passed"
+    },
+    {
+      "file": "equality.test.ts",
+      "name": "bounded text equality (pglite) rejects concurrent matching insert at direct acceptance",
+      "status": "passed"
+    },
+    {
+      "file": "equality.test.ts",
+      "name": "bounded text equality (pglite) rejects concurrent matching enter at direct acceptance",
+      "status": "passed"
+    },
+    {
+      "file": "equality.test.ts",
+      "name": "bounded text equality (pglite) rejects concurrent matching leave at direct acceptance",
+      "status": "passed"
+    },
+    {
+      "file": "equality.test.ts",
+      "name": "bounded text equality (pglite) rejects concurrent matching delete at direct acceptance",
+      "status": "passed"
+    },
+    {
+      "file": "equality.test.ts",
+      "name": "bounded text equality (pglite) checks empty equality predicates in framework groups while unrelated keys remain independent",
+      "status": "passed"
+    },
+    {
+      "file": "equality.test.ts",
+      "name": "bounded text equality (pglite) checks empty equality predicates in mixed groups while unrelated keys remain independent",
+      "status": "passed"
+    },
+    {
+      "file": "equality.test.ts",
+      "name": "bounded text equality (pglite) rejects an interval leave after read-only identity selection without write predecessors",
+      "status": "passed"
+    },
+    {
+      "file": "equality.test.ts",
+      "name": "bounded text equality (pglite) rejects an interval delete after read-only identity selection without write predecessors",
+      "status": "passed"
+    },
+    {
+      "file": "equality.test.ts",
+      "name": "bounded text equality (pglite) refuses malformed text and descriptor hazards before exact-key work",
+      "status": "passed"
+    },
+    {
+      "file": "equality.test.ts",
+      "name": "bounded text equality (pglite) disambiguates fingerprint collisions and supports text beyond btree entry size",
+      "status": "passed"
+    },
+    {
+      "file": "equality.test.ts",
+      "name": "bounded text equality (pglite) counts invisible historical candidates and poisons overflow instead of returning partial rows",
+      "status": "passed"
+    },
+    {
+      "file": "equality.test.ts",
+      "name": "bounded text equality (pglite) bounds combined original and pending membership before returning a projection",
+      "status": "passed"
+    },
+    {
+      "file": "equality.test.ts",
+      "name": "bounded text equality (pglite) fails closed for unknown required indexes and revoked authority before acquiring data",
+      "status": "passed"
+    },
+    {
+      "file": "equality.test.ts",
+      "name": "bounded text equality (pglite) uses the actual bounded identity projection plan without a history or body scan",
+      "status": "passed"
+    },
+    {
+      "file": "equality.test.ts",
+      "name": "bounded text equality (postgres) projects matching identities without hydrating large values and publishes exact tombstones",
+      "status": "passed"
+    },
+    {
+      "file": "equality.test.ts",
+      "name": "bounded text equality (postgres) merges indexed pending additions, removals and repeated edits without duplicate cleanup",
+      "status": "passed"
+    },
+    {
+      "file": "equality.test.ts",
+      "name": "bounded text equality (postgres) hydrates a projected predecessor only at the accepted revision",
+      "status": "passed"
+    },
+    {
+      "file": "equality.test.ts",
+      "name": "bounded text equality (postgres) rejects concurrent matching insert at direct acceptance",
+      "status": "passed"
+    },
+    {
+      "file": "equality.test.ts",
+      "name": "bounded text equality (postgres) rejects concurrent matching enter at direct acceptance",
+      "status": "passed"
+    },
+    {
+      "file": "equality.test.ts",
+      "name": "bounded text equality (postgres) rejects concurrent matching leave at direct acceptance",
+      "status": "passed"
+    },
+    {
+      "file": "equality.test.ts",
+      "name": "bounded text equality (postgres) rejects concurrent matching delete at direct acceptance",
+      "status": "passed"
+    },
+    {
+      "file": "equality.test.ts",
+      "name": "bounded text equality (postgres) checks empty equality predicates in framework groups while unrelated keys remain independent",
+      "status": "passed"
+    },
+    {
+      "file": "equality.test.ts",
+      "name": "bounded text equality (postgres) checks empty equality predicates in mixed groups while unrelated keys remain independent",
+      "status": "passed"
+    },
+    {
+      "file": "equality.test.ts",
+      "name": "bounded text equality (postgres) rejects an interval leave after read-only identity selection without write predecessors",
+      "status": "passed"
+    },
+    {
+      "file": "equality.test.ts",
+      "name": "bounded text equality (postgres) rejects an interval delete after read-only identity selection without write predecessors",
+      "status": "passed"
+    },
+    {
+      "file": "equality.test.ts",
+      "name": "bounded text equality (postgres) refuses malformed text and descriptor hazards before exact-key work",
+      "status": "passed"
+    },
+    {
+      "file": "equality.test.ts",
+      "name": "bounded text equality (postgres) disambiguates fingerprint collisions and supports text beyond btree entry size",
+      "status": "passed"
+    },
+    {
+      "file": "equality.test.ts",
+      "name": "bounded text equality (postgres) counts invisible historical candidates and poisons overflow instead of returning partial rows",
+      "status": "passed"
+    },
+    {
+      "file": "equality.test.ts",
+      "name": "bounded text equality (postgres) bounds combined original and pending membership before returning a projection",
+      "status": "passed"
+    },
+    {
+      "file": "equality.test.ts",
+      "name": "bounded text equality (postgres) fails closed for unknown required indexes and revoked authority before acquiring data",
+      "status": "passed"
+    },
+    {
+      "file": "equality.test.ts",
+      "name": "bounded text equality (postgres) uses the actual bounded identity projection plan without a history or body scan",
+      "status": "passed"
+    },
+    {
+      "file": "group.test.ts",
+      "name": "selected-table accepting owner (pglite) publishes multiple physical tables, indexes, events and one outcome at one scope sequence",
+      "status": "passed"
+    },
+    {
+      "file": "group.test.ts",
+      "name": "selected-table accepting owner (pglite) keeps direct framework groups distinct and refuses every child settlement/abort capability",
+      "status": "passed"
+    },
+    {
+      "file": "group.test.ts",
+      "name": "selected-table accepting owner (pglite) rolls back earlier tables when a final concurrent unique constraint fails",
+      "status": "passed"
+    },
+    {
+      "file": "group.test.ts",
+      "name": "selected-table accepting owner (pglite) validates read-only native participant observations: same writer",
+      "status": "passed"
+    },
+    {
+      "file": "group.test.ts",
+      "name": "selected-table accepting owner (pglite) validates read-only native participant observations: independent writer",
+      "status": "passed"
+    },
+    {
+      "file": "group.test.ts",
+      "name": "selected-table accepting owner (pglite) rechecks multi-table authority at acceptance: selected",
+      "status": "passed"
+    },
+    {
+      "file": "group.test.ts",
+      "name": "selected-table accepting owner (pglite) rechecks multi-table authority at acceptance: unrelated",
+      "status": "passed"
+    },
+    {
+      "file": "group.test.ts",
+      "name": "selected-table accepting owner (pglite) rechecks multi-table authority at acceptance: expiry",
+      "status": "passed"
+    },
+    {
+      "file": "group.test.ts",
+      "name": "selected-table accepting owner (pglite) rechecks multi-table authority at acceptance: fence",
+      "status": "passed"
+    },
+    {
+      "file": "group.test.ts",
+      "name": "selected-table accepting owner (pglite) shares retained bytes and latches a caught participant failure before any table can publish",
+      "status": "passed"
+    },
+    {
+      "file": "group.test.ts",
+      "name": "selected-table accepting owner (pglite) retains a caught defect as a sticky group Cause",
+      "status": "passed"
+    },
+    {
+      "file": "group.test.ts",
+      "name": "selected-table accepting owner (pglite) latches a caught Application validation failure without an optional caller wrapper",
+      "status": "passed"
+    },
+    {
+      "file": "group.test.ts",
+      "name": "selected-table accepting owner (pglite) keeps framework-only value kinds outside the mixed Application profile",
+      "status": "passed"
+    },
+    {
+      "file": "group.test.ts",
+      "name": "selected-table accepting owner (pglite) revokes escaped poison handles without letting them change later callback state",
+      "status": "passed"
+    },
+    {
+      "file": "group.test.ts",
+      "name": "selected-table accepting owner (pglite) bounds retained unique evidence through repeated edits of the same pending row",
+      "status": "passed"
+    },
+    {
+      "file": "group.test.ts",
+      "name": "selected-table accepting owner (pglite) signals, drains and retains close outcomes for a paused callback: normal",
+      "status": "passed"
+    },
+    {
+      "file": "group.test.ts",
+      "name": "selected-table accepting owner (pglite) signals, drains and retains close outcomes for a paused callback: native-failure",
+      "status": "passed"
+    },
+    {
+      "file": "group.test.ts",
+      "name": "selected-table accepting owner (postgres) publishes multiple physical tables, indexes, events and one outcome at one scope sequence",
+      "status": "passed"
+    },
+    {
+      "file": "group.test.ts",
+      "name": "selected-table accepting owner (postgres) keeps direct framework groups distinct and refuses every child settlement/abort capability",
+      "status": "passed"
+    },
+    {
+      "file": "group.test.ts",
+      "name": "selected-table accepting owner (postgres) rolls back earlier tables when a final concurrent unique constraint fails",
+      "status": "passed"
+    },
+    {
+      "file": "group.test.ts",
+      "name": "selected-table accepting owner (postgres) validates read-only native participant observations: same writer",
+      "status": "passed"
+    },
+    {
+      "file": "group.test.ts",
+      "name": "selected-table accepting owner (postgres) validates read-only native participant observations: independent writer",
+      "status": "passed"
+    },
+    {
+      "file": "group.test.ts",
+      "name": "selected-table accepting owner (postgres) rechecks multi-table authority at acceptance: selected",
+      "status": "passed"
+    },
+    {
+      "file": "group.test.ts",
+      "name": "selected-table accepting owner (postgres) rechecks multi-table authority at acceptance: unrelated",
+      "status": "passed"
+    },
+    {
+      "file": "group.test.ts",
+      "name": "selected-table accepting owner (postgres) rechecks multi-table authority at acceptance: expiry",
+      "status": "passed"
+    },
+    {
+      "file": "group.test.ts",
+      "name": "selected-table accepting owner (postgres) rechecks multi-table authority at acceptance: fence",
+      "status": "passed"
+    },
+    {
+      "file": "group.test.ts",
+      "name": "selected-table accepting owner (postgres) shares retained bytes and latches a caught participant failure before any table can publish",
+      "status": "passed"
+    },
+    {
+      "file": "group.test.ts",
+      "name": "selected-table accepting owner (postgres) retains a caught defect as a sticky group Cause",
+      "status": "passed"
+    },
+    {
+      "file": "group.test.ts",
+      "name": "selected-table accepting owner (postgres) latches a caught Application validation failure without an optional caller wrapper",
+      "status": "passed"
+    },
+    {
+      "file": "group.test.ts",
+      "name": "selected-table accepting owner (postgres) keeps framework-only value kinds outside the mixed Application profile",
+      "status": "passed"
+    },
+    {
+      "file": "group.test.ts",
+      "name": "selected-table accepting owner (postgres) revokes escaped poison handles without letting them change later callback state",
+      "status": "passed"
+    },
+    {
+      "file": "group.test.ts",
+      "name": "selected-table accepting owner (postgres) bounds retained unique evidence through repeated edits of the same pending row",
+      "status": "passed"
+    },
+    {
+      "file": "group.test.ts",
+      "name": "selected-table accepting owner (postgres) signals, drains and retains close outcomes for a paused callback: normal",
+      "status": "passed"
+    },
+    {
+      "file": "group.test.ts",
+      "name": "selected-table accepting owner (postgres) signals, drains and retains close outcomes for a paused callback: native-failure",
+      "status": "passed"
+    },
+    {
+      "file": "measurement-contracts.test.mjs",
+      "name": "retains initiating native and Effect causes plus aggregate cleanup errors",
+      "status": "passed"
+    },
+    {
+      "file": "measurement-contracts.test.mjs",
+      "name": "bounds cyclic failure data without invoking diagnostic getters",
+      "status": "passed"
+    },
+    {
+      "file": "measurement-contracts.test.mjs",
+      "name": "omits indexed array getters, holes and overridden methods without executing them",
+      "status": "passed"
+    },
+    {
+      "file": "measurement-contracts.test.mjs",
+      "name": "rejects reuse of an interrupted inventory artifact and preserves its bytes",
+      "status": "passed"
+    },
+    {
+      "file": "measurement-contracts.test.mjs",
+      "name": "still records the rejected receipt when its source artifact conflicts",
+      "status": "passed"
+    },
+    {
+      "file": "measurement-costs.test.mjs",
+      "name": "retains every server protocol duration without query text and refuses malformed timing",
+      "status": "passed"
+    },
+    {
+      "file": "measurement-costs.test.mjs",
+      "name": "reuses full inspector frame identities for same-line columns and generated scripts",
+      "status": "passed"
+    },
+    {
+      "file": "measurement-costs.test.mjs",
+      "name": "retains failed diagnostic inputs and captures server evidence independently of CPU failure",
+      "status": "passed"
+    },
+    {
+      "file": "measurement-costs.test.mjs",
+      "name": "captures a real complete bounded CPU profile through the reused owner",
+      "status": "passed"
+    },
+    {
+      "file": "measurement.test.mjs",
+      "name": "measures declared complete native and experimental requests",
+      "status": "skipped"
+    },
+    {
+      "file": "mixed.test.ts",
+      "name": "native Application/Product/Payload mixed graph (pglite) runs native services/hooks and pending CRUD reads with one selected command and publication",
+      "status": "passed"
+    },
+    {
+      "file": "mixed.test.ts",
+      "name": "native Application/Product/Payload mixed graph (pglite) rolls back every participant after a late native Payload hook failure",
+      "status": "passed"
+    },
+    {
+      "file": "mixed.test.ts",
+      "name": "native Application/Product/Payload mixed graph (pglite) executes native mixed cleanup with 0 matching user preferences",
+      "status": "passed"
+    },
+    {
+      "file": "mixed.test.ts",
+      "name": "native Application/Product/Payload mixed graph (pglite) executes native mixed cleanup with 2 matching user preferences",
+      "status": "passed"
+    },
+    {
+      "file": "mixed.test.ts",
+      "name": "native Application/Product/Payload mixed graph (pglite) rolls back earlier native changes, deleted document and preferences after a late delete hook failure",
+      "status": "passed"
+    },
+    {
+      "file": "mixed.test.ts",
+      "name": "native Application/Product/Payload mixed graph (pglite) rolls back earlier participants when the native deleted document is missing",
+      "status": "passed"
+    },
+    {
+      "file": "mixed.test.ts",
+      "name": "native Application/Product/Payload mixed graph (pglite) latches a caught malformed final cleanup, revokes its escaped DAL and permits a fresh command",
+      "status": "passed"
+    },
+    {
+      "file": "mixed.test.ts",
+      "name": "native Application/Product/Payload mixed graph (pglite) signals and drains cancellation after actual native preference cleanup before any mixed publication",
+      "status": "passed"
+    },
+    {
+      "file": "mixed.test.ts",
+      "name": "native Application/Product/Payload mixed graph (pglite) checks a concurrent preference insert before publishing any mixed participant",
+      "status": "passed"
+    },
+    {
+      "file": "mixed.test.ts",
+      "name": "native Application/Product/Payload mixed graph (pglite) checks a concurrent preference empty-insert before publishing any mixed participant",
+      "status": "passed"
+    },
+    {
+      "file": "mixed.test.ts",
+      "name": "native Application/Product/Payload mixed graph (pglite) checks a concurrent preference update before publishing any mixed participant",
+      "status": "passed"
+    },
+    {
+      "file": "mixed.test.ts",
+      "name": "native Application/Product/Payload mixed graph (pglite) checks a concurrent preference delete before publishing any mixed participant",
+      "status": "passed"
+    },
+    {
+      "file": "mixed.test.ts",
+      "name": "native Application/Product/Payload mixed graph (pglite) checks a concurrent preference independent before publishing any mixed participant",
+      "status": "passed"
+    },
+    {
+      "file": "mixed.test.ts",
+      "name": "native Application/Product/Payload mixed graph (pglite) requires the selected preference definition before invoking any mixed native hook",
+      "status": "passed"
+    },
+    {
+      "file": "mixed.test.ts",
+      "name": "native Application/Product/Payload mixed graph (pglite) retains native Product absence and aborts the earlier authored mutation",
+      "status": "passed"
+    },
+    {
+      "file": "mixed.test.ts",
+      "name": "native Application/Product/Payload mixed graph (pglite) retains native Product duplicate-handle classification and aborts the earlier authored mutation",
+      "status": "passed"
+    },
+    {
+      "file": "mixed.test.ts",
+      "name": "native Application/Product/Payload mixed graph (pglite) refuses unsafe or oversized mixed inputs before admission without invoking getters or native code",
+      "status": "passed"
+    },
+    {
+      "file": "mixed.test.ts",
+      "name": "native Application/Product/Payload mixed graph (pglite) checks current native create/update/read/delete access before exposing a saved mixed result",
+      "status": "passed"
+    },
+    {
+      "file": "mixed.test.ts",
+      "name": "native Application/Product/Payload mixed graph (pglite) refuses a caught unsupported nested Local API operation without publishing earlier participants",
+      "status": "passed"
+    },
+    {
+      "file": "mixed.test.ts",
+      "name": "native Application/Product/Payload mixed graph (pglite) latches a caught malformed adapter predicate inside a live native hook",
+      "status": "passed"
+    },
+    {
+      "file": "mixed.test.ts",
+      "name": "native Application/Product/Payload mixed graph (pglite) decodes every saved participant result with its original native or metadata contract",
+      "status": "passed"
+    },
+    {
+      "file": "mixed.test.ts",
+      "name": "native Application/Product/Payload mixed graph (pglite) refuses fresh revocation after native hooks complete",
+      "status": "passed"
+    },
+    {
+      "file": "mixed.test.ts",
+      "name": "native Application/Product/Payload mixed graph (pglite) retains an earlier native delete-read revocation refusal with its original adapter Cause",
+      "status": "passed"
+    },
+    {
+      "file": "mixed.test.ts",
+      "name": "native Application/Product/Payload mixed graph (pglite) rejects a concurrent Product writer without publishing Application or Payload changes",
+      "status": "passed"
+    },
+    {
+      "file": "mixed.test.ts",
+      "name": "native Application/Product/Payload mixed graph (pglite) handles physical response loss at during-delete without repeating native hooks",
+      "status": "passed"
+    },
+    {
+      "file": "mixed.test.ts",
+      "name": "native Application/Product/Payload mixed graph (pglite) handles physical response loss at after-accept without repeating native hooks",
+      "status": "passed"
+    },
+    {
+      "file": "mixed.test.ts",
+      "name": "native Application/Product/Payload mixed graph (pglite) signals and drains cancellation in a native hook after Product work, then publishes nothing",
+      "status": "passed"
+    },
+    {
+      "file": "mixed.test.ts",
+      "name": "native Application/Product/Payload mixed graph (postgres) runs native services/hooks and pending CRUD reads with one selected command and publication",
+      "status": "passed"
+    },
+    {
+      "file": "mixed.test.ts",
+      "name": "native Application/Product/Payload mixed graph (postgres) rolls back every participant after a late native Payload hook failure",
+      "status": "passed"
+    },
+    {
+      "file": "mixed.test.ts",
+      "name": "native Application/Product/Payload mixed graph (postgres) executes native mixed cleanup with 0 matching user preferences",
+      "status": "passed"
+    },
+    {
+      "file": "mixed.test.ts",
+      "name": "native Application/Product/Payload mixed graph (postgres) executes native mixed cleanup with 2 matching user preferences",
+      "status": "passed"
+    },
+    {
+      "file": "mixed.test.ts",
+      "name": "native Application/Product/Payload mixed graph (postgres) rolls back earlier native changes, deleted document and preferences after a late delete hook failure",
+      "status": "passed"
+    },
+    {
+      "file": "mixed.test.ts",
+      "name": "native Application/Product/Payload mixed graph (postgres) rolls back earlier participants when the native deleted document is missing",
+      "status": "passed"
+    },
+    {
+      "file": "mixed.test.ts",
+      "name": "native Application/Product/Payload mixed graph (postgres) latches a caught malformed final cleanup, revokes its escaped DAL and permits a fresh command",
+      "status": "passed"
+    },
+    {
+      "file": "mixed.test.ts",
+      "name": "native Application/Product/Payload mixed graph (postgres) signals and drains cancellation after actual native preference cleanup before any mixed publication",
+      "status": "passed"
+    },
+    {
+      "file": "mixed.test.ts",
+      "name": "native Application/Product/Payload mixed graph (postgres) checks a concurrent preference insert before publishing any mixed participant",
+      "status": "passed"
+    },
+    {
+      "file": "mixed.test.ts",
+      "name": "native Application/Product/Payload mixed graph (postgres) checks a concurrent preference empty-insert before publishing any mixed participant",
+      "status": "passed"
+    },
+    {
+      "file": "mixed.test.ts",
+      "name": "native Application/Product/Payload mixed graph (postgres) checks a concurrent preference update before publishing any mixed participant",
+      "status": "passed"
+    },
+    {
+      "file": "mixed.test.ts",
+      "name": "native Application/Product/Payload mixed graph (postgres) checks a concurrent preference delete before publishing any mixed participant",
+      "status": "passed"
+    },
+    {
+      "file": "mixed.test.ts",
+      "name": "native Application/Product/Payload mixed graph (postgres) checks a concurrent preference independent before publishing any mixed participant",
+      "status": "passed"
+    },
+    {
+      "file": "mixed.test.ts",
+      "name": "native Application/Product/Payload mixed graph (postgres) requires the selected preference definition before invoking any mixed native hook",
+      "status": "passed"
+    },
+    {
+      "file": "mixed.test.ts",
+      "name": "native Application/Product/Payload mixed graph (postgres) retains native Product absence and aborts the earlier authored mutation",
+      "status": "passed"
+    },
+    {
+      "file": "mixed.test.ts",
+      "name": "native Application/Product/Payload mixed graph (postgres) retains native Product duplicate-handle classification and aborts the earlier authored mutation",
+      "status": "passed"
+    },
+    {
+      "file": "mixed.test.ts",
+      "name": "native Application/Product/Payload mixed graph (postgres) refuses unsafe or oversized mixed inputs before admission without invoking getters or native code",
+      "status": "passed"
+    },
+    {
+      "file": "mixed.test.ts",
+      "name": "native Application/Product/Payload mixed graph (postgres) checks current native create/update/read/delete access before exposing a saved mixed result",
+      "status": "passed"
+    },
+    {
+      "file": "mixed.test.ts",
+      "name": "native Application/Product/Payload mixed graph (postgres) refuses a caught unsupported nested Local API operation without publishing earlier participants",
+      "status": "passed"
+    },
+    {
+      "file": "mixed.test.ts",
+      "name": "native Application/Product/Payload mixed graph (postgres) latches a caught malformed adapter predicate inside a live native hook",
+      "status": "passed"
+    },
+    {
+      "file": "mixed.test.ts",
+      "name": "native Application/Product/Payload mixed graph (postgres) decodes every saved participant result with its original native or metadata contract",
+      "status": "passed"
+    },
+    {
+      "file": "mixed.test.ts",
+      "name": "native Application/Product/Payload mixed graph (postgres) refuses fresh revocation after native hooks complete",
+      "status": "passed"
+    },
+    {
+      "file": "mixed.test.ts",
+      "name": "native Application/Product/Payload mixed graph (postgres) retains an earlier native delete-read revocation refusal with its original adapter Cause",
+      "status": "passed"
+    },
+    {
+      "file": "mixed.test.ts",
+      "name": "native Application/Product/Payload mixed graph (postgres) rejects a concurrent Product writer without publishing Application or Payload changes",
+      "status": "passed"
+    },
+    {
+      "file": "mixed.test.ts",
+      "name": "native Application/Product/Payload mixed graph (postgres) handles physical response loss at during-delete without repeating native hooks",
+      "status": "passed"
+    },
+    {
+      "file": "mixed.test.ts",
+      "name": "native Application/Product/Payload mixed graph (postgres) handles physical response loss at after-accept without repeating native hooks",
+      "status": "passed"
+    },
+    {
+      "file": "mixed.test.ts",
+      "name": "native Application/Product/Payload mixed graph (postgres) signals and drains cancellation in a native hook after Product work, then publishes nothing",
+      "status": "passed"
+    },
+    {
+      "file": "ownership.test.ts",
+      "name": "owned query and accepting inputs (pglite) retains every command binding and closed-before-expired failure order in the combined guard",
+      "status": "passed"
+    },
+    {
+      "file": "ownership.test.ts",
+      "name": "owned query and accepting inputs (pglite) checks observation expiry after waiting for the authority lock",
+      "status": "skipped"
+    },
+    {
+      "file": "ownership.test.ts",
+      "name": "owned query and accepting inputs (pglite) checks observation expiry after waiting for the definition lock",
+      "status": "skipped"
+    },
+    {
+      "file": "ownership.test.ts",
+      "name": "owned query and accepting inputs (pglite) checks observation expiry after waiting for the command lock",
+      "status": "skipped"
+    },
+    {
+      "file": "ownership.test.ts",
+      "name": "owned query and accepting inputs (pglite) reads a fresh predecessor after a blocked guard and concurrent update",
+      "status": "skipped"
+    },
+    {
+      "file": "ownership.test.ts",
+      "name": "owned query and accepting inputs (pglite) reads a fresh predecessor after a blocked guard and concurrent delete",
+      "status": "skipped"
+    },
+    {
+      "file": "ownership.test.ts",
+      "name": "owned query and accepting inputs (pglite) refuses a selected definition retired while the combined guard waits",
+      "status": "skipped"
+    },
+    {
+      "file": "ownership.test.ts",
+      "name": "owned query and accepting inputs (pglite) checks snapshot expiry after waiting for the authority lock",
+      "status": "skipped"
+    },
+    {
+      "file": "ownership.test.ts",
+      "name": "owned query and accepting inputs (pglite) checks snapshot expiry after waiting for the definition lock",
+      "status": "skipped"
+    },
+    {
+      "file": "ownership.test.ts",
+      "name": "owned query and accepting inputs (pglite) refuses a snapshot definition retired while its guard waits",
+      "status": "skipped"
+    },
+    {
+      "file": "ownership.test.ts",
+      "name": "owned query and accepting inputs (pglite) checks and publishes the same captured framework candidate while caller arrays change during checkout",
+      "status": "passed"
+    },
+    {
+      "file": "ownership.test.ts",
+      "name": "owned query and accepting inputs (pglite) checks captured Application changes and dependencies despite caller mutation while acceptance waits",
+      "status": "passed"
+    },
+    {
+      "file": "ownership.test.ts",
+      "name": "owned query and accepting inputs (pglite) owns one range for committed reads, pending overlay and phantom dependency while a caller mutates it",
+      "status": "passed"
+    },
+    {
+      "file": "ownership.test.ts",
+      "name": "owned query and accepting inputs (postgres) retains every command binding and closed-before-expired failure order in the combined guard",
+      "status": "passed"
+    },
+    {
+      "file": "ownership.test.ts",
+      "name": "owned query and accepting inputs (postgres) checks observation expiry after waiting for the authority lock",
+      "status": "passed"
+    },
+    {
+      "file": "ownership.test.ts",
+      "name": "owned query and accepting inputs (postgres) checks observation expiry after waiting for the definition lock",
+      "status": "passed"
+    },
+    {
+      "file": "ownership.test.ts",
+      "name": "owned query and accepting inputs (postgres) checks observation expiry after waiting for the command lock",
+      "status": "passed"
+    },
+    {
+      "file": "ownership.test.ts",
+      "name": "owned query and accepting inputs (postgres) reads a fresh predecessor after a blocked guard and concurrent update",
+      "status": "passed"
+    },
+    {
+      "file": "ownership.test.ts",
+      "name": "owned query and accepting inputs (postgres) reads a fresh predecessor after a blocked guard and concurrent delete",
+      "status": "passed"
+    },
+    {
+      "file": "ownership.test.ts",
+      "name": "owned query and accepting inputs (postgres) refuses a selected definition retired while the combined guard waits",
+      "status": "passed"
+    },
+    {
+      "file": "ownership.test.ts",
+      "name": "owned query and accepting inputs (postgres) checks snapshot expiry after waiting for the authority lock",
+      "status": "passed"
+    },
+    {
+      "file": "ownership.test.ts",
+      "name": "owned query and accepting inputs (postgres) checks snapshot expiry after waiting for the definition lock",
+      "status": "passed"
+    },
+    {
+      "file": "ownership.test.ts",
+      "name": "owned query and accepting inputs (postgres) refuses a snapshot definition retired while its guard waits",
+      "status": "passed"
+    },
+    {
+      "file": "ownership.test.ts",
+      "name": "owned query and accepting inputs (postgres) checks and publishes the same captured framework candidate while caller arrays change during checkout",
+      "status": "passed"
+    },
+    {
+      "file": "ownership.test.ts",
+      "name": "owned query and accepting inputs (postgres) checks captured Application changes and dependencies despite caller mutation while acceptance waits",
+      "status": "passed"
+    },
+    {
+      "file": "ownership.test.ts",
+      "name": "owned query and accepting inputs (postgres) owns one range for committed reads, pending overlay and phantom dependency while a caller mutates it",
+      "status": "passed"
+    },
+    {
+      "file": "payload-crud.test.ts",
+      "name": "native Payload CRUD (pglite) executes persisted native CRUD with 0 matching preferences and complete hook results",
+      "status": "passed"
+    },
+    {
+      "file": "payload-crud.test.ts",
+      "name": "native Payload CRUD (pglite) executes persisted native CRUD with 1 matching preferences and complete hook results",
+      "status": "passed"
+    },
+    {
+      "file": "payload-crud.test.ts",
+      "name": "native Payload CRUD (pglite) executes persisted native CRUD with 2 matching preferences and complete hook results",
+      "status": "passed"
+    },
+    {
+      "file": "payload-crud.test.ts",
+      "name": "native Payload CRUD (pglite) keeps update/delete replay authorization aligned with native collection access",
+      "status": "passed"
+    },
+    {
+      "file": "payload-crud.test.ts",
+      "name": "native Payload CRUD (pglite) rolls back document and cleanup together after a late native delete hook failure",
+      "status": "passed"
+    },
+    {
+      "file": "payload-crud.test.ts",
+      "name": "native Payload CRUD (pglite) checks a concurrent preference insert before publishing native deletion",
+      "status": "passed"
+    },
+    {
+      "file": "payload-crud.test.ts",
+      "name": "native Payload CRUD (pglite) checks a concurrent preference update before publishing native deletion",
+      "status": "passed"
+    },
+    {
+      "file": "payload-crud.test.ts",
+      "name": "native Payload CRUD (pglite) checks a concurrent preference delete before publishing native deletion",
+      "status": "passed"
+    },
+    {
+      "file": "payload-crud.test.ts",
+      "name": "native Payload CRUD (pglite) checks a concurrent preference independent before publishing native deletion",
+      "status": "passed"
+    },
+    {
+      "file": "payload-crud.test.ts",
+      "name": "native Payload CRUD (pglite) poisons a caught invalid cleanup and revokes escaped native DAL calls",
+      "status": "passed"
+    },
+    {
+      "file": "payload-crud.test.ts",
+      "name": "native Payload CRUD (pglite) requires only the definitions consumed by each operation",
+      "status": "passed"
+    },
+    {
+      "file": "payload-crud.test.ts",
+      "name": "native Payload CRUD (pglite) handles actual accepted update response loss without native replay",
+      "status": "passed"
+    },
+    {
+      "file": "payload-crud.test.ts",
+      "name": "native Payload CRUD (pglite) handles actual accepted delete response loss without native replay",
+      "status": "passed"
+    },
+    {
+      "file": "payload-crud.test.ts",
+      "name": "native Payload CRUD (pglite) handles actual accepted unresolved-delete response loss without native replay",
+      "status": "passed"
+    },
+    {
+      "file": "payload-crud.test.ts",
+      "name": "native Payload CRUD (pglite) cancels and drains native deletion without holding a physical transaction",
+      "status": "passed"
+    },
+    {
+      "file": "payload-crud.test.ts",
+      "name": "native Payload CRUD (pglite) retains native drain failure and the actual command abort cleanup defect",
+      "status": "passed"
+    },
+    {
+      "file": "payload-crud.test.ts",
+      "name": "native Payload CRUD (pglite) decodes saved delete results before replay without another native hook",
+      "status": "passed"
+    },
+    {
+      "file": "payload-crud.test.ts",
+      "name": "native Payload CRUD (postgres) executes persisted native CRUD with 0 matching preferences and complete hook results",
+      "status": "passed"
+    },
+    {
+      "file": "payload-crud.test.ts",
+      "name": "native Payload CRUD (postgres) executes persisted native CRUD with 1 matching preferences and complete hook results",
+      "status": "passed"
+    },
+    {
+      "file": "payload-crud.test.ts",
+      "name": "native Payload CRUD (postgres) executes persisted native CRUD with 2 matching preferences and complete hook results",
+      "status": "passed"
+    },
+    {
+      "file": "payload-crud.test.ts",
+      "name": "native Payload CRUD (postgres) keeps update/delete replay authorization aligned with native collection access",
+      "status": "passed"
+    },
+    {
+      "file": "payload-crud.test.ts",
+      "name": "native Payload CRUD (postgres) rolls back document and cleanup together after a late native delete hook failure",
+      "status": "passed"
+    },
+    {
+      "file": "payload-crud.test.ts",
+      "name": "native Payload CRUD (postgres) checks a concurrent preference insert before publishing native deletion",
+      "status": "passed"
+    },
+    {
+      "file": "payload-crud.test.ts",
+      "name": "native Payload CRUD (postgres) checks a concurrent preference update before publishing native deletion",
+      "status": "passed"
+    },
+    {
+      "file": "payload-crud.test.ts",
+      "name": "native Payload CRUD (postgres) checks a concurrent preference delete before publishing native deletion",
+      "status": "passed"
+    },
+    {
+      "file": "payload-crud.test.ts",
+      "name": "native Payload CRUD (postgres) checks a concurrent preference independent before publishing native deletion",
+      "status": "passed"
+    },
+    {
+      "file": "payload-crud.test.ts",
+      "name": "native Payload CRUD (postgres) poisons a caught invalid cleanup and revokes escaped native DAL calls",
+      "status": "passed"
+    },
+    {
+      "file": "payload-crud.test.ts",
+      "name": "native Payload CRUD (postgres) requires only the definitions consumed by each operation",
+      "status": "passed"
+    },
+    {
+      "file": "payload-crud.test.ts",
+      "name": "native Payload CRUD (postgres) handles actual accepted update response loss without native replay",
+      "status": "passed"
+    },
+    {
+      "file": "payload-crud.test.ts",
+      "name": "native Payload CRUD (postgres) handles actual accepted delete response loss without native replay",
+      "status": "passed"
+    },
+    {
+      "file": "payload-crud.test.ts",
+      "name": "native Payload CRUD (postgres) handles actual accepted unresolved-delete response loss without native replay",
+      "status": "passed"
+    },
+    {
+      "file": "payload-crud.test.ts",
+      "name": "native Payload CRUD (postgres) cancels and drains native deletion without holding a physical transaction",
+      "status": "passed"
+    },
+    {
+      "file": "payload-crud.test.ts",
+      "name": "native Payload CRUD (postgres) retains native drain failure and the actual command abort cleanup defect",
+      "status": "passed"
+    },
+    {
+      "file": "payload-crud.test.ts",
+      "name": "native Payload CRUD (postgres) decodes saved delete results before replay without another native hook",
+      "status": "passed"
+    },
+    {
+      "file": "postgres.test.ts",
+      "name": "retains a real controller's nonzero exit and file-backed diagnostic output",
+      "status": "passed"
+    },
+    {
+      "file": "postgres.test.ts",
+      "name": "preserves a real process-acquisition failure",
+      "status": "passed"
+    },
+    {
+      "file": "postgres.test.ts",
+      "name": "stops a real daemon when output disposal rejects after its controller exits successfully",
+      "status": "passed"
+    },
+    {
+      "file": "product-comparison.test.mjs",
+      "name": "compares complete genuine native and experimental Product update/retrieve/list",
+      "status": "skipped"
+    },
+    {
+      "file": "product.test.ts",
+      "name": "native experimental Product (pglite) executes actual Product.updateProducts with complete values, one outcome and native event",
+      "status": "passed"
+    },
+    {
+      "file": "product.test.ts",
+      "name": "native experimental Product (pglite) preserves native missing Product failure and refuses managed or relation changes",
+      "status": "passed"
+    },
+    {
+      "file": "product.test.ts",
+      "name": "native experimental Product (pglite) rejects revocation at acceptance with no changed row or native event",
+      "status": "passed"
+    },
+    {
+      "file": "product.test.ts",
+      "name": "native experimental Product (pglite) resolves a lost accepting response without repeating the native update/event",
+      "status": "passed"
+    },
+    {
+      "file": "product.test.ts",
+      "name": "native experimental Product (pglite) refuses malformed recovered Product results after a confirmed real commit",
+      "status": "passed"
+    },
+    {
+      "file": "product.test.ts",
+      "name": "native experimental Product (pglite) checks write predecessors with same concurrent Product writers",
+      "status": "passed"
+    },
+    {
+      "file": "product.test.ts",
+      "name": "native experimental Product (pglite) checks write predecessors with independent concurrent Product writers",
+      "status": "passed"
+    },
+    {
+      "file": "product.test.ts",
+      "name": "native experimental Product (pglite) signals and drains cancellation after a completed read without publishing native effects",
+      "status": "passed"
+    },
+    {
+      "file": "product.test.ts",
+      "name": "native experimental Product (pglite) runs native persisted retrieve/list without mutation reservation or publication",
+      "status": "passed"
+    },
+    {
+      "file": "product.test.ts",
+      "name": "native experimental Product (pglite) preserves native duplicate-handle classification and rolls back a pre-existing claim",
+      "status": "passed"
+    },
+    {
+      "file": "product.test.ts",
+      "name": "native experimental Product (pglite) projects a concurrent accepting handle claim without changing the losing row or events",
+      "status": "passed"
+    },
+    {
+      "file": "product.test.ts",
+      "name": "native experimental Product (pglite) owns and drains a direct binding retrieve when its own Scope closes",
+      "status": "passed"
+    },
+    {
+      "file": "product.test.ts",
+      "name": "native experimental Product (pglite) owns and drains a direct binding list when its own Scope closes",
+      "status": "passed"
+    },
+    {
+      "file": "product.test.ts",
+      "name": "native experimental Product (pglite) runs the complete native update/retrieve/list graph over pending indexed state and replays once",
+      "status": "passed"
+    },
+    {
+      "file": "product.test.ts",
+      "name": "native experimental Product (pglite) keeps a handle acquisition at its observed sequence across a concurrent commit",
+      "status": "skipped"
+    },
+    {
+      "file": "product.test.ts",
+      "name": "native experimental Product (pglite) revokes a read capability and latches a caught second acquisition without reserving a command",
+      "status": "passed"
+    },
+    {
+      "file": "product.test.ts",
+      "name": "native experimental Product (pglite) retains detached nested metadata across repeated native reads and serialization",
+      "status": "passed"
+    },
+    {
+      "file": "product.test.ts",
+      "name": "native experimental Product (postgres) executes actual Product.updateProducts with complete values, one outcome and native event",
+      "status": "passed"
+    },
+    {
+      "file": "product.test.ts",
+      "name": "native experimental Product (postgres) preserves native missing Product failure and refuses managed or relation changes",
+      "status": "passed"
+    },
+    {
+      "file": "product.test.ts",
+      "name": "native experimental Product (postgres) rejects revocation at acceptance with no changed row or native event",
+      "status": "passed"
+    },
+    {
+      "file": "product.test.ts",
+      "name": "native experimental Product (postgres) resolves a lost accepting response without repeating the native update/event",
+      "status": "passed"
+    },
+    {
+      "file": "product.test.ts",
+      "name": "native experimental Product (postgres) refuses malformed recovered Product results after a confirmed real commit",
+      "status": "passed"
+    },
+    {
+      "file": "product.test.ts",
+      "name": "native experimental Product (postgres) checks write predecessors with same concurrent Product writers",
+      "status": "passed"
+    },
+    {
+      "file": "product.test.ts",
+      "name": "native experimental Product (postgres) checks write predecessors with independent concurrent Product writers",
+      "status": "passed"
+    },
+    {
+      "file": "product.test.ts",
+      "name": "native experimental Product (postgres) signals and drains cancellation after a completed read without publishing native effects",
+      "status": "passed"
+    },
+    {
+      "file": "product.test.ts",
+      "name": "native experimental Product (postgres) runs native persisted retrieve/list without mutation reservation or publication",
+      "status": "passed"
+    },
+    {
+      "file": "product.test.ts",
+      "name": "native experimental Product (postgres) preserves native duplicate-handle classification and rolls back a pre-existing claim",
+      "status": "passed"
+    },
+    {
+      "file": "product.test.ts",
+      "name": "native experimental Product (postgres) projects a concurrent accepting handle claim without changing the losing row or events",
+      "status": "passed"
+    },
+    {
+      "file": "product.test.ts",
+      "name": "native experimental Product (postgres) owns and drains a direct binding retrieve when its own Scope closes",
+      "status": "passed"
+    },
+    {
+      "file": "product.test.ts",
+      "name": "native experimental Product (postgres) owns and drains a direct binding list when its own Scope closes",
+      "status": "passed"
+    },
+    {
+      "file": "product.test.ts",
+      "name": "native experimental Product (postgres) runs the complete native update/retrieve/list graph over pending indexed state and replays once",
+      "status": "passed"
+    },
+    {
+      "file": "product.test.ts",
+      "name": "native experimental Product (postgres) keeps a handle acquisition at its observed sequence across a concurrent commit",
+      "status": "passed"
+    },
+    {
+      "file": "product.test.ts",
+      "name": "native experimental Product (postgres) revokes a read capability and latches a caught second acquisition without reserving a command",
+      "status": "passed"
+    },
+    {
+      "file": "product.test.ts",
+      "name": "native experimental Product (postgres) retains detached nested metadata across repeated native reads and serialization",
+      "status": "passed"
+    },
+    {
+      "file": "read-guard-plans.test.mjs",
+      "name": "reuses Drizzle lowering but dispatches every guard with fresh request parameters",
+      "status": "passed"
+    },
+    {
+      "file": "read-guards.test.ts",
+      "name": "compiled read guards (pglite) reuses SQL lowering while binding a new scope and freshly checking its grant",
+      "status": "passed"
+    },
+    {
+      "file": "read-guards.test.ts",
+      "name": "compiled read guards (pglite) binds each command identity and deadline without retaining a previous row or clock verdict",
+      "status": "passed"
+    },
+    {
+      "file": "read-guards.test.ts",
+      "name": "compiled read guards (pglite) refuses grant retirement after warming the persistence guard",
+      "status": "passed"
+    },
+    {
+      "file": "read-guards.test.ts",
+      "name": "compiled read guards (pglite) refuses definition retirement after warming the persistence guard",
+      "status": "passed"
+    },
+    {
+      "file": "read-guards.test.ts",
+      "name": "compiled read guards (pglite) keeps selected versions distinct and recompiles safely after bounded plan eviction",
+      "status": "passed"
+    },
+    {
+      "file": "read-guards.test.ts",
+      "name": "compiled read guards (pglite) reuses a checked-out client facade and retires its plans on physical failure",
+      "status": "skipped"
+    },
+    {
+      "file": "read-guards.test.ts",
+      "name": "compiled read guards (postgres) reuses SQL lowering while binding a new scope and freshly checking its grant",
+      "status": "passed"
+    },
+    {
+      "file": "read-guards.test.ts",
+      "name": "compiled read guards (postgres) binds each command identity and deadline without retaining a previous row or clock verdict",
+      "status": "passed"
+    },
+    {
+      "file": "read-guards.test.ts",
+      "name": "compiled read guards (postgres) refuses grant retirement after warming the persistence guard",
+      "status": "passed"
+    },
+    {
+      "file": "read-guards.test.ts",
+      "name": "compiled read guards (postgres) refuses definition retirement after warming the persistence guard",
+      "status": "passed"
+    },
+    {
+      "file": "read-guards.test.ts",
+      "name": "compiled read guards (postgres) keeps selected versions distinct and recompiles safely after bounded plan eviction",
+      "status": "passed"
+    },
+    {
+      "file": "read-guards.test.ts",
+      "name": "compiled read guards (postgres) reuses a checked-out client facade and retires its plans on physical failure",
+      "status": "passed"
+    },
+    {
+      "file": "scaling-corpus.test.mjs",
+      "name": "preserves the actual SDK overlay and ordinary-field control on PGlite at 1 rows",
+      "status": "passed"
+    },
+    {
+      "file": "scaling-corpus.test.mjs",
+      "name": "preserves the actual SDK overlay and ordinary-field control on PGlite at 16 rows",
+      "status": "passed"
+    },
+    {
+      "file": "scaling-corpus.test.mjs",
+      "name": "preserves the actual SDK overlay and ordinary-field control on PGlite at 64 rows",
+      "status": "passed"
+    },
+    {
+      "file": "scaling.test.mjs",
+      "name": "measures actual SDK batches and independent scope contention",
+      "status": "skipped"
+    },
+    {
+      "file": "settlement-observations.test.ts",
+      "name": "combined settlement observations (pglite) retains the framework point-dependency profile",
+      "status": "passed"
+    },
+    {
+      "file": "settlement-observations.test.ts",
+      "name": "combined settlement observations (pglite) retains the mixed point-dependency profile",
+      "status": "passed"
+    },
+    {
+      "file": "settlement-observations.test.ts",
+      "name": "combined settlement observations (pglite) checks never-used identity history even when the current row is absent",
+      "status": "passed"
+    },
+    {
+      "file": "settlement-observations.test.ts",
+      "name": "combined settlement observations (pglite) preserves the first failure at predecessor",
+      "status": "passed"
+    },
+    {
+      "file": "settlement-observations.test.ts",
+      "name": "combined settlement observations (pglite) preserves the first failure at equality",
+      "status": "passed"
+    },
+    {
+      "file": "settlement-observations.test.ts",
+      "name": "combined settlement observations (pglite) preserves the first failure at point",
+      "status": "passed"
+    },
+    {
+      "file": "settlement-observations.test.ts",
+      "name": "combined settlement observations (pglite) preserves the first failure at range",
+      "status": "passed"
+    },
+    {
+      "file": "settlement-observations.test.ts",
+      "name": "combined settlement observations (pglite) checks expiry after the accepting authority lock wait",
+      "status": "skipped"
+    },
+    {
+      "file": "settlement-observations.test.ts",
+      "name": "combined settlement observations (pglite) checks expiry after the accepting definition lock wait",
+      "status": "skipped"
+    },
+    {
+      "file": "settlement-observations.test.ts",
+      "name": "combined settlement observations (pglite) checks expiry after the accepting command lock wait",
+      "status": "skipped"
+    },
+    {
+      "file": "settlement-observations.test.ts",
+      "name": "combined settlement observations (pglite) checks expiry after the accepting clock lock wait",
+      "status": "skipped"
+    },
+    {
+      "file": "settlement-observations.test.ts",
+      "name": "combined settlement observations (pglite) sees real committed predecessors after waiting for the scope clock",
+      "status": "skipped"
+    },
+    {
+      "file": "settlement-observations.test.ts",
+      "name": "combined settlement observations (postgres) retains the framework point-dependency profile",
+      "status": "passed"
+    },
+    {
+      "file": "settlement-observations.test.ts",
+      "name": "combined settlement observations (postgres) retains the mixed point-dependency profile",
+      "status": "passed"
+    },
+    {
+      "file": "settlement-observations.test.ts",
+      "name": "combined settlement observations (postgres) checks never-used identity history even when the current row is absent",
+      "status": "passed"
+    },
+    {
+      "file": "settlement-observations.test.ts",
+      "name": "combined settlement observations (postgres) preserves the first failure at predecessor",
+      "status": "passed"
+    },
+    {
+      "file": "settlement-observations.test.ts",
+      "name": "combined settlement observations (postgres) preserves the first failure at equality",
+      "status": "passed"
+    },
+    {
+      "file": "settlement-observations.test.ts",
+      "name": "combined settlement observations (postgres) preserves the first failure at point",
+      "status": "passed"
+    },
+    {
+      "file": "settlement-observations.test.ts",
+      "name": "combined settlement observations (postgres) preserves the first failure at range",
+      "status": "passed"
+    },
+    {
+      "file": "settlement-observations.test.ts",
+      "name": "combined settlement observations (postgres) checks expiry after the accepting authority lock wait",
+      "status": "passed"
+    },
+    {
+      "file": "settlement-observations.test.ts",
+      "name": "combined settlement observations (postgres) checks expiry after the accepting definition lock wait",
+      "status": "passed"
+    },
+    {
+      "file": "settlement-observations.test.ts",
+      "name": "combined settlement observations (postgres) checks expiry after the accepting command lock wait",
+      "status": "passed"
+    },
+    {
+      "file": "settlement-observations.test.ts",
+      "name": "combined settlement observations (postgres) checks expiry after the accepting clock lock wait",
+      "status": "passed"
+    },
+    {
+      "file": "settlement-observations.test.ts",
+      "name": "combined settlement observations (postgres) sees real committed predecessors after waiting for the scope clock",
+      "status": "passed"
+    },
+    {
+      "file": "application.test.ts",
+      "name": "standalone experimental Application (pglite) runs registered query point/missing/index reads without a command or framework runtime",
+      "status": "passed"
+    },
+    {
+      "file": "application.test.ts",
+      "name": "standalone experimental Application (pglite) binds prepared identity, execution and result validation to one admitted function snapshot",
+      "status": "passed"
+    },
+    {
+      "file": "application.test.ts",
+      "name": "standalone experimental Application (pglite) merges inserted and updated pending rows and atomically publishes complete revisions and outcomes",
+      "status": "passed"
+    },
+    {
+      "file": "application.test.ts",
+      "name": "standalone experimental Application (pglite) publishes a tombstone and releases current unique/index membership on delete",
+      "status": "passed"
+    },
+    {
+      "file": "application.test.ts",
+      "name": "standalone experimental Application (pglite) keeps one exact snapshot through concurrent updates and cached reads",
+      "status": "passed"
+    },
+    {
+      "file": "application.test.ts",
+      "name": "standalone experimental Application (pglite) rejects a stale row observation without partial writes",
+      "status": "passed"
+    },
+    {
+      "file": "application.test.ts",
+      "name": "standalone experimental Application (pglite) detects insertion of an actually observed missing identity",
+      "status": "passed"
+    },
+    {
+      "file": "application.test.ts",
+      "name": "standalone experimental Application (pglite) checks indexed membership changes: insert",
+      "status": "passed"
+    },
+    {
+      "file": "application.test.ts",
+      "name": "standalone experimental Application (pglite) checks indexed membership changes: enter",
+      "status": "passed"
+    },
+    {
+      "file": "application.test.ts",
+      "name": "standalone experimental Application (pglite) checks indexed membership changes: leave",
+      "status": "passed"
+    },
+    {
+      "file": "application.test.ts",
+      "name": "standalone experimental Application (pglite) checks indexed membership changes: delete",
+      "status": "passed"
+    },
+    {
+      "file": "application.test.ts",
+      "name": "standalone experimental Application (pglite) checks indexed membership changes: independent",
+      "status": "passed"
+    },
+    {
+      "file": "application.test.ts",
+      "name": "standalone experimental Application (pglite) retries only an eligible whole attempt and preserves one durable request outcome",
+      "status": "passed"
+    },
+    {
+      "file": "application.test.ts",
+      "name": "standalone experimental Application (pglite) stops retrying when a later attempt fails in user code",
+      "status": "passed"
+    },
+    {
+      "file": "application.test.ts",
+      "name": "standalone experimental Application (pglite) preserves recoverable native document validation and poisons caught unauthorized work",
+      "status": "passed"
+    },
+    {
+      "file": "application.test.ts",
+      "name": "standalone experimental Application (pglite) checks fresh authority and selected metadata at query completion: revoke",
+      "status": "passed"
+    },
+    {
+      "file": "application.test.ts",
+      "name": "standalone experimental Application (pglite) checks fresh authority and selected metadata at query completion: fence",
+      "status": "passed"
+    },
+    {
+      "file": "application.test.ts",
+      "name": "standalone experimental Application (pglite) checks fresh authority and selected metadata at query completion: definition",
+      "status": "passed"
+    },
+    {
+      "file": "application.test.ts",
+      "name": "standalone experimental Application (pglite) checks fresh authority and selected metadata at query completion: retention",
+      "status": "passed"
+    },
+    {
+      "file": "application.test.ts",
+      "name": "standalone experimental Application (pglite) checks fresh authority and selected metadata at query completion: unrelated",
+      "status": "passed"
+    },
+    {
+      "file": "application.test.ts",
+      "name": "standalone experimental Application (pglite) resolves an injected accepted-response loss without repeating the function",
+      "status": "passed"
+    },
+    {
+      "file": "application.test.ts",
+      "name": "standalone experimental Application (pglite) never re-executes an unresolved accepting outcome",
+      "status": "passed"
+    },
+    {
+      "file": "application.test.ts",
+      "name": "standalone experimental Application (pglite) refuses budget exhaustion rather than return a partial or false range result",
+      "status": "passed"
+    },
+    {
+      "file": "application.test.ts",
+      "name": "standalone experimental Application (pglite) preserves database-seeded nextUp creation identity and equal-key order before and after publication",
+      "status": "passed"
+    },
+    {
+      "file": "application.test.ts",
+      "name": "standalone experimental Application (pglite) detaches guest-owned return values before accepting and replaying",
+      "status": "passed"
+    },
+    {
+      "file": "application.test.ts",
+      "name": "standalone experimental Application (pglite) refuses negative zero before it can collide with a positive-zero request identity or durable value",
+      "status": "passed"
+    },
+    {
+      "file": "application.test.ts",
+      "name": "standalone experimental Application (pglite) bounds whole-attempt retry after three real accepting conflicts",
+      "status": "passed"
+    },
+    {
+      "file": "application.test.ts",
+      "name": "standalone experimental Application (pglite) cancels, drains a paused function, refuses late calls and publishes nothing",
+      "status": "passed"
+    },
+    {
+      "file": "application.test.ts",
+      "name": "standalone experimental Application (pglite) drains dropped insert promises without losing an owned defect or leaking a rejection",
+      "status": "passed"
+    },
+    {
+      "file": "application.test.ts",
+      "name": "standalone experimental Application (pglite) drains dropped range promises without losing an owned defect or leaking a rejection",
+      "status": "passed"
+    },
+    {
+      "file": "application.test.ts",
+      "name": "standalone experimental Application (pglite) refuses caught unsupported query operations and malformed arguments/returns without partial data",
+      "status": "passed"
+    },
+    {
+      "file": "application.test.ts",
+      "name": "standalone experimental Application (pglite) bounds transferred bytes independently of rows and protects the retention writer",
+      "status": "passed"
+    },
+    {
+      "file": "application.test.ts",
+      "name": "standalone experimental Application (pglite) repairs replace/delete pending membership and reclaims a released unique key in one outcome",
+      "status": "passed"
+    },
+    {
+      "file": "application.test.ts",
+      "name": "standalone experimental Application (pglite) refuses a caught pending-row limit without committing the earlier rows",
+      "status": "passed"
+    },
+    {
+      "file": "application.test.ts",
+      "name": "standalone experimental Application (pglite) refuses expiry at the accepting boundary without publication",
+      "status": "passed"
+    },
+    {
+      "file": "application.test.ts",
+      "name": "standalone experimental Application (pglite) rechecks database deadline after waiting for the scope clock",
+      "status": "skipped"
+    },
+    {
+      "file": "application.test.ts",
+      "name": "standalone experimental Application (pglite) keeps a high-revision selection index ordered below its physical candidate limit",
+      "status": "passed"
+    },
+    {
+      "file": "application.test.ts",
+      "name": "standalone experimental Application (postgres) runs registered query point/missing/index reads without a command or framework runtime",
+      "status": "passed"
+    },
+    {
+      "file": "application.test.ts",
+      "name": "standalone experimental Application (postgres) binds prepared identity, execution and result validation to one admitted function snapshot",
+      "status": "passed"
+    },
+    {
+      "file": "application.test.ts",
+      "name": "standalone experimental Application (postgres) merges inserted and updated pending rows and atomically publishes complete revisions and outcomes",
+      "status": "passed"
+    },
+    {
+      "file": "application.test.ts",
+      "name": "standalone experimental Application (postgres) publishes a tombstone and releases current unique/index membership on delete",
+      "status": "passed"
+    },
+    {
+      "file": "application.test.ts",
+      "name": "standalone experimental Application (postgres) keeps one exact snapshot through concurrent updates and cached reads",
+      "status": "passed"
+    },
+    {
+      "file": "application.test.ts",
+      "name": "standalone experimental Application (postgres) rejects a stale row observation without partial writes",
+      "status": "passed"
+    },
+    {
+      "file": "application.test.ts",
+      "name": "standalone experimental Application (postgres) detects insertion of an actually observed missing identity",
+      "status": "passed"
+    },
+    {
+      "file": "application.test.ts",
+      "name": "standalone experimental Application (postgres) checks indexed membership changes: insert",
+      "status": "passed"
+    },
+    {
+      "file": "application.test.ts",
+      "name": "standalone experimental Application (postgres) checks indexed membership changes: enter",
+      "status": "passed"
+    },
+    {
+      "file": "application.test.ts",
+      "name": "standalone experimental Application (postgres) checks indexed membership changes: leave",
+      "status": "passed"
+    },
+    {
+      "file": "application.test.ts",
+      "name": "standalone experimental Application (postgres) checks indexed membership changes: delete",
+      "status": "passed"
+    },
+    {
+      "file": "application.test.ts",
+      "name": "standalone experimental Application (postgres) checks indexed membership changes: independent",
+      "status": "passed"
+    },
+    {
+      "file": "application.test.ts",
+      "name": "standalone experimental Application (postgres) retries only an eligible whole attempt and preserves one durable request outcome",
+      "status": "passed"
+    },
+    {
+      "file": "application.test.ts",
+      "name": "standalone experimental Application (postgres) stops retrying when a later attempt fails in user code",
+      "status": "passed"
+    },
+    {
+      "file": "application.test.ts",
+      "name": "standalone experimental Application (postgres) preserves recoverable native document validation and poisons caught unauthorized work",
+      "status": "passed"
+    },
+    {
+      "file": "application.test.ts",
+      "name": "standalone experimental Application (postgres) checks fresh authority and selected metadata at query completion: revoke",
+      "status": "passed"
+    },
+    {
+      "file": "application.test.ts",
+      "name": "standalone experimental Application (postgres) checks fresh authority and selected metadata at query completion: fence",
+      "status": "passed"
+    },
+    {
+      "file": "application.test.ts",
+      "name": "standalone experimental Application (postgres) checks fresh authority and selected metadata at query completion: definition",
+      "status": "passed"
+    },
+    {
+      "file": "application.test.ts",
+      "name": "standalone experimental Application (postgres) checks fresh authority and selected metadata at query completion: retention",
+      "status": "passed"
+    },
+    {
+      "file": "application.test.ts",
+      "name": "standalone experimental Application (postgres) checks fresh authority and selected metadata at query completion: unrelated",
+      "status": "passed"
+    },
+    {
+      "file": "application.test.ts",
+      "name": "standalone experimental Application (postgres) resolves an injected accepted-response loss without repeating the function",
+      "status": "passed"
+    },
+    {
+      "file": "application.test.ts",
+      "name": "standalone experimental Application (postgres) never re-executes an unresolved accepting outcome",
+      "status": "passed"
+    },
+    {
+      "file": "application.test.ts",
+      "name": "standalone experimental Application (postgres) refuses budget exhaustion rather than return a partial or false range result",
+      "status": "passed"
+    },
+    {
+      "file": "application.test.ts",
+      "name": "standalone experimental Application (postgres) preserves database-seeded nextUp creation identity and equal-key order before and after publication",
+      "status": "passed"
+    },
+    {
+      "file": "application.test.ts",
+      "name": "standalone experimental Application (postgres) detaches guest-owned return values before accepting and replaying",
+      "status": "passed"
+    },
+    {
+      "file": "application.test.ts",
+      "name": "standalone experimental Application (postgres) refuses negative zero before it can collide with a positive-zero request identity or durable value",
+      "status": "passed"
+    },
+    {
+      "file": "application.test.ts",
+      "name": "standalone experimental Application (postgres) bounds whole-attempt retry after three real accepting conflicts",
+      "status": "passed"
+    },
+    {
+      "file": "application.test.ts",
+      "name": "standalone experimental Application (postgres) cancels, drains a paused function, refuses late calls and publishes nothing",
+      "status": "passed"
+    },
+    {
+      "file": "application.test.ts",
+      "name": "standalone experimental Application (postgres) drains dropped insert promises without losing an owned defect or leaking a rejection",
+      "status": "passed"
+    },
+    {
+      "file": "application.test.ts",
+      "name": "standalone experimental Application (postgres) drains dropped range promises without losing an owned defect or leaking a rejection",
+      "status": "passed"
+    },
+    {
+      "file": "application.test.ts",
+      "name": "standalone experimental Application (postgres) refuses caught unsupported query operations and malformed arguments/returns without partial data",
+      "status": "passed"
+    },
+    {
+      "file": "application.test.ts",
+      "name": "standalone experimental Application (postgres) bounds transferred bytes independently of rows and protects the retention writer",
+      "status": "passed"
+    },
+    {
+      "file": "application.test.ts",
+      "name": "standalone experimental Application (postgres) repairs replace/delete pending membership and reclaims a released unique key in one outcome",
+      "status": "passed"
+    },
+    {
+      "file": "application.test.ts",
+      "name": "standalone experimental Application (postgres) refuses a caught pending-row limit without committing the earlier rows",
+      "status": "passed"
+    },
+    {
+      "file": "application.test.ts",
+      "name": "standalone experimental Application (postgres) refuses expiry at the accepting boundary without publication",
+      "status": "passed"
+    },
+    {
+      "file": "application.test.ts",
+      "name": "standalone experimental Application (postgres) rechecks database deadline after waiting for the scope clock",
+      "status": "passed"
+    },
+    {
+      "file": "application.test.ts",
+      "name": "standalone experimental Application (postgres) keeps a high-revision selection index ordered below its physical candidate limit",
+      "status": "passed"
+    },
+    {
+      "file": "new-id-validation.test.ts",
+      "name": "batched generated identities (pglite) refuses an older generated-ID collision, tombstone=false",
+      "status": "passed"
+    },
+    {
+      "file": "new-id-validation.test.ts",
+      "name": "batched generated identities (pglite) refuses an older generated-ID collision, tombstone=true",
+      "status": "passed"
+    },
+    {
+      "file": "new-id-validation.test.ts",
+      "name": "batched generated identities (pglite) refuses duplicate local generation and retains the sticky failure",
+      "status": "passed"
+    },
+    {
+      "file": "new-id-validation.test.ts",
+      "name": "batched generated identities (pglite) uses one freeze transaction for 64 intents and publishes exact absent dependencies",
+      "status": "passed"
+    },
+    {
+      "file": "new-id-validation.test.ts",
+      "name": "batched generated identities (pglite) checks the last identity of a full batch",
+      "status": "passed"
+    },
+    {
+      "file": "new-id-validation.test.ts",
+      "name": "batched generated identities (pglite) isolates identity history by both scope and table",
+      "status": "passed"
+    },
+    {
+      "file": "new-id-validation.test.ts",
+      "name": "batched generated identities (pglite) keeps pending edits, local deletion and original absence coherent",
+      "status": "passed"
+    },
+    {
+      "file": "new-id-validation.test.ts",
+      "name": "batched generated identities (pglite) validates an inserted-then-deleted identity even with no final write",
+      "status": "passed"
+    },
+    {
+      "file": "new-id-validation.test.ts",
+      "name": "batched generated identities (pglite) rejects a post-freeze collision, local deletion=false",
+      "status": "passed"
+    },
+    {
+      "file": "new-id-validation.test.ts",
+      "name": "batched generated identities (pglite) rejects a post-freeze collision, local deletion=true",
+      "status": "passed"
+    },
+    {
+      "file": "new-id-validation.test.ts",
+      "name": "batched generated identities (pglite) refuses revoke before exporting generated-ID evidence",
+      "status": "passed"
+    },
+    {
+      "file": "new-id-validation.test.ts",
+      "name": "batched generated identities (pglite) refuses fence before exporting generated-ID evidence",
+      "status": "passed"
+    },
+    {
+      "file": "new-id-validation.test.ts",
+      "name": "batched generated identities (pglite) refuses definition before exporting generated-ID evidence",
+      "status": "passed"
+    },
+    {
+      "file": "new-id-validation.test.ts",
+      "name": "batched generated identities (pglite) refuses retention before exporting generated-ID evidence",
+      "status": "passed"
+    },
+    {
+      "file": "new-id-validation.test.ts",
+      "name": "batched generated identities (pglite) refuses closed before exporting generated-ID evidence",
+      "status": "passed"
+    },
+    {
+      "file": "new-id-validation.test.ts",
+      "name": "batched generated identities (pglite) checks actual reads freshly after tentative inserts and preserves caught refusal",
+      "status": "passed"
+    },
+    {
+      "file": "new-id-validation.test.ts",
+      "name": "batched generated identities (pglite) preserves logical row/dependency and shared byte budgets",
+      "status": "passed"
+    },
+    {
+      "file": "new-id-validation.test.ts",
+      "name": "batched generated identities (pglite) retains the same validation in an Application participant of a mixed root",
+      "status": "passed"
+    },
+    {
+      "file": "new-id-validation.test.ts",
+      "name": "batched generated identities (pglite) acquires new history in a fresh statement after a guard lock wait",
+      "status": "skipped"
+    },
+    {
+      "file": "new-id-validation.test.ts",
+      "name": "batched generated identities (pglite) withholds cancellation until the freeze transaction drains",
+      "status": "skipped"
+    },
+    {
+      "file": "new-id-validation.test.ts",
+      "name": "batched generated identities (pglite) checks snapshot expiry after the freeze gate lock wait",
+      "status": "skipped"
+    },
+    {
+      "file": "new-id-validation.test.ts",
+      "name": "batched generated identities (postgres) refuses an older generated-ID collision, tombstone=false",
+      "status": "passed"
+    },
+    {
+      "file": "new-id-validation.test.ts",
+      "name": "batched generated identities (postgres) refuses an older generated-ID collision, tombstone=true",
+      "status": "passed"
+    },
+    {
+      "file": "new-id-validation.test.ts",
+      "name": "batched generated identities (postgres) refuses duplicate local generation and retains the sticky failure",
+      "status": "passed"
+    },
+    {
+      "file": "new-id-validation.test.ts",
+      "name": "batched generated identities (postgres) uses one freeze transaction for 64 intents and publishes exact absent dependencies",
+      "status": "passed"
+    },
+    {
+      "file": "new-id-validation.test.ts",
+      "name": "batched generated identities (postgres) checks the last identity of a full batch",
+      "status": "passed"
+    },
+    {
+      "file": "new-id-validation.test.ts",
+      "name": "batched generated identities (postgres) isolates identity history by both scope and table",
+      "status": "passed"
+    },
+    {
+      "file": "new-id-validation.test.ts",
+      "name": "batched generated identities (postgres) keeps pending edits, local deletion and original absence coherent",
+      "status": "passed"
+    },
+    {
+      "file": "new-id-validation.test.ts",
+      "name": "batched generated identities (postgres) validates an inserted-then-deleted identity even with no final write",
+      "status": "passed"
+    },
+    {
+      "file": "new-id-validation.test.ts",
+      "name": "batched generated identities (postgres) rejects a post-freeze collision, local deletion=false",
+      "status": "passed"
+    },
+    {
+      "file": "new-id-validation.test.ts",
+      "name": "batched generated identities (postgres) rejects a post-freeze collision, local deletion=true",
+      "status": "passed"
+    },
+    {
+      "file": "new-id-validation.test.ts",
+      "name": "batched generated identities (postgres) refuses revoke before exporting generated-ID evidence",
+      "status": "passed"
+    },
+    {
+      "file": "new-id-validation.test.ts",
+      "name": "batched generated identities (postgres) refuses fence before exporting generated-ID evidence",
+      "status": "passed"
+    },
+    {
+      "file": "new-id-validation.test.ts",
+      "name": "batched generated identities (postgres) refuses definition before exporting generated-ID evidence",
+      "status": "passed"
+    },
+    {
+      "file": "new-id-validation.test.ts",
+      "name": "batched generated identities (postgres) refuses retention before exporting generated-ID evidence",
+      "status": "passed"
+    },
+    {
+      "file": "new-id-validation.test.ts",
+      "name": "batched generated identities (postgres) refuses closed before exporting generated-ID evidence",
+      "status": "passed"
+    },
+    {
+      "file": "new-id-validation.test.ts",
+      "name": "batched generated identities (postgres) checks actual reads freshly after tentative inserts and preserves caught refusal",
+      "status": "passed"
+    },
+    {
+      "file": "new-id-validation.test.ts",
+      "name": "batched generated identities (postgres) preserves logical row/dependency and shared byte budgets",
+      "status": "passed"
+    },
+    {
+      "file": "new-id-validation.test.ts",
+      "name": "batched generated identities (postgres) retains the same validation in an Application participant of a mixed root",
+      "status": "passed"
+    },
+    {
+      "file": "new-id-validation.test.ts",
+      "name": "batched generated identities (postgres) acquires new history in a fresh statement after a guard lock wait",
+      "status": "passed"
+    },
+    {
+      "file": "new-id-validation.test.ts",
+      "name": "batched generated identities (postgres) withholds cancellation until the freeze transaction drains",
+      "status": "passed"
+    },
+    {
+      "file": "new-id-validation.test.ts",
+      "name": "batched generated identities (postgres) checks snapshot expiry after the freeze gate lock wait",
+      "status": "passed"
+    }
+  ],
+  "excluded": {
+    "preChangeWitness": {
+      "file": "insert-before-collision-witness.json",
+      "meaning": "Two expected pre-change live/tombstone identity failures; no passing credit"
+    },
+    "allocationFailure": {
+      "file": "insert-owner-initial.json",
+      "meaning": "Concurrent default-thread compiler and Vitest allocations failed. No passing credit; serialized compiler with two Rayon threads and owner reruns pass."
+    },
+    "initialOwner": {
+      "file": "insert-owner.json",
+      "meaning": "34 earlier owner passes superseded by final complete owner file"
+    }
+  }
+}

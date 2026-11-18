@@ -79,7 +79,7 @@ describe("Application definition", () => {
         logicalName: "recipes",
         definition: {
           kind: "appDocument",
-          definitionVersion: 1,
+          definitionVersion: 2,
           documentType: {
             type: "object",
             value: {

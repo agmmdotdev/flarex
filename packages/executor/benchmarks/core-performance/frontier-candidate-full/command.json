@@ -1,0 +1,15 @@
+{
+  "runId": "d6b33d8f-4fce-4bee-80cc-bce96c0a3bcf",
+  "revision": "8c394df7747f3a7c8cdebb1b929f53c766499bc9",
+  "dirty": true,
+  "totalMs": 80985.2211,
+  "exitCode": 0,
+  "signal": null,
+  "reports": [
+    {
+      "name": "mixed-workflow",
+      "path": "packages/executor/benchmarks/core-performance/frontier-candidate-full/mixed-workflow.json",
+      "available": true
+    }
+  ]
+}

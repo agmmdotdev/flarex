@@ -65,6 +65,7 @@ export function projectActionInvocationError(
     case "AppSchemaVersionIndexBindingPersistenceError":
     case "AppUniqueConstraintCatalogPersistenceError":
     case "AppUniqueConstraintSetClosurePersistenceV1Error":
+    case "AppUniqueConstraintSetClosureResourceError":
     case "PhysicalDefinitionLifecyclePersistenceError":
     case "SchemaVersionArtifactPersistenceError":
     case "ApplicationActionAuthorityIntegrationV1Error":

@@ -343,6 +343,7 @@ function definition(
   target: ApplicationRuntimeTargetV1,
 ): ApplicationWorkerDefinition {
   return Object.freeze({
+    validatorIdentityEncoding: 2,
     targetCanonicalText: Result.getOrThrow(
       canonicalizeApplicationRuntimeTargetV1(target),
     ).canonicalText,

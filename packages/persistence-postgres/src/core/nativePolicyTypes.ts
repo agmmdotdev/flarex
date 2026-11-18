@@ -1,0 +1,130 @@
+import { Schema } from "effect";
+import { ScopeEpochUuidV1Schema, ScopeUuidV1Schema } from "flarex-protocol/storage-authority";
+import { DeveloperDocumentIdSchema } from "flarex-protocol/document-id";
+import { MAX_SCHEMA_MANIFEST_APP_INDEX_DECLARED_FIELDS } from "flarex-protocol/schema-manifest";
+import { RelationDeclarationV1Schema } from "flarex-protocol/internal/relation-declaration-v1";
+import { LogicalSchemaExtensionSchema } from "flarex-protocol/internal/logical-schema-candidate";
+
+const strict = { parseOptions: { onExcessProperty: "error" } } as const;
+const isDocumentId = Schema.is(DeveloperDocumentIdSchema);
+const Digest = Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/));
+export const CoreNativeIdentitySchema = Schema.Struct({ scopeUuid: ScopeUuidV1Schema, epochUuid: ScopeEpochUuidV1Schema,
+  sourceKey: Schema.NonEmptyString, sourceSha256: Digest, configSha256: Digest, provenanceSha256: Digest, definitionHash: Digest }).annotate(strict);
+export type CoreNativeIdentity = typeof CoreNativeIdentitySchema.Type;
+const ReferenceFields = { declaration: RelationDeclarationV1Schema,
+  sourceTable: Schema.NonEmptyString, targetTable: Schema.NonEmptyString,
+  field: Schema.NonEmptyString, indexName: Schema.NonEmptyString };
+const CoreNativeSingleReferenceSchema = Schema.Struct({ declaration: RelationDeclarationV1Schema,
+  reference: LogicalSchemaExtensionSchema, sourceTable: Schema.NonEmptyString, targetTable: Schema.NonEmptyString,
+  field: Schema.NonEmptyString, indexName: Schema.NonEmptyString }).annotate(strict).check(
+    Schema.makeFilter(reference => reference.declaration.value.cardinality === "one" ? undefined : "Expected a scalar reference declaration"));
+export const CoreNativeReferenceProjectionSchema = Schema.Struct({ tableName: Schema.NonEmptyString,
+  bySourceIndex: Schema.Literal("by_source_target"), byTargetIndex: Schema.Literal("by_target_source") }).annotate(strict);
+export type CoreNativeReferenceProjection = typeof CoreNativeReferenceProjectionSchema.Type;
+const CoreNativeManyReferenceSchema = Schema.Struct({ ...ReferenceFields,
+  reference: Schema.Struct({ kind: Schema.Literal("manyMembership"), name: Schema.NonEmptyString,
+    sourceKey: Schema.NonEmptyString }).annotate(strict),
+  projection: CoreNativeReferenceProjectionSchema }).annotate(strict).check(
+    Schema.makeFilter(reference => reference.declaration.value.cardinality === "many" ? undefined : "Expected a many reference declaration"));
+export const CoreNativeReferenceSchema = Schema.Union([CoreNativeSingleReferenceSchema, CoreNativeManyReferenceSchema]);
+export type CoreNativeReference = typeof CoreNativeReferenceSchema.Type;
+export const CoreNativePrivateReferenceRoleSchema = Schema.Struct({ kind: Schema.Literal("referenceMembership"),
+  referenceName: Schema.NonEmptyString }).annotate(strict);
+export type CoreNativePrivateReferenceRole = typeof CoreNativePrivateReferenceRoleSchema.Type;
+export const CoreNativePrivateEventRoleSchema = Schema.Struct({ role: Schema.Literals(["family", "envelope", "delivery"]) }).annotate(strict);
+export type CoreNativePrivateEventRole = typeof CoreNativePrivateEventRoleSchema.Type;
+/** Narrow reader for the captured Native10 table policy; source identities do not change. */
+const LegacyCoreNativeUniqueConstraintSchema = Schema.Struct({ descriptor: Schema.NonEmptyString,
+  field: Schema.NonEmptyString, indexName: Schema.NonEmptyString }).annotate(strict);
+const NativeEligibilityTerm = Schema.Struct({ field: Schema.NonEmptyString,
+  value: Schema.Union([Schema.Null, Schema.Boolean, Schema.String]) }).annotate(strict);
+/** Keep the stored single-null shape; native conjunctions remain bounded. */
+export const CoreNativeEligibilitySchema = Schema.Union([
+  Schema.Struct({ field: Schema.NonEmptyString, value: Schema.Null }).annotate(strict),
+  Schema.Struct({ all: Schema.Array(NativeEligibilityTerm).check(Schema.isMinLength(2), Schema.isMaxLength(2),
+    Schema.makeFilter(terms => new Set(terms.map(term => term.field)).size === terms.length
+      ? undefined : "Native eligibility fields must be distinct"),
+    Schema.makeFilter(terms => terms[0]?.value === null ? undefined : "Native conjunction requires its null prefix")) }).annotate(strict),
+]);
+export type CoreNativeEligibility = typeof CoreNativeEligibilitySchema.Type;
+export function coreNativeEligibilityTerms(eligibility: CoreNativeEligibility): readonly typeof NativeEligibilityTerm.Type[] {
+  return "all" in eligibility ? eligibility.all : [eligibility];
+}
+export function coreNativeEligibilityMatches(eligibility: CoreNativeEligibility, row: Readonly<Record<string, unknown>>): boolean {
+  if (!("all" in eligibility)) return Object.hasOwn(row, eligibility.field) && row[eligibility.field] === eligibility.value;
+  for (const term of eligibility.all) if (!Object.hasOwn(row, term.field) || row[term.field] !== term.value) return false;
+  return true;
+}
+export const CoreNativeUniqueConstraintSchema = Schema.Struct({ descriptor: Schema.NonEmptyString,
+  fields: Schema.Array(Schema.NonEmptyString).check(Schema.isMinLength(1),
+    Schema.isMaxLength(MAX_SCHEMA_MANIFEST_APP_INDEX_DECLARED_FIELDS),
+    Schema.makeFilter(fields => new Set(fields).size === fields.length ? undefined : "Native unique fields must be distinct")),
+  indexName: Schema.NonEmptyString, nullsDistinct: Schema.Boolean,
+  eligibility: Schema.optionalKey(CoreNativeEligibilitySchema),
+}).annotate(strict);
+const StoredUniqueConstraint = Schema.Union([LegacyCoreNativeUniqueConstraintSchema, CoreNativeUniqueConstraintSchema]);
+type StoredUniqueConstraint = typeof StoredUniqueConstraint.Type;
+export function coreNativeConstraintFields(constraint: StoredUniqueConstraint): readonly string[] {
+  return "field" in constraint ? [constraint.field] : constraint.fields;
+}
+export function coreNativeConstraintNullsDistinct(constraint: StoredUniqueConstraint): boolean {
+  return "field" in constraint ? false : constraint.nullsDistinct;
+}
+export function coreNativeConstraintEligibility(constraint: StoredUniqueConstraint) {
+  return "field" in constraint ? undefined : constraint.eligibility;
+}
+/** The predicate supplies an access prefix, never an extra nullable unique key. */
+export function coreNativeConstraintAccessFields(constraint: StoredUniqueConstraint): readonly string[] {
+  const fields = coreNativeConstraintFields(constraint), eligibility = coreNativeConstraintEligibility(constraint);
+  if (eligibility === undefined) return fields;
+  const prefix = coreNativeEligibilityTerms(eligibility).map(term => term.field);
+  return [...prefix, ...fields.filter(field => !prefix.includes(field))];
+}
+const NativeTupleFields = Schema.Array(Schema.NonEmptyString).check(Schema.isMinLength(1),
+  Schema.isMaxLength(MAX_SCHEMA_MANIFEST_APP_INDEX_DECLARED_FIELDS),
+  Schema.makeFilter(fields => new Set(fields).size === fields.length ? undefined : "Native tuple fields must be distinct"));
+export const CoreNativeRowKeySchema = Schema.Struct({ fields: NativeTupleFields, indexName: Schema.NonEmptyString }).annotate(strict);
+export type CoreNativeRowKey = typeof CoreNativeRowKeySchema.Type;
+export const CoreNativeForeignKeySchema = Schema.Struct({ descriptor: Schema.NonEmptyString,
+  sourceTable: Schema.NonEmptyString, targetTable: Schema.NonEmptyString,
+  sourceFields: NativeTupleFields, targetFields: NativeTupleFields,
+  sourceIndexName: Schema.NonEmptyString, targetIndexName: Schema.NonEmptyString,
+  onDelete: Schema.Literals(["restrict", "noAction", "cascade"]), onUpdate: Schema.Literals(["restrict", "noAction"]),
+}).annotate(strict).check(Schema.makeFilter(value => value.sourceFields.length === value.targetFields.length
+  ? undefined : "Native foreign key tuples must have equal arity"));
+export type CoreNativeForeignKey = typeof CoreNativeForeignKeySchema.Type;
+const CoreNativeSourceIdentitySchema = Schema.Struct({ sourceKey: Schema.NonEmptyString, sourceSha256: Digest }).annotate(strict);
+export const CoreNativeProtectedReferenceSchema = Schema.Struct({ reference: LogicalSchemaExtensionSchema,
+  sourceTable: Schema.NonEmptyString, targetTable: Schema.NonEmptyString, field: Schema.NonEmptyString,
+  indexName: Schema.NonEmptyString, targetField: Schema.NonEmptyString, targetIndexName: Schema.NonEmptyString,
+  sourceIdentity: CoreNativeSourceIdentitySchema, targetIdentity: CoreNativeSourceIdentitySchema,
+}).annotate(strict);
+export type CoreNativeProtectedReference = typeof CoreNativeProtectedReferenceSchema.Type;
+export const CoreNativeTablePolicySchema = Schema.Struct({ state: Schema.Literals(["reserved", "active"]),
+  schemaId: Schema.String.check(Schema.makeFilter(value => isDocumentId(value) ? undefined : "Expected a schema document ID")),
+  identity: CoreNativeIdentitySchema, applicationRead: Schema.Boolean,
+  bindingSelected: Schema.optionalKey(Schema.Boolean),
+  privateReference: Schema.optionalKey(CoreNativePrivateReferenceRoleSchema),
+  privateEvent: Schema.optionalKey(CoreNativePrivateEventRoleSchema),
+  rowKey: Schema.optionalKey(CoreNativeRowKeySchema),
+  foreignKeys: Schema.optionalKey(Schema.Array(CoreNativeForeignKeySchema).check(Schema.isMaxLength(64),
+    Schema.makeFilter(values => new Set(values.map(value => `${value.sourceTable}/${value.descriptor}`)).size === values.length
+      ? undefined : "Native foreign keys must be distinct"))),
+  protectedReferences: Schema.optionalKey(Schema.Array(CoreNativeProtectedReferenceSchema).check(Schema.isMaxLength(64),
+    Schema.makeFilter(values => new Set(values.map(value => value.reference.name)).size === values.length
+      ? undefined : "Protected native references must be distinct"))),
+  references: Schema.optionalKey(Schema.Array(CoreNativeReferenceSchema).check(Schema.isMaxLength(2))),
+  uniqueConstraints: Schema.Array(StoredUniqueConstraint).check(Schema.isMaxLength(64), Schema.makeFilter(values =>
+    new Set(values.map(value => value.descriptor)).size !== values.length
+      || new Set(values.map(value => JSON.stringify([coreNativeConstraintFields(value), coreNativeConstraintEligibility(value) ?? null]))).size !== values.length
+      ? "Native constraints require distinct descriptors and field tuples" : undefined)) }).annotate(strict).check(
+        Schema.makeFilter(policy => policy.privateReference === undefined || !policy.applicationRead
+          && (policy.references?.length ?? 0) === 0 && policy.uniqueConstraints.length === 0
+          && policy.rowKey === undefined && (policy.foreignKeys?.length ?? 0) === 0
+          && (policy.protectedReferences?.length ?? 0) === 0
+          ? undefined : "Private reference tables do not grant business exposure or independent constraints"),
+        Schema.makeFilter(policy => policy.privateEvent === undefined || !policy.applicationRead && policy.privateReference === undefined
+          && (policy.references?.length ?? 0) === 0 && (policy.foreignKeys?.length ?? 0) === 0
+          && (policy.protectedReferences?.length ?? 0) === 0
+          ? undefined : "Private event tables grant no application exposure or business relations"));
+export type CoreNativeTablePolicy = typeof CoreNativeTablePolicySchema.Type;

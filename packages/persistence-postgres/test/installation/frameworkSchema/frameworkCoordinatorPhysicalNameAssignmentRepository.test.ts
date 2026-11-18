@@ -1,0 +1,544 @@
+import {
+  rejectingSelectTransaction,
+  useFileScopedFrameworkCoordinatorPersistence,
+} from "./frameworkCoordinatorRepositoryTestSupport";
+import { administrativelyRepairFrameworkMetadata } from "./frameworkMetadataRepairTestSupport";
+import { eq, sql } from "drizzle-orm";
+import { Effect, Option } from "effect";
+import { describe, expect, it } from "vitest";
+
+
+import type { FlarexMetadataTransaction } from "../../../src/database/metadataTransaction";
+import {
+  captureFreshRelationalMigrationPlan,
+} from "../../../src/installation/migrationCoordination/canonical";
+import {
+  ensureRelationalPhysicalNameAssignmentsInTransactionEffect,
+  readRelationalPhysicalNameAssignmentInTransactionEffect,
+  resolveAuthenticatedRelationalPhysicalNameAssignmentOccupantsEffect,
+  restoreRelationalPhysicalNameAssignmentOccupantInTransactionEffect,
+} from "../../../src/installation/migrationCoordination/physicalNameAssignmentRepository";
+import {
+  fxSystemRelationalPhysicalNameAssignments,
+} from "../../../src/installation/migrationCoordination/schema";
+import {
+  ensureFrameworkMigrationCollisionDomainInTransactionEffect,
+  ensureFrameworkSchemaTargetNamespaceInTransactionEffect,
+} from "../../../src/installation/migrationCoordination/targetCollisionRepository";
+import { captureRelationalPhysicalLayout } from
+  "../../../src/storage/relationalSchema/physical/canonical";
+import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
+import {
+  currencyArtifact,
+  FRAMEWORK_VALUE_LOCATOR,
+  frameworkTargetNamespace,
+  syntheticSystemArtifact,
+} from "./frameworkMigrationValueFixtures";
+import { createMigratedPGlitePersistence } from "../../support/pgliteTestFixture";
+
+describe("framework coordinator physical-name assignment repository", { concurrent: false }, () => {
+  const withPersistence = useFileScopedFrameworkCoordinatorPersistence();
+
+  it("ensures, reads, and exactly replays ordinary assignments", () => withPersistence(async persistence => {
+    const values = await freshAssignmentRepositoryValues();
+    const result = await persistence.drizzle.transaction(async transaction => {
+      const { collision } = await ensureParents(transaction, values);
+      const missing = await runEffect(
+        readRelationalPhysicalNameAssignmentInTransactionEffect(
+          transaction,
+          collision,
+          values.firstAssignment,
+        ),
+      );
+      expect(Option.isNone(missing)).toBe(true);
+
+      const first = await runEffect(
+        ensureRelationalPhysicalNameAssignmentInTransactionEffect(
+          transaction,
+          collision,
+          values.firstAssignment,
+        ),
+      );
+      const replayedFirst = await runEffect(
+        ensureRelationalPhysicalNameAssignmentInTransactionEffect(
+          transaction,
+          collision,
+          values.firstAssignment,
+        ),
+      );
+      const readFirst = Option.getOrThrow(await runEffect(
+        readRelationalPhysicalNameAssignmentInTransactionEffect(
+          transaction,
+          collision,
+          values.firstAssignment,
+        ),
+      ));
+      expect(replayedFirst.storageId).toBe(first.storageId);
+      expect(readFirst).toEqual(first);
+
+      const second = await runEffect(
+        ensureRelationalPhysicalNameAssignmentInTransactionEffect(
+          transaction,
+          collision,
+          values.secondAssignment,
+        ),
+      );
+      const readSecond = Option.getOrThrow(await runEffect(
+        readRelationalPhysicalNameAssignmentInTransactionEffect(
+          transaction,
+          collision,
+          values.secondAssignment,
+        ),
+      ));
+      expect(readSecond).toEqual(second);
+      const driverCause = new Error("driver unavailable");
+      const failure = await runEffectFailure(
+        readRelationalPhysicalNameAssignmentInTransactionEffect(
+          rejectingSelectTransaction(transaction, driverCause),
+          collision,
+          values.firstAssignment,
+        ),
+      );
+      expect(failure).toMatchObject({
+        _tag: "FrameworkMigrationRepositoryError",
+        operation: "readPhysicalNameAssignment",
+        reason: "resourceFailure",
+        cause: driverCause,
+      });
+      return { first, second };
+    });
+
+    expect(result.first.assignment).toEqual(values.firstAssignment);
+    expect(result.second.assignment).toEqual(values.secondAssignment);
+    expect(result.first.storageId).not.toBe(result.second.storageId);
+    await expect(assignmentCount(persistence)).resolves.toBe("2");
+  }));
+
+  describe("independent-store assignment isolation", { concurrent: false }, () => {
+    const withIndependentPersistence = useFileScopedFrameworkCoordinatorPersistence();
+
+    it("converges duplicate exact ensures and rolls back with its caller", () => withPersistence(async persistence => {
+      const values = await freshAssignmentRepositoryValues();
+      const { collision } = await persistence.drizzle.transaction(
+        transaction => ensureParents(transaction, values),
+      );
+      const ensuring = [
+        persistence.drizzle.transaction(transaction => runEffect(
+          ensureRelationalPhysicalNameAssignmentInTransactionEffect(
+            transaction,
+            collision,
+            values.firstAssignment,
+          ),
+        )),
+        persistence.drizzle.transaction(transaction => runEffect(
+          ensureRelationalPhysicalNameAssignmentInTransactionEffect(
+            transaction,
+            collision,
+            values.firstAssignment,
+          ),
+        )),
+      ];
+      const ensured = await Promise.all(ensuring).finally(async () => {
+        await Promise.allSettled(ensuring);
+      });
+      expect(ensured[0]?.storageId).toBe(ensured[1]?.storageId);
+      await expect(assignmentCount(persistence)).resolves.toBe("1");
+
+      await withIndependentPersistence(async rollbackPersistence => {
+        const rollbackParents = await rollbackPersistence.drizzle.transaction(
+          transaction => ensureParents(transaction, values),
+        );
+        const deliberateRollback = new Error("deliberate rollback");
+        await expect(rollbackPersistence.drizzle.transaction(
+          async transaction => {
+            await runEffect(
+              ensureRelationalPhysicalNameAssignmentInTransactionEffect(
+                transaction,
+                rollbackParents.collision,
+                values.firstAssignment,
+              ),
+            );
+            throw deliberateRollback;
+          },
+        )).rejects.toBe(deliberateRollback);
+        await expect(assignmentCount(rollbackPersistence)).resolves.toBe("0");
+      });
+    }));
+
+    it("refuses forged, cross-coordinate, and cross-database references", () => withPersistence(async persistence => {
+      const values = await freshAssignmentRepositoryValues();
+      const parents = await persistence.drizzle.transaction(
+        transaction => ensureParents(transaction, values),
+      );
+
+      const forgedFailure = await persistence.drizzle.transaction(
+        transaction => runEffectFailure(
+          ensureRelationalPhysicalNameAssignmentInTransactionEffect(
+            transaction,
+            { ...parents.collision },
+            values.firstAssignment,
+          ),
+        ),
+      );
+      expect(forgedFailure).toMatchObject({
+        _tag: "FrameworkMigrationRepositoryError",
+        operation: "ensurePhysicalNameAssignment",
+        reason: "referenceRefusal",
+      });
+
+      const crossCoordinateAssignment = await currencyAssignment(values.target);
+      const crossCoordinateFailure = await persistence.drizzle.transaction(
+        transaction => runEffectFailure(
+          readRelationalPhysicalNameAssignmentInTransactionEffect(
+            transaction,
+            parents.collision,
+            crossCoordinateAssignment,
+          ),
+        ),
+      );
+      expect(crossCoordinateFailure).toMatchObject({
+        _tag: "FrameworkMigrationRepositoryError",
+        operation: "readPhysicalNameAssignment",
+        reason: "referenceRefusal",
+      });
+
+      const inconsistentAssignmentFailure = await persistence.drizzle.transaction(
+        transaction => runEffectFailure(
+          ensureRelationalPhysicalNameAssignmentInTransactionEffect(
+            transaction,
+            parents.collision,
+            {
+              ...values.firstAssignment,
+              canonicalJson: `${values.firstAssignment.canonicalJson} `,
+            },
+          ),
+        ),
+      );
+      expect(inconsistentAssignmentFailure).toMatchObject({
+        _tag: "FrameworkMigrationRepositoryError",
+        operation: "ensurePhysicalNameAssignment",
+        reason: "referenceRefusal",
+      });
+
+      await withIndependentPersistence(async otherPersistence => {
+        const missingParentFailure = await otherPersistence.drizzle.transaction(
+          transaction => runEffectFailure(
+            ensureRelationalPhysicalNameAssignmentInTransactionEffect(
+              transaction,
+              parents.collision,
+              values.firstAssignment,
+            ),
+          ),
+        );
+        expect(missingParentFailure).toMatchObject({
+          _tag: "FrameworkMigrationRepositoryError",
+          operation: "ensurePhysicalNameAssignment",
+          reason: "referenceRefusal",
+        });
+      });
+    }));
+  });
+
+  it("resolves authenticated occupants in digest-first order", () => withPersistence(async persistence => {
+    const values = await freshAssignmentRepositoryValues();
+    const restored = await persistence.drizzle.transaction(
+      async transaction => {
+        const { collision } = await ensureParents(transaction, values);
+        const first = await runEffect(
+          ensureRelationalPhysicalNameAssignmentInTransactionEffect(
+            transaction,
+            collision,
+            values.firstAssignment,
+          ),
+        );
+        const second = await runEffect(
+          ensureRelationalPhysicalNameAssignmentInTransactionEffect(
+            transaction,
+            collision,
+            values.secondAssignment,
+          ),
+        );
+        return { collision, first, second };
+      },
+    );
+
+    let spellingReads = 0;
+    const digestFailure = await runEffectFailure(
+      resolveAuthenticatedRelationalPhysicalNameAssignmentOccupantsEffect(
+        restored.collision,
+        values.firstAssignment,
+        "readPhysicalNameAssignment",
+        {
+          readByDigest: () => Effect.succeed(Option.some(restored.second)),
+          readBySpelling: () => {
+            spellingReads += 1;
+            return Effect.succeed(Option.some(restored.first));
+          },
+        },
+      ),
+    );
+    expect(digestFailure).toMatchObject({
+      _tag: "FrameworkMigrationRepositoryError",
+      operation: "readPhysicalNameAssignment",
+      reason: "immutableConflict",
+    });
+    expect(spellingReads).toBe(0);
+
+    const spellingFailure = await runEffectFailure(
+      resolveAuthenticatedRelationalPhysicalNameAssignmentOccupantsEffect(
+        restored.collision,
+        values.firstAssignment,
+        "readPhysicalNameAssignment",
+        {
+          readByDigest: () => Effect.succeed(Option.none()),
+          // This trusted lookup seam represents the result of the global
+          // spelling index without requiring a realizable SHA-256 collision.
+          readBySpelling: () => Effect.succeed(Option.some(restored.second)),
+        },
+      ),
+    );
+    expect(spellingFailure).toMatchObject({
+      _tag: "FrameworkMigrationRepositoryError",
+      operation: "readPhysicalNameAssignment",
+      reason: "physicalNameCollision",
+      spelling: values.firstAssignment.frame.spelling,
+    });
+  }));
+
+  it("rehydrates a historical occupant through its actual collision lane", () => withPersistence(async persistence => {
+    const values = await freshAssignmentRepositoryValues();
+    const historicalValues = await currencyAssignmentRepositoryValues();
+    const restored = await persistence.drizzle.transaction(
+      async transaction => {
+        const incoming = await ensureParents(transaction, values);
+        const historical = await ensureParents(transaction, historicalValues);
+        const assignment = await runEffect(
+          ensureRelationalPhysicalNameAssignmentInTransactionEffect(
+            transaction,
+            historical.collision,
+            historicalValues.firstAssignment,
+          ),
+        );
+        return { incoming, historical, assignment };
+      },
+    );
+    const rows = await persistence.drizzle.select({
+      assignmentStorageId:
+        fxSystemRelationalPhysicalNameAssignments.assignmentStorageId,
+      collisionStorageId:
+        fxSystemRelationalPhysicalNameAssignments.collisionStorageId,
+      physicalDatabaseIdentity:
+        fxSystemRelationalPhysicalNameAssignments.physicalDatabaseIdentity,
+      schemaName: fxSystemRelationalPhysicalNameAssignments.schemaName,
+      spelling: fxSystemRelationalPhysicalNameAssignments.spelling,
+      nameSha256: fxSystemRelationalPhysicalNameAssignments.nameSha256,
+      assignmentSha256:
+        fxSystemRelationalPhysicalNameAssignments.assignmentSha256,
+      frameFormat: fxSystemRelationalPhysicalNameAssignments.frameFormat,
+      frameVersion: fxSystemRelationalPhysicalNameAssignments.frameVersion,
+      canonicalByteLength:
+        fxSystemRelationalPhysicalNameAssignments.canonicalByteLength,
+      observedCanonicalByteLength: sql<number>`
+        octet_length(
+          ${fxSystemRelationalPhysicalNameAssignments.canonicalBytes}
+        )
+      `,
+      canonicalBytes: fxSystemRelationalPhysicalNameAssignments.canonicalBytes,
+    }).from(fxSystemRelationalPhysicalNameAssignments).where(eq(
+      fxSystemRelationalPhysicalNameAssignments.assignmentStorageId,
+      restored.assignment.storageId,
+    )).limit(1);
+    const row = rows[0];
+    if (row === undefined) throw new Error("Missing historical assignment row");
+
+    const rehydrated = await persistence.drizzle.transaction(
+      transaction => runEffect(
+        restoreRelationalPhysicalNameAssignmentOccupantInTransactionEffect(
+          transaction,
+          row,
+          restored.incoming.collision,
+          "readPhysicalNameAssignment",
+        ),
+      ),
+    );
+    expect(rehydrated).toEqual(restored.assignment);
+    expect(rehydrated.collision.storageId).toBe(
+      restored.historical.collision.storageId,
+    );
+    expect(rehydrated.collision.storageId).not.toBe(
+      restored.incoming.collision.storageId,
+    );
+  }));
+
+  it("rejects corrupt or over-limit stored assignment bytes", async () => {
+    const persistence = await createMigratedPGlitePersistence();
+    const values = await freshAssignmentRepositoryValues();
+    const parents = await persistence.drizzle.transaction(
+      transaction => ensureParents(transaction, values),
+    );
+    await persistence.drizzle.transaction(transaction => runEffect(
+      ensureRelationalPhysicalNameAssignmentInTransactionEffect(
+        transaction,
+        parents.collision,
+        values.firstAssignment,
+      ),
+    ));
+
+    const changedBytes = new TextEncoder().encode(
+      values.firstAssignment.canonicalJson,
+    );
+    changedBytes[changedBytes.byteLength - 2] = 0x20;
+    await administrativelyRepairFrameworkMetadata(persistence.drizzle, ["fx_system_relational_physical_name_assignment"], async repairTransaction => repairTransaction.update(
+      fxSystemRelationalPhysicalNameAssignments,
+    ).set({ canonicalBytes: changedBytes }));
+    const corruptFailure = await persistence.drizzle.transaction(
+      transaction => runEffectFailure(
+        readRelationalPhysicalNameAssignmentInTransactionEffect(
+          transaction,
+          parents.collision,
+          values.firstAssignment,
+        ),
+      ),
+    );
+    expect(corruptFailure).toMatchObject({
+      _tag: "FrameworkMigrationRepositoryError",
+      operation: "readPhysicalNameAssignment",
+      reason: "storedCorruption",
+    });
+
+    await persistence.query(`
+      alter table fx_system_relational_physical_name_assignment
+        drop constraint fx_relational_name_assignment_frame_check
+    `);
+    const oversizedBytes = new Uint8Array(20_481).fill(0x20);
+    await administrativelyRepairFrameworkMetadata(persistence.drizzle, ["fx_system_relational_physical_name_assignment"], async repairTransaction => repairTransaction.update(
+      fxSystemRelationalPhysicalNameAssignments,
+    ).set({
+      canonicalByteLength: oversizedBytes.byteLength,
+      canonicalBytes: oversizedBytes,
+    }));
+    const overLimitFailure = await persistence.drizzle.transaction(
+      transaction => runEffectFailure(
+        readRelationalPhysicalNameAssignmentInTransactionEffect(
+          transaction,
+          parents.collision,
+          values.firstAssignment,
+        ),
+      ),
+    );
+    expect(overLimitFailure).toMatchObject({
+      _tag: "FrameworkMigrationRepositoryError",
+      operation: "readPhysicalNameAssignment",
+      reason: "storedCorruption",
+    });
+  });
+});
+
+async function freshAssignmentRepositoryValues() {
+  const artifact = await syntheticSystemArtifact();
+  const target = await frameworkTargetNamespace();
+  const physicalLayout = await runEffect(captureRelationalPhysicalLayout({
+    artifact: artifact.artifact,
+    physicalLocator: FRAMEWORK_VALUE_LOCATOR,
+    targetNamespace: target,
+  }));
+  const plan = await runEffect(captureFreshRelationalMigrationPlan({
+    artifact: artifact.artifact,
+    physicalLayout,
+  }));
+  const firstAssignment = requiredAssignment(physicalLayout.nameAssignments, 0);
+  const secondAssignment = requiredAssignment(
+    physicalLayout.nameAssignments,
+    1,
+  );
+  return { target, plan, firstAssignment, secondAssignment };
+}
+
+async function currencyAssignment(
+  target: Awaited<ReturnType<typeof frameworkTargetNamespace>>,
+) {
+  const artifact = await currencyArtifact();
+  const physicalLayout = await runEffect(captureRelationalPhysicalLayout({
+    artifact: artifact.artifact,
+    physicalLocator: FRAMEWORK_VALUE_LOCATOR,
+    targetNamespace: target,
+  }));
+  return requiredAssignment(physicalLayout.nameAssignments, 0);
+}
+
+async function currencyAssignmentRepositoryValues() {
+  const artifact = await currencyArtifact();
+  const target = await frameworkTargetNamespace();
+  const physicalLayout = await runEffect(captureRelationalPhysicalLayout({
+    artifact: artifact.artifact,
+    physicalLocator: FRAMEWORK_VALUE_LOCATOR,
+    targetNamespace: target,
+  }));
+  const plan = await runEffect(captureFreshRelationalMigrationPlan({
+    artifact: artifact.artifact,
+    physicalLayout,
+  }));
+  const firstAssignment = requiredAssignment(
+    physicalLayout.nameAssignments,
+    0,
+  );
+  return { target, plan, firstAssignment };
+}
+
+async function ensureParents(
+  transaction: FlarexMetadataTransaction,
+  values: Pick<
+    Awaited<ReturnType<typeof freshAssignmentRepositoryValues>>,
+    "target" | "plan"
+  >,
+) {
+  const target = await runEffect(
+    ensureFrameworkSchemaTargetNamespaceInTransactionEffect(
+      transaction,
+      values.target,
+    ),
+  );
+  const collision = await runEffect(
+    ensureFrameworkMigrationCollisionDomainInTransactionEffect(
+      transaction,
+      target,
+      values.plan,
+    ),
+  );
+  return { target, collision };
+}
+
+function requiredAssignment<Assignment>(
+  assignments: readonly Assignment[],
+  index: number,
+): Assignment {
+  const assignment = assignments[index];
+  if (assignment === undefined) {
+    throw new Error(`Missing physical-name assignment at index ${index}`);
+  }
+  return assignment;
+}
+
+async function assignmentCount(
+  persistence: Awaited<ReturnType<typeof createMigratedPGlitePersistence>>,
+): Promise<string> {
+  const result = await persistence.query<{ assignment_count: string }>(`
+    select count(*)::text as assignment_count
+      from fx_system_relational_physical_name_assignment
+  `);
+  const row = result.rows[0];
+  if (row === undefined) throw new Error("Missing assignment count row");
+  return row.assignment_count;
+}
+
+// Single-item convenience belongs to tests; the repository accepts inventories.
+const ensureRelationalPhysicalNameAssignmentInTransactionEffect = Effect.fn(function* (
+  transaction: Parameters<typeof ensureRelationalPhysicalNameAssignmentsInTransactionEffect>[0],
+  collision: Parameters<typeof ensureRelationalPhysicalNameAssignmentsInTransactionEffect>[1],
+  assignment: Parameters<typeof ensureRelationalPhysicalNameAssignmentsInTransactionEffect>[2][number],
+) {
+  const rows = yield* ensureRelationalPhysicalNameAssignmentsInTransactionEffect(transaction, collision, [assignment]);
+  const row = rows[0];
+  if (row === undefined) throw new Error("Expected one ensured assignment");
+  return row;
+});

@@ -9,7 +9,7 @@ import {
   productCategoriesData,
   productCategoriesRankData,
 } from "../__fixtures__/product-category/data"
-import { } from "@medusajs/framework/types"
+
 import { Modules } from "@medusajs/framework/utils"
 
 

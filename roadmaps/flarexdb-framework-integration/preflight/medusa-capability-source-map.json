@@ -295,6 +295,64 @@
       ]
     }
   ],
+  "connectedProfiles": [
+    {
+      "id": "nativeShippingOptionCreationAndInstalledDeletion",
+      "status": "implementedPrivateBounded",
+      "preflight": "138-native-shipping-option-creation.md",
+      "promotionAuthority": "medusa-currency-promotion.json",
+      "sources": [
+        "third_party/medusa/upstream/packages/core/core-flows/src/fulfillment/workflows/create-shipping-options.ts",
+        "third_party/medusa/upstream/packages/core/core-flows/src/stock-location/workflows/delete-stock-locations.ts",
+        "third_party/medusa/upstream/packages/core/core-flows/src/fulfillment/workflows/delete-fulfillment-sets.ts",
+        "third_party/medusa/upstream/packages/modules/link-modules/src/definitions/fulfillment-set-location.ts",
+        "third_party/medusa/upstream/packages/modules/link-modules/src/definitions/fulfillment-provider-location.ts",
+        "third_party/medusa/upstream/packages/modules/link-modules/src/definitions/shipping-option-price-set.ts",
+        "third_party/medusa/upstream/packages/core/orchestration/src/joiner/remote-joiner.ts",
+        "third_party/medusa/upstream/packages/database/drizzle/src/repository.ts",
+        "third_party/medusa/upstream/packages/database/drizzle/src/medusa.ts"
+      ],
+      "creation": {
+        "participants": ["fulfillment", "pricing", "regionRead", "stockLocationRead", "locationFulfillmentSetLink", "locationFulfillmentProviderLink", "shippingOptionPriceSetLink"],
+        "maximumOptions": 4,
+        "maximumRulesPerOption": 4,
+        "maximumPricesPerOption": 2,
+        "maximumNormalizedPriceRules": 24,
+        "maximumDistinctRegions": 8,
+        "maximumAvailabilityLocations": 8,
+        "maximumAvailabilityProviders": 8,
+        "provider": "nativeManual",
+        "calculatedPriceBehavior": "nativeManualRefusal",
+        "inlineTypeIdentity": "notAdmitted",
+        "declaredTypeIdReference": "admitted",
+        "retainedCompensation": ["cancelOwnPendingExternalCreationEvent", "dismissCreatedLinks", "physicallyDeletePriceSets", "physicallyDeleteOptions"],
+        "compensationResidue": ["inlineTypes", "dismissedLinkHistory"],
+        "resources": { "calls": 512, "eventMessages": 128, "commandBytes": 2097152 }
+      },
+      "installedDeletion": {
+        "roots": ["stockLocation", "fulfillmentSet"],
+        "maximumFulfillmentHistory": { "sets": 4, "zones": 4, "geoZones": 16, "options": 8, "rules": 16 },
+        "maximumPricingHistory": { "priceSets": 8, "prices": 16, "priceRules": 48 },
+        "maximumNewLinkHistoryPerFamily": 8,
+        "maximumNewLinkEndpointIds": 8,
+        "maximumLocationFulfillmentSetHistory": 8,
+        "maximumLocationFulfillmentSetDistinctSets": 4,
+        "routing": "fullGeneratedNativeMetadataAndGenuineCallbacks",
+        "pricingForwardReachability": "nativeReturnedIdentitiesOnly",
+        "setRetainedInverse": "nativeLinkRestoresPricingHistoryThenRepeatedSetRestore",
+        "mixedPublication": "authenticatedShippingPricingOnly",
+        "resources": { "calls": 512, "eventMessages": 256, "commandBytes": 2097152, "requestCommandMs": 30000 }
+      },
+      "queryBoundary": {
+        "callableForms": ["entryPoint", "nativeLinkServiceName"],
+        "availability": "selectedLocalRelationThenTwoNativeLinks",
+        "aliasSemantics": "nativeSingletonAndEntitySelectedMultipleAliases",
+        "idArrayUndefined": "boundedOwnPositionsThenNativeScalarCoercion",
+        "ordinaryGraphMask": "unchanged"
+      },
+      "notAdmitted": ["arbitraryShippingOptionMutations", "externalProviderEffects", "generalQueryParity", "externalSagaSafety", "populatedSchemaUpgrades", "publicOrHostedActivation"]
+    }
+  ],
   "promotion": {
     "authorized": false,
     "nextBehaviorSlice": "privateCurrencyConvergenceAndActualSchemaCompatibility",

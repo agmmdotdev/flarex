@@ -1,0 +1,25 @@
+{
+  "format": "flarex.post-measurement-mechanical-changes",
+  "changes": [
+    {
+      "path": "packages/persistence-postgres/src/sessionJournalFiniteEntry.ts",
+      "measured": {
+        "bytes": 7246,
+        "sha256": "6064774af7be5799d1c200c6006266f3d8917536df373c4242fe2c9e80e7ea14"
+      },
+      "current": {
+        "bytes": 7244,
+        "sha256": "ccecad769a8e1a7cd043e5bbbf227c1a83cb221dfa654e62d131a08bfc791c66"
+      },
+      "operation": "Remove exactly the trailing CRLF bytes after the existing final LF",
+      "removedTrailingBytesHex": "0d0a",
+      "unchangedPrefixBytes": 7244,
+      "reconstructedMeasured": {
+        "bytes": 7246,
+        "sha256": "6064774af7be5799d1c200c6006266f3d8917536df373c4242fe2c9e80e7ea14"
+      },
+      "proof": "The entire current file is the unchanged measured prefix. Appending 0d0a reconstructs the exact recorded measured SHA-256; no semantic content or recorded measurement is changed."
+    }
+  ],
+  "interpretation": "Only this exact EOF cleanup is permitted. Original raw bytes, sourceHashes, workingDiffSha256 and numeric evidence remain recorded at their measured checkpoint; the other 106 measured sources still match current bytes."
+}

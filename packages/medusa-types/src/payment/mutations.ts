@@ -216,7 +216,7 @@ export interface CreatePaymentSessionDTO {
   /**
    * Necessary context data for the associated payment provider.
    */
-  context?: PaymentProviderContext
+  context?: PaymentProviderContext | null | undefined
 
   /**
    * Holds custom data in key-value pairs.

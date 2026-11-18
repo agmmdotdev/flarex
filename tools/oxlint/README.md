@@ -27,6 +27,11 @@ audit, and changed-lines coverage from drifting after package extraction.
   merge base for CI or branch review.
   Snapshot modes fail closed if the working Oxlint policy differs from the
   staged or committed policy they are meant to apply.
+  Large changed-file lists use bounded native invocations so Windows command
+  limits do not truncate coverage. Each invocation uses the same configuration;
+  all diagnostics are combined before the existing changed-line selection.
+  Recognized renames compare both old and new paths so preserved code is not
+  mistaken for added lines; edits inside a moved file still pass through the gate.
 - `pnpm lint:audit` prints existing built-in and Flarex rule debt without
   failing the command.
 - `pnpm test:oxlint-rules` runs the custom-rule behavior suite.

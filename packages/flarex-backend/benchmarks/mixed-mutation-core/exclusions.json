@@ -1,0 +1,171 @@
+{
+  "format": "flarex.mixed-mutation-performance-exclusions",
+  "status": "incomplete four-workload baseline",
+  "runs": [
+    {
+      "id": "mixed-partial",
+      "source": "work/validation/mixed-mutation-performance/full-baseline/raw.json",
+      "archive": "mixed-partial.raw.json.gz",
+      "report": "mixed-partial.report.md",
+      "reportSha256": "9ba920b0788323707415b6245c0eee1138caaeab744c3a4d86b888642e5dd352",
+      "measuredRevision": "95578d5fcc1a64fd556342786b0261a249b05cda",
+      "measuredWorkingDiffSha256": "fb16ac892a2832ad9c85d6f18d222de8b6bf9e032f0251fedf57a81641bf283c",
+      "mode": "full",
+      "plannedWorkloads": [
+        "product",
+        "productPayload",
+        "mixedWorkflow",
+        "standaloneWorkflow"
+      ],
+      "plannedPerWorkload": {
+        "warmups": 3,
+        "warm": 20,
+        "cold": 3
+      },
+      "plannedSamples": 104,
+      "observedSamples": 77,
+      "successfulSamples": 76,
+      "failedSamples": 1,
+      "rawBytes": 22005254,
+      "rawSha256": "76e1ede4349e05e5d86a486098d5b115d140f238727440e0319cf039df139ff8",
+      "gzipBytes": 1431004,
+      "gzipSha256": "0bdad9510a2e58664564c0c8f82930917ddbdd4c0dbaba0c6478631a94584b88"
+    },
+    {
+      "id": "standalone",
+      "source": "work/validation/mixed-mutation-performance/full-standalone/raw.json",
+      "archive": "standalone.raw.json.gz",
+      "report": "standalone.report.md",
+      "reportSha256": "03836196d00cee12ace84ea60519f0118656f6c4d65ebb342f1c822435345fb6",
+      "measuredRevision": "95578d5fcc1a64fd556342786b0261a249b05cda",
+      "measuredWorkingDiffSha256": "570a0eb88b42a047f80d331fe6eaa2c7bb308eb16e34bff04817d16d4030f1bd",
+      "mode": "full",
+      "plannedWorkloads": [
+        "standaloneWorkflow"
+      ],
+      "plannedPerWorkload": {
+        "warmups": 3,
+        "warm": 20,
+        "cold": 3
+      },
+      "plannedSamples": 26,
+      "observedSamples": 26,
+      "successfulSamples": 26,
+      "failedSamples": 0,
+      "rawBytes": 2063810,
+      "rawSha256": "54bf6923639b1f0724ba83bbd6a887675a3403e3fc2455970303dee3d52d69d0",
+      "gzipBytes": 198803,
+      "gzipSha256": "9236901aac1eb70e15aad20ae962a43edadb187aca65a64f8d11dd2b92515da0"
+    }
+  ],
+  "csv": {
+    "path": "samples.csv",
+    "rows": 103,
+    "sha256": "c2f9814aa5f5c5e3b046c6bce6beb617ce7090c0a3d36f13fdfe4337b8abd618"
+  },
+  "mixedRunFailure": {
+    "id": "mixedWorkflow-cold-1-0",
+    "observed": "CommerceTransactionError deadlineExceeded",
+    "stage": "invoke",
+    "requestMs": 16401.0823,
+    "productUpdateMs": 15532.9178,
+    "sqlDispatches": 8941,
+    "queryErrors": 0,
+    "lostContextDispatches": 0,
+    "dominantObservedWaits": [
+      {
+        "sqlTemplate": "commit",
+        "targetDispatches": 47,
+        "driverAwaitedMs": 9671.9765
+      },
+      {
+        "label": "physical search",
+        "targetDispatches": 460,
+        "driverAwaitedMs": 2945.58
+      },
+      {
+        "label": "frontier",
+        "targetDispatches": 5612,
+        "driverAwaitedMs": 1007.43
+      }
+    ],
+    "maximumObservedTransactionIntervalMs": 3573.965,
+    "interpretation": "Trace shows DB/driver awaited time inside Product update, before the workflow child. It does not identify server execution, lock, disk, or fsync cause."
+  },
+  "unattemptedInMixedRun": {
+    "mixedWorkflow": [
+      "mixedWorkflow-cold-2-0"
+    ],
+    "standaloneWorkflow": [
+      "standaloneWorkflow-warm-0-0",
+      "standaloneWorkflow-warm-0-1",
+      "standaloneWorkflow-warm-0-2",
+      "standaloneWorkflow-warm-0-3",
+      "standaloneWorkflow-warm-0-4",
+      "standaloneWorkflow-warm-0-5",
+      "standaloneWorkflow-warm-0-6",
+      "standaloneWorkflow-warm-0-7",
+      "standaloneWorkflow-warm-0-8",
+      "standaloneWorkflow-warm-0-9",
+      "standaloneWorkflow-warm-0-10",
+      "standaloneWorkflow-warm-0-11",
+      "standaloneWorkflow-warm-0-12",
+      "standaloneWorkflow-warm-0-13",
+      "standaloneWorkflow-warm-0-14",
+      "standaloneWorkflow-warm-0-15",
+      "standaloneWorkflow-warm-0-16",
+      "standaloneWorkflow-warm-0-17",
+      "standaloneWorkflow-warm-0-18",
+      "standaloneWorkflow-warm-0-19",
+      "standaloneWorkflow-warm-0-20",
+      "standaloneWorkflow-warm-0-21",
+      "standaloneWorkflow-warm-0-22",
+      "standaloneWorkflow-cold-0-0",
+      "standaloneWorkflow-cold-1-0",
+      "standaloneWorkflow-cold-2-0"
+    ]
+  },
+  "smokeExclusions": [
+    {
+      "directory": "work/validation/mixed-mutation-performance/smoke-first",
+      "rawSha256": "6f75b09041cb584c5c70c9cbd34188fe960ceccc6ba9db71d0526170db0e8e6a",
+      "samples": 5,
+      "failures": [
+        {
+          "id": "productPayload-warm-0-0",
+          "stage": "invoke",
+          "name": "Error",
+          "reason": null
+        }
+      ],
+      "disposition": "Invalid-input benchmark seed with uppercase Product handle; excluded from performance conclusions"
+    },
+    {
+      "directory": "work/validation/mixed-mutation-performance/smoke-payload-diagnostic",
+      "rawSha256": "37be309cd23222a0df04e938c1af35cd48e11d2fcc71fa283b22c3a7fb2e90fe",
+      "samples": 1,
+      "failures": [
+        {
+          "id": "productPayload-warm-0-0",
+          "stage": "invoke",
+          "name": "Error",
+          "reason": null,
+          "diagnosticTokens": [
+            "Native Worker failed",
+            "CommerceTransactionError"
+          ]
+        }
+      ],
+      "disposition": "Invalid-input benchmark seed with uppercase Product handle; excluded from performance conclusions"
+    },
+    {
+      "directory": "work/validation/mixed-mutation-performance/smoke-corrected",
+      "rawSha256": "a80f8cfb98e0eb37818e7a203f84402028039e878111ec4a001b807d904fcd6b",
+      "samples": 16,
+      "failures": [],
+      "disposition": "Harness validation only; excluded from full-sample distributions"
+    }
+  ],
+  "defaultPgliteWorkflow": "An earlier selected PGlite Workflow run timed out. The corrected-order selected rerun passed once; root cause remains unproven and neither result is included in PostgreSQL samples.",
+  "provenance": "Both ordinary-PG runs use the same Git revision but have different recorded working-diff fingerprints. The report table header was corrected after sampling and reports were regenerated from unchanged raw JSON. No cross-run strict source-identity or completed 104-sample baseline claim is made."
+}

@@ -1,12 +1,11 @@
 # Effect Error Patterns
 
-These examples target Effect v4. Verify exact APIs against the installed source.
-Expected failure policy belongs to the domain; source adapters preserve it.
+Effect v4 illustrations; verify installed APIs. [The skill](../SKILL.md) owns
+classification, recovery, retry, settlement and diagnostic policy.
 
 ## Schema plus a pure Result and an Effect operation
 
-The schema owns required fields and bounds. Result carries a pure parse verdict;
-Effect carries that same failure during execution. There is one field contract.
+One required-field/bounded-value contract, two verdict carriers:
 
 ```ts
 import { Data, Effect, Result, Schema } from "effect"
@@ -32,15 +31,13 @@ const prepareRequest = Effect.fn("Request.prepare")((input: unknown) =>
 )
 ```
 
-If no pure consumer exists, decodeUnknownEffect can be the direct primary API.
-The name schema first establishes a string; a standalone regex would coerce a
-missing value. Current authorization is a later operation, not a request-specific
-schema. Avoid an extra wrapper when it has no distinct operation/boundary role.
+Use decodeUnknownEffect directly if there is no pure consumer. String validation
+must precede regex (missing values otherwise coerce); authorization is a later
+contextual operation. Do not add wrappers without a distinct boundary role.
 
 ## Foreign Promise adapter
 
-A narrow documented provider API may report all operational failures as rejected
-Promises. Capture that boundary once; do not wrap the surrounding business logic.
+Capture one provider contract that reports operational failure by rejection:
 
 ```ts
 import { Data, Effect } from "effect"
@@ -62,11 +59,10 @@ const send = Effect.fn("Provider.send")((provider: Provider, message: string) =>
 )
 ```
 
-This example's provider contract classifies its rejections as operational.
-Where the provider/library distinguishes bugs, cancellation, corruption or
-already-tagged failures, preserve those distinctions. Passing AbortSignal is
-not proof of settlement; resource-owning adapters must honor their drain/release
-contract.
+That documented rejection contract justifies this mapping; otherwise preserve
+distinguishable bugs, cancellation, corruption and tagged failures. AbortSignal
+does not prove settlement: resource adapters must drain/release as required.
+Do not wrap surrounding business logic.
 
 ## Retry eligibility on every failure
 
@@ -85,13 +81,12 @@ const deliver = <A>(attempt: Effect.Effect<A, DeliveryFailure>) =>
   }))
 ```
 
-The predicate is evaluated after each failure. A transient first error followed
-by a terminal second error stops after two executions. Test that sequence and
-the all-transient exhaustion case; do not rely only on eventual success.
-This example assumes retrying the attempt is safe. Mutations need their owning
-idempotency/uncertainty contract. Durable retries use durable evidence.
+The predicate runs after EACH failure: transient then terminal stops after two
+executions. Test that sequence and all-transient exhaustion, not just eventual
+success. This example assumes repetition is safe; mutations need idempotency/
+uncertainty recovery, and durable retries need durable evidence.
 
-Avoid this shape:
+Avoid classifying only the initial failure and retrying later failures blindly:
 
 ```ts
 // The first catch classifies one error; later failures are not filtered.
@@ -106,23 +101,20 @@ attempt.pipe(Effect.catchTag("DeliveryFailure", error =>
 
 | Intent | Boundary decision |
 | --- | --- |
-| Optional lookup with normal missing result | Option from that lookup; preserve other failure variants |
-| Malformed stored record | Schema failure mapped to corruption, not None |
-| Need per-item success/error data | Result at the deliberate collection boundary |
-| Need normal domain recovery | Keep E and recover by tag |
-| Need full completion including cleanup defects/interruption | Exit/Cause at the runtime or resource owner |
-| Public error response has a different shape | One explicit projection with appropriate redaction |
+| Normal missing lookup | Option; retain other failures |
+| Malformed stored data | Decode failure mapped to corruption, not None |
+| Deliberate per-item verdict | Result at collection boundary |
+| Domain recovery | E with tag-specific recovery |
+| Full completion/cleanup defect/interruption | Exit/Cause at resource/runtime owner |
+| Different public error shape | One redacted projection |
 
-Use Data.TaggedError for in-process domain failures. Use a Schema-backed error
-when validated encoding/decoding of that error is actually required. Neither
-constructor justifies putting arbitrary cause data in a response.
+Data.TaggedError fits in-process failure; Schema-backed errors fit validated
+encoding/decoding. Neither makes arbitrary cause data safe for public responses.
 
 ## Root refusal across a callback boundary
 
-When the request owner requires rollback-only behavior, validate through its
-refusal path before returning a rejected service Promise. A caller may catch
-that Promise; the root must still fail. Do not rewrap an already-latched
-participant Cause. Test caught invalid input as well as an uncaught exception.
-
-This rule applies only to owners that require sticky failure. A normal
-recoverable validation error in an unrelated service need not poison a root.
+For owners requiring sticky rollback-only failure, register refusal before
+exposing the rejected service Promise. The caller may catch it; the root must
+still fail. Preserve already-latched participant Cause without rewrapping.
+Test caught invalid input and uncaught exceptions. Ordinary recoverable
+validation in unrelated services need not poison a root.

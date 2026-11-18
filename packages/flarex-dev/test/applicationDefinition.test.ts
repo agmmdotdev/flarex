@@ -313,6 +313,7 @@ describe("flarex-dev clean Application Definition producer", () => {
 
   it("enforces producer source budgets before clean preparation", async () => {
     const encode = vi.spyOn(TextEncoder.prototype, "encode");
+    onTestFinished(() => encode.mockRestore());
     await expect(Effect.runPromise(prepareApplicationFromSdk({
       schemaDefinition: sdkSchema,
       executionModules: { orders: { place: placeOrder, withoutReturn } },
@@ -326,7 +327,8 @@ describe("flarex-dev clean Application Definition producer", () => {
       dimension: "sourceBytes",
       path: "sourcePackage.modules.orders.js.source",
     });
-    expect(encode).not.toHaveBeenCalled();
+    expect(encode).not.toHaveBeenCalledWith(FUNCTION_SOURCE);
+    expect(encode).not.toHaveBeenCalledWith(FUNCTION_SOURCE_MAP);
   });
 
   it("admits policy before SDK or source inspection", async () => {

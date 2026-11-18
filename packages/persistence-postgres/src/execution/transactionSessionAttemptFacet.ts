@@ -1,0 +1,266 @@
+import { finiteDateMilliseconds } from "@flarex/utils/dates";
+import { isPositiveSafeInteger } from "@flarex/utils/numbers";
+import { Result, Schema } from "effect";
+
+import { AppCreationTimeV1Schema } from "flarex-protocol/app-document";
+import {
+  SESSION_JOURNAL_FORMAT,
+  CommitFinalSyscallSequenceV1Schema,
+  CommitMaterialWriteEventEvidenceBytesV1Schema,
+} from "flarex-protocol/commit-protocol";
+import type {
+  CommitSeq,
+  ScopeEpochUuidV1,
+  ScopeUuidV1,
+} from "flarex-protocol/storage-authority";
+import {
+  TransactionArgumentsSha256V1Schema,
+  TransactionArtifactIdV1Schema,
+  TransactionArtifactRuntimeV1Schema,
+  TransactionAuthorizationGrantIdV1Schema,
+  TransactionAuthorizationGrantSha256V1Schema,
+  TransactionExecutionModuleV1Schema,
+  TransactionFunctionKindV1Schema,
+  TransactionFunctionPathV1Schema,
+  TransactionIdentityAccessPolicySha256V1Schema,
+  TransactionPackageIdV1Schema,
+  TransactionPolicyVersionV1Schema,
+  TransactionRequestKeyV1Schema,
+  TransactionRequestSha256V1Schema,
+  TransactionSourcePackageSha256HexV1Schema,
+  type TransactionAttemptFence,
+  type TransactionSessionIdV1,
+} from "flarex-protocol/transaction-session";
+import { CatalogSchemaVersionIdSchema } from "flarex-protocol/schema-manifest";
+import { FlarexValueCodecVersionSchema, FlarexValueSha256V1Schema } from "flarex-protocol/value";
+
+import type {
+  fxSystemSnapshotLeases,
+  fxSystemTransactionJournals,
+} from "../database/schema";
+
+type SnapshotLeaseInsertV1 = typeof fxSystemSnapshotLeases.$inferInsert;
+type JournalRootInsertV1 =
+  Omit<typeof fxSystemTransactionJournals.$inferInsert, "executionProfile"> & {
+    readonly executionProfile: "durableOperations" | "finiteRoot";
+  };
+type JournalRootRowV1 = typeof fxSystemTransactionJournals.$inferSelect;
+
+const decodeAppCreationTimeV1Result = Schema.decodeUnknownResult(
+  Schema.toType(AppCreationTimeV1Schema),
+);
+
+export const isTerminalTransactionSessionLifecycleV1 = Schema.is(
+  Schema.Literals(["committed", "aborted", "expired"]),
+);
+
+const retainedSessionIdentityFields = {
+  functionPath: TransactionFunctionPathV1Schema,
+  functionKind: TransactionFunctionKindV1Schema,
+  schemaVersionId: CatalogSchemaVersionIdSchema,
+  policyVersion: TransactionPolicyVersionV1Schema,
+  identityAccessPolicySha256: TransactionIdentityAccessPolicySha256V1Schema,
+  validatedArgsValueCodecVersion: FlarexValueCodecVersionSchema,
+  validatedArgsSha256: TransactionArgumentsSha256V1Schema,
+  authorizationGrantId: TransactionAuthorizationGrantIdV1Schema,
+  authorizationGrantValueCodecVersion: FlarexValueCodecVersionSchema,
+  authorizationGrantSha256: TransactionAuthorizationGrantSha256V1Schema,
+  requestKey: TransactionRequestKeyV1Schema,
+  requestSha256: TransactionRequestSha256V1Schema,
+};
+
+/** Retained identity only; callers separately verify lifecycle and body absence. */
+export const isRetainedTransactionSessionIdentityV1 = Schema.is(Schema.Union([
+  Schema.Struct({
+    ...retainedSessionIdentityFields,
+    executionAuthorityGeneration: Schema.Literal("legacy_dynamic_worker_v1"),
+    packageId: TransactionPackageIdV1Schema,
+    artifactRuntime: TransactionArtifactRuntimeV1Schema,
+    artifactId: TransactionArtifactIdV1Schema,
+    sourcePackageHash: TransactionSourcePackageSha256HexV1Schema,
+    executionModule: TransactionExecutionModuleV1Schema,
+    applicationExecutionAuthoritySha256: Schema.Null,
+  }).check(Schema.makeFilter(identity =>
+    identity.artifactId === `artifact_${identity.sourcePackageHash.slice(0, 32)}`)),
+  Schema.Struct({
+    ...retainedSessionIdentityFields,
+    executionAuthorityGeneration: Schema.Literal("application_v1"),
+    packageId: Schema.Null,
+    artifactRuntime: Schema.Null,
+    artifactId: Schema.Null,
+    sourcePackageHash: Schema.Null,
+    executionModule: Schema.Null,
+    applicationExecutionAuthoritySha256: FlarexValueSha256V1Schema,
+  }),
+]));
+
+export type FreshTransactionAttemptFacetIssueV1 =
+  | "databaseTimeInvalid"
+  | "leaseDurationInvalid"
+  | "authorityExpired";
+
+export interface FreshTransactionAttemptFacetInputV1 {
+  readonly scopeUuid: ScopeUuidV1;
+  readonly sessionId: TransactionSessionIdV1;
+  readonly attemptFence: TransactionAttemptFence;
+  readonly executionProfile: "durableOperations" | "finiteRoot";
+  readonly snapshotEpochUuid: ScopeEpochUuidV1;
+  readonly snapshotCommitSeq: CommitSeq;
+  readonly databaseNowMilliseconds: number;
+  readonly authorizationGrantExpiresAtMilliseconds: number;
+  readonly hardExpiresAtMilliseconds: number;
+  readonly leaseDurationMilliseconds: number;
+}
+
+export interface FreshTransactionAttemptFacetV1 {
+  readonly sessionUpdatedAt: Date;
+  readonly leaseExpiresAt: Date;
+  readonly lease: Readonly<SnapshotLeaseInsertV1>;
+  readonly journalRoot: Readonly<JournalRootInsertV1>;
+}
+
+/**
+ * Package-internal O08-A construction policy matching initial activation's
+ * database-time seed, bounded lease expiry, and pristine-root shape. The
+ * replacement transaction retains failure mapping and mutation-order ownership.
+ */
+export function buildFreshTransactionAttemptFacetV1(
+  input: FreshTransactionAttemptFacetInputV1,
+): Result.Result<
+  FreshTransactionAttemptFacetV1,
+  FreshTransactionAttemptFacetIssueV1
+> {
+  const now = input.databaseNowMilliseconds;
+  if (
+    !isPositiveSafeInteger(now) ||
+    finiteDateMilliseconds(new Date(now)) === undefined
+  ) {
+    return Result.fail("databaseTimeInvalid");
+  }
+  if (!isPositiveSafeInteger(input.leaseDurationMilliseconds)) {
+    return Result.fail("leaseDurationInvalid");
+  }
+  const authorityExpiry = Math.min(
+    input.authorizationGrantExpiresAtMilliseconds,
+    input.hardExpiresAtMilliseconds,
+  );
+  if (
+    !isPositiveSafeInteger(authorityExpiry) ||
+    authorityExpiry <= now
+  ) {
+    return Result.fail("authorityExpired");
+  }
+  const leaseExpiresAtMilliseconds = Math.min(
+    now + input.leaseDurationMilliseconds,
+    authorityExpiry,
+  );
+  if (
+    !Number.isSafeInteger(leaseExpiresAtMilliseconds) ||
+    leaseExpiresAtMilliseconds <= now
+  ) {
+    return Result.fail("authorityExpired");
+  }
+
+  return decodeAppCreationTimeV1Result(now).pipe(
+    Result.mapError(() => "databaseTimeInvalid" as const),
+    Result.flatMap((creationTimeSeed) => {
+      const sessionUpdatedAt = new Date(now);
+      const leaseExpiresAt = new Date(leaseExpiresAtMilliseconds);
+      if (
+        finiteDateMilliseconds(sessionUpdatedAt) !== now ||
+        finiteDateMilliseconds(leaseExpiresAt) !== leaseExpiresAtMilliseconds
+      ) {
+        return Result.fail("databaseTimeInvalid" as const);
+      }
+
+      return Result.succeed(Object.freeze({
+        sessionUpdatedAt,
+        leaseExpiresAt,
+        lease: Object.freeze({
+          scopeUuid: input.scopeUuid,
+          sessionId: input.sessionId,
+          attemptFence: input.attemptFence,
+          snapshotEpochUuid: input.snapshotEpochUuid,
+          snapshotCommitSeq: input.snapshotCommitSeq,
+          leaseExpiresAt: new Date(leaseExpiresAtMilliseconds),
+        }),
+        journalRoot: Object.freeze({
+          scopeUuid: input.scopeUuid,
+          sessionId: input.sessionId,
+          attemptFence: input.attemptFence,
+          journalFormat: SESSION_JOURNAL_FORMAT,
+          executionProfile: input.executionProfile,
+          state: "open" as const,
+          lastSyscallSequence: CommitFinalSyscallSequenceV1Schema.make(0n),
+          receiptEvidenceBytes: 0,
+          participantWorkBytes: 0,
+          participantWorkCalls: 0,
+          creationTimeSeed,
+          nextCreationTime: creationTimeSeed,
+          readDocuments: 0,
+          readSemanticBytes: 0,
+          pointDependencyCount: 0,
+          indexedQuerySyscalls: 0,
+          indexRangeDependencyCount: 0,
+          indexRangeDependencyEvidenceBytes: 0,
+          relationReadSyscalls: 0,
+          relationDependencyCount: 0,
+          relationBaseOccurrences: 0,
+          writeOperations: 0,
+          writeSemanticBytes: 0,
+          materialWriteEventEvidenceBytes:
+            CommitMaterialWriteEventEvidenceBytesV1Schema.make(0),
+          createdAt: new Date(now),
+          updatedAt: new Date(now),
+        }),
+      }));
+    }),
+  );
+}
+
+/**
+ * Shared exact-root predicate for O08-A convergence and O03's temporal fresh-
+ * attempt observation. Child absence remains transaction-owned because it
+ * requires a database snapshot; this helper owns only the row invariant.
+ */
+export function isPristineFreshTransactionAttemptJournalRootV1(
+  root: Readonly<JournalRootRowV1>,
+  expected: Readonly<JournalRootInsertV1>,
+): boolean {
+  return root.scopeUuid === expected.scopeUuid &&
+    root.sessionId === expected.sessionId &&
+    root.attemptFence === expected.attemptFence &&
+    root.journalFormat === expected.journalFormat &&
+    root.executionProfile === expected.executionProfile &&
+    root.state === "open" &&
+    root.lastSyscallSequence === 0n &&
+    root.receiptEvidenceBytes === 0 &&
+    root.participantWorkBytes === 0 &&
+    root.participantWorkCalls === 0 &&
+    root.creationTimeSeed === expected.creationTimeSeed &&
+    root.nextCreationTime === expected.nextCreationTime &&
+    root.readDocuments === 0 &&
+    root.readSemanticBytes === 0 &&
+    root.pointDependencyCount === 0 &&
+    root.indexedQuerySyscalls === 0 &&
+    root.indexRangeDependencyCount === 0 &&
+    root.indexRangeDependencyEvidenceBytes === 0 &&
+    root.relationReadSyscalls === 0 &&
+    root.relationDependencyCount === 0 &&
+    root.relationBaseOccurrences === 0 &&
+    root.writeOperations === 0 &&
+    root.writeSemanticBytes === 0 &&
+    root.materialWriteEventEvidenceBytes === 0 &&
+    root.failureDimension === null &&
+    root.sealedJournalBytes === null &&
+    root.sealedJournalSha256 === null &&
+    root.sealedResultValueCodecVersion === null &&
+    root.sealedResultSemanticBytes === null &&
+    root.sealedResultBytes === null &&
+    root.sealedResultSha256 === null &&
+    root.sealedAt === null &&
+    finiteDateMilliseconds(root.createdAt) ===
+      finiteDateMilliseconds(expected.createdAt) &&
+    finiteDateMilliseconds(root.updatedAt) ===
+      finiteDateMilliseconds(expected.updatedAt);
+}

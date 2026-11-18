@@ -29,12 +29,12 @@ Repository paths below are relative to the workspace root.
 | Boundary before this capability | Required correction |
 | --- | --- |
 | `packages/analysis/src/applicationWritePolicy/model.ts` and `schemaCompatibility.ts` accept only the scalar configuration and required scalar validators | A relation configuration needs an explicit strict profile and exact validator/relation agreement; changing only the adapter is insufficient. |
-| `packages/persistence-postgres/src/applicationWriteOwnership/Policy.ts`, `retainApplicationManagedTableClaims` | Any changed configuration or policy digest returns `ownershipChanged`, even with the same table and Payload owner. The roadmap's successor cannot currently activate. |
-| `packages/persistence-postgres/src/frameworkSchema/binding/content.ts` and `cmsTransaction/admission.ts` require zero relations | Exact relation readiness and policy evidence must be admitted together. Removing the count check alone would grant unsupported behavior. |
-| `packages/persistence-postgres/src/payloadPreferences/binding.ts` reconstructs the exact scalar content digest | Rebinding only the content overlay still fails combined preference admission. The physical preference schema can stay the same, but the admitted content contract must be extended explicitly. |
-| `packages/persistence-postgres/src/pointCommitTransaction.ts`, `enterCmsApplicationCommit` | The CMS participant materializes rows and passes an empty adjacency-change list. It does not yet run native relation planning, target validation, edge maintenance, or restrict checks. |
-| `packages/persistence-postgres/src/applicationRelationCommit/Policy.ts` | Optional one-valued relations permit an absent property; a present null is invalid. Many-valued relations require a present array. |
-| `packages/persistence-postgres/src/cmsTransaction/documents.ts` | Patch merges fields. Dropping a null from a patch would leave an old relation in place; clearing must construct the correct final document. |
+| `packages/persistence-postgres/src/application/ownership/Policy.ts`, `retainApplicationManagedTableClaims` | Any changed configuration or policy digest returns `ownershipChanged`, even with the same table and Payload owner. The roadmap's successor cannot currently activate. |
+| `packages/persistence-postgres/src/installation/frameworkSchema/binding/content.ts` and `cmsTransaction/admission.ts` require zero relations | Exact relation readiness and policy evidence must be admitted together. Removing the count check alone would grant unsupported behavior. |
+| `packages/persistence-postgres/src/frameworks/payloadPreferences/binding.ts` reconstructs the exact scalar content digest | Rebinding only the content overlay still fails combined preference admission. The physical preference schema can stay the same, but the admitted content contract must be extended explicitly. |
+| `packages/persistence-postgres/src/commit/pointCommitTransaction.ts`, `enterCmsApplicationCommit` | The CMS participant materializes rows and passes an empty adjacency-change list. It does not yet run native relation planning, target validation, edge maintenance, or restrict checks. |
+| `packages/persistence-postgres/src/application/relations/commit/Policy.ts` | Optional one-valued relations permit an absent property; a present null is invalid. Many-valued relations require a present array. |
+| `packages/persistence-postgres/src/frameworks/cmsTransaction/documents.ts` | Patch merges fields. Dropping a null from a patch would leave an old relation in place; clearing must construct the correct final document. |
 
 The ownership refusal is an intentional boundary, not an incidental bug to
 remove. Reproduce it with an existing retained Payload claim and a successor
@@ -148,11 +148,25 @@ point commits reuse their nominal unique-definition port. Activation recovery
 reuses the held catalog lease before releasing the target transaction. Target
 metadata is never a fallback control catalog. Missing or changed evidence fails
 closed; no new persisted envelope, schema or migration is introduced. Catalog
-availability is required to restore a history containing this successor. A writer
-that commits after candidate readiness can invalidate that candidate: activation
+availability is required to restore a history containing this successor. In this
+retained SQL path, a writer after candidate readiness can invalidate activation:
+activation
 returns `notReady` and retains the old binding. A fresh ready successor is needed.
 If activation holds the lock first, the waiting old-overlay writer is refused
 before its Payload callback; exact rebinding enables subsequent requests.
+
+The selected [translated optional-one continuation](../../../experiments/core/engine/slices/14-native-reference-integrity.md)
+replaces that private whole-data-sequence readiness fence with the pinned shared
+schema/index mechanism. The existing audit-only optional-field proposal remains
+valid after a compatible `posts.score` write when all writers maintain required
+index generations and active/pending validation. Its migrated witness requires
+successful activation with the write and native relation behavior preserved.
+Actual policy/provenance/index/unique drift, incomplete builds and stale identity
+still refuse; active-invalid writes fail, while active-valid/pending-invalid
+writes may commit while atomically failing the proposal. Stable populated row
+IDs/content, the exact authenticated optional-one successor and stale-overlay
+refusal after actual activation remain obligations. This is a selected replacement
+contract; the retained path above still describes unmigrated consumers.
 
 All restored evidence consumes one aggregate 64-record/1 MiB history budget.
 The transition adds two manifest records and, per unique set, one closure plus

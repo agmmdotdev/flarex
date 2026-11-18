@@ -1,4 +1,5 @@
 export { model } from "@medusajs/utils/dml/model";
+export { FeatureFlag } from "@medusajs/utils/feature-flags/flag-router";
 export { DmlEntity, type DMLEntitySchemaBuilder } from "@medusajs/utils/dml/entity";
 export { BelongsTo } from "@medusajs/utils/dml/relations/belongs-to";
 export { HasMany } from "@medusajs/utils/dml/relations/has-many";
@@ -7,6 +8,7 @@ export { JSONProperty } from "@medusajs/utils/dml/properties/json";
 export { NullableModifier } from "@medusajs/utils/dml/properties/nullable";
 export { PrimaryKeyModifier } from "@medusajs/utils/dml/properties/primary-key";
 export { TextProperty } from "@medusajs/utils/dml/properties/text";
+export { ArrayProperty } from "@medusajs/utils/dml/properties/array";
 export { GeoZoneType } from "@medusajs/utils/fulfillment/geo-zone";
 export { ShippingOptionPriceType } from "@medusajs/utils/fulfillment/shipping-options";
 export { FulfillmentEvents } from "@medusajs/utils/fulfillment/events";
@@ -52,4 +54,47 @@ export { removeNullish } from "@medusajs/utils/common/remove-nullisih";
 export { isDate } from "@medusajs/utils/common/is-date";
 export { MathBN } from "@medusajs/utils/totals/math";
 export { PriceListType, PriceListStatus } from "@medusajs/utils/pricing/price-list";
+export { buildPriceListRules } from "@medusajs/utils/pricing/price-list-rules";
 export { PricingRuleOperator } from "@medusajs/utils/pricing/enums";
+
+export { BigNumber } from "@medusajs/utils/totals/big-number";
+export { ProductVariantWorkflowEvents } from "@medusajs/utils/core-flows/events";
+export { ProductWorkflowEvents } from "@medusajs/utils/core-flows/events";
+export { ComputedProperty } from "@medusajs/utils/dml/properties/computed";
+export { HasOne } from "@medusajs/utils/dml/relations/has-one";
+
+export { convertItemResponseToUpdateRequest } from "@medusajs/utils/common/convert-item-response-to-update-request";
+export { getSelectsAndRelationsFromObjectArray } from "@medusajs/utils/common/get-selects-and-relations-from-object-array";
+export { getDuplicates } from "@medusajs/utils/common/get-duplicates";
+
+export { AbstractFulfillmentProviderService } from "@medusajs/utils/fulfillment/provider";
+
+export { ShippingOptionWorkflowEvents } from "@medusajs/utils/core-flows/events";
+export { LINKS } from "@medusajs/utils/link/links";
+
+export { filterObjectByKeys } from "@medusajs/utils/common/filter-object-by-keys";
+export { simpleHash } from "@medusajs/utils/common/simple-hash";
+
+export { decorateCartTotals } from "@medusajs/utils/totals/cart/index";
+export { createRawPropertiesFromBigNumber } from "@medusajs/utils/totals/create-raw-properties-from-bignumber";
+export { transformPropertiesToBigNumber } from "@medusajs/utils/totals/transform-properties-to-bignumber";
+export { calculateAdjustmentAmountFromPromotion } from "@medusajs/utils/totals/promotion/index";
+export { AbstractPaymentProvider } from "@medusajs/utils/payment/abstract-payment-provider";
+export { PaymentCollectionStatus } from "@medusajs/utils/payment/payment-collection";
+export { PaymentSessionStatus } from "@medusajs/utils/payment/payment-session";
+export { PaymentActions } from "@medusajs/utils/payment/webhook";
+export * as PromotionUtils from "@medusajs/utils/promotion/index";
+export { ApplicationMethodAllocation, ApplicationMethodTargetType, ApplicationMethodType, CampaignBudgetType, ComputedActions, PromotionActions, PromotionRuleOperator, PromotionStatus, PromotionType } from "@medusajs/utils/promotion/index";
+export { CartWorkflowEvents } from "@medusajs/utils/core-flows/events";
+export { PaymentEvents } from "@medusajs/utils/core-flows/events";
+export { FloatProperty } from "@medusajs/utils/dml/properties/float";
+export { AutoIncrementProperty } from "@medusajs/utils/dml/properties/autoincrement";
+export { useCache } from "@medusajs/utils/caching/index";
+export { validateEmail } from "@medusajs/utils/common/is-email";
+export { OrderStatus, ReturnStatus, ClaimType, ClaimReason } from "@medusajs/utils/order/status";
+export { OrderChangeStatus, OrderChangeType } from "@medusajs/utils/order/order-change";
+export { ChangeActionType } from "@medusajs/utils/order/order-change-action";
+export type { DecorateCartLikeInputDTO } from "@medusajs/utils/totals/cart/index";
+export { getShippingMethodsTotals, type GetShippingMethodTotalInput } from "@medusajs/utils/totals/shipping-method/index";
+export { OrderWorkflowEvents } from "@medusajs/utils/core-flows/events";
+export { ApiKeyType } from "@medusajs/utils/api-key/api-key-type";

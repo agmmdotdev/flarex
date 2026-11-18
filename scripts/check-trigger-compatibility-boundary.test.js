@@ -6,13 +6,384 @@ import { describe, expect, it } from "vitest";
 import {
   analyzeDurableTaskManifest,
   analyzeDurableTaskTsconfig,
+  analyzeTriggerRunEngineManifest,
+  analyzeTriggerRunEngineTsconfig,
   analyzeTriggerCompatibilityBoundary,
   collectFiles,
   discoverWorkspaceManifests,
   discoverWorkspaceSources,
 } from "./check-trigger-compatibility-boundary.mjs";
 
+describe("adopted Trigger engine admission", () => {
+  const manifest = {
+    name: "@flarex/trigger-run-engine", version: "0.0.1", private: true, type: "module",
+    files: ["src", "README.md", "THIRD_PARTY_NOTICES.md", "trigger-source-map.json", "licenses"],
+    exports: { "./internal/run-attempt": "./src/runAttempt.ts" },
+    scripts: { typecheck: "tsrs -p tsconfig.json --fast --noEmit", test: "vitest run" },
+    dependencies: { effect: "catalog:" },
+    devDependencies: { tsrs: "catalog:", vitest: "catalog:" },
+  };
+  const tsconfig = {
+    extends: "../../tsconfig.base.json",
+    compilerOptions: { lib: ["ES2022"], types: [], noUncheckedIndexedAccess: true },
+    include: ["src", "test"],
+  };
+
+  it("admits the private portable component and Oxc checker", () => {
+    expect(analyzeTriggerRunEngineManifest(manifest)).toEqual([]);
+    expect(analyzeTriggerRunEngineTsconfig(tsconfig)).toEqual([]);
+    expect(analyzeTriggerCompatibilityBoundary([
+      { relativePath: "packages/trigger-run-engine/package.json", manifest },
+    ], [{
+      relativePath: "packages/trigger-run-engine/src/runAttempt.ts",
+      text: 'import { Effect } from "effect"; export { RunAttemptSystem } from "./runAttemptSystem.js";',
+    }]).errors).toEqual([]);
+  });
+
+  it("refuses public exports, host dependencies, native checkers and host ambient types", () => {
+    expect(analyzeTriggerRunEngineManifest({ ...manifest, exports: { ".": "./src/runAttempt.ts" } }))
+      .not.toEqual([]);
+    expect(analyzeTriggerRunEngineManifest({ ...manifest, dependencies: { ...manifest.dependencies, redis: "*" } }))
+      .not.toEqual([]);
+    expect(analyzeTriggerRunEngineManifest({ ...manifest, scripts: { ...manifest.scripts, typecheck: "tsc --noEmit" } }))
+      .not.toEqual([]);
+    expect(analyzeTriggerRunEngineTsconfig({ ...tsconfig, compilerOptions: { ...tsconfig.compilerOptions, types: ["node"] } }))
+      .not.toEqual([]);
+  });
+
+  it.each([
+    "@flarex/durable-task/internal/run-attempt-v1", "@prisma/client", "ioredis",
+    "node:fs", "cloudflare:workers", "../../persistence-postgres/src/index.js",
+    "../../../third_party/trigger.dev/upstream/internal-packages/run-engine/src/index.ts",
+    "../test/fakeStore.js",
+  ])("refuses the engine's non-portable import %s", (specifier) => {
+    const report = analyzeTriggerCompatibilityBoundary([], [{
+      relativePath: "packages/trigger-run-engine/src/runAttempt.ts",
+      text: `import * as runtime from ${JSON.stringify(specifier)};`,
+    }]);
+    expect(report.errors.some((error) => error.includes("non-portable trigger-run-engine"))).toBe(true);
+  });
+
+  it.each(["Date.now()", "new Date()", "Math.random()", "fetch('https://example.com')", "globalThis.crypto"])(
+    "refuses host authority from %s", (expression) => {
+      expect(analyzeTriggerCompatibilityBoundary([], [{
+        relativePath: "packages/trigger-run-engine/src/runAttempt.ts", text: `${expression};`,
+      }]).errors.some((error) => error.includes("prohibited trigger-run-engine global"))).toBe(true);
+    },
+  );
+
+  it.each([
+    "@flarex/trigger-run-engine/internal/run-attempt",
+    "../../trigger-run-engine/src/runAttempt.js",
+  ])("refuses premature production activation through %s", (specifier) => {
+    expect(analyzeTriggerCompatibilityBoundary([], [{
+      relativePath: "packages/executor/src/task.ts", text: `import * as engine from ${JSON.stringify(specifier)};`,
+    }]).errors.some((error) => error.includes("before shared-core admission"))).toBe(true);
+    expect(analyzeTriggerCompatibilityBoundary([], [{
+      relativePath: "packages/executor/test/task.test.ts", text: `import * as engine from ${JSON.stringify(specifier)};`,
+    }]).errors).toEqual([]);
+  });
+
+  it.each([
+    "workspace:@flarex/trigger-run-engine@*", "npm:@flarex/trigger-run-engine@0.0.1",
+    "file:../trigger-run-engine", "link:../trigger-run-engine/src", "workspace:../trigger-run-engine",
+  ])("refuses premature manifest activation through %s", (reference) => {
+    expect(analyzeTriggerCompatibilityBoundary([{
+      relativePath: "packages/executor/package.json", manifest: { dependencies: { engine: reference } },
+    }], []).errors.some((error) => error.includes("before shared-core admission"))).toBe(true);
+  });
+});
+
 describe("Trigger compatibility boundary checker", () => {
+  const trustedWorkflowContracts = [
+    {
+      relativePath: "packages/durable-task/src/runCreation/TaskExecutionPrincipalObject.ts",
+      specifier: "flarex-protocol/auth",
+      text: 'import { UserIdentitySchema } from "flarex-protocol/auth";',
+    },
+    {
+      relativePath: "packages/flarex-backend/src/taskExecutionPrincipal/TaskExecutionPrincipalStore.ts",
+      specifier: "@flarex/durable-task/internal/run-creation-v1",
+      text: `import { decodeTaskExecutionPrincipalObjectV1, decodeTaskExecutionPrincipalReferenceV1,
+        makeTaskExecutionPrincipalReferenceV1, MAX_TASK_EXECUTION_PRINCIPAL_CANONICAL_BYTES_V1,
+        ownPrincipalObject, type TaskExecutionPrincipalObjectV1, type TaskExecutionPrincipalReferenceV1
+      } from "@flarex/durable-task/internal/run-creation-v1";`,
+    },
+    {
+      relativePath: "packages/flarex-backend/src/taskExecutionPrincipal/TaskExecutionPrincipalStore.ts",
+      specifier: "@flarex/durable-task/internal/run-creation-v1",
+      text: `export { decodeTaskExecutionPrincipalObjectV1, type TaskExecutionPrincipalIdentity,
+        type TaskExecutionPrincipalObjectV1 } from "@flarex/durable-task/internal/run-creation-v1";`,
+    },
+    {
+      relativePath: "packages/persistence-postgres/src/frameworks/atomicCommerce/configuration.ts",
+      specifier: "@flarex/durable-task/internal/run-creation-v1",
+      text: `import { inspectTrustedWorkflowTaskBinding, type TrustedWorkflowTaskBinding }
+        from "@flarex/durable-task/internal/run-creation-v1";`,
+    },
+    {
+      relativePath: "packages/persistence-postgres/src/tasks/trustedWorkflowExecutionSubject.ts",
+      specifier: "@flarex/durable-task/internal/run-creation-v1",
+      text: `import { decodeTaskExecutionPrincipalReferenceV1, decodeTaskExecutionPrincipalObjectV1,
+        inspectTrustedWorkflowTaskBinding, trustedWorkflowPrincipalMatches,
+        type TaskExecutionPrincipalReferenceV1, type TaskInputReferenceV1, type TrustedWorkflowTaskBinding,
+        type TrustedWorkflowTaskBindingState, type TaskExecutionPrincipalObjectV1
+      } from "@flarex/durable-task/internal/run-creation-v1";`,
+    },
+    {
+      relativePath: "packages/persistence-postgres/src/tasks/trustedWorkflowExecutionSubject.ts",
+      specifier: "@flarex/durable-task/internal/run-attempt-v1",
+      text: `import { TaskRunIdV1Schema, TaskAttemptIdV1Schema, TaskAttemptNumberV1Schema,
+        TaskExecutionFenceV1Schema } from "@flarex/durable-task/internal/run-attempt-v1";`,
+    },
+    {
+      relativePath: "packages/persistence-postgres/src/tasks/trustedWorkflowCallback.ts",
+      specifier: "@flarex/durable-task/internal/run-creation-v1",
+      text: "import { inspectTrustedWorkflowTaskBinding, type TrustedWorkflowTaskBinding } from \"@flarex/durable-task/internal/run-creation-v1\";",
+    },
+    {
+      relativePath: "packages/persistence-postgres/src/tasks/trustedWorkflowCheckpoint.ts",
+      specifier: "@flarex/durable-task/internal/run-creation-v1",
+      text: "import { inspectTrustedWorkflowTaskBinding, type TrustedWorkflowTaskBinding } from \"@flarex/durable-task/internal/run-creation-v1\";",
+    },
+    {
+      relativePath: "packages/persistence-postgres/src/tasks/trustedWorkflowCheckpoint.ts",
+      specifier: "@flarex/durable-task/internal/run-attempt-v1",
+      text: "import { MAX_TRUSTED_WORKFLOW_CHECKPOINT_BYTES, TrustedWorkflowCheckpointDescriptorSchema } from \"@flarex/durable-task/internal/run-attempt-v1\";",
+    },
+    {
+      relativePath: "packages/persistence-postgres/src/tasks/trustedWorkflowCheckpointSchema.ts",
+      specifier: "@flarex/durable-task/internal/run-attempt-v1",
+      text: "import { MAX_TRUSTED_WORKFLOW_CHECKPOINT_BYTES, type TaskRunIdV1 } from \"@flarex/durable-task/internal/run-attempt-v1\";",
+    },
+    {
+      relativePath: "packages/persistence-postgres/src/tasks/trustedWorkflowContinuationStore.ts",
+      specifier: "@flarex/durable-task/internal/run-creation-v1",
+      text: "import type { TrustedWorkflowTaskBinding } from \"@flarex/durable-task/internal/run-creation-v1\";",
+    },
+    {
+      relativePath: "packages/persistence-postgres/src/tasks/trustedWorkflowContinuationStore.ts",
+      specifier: "@flarex/durable-task/internal/run-attempt-v1",
+      text: `import {
+          RegisterTrustedWorkflowContinuationCommandSchema, ResolveTrustedWorkflowContinuationCommandSchema,
+          decideTrustedWorkflowRegisterContinuation, decideTrustedWorkflowConfirmContinuation,
+          decideTrustedWorkflowExpireContinuation, decideTrustedWorkflowRequestCancellation,
+          decodeRunAttemptCommandV1, decodeTaskRunIdV1, type CurrentRunAttemptMutationOperation, type TaskRunIdV1,
+        } from "@flarex/durable-task/internal/run-attempt-v1";`,
+    },
+    {
+      relativePath: "packages/persistence-postgres/src/tasks/trustedWorkflowEventEligibilityStore.ts",
+      specifier: "@flarex/durable-task/internal/run-creation-v1",
+      text: "import type { TrustedWorkflowTaskBinding } from \"@flarex/durable-task/internal/run-creation-v1\";",
+    },
+    {
+      relativePath: "packages/persistence-postgres/src/tasks/trustedWorkflowTaskRunCreation.ts",
+      specifier: "@flarex/durable-task/internal/run-creation-v1",
+      text: `import {
+          decodeTaskExecutionPrincipalReferenceV1, decodeTaskInputReferenceV1, decodeTaskRunCreationRequestKeyV1,
+          encodeTaskRunCreationRequestKeyPreimageV1, inspectTrustedWorkflowTaskBinding,
+          makeTrustedWorkflowTaskRunCreationInitialAggregate, trustedWorkflowPrincipalMatches,
+          TrustedWorkflowBindingSha256Schema, type TrustedWorkflowTaskBinding,
+          type TaskRunCreationAuthoritySha256V1, type TaskRunCreationRequestKeySha256V1,
+          type TaskRunCreationRequestSha256V1,
+        } from "@flarex/durable-task/internal/run-creation-v1";`,
+    },
+    {
+      relativePath: "packages/persistence-postgres/src/tasks/trustedWorkflowTaskRunCreation.ts",
+      specifier: "@flarex/durable-task/internal/run-attempt-v1",
+      text: `import { decodeTaskDatabaseTimeMsV1, decodeTaskRunIdV1,
+          encodeTrustedWorkflowTaskRunAttemptAggregateJson, projectCurrentTaskRunAttemptPersistence,
+        } from "@flarex/durable-task/internal/run-attempt-v1";`,
+    },
+    {
+      relativePath: "packages/persistence-postgres/src/tasks/taskSystemRunAttemptStoreV1.ts",
+      specifier: "@flarex/durable-task/internal/run-attempt-v1",
+      text: `import { encodeTrustedWorkflowTaskRunAttemptAggregateJson, decodeTrustedWorkflowTaskRunAttemptAggregateJson,
+          encodeTrustedWorkflowPersistedTaskRequestedEffectJson, projectCurrentTaskRunAttemptPersistence,
+          toCurrentApplicationTaskRunAttemptDecision, fromCurrentTaskRunAttemptAggregate, fromCurrentTaskRequestedEffect,
+          type CurrentTaskRunAttemptAggregate, type CurrentTaskRunAttemptDecision, type CurrentRunAttemptPhase,
+          type CurrentRunAttemptMutationOperation, type CurrentTaskRunAttemptEvidence, type CurrentPersistedTaskRequestedEffect,
+          type CurrentTaskSystemRunAttemptDecisionInput, type TaskSystemRunAttemptInspectionRequestV1,
+          type TrustedWorkflowTaskSystemRunAttemptTransaction, type TrustedWorkflowTaskSystemRunAttemptStoreShape,
+        } from "@flarex/durable-task/internal/run-attempt-v1";`,
+    },
+    {
+      relativePath: "packages/persistence-postgres/src/tasks/taskSystemRunAttemptStoreV1.ts",
+      specifier: "@flarex/durable-task/internal/run-attempt-v1",
+      text: `import {
+          InvalidRunAttemptTransitionError,
+          StaleTaskRunVersionError,
+          TaskRunAttemptCounterExhaustedError,
+          TaskSystemRunAttemptCorruptionError,
+          TaskSystemRunAttemptStaleScopeAuthorityError,
+          TaskSystemRunAttemptStore,
+          TaskSystemRunAttemptTerminalStoreError,
+          TaskSystemRunAttemptTransientStoreError,
+          TaskSystemRunAttemptUnavailableError,
+          decodeApplicationTaskRunAttemptAggregateJsonV1,
+          encodeApplicationPersistedTaskRequestedEffectJsonV1,
+          encodeApplicationTaskRunAttemptAggregateJsonV1,
+          decodePersistedTaskRunAttemptAggregateJsonV1,
+          decodeTaskAttemptIdV1,
+          decodeTaskAttemptNumberV1,
+          decodeTaskDatabaseTimeMsV1,
+          decodeTaskExecutionFenceV1,
+          encodePersistedTaskRequestedEffectJsonV1,
+          encodePersistedTaskRunAttemptAggregateJsonV1,
+          projectApplicationTaskRunAttemptPersistenceV1,
+          projectTaskRunAttemptPersistenceV1,
+          toCurrentTaskRunAttemptAggregate,
+          type ApplicationTaskRunAttemptAggregateV1,
+          type ApplicationTaskRunAttemptDecisionV1,
+          type ApplicationTaskSystemRunAttemptInspectionSnapshotV1,
+          type ApplicationTaskSystemRunAttemptStoreShape,
+          type ApplicationTaskSystemRunAttemptTransactionReceiptV1,
+          type ApplicationTaskSystemRunAttemptTransactionV1,
+          type RunAttemptDecisionFor,
+          type RunAttemptDecisionErrorV1,
+          type CurrentRunAttemptOperation,
+          type RunAttemptServiceReceiptFor,
+          type TaskAttemptGrantCandidateV1,
+          type TaskDatabaseTimeMsV1,
+          type TaskRunAttemptAggregateV1,
+          type TaskRunAttemptDecisionV1,
+          type TaskRunIdV1,
+          type TaskRunVersionV1,
+          type TaskSystemRunAttemptInspectionSnapshotV1,
+          type TaskSystemRunAttemptStoreErrorV1,
+          type TaskSystemRunAttemptStoreShape,
+          type TaskSystemRunAttemptTransactionReceiptV1,
+          type TaskSystemRunAttemptTransactionV1,
+        } from "@flarex/durable-task/internal/run-attempt-v1";`,
+    },
+    {
+      relativePath: "packages/persistence-postgres/src/tasks/taskSystemRunRowV1.ts",
+      specifier: "@flarex/durable-task/internal/run-creation-v1",
+      text: "import { decodeTaskInputReferenceV1 } from \"@flarex/durable-task/internal/run-creation-v1\";",
+    },
+    {
+      relativePath: "packages/persistence-postgres/src/tasks/taskSystemRunRowV1.ts",
+      specifier: "@flarex/durable-task/internal/run-attempt-v1",
+      text: "import { decodeTrustedWorkflowTaskRunAttemptAggregateJson, encodeTrustedWorkflowTaskRunAttemptAggregateJson, projectCurrentTaskRunAttemptPersistence, type CurrentTaskRunAttemptAggregate } from \"@flarex/durable-task/internal/run-attempt-v1\";",
+    },
+    {
+      relativePath: "packages/medusa-adapter/src/workflow/durable-native-storage.ts",
+      specifier: "@flarex/durable-task/internal/run-attempt-v1",
+      text: "import { MAX_TRUSTED_WORKFLOW_CHECKPOINT_BYTES, type TrustedWorkflowCheckpointDescriptor } from \"@flarex/durable-task/internal/run-attempt-v1\";",
+    },
+    {
+      relativePath: "packages/medusa-adapter/src/workflows/product/import-inline-input.ts",
+      specifier: "@flarex/durable-task/internal/run-creation-v1",
+      text: "import { makeTaskInputReferenceV1, decodeTaskInputReferenceV1 } from \"@flarex/durable-task/internal/run-creation-v1\";",
+    },
+    {
+      relativePath: "packages/medusa-adapter/src/workflows/product/import-inline-task.ts",
+      specifier: "@flarex/durable-task/internal/run-creation-v1",
+      text: "import { inspectTrustedWorkflowTaskBinding } from \"@flarex/durable-task/internal/run-creation-v1\";",
+    },
+    {
+      relativePath: "packages/medusa-adapter/src/workflows/product/import-inline-task.ts",
+      specifier: "@flarex/durable-task/internal/run-attempt-v1",
+      text: `import { decideTrustedWorkflowStartAttempt, decideTrustedWorkflowHeartbeatAttempt, decideTrustedWorkflowCompleteAttempt,
+          decideTrustedWorkflowHandleLeaseExpiry, decodeTaskRetryJitterV1, decodeTaskHeartbeatSequenceV1, decodeTaskDurationMsV1,
+          TaskFailureMessageV1Schema,
+          type TaskAttemptCompletionV1, type CurrentTaskRunAttemptAggregate } from "@flarex/durable-task/internal/run-attempt-v1";`,
+    },
+    {
+      relativePath: "packages/medusa-adapter/src/workflows/product/import-inline.ts",
+      specifier: "@flarex/durable-task/internal/run-attempt-v1",
+      text: "import type { TrustedWorkflowContinuation } from \"@flarex/durable-task/internal/run-attempt-v1\";",
+    },
+  ];
+
+  it("admits the exact portable trusted-workflow contract declarations", () => {
+    expect(analyzeTriggerCompatibilityBoundary([], trustedWorkflowContracts).errors).toEqual([]);
+  });
+
+  it("refuses contract declarations from neighboring owners or specifiers", () => {
+    for (const contract of trustedWorkflowContracts) {
+      expect(analyzeTriggerCompatibilityBoundary([], [{ ...contract,
+        relativePath: contract.relativePath.replace(/\.ts$/, "Neighbor.ts"),
+      }]).errors).toHaveLength(1);
+      expect(analyzeTriggerCompatibilityBoundary([], [{ ...contract,
+        text: contract.text.replace(contract.specifier, `${contract.specifier}/neighbor`),
+      }]).errors).toHaveLength(1);
+    }
+  });
+
+  it("preserves contract symbol modes and refuses added symbols", () => {
+    for (const contract of trustedWorkflowContracts) {
+      const typeOnly = contract.text.replace(/\btype /g, "").replace(/^(import|export) /, "$1 type ");
+      if (typeOnly !== contract.text)
+        expect(analyzeTriggerCompatibilityBoundary([], [{ ...contract, text: typeOnly }]).errors).toHaveLength(1);
+      expect(analyzeTriggerCompatibilityBoundary([], [{ ...contract,
+        text: contract.text.replace("{", "{ makeRunAttemptLifecycleV1,"),
+      }]).errors).toHaveLength(1);
+    }
+    for (const contract of trustedWorkflowContracts.filter(value => value.text.includes("type "))) {
+      expect(analyzeTriggerCompatibilityBoundary([], [{ ...contract,
+        text: contract.text.replace(/\btype /g, ""),
+      }]).errors).toHaveLength(1);
+    }
+  });
+
+  it("keeps trusted workflow contract consumers closed to alternate loaders and re-exports", () => {
+    for (const contract of trustedWorkflowContracts.filter(value => value.text.startsWith("import"))) {
+      for (const text of [
+        `import * as task from "${contract.specifier}";`,
+        `import task from "${contract.specifier}";`,
+        `import "${contract.specifier}";`,
+        `void import("${contract.specifier}");`,
+        `const task = require("${contract.specifier}");`,
+        `export * from "${contract.specifier}";`,
+      ]) expect(analyzeTriggerCompatibilityBoundary([], [{ ...contract, text }]).errors).toHaveLength(1);
+    }
+  });
+
+  it("admits only the exact private Medusa Task contract dependency without admitting neighboring hosts", () => {
+    const relativePath = "packages/medusa-adapter/package.json";
+    expect(analyzeTriggerCompatibilityBoundary([{ relativePath,
+      manifest: { dependencies: { "@flarex/durable-task": "workspace:*" } },
+    }], []).errors).toEqual([]);
+    for (const [owner, name, value] of [
+      ["packages/medusa-adapter-neighbor/package.json", "@flarex/durable-task", "workspace:*"],
+      [relativePath, "task", "workspace:@flarex/durable-task@*"],
+      [relativePath, "@flarex/durable-task", "workspace:^"],
+      [relativePath, "task", "file:../durable-task"],
+      [relativePath, "@flarex/durable-task/internal/run-attempt-v1", "workspace:*"],
+    ]) expect(analyzeTriggerCompatibilityBoundary([{ relativePath: owner,
+      manifest: { dependencies: { [name]: value } },
+    }], []).errors).toHaveLength(1);
+    expect(analyzeTriggerCompatibilityBoundary([], [{
+      relativePath: "packages/medusa-adapter/src/worker.ts",
+      text: 'import { makeRunAttemptLifecycleV1 } from "@flarex/durable-task/internal/run-attempt-v1";',
+    }, {
+      relativePath: "packages/medusa-adapter/src/workflows/product/import-inline-task.ts",
+      text: 'import { makeTaskQueueWakeAdapterV1 } from "@flarex/executor/internal/task-queue-wake-v1";',
+    }]).errors).toHaveLength(2);
+  });
+
+  it("keeps principal contract re-exports exact and blocks alternate loading forms", () => {
+    const principal = trustedWorkflowContracts[0];
+    const store = trustedWorkflowContracts[2];
+    for (const text of [
+      'import * as auth from "flarex-protocol/auth";',
+      'import auth from "flarex-protocol/auth";',
+      'import "flarex-protocol/auth";',
+      'void import("flarex-protocol/auth");',
+      'const auth = require("flarex-protocol/auth");',
+    ]) expect(analyzeTriggerCompatibilityBoundary([], [{ ...principal, text }]).errors).toHaveLength(1);
+    for (const text of [
+      store.text.replace("decodeTaskExecutionPrincipalObjectV1,", "decodeTaskExecutionPrincipalObjectV1 as anotherDecoder,"),
+      'export * from "@flarex/durable-task/internal/run-creation-v1";',
+      'export type * from "@flarex/durable-task/internal/run-creation-v1";',
+      'export { ownPrincipalObject } from "@flarex/durable-task/internal/run-creation-v1";',
+    ]) expect(analyzeTriggerCompatibilityBoundary([], [{ ...store, text }]).errors).toHaveLength(1);
+    expect(analyzeTriggerCompatibilityBoundary([], [{ ...store,
+      text: `${trustedWorkflowContracts[1].text}\nexport { decodeTaskExecutionPrincipalObjectV1 };`,
+    }]).errors).toEqual([`${store.relativePath}:5 production source must not re-export an admitted compatibility binding beyond its owning file.`]);
+  });
+
   it("accepts ordinary Flarex dependencies and imports", () => {
     expect(analyzeTriggerCompatibilityBoundary(
       [{
@@ -406,7 +777,7 @@ describe("Trigger compatibility boundary checker", () => {
 
   it("admits only the located Application Task run-list store contracts", () => {
     const storePath =
-      "packages/persistence-postgres/src/applicationTaskRunListStore.ts";
+      "packages/persistence-postgres/src/application/tasks/applicationTaskRunListStore.ts";
     const manifest = [{
       relativePath: "packages/persistence-postgres/package.json",
       manifest: {
@@ -489,7 +860,7 @@ describe("Trigger compatibility boundary checker", () => {
 
   it("admits only the opaque Application Task read-store contracts", () => {
     const readStorePath =
-      "packages/persistence-postgres/src/applicationTaskAttemptHistoryStore.ts";
+      "packages/persistence-postgres/src/application/tasks/applicationTaskAttemptHistoryStore.ts";
     const manifest = [{
       relativePath: "packages/persistence-postgres/package.json",
       manifest: { dependencies: { "@flarex/durable-task": "workspace:*" } },
@@ -1025,7 +1396,7 @@ describe("Trigger compatibility boundary checker", () => {
   });
 
   it("admits only the checkpoint-owned persistence task symbols", () => {
-    const schemaPath = "packages/persistence-postgres/src/schema.ts";
+    const schemaPath = "packages/persistence-postgres/src/database/schema.ts";
     expect(analyzeTriggerCompatibilityBoundary([{
       relativePath: "packages/persistence-postgres/package.json",
       manifest: {
@@ -1052,7 +1423,7 @@ describe("Trigger compatibility boundary checker", () => {
     }]).errors).toEqual([]);
 
     const applicationCreationPath =
-      "packages/persistence-postgres/src/applicationTaskSystemRunCreation.ts";
+      "packages/persistence-postgres/src/application/tasks/applicationTaskSystemRunCreation.ts";
     expect(analyzeTriggerCompatibilityBoundary([], [{
       relativePath: applicationCreationPath,
       text: `
@@ -1074,7 +1445,7 @@ describe("Trigger compatibility boundary checker", () => {
 
     expect(analyzeTriggerCompatibilityBoundary([], [{
       relativePath:
-        "packages/persistence-postgres/src/taskComputeDeliveryEvidenceV1.ts",
+        "packages/persistence-postgres/src/tasks/taskComputeDeliveryEvidenceV1.ts",
       text: `
         import {
           decodeTaskComputeDispatchRequestV1,
@@ -1095,7 +1466,7 @@ describe("Trigger compatibility boundary checker", () => {
 
     expect(analyzeTriggerCompatibilityBoundary([], [{
       relativePath:
-        "packages/persistence-postgres/src/taskComputeDeliveryRepositoryV1.ts",
+        "packages/persistence-postgres/src/tasks/taskComputeDeliveryRepositoryV1.ts",
       text: `
         import {
           TASK_COMPUTE_CANCELLATION_REQUEST_VERSION_V1,
@@ -1137,7 +1508,7 @@ describe("Trigger compatibility boundary checker", () => {
 
     expect(analyzeTriggerCompatibilityBoundary([], [{
       relativePath:
-        "packages/persistence-postgres/src/taskComputeDeliveryDiscovery.ts",
+        "packages/persistence-postgres/src/tasks/taskComputeDeliveryDiscovery.ts",
       text: `
         import {
           TaskRunIdV1Schema,
@@ -1150,7 +1521,7 @@ describe("Trigger compatibility boundary checker", () => {
 
     expect(analyzeTriggerCompatibilityBoundary([], [{
       relativePath:
-        "packages/persistence-postgres/src/taskSystemWakeSchedulerDirectoryV1.ts",
+        "packages/persistence-postgres/src/tasks/taskSystemWakeSchedulerDirectoryV1.ts",
       text: `
         import type {
           InvalidTaskWakeSchedulerConfigurationError,
@@ -1163,7 +1534,7 @@ describe("Trigger compatibility boundary checker", () => {
 
     expect(analyzeTriggerCompatibilityBoundary([], [{
       relativePath:
-        "packages/persistence-postgres/src/taskSystemWakeSchedulerPartitionV1.ts",
+        "packages/persistence-postgres/src/tasks/taskSystemWakeSchedulerPartitionV1.ts",
       text: `
         import {
           makeRunAttemptLifecycleV1,
@@ -1179,7 +1550,7 @@ describe("Trigger compatibility boundary checker", () => {
 
     expect(analyzeTriggerCompatibilityBoundary([], [{
       relativePath:
-        "packages/persistence-postgres/src/taskSystemRunAttemptStoreV1.ts",
+        "packages/persistence-postgres/src/tasks/taskSystemRunAttemptStoreV1.ts",
       text: `
         import {
           TaskSystemRunAttemptStore,
@@ -1191,7 +1562,7 @@ describe("Trigger compatibility boundary checker", () => {
 
     expect(analyzeTriggerCompatibilityBoundary([], [{
       relativePath:
-        "packages/persistence-postgres/src/taskSystemLifecycleLedgerCorrelationV1.ts",
+        "packages/persistence-postgres/src/tasks/taskSystemLifecycleLedgerCorrelationV1.ts",
       text: `
         import type {
           PersistedTaskRequestedEffectV1,
@@ -1206,7 +1577,7 @@ describe("Trigger compatibility boundary checker", () => {
 
     expect(analyzeTriggerCompatibilityBoundary([], [{
       relativePath:
-        "packages/persistence-postgres/src/taskSystemRunCreationV1.ts",
+        "packages/persistence-postgres/src/tasks/taskSystemRunCreationV1.ts",
       text: `
         import {
           decodeTaskRunCreationRequestV1,
@@ -1221,7 +1592,7 @@ describe("Trigger compatibility boundary checker", () => {
       `,
     }, {
       relativePath:
-        "packages/persistence-postgres/src/taskSystemRunRowV1.ts",
+        "packages/persistence-postgres/src/tasks/taskSystemRunRowV1.ts",
       text: `
         import {
           decodePersistedTaskRunAttemptAggregateJsonV1,
@@ -1232,7 +1603,7 @@ describe("Trigger compatibility boundary checker", () => {
 
     expect(analyzeTriggerCompatibilityBoundary([], [{
       relativePath:
-        "packages/persistence-postgres/src/taskSystemRequestedEffectRowV1.ts",
+        "packages/persistence-postgres/src/tasks/taskSystemRequestedEffectRowV1.ts",
       text: `
         import {
           decodePersistedTaskRequestedEffectJsonV1,
@@ -1242,7 +1613,7 @@ describe("Trigger compatibility boundary checker", () => {
       `,
     }, {
       relativePath:
-        "packages/persistence-postgres/src/taskSystemRunReadV1.ts",
+        "packages/persistence-postgres/src/tasks/taskSystemRunReadV1.ts",
       text: `
         import {
           decodeTaskDueDiscoveryRequestV1,
@@ -1262,81 +1633,81 @@ describe("Trigger compatibility boundary checker", () => {
         import { decodeTaskRunCreationRequestV1 } from "@flarex/durable-task/internal/run-creation-v1";
       `,
     }, {
-      relativePath: "packages/persistence-postgres/src/postgres.ts",
+      relativePath: "packages/persistence-postgres/src/database/postgres.ts",
       text: `
         import type { TaskRunIdV1 } from "@flarex/durable-task/internal/run-attempt-v1";
       `,
     }, {
       relativePath:
-        "packages/persistence-postgres/src/taskSystemRunCreationV1.ts",
+        "packages/persistence-postgres/src/tasks/taskSystemRunCreationV1.ts",
       text: `
         import { RunAttemptLifecycle } from "@flarex/durable-task/internal/run-attempt-v1";
       `,
     }, {
       relativePath:
-        "packages/persistence-postgres/src/taskSystemRunRowV1.ts",
+        "packages/persistence-postgres/src/tasks/taskSystemRunRowV1.ts",
       text: `
         import { decodeTaskRunCreationRequestV1 } from "@flarex/durable-task/internal/run-creation-v1";
       `,
     }, {
       relativePath:
-        "packages/persistence-postgres/src/taskSystemRunReadV1.ts",
+        "packages/persistence-postgres/src/tasks/taskSystemRunReadV1.ts",
       text: `
         import { RunAttemptLifecycle } from "@flarex/durable-task/internal/run-attempt-v1";
         import { MAX_TASK_SYSTEM_READ_PAGE_SIZE_V1 } from "@flarex/durable-task/internal/run-read-v1";
       `,
     }, {
       relativePath:
-        "packages/persistence-postgres/src/taskSystemWakeSchedulerPartitionV1.ts",
+        "packages/persistence-postgres/src/tasks/taskSystemWakeSchedulerPartitionV1.ts",
       text: `
         import { RunAttemptLifecycle } from "@flarex/durable-task/internal/run-attempt-v1";
         import { makeInMemoryTaskDueWorkSourceV1 } from "@flarex/durable-task/internal/scheduling-testing-v1";
       `,
     }, {
       relativePath:
-        "packages/persistence-postgres/src/taskSystemWakeSchedulerDirectoryV1.ts",
+        "packages/persistence-postgres/src/tasks/taskSystemWakeSchedulerDirectoryV1.ts",
       text: `
         import { makeTaskWakeSchedulerV1 } from "@flarex/durable-task/internal/scheduling-v1";
       `,
     }, {
       relativePath:
-        "packages/persistence-postgres/src/taskComputeDeliveryEvidenceV1.ts",
+        "packages/persistence-postgres/src/tasks/taskComputeDeliveryEvidenceV1.ts",
       text: `
         import { TaskComputeProvider } from "@flarex/durable-task/internal/compute-provider-v1";
       `,
     }, {
       relativePath:
-        "packages/persistence-postgres/src/taskSystemLifecycleLedgerCorrelationV1.ts",
+        "packages/persistence-postgres/src/tasks/taskSystemLifecycleLedgerCorrelationV1.ts",
       text: `
         import { RunAttemptLifecycle } from "@flarex/durable-task/internal/run-attempt-v1";
       `,
     }, {
       relativePath:
-        "packages/persistence-postgres/src/taskComputeDeliveryRepositoryV1.ts",
+        "packages/persistence-postgres/src/tasks/taskComputeDeliveryRepositoryV1.ts",
       text: `
         import { TaskComputeProvider } from "@flarex/durable-task/internal/compute-provider-v1";
       `,
     }, {
       relativePath:
-        "packages/persistence-postgres/src/taskComputeDeliveryDiscovery.ts",
+        "packages/persistence-postgres/src/tasks/taskComputeDeliveryDiscovery.ts",
       text: `
         import { RunAttemptLifecycle } from "@flarex/durable-task/internal/run-attempt-v1";
       `,
     }]).errors).toEqual([
       `${schemaPath}:2 production source must not activate @flarex/durable-task before host admission.`,
       `${schemaPath}:3 production source must not activate @flarex/durable-task before host admission.`,
-      "packages/persistence-postgres/src/postgres.ts:2 production source must not activate @flarex/durable-task before host admission.",
-      "packages/persistence-postgres/src/taskSystemRunCreationV1.ts:2 production source must not activate @flarex/durable-task before host admission.",
-      "packages/persistence-postgres/src/taskSystemRunRowV1.ts:2 production source must not activate @flarex/durable-task before host admission.",
-      "packages/persistence-postgres/src/taskSystemRunReadV1.ts:2 production source must not activate @flarex/durable-task before host admission.",
-      "packages/persistence-postgres/src/taskSystemRunReadV1.ts:3 production source must not activate @flarex/durable-task before host admission.",
-      "packages/persistence-postgres/src/taskSystemWakeSchedulerPartitionV1.ts:2 production source must not activate @flarex/durable-task before host admission.",
-      "packages/persistence-postgres/src/taskSystemWakeSchedulerPartitionV1.ts:3 production source must not activate @flarex/durable-task before host admission.",
-      "packages/persistence-postgres/src/taskSystemWakeSchedulerDirectoryV1.ts:2 production source must not activate @flarex/durable-task before host admission.",
-      "packages/persistence-postgres/src/taskComputeDeliveryEvidenceV1.ts:2 production source must not activate @flarex/durable-task before host admission.",
-      "packages/persistence-postgres/src/taskSystemLifecycleLedgerCorrelationV1.ts:2 production source must not activate @flarex/durable-task before host admission.",
-      "packages/persistence-postgres/src/taskComputeDeliveryRepositoryV1.ts:2 production source must not activate @flarex/durable-task before host admission.",
-      "packages/persistence-postgres/src/taskComputeDeliveryDiscovery.ts:2 production source must not activate @flarex/durable-task before host admission.",
+      "packages/persistence-postgres/src/database/postgres.ts:2 production source must not activate @flarex/durable-task before host admission.",
+      "packages/persistence-postgres/src/tasks/taskSystemRunCreationV1.ts:2 production source must not activate @flarex/durable-task before host admission.",
+      "packages/persistence-postgres/src/tasks/taskSystemRunRowV1.ts:2 production source must not activate @flarex/durable-task before host admission.",
+      "packages/persistence-postgres/src/tasks/taskSystemRunReadV1.ts:2 production source must not activate @flarex/durable-task before host admission.",
+      "packages/persistence-postgres/src/tasks/taskSystemRunReadV1.ts:3 production source must not activate @flarex/durable-task before host admission.",
+      "packages/persistence-postgres/src/tasks/taskSystemWakeSchedulerPartitionV1.ts:2 production source must not activate @flarex/durable-task before host admission.",
+      "packages/persistence-postgres/src/tasks/taskSystemWakeSchedulerPartitionV1.ts:3 production source must not activate @flarex/durable-task before host admission.",
+      "packages/persistence-postgres/src/tasks/taskSystemWakeSchedulerDirectoryV1.ts:2 production source must not activate @flarex/durable-task before host admission.",
+      "packages/persistence-postgres/src/tasks/taskComputeDeliveryEvidenceV1.ts:2 production source must not activate @flarex/durable-task before host admission.",
+      "packages/persistence-postgres/src/tasks/taskSystemLifecycleLedgerCorrelationV1.ts:2 production source must not activate @flarex/durable-task before host admission.",
+      "packages/persistence-postgres/src/tasks/taskComputeDeliveryRepositoryV1.ts:2 production source must not activate @flarex/durable-task before host admission.",
+      "packages/persistence-postgres/src/tasks/taskComputeDeliveryDiscovery.ts:2 production source must not activate @flarex/durable-task before host admission.",
     ]);
   });
 
@@ -1374,7 +1745,7 @@ describe("Trigger compatibility boundary checker", () => {
       `,
     }, {
       relativePath:
-        "packages/persistence-postgres/src/postgresTaskComputeDeliveryControlDirectory.ts",
+        "packages/persistence-postgres/src/tasks/postgresTaskComputeDeliveryControlDirectory.ts",
       text: `
         import { createTaskComputeDeliveryControlDirectoryTargetFromPolicyInternal } from "./taskComputeDeliveryControlDirectoryTarget.js";
       `,
@@ -1404,12 +1775,12 @@ describe("Trigger compatibility boundary checker", () => {
     ]);
 
     expect(analyzeTriggerCompatibilityBoundary([], [{
-      relativePath: "packages/persistence-postgres/src/postgres.ts",
+      relativePath: "packages/persistence-postgres/src/database/postgres.ts",
       text: `
-        import { createTaskComputeDeliveryControlDirectoryTargetForSystemTest } from "./taskComputeDeliveryControlDirectoryTargetSystemTest.js";
+        import { createTaskComputeDeliveryControlDirectoryTargetForSystemTest } from "../tasks/taskComputeDeliveryControlDirectoryTargetSystemTest.js";
       `,
     }]).errors).toEqual([
-      "packages/persistence-postgres/src/postgres.ts:2 production source must not activate the Task compute-delivery control directory before host admission.",
+      "packages/persistence-postgres/src/database/postgres.ts:2 production source must not activate the Task compute-delivery control directory before host admission.",
     ]);
   });
 
@@ -1440,26 +1811,26 @@ describe("Trigger compatibility boundary checker", () => {
       relativePath: "packages/flarex-backend/src/taskScheduler.ts",
       text: `
         import { makeTaskSystemWakeSchedulerPartitionV1 } from
-          "../../persistence-postgres/src/taskSystemWakeSchedulerPartitionV1.ts";
+          "../../persistence-postgres/src/tasks/taskSystemWakeSchedulerPartitionV1.ts";
       `,
     }, {
       relativePath: "packages/flarex-backend/src/taskSchedulerNodeNext.ts",
       text: `
         import { makeTaskSystemWakeSchedulerPartitionV1 } from
-          "../../persistence-postgres/src/taskSystemWakeSchedulerPartitionV1.js";
+          "../../persistence-postgres/src/tasks/taskSystemWakeSchedulerPartitionV1.js";
       `,
     }, {
       relativePath: "packages/flarex-backend/src/taskSchedulerBundled.ts",
       text: `
         import { makeTaskSystemWakeSchedulerPartitionV1 } from
-          "../../persistence-postgres/src/taskSystemWakeSchedulerPartitionV1";
+          "../../persistence-postgres/src/tasks/taskSystemWakeSchedulerPartitionV1";
       `,
     }, {
       relativePath:
-        "packages/persistence-postgres/test/taskSystemWakeSchedulerPartition.test.ts",
+        "packages/persistence-postgres/test/tasks/taskSystemWakeSchedulerPartition.test.ts",
       text: `
         import { makeTaskSystemWakeSchedulerPartitionV1 } from
-          "../src/taskSystemWakeSchedulerPartitionV1.ts";
+          "../../src/tasks/taskSystemWakeSchedulerPartitionV1.ts";
       `,
     }]).errors).toEqual([
       "apps/executor/src/taskScheduler.ts:2 production source must not activate the Task wake scheduler partition before host admission.",
@@ -1472,7 +1843,7 @@ describe("Trigger compatibility boundary checker", () => {
   it("admits only the E4 supervisor type edge to the lifecycle gateway", () => {
     expect(analyzeTriggerCompatibilityBoundary([], [{
       relativePath:
-        "packages/persistence-postgres/src/taskAttemptLifecycleGateway.ts",
+        "packages/persistence-postgres/src/tasks/taskAttemptLifecycleGateway.ts",
       text: `
         import {
           decideHeartbeatAttemptV1,
@@ -1515,7 +1886,7 @@ describe("Trigger compatibility boundary checker", () => {
       relativePath: "apps/executor/src/taskLifecycle.ts",
       text: `
         import { createTaskAttemptLifecycleGateway } from
-          "../../../packages/persistence-postgres/src/taskAttemptLifecycleGateway.js";
+          "../../../packages/persistence-postgres/src/tasks/taskAttemptLifecycleGateway.js";
       `,
     }]).errors).toEqual([
       "packages/flarex-backend/src/taskComputeDelivery/TaskAttemptSupervisor.ts:2 production source must not activate the Task attempt lifecycle gateway before supervisor admission.",
@@ -1527,7 +1898,7 @@ describe("Trigger compatibility boundary checker", () => {
   it("admits only the Task external-effect authority dispatch contract", () => {
     expect(analyzeTriggerCompatibilityBoundary([], [{
       relativePath:
-        "packages/persistence-postgres/src/taskExternalEffectAuthority.ts",
+        "packages/persistence-postgres/src/tasks/taskExternalEffectAuthority.ts",
       text: `
         import {
           type ApplicationTaskComputeDispatchRequestV1,
@@ -1536,20 +1907,20 @@ describe("Trigger compatibility boundary checker", () => {
       `,
     }, {
       relativePath:
-        "packages/persistence-postgres/src/taskExternalEffectAuthority.ts",
+        "packages/persistence-postgres/src/tasks/taskExternalEffectAuthority.ts",
       text: `
         import { TaskComputeProvider } from
           "@flarex/durable-task/internal/compute-provider-v1";
       `,
     }, {
-      relativePath: "packages/persistence-postgres/src/postgres.ts",
+      relativePath: "packages/persistence-postgres/src/database/postgres.ts",
       text: `
         import { validateApplicationTaskComputeDispatchRequestV1 } from
           "@flarex/durable-task/internal/compute-provider-v1";
       `,
     }]).errors).toEqual([
-      "packages/persistence-postgres/src/taskExternalEffectAuthority.ts:2 production source must not activate @flarex/durable-task before host admission.",
-      "packages/persistence-postgres/src/postgres.ts:2 production source must not activate @flarex/durable-task before host admission.",
+      "packages/persistence-postgres/src/tasks/taskExternalEffectAuthority.ts:2 production source must not activate @flarex/durable-task before host admission.",
+      "packages/persistence-postgres/src/database/postgres.ts:2 production source must not activate @flarex/durable-task before host admission.",
     ]);
   });
 
@@ -1568,10 +1939,10 @@ describe("Trigger compatibility boundary checker", () => {
           "@flarex/persistence-postgres/internal/task-external-effect-authority";
       `,
     }, {
-      relativePath: "packages/persistence-postgres/src/postgres.ts",
+      relativePath: "packages/persistence-postgres/src/database/postgres.ts",
       text: `
         import { issueApplicationTaskExternalEffectSubject } from
-          "./taskExternalEffectAuthority.js";
+          "../tasks/taskExternalEffectAuthority.js";
       `,
     }, {
       relativePath: "apps/executor/src/taskMutationHost.ts",
@@ -1580,24 +1951,24 @@ describe("Trigger compatibility boundary checker", () => {
           "@flarex/persistence-postgres/internal/system-test/postgres-task-external-effect-authority";
       `,
     }, {
-      relativePath: "packages/persistence-postgres/src/postgres.ts",
+      relativePath: "packages/persistence-postgres/src/database/postgres.ts",
       text: `
         import { createPostgresTaskExternalEffectAuthorityResource } from
-          "./postgresTaskExternalEffectAuthority.js";
+          "../tasks/postgresTaskExternalEffectAuthority.js";
       `,
     }, {
       relativePath:
-        "packages/persistence-postgres/test/taskExternalEffectAuthority.test.ts",
+        "packages/persistence-postgres/test/tasks/taskExternalEffectAuthority.test.ts",
       text: `
         import { prepareTaskChildMutationEffect } from
-          "../src/taskExternalEffectAuthority";
+          "../../src/tasks/taskExternalEffectAuthority";
       `,
     }]).errors).toEqual([
       "packages/flarex-backend/src/worker.ts:2 production source must not activate the Task external-effect authority before mutation-host admission.",
       "packages/standard-application-invocation/src/ApplicationMutationSystem.ts:2 production source must not activate the Task external-effect authority before mutation-host admission.",
-      "packages/persistence-postgres/src/postgres.ts:2 production source must not activate the Task external-effect authority before mutation-host admission.",
+      "packages/persistence-postgres/src/database/postgres.ts:2 production source must not activate the Task external-effect authority before mutation-host admission.",
       "apps/executor/src/taskMutationHost.ts:2 production source must not activate the Task external-effect authority before mutation-host admission.",
-      "packages/persistence-postgres/src/postgres.ts:2 production source must not activate the Task external-effect authority before mutation-host admission.",
+      "packages/persistence-postgres/src/database/postgres.ts:2 production source must not activate the Task external-effect authority before mutation-host admission.",
     ]);
   });
 
@@ -1676,17 +2047,18 @@ describe("Trigger compatibility boundary checker", () => {
 
   it("admits only the exact Task external-effect persistence adapters", () => {
     expect(analyzeTriggerCompatibilityBoundary([], [{
-      relativePath: "packages/persistence-postgres/src/pglite.ts",
+      relativePath: "packages/persistence-postgres/src/database/pglite.ts",
       text: `
         import {
           createLocatedTaskExternalEffectAuthorityTarget,
+          createLocatedTaskExternalEffectAuthorityTargetFromPolicyInternal,
           type LocatedTaskExternalEffectAuthorityTarget,
           type TaskExternalEffectAuthorityConfigurationError,
-        } from "./taskExternalEffectAuthority";
+        } from "../tasks/taskExternalEffectAuthority";
       `,
     }, {
       relativePath:
-        "packages/persistence-postgres/src/postgresTaskExternalEffectAuthority.ts",
+        "packages/persistence-postgres/src/tasks/postgresTaskExternalEffectAuthority.ts",
       text: `
         import {
           createLocatedTaskExternalEffectAuthorityTargetFromPolicyInternal,
@@ -1695,13 +2067,13 @@ describe("Trigger compatibility boundary checker", () => {
         } from "./taskExternalEffectAuthority";
       `,
     }, {
-      relativePath: "packages/persistence-postgres/src/postgres.ts",
+      relativePath: "packages/persistence-postgres/src/database/postgres.ts",
       text: `
         import { createLocatedTaskExternalEffectAuthorityTarget } from
-          "./taskExternalEffectAuthority";
+          "../tasks/taskExternalEffectAuthority";
       `,
     }]).errors).toEqual([
-      "packages/persistence-postgres/src/postgres.ts:2 production source must not activate the Task external-effect authority before mutation-host admission.",
+      "packages/persistence-postgres/src/database/postgres.ts:2 production source must not activate the Task external-effect authority before mutation-host admission.",
     ]);
   });
 
@@ -1837,9 +2209,9 @@ describe("Trigger compatibility boundary checker", () => {
     const environment =
       "packages/system-test/src/environment/applicationEnvironment.ts";
     const runRead =
-      "packages/persistence-postgres/src/taskSystemRunReadV1.ts";
+      "packages/persistence-postgres/src/tasks/taskSystemRunReadV1.ts";
     const wakeScheduler =
-      "packages/persistence-postgres/src/taskSystemWakeSchedulerPartitionV1.ts";
+      "packages/persistence-postgres/src/tasks/taskSystemWakeSchedulerPartitionV1.ts";
 
     expect(analyzeTriggerCompatibilityBoundary([], [{
       relativePath: inputStore,
@@ -2063,28 +2435,28 @@ describe("Trigger compatibility boundary checker", () => {
       relativePath: "packages/flarex-backend/src/taskSchedulerDirectory.ts",
       text: `
         import { createTaskSystemWakeSchedulerDirectoryV1 } from
-          "../../persistence-postgres/src/taskSystemWakeSchedulerDirectoryV1.ts";
+          "../../persistence-postgres/src/tasks/taskSystemWakeSchedulerDirectoryV1.ts";
       `,
     }, {
       relativePath:
         "packages/flarex-backend/src/taskSchedulerDirectoryNodeNext.ts",
       text: `
         import { createTaskSystemWakeSchedulerDirectoryV1 } from
-          "../../persistence-postgres/src/taskSystemWakeSchedulerDirectoryV1.js";
+          "../../persistence-postgres/src/tasks/taskSystemWakeSchedulerDirectoryV1.js";
       `,
     }, {
       relativePath:
         "packages/flarex-backend/src/taskSchedulerDirectoryBundled.ts",
       text: `
         import { createTaskSystemWakeSchedulerDirectoryV1 } from
-          "../../persistence-postgres/src/taskSystemWakeSchedulerDirectoryV1";
+          "../../persistence-postgres/src/tasks/taskSystemWakeSchedulerDirectoryV1";
       `,
     }, {
       relativePath:
-        "packages/persistence-postgres/test/taskSystemWakeSchedulerDirectory.test.ts",
+        "packages/persistence-postgres/test/tasks/taskSystemWakeSchedulerDirectory.test.ts",
       text: `
         import { createTaskSystemWakeSchedulerDirectoryV1 } from
-          "../src/taskSystemWakeSchedulerDirectoryV1.ts";
+          "../../src/tasks/taskSystemWakeSchedulerDirectoryV1.ts";
       `,
     }]).errors).toEqual([
       "apps/executor/src/taskSchedulerDirectory.ts:2 production source must not activate the Task wake scheduler directory before host admission.",
@@ -2096,7 +2468,7 @@ describe("Trigger compatibility boundary checker", () => {
 
   it("admits only the unwired Task Queue adapter over the fresh scheduler resolver", () => {
     expect(analyzeTriggerCompatibilityBoundary([], [{
-      relativePath: "packages/executor/src/taskQueueWakeV1.ts",
+      relativePath: "packages/executor/src/tasks/taskQueueWakeV1.ts",
       text: `
         import { createTaskSystemWakeSchedulerResolverV1 } from
           "@flarex/persistence-postgres/internal/task-wake-scheduler-resolver-v1";
@@ -2105,19 +2477,19 @@ describe("Trigger compatibility boundary checker", () => {
       relativePath: "packages/flarex-backend/src/taskQueueWakeResolver.ts",
       text: `
         import { createTaskSystemWakeSchedulerResolverV1 } from
-          "../../persistence-postgres/src/taskSystemWakeSchedulerResolverV1.ts";
+          "../../persistence-postgres/src/tasks/taskSystemWakeSchedulerResolverV1.ts";
       `,
     }, {
       relativePath: "apps/executor/src/taskQueueWakeResolverNodeNext.ts",
       text: `
         import { createTaskSystemWakeSchedulerResolverV1 } from
-          "../../../packages/persistence-postgres/src/taskSystemWakeSchedulerResolverV1.js";
+          "../../../packages/persistence-postgres/src/tasks/taskSystemWakeSchedulerResolverV1.js";
       `,
     }, {
       relativePath: "apps/executor/src/taskQueueWakeResolverBundled.ts",
       text: `
         import { createTaskSystemWakeSchedulerResolverV1 } from
-          "../../../packages/persistence-postgres/src/taskSystemWakeSchedulerResolverV1";
+          "../../../packages/persistence-postgres/src/tasks/taskSystemWakeSchedulerResolverV1";
       `,
     }, {
       relativePath: "apps/executor/src/worker.ts",
@@ -2129,25 +2501,25 @@ describe("Trigger compatibility boundary checker", () => {
       relativePath: "packages/flarex-backend/src/taskQueueWake.ts",
       text: `
         import { makeTaskQueueWakeAdapterV1 } from
-          "../../executor/src/taskQueueWakeV1.ts";
+          "../../executor/src/tasks/taskQueueWakeV1.ts";
       `,
     }, {
       relativePath: "packages/flarex-backend/src/taskQueueWakeNodeNext.ts",
       text: `
         import { makeTaskQueueWakeAdapterV1 } from
-          "../../executor/src/taskQueueWakeV1.js";
+          "../../executor/src/tasks/taskQueueWakeV1.js";
       `,
     }, {
       relativePath: "packages/flarex-backend/src/taskQueueWakeBundled.ts",
       text: `
         import { makeTaskQueueWakeAdapterV1 } from
-          "../../executor/src/taskQueueWakeV1";
+          "../../executor/src/tasks/taskQueueWakeV1";
       `,
     }, {
-      relativePath: "packages/executor/test/taskQueueWakeV1.test.ts",
+      relativePath: "packages/executor/test/tasks/taskQueueWakeV1.test.ts",
       text: `
         import { makeTaskQueueWakeAdapterV1 } from
-          "../src/taskQueueWakeV1.ts";
+          "../../src/tasks/taskQueueWakeV1.ts";
       `,
     }]).errors).toEqual([
       "packages/flarex-backend/src/taskQueueWakeResolver.ts:2 production source must not consume the Task wake scheduler resolver outside the admitted Queue adapter.",
@@ -2163,20 +2535,20 @@ describe("Trigger compatibility boundary checker", () => {
   it("admits only the unwired repair sweep over its tolerant directory", () => {
     expect(analyzeTriggerCompatibilityBoundary([], [{
       relativePath:
-        "packages/persistence-postgres/src/taskSystemWakeSchedulerRepairDirectoryV1.ts",
+        "packages/persistence-postgres/src/tasks/taskSystemWakeSchedulerRepairDirectoryV1.ts",
       text: `
         import { decodeTaskDueDiscoveryRequestV1 } from
           "@flarex/durable-task/internal/run-read-v1";
       `,
     }, {
-      relativePath: "packages/executor/src/taskRepairSweepV1.ts",
+      relativePath: "packages/executor/src/tasks/taskRepairSweepV1.ts",
       text: `
         import { createTaskSystemWakeSchedulerRepairDirectoryV1 } from
           "@flarex/persistence-postgres/internal/task-wake-scheduler-repair-directory-v1";
       `,
     }, {
       relativePath:
-        "packages/executor/src/taskRepairSweepContinuationCodecV1.ts",
+        "packages/executor/src/tasks/taskRepairSweepContinuationCodecV1.ts",
       text: `
         import { decodeTaskSystemWakeSchedulerRepairDueCursorV1 } from
           "@flarex/persistence-postgres/internal/task-wake-scheduler-repair-directory-v1";
@@ -2184,7 +2556,7 @@ describe("Trigger compatibility boundary checker", () => {
           "./taskRepairSweepV1";
       `,
     }, {
-      relativePath: "packages/executor/src/taskRepairSchedulerRunV1.ts",
+      relativePath: "packages/executor/src/tasks/taskRepairSchedulerRunV1.ts",
       text: `
         import { createTaskRepairSweepV1 } from
           "./taskRepairSweepV1";
@@ -2193,7 +2565,7 @@ describe("Trigger compatibility boundary checker", () => {
       relativePath: "apps/executor/src/taskRepairDirectory.ts",
       text: `
         import { createTaskSystemWakeSchedulerRepairDirectoryV1 } from
-          "../../../packages/persistence-postgres/src/taskSystemWakeSchedulerRepairDirectoryV1.js";
+          "../../../packages/persistence-postgres/src/tasks/taskSystemWakeSchedulerRepairDirectoryV1.js";
       `,
     }, {
       relativePath: "apps/executor/src/taskRepairScheduler.ts",
@@ -2211,13 +2583,13 @@ describe("Trigger compatibility boundary checker", () => {
       relativePath: "packages/flarex-backend/src/taskRepairSweep.ts",
       text: `
         import { createTaskRepairSweepV1 } from
-          "../../executor/src/taskRepairSweepV1.ts";
+          "../../executor/src/tasks/taskRepairSweepV1.ts";
       `,
     }, {
-      relativePath: "packages/executor/test/taskRepairSweepV1.test.ts",
+      relativePath: "packages/executor/test/tasks/taskRepairSweepV1.test.ts",
       text: `
         import { createTaskRepairSweepV1 } from
-          "../src/taskRepairSweepV1.ts";
+          "../../src/tasks/taskRepairSweepV1.ts";
       `,
     }]).errors).toEqual([
       "apps/executor/src/taskRepairDirectory.ts:2 production source must not consume the Task repair scheduler directory outside the admitted repair sweep.",
@@ -2320,5 +2692,29 @@ describe("Trigger compatibility boundary checker", () => {
       'packages/durable-task/src/runAttempt/Policy.ts:4 must not use prohibited durable-task global "crypto".',
       'packages/durable-task/src/runAttempt/Policy.ts:5 must not use prohibited durable-task global "performance".',
     ]);
+  });
+});
+
+
+describe("deadline-owned Task persistence target construction boundary", () => {
+  const relativePath = "packages/persistence-postgres/src/database/pglite.ts";
+  const specifier = "../tasks/taskExternalEffectAuthority";
+  const factory = "createLocatedTaskExternalEffectAuthorityTargetFromPolicyInternal";
+  const admitted = 'import { createLocatedTaskExternalEffectAuthorityTarget, ' + factory +
+    ', type LocatedTaskExternalEffectAuthorityTarget, type TaskExternalEffectAuthorityConfigurationError } from "' + specifier + '";';
+  /** @param {string} text @param {string} [owner] */
+  const errors = (text, owner = relativePath) => analyzeTriggerCompatibilityBoundary([], [{ relativePath: owner, text }]).errors;
+  it("admits only the existing PGlite owner's named value construction import", () => {
+    expect(errors(admitted)).toEqual([]);
+    for (const text of [
+      'import { ' + factory + ' } from "' + specifier + '";',
+      'import type { ' + factory + ' } from "' + specifier + '";',
+      'import * as target from "' + specifier + '";',
+      'export { ' + factory + ' } from "' + specifier + '";',
+      'const target = import("' + specifier + '");',
+      'import { ' + factory + ', issueApplicationTaskExternalEffectSubject } from "' + specifier + '";',
+    ]) expect(errors(text).length).toBeGreaterThan(0);
+    expect(errors(admitted,
+      "packages/persistence-postgres/src/database/pglite-neighbor.ts").length).toBeGreaterThan(0);
   });
 });

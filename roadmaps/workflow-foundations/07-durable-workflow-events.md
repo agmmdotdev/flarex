@@ -4,7 +4,9 @@
 
 Status: implemented for private atomic Product-tag creation, update and deletion, together with
 [native Medusa integration](./10-medusa-workflow-integration.md).
-Groups spanning multiple committed steps remain deferred.
+Bounded delivery eligibility across committed children is also implemented
+privately. Native workflow orchestration and Task-authenticated group decisions
+remain pending.
 
 The [native workflow composition capability](./15-native-workflow-composition.md)
 replaces the private single-contract participant slot with finite authenticated
@@ -12,6 +14,11 @@ internal event selection. Core checks the adapter-selected token against both
 the participant and root policies and binds that association into replay identity.
 Mixed-operation parents retain actual module event names. Event envelopes,
 storage, publication and delivery retain their existing owners.
+
+A selected policy may contain no event contracts for a read-only root. Its
+producer, subscribers and empty token set remain identity-bound, and closure
+still runs its validator. An empty allowed set grants no emission, cancellation
+or delivery authority; omission of the policy remains a distinct selection.
 
 This adds durable intent and a private recoverable delivery pump to the first
 real workflow, using the existing commit owner. It does not activate a
@@ -22,13 +29,13 @@ commit/feed authority.
 
 | Existing owner | Reuse and limit |
 | --- | --- |
-| [Product local policy](../../packages/medusa-adapter/src/product-local-events.ts) | Reuse payload capture and row/lifecycle correlation. It validates module events and invokes a supplied local destination; it has no durable event record. |
-| [Commerce host](../../packages/persistence-postgres/src/commerceTransaction/host.ts) | Its local buffer is delivered after acknowledged completion and discarded during uncertain-result recovery. Preserve that supported profile; select durable mode explicitly. |
-| [Atomic host](../../packages/persistence-postgres/src/atomicCommerce/host.ts) | Admits selected participant/event definitions explicitly; the event-free profile still refuses capture. |
-| [Shared publication](../../packages/persistence-postgres/src/commitPublication/publication.ts) | Reuse one sequence, header, retained result, common wake and physical commit. Consumes the authenticated single-use event contribution in that same publication. |
-| [Commit wake](../../packages/persistence-postgres/src/commitWakeOutbox.ts) | Its kind and claims serve deployment-sync wakes. Fencing, database time and retry mechanics are useful reference; its acknowledgement is not a business-subscriber acknowledgement. |
-| [Task delivery](../../packages/persistence-postgres/src/taskComputeDeliveryRepositoryV1.ts) | Records reference Task definitions, runs and requested effects. Do not create Tasks or relabel Task evidence just to deliver atomic workflow events. |
-| [Legacy outbox](../../packages/persistence-postgres/src/outbox.ts) | Carries legacy deployment commit/document summaries. It is not the new relational business-event payload owner. |
+| [Product local policy](../../packages/medusa-adapter/src/modules/product/events/call-receipts.ts) | Reuse payload capture and row/lifecycle correlation. It validates module events and invokes a supplied local destination; it has no durable event record. |
+| [Commerce host](../../packages/persistence-postgres/src/frameworks/commerceTransaction/host.ts) | Its local buffer is delivered after acknowledged completion and discarded during uncertain-result recovery. Preserve that supported profile; select durable mode explicitly. |
+| [Atomic host](../../packages/persistence-postgres/src/frameworks/atomicCommerce/host.ts) | Admits selected participant/event definitions explicitly; the event-free profile still refuses capture. |
+| [Shared publication](../../packages/persistence-postgres/src/commit/publication/publication.ts) | Reuse one sequence, header, retained result, common wake and physical commit. Consumes the authenticated single-use event contribution in that same publication. |
+| [Commit wake](../../packages/persistence-postgres/src/commit/commitWakeOutbox.ts) | Its kind and claims serve deployment-sync wakes. Fencing, database time and retry mechanics are useful reference; its acknowledgement is not a business-subscriber acknowledgement. |
+| [Task delivery](../../packages/persistence-postgres/src/tasks/taskComputeDeliveryRepositoryV1.ts) | Records reference Task definitions, runs and requested effects. Do not create Tasks or relabel Task evidence just to deliver atomic workflow events. |
+| [Legacy outbox](../../packages/persistence-postgres/src/commit/outbox.ts) | Carries legacy deployment commit/document summaries. It is not the new relational business-event payload owner. |
 
 The accepted [publication architecture](../flarexdb-framework-integration/04-transactions-and-commit-publication.md)
 requires typed event intents tied to the same commit and common wake. The private atomic profile implements that contract; standalone local Product
@@ -72,10 +79,18 @@ transaction and becomes eligible only when all admitted steps/hooks succeed.
 The outer owner seals eligibility; no callback invokes subscribers or commits.
 Failure discards the group with the database rollback.
 
-No persisted open-group state machine is needed for this atomic profile.
-Release/clear methods are refused in this profile. Group strings confer no
-authority. No cross-run clearing, pause across commits or after-commit release
-is admitted.
+The atomic context admits pending cancellation only through an opaque external
+event-contract token with explicit `pendingCancellation: true` authority bound
+into host identity. It cancels only prior matching intents in the current
+request/group; group strings confer no authority. Semantic validation retains
+the original captured history before publication filtering. All captured
+messages and canonical aggregate bytes remain charged, including canceled
+history and later derived events; internal module facts, later emissions and
+original participant source ordinals are preserved. This capability adds no
+committed-event deletion, outbox cancellation, retry or extra transaction.
+Unadmitted clearing and group release remain refused; no persisted open-group
+state machine, cross-run clearing, pause across commits or after-commit release
+is admitted by this atomic profile.
 
 The outer owner seals the contribution after module/fact and workflow
 validation, then persists it with row facts, result and the common wake.
@@ -118,8 +133,10 @@ claiming. Missing/extra rows and changed payloads fail closed. Partial header
 indexes serve event discovery and event-free history compaction so their bounded
 pages do not scan long runs of the excluded family.
 
-Capture allows at most 64 messages, 8 subscribers and 65,536 bytes per envelope,
-under the existing shared root budget. Claims use database time, a 30-second
+Capture defaults to 64 messages; a trusted, identity-bound root selection may
+admit up to 256, subject to any physical participant profile. Each envelope
+allows at most 8 subscribers and 65,536 bytes, with the shared request byte
+budget still enforced. Claims use database time, a 30-second
 lease, monotonic fences and at most 5 attempts. Retry delay grows from 1 second
 up to 60 seconds; typed failure codes are bounded and retained. Handler execution
 has a 1-second cooperative timeout. Defects/interruption leave a lease for repair.
@@ -128,6 +145,35 @@ This bounds trusted work; it cannot preempt arbitrary synchronous JavaScript.
 Ordinary commit-history compaction excludes all event-bearing headers, including
 terminal deliveries. Root-result expiry is independent. Automatic event pruning
 is unimplemented, so this private profile intentionally retains those families.
+
+## Cross-Commit Delivery Eligibility
+
+The separate trusted workflow child profile can bind committed intents to one
+or two authentic, scope/epoch-bound eligibility groups. Groups have immutable
+owner identity, policy revision and a maximum of 16 committed families. An
+envelope's native `group` string remains descriptive and grants no authority.
+Ordinary atomic commits retain their original bytes and immediate eligibility.
+
+The optional canonical eligibility references are part of the existing ordered
+event digest. The settlement owner authenticates the opaque preparation, holds
+sorted group locks and inserts complete membership in the same transaction as
+the original commit. Added metadata consumes the original byte budgets.
+Zero-event children validate the groups but create no membership.
+
+A group transitions from held to released or cleared. Repeating the same
+decision replays; the opposite decision conflicts. A terminal group admits no
+new family. Claims require every referenced group to be released, with fresh
+membership/count validation under sorted group locks before delivery locks.
+Clearing never deletes committed rows, facts, outcomes or intents, and never
+reverses a delivered event. Release cannot subsequently become clear.
+
+Private repair scans revisit held families after a complete pass resets its
+cursor. The existing at-least-once delivery lease and subscriber settlement
+remain unchanged. Group management requires trusted scope authority and opaque
+capabilities; connecting native parent decisions to a live Task subject is still
+the workflow interpreter's obligation. These groups are delivery eligibility,
+not a second outbox, rollback authority or workflow scheduler. Automatic pruning
+remains closed with the existing event-family retention gate.
 
 ## Delivery And Recovery
 
@@ -143,9 +189,12 @@ must find pending committed deliveries even when the post-commit call or wake
 is lost. Its durable state tracks delivery of the single committed event family;
 it is not an independently writable second event feed. The private pump returns a commit cursor: callers scan to the end and restart
 from zero on a later repair pass so delayed retries and unavailable handler
-revisions are revisited. Each page invokes at most 64 deliveries; it does not
-claim ahead while a previous handler runs. Production polling/wake fan-out
-remains a later host decision.
+revisions are revisited. Each page invokes at most 64 deliveries. The private
+pump claims at most eight ahead in one short SQL session and then invokes their
+handlers sequentially outside the session. Interruption or a defect can leave
+the remaining claims leased for up to 30 seconds; their fences and the repair
+scan recover them after expiry. Production polling/wake fan-out remains a later
+host decision.
 
 Delivery is at least once: destination success followed by a lost acknowledgement
 can cause invocation again with the same event/delivery identity. Claim fencing

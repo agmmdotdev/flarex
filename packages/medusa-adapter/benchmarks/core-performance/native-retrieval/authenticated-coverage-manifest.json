@@ -1,0 +1,135 @@
+{
+  "checkpoint": "f3258681a",
+  "sourceEvidenceSha256": "7bf114f5a18d03805b903798d94b1c5ac254889ea1726ede9468d0ec69188b3f",
+  "compression": "gzip; hashes of both retained compressed bytes and exact decompressed content",
+  "files": [
+    {
+      "name": "bootstrap-failure-summary.json",
+      "bytes": 865,
+      "sha256": "2a2461770b652b7fc40e23343f4ff1e568c08792e13637d903e99d59b81c8229"
+    },
+    {
+      "name": "collection-expectation-failure-summary.json",
+      "bytes": 758,
+      "sha256": "c58a0f95390a036fb0af35657126a2ef2916fdecc1cb1d11e293b9081b61a63a"
+    },
+    {
+      "name": "compiler-helper-failure-summary.json",
+      "bytes": 1183,
+      "sha256": "d02226e6064cdba490b5049a344b3cedb78e5ee0d0da6822f6e9cee17f83f4dc"
+    },
+    {
+      "name": "compiler-helper-loading-evidence.json",
+      "bytes": 648,
+      "sha256": "8725a40bf0ddf40dadadc302606ce4c2b2e2a83f3c33253c88fa4c244531512a"
+    },
+    {
+      "name": "descriptor-observer-manifest.json",
+      "bytes": 3521,
+      "sha256": "96e8af901f9ce9d34022d76270de7febf8f6148977e24d10931c66690a74b5b8"
+    },
+    {
+      "name": "descriptor-observer-summary.json",
+      "bytes": 7705,
+      "sha256": "284cd1553a76c9c83ee85bf850c260796c2b3478fcb9fbe7cffe25c7b39b4a60"
+    },
+    {
+      "name": "measurement-summary.json",
+      "bytes": 9565,
+      "sha256": "fd01edfe6d698d62fb0b133cd5a4b68e1fc8f6e245d239d83758ed6e12d017e5"
+    },
+    {
+      "name": "quiet-authenticated-coverage.json",
+      "bytes": 99782,
+      "sha256": "4c1e6bb7df62438d1acfefb636249b5567b2db849f725fbde5b45947521b9318"
+    },
+    {
+      "name": "quiet-descriptor-observer.json",
+      "bytes": 99671,
+      "sha256": "a1241c9b100b829b3c565d0f049e24b921eb846bcbc118d288c90fc34b5ccbb1"
+    },
+    {
+      "name": "quiet-matched-complete-dto.json",
+      "bytes": 99658,
+      "sha256": "ddada5a95617859417aa1b6dba7aa49d2f1d222e7250a3aecd5a513f09928e1e"
+    },
+    {
+      "name": "quiet-matched-native-control.json",
+      "bytes": 33219,
+      "sha256": "cba7a9727927f71fc44c3737b9d9e95e70570e64066f3394c94d0ca75e59c3cf"
+    },
+    {
+      "name": "quiet-parity-smoke-configured.json",
+      "bytes": 22135,
+      "sha256": "b5a3610836eb37c51b2e5a14ea8920e111b4ef2a9284518b4998d991ab8566f3"
+    },
+    {
+      "name": "quiet-parity-smoke-visible-settings.json",
+      "bytes": 27497,
+      "sha256": "75ee099f3480cea071c7ef088eedc2b253898b7711ca446c9ce29ba42149fa60"
+    },
+    {
+      "name": "quiet-parity-smoke.json",
+      "bytes": 12212,
+      "sha256": "9e7a862c0059342d6326e05fa94571201b54e80e34dfa9eae88780bbf60605cc"
+    },
+    {
+      "name": "server-authenticated-coverage.json.gz",
+      "bytes": 2076732,
+      "sha256": "f53bc030905089faad4cb30dce4c7a964d256337eea5bd24db6dbdf6746492b1",
+      "uncompressedBytes": 19547688,
+      "uncompressedSha256": "cf07e289665f3313821a77d000dbfe477b544d68aab96d2d3e5398d0ee19f59a"
+    },
+    {
+      "name": "server-authenticated-coverage.log.gz",
+      "bytes": 2729780,
+      "sha256": "81ac77ce2a5757f648c3164cf75747eea960494a090e38cdab97266efeba077a",
+      "uncompressedBytes": 63759268,
+      "uncompressedSha256": "aad5b9abdcf6bc922694c464f2481aaee45395137d59ee63b112577c79011180"
+    },
+    {
+      "name": "server-descriptor-observer.json.gz",
+      "bytes": 1633743,
+      "sha256": "b31e8f93a37b7f24ec4d2caef575905b4cd4f0df4e674c098049aa2849f0f25f",
+      "uncompressedBytes": 15852308,
+      "uncompressedSha256": "90cf44d2c413cf6b59c08d860aa01c273c7fb37c2c5d5a06e5282dd5f283025e"
+    },
+    {
+      "name": "server-descriptor-observer.log.gz",
+      "bytes": 2716747,
+      "sha256": "0616ba69d83f754246e7f1e6a0d891de53bf7eaa04930ebdcf1d9d6c5320863b",
+      "uncompressedBytes": 63759205,
+      "uncompressedSha256": "5290d362b64d0c6488f0b83a41db09edafde585a8ece36ed300afe911ea954b6"
+    },
+    {
+      "name": "settings-capture-failure-summary.json",
+      "bytes": 960,
+      "sha256": "4d6eb94adc2ed3c0322f96b325173b1a9b60849edc1403acc3bb16878d74d3ca"
+    },
+    {
+      "name": "trace-authenticated-coverage.json",
+      "bytes": 265338,
+      "sha256": "206e91ee922d6703a19a4ba18b01e3ba5d6b088dfe966ed8db9565d3e888c5c5"
+    },
+    {
+      "name": "trace-descriptor-observer.json",
+      "bytes": 265226,
+      "sha256": "ebb777df014144fed6651069c0916f40122b7e9b7ee292e663cb061a0c611fcd"
+    },
+    {
+      "name": "trace-matched-complete-dto.json",
+      "bytes": 466632,
+      "sha256": "620d3dd8f1bf81c744c7fa1b472f0c6575009882e7300d425f563591cba5e9f7"
+    },
+    {
+      "name": "trace-observer-failure-summary.json",
+      "bytes": 912,
+      "sha256": "5365623223e76d9d4761a4f59c2e3040cac5a7a6a26554c668e2866270d73460"
+    },
+    {
+      "name": "tsconfig.json",
+      "bytes": 128,
+      "sha256": "c03d287f2c399905a521a2a7c5b331c163e5da761fddd31b46a7ec5169b7279a"
+    }
+  ]
+}

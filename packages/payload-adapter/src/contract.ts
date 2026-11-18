@@ -1,6 +1,8 @@
 import type { PayloadProvenance, PayloadConfiguration } from "@flarex/analysis/internal/application-write-policy";
 
 export type PayloadContentProfile = PayloadConfiguration["profile"];
+/** Payload's numeric storage domain has one zero; the shared float domain retains both signs. */
+export const canonicalPayloadNumber = (value: number): number => value === 0 ? 0 : value;
 export const payloadRelatedPostField = Object.freeze({ name: "relatedPost", kind: "relationship", target: "posts",
   cardinality: "one", required: false, localized: false, onTargetDelete: "restrict" } as const);
 export const payloadRelatedPostsField = Object.freeze({ name: "relatedPosts", kind: "relationship", target: "posts",

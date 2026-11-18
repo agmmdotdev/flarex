@@ -1,0 +1,9 @@
+{
+  "format": "flarex.mixed-mutation-performance-exclusions",
+  "excludedSampleIds": [],
+  "failedSampleIds": [],
+  "setupFailures": [],
+  "unattemptedSampleIds": [],
+  "latencyAcceptance": false,
+  "interpretation": "All four samples and CPU profiles remain in this separate diagnostic. The whole diagnostic is outside latency acceptance; none of its outliers is removed."
+}

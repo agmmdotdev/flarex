@@ -9,6 +9,7 @@ import {
   createFunctionRuntimeIncomingRelationReaderV1,
   createFunctionRuntimePointDatabaseWriterV1,
   createFunctionRuntimePointReaderV1,
+  createFunctionRuntimeQueryReaderV1,
   createMutationFunctionRuntimeContextV1,
   createFunctionRuntimeRunQueryContextV1,
   type FunctionRuntimeIncomingRelationReadInputV1,
@@ -22,6 +23,15 @@ const IDENTITY = Object.freeze({
 }) satisfies UserIdentity;
 
 describe("@flarex/function-runtime/function-api-core", () => {
+  it("composes the trusted query factory without lending other capabilities", () => {
+    const query = Object.freeze({ collect: async () => [] });
+    const factory = vi.fn((_tableName: string) => query);
+    const reader = createFunctionRuntimeQueryReaderV1(factory);
+    expect(reader.query("orders")).toBe(query);
+    expect(factory).toHaveBeenCalledWith("orders");
+    expect(Object.keys(reader)).toEqual(["query"]);
+    expect(Object.isFrozen(reader)).toBe(true);
+  });
   it("returns null from an exact frozen anonymous auth facade", async () => {
     const auth = createFunctionRuntimeAuthV1(
       Object.freeze({ kind: "anonymous" }),

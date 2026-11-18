@@ -426,8 +426,8 @@ Code findings:
 - `packages/flarex-dev/src/sourcePackage.ts` and
   `packages/flarex/src/artifacts.ts` include only functions, schema, and
   execution in source package identity; no `auth.config` artifact exists.
-- `packages/persistence-postgres/src/schema.ts` and
-  `packages/persistence-postgres/src/deploymentPackages.ts` store deployment
+- `packages/persistence-postgres/src/database/schema.ts` and
+  `packages/persistence-postgres/src/application/deploymentPackages.ts` store deployment
   package metadata but no auth-provider config.
 - `packages/flarex-backend/src/deployment/Validation.ts` validates source
   packages without an auth config field, so the backend would currently reject

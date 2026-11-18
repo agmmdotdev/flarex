@@ -47,7 +47,7 @@ This is request execution, not `observeQuery`.
 
 ### 2. What happens to queries and reads
 
-At `/invoke/start`, `beginInvokeSession` creates a session and records a wall-clock `beginTs` in [sessions.ts](</C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/packages/executor/src/sessions.ts:65>).
+At `/invoke/start`, `beginInvokeSession` creates a session and records a wall-clock `beginTs` in [sessions.ts](</C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/packages/executor/src/invocation/sessions.ts:65>).
 
 During each read syscall, `invokeSyscall`:
 
@@ -78,7 +78,7 @@ So, before finish, there are two important collections:
 
 There is not yet a separate production commit-compiler component in the routed legacy path.
 
-Today that responsibility is folded into [commitInvokeSessionWritesInTransaction](</C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/packages/persistence-postgres/src/commits.ts:157>).
+Today that responsibility is folded into [commitInvokeSessionWritesInTransaction](</C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/packages/persistence-postgres/src/commit/commits.ts:157>).
 
 It effectively lowers:
 
@@ -103,12 +103,12 @@ The roadmap’s explicit future compiler pipeline—journal → envelope → pla
 
 ### 5. Final mutation commit
 
-When user code finishes, `finishInvokeSession` in [sessions.ts](</C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/packages/executor/src/sessions.ts:420>) behaves differently by function type:
+When user code finishes, `finishInvokeSession` in [sessions.ts](</C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/packages/executor/src/invocation/sessions.ts:420>) behaves differently by function type:
 
 - Query: finishes the session and returns its result/read information; no application-data commit occurs.
 - Mutation: invokes `commitInvokeSessionWrites`.
 
-The persistence adapter opens one PostgreSQL transaction in [runtimePersistence.ts](</C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/packages/persistence-postgres/src/runtimePersistence.ts:219>).
+The persistence adapter opens one PostgreSQL transaction in [runtimePersistence.ts](</C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/packages/persistence-postgres/src/database/runtimePersistence.ts:219>).
 
 Inside that transaction, the commit logic:
 

@@ -1,0 +1,286 @@
+import { Data, Schema, type Effect, type Option } from "effect";
+import type { PostgresRelationalPredicateBatch, PostgresSnapshotFilterProgram } from "../values/postgresRelationalPredicate";
+
+/** Pinned source: convex-backend db914cf06, common/src/persistence/mod.rs. */
+export type CoreTimestamp = bigint;
+export const CoreTimestampSchema = Schema.BigInt.check(Schema.makeFilter(value => value >= 0n && value <= 0x7fff_ffff_ffff_ffffn
+  ? undefined : "Expected a nonnegative persistence timestamp"));
+export type CoreInternalId = Uint8Array;
+
+export interface CoreIndexRef {
+  readonly id: CoreInternalId;
+  readonly persistenceIndexId?: bigint;
+}
+
+export type CoreIndexWriteMode = "scanning" | "scanComplete";
+
+export interface CoreDocumentLogEntry {
+  readonly ts: CoreTimestamp;
+  readonly tableId: CoreInternalId;
+  readonly id: CoreInternalId;
+  /** Full document in Convex internal JSON, or empty bytes for a tombstone. */
+  readonly jsonValue: Uint8Array;
+  readonly deleted: boolean;
+  readonly prevTs: CoreTimestamp | null;
+}
+
+export interface CoreIndexTarget {
+  readonly tableId: CoreInternalId;
+  readonly documentId: CoreInternalId;
+}
+
+export interface CorePrevIndexEntry {
+  readonly ts: CoreTimestamp;
+  readonly documentId: CoreInternalId;
+}
+
+export interface CorePersistenceIndexEntry {
+  readonly mode: CoreIndexWriteMode;
+  readonly ts: CoreTimestamp;
+  readonly index: CoreIndexRef;
+  /** Complete ordered key, including the developer-ID string tie breaker. */
+  readonly key: Uint8Array;
+  readonly value: CoreIndexTarget | null;
+  readonly prev: CorePrevIndexEntry | null;
+}
+
+export interface CoreWriteBatch {
+  readonly documents: readonly CoreDocumentLogEntry[];
+  readonly indexes: readonly CorePersistenceIndexEntry[];
+}
+
+/** Start is inclusive; end is exclusive. Null denotes the unbounded side. */
+export interface CoreInterval {
+  readonly start: Uint8Array | null;
+  readonly end: Uint8Array | null;
+}
+
+export type CoreOrder = "asc" | "desc";
+
+export type CoreIndexCursor =
+  | Readonly<{ kind: "end" }>
+  | Readonly<{ kind: "after"; key: Uint8Array }>;
+
+export interface CoreHydratedIndexEntry {
+  readonly key: Uint8Array;
+  /** Exact document revision at the selected index entry's timestamp. */
+  readonly document: CoreDocumentLogEntry;
+}
+
+export interface CoreIndexPage {
+  readonly entries: readonly CoreHydratedIndexEntry[];
+  /** Exclusive cursor in the requested order; it bounds consumed coverage. */
+  readonly cursor: CoreIndexCursor;
+}
+
+export interface CoreIndexScan {
+  readonly index: CoreIndexRef;
+  readonly tableId: CoreInternalId;
+  readonly interval: CoreInterval;
+  readonly order: CoreOrder;
+  readonly maxResults: number;
+}
+
+/** One statement over every snapshot-visible entry of one complete index:
+ * PostgreSQL applies the closed predicate, the full-key order, the window and
+ * the exact match count. See divergences/native-snapshot-predicate-pushdown.md. */
+export interface CoreSnapshotFilterRequest {
+  readonly index: CoreIndexRef;
+  readonly tableId: CoreInternalId;
+  readonly order: CoreOrder;
+  readonly predicate: PostgresSnapshotFilterProgram;
+  readonly offset: number;
+  readonly limit: number;
+  /** Live visible index entries the statement may examine; tombstones are walked, not counted. */
+  readonly maxExamined: number;
+  /** Stored body bytes of the live examined documents. */
+  readonly maxBytes: number;
+}
+/** The page form of the same statement: no count, and PostgreSQL walks a number
+ * of live entries proportional to `offset + limit`, never the whole index. Both
+ * bounds apply to the entries it walks. */
+export type CoreSnapshotPageRequest = CoreSnapshotFilterRequest;
+export interface CoreSnapshotPage {
+  /** The requested window of matches in full index-key order. */
+  readonly entries: readonly CoreHydratedIndexEntry[];
+  /** Whether a further match follows the window. */
+  readonly hasMore: boolean;
+}
+export interface CoreSnapshotFilterPage {
+  /** The requested window of matches in full index-key order; never truncated. */
+  readonly entries: readonly CoreHydratedIndexEntry[];
+  /** Exact number of matching live documents at the snapshot. */
+  readonly count: number;
+  readonly examined: number;
+  readonly bytes: number;
+  /** A bound was exceeded: no predicate ran, `entries`/`count` are empty and
+   * `examined` stops one past the bound. The caller takes its complete read. */
+  readonly overBudget: boolean;
+}
+
+/** Exclusive actual physical position: versions remain distinct. Its timestamp
+ * may be outside the request's value-eligibility window. */
+export interface CoreIndexHistoryCursor {
+  readonly keyPrefix: Uint8Array;
+  readonly keySha256: Uint8Array;
+  readonly ts: CoreTimestamp;
+}
+export interface CoreIndexHistoryRequest extends Pick<CoreIndexScan, "index" | "tableId" | "interval" | "maxResults"> {
+  /** Inclusive value/body eligibility, applied after the physical maxResults limit. */
+  readonly start: CoreTimestamp;
+  readonly end: CoreTimestamp;
+  readonly maxBytes: number;
+  readonly maxDocumentBytes: number;
+  readonly after?: CoreIndexHistoryCursor;
+}
+export interface CoreIndexHistoryEntry {
+  readonly ts: CoreTimestamp;
+  readonly key: Uint8Array;
+  /** Null is an index tombstone, never an absent live anchor. */
+  readonly document: CoreDocumentLogEntry | null;
+}
+export interface CoreIndexHistoryPage {
+  /** Time-eligible coarse candidates; the transaction owns exact full-key filtering. */
+  readonly entries: readonly CoreIndexHistoryEntry[];
+  /** Usage includes every limited physical header, including time-ineligible rows. */
+  readonly examined: number;
+  readonly keyBytes: number;
+  /** Only time-eligible live anchors are hydrated or charged as body bytes. */
+  readonly documentBytes: number;
+  /** Oversized blobs are measured in SQL and omitted from the wire response. */
+  readonly overBudget: boolean;
+  readonly cursor: CoreIndexHistoryCursor | null;
+  /** Physical EOF; an entries-empty page can still have consumed headers. */
+  readonly done: boolean;
+}
+
+export class CorePersistenceError extends Data.TaggedError("CorePersistenceError")<{
+  readonly reason: "leaseLost" | "readOnly" | "outOfRetention" | "corruptData"
+    | "unavailable" | "timeout" | "uncertainWrite" | "invalidTarget";
+  readonly cause?: unknown;
+}> {}
+
+/** The adapter must also bind identity to its own captured target, not just token equality. */
+export interface CorePersistenceLease {
+  readonly token: bigint;
+}
+
+export interface CorePersistenceSnapshot {
+  readonly timestamp: CoreTimestamp;
+  readonly get: (
+    tableId: CoreInternalId,
+    id: CoreInternalId,
+  ) => Effect.Effect<Option.Option<CoreDocumentLogEntry>, CorePersistenceError>;
+  readonly scan: (request: CoreIndexScan) => Effect.Effect<CoreIndexPage, CorePersistenceError>;
+  /** Transport only: fetch the first SQL pages of these independent scans together
+   * so identical later `scan` calls at this timestamp consume them instead of
+   * issuing their own first statement. It never changes any scan's result. */
+  readonly preload: (requests: readonly CoreIndexScan[]) => Effect.Effect<void, CorePersistenceError>;
+  /** Absent on snapshots without a PostgreSQL evaluator; callers then keep the
+   * complete captured read. Results are not index pages and bypass every cache. */
+  readonly filter?: (request: CoreSnapshotFilterRequest) => Effect.Effect<CoreSnapshotFilterPage, CorePersistenceError>;
+  /** None: the walk exceeded a bound before the window was decided, which the
+   * counting form would report as over budget too. The caller takes its
+   * examined page. */
+  readonly filterPage?: (request: CoreSnapshotPageRequest) => Effect.Effect<Option.Option<CoreSnapshotPage>, CorePersistenceError>;
+}
+
+/** Durable deletion floors loaded while holding this persistence owner's lease. */
+export interface CoreRetentionBounds {
+  readonly indexMinimumTimestamp: CoreTimestamp;
+  readonly documentMinimumTimestamp: CoreTimestamp;
+}
+
+/** A leader reads synchronized local bounds; a standalone reader reloads SQL. */
+export interface CoreRetentionValidator {
+  readonly validateIndex: (at: CoreTimestamp) => Effect.Effect<void, CorePersistenceError>;
+  readonly validateDocument: (at: CoreTimestamp) => Effect.Effect<void, CorePersistenceError>;
+}
+
+/** Document-log ordering is the source tuple (timestamp, tablet, internal ID). */
+export interface CoreDocumentLogCursor {
+  readonly ts: CoreTimestamp;
+  readonly tableId: CoreInternalId;
+  readonly id: CoreInternalId;
+}
+export interface CoreDocumentLogRequest {
+  /** Timestamp endpoints are inclusive, as in the source document log reader. */
+  readonly start: CoreTimestamp;
+  readonly end: CoreTimestamp;
+  readonly order: CoreOrder;
+  readonly maxResults: number;
+  readonly after?: CoreDocumentLogCursor;
+  readonly tableId?: CoreInternalId;
+}
+export interface CoreDocumentLogPage {
+  readonly documents: readonly CoreDocumentLogEntry[];
+  readonly cursor: CoreDocumentLogCursor | null;
+  readonly done: boolean;
+}
+export interface CorePreviousRevisionQuery {
+  readonly tableId: CoreInternalId;
+  readonly id: CoreInternalId;
+  /** Retention witness; this is not the row selected from storage. */
+  readonly ts: CoreTimestamp;
+  /** Exact predecessor timestamp. No latest-before fallback is permitted. */
+  readonly prevTs: CoreTimestamp;
+}
+/** Latest revision strictly before ts; absence and a deletion revision are distinct. */
+export type CorePreviousRevisionSearch = Pick<CorePreviousRevisionQuery, "tableId" | "id" | "ts">;
+export interface CorePreviousRevision<Query extends CorePreviousRevisionSearch = CorePreviousRevisionQuery> {
+  readonly query: Query;
+  readonly document: CoreDocumentLogEntry;
+}
+
+/** Trusted, instance-bound port; never lent to user code or framework callbacks. */
+export interface CorePersistence {
+  /** Live durable floors for this exact captured persistence target. */
+  readonly retentionValidator: CoreRetentionValidator;
+  /** One drained statement over an authentic bounded batch; raw rows stay inside Core. */
+  readonly evaluateRelational: (batch: PostgresRelationalPredicateBatch) => Effect.Effect<readonly unknown[], CorePersistenceError>;
+  readonly loadIndexHistory: (request: CoreIndexHistoryRequest, retention?: CoreRetentionValidator)
+    => Effect.Effect<CoreIndexHistoryPage, CorePersistenceError>;
+  /** One bounded timestamp-log SQL page; the document floor is checked after I/O, including empty pages. */
+  readonly loadDocuments: (request: CoreDocumentLogRequest, retention?: CoreRetentionValidator)
+    => Effect.Effect<CoreDocumentLogPage, CorePersistenceError>;
+  /** Latest-before searches share one read connection and preserve deletion revisions. */
+  readonly previousRevisions: (queries: readonly CorePreviousRevisionSearch[], retention?: CoreRetentionValidator)
+    => Effect.Effect<readonly CorePreviousRevision<CorePreviousRevisionSearch>[], CorePersistenceError>;
+  /** Exact predecessor fetches share one read connection, without opening a SQL transaction. */
+  readonly previousRevisionsOfDocuments: (queries: readonly CorePreviousRevisionQuery[], retention?: CoreRetentionValidator)
+    => Effect.Effect<readonly CorePreviousRevision[], CorePersistenceError>;
+  readonly acquireLease: () => Effect.Effect<CorePersistenceLease, CorePersistenceError>;
+  /** Must be read after acquiring the owner lease, before admitting snapshots. */
+  readonly latestTimestamp: (
+    lease: CorePersistenceLease,
+  ) => Effect.Effect<CoreTimestamp, CorePersistenceError>;
+  /** Fresh document/index namespace under this lease; bootstrap-global remnants alone are harmless. */
+  readonly isFresh: (lease: CorePersistenceLease) => Effect.Effect<boolean, CorePersistenceError>;
+  /** Both floors are captured under the same fenced bootstrap lifetime. */
+  readonly readRetentionBounds: (
+    lease: CorePersistenceLease,
+  ) => Effect.Effect<CoreRetentionBounds, CorePersistenceError>;
+  readonly readSnapshot: (
+    at: CoreTimestamp,
+    retention?: CoreRetentionValidator,
+  ) => Effect.Effect<CorePersistenceSnapshot, CorePersistenceError>;
+  /** One fenced SQL transaction; a logical member is never split across writes. */
+  readonly write: (
+    lease: CorePersistenceLease,
+    batch: CoreWriteBatch,
+  ) => Effect.Effect<void, CorePersistenceError>;
+  readonly writeIndexBackfill: (
+    lease: CorePersistenceLease,
+    indexes: readonly CorePersistenceIndexEntry[],
+  ) => Effect.Effect<void, CorePersistenceError>;
+  readonly reconcileIndexBackfill: (
+    lease: CorePersistenceLease,
+    index: CoreIndexRef,
+  ) => Effect.Effect<void, CorePersistenceError>;
+  readonly getGlobal: (key: string) => Effect.Effect<Option.Option<Uint8Array>, CorePersistenceError>;
+  readonly putGlobal: (
+    lease: CorePersistenceLease,
+    key: string,
+    value: Uint8Array,
+  ) => Effect.Effect<void, CorePersistenceError>;
+}

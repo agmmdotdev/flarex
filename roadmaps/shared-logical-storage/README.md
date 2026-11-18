@@ -2,14 +2,83 @@
 
 ## Status And Scope
 
+The accepted [shared schema lifecycle](../../design-notes/flarexdb-shared-schema-lifecycle.md)
+puts Flarex Application, Payload, Medusa and platform Tasks on common internal
+admission, installation, planning/builds, validation, progress/recovery,
+readiness and activation APIs. Native producers retain definitions and explicit
+conversion meaning. Shared foundations exist; complete consolidation and Task
+system admission are pending. This roadmap retains its existing three-consumer
+completion scope; Task integration belongs to the Task roadmap and advanced
+evolution keeps its separate gate. Do not create per-consumer migration engines.
+
+The separate [Task System replacement](../task-system/README.md) adopts
+[Convex-style private system tables](../../design-notes/task-system/02-logical-storage.md#convex-storage-reference)
+over these shared storage mechanics, keeping its independent Trigger fork as
+the engine. This covers all Task-owned scope and platform records, including
+scheduler/discovery/repair state, and retires its entire physical Task schema.
+Its design is accepted and implementation pending. It does not silently add
+Task migration to the existing shared-storage completion scope below.
+Its [core-reuse contract](../../design-notes/task-system/02-logical-storage.md#shared-core-indexing-and-do-cache)
+also requires shared logical indexing and the DO cache system, with Task writer
+publication, freshness and isolation proofs. These are Task integration gates;
+there is no separate Task database/cache implementation or automatic cache
+admission from using shared physical tables.
+
+The active [completion plan](./03-completion-plan.md) owns the finite shared-storage
+cutover goal under standing approval, following the completed core execution work.
+It includes existing consumer migrations and structural-engine retirement; advanced
+evolution retains its separate boundary. [Selective CMS/Payload lookups](./04-selective-cms-lookups.md)
+and [indexed Payload queries](./05-indexed-payload-queries.md) implement the current selective query contract.
+
 Sequencing warning: [advanced framework schema evolution](./deferred-framework-schema-evolution.md)
 is a separately approved follow-on after the core redesign. GLS work establishes
 shared foundations, existing safeguards and safe refusal, not a general upgrade
 or data-conversion engine. This boundary supersedes earlier wording that made
 full migration/ownership transitions prerequisites for core completion.
 
-Status: accepted development-phase architecture replacement; implementation
-pending. The owner chooses generic physical storage with logical Application,
+Status: accepted development-phase architecture replacement; the first
+[candidate-admission slice](./02-candidate-admission.md) is implemented as private metadata admission.
+Selective CMS/Payload ID, unique-key and ordinary-index reads are implemented; selected Medusa
+Currency, Product, the complete six-model Pricing source, SalesChannel, ShippingProfile, Variant–PriceSet
+and Product Links workflows execute through generic rows while other consumers
+remain physical. A selected native calculated-PriceSet read now uses indexed logical
+Pricing rows, exact compound preference points and one transaction timestamp;
+PriceList and broader calculation parity retain their
+[separate gate](./48-calculated-pricing-query-cutover.md). SalesChannel name and ShippingProfile type use shared exact-text
+equality access; SalesChannel `is_disabled` uses a declared Boolean index under
+[its connected selection cutover](./24-sales-channel-boolean-selection.md).
+The [Boolean partial-index support](./70-boolean-partial-unique-indexes.md)
+extends the existing logical membership owners for native active default-Address
+uniqueness; Customer workflow admission remains separate.
+[Null implications and two-null partial indexes](./71-null-constraints-and-partial-indexes.md)
+extend the existing relational row and membership owners for the native Tax
+prerequisite. The bounded implementation is validated on PGlite and ordinary-role
+PostgreSQL; native Tax workflow admission remains separate.
+[SQL real scalar mechanics](./72-sql-real-scalar-mechanics.md) implements the
+bounded private normalization and stored-verification prerequisite, validated
+through ordinary execution and finite capture on both database lanes. Its
+explicit capability gates and native Tax workflow admission remain separate.
+[Generated serial defaults](./generated-serial-defaults.md) owns the approved
+fresh-definition int32 allocation contract and its native Order consumer gate.
+Existing preservation-only schemas and populated-schema evolution retain their
+separate boundaries.
+Selected scalar and Product-tag commands now validate at the shared outer-call
+boundary, supporting repeated calls and native child workflows with one
+settlement. [Native command composition](./44-native-command-composition.md)
+owns that contract and the common unsupported-method refusal boundary.
+[Direct Category/Collection commands](./45-category-collection-command-composition.md)
+now use the same Product call policy as Tags. Their preceding-read membership
+workflows and other aggregate receipt consumers retain explicit semantic migration
+gates; this does not admit arbitrary relationship composition.
+Native ProductType CRUD and Product `type_id` references have a selected
+[logical path](./26-product-type-native-cutover.md). Native ProductOption/
+OptionValue operations also have a selected [logical path](./27-product-option-native-cutover.md),
+including the shared indexed-conjunction correction. The canonical admitted
+pinned Product suite now selects the generic logical source. Its final physical
+fixture-reset runner is retired; other named physical Product consumers remain
+under [Product closeout](./44-product-module-closeout.md) until equivalent
+generic witnesses and durable-data disposition permit their removal.
+The owner chooses generic physical storage with logical Application,
 Payload and Medusa tables and permits proper core redesign rather than adapter
 workarounds or preservation of unshipped internals.
 
@@ -18,7 +87,93 @@ index/constraint/relation replacement, connected migration and retirement. It
 does not create a universal transaction API or move framework business semantics
 into core. Runtime optimization follows this storage decision.
 
+[Logical reference validation checkpoints](./reference-validation-checkpoints.md)
+owns the implemented explicit, identity-bound logical participant capability
+for native flush boundaries. It retains default close behavior. Native Tax Region
+workflow staging, error presentation and connected admission remain separate
+open gates.
+
+[Required column and constraint failure evidence](./required-column-failure-evidence.md)
+owns implemented, exact-error diagnostic facts for existing logical required
+column, CHECK and unique rejections. The bounded private capability preserves
+existing validation and conflict semantics; native presentation and workflow
+admission remain separate.
+
+[Explicit logical Commerce initialization](./58-logical-commerce-initialization.md)
+retains source-scoped canonical bootstrap for multi-table framework sources,
+with digest-bound table targets and the existing first-data and settlement owners.
+
+The shared relational default contract admits `emptyJsonObject` for JSON columns.
+Canonical validation, physical SQL/catalog replay and logical insert defaults own
+the behavior. Each omitted insert receives a fresh object; explicit null retains
+its ordinary nullability check. This preserves native framework metadata without
+adding a populated-schema conversion path.
+
 ## Current Sources Of Truth
+
+[Payload optional-one mixed relationships](../mixed-mutation-core/payload-relationships-attempt-preflight.md)
+derive reference policy and reverse-index requirements from the checked native
+document declaration. They reuse shared activation/publication enforcement for
+same-source final target liveness and restricted deletion; native Payload retains
+input, access and population semantics. Existing full-proof CMS edge consumers
+retain their own profile. This does not admit general cross-framework traversal,
+borrowed deletion or additional native document relationship kinds.
+
+[PostgreSQL relational predicates](./68-postgres-relational-predicates.md) owns
+the implemented bounded private prerequisite for complete native
+text predicate trees over captured candidates. Native Price Preference update
+retains its separate integration gate; existing pure predicates and selected
+storage authority remain distinct. Its exact numeric membership leaf preserves
+decimal equality over existing bounded candidate paths without adding numeric
+index selection. Its named installed capture uses the existing
+physical transaction owner directly for admission/body/tail and cancellation
+rollback; other finite captures keep their implicit-statement contract.
+
+[Protected insertion-generation order](./67-insertion-generation-order.md) owns
+the implemented bounded neutral contract for native relation insertion order.
+It preserves public creation timestamps and existing profiles while requiring
+protected revision metadata and explicitly selected bounded ordered reads.
+
+[Explicit preserving-deletion upsert](./65-preserving-deletion-upsert.md) owns
+the private conflict merge needed by native Shipping Option Type inverses.
+Ordinary upsert and managed lifecycle operations retain their existing contracts.
+
+[Explicit active restore updates](./66-active-restore-updates.md) owns the
+identity-bound logical participant selection for native active-row restore
+timestamp writes. Omitted selection retains the authenticated restore no-op.
+
+[Composite key reverse access](./59-composite-key-reverse-access.md) owns the
+scoped all-row reverse lookup correction exposed by native Stock Location Link
+restoration. Native Link endpoint integrity remains unchanged.
+
+[Native finite number storage](./60-native-finite-number-storage.md) owns the
+authorized finite binary64 correction exposed by Inventory Item dimensions.
+Existing integer and populated-source evolution boundaries remain distinct.
+
+[Conjunctive composite point access](./61-conjunctive-composite-point-access.md)
+owns the authorized shared planning correction exposed by native Inventory
+Level tuple reads. It retains existing point coverage and partial-index proofs.
+
+[Call-local row observations](./62-call-local-row-observations.md) owns the
+authorized activity-provenance correction exposed by composed Level reads and
+deletion. Root dependency and settlement evidence remain complete.
+
+[Same-root row reconstitution](./63-same-root-row-reconstitution.md) owns checked
+reuse of complete physically deleted preimages within a trusted live logical
+root. Ordinary creation and persisted-history restoration keep their separate
+boundaries; native Store update retains its connected admission gate.
+
+[Recorded framework row replay](./69-recorded-row-replay.md) owns the explicitly
+selected complete-preimage compensation capability implemented for Medusa
+Price List Price update. Committed tombstones stay retired; restoration keeps
+native IDs and recorded fields through fresh internal insertion.
+
+[Executed relational read evidence](./64-executed-relational-read-evidence.md)
+owns the authorized in-memory activity correction exposed by native Shipping
+Profile deletion: successful empty selections retain their actual query and
+counts for call authentication. Query planning and durable dependencies retain
+their existing owners. Shipping Profile and Inventory Item Link receipts
+authenticate their actual complete matching selection.
 
 - [Accepted database design](../../design-notes/flarex-db-accepted-design.md) and
   [shared logical storage decision](../../design-notes/flarexdb-shared-logical-storage.md)
@@ -32,25 +187,25 @@ into core. Runtime optimization follows this storage decision.
   reference. Both candidates use PostgreSQL; no second production engine is planned.
 - [Package boundaries](../16-package-boundaries.md) own dependency placement.
 - [Application evolution planner](../../packages/managed-schema/src/Planning.ts),
-  [Application apply/build composition](../../packages/persistence-postgres/src/applicationManagedSchemaApplication.ts),
-  [framework coordinator](../../packages/persistence-postgres/src/migrationCoordination/freshCoordinator.ts)
-  and [framework migration metadata](../../packages/persistence-postgres/src/migrationCoordination/schema.ts)
+  [Application apply/build composition](../../packages/persistence-postgres/src/application/applicationManagedSchemaApplication.ts),
+  [framework coordinator](../../packages/persistence-postgres/src/installation/migrationCoordination/freshCoordinator.ts)
+  and [framework migration metadata](../../packages/persistence-postgres/src/installation/migrationCoordination/schema.ts)
   are the starting owners for logical evolution consolidation.
-- [Schema](../../packages/persistence-postgres/src/schema.ts),
+- [Schema](../../packages/persistence-postgres/src/database/schema.ts),
   [ordered index codec](../../packages/flarex-protocol/src/ordered-index.ts),
-  [index persistence](../../packages/persistence-postgres/src/appIndexEntries.ts)
-  and [relation repository](../../packages/persistence-postgres/src/appRelationEdges/Repository.ts)
+  [index persistence](../../packages/persistence-postgres/src/storage/indexes/appIndexEntries.ts)
+  and [relation repository](../../packages/persistence-postgres/src/storage/relations/Repository.ts)
   establish the current generic foundation.
-- [Commerce physical naming](../../packages/persistence-postgres/src/relationalSchema/physical/canonical.ts),
-  [commerce store](../../packages/persistence-postgres/src/commerceTransaction/store.ts),
-  [CMS documents](../../packages/persistence-postgres/src/cmsTransaction/documents.ts)
+- [Commerce physical naming](../../packages/persistence-postgres/src/storage/relationalSchema/physical/canonical.ts),
+  [commerce store](../../packages/persistence-postgres/src/frameworks/commerceTransaction/store.ts),
+  [CMS documents](../../packages/persistence-postgres/src/frameworks/cmsTransaction/documents.ts)
   and [Payload compilation](../../packages/payload-adapter/src/collections.ts)
   establish the current replacement gaps.
-- Existing [ordered-index database tests](../../packages/persistence-postgres/test/orderedIndexKeyCodec.postgres.test.ts),
-  [index repository tests](../../packages/persistence-postgres/test/appIndexEntries.postgres.test.ts),
+- Existing [ordered-index database tests](../../packages/persistence-postgres/test/storage/indexes/orderedIndexKeyCodec.postgres.test.ts),
+  [index repository tests](../../packages/persistence-postgres/test/storage/indexes/appIndexEntries.postgres.test.ts),
   [Payload collection contracts](../../packages/payload-adapter/test/collections.test.ts)
-  and [connected Variant/Pricing workflow](../../packages/medusa-adapter/test/product-variant-pricing-workflow.test.ts)
-  are regression inputs, not tests of the unimplemented target.
+  and [connected Variant/Pricing workflow](../../packages/medusa-adapter/test/logical-product-variant-pricing-workflow.test.ts)
+  provide regression inputs for remaining query and cutover gates.
 - [Medusa adoption](../flarexdb-framework-integration/06-medusa-adoption.md),
   [Payload adoption](../flarexdb-framework-integration/07-payload-adoption.md),
   [native foundation](../flarexdb-foundation/README.md),
@@ -61,16 +216,20 @@ into core. Runtime optimization follows this storage decision.
 
 Application/Payload data already uses fixed physical row, index, unique and
 edge families. Definitions and scoped keys identify logical data. Payload's
-collection compiler currently admits a narrow unique-field contract, emits no
-ordinary logical indexes, and CMS non-ID find uses bounded collection reads.
+collection compiler admits scalar `index: true` and ordinary compound indexes.
+CMS ID and complete flat unique-key equality reads use point/unique slots;
+declared index prefixes and numeric ranges use shared ordered entries, including
+pending changes and exact conflict decisions. Native ID pagination and complete
+counts are bounded by matched identities and bytes; broad or unindexed find still
+uses bounded collection reads.
 Generic storage therefore exists without complete generic framework query support.
 
-Medusa currently compiles admitted models to physical module tables. Deployment
-identity participates in table/index names and target namespace authentication.
-The current Product/Variant/Pricing/Link implementation is regression evidence,
-not the target physical model. Its native tests and exact numeric/index/link
-contracts are valuable replacement witnesses. Existing code is not relabeled as
-already using generic storage.
+Selected Medusa models and Links now compile into shared logical definitions and
+execute through generic storage. Remaining physical commerce consumers still
+compile deployment-named module tables and retain installation obligations;
+the [completion inventory](./03-completion-plan.md) governs their removal.
+Native tests and remaining index/Link contracts remain replacement witnesses,
+not proof that every Medusa path has moved.
 
 ## Invariants And Trust Boundaries
 
@@ -113,23 +272,35 @@ profiles are Flarex decisions, not claims about Convex physical storage.
 
 Current row/index/unique/edge kernels, core settlement/recovery, private framework
 operations and source-preserved module/workflow tests provide the starting point.
-No gate below is completed by this documentation change. Existing PGlite and
-Postgres tests remain evidence only for their actual current implementation.
+The first candidate-admission implementation composes native producer outputs
+through the shared catalog; it does not complete GLS2 or confer serving readiness.
+Existing PGlite and Postgres tests remain evidence only for their actual current
+implementation.
 
 ## Known Gaps And Limitations
 
-- Generic Medusa schema/index/query translation and mutation materialization do
-  not exist as a proven replacement of the physical relational path.
-- Native conditional uniqueness, decimal/null/order semantics and rich Link
-  constraints need an explicit shared-core capability matrix.
-- Payload ordinary/compound index compilation and indexed non-ID queries need
-  connected core work, not only collection-schema acceptance.
+- Generic Medusa schema/index/query translation and mutation materialization are
+  proved for selected sources, not yet the complete replacement of the physical relational path.
+- Core actual-null predicates and null-distinct unique participation are
+  [implemented](./08-conditional-unique-constraints.md). Selected native Medusa
+  predicates and stored Link constraints execute logically; broader translation
+  and end-to-end decimal/null semantics remain.
+- Payload indexed queries retain bounded complete membership, numeric-only ranges,
+  native ID ordering and flat scalar fields. Multiple text-field and compound
+  scalar uniqueness use the shared claim owner; [nullable keys](./09-payload-nullable-keys.md)
+  add explicit-null storage, null-distinct claims and ordinary null membership indexes.
+  General Boolean queries, custom sorting and Payload conditional unique
+  declarations remain unsupported by its admitted configuration profile.
 - Generic families do not remove catalog-dependent guards, early scope locks,
   request evidence cost, build cost, tenant skew or shared-database contention.
 - Generic schema evolution still needs conversion/build/readiness and old-reader
   handling. No independent-schema or production performance claim is proven.
-- Cross-framework relationships, authorized reverse traversal and dependency-aware
-  evolution have not been proved as one connected Application/Payload/Medusa path.
+- General cross-framework relationships, authorized reverse traversal and
+  dependency-aware evolution have not been proved as one connected
+  Application/Payload/Medusa path. The [private reference slice](./cross-framework-reference-preflight.md)
+  adds exact nullable endpoints and explicit soft-delete retention/hard-delete
+  restriction through shared publication. Existing strict reference behavior
+  remains distinct; a jointly admitted candidate alone grants no serving capability.
 - Application evolution and framework structural installation remain distinct
   implementations. Shared storage does not itself consolidate their metadata,
   progress or activation responsibilities.
@@ -195,8 +366,8 @@ that shared index/metadata contention or per-action SQL has been removed.
 ## First Core Composition Gate
 
 The [first implementation preflight](./01-schema-composition-preflight.md)
-maps current producer/admission owners and proposes a persisted, authenticated
-candidate-only slice. It requires implementation approval and does not complete
+maps current producer/admission owners for the approved persisted, authenticated
+candidate-only slice. Its bounded implementation is complete and does not complete
 GLS2 storage execution or authorize new serving/writes. The entire GLS1 inventory
 and performance baseline remain separate obligations for the later owners.
 
@@ -230,6 +401,33 @@ and CMS interfaces are explicit non-goals. Use real producer outputs and core
 capabilities for these proofs; test fixtures may not emulate missing admission.
 
 ## Early Cross-Framework Proof
+
+The [private reference preflight](./cross-framework-reference-preflight.md)
+owns the first private optional Payload article-to-Product integrity/lifecycle
+slice with Application participation. The selected policy retains references
+through soft deletion and restricts hard deletion through the shared publisher.
+SA1-SA4 and LB1-LB4 provide selected save authorization and binding/dependency
+activation/recovery proof; broader profiles remain gated. The
+[private authorized reverse-read preflight](./reference-reverse-read-preflight.md)
+implements RR1 protected evidence/complete-membership feasibility and RR2 private
+finite pages with native Product/Payload visibility and pending membership.
+RR3 adds selected concurrent publication ordering, whole-root replacement,
+bounded cancellation and committed-consumption recovery without re-enumeration.
+RR4 connects the selected protected consumer to real Worker/RPC serving and
+committed recovery, with opaque refusal and cross-scope/principal confinement.
+Public and hosted entry points remain disabled. General
+traversal and the Medusa-originating extension retain their
+gates. Public API design and
+the other session's Medusa implementation remain outside this slice.
+
+The [unified developer-contract proposal](../flarexdb-framework-integration/preflight/unified-application-cms-commerce-developer-contract.md)
+uses an editorial article, commerce product and Application campaign to explain
+the desired connected backend experience. Explicit CMS/commerce operations do
+not remove the need for core reference integrity or confer target write rights.
+Selected native/Payload and cross-framework strong-reference checks exist;
+the complete three-owner/both-direction proof remains pending and unsupported
+sources fail closed. Proposed public syntax and lifecycle defaults do not advance
+the proof below.
 
 GLS1 defines this contract, GLS2 supplies indexed endpoint access, and GLS3
 executes the connected relation proof. GLS4 proves admitted activation/recovery
@@ -326,3 +524,22 @@ paths. Distinguish matched-layout orchestration cost from a separately labeled
 relational-layout comparison. A bare UPDATE or rollback-only test does not
 represent complete OCC, constraint, publication, durability and replay work.
 Benchmark code must never become production dispatch or a fallback storage lane.
+
+## Translated Core Consumer Acceptance
+
+The [active core goal](../../experiments/core/engine/GOAL.md) replaces the
+existing Application engine through the [shared schema milestone](../../experiments/core/engine/slices/07-shared-schema-lifecycle.md).
+The generated five-table target, ordinary logical schema/index lifecycle and
+bounded core workers do not establish native adapter cutover or complete
+connected acceptance. Named old native targets retain their migration gates.
+
+Fresh core point reads use one document ID; retained legacy calls use a table
+name and ID. The HTTP-backed Worker test bridge forwards the actual argument
+list unchanged and records its final document-ID argument. This replaces its
+old fixed two-argument wrapper, which fabricated an undefined argument and
+rejected valid fresh mutation reads before core execution. Both connected
+database lanes and retained legacy query coverage validate the correction.
+The bridge owns transport observation only: it neither reconstructs bindings nor
+issues SQL, changes validation or supplies a fallback lifetime. The executing
+owner is `packages/system-test/support/applicationNativeQueryHarness.ts`.
+Broader native adapter and complete-goal acceptance retain their existing gates.

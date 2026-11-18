@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import { Effect, Result } from "effect";
 import { createStep, createWorkflow, StepResponse, transform, WorkflowResponse, createHook, type WorkflowData, type WorkflowDefinition } from "@medusajs/workflows-sdk";
 import { executeWorkflow, type WorkflowExecutionPort } from "@medusajs/workflows-sdk/native";
-import { runEffect } from "../../persistence-postgres/test/effectTestRuntime";
+import { runEffect } from "../../persistence-postgres/test/support/effectTestRuntime";
 
 const port: WorkflowExecutionPort<Error> = {
  checkpoint: Effect.void,

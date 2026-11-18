@@ -1,6 +1,8 @@
 import {
   decodeAppDocumentIdentityV1Result,
 } from "flarex-protocol/app-document-id";
+import { captureExecutionDiagnosticContext } from
+  "@flarex/persistence-postgres/internal/execution-diagnostics";
 import {
   encodeEdgeActionHostPolicyV1,
   EDGE_ACTION_CALLBACK_BRIDGE_IDENTITY_V1,
@@ -77,6 +79,7 @@ import type { ApplicationAnalysisSourceReader } from
   "flarex-backend/internal/application-analysis-source-reader";
 import {
   openApplicationQuerySnapshot,
+  completeApplicationQuerySnapshot,
   finalizeApplicationQueryEvaluationSnapshot,
   readApplicationQueryIndex,
   readApplicationQueryIncomingRelationSources,
@@ -91,6 +94,10 @@ import {
   type UseApplicationQuerySnapshotError,
 } from
   "@flarex/persistence-postgres/internal/application-query-snapshot";
+import { createApplicationQueryCacheHandoff } from
+  "@flarex/persistence-postgres/internal/application-query-cache";
+export { withApplicationQueryCompletion } from
+  "@flarex/persistence-postgres/internal/application-query-completion";
 import { decodeTakeIncomingRelationSourcesInput } from
   "./ApplicationRelationQueryInput";
 import type {
@@ -115,6 +122,12 @@ import {
 import { RpcTarget } from "cloudflare:workers";
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { isNonBlankString } from "@flarex/utils/strings";
+import {
+  makeCoreApplicationQueryRunner,
+  type ApplicationCoreQuerySystemLive,
+} from "./CoreApplicationQueryRunner";
+export { CoreApplicationQueryError, makeCoreApplicationQueryEvaluationRunner,
+  type ApplicationCoreQuerySystemLive } from "./CoreApplicationQueryRunner";
 
 const QUERY_POLICY_ENCODING_BUDGET = Object.freeze({
   maximumOrigins: 1,
@@ -242,14 +255,16 @@ export class ApplicationQueryCompositionError extends Data.TaggedError(
     | "invalidTarget"
     | "invalidSourceIdentity"
     | "sourceReadFailed"
-    | "workerDefinitionFailed";
+    | "workerDefinitionFailed"
+    | "requestResourceFailed";
   readonly cause?: unknown;
 }> {}
 
 export type InvokeApplicationQueryError =
   | Effect.Error<ReturnType<ApplicationQuerySystemLive["activation"]["readActive"]>>
   | ApplicationQueryInputError
-  | InvokeApplicationSelectionQueryError;
+  | InvokeApplicationSelectionQueryError
+  | Effect.Error<ReturnType<ReturnType<typeof makeCoreApplicationQueryRunner>>>;
 
 export type InvokeApplicationSelectionQueryError =
   | OpenApplicationQuerySnapshotError
@@ -302,19 +317,77 @@ export const invokeApplicationQuery = Effect.fn(
 });
 
 export function makeApplicationQuerySystemLayer(
-  live: ApplicationQuerySystemLive,
+  live: ApplicationQuerySystemLive | ApplicationCoreQuerySystemLive,
 ): Layer.Layer<ApplicationQuerySystem> {
+  if ("coreDatabase" in live) return Layer.succeed(ApplicationQuerySystem, makeCoreApplicationQuerySystem(live));
+  return Layer.effect(ApplicationQuerySystem, makeApplicationQuerySystem(live))
+    .pipe(Layer.provide(ScopeExecutionLive));
+}
+
+/** Capture static ports now; construct the API in the supplied execution context. */
+export function makeApplicationQuerySystem(
+  live: ApplicationQuerySystemLive | ApplicationCoreQuerySystemLive,
+): Effect.Effect<ApplicationQuerySystemApi, never, ScopeExecution> {
+  if ("coreDatabase" in live) return Effect.succeed(makeCoreApplicationQuerySystem(live));
   const captured = captureLive(live);
-  return Layer.effect(
-    ApplicationQuerySystem,
-    Effect.gen(function* () {
-      const selectionQuery = yield* makeApplicationSelectionQueryPort(captured);
-      return ApplicationQuerySystem.of({
-        selectionQuery,
-        invoke: makeInvoke(captured.activation, selectionQuery),
-      });
+  return constructApplicationQueryPorts(captured).pipe(Effect.map(ports =>
+    ApplicationQuerySystem.of({
+      selectionQuery: ports.selectionQuery,
+      invoke: makeInvoke(Effect.succeed(ports)),
+    })));
+}
+
+function makeCoreApplicationQuerySystem(live: ApplicationCoreQuerySystemLive): ApplicationQuerySystemApi {
+  const execute = makeCoreApplicationQueryRunner(live);
+  return ApplicationQuerySystem.of({
+    // Legacy opaque selections retain their original consumers and authority.
+    selectionQuery: { runQuery: () => Effect.fail(new ApplicationQueryCompositionError({ reason: "invalidTarget" })) },
+    invoke: Effect.fn("ApplicationQuerySystem.invokeCore")(function* (
+      functionRef, args, identity = ANONYMOUS_IDENTITY,
+    ) {
+      const prepared = yield* prepareSelectionQueryInput(functionRef, args, identity);
+      return yield* execute(prepared.functionRef, prepared.normalizedArguments.value,
+        prepared.normalizedArguments.semanticSizeBytes, prepared.auth);
     }),
-  ).pipe(Layer.provide(ScopeExecutionLive));
+  });
+}
+
+type ApplicationQueryPorts = Pick<ApplicationQuerySystemLive, "activation"> &
+  Pick<ApplicationQuerySystemApi, "selectionQuery">;
+
+const constructApplicationQueryPorts = Effect.fn(
+  "ApplicationQuerySystem.make",
+)(function* (captured: ApplicationQuerySystemLive) {
+  const selectionQuery = yield* makeApplicationSelectionQueryPort(captured);
+  return Object.freeze({ activation: captured.activation, selectionQuery });
+});
+
+/** The acquisition runs in the invoking query's Scope, never the Layer's Scope. */
+export function makeApplicationQuerySystemFactoryLayer(
+  acquire: Effect.Effect<
+    ApplicationQuerySystemLive,
+    ApplicationQueryCompositionError,
+    Scope.Scope
+  >,
+): Layer.Layer<ApplicationQuerySystem> {
+  return Layer.effect(ApplicationQuerySystem, Effect.gen(function* () {
+    const execution = yield* ScopeExecution;
+    const ports = acquire.pipe(
+      Effect.flatMap(live => constructApplicationQueryPorts(captureLive(live))),
+      Effect.provideService(ScopeExecution, execution),
+    );
+    return ApplicationQuerySystem.of({
+      selectionQuery: Object.freeze({
+        runQuery: Effect.fn("ApplicationQuerySystem.factorySelection")(function* (
+          ...args: Parameters<ApplicationQuerySystemApi["selectionQuery"]["runQuery"]>
+        ) {
+          const current = yield* ports;
+          return yield* current.selectionQuery.runQuery(...args);
+        }),
+      }),
+      invoke: makeInvoke(ports),
+    });
+  })).pipe(Layer.provide(ScopeExecutionLive));
 }
 
 function captureLive(live: ApplicationQuerySystemLive): ApplicationQuerySystemLive {
@@ -373,7 +446,9 @@ function captureSelectionLive(
     ) => runTransaction.call(hostOwner, input),
   });
   return Object.freeze({
-    snapshot: live.snapshot,
+    snapshot: live.snapshot.cacheHandoff === undefined
+      ? Object.freeze({ ...live.snapshot, cacheHandoff: createApplicationQueryCacheHandoff() })
+      : live.snapshot,
     snapshotBudget: Object.freeze({ ...live.snapshotBudget }),
     source,
     host,
@@ -382,9 +457,10 @@ function captureSelectionLive(
 }
 
 function makeInvoke(
-  activation: ApplicationQuerySystemLive["activation"],
-  selectionQuery: ApplicationSelectionQueryPort<
-    InvokeApplicationSelectionQueryError
+  acquire: Effect.Effect<
+    ApplicationQueryPorts,
+    ApplicationQueryCompositionError,
+    Scope.Scope
   >,
 ): ApplicationQuerySystemApi["invoke"] {
   return Effect.fn("ApplicationQuerySystem.invoke")(function* (
@@ -407,8 +483,9 @@ function makeInvoke(
         cause,
       })),
     );
-    const active = yield* activation.readActive();
-    return yield* selectionQuery.runQuery(
+    const current = yield* acquire;
+    const active = yield* current.activation.readActive();
+    return yield* current.selectionQuery.runQuery(
       active.selection,
       functionRef,
       normalizedArguments.value,
@@ -443,6 +520,7 @@ function makeSelectionInvoke(
       prepared,
       false,
     );
+    yield* completeApplicationQuerySnapshot(executed.opened.snapshot);
     return executed.result;
   });
 }
@@ -484,13 +562,15 @@ function makeSelectionEvaluate(
       );
       const snapshotReceipt = yield*
         finalizeApplicationQueryEvaluationSnapshot(executed.opened.snapshot);
-      return yield* assembleApplicationSelectionQueryEvaluationReceipt(
+      const receipt = yield* assembleApplicationSelectionQueryEvaluationReceipt(
         prepared,
         canonicalArguments,
         identityAccessPolicy.sha256Hex,
         canonicalResult,
         snapshotReceipt,
       );
+      yield* completeApplicationQuerySnapshot(executed.opened.snapshot);
+      return receipt;
     },
   );
 }
@@ -507,7 +587,7 @@ const prepareSelectionQueryInput = Effect.fn(
   "ApplicationSelectionQuery.prepareInput",
 )(function* (
   functionRef: string,
-  argumentsValue: CanonicalFlarexRuntimeValueV1,
+  argumentsValue: unknown,
   identity: ExecutionIdentity,
 ): Effect.fn.Return<PreparedSelectionQueryInput, ApplicationQueryInputError> {
   if (!isNonBlankString(functionRef)) {
@@ -621,10 +701,12 @@ const executePreparedSelectionQuery = Effect.fn(
       snapshotCommitSeq: opened.metadata.snapshotToken.commitSeq,
     },
   };
+  const diagnosticContext = yield* Effect.withFiber(fiber =>
+    Effect.succeed(captureExecutionDiagnosticContext(fiber)));
   const result = yield* live.host.runTransaction({
     definition,
     request,
-    capability: new ApplicationQueryRpcCapability(opened.snapshot),
+    capability: new ApplicationQueryRpcCapability(opened.snapshot, diagnosticContext),
   });
   return Object.freeze({ opened, result });
 });
@@ -759,16 +841,20 @@ function runtimeTarget(
 }
 
 class ApplicationQueryRpcCapability extends RpcTarget {
-  constructor(private readonly snapshot: ApplicationQuerySnapshot) {
+  readonly #diagnosticContext: ReturnType<typeof captureExecutionDiagnosticContext>;
+
+  constructor(private readonly snapshot: ApplicationQuerySnapshot,
+    diagnosticContext: ReturnType<typeof captureExecutionDiagnosticContext>) {
     super();
+    this.#diagnosticContext = diagnosticContext;
   }
 
-  revalidate() {
-    return Effect.runPromise(revalidateApplicationQuerySnapshot(this.snapshot));
+  revalidate(): Promise<void> {
+    return this.#run(revalidateApplicationQuerySnapshot(this.snapshot).pipe(Effect.asVoid));
   }
 
   readPointDocument(tableName: string, documentId: string) {
-    return Effect.runPromise(Effect.fromResult(
+    return this.#run(Effect.fromResult(
       decodeAppDocumentIdentityV1Result(documentId),
     ).pipe(Effect.flatMap(identity =>
       readApplicationQueryPoint(this.snapshot, tableName, identity.id)
@@ -781,7 +867,7 @@ class ApplicationQueryRpcCapability extends RpcTarget {
     bounds: unknown,
     limit: number,
   ) {
-    return Effect.runPromise(readApplicationQueryIndex(
+    return this.#run(readApplicationQueryIndex(
       this.snapshot,
       tableName,
       indexDescriptor,
@@ -790,8 +876,12 @@ class ApplicationQueryRpcCapability extends RpcTarget {
     ));
   }
 
+  #run<Value, Failure>(work: Effect.Effect<Value, Failure>): Promise<Value> {
+    return Effect.runPromise(Effect.provideContext(work, this.#diagnosticContext));
+  }
+
   takeIncomingRelationSources(input: unknown) {
-    return Effect.runPromise(Effect.fromResult(
+    return this.#run(Effect.fromResult(
       decodeTakeIncomingRelationSourcesInput(input),
     ).pipe(
       Effect.flatMap(decoded => readApplicationQueryIncomingRelationSources(

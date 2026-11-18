@@ -36,7 +36,9 @@ export function isSourceArtifactV2ModuleRolesV1(
 ): value is SourceArtifactV2ModuleRolesV1 {
   return typeof value === "number" &&
     Number.isSafeInteger(value) &&
-    value > 0 &&
+    // Dependency modules belong to the authenticated package without claiming
+    // a function, schema, auth or execution role.
+    value >= 0 && !Object.is(value, -0) &&
     value <= SOURCE_ARTIFACT_V2_ROLE_MASK &&
     (value & ~SOURCE_ARTIFACT_V2_ROLE_MASK) === 0;
 }

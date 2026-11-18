@@ -48,6 +48,13 @@ serialization stay with their domain adapters. The shared algorithms contain
 no Product/Currency name branches. Renamed-table/key/relation tests exercise
 all three join kinds and non-`id` relation-filter ordering.
 
+The same query owner also represents inverse `hasOne` relations. Population
+retains complete bounded reads on the borrowed manager and returns an object or
+null; duplicate matching children are stored corruption. Pure authenticated
+assembly is consequently fallible and returns Result, including through nested
+relations. Existing assembly consumers propagate that failure. This relation
+capability does not grant module operations or change owning `belongsTo` joins.
+
 The old `product-parent-query.ts` and `product-inverse-query.ts` planners are
 removed; their assertions now exercise the shared projection compiler.
 Schema artifacts, graph writes, lifecycle/event policy, command admission and
@@ -61,6 +68,18 @@ acquires the root store before relation lookups. Repository tests pin Currency's
 existing find/count call ceilings; a real-store test pins the internal Product
 60/61-selector filter-node boundary. The test constructs DAL dollar-prefixed
 selectors inside its command, after host request admission, as Medusa does.
+
+## Native scalar creation presentation
+
+The scalar repository has an explicit checked-DML option for immediate nullable
+belongs-to field presence. It correlates complete returned rows and prepared
+inputs by canonical ID, retains explicit NULL and supplied reference IDs, and
+omits absent or undefined reference fields only from detached creation results.
+Storage and mutation-event rows remain complete. Native batch planning owns
+canonical aliases; each returned alias receives its own deep clone. Existing
+profiles keep their current behavior. The neutral presentation tests establish
+these mechanics without admitting Tax Region creation or proving its database
+defaults, flush ordering, constraints or retained inverse.
 
 ## Implemented schema ownership
 
@@ -155,27 +174,28 @@ What remains incomplete is the reusable persistence implementation beneath them.
 
 Source examples:
 
-- [Related queries](../../../packages/medusa-adapter/src/product-related.ts)
+- [Related queries](../../../packages/medusa-adapter/src/modules/product/related.ts)
   branch on Type/Tag `value`, Collection `title`/`handle`, and Option/Variant
   `title` for the same scalar equality lowering. The allowed fields belong in
   module capability data; the lowering algorithm should not name these models.
-- [Product root queries](../../../packages/medusa-adapter/src/product-query-profile.ts)
+- [Product root queries](../../../packages/medusa-adapter/src/modules/product/query-profile.ts)
   contain real boundary policy as well as mechanics: public/internal defaults,
   free-text source validation, admitted relationship filters, and prerequisites
   for service-owned Variant image assembly. Preserve these policies explicitly.
-- [Currency queries](../../../packages/medusa-adapter/src/currency-query.ts)
+- [Currency queries](../../../packages/medusa-adapter/src/modules/currency/query.ts)
   use `code`, recursive conjunction/disjunction, cumulative filter budgets, and
   `rounding`/`raw_rounding` projection. A generic engine hardcoded to `id` would
   already fail the second existing consumer.
-- [Category reads](../../../packages/medusa-adapter/src/product-category-repository.ts)
+- [Category reads](../../../packages/medusa-adapter/src/modules/product/category-repository.ts)
   read a complete bounded catalog, sort locally, and then page; [Collection
-  membership](../../../packages/medusa-adapter/src/product-collection-membership.ts)
+  membership](../../../packages/medusa-adapter/src/modules/product/collection-membership.ts)
   applies an admitted exclusion selector over complete scoped rows. Neither can
   be replaced by filtering a partial database page. Local Category string
   comparison also must not silently become a different SQL collation.
-- [Local event policy](../../../packages/medusa-adapter/src/product-local-events.ts)
-  distinguishes module-service and direct internal calls. Deleting that
-  distinction as duplication would change behavior and weaken authentication.
+- [Product call receipts](../../../packages/medusa-adapter/src/modules/product/events/call-receipts.ts)
+  distinguish module-service and direct internal calls on logical storage.
+  Deleting that distinction as duplication would change behavior and weaken
+  authentication.
 
 ## Proposed architecture
 
@@ -777,6 +797,47 @@ those changes remain owned by record 49 and are excluded from this checkpoint.
 An isolated proposed-commit snapshot independently verifies all 392 exact source
 files across the ten packages. Browser portability passes across 654 inputs;
 core and diff lint pass. Receipts are `work/module-assembly-*.log`.
+
+## Bounded self-referential physical deletion
+
+Status: implemented for bounded indexed logical-storage graphs. This changes no
+native workflow admission or resource allowance.
+
+`repository/lifecycle.ts` owns complete indexed physical-cascade discovery and
+execution. A scalar self-reference can put multiple hierarchy levels in one
+table. Physical execution therefore orders those selected rows child first,
+sealing the complete order before any mutation. Cyclic row dependencies and
+unsupported composite self-reference recipes fail closed before writes.
+Non-self table ordering and soft-delete/restore ordering retain their existing
+contracts. The module profile still bounds the complete selected row closure.
+
+`repository/physical-graph-receipt.ts` distinguishes explicitly selected roots
+from same-table descendants, authenticates every complete indexed read including
+empty selections, and correlates the actual child-first mutation preimages.
+Overlapping roots share completed traversal and query caches; active traversal
+cycles remain refused. Complete-row decoders and per-entity maxima bound the
+graph rather than the number of model tables. Only explicitly requested roots
+contribute returned native root/event IDs. Historical descendants participate in
+physical deletion, while ancestors and unrelated rows remain outside its closure.
+
+Neutral executed-evidence and actual logical-storage proofs own the shared
+mechanic. Tax Region creation and other native workflows retain their own input,
+output, current-graph bounds, event policy and separate admission gates; this
+shared correction grants none of those module capabilities.
+
+## Explicit roots in soft lifecycle receipts
+
+`repository/lifecycle-graph-receipt.ts` requires the module's authenticated
+explicit root IDs separately from the complete selected closure. Each explicit
+root belongs to the root-table closure and its complete-row evidence; a nonempty
+closure requires at least one explicit root. Soft deletion requires each explicit
+root to be active, while historical descendants in the same table remain valid
+cascade members. Raw requested IDs do not substitute for actual selected roots.
+
+Module policy still authenticates complete indexed reads, graph membership,
+affected-ID presentation and events. Shared correlation retains complete
+transitions, mutation preimages and existing restore policy. This distinction
+changes no native workflow admission, event ordering or resource allowance.
 
 ## Following capabilities and module proof
 

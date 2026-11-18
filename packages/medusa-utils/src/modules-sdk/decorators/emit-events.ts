@@ -7,7 +7,8 @@ type ServiceMethod = (this: ServiceInstance, ...args: unknown[]) => unknown
 interface ServicePrototype {
   MedusaContextIndex_?: Record<string | symbol, number>
   emitEvents_?: (
-    groupedEvents: Record<string, Message[]>
+    groupedEvents: Record<string, Message[]>,
+    context?: unknown
   ) => Promise<void> | void
   constructor: {
     name: string
@@ -65,6 +66,7 @@ export function EmitEvents(
       if (aggregator && aggregator.count() > 0) {
         await servicePrototype.emitEvents_?.apply(this, [
           aggregator.getMessages(options),
+          typeof argIndex === "number" ? args[argIndex] : undefined,
         ])
         aggregator.clearMessages()
       }

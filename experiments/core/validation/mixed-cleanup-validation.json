@@ -1,0 +1,58 @@
+{
+  "scope": "Native Payload deletion and actual preference cleanup under one atomic Application/Product/Payload owner",
+  "recordedAt": "2026-10-27T05:41:57.4337101+06:30",
+  "base": "bd563d4df37b209e7b7e8a1412ac8efbbf00fd55",
+  "source": [
+    {
+      "path": "experiments/core/src/mixed.ts",
+      "sha256": "c786f3f7d739789ed7783f63cd01b13863501e3cdeaa788e83c376a8e8ca0d2c"
+    },
+    {
+      "path": "experiments/core/src/payload.ts",
+      "sha256": "923ed0385ba14584a6114d7d239ab2b2e69331bc97b3a7f9a5e17c2cb5634647"
+    },
+    {
+      "path": "experiments/core/test/mixed.test.ts",
+      "sha256": "d5eeaf051af56f0f61cc76f940e77677ebb8fa32846b66e4ded8f7b5497517f7"
+    },
+    {
+      "path": "experiments/core/test/payload-crud.test.ts",
+      "sha256": "95dcda0d08aae5674e27b142475fc57f4d2453c8723b5a8b108fa8f2ac36bdbb"
+    }
+  ],
+  "reports": [
+    {
+      "passed": 54,
+      "postgres": 27,
+      "pglite": 27,
+      "report": "mixed-cleanup-connected.json",
+      "processExitCode": 0
+    },
+    {
+      "passed": 34,
+      "postgres": 17,
+      "pglite": 17,
+      "report": "mixed-cleanup-crud.json",
+      "processExitCode": 0
+    }
+  ],
+  "retainedFailure": {
+    "disposition": "Adding actual native deletion introduced a protected read before final acceptance. Revocation and physical-response-loss expectations now assert NativeFailure/NativeOperationFailure retaining the original CoreError Cause. Distinct final-acceptance revocation and committed response-loss witnesses remain. No runtime workaround or weakened cause assertion.",
+    "passed": 12,
+    "failed": 2,
+    "report": "mixed-cleanup-initial-pglite.json"
+  },
+  "checks": {
+    "reviews": "Both mandatory read-only agents clear against bd563d4df",
+    "rootLintCore": "passed",
+    "diffCheck": "passed",
+    "localLint": "passed; fixture missing-definition/predecessor throws reviewed as invariant defects",
+    "typecheck": "tsc-rs passed",
+    "rootLintDiff": "passed"
+  },
+  "limits": [
+    "No latency/CPU/SQL performance result",
+    "Relation-free Product and bounded Payload profile only",
+    "No active-core modification or production promotion"
+  ]
+}

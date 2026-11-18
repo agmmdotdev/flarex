@@ -283,16 +283,34 @@ function encodeCanonicalPhysicalSpec(
     `"kind":"appOrdered",` +
     `"maxEncodedKeyBytes":2048,` +
     `"orderedFields":[${fields}],` +
+    (spec.predicate === undefined ? "" : `"predicate":${encodeCanonicalPhysicalPredicate(spec.predicate)},`) +
     `"specVersion":1,` +
     `"tieBreaker":{"byteLength":16,"kind":"separateRowIdentity"}}`
   );
+}
+
+function encodeCanonicalPhysicalPredicate(predicate: NonNullable<AppOrderedIndexPhysicalSpecV1["predicate"]>): string {
+  switch (predicate.kind) {
+    case "fieldsAreNull":
+      return `{"fields":[${predicate.fields.map(encodeJsonString).join(",")}],"kind":"fieldsAreNull"}`;
+    case "fieldIsNull":
+      return `{"field":${encodeJsonString(predicate.field)},"kind":"fieldIsNull"}`;
+    case "fieldIsNotNull":
+      return `{"field":${encodeJsonString(predicate.field)},"kind":"fieldIsNotNull"}`;
+    case "fieldIsNullAndNotNull":
+      return `{"kind":"fieldIsNullAndNotNull","notNullField":${encodeJsonString(predicate.notNullField)},"nullField":${encodeJsonString(predicate.nullField)}}`;
+    case "fieldIsNullAndTextEquals":
+      return `{"kind":"fieldIsNullAndTextEquals","nullField":${encodeJsonString(predicate.nullField)},"textField":${encodeJsonString(predicate.textField)},"value":${encodeJsonString(predicate.value)}}`;
+    case "fieldIsNullAndBooleanEquals":
+      return `{"booleanField":${encodeJsonString(predicate.booleanField)},"kind":"fieldIsNullAndBooleanEquals","nullField":${encodeJsonString(predicate.nullField)},"value":${String(predicate.value)}}`;
+  }
 }
 
 function encodeCanonicalPhysicalField(
   field: AppOrderedIndexPhysicalFieldV1,
 ): string {
   return field.kind === "documentPath"
-    ? `{"kind":"documentPath","path":${encodeJsonString(field.path)}}`
+    ? `{"kind":"documentPath","path":${encodeJsonString(field.path)}${field.valueFormat === undefined ? "" : ',"valueFormat":"exactDecimal"'}}`
     : `{"kind":"systemCreationTime"}`;
 }
 

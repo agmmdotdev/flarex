@@ -1,0 +1,2409 @@
+{
+  "status": "complete bounded diagnostic; no runtime implementation or complete performance acceptance",
+  "runtimeBaselineHead": "4703f68d50499f47b3c31bec6a393ff69db30c86",
+  "workspace": "current shared checkout with unrelated uncommitted OCC/test changes retained",
+  "worktree": "unwanted new worktree removed before measurements; no new worktree used",
+  "postgres": {
+    "version": "18.3",
+    "port": 56434,
+    "dataDirectory": "work/validation/medusa-cpu-investigation-20261010/postgres-data",
+    "settings": "fsync/full_page_writes/synchronous_commit enabled; SQL duration logging and auto_explain/pg_stat_statements tracking disabled",
+    "cleanup": "stopped; exact pg_ctl data-directory status confirms no server running"
+  },
+  "cohorts": [
+    {
+      "lane": "counter-control",
+      "profileEnabled": false,
+      "phaseCountersEnabled": false,
+      "allocations": false,
+      "runId": "879e4c09-2c2f-4253-8633-3999ef69186c",
+      "sources": {
+        "before": "58d0dcfc4de47fe3944f171f05963660cfa239d8777ce887fd1c101f823a8741",
+        "after": "58d0dcfc4de47fe3944f171f05963660cfa239d8777ce887fd1c101f823a8741",
+        "files": 6962
+      },
+      "execution": "complete",
+      "cleanup": "completed",
+      "gates": [
+        {
+          "name": "sourceStability",
+          "passed": true,
+          "detail": "Authored package code, locks and loaded native sources remain stable"
+        },
+        {
+          "name": "settingsStability",
+          "passed": true,
+          "detail": "Ordinary-role durable settings are retained before and after"
+        },
+        {
+          "name": "cleanup",
+          "passed": true,
+          "detail": "Owned command resources drained"
+        }
+      ],
+      "addedThreadCpu": {
+        "count": 5,
+        "min": 78,
+        "median": 141,
+        "max": 173
+      },
+      "actualAddedPairsMs": [
+        141,
+        173,
+        110,
+        78,
+        156
+      ],
+      "laneThreadCpu": {
+        "native": {
+          "count": 5,
+          "min": 16,
+          "median": 31,
+          "max": 47
+        },
+        "flarex": {
+          "count": 5,
+          "min": 125,
+          "median": 172,
+          "max": 204
+        }
+      },
+      "phaseCpu": [],
+      "flarexPhaseRoots": [
+        {
+          "id": "879e4c09-2c2f-4253-8633-3999ef69186c:flarex:5",
+          "cpuMs": 188,
+          "phases": [],
+          "phaseCpuMs": 0
+        },
+        {
+          "id": "879e4c09-2c2f-4253-8633-3999ef69186c:flarex:6",
+          "cpuMs": 204,
+          "phases": [],
+          "phaseCpuMs": 0
+        },
+        {
+          "id": "879e4c09-2c2f-4253-8633-3999ef69186c:flarex:7",
+          "cpuMs": 141,
+          "phases": [],
+          "phaseCpuMs": 0
+        },
+        {
+          "id": "879e4c09-2c2f-4253-8633-3999ef69186c:flarex:8",
+          "cpuMs": 125,
+          "phases": [],
+          "phaseCpuMs": 0
+        },
+        {
+          "id": "879e4c09-2c2f-4253-8633-3999ef69186c:flarex:9",
+          "cpuMs": 172,
+          "phases": [],
+          "phaseCpuMs": 0
+        }
+      ],
+      "diagnosticRoots": [
+        {
+          "id": "879e4c09-2c2f-4253-8633-3999ef69186c:native:5",
+          "lane": "native",
+          "index": 5,
+          "threadCounterMicroseconds": {
+            "user": 47000,
+            "system": 0
+          },
+          "callWindow": {
+            "startMonotonicMs": 65299.6883,
+            "endMonotonicMs": 65352.1188
+          }
+        },
+        {
+          "id": "879e4c09-2c2f-4253-8633-3999ef69186c:flarex:5",
+          "lane": "flarex",
+          "index": 5,
+          "threadCounterMicroseconds": {
+            "user": 188000,
+            "system": 0
+          },
+          "callWindow": {
+            "startMonotonicMs": 65780.6461,
+            "endMonotonicMs": 66086.757
+          }
+        },
+        {
+          "id": "879e4c09-2c2f-4253-8633-3999ef69186c:flarex:6",
+          "lane": "flarex",
+          "index": 6,
+          "threadCounterMicroseconds": {
+            "user": 188000,
+            "system": 16000
+          },
+          "callWindow": {
+            "startMonotonicMs": 67901.3219,
+            "endMonotonicMs": 68197.7197
+          }
+        },
+        {
+          "id": "879e4c09-2c2f-4253-8633-3999ef69186c:native:6",
+          "lane": "native",
+          "index": 6,
+          "threadCounterMicroseconds": {
+            "user": 31000,
+            "system": 0
+          },
+          "callWindow": {
+            "startMonotonicMs": 69564.5974,
+            "endMonotonicMs": 69608.0926
+          }
+        },
+        {
+          "id": "879e4c09-2c2f-4253-8633-3999ef69186c:native:7",
+          "lane": "native",
+          "index": 7,
+          "threadCounterMicroseconds": {
+            "user": 31000,
+            "system": 0
+          },
+          "callWindow": {
+            "startMonotonicMs": 69636.8732,
+            "endMonotonicMs": 69680.4083
+          }
+        },
+        {
+          "id": "879e4c09-2c2f-4253-8633-3999ef69186c:flarex:7",
+          "lane": "flarex",
+          "index": 7,
+          "threadCounterMicroseconds": {
+            "user": 125000,
+            "system": 16000
+          },
+          "callWindow": {
+            "startMonotonicMs": 70091.08,
+            "endMonotonicMs": 70340.9895
+          }
+        },
+        {
+          "id": "879e4c09-2c2f-4253-8633-3999ef69186c:flarex:8",
+          "lane": "flarex",
+          "index": 8,
+          "threadCounterMicroseconds": {
+            "user": 125000,
+            "system": 0
+          },
+          "callWindow": {
+            "startMonotonicMs": 71936.2626,
+            "endMonotonicMs": 72200.2392
+          }
+        },
+        {
+          "id": "879e4c09-2c2f-4253-8633-3999ef69186c:native:8",
+          "lane": "native",
+          "index": 8,
+          "threadCounterMicroseconds": {
+            "user": 47000,
+            "system": 0
+          },
+          "callWindow": {
+            "startMonotonicMs": 73445.9862,
+            "endMonotonicMs": 73484.1324
+          }
+        },
+        {
+          "id": "879e4c09-2c2f-4253-8633-3999ef69186c:native:9",
+          "lane": "native",
+          "index": 9,
+          "threadCounterMicroseconds": {
+            "user": 16000,
+            "system": 0
+          },
+          "callWindow": {
+            "startMonotonicMs": 73510.2906,
+            "endMonotonicMs": 73549.6619
+          }
+        },
+        {
+          "id": "879e4c09-2c2f-4253-8633-3999ef69186c:flarex:9",
+          "lane": "flarex",
+          "index": 9,
+          "threadCounterMicroseconds": {
+            "user": 172000,
+            "system": 0
+          },
+          "callWindow": {
+            "startMonotonicMs": 73902.4421,
+            "endMonotonicMs": 74169.2481
+          }
+        }
+      ],
+      "profileLocation": null,
+      "artifacts": [
+        {
+          "path": "work/validation/shared-execution-evidence/cpu-excess-investigation/counter-control/879e4c09-2c2f-4253-8633-3999ef69186c.json",
+          "sha256": "385f4e8dc3e6fbac5bdd9f622c698775b9dab5187cb4b2023ff0b7522696d3fe",
+          "bytes": 47007
+        },
+        {
+          "path": "work/validation/shared-execution-evidence/cpu-excess-investigation/counter-control/paired-ledger.json",
+          "sha256": "369e7cf2190e1efa4e877dda8229f2457262a01164c64805890dd2f1c7b05e8a",
+          "bytes": 1117
+        },
+        {
+          "path": "work/validation/shared-execution-evidence/cpu-excess-investigation/counter-control/phase-summary.json",
+          "sha256": "b1f0b9f2a955a4ea11a9ae7a75d7fccfbae07338fb49cb0b6dc3f46946642a59",
+          "bytes": 1834
+        }
+      ]
+    },
+    {
+      "lane": "paired-profiles",
+      "profileEnabled": true,
+      "phaseCountersEnabled": true,
+      "allocations": false,
+      "runId": "b51910ee-dd16-4fe0-800e-9d770a7e900f",
+      "sources": {
+        "before": "58d0dcfc4de47fe3944f171f05963660cfa239d8777ce887fd1c101f823a8741",
+        "after": "58d0dcfc4de47fe3944f171f05963660cfa239d8777ce887fd1c101f823a8741",
+        "files": 6962
+      },
+      "execution": "complete",
+      "cleanup": "completed",
+      "gates": [
+        {
+          "name": "sourceStability",
+          "passed": true,
+          "detail": "Authored package code, locks and loaded native sources remain stable"
+        },
+        {
+          "name": "settingsStability",
+          "passed": true,
+          "detail": "Ordinary-role durable settings are retained before and after"
+        },
+        {
+          "name": "cleanup",
+          "passed": true,
+          "detail": "Owned command resources drained"
+        }
+      ],
+      "addedThreadCpu": {
+        "count": 10,
+        "min": 93,
+        "median": 117.5,
+        "max": 187
+      },
+      "actualAddedPairsMs": [
+        187,
+        141,
+        94,
+        110,
+        125,
+        93,
+        156,
+        109,
+        110,
+        141
+      ],
+      "laneThreadCpu": {
+        "native": {
+          "count": 10,
+          "min": 0,
+          "median": 31,
+          "max": 47
+        },
+        "flarex": {
+          "count": 10,
+          "min": 125,
+          "median": 156.5,
+          "max": 218
+        }
+      },
+      "phaseCpu": [
+        {
+          "name": "request admission",
+          "cpu": {
+            "count": 10,
+            "min": 0,
+            "median": 16,
+            "max": 32
+          },
+          "wall": {
+            "count": 10,
+            "min": 18.777800000010757,
+            "median": 20.153350000007777,
+            "max": 24.313999999998487
+          }
+        },
+        {
+          "name": "portable runtime execution",
+          "cpu": {
+            "count": 10,
+            "min": 78,
+            "median": 109,
+            "max": 155
+          },
+          "wall": {
+            "count": 10,
+            "min": 140.75410000000556,
+            "median": 150.65094999999565,
+            "max": 168.6464000000051
+          }
+        },
+        {
+          "name": "runtime result validation",
+          "cpu": {
+            "count": 10,
+            "min": 0,
+            "median": 0,
+            "max": 0
+          },
+          "wall": {
+            "count": 10,
+            "min": 0.365300000004936,
+            "median": 0.41684999999415595,
+            "max": 0.5399000000033993
+          }
+        },
+        {
+          "name": "finite freeze and validation",
+          "cpu": {
+            "count": 10,
+            "min": 0,
+            "median": 0,
+            "max": 16
+          },
+          "wall": {
+            "count": 10,
+            "min": 2.1409999999887077,
+            "median": 2.366550000002462,
+            "max": 2.7300000000032014
+          }
+        },
+        {
+          "name": "authoritative publication",
+          "cpu": {
+            "count": 10,
+            "min": 15,
+            "median": 31,
+            "max": 47
+          },
+          "wall": {
+            "count": 10,
+            "min": 74.534799999994,
+            "median": 78.62874999999985,
+            "max": 82.75789999999688
+          }
+        },
+        {
+          "name": "complete call cleanup",
+          "cpu": {
+            "count": 10,
+            "min": 0,
+            "median": 0,
+            "max": 0
+          },
+          "wall": {
+            "count": 10,
+            "min": 0.24929999999585561,
+            "median": 0.2845999999990454,
+            "max": 0.53169999999227
+          }
+        }
+      ],
+      "flarexPhaseRoots": [
+        {
+          "id": "b51910ee-dd16-4fe0-800e-9d770a7e900f:flarex:5",
+          "cpuMs": 218,
+          "phases": [
+            {
+              "name": "request admission",
+              "cpuMs": 16,
+              "wallMs": 24.313999999998487
+            },
+            {
+              "name": "portable runtime execution",
+              "cpuMs": 155,
+              "wallMs": 168.6464000000051
+            },
+            {
+              "name": "runtime result validation",
+              "cpuMs": 0,
+              "wallMs": 0.44249999999738066
+            },
+            {
+              "name": "finite freeze and validation",
+              "cpuMs": 0,
+              "wallMs": 2.7300000000032014
+            },
+            {
+              "name": "authoritative publication",
+              "cpuMs": 47,
+              "wallMs": 78.71940000000177
+            },
+            {
+              "name": "complete call cleanup",
+              "cpuMs": 0,
+              "wallMs": 0.3404999999984284
+            }
+          ],
+          "phaseCpuMs": 218
+        },
+        {
+          "id": "b51910ee-dd16-4fe0-800e-9d770a7e900f:flarex:6",
+          "cpuMs": 172,
+          "phases": [
+            {
+              "name": "request admission",
+              "cpuMs": 15,
+              "wallMs": 22.480799999997544
+            },
+            {
+              "name": "portable runtime execution",
+              "cpuMs": 110,
+              "wallMs": 157.0158999999985
+            },
+            {
+              "name": "runtime result validation",
+              "cpuMs": 0,
+              "wallMs": 0.4351999999998952
+            },
+            {
+              "name": "finite freeze and validation",
+              "cpuMs": 0,
+              "wallMs": 2.4356000000043423
+            },
+            {
+              "name": "authoritative publication",
+              "cpuMs": 47,
+              "wallMs": 78.53809999999794
+            },
+            {
+              "name": "complete call cleanup",
+              "cpuMs": 0,
+              "wallMs": 0.35940000000118744
+            }
+          ],
+          "phaseCpuMs": 172
+        },
+        {
+          "id": "b51910ee-dd16-4fe0-800e-9d770a7e900f:flarex:7",
+          "cpuMs": 141,
+          "phases": [
+            {
+              "name": "request admission",
+              "cpuMs": 16,
+              "wallMs": 20.69999999999709
+            },
+            {
+              "name": "portable runtime execution",
+              "cpuMs": 94,
+              "wallMs": 148.4207000000024
+            },
+            {
+              "name": "runtime result validation",
+              "cpuMs": 0,
+              "wallMs": 0.4006000000081258
+            },
+            {
+              "name": "finite freeze and validation",
+              "cpuMs": 15,
+              "wallMs": 2.1895999999978812
+            },
+            {
+              "name": "authoritative publication",
+              "cpuMs": 16,
+              "wallMs": 74.534799999994
+            },
+            {
+              "name": "complete call cleanup",
+              "cpuMs": 0,
+              "wallMs": 0.27580000000307336
+            }
+          ],
+          "phaseCpuMs": 141
+        },
+        {
+          "id": "b51910ee-dd16-4fe0-800e-9d770a7e900f:flarex:8",
+          "cpuMs": 141,
+          "phases": [
+            {
+              "name": "request admission",
+              "cpuMs": 16,
+              "wallMs": 24.01469999999972
+            },
+            {
+              "name": "portable runtime execution",
+              "cpuMs": 78,
+              "wallMs": 163.0350000000035
+            },
+            {
+              "name": "runtime result validation",
+              "cpuMs": 0,
+              "wallMs": 0.5399000000033993
+            },
+            {
+              "name": "finite freeze and validation",
+              "cpuMs": 0,
+              "wallMs": 2.674800000007963
+            },
+            {
+              "name": "authoritative publication",
+              "cpuMs": 47,
+              "wallMs": 80.18420000000333
+            },
+            {
+              "name": "complete call cleanup",
+              "cpuMs": 0,
+              "wallMs": 0.53169999999227
+            }
+          ],
+          "phaseCpuMs": 141
+        },
+        {
+          "id": "b51910ee-dd16-4fe0-800e-9d770a7e900f:flarex:9",
+          "cpuMs": 125,
+          "phases": [
+            {
+              "name": "request admission",
+              "cpuMs": 0,
+              "wallMs": 19.713300000003073
+            },
+            {
+              "name": "portable runtime execution",
+              "cpuMs": 94,
+              "wallMs": 140.75410000000556
+            },
+            {
+              "name": "runtime result validation",
+              "cpuMs": 0,
+              "wallMs": 0.365300000004936
+            },
+            {
+              "name": "finite freeze and validation",
+              "cpuMs": 0,
+              "wallMs": 2.1409999999887077
+            },
+            {
+              "name": "authoritative publication",
+              "cpuMs": 31,
+              "wallMs": 80.96399999999267
+            },
+            {
+              "name": "complete call cleanup",
+              "cpuMs": 0,
+              "wallMs": 0.3171999999904074
+            }
+          ],
+          "phaseCpuMs": 125
+        },
+        {
+          "id": "b51910ee-dd16-4fe0-800e-9d770a7e900f:flarex:10",
+          "cpuMs": 125,
+          "phases": [
+            {
+              "name": "request admission",
+              "cpuMs": 0,
+              "wallMs": 19.85460000000603
+            },
+            {
+              "name": "portable runtime execution",
+              "cpuMs": 94,
+              "wallMs": 151.09939999999187
+            },
+            {
+              "name": "runtime result validation",
+              "cpuMs": 0,
+              "wallMs": 0.44409999999334104
+            },
+            {
+              "name": "finite freeze and validation",
+              "cpuMs": 0,
+              "wallMs": 2.5228000000061
+            },
+            {
+              "name": "authoritative publication",
+              "cpuMs": 31,
+              "wallMs": 75.70119999999588
+            },
+            {
+              "name": "complete call cleanup",
+              "cpuMs": 0,
+              "wallMs": 0.2933999999950174
+            }
+          ],
+          "phaseCpuMs": 125
+        },
+        {
+          "id": "b51910ee-dd16-4fe0-800e-9d770a7e900f:flarex:11",
+          "cpuMs": 187,
+          "phases": [
+            {
+              "name": "request admission",
+              "cpuMs": 15,
+              "wallMs": 19.838100000008126
+            },
+            {
+              "name": "portable runtime execution",
+              "cpuMs": 141,
+              "wallMs": 150.20249999999942
+            },
+            {
+              "name": "runtime result validation",
+              "cpuMs": 0,
+              "wallMs": 0.40429999999469146
+            },
+            {
+              "name": "finite freeze and validation",
+              "cpuMs": 0,
+              "wallMs": 2.545400000002701
+            },
+            {
+              "name": "authoritative publication",
+              "cpuMs": 31,
+              "wallMs": 76.15059999999357
+            },
+            {
+              "name": "complete call cleanup",
+              "cpuMs": 0,
+              "wallMs": 0.25109999999403954
+            }
+          ],
+          "phaseCpuMs": 187
+        },
+        {
+          "id": "b51910ee-dd16-4fe0-800e-9d770a7e900f:flarex:12",
+          "cpuMs": 156,
+          "phases": [
+            {
+              "name": "request admission",
+              "cpuMs": 16,
+              "wallMs": 19.52479999999923
+            },
+            {
+              "name": "portable runtime execution",
+              "cpuMs": 109,
+              "wallMs": 146.48089999999502
+            },
+            {
+              "name": "runtime result validation",
+              "cpuMs": 0,
+              "wallMs": 0.41749999999592546
+            },
+            {
+              "name": "finite freeze and validation",
+              "cpuMs": 16,
+              "wallMs": 2.2734999999956926
+            },
+            {
+              "name": "authoritative publication",
+              "cpuMs": 15,
+              "wallMs": 76.73480000000563
+            },
+            {
+              "name": "complete call cleanup",
+              "cpuMs": 0,
+              "wallMs": 0.2739000000001397
+            }
+          ],
+          "phaseCpuMs": 156
+        },
+        {
+          "id": "b51910ee-dd16-4fe0-800e-9d770a7e900f:flarex:13",
+          "cpuMs": 157,
+          "phases": [
+            {
+              "name": "request admission",
+              "cpuMs": 16,
+              "wallMs": 20.452100000009523
+            },
+            {
+              "name": "portable runtime execution",
+              "cpuMs": 109,
+              "wallMs": 162.1313999999984
+            },
+            {
+              "name": "runtime result validation",
+              "cpuMs": 0,
+              "wallMs": 0.37510000000474975
+            },
+            {
+              "name": "finite freeze and validation",
+              "cpuMs": 0,
+              "wallMs": 2.1912000000011176
+            },
+            {
+              "name": "authoritative publication",
+              "cpuMs": 32,
+              "wallMs": 82.75789999999688
+            },
+            {
+              "name": "complete call cleanup",
+              "cpuMs": 0,
+              "wallMs": 0.26580000000831205
+            }
+          ],
+          "phaseCpuMs": 157
+        },
+        {
+          "id": "b51910ee-dd16-4fe0-800e-9d770a7e900f:flarex:14",
+          "cpuMs": 172,
+          "phases": [
+            {
+              "name": "request admission",
+              "cpuMs": 32,
+              "wallMs": 18.777800000010757
+            },
+            {
+              "name": "portable runtime execution",
+              "cpuMs": 109,
+              "wallMs": 147.9939000000013
+            },
+            {
+              "name": "runtime result validation",
+              "cpuMs": 0,
+              "wallMs": 0.41619999999238644
+            },
+            {
+              "name": "finite freeze and validation",
+              "cpuMs": 0,
+              "wallMs": 2.297500000000582
+            },
+            {
+              "name": "authoritative publication",
+              "cpuMs": 31,
+              "wallMs": 80.08740000000398
+            },
+            {
+              "name": "complete call cleanup",
+              "cpuMs": 0,
+              "wallMs": 0.24929999999585561
+            }
+          ],
+          "phaseCpuMs": 172
+        }
+      ],
+      "diagnosticRoots": [
+        {
+          "id": "b51910ee-dd16-4fe0-800e-9d770a7e900f:native:5",
+          "lane": "native",
+          "index": 5,
+          "threadCounterMicroseconds": {
+            "user": 31000,
+            "system": 0
+          },
+          "callWindow": {
+            "startMonotonicMs": 60524.8093,
+            "endMonotonicMs": 60571.5607
+          }
+        },
+        {
+          "id": "b51910ee-dd16-4fe0-800e-9d770a7e900f:flarex:5",
+          "lane": "flarex",
+          "index": 5,
+          "threadCounterMicroseconds": {
+            "user": 203000,
+            "system": 15000
+          },
+          "callWindow": {
+            "startMonotonicMs": 61397.8,
+            "endMonotonicMs": 61673.1574
+          }
+        },
+        {
+          "id": "b51910ee-dd16-4fe0-800e-9d770a7e900f:flarex:6",
+          "lane": "flarex",
+          "index": 6,
+          "threadCounterMicroseconds": {
+            "user": 172000,
+            "system": 0
+          },
+          "callWindow": {
+            "startMonotonicMs": 63747.8514,
+            "endMonotonicMs": 64009.2229
+          }
+        },
+        {
+          "id": "b51910ee-dd16-4fe0-800e-9d770a7e900f:native:6",
+          "lane": "native",
+          "index": 6,
+          "threadCounterMicroseconds": {
+            "user": 31000,
+            "system": 0
+          },
+          "callWindow": {
+            "startMonotonicMs": 65736.3388,
+            "endMonotonicMs": 65780.4258
+          }
+        },
+        {
+          "id": "b51910ee-dd16-4fe0-800e-9d770a7e900f:native:7",
+          "lane": "native",
+          "index": 7,
+          "threadCounterMicroseconds": {
+            "user": 47000,
+            "system": 0
+          },
+          "callWindow": {
+            "startMonotonicMs": 66288.2888,
+            "endMonotonicMs": 66330.5844
+          }
+        },
+        {
+          "id": "b51910ee-dd16-4fe0-800e-9d770a7e900f:flarex:7",
+          "lane": "flarex",
+          "index": 7,
+          "threadCounterMicroseconds": {
+            "user": 141000,
+            "system": 0
+          },
+          "callWindow": {
+            "startMonotonicMs": 67153.6903,
+            "endMonotonicMs": 67400.3064
+          }
+        },
+        {
+          "id": "b51910ee-dd16-4fe0-800e-9d770a7e900f:flarex:8",
+          "lane": "flarex",
+          "index": 8,
+          "threadCounterMicroseconds": {
+            "user": 141000,
+            "system": 0
+          },
+          "callWindow": {
+            "startMonotonicMs": 69453.6917,
+            "endMonotonicMs": 69724.7866
+          }
+        },
+        {
+          "id": "b51910ee-dd16-4fe0-800e-9d770a7e900f:native:8",
+          "lane": "native",
+          "index": 8,
+          "threadCounterMicroseconds": {
+            "user": 31000,
+            "system": 0
+          },
+          "callWindow": {
+            "startMonotonicMs": 71494.3995,
+            "endMonotonicMs": 71535.4654
+          }
+        },
+        {
+          "id": "b51910ee-dd16-4fe0-800e-9d770a7e900f:native:9",
+          "lane": "native",
+          "index": 9,
+          "threadCounterMicroseconds": {
+            "user": 0,
+            "system": 0
+          },
+          "callWindow": {
+            "startMonotonicMs": 72104.0585,
+            "endMonotonicMs": 72142.4556
+          }
+        },
+        {
+          "id": "b51910ee-dd16-4fe0-800e-9d770a7e900f:flarex:9",
+          "lane": "flarex",
+          "index": 9,
+          "threadCounterMicroseconds": {
+            "user": 125000,
+            "system": 0
+          },
+          "callWindow": {
+            "startMonotonicMs": 73011.7141,
+            "endMonotonicMs": 73256.0701
+          }
+        },
+        {
+          "id": "b51910ee-dd16-4fe0-800e-9d770a7e900f:flarex:10",
+          "lane": "flarex",
+          "index": 10,
+          "threadCounterMicroseconds": {
+            "user": 125000,
+            "system": 0
+          },
+          "callWindow": {
+            "startMonotonicMs": 75318.1537,
+            "endMonotonicMs": 75568.1753
+          }
+        },
+        {
+          "id": "b51910ee-dd16-4fe0-800e-9d770a7e900f:native:10",
+          "lane": "native",
+          "index": 10,
+          "threadCounterMicroseconds": {
+            "user": 32000,
+            "system": 0
+          },
+          "callWindow": {
+            "startMonotonicMs": 77278.8753,
+            "endMonotonicMs": 77318.6979
+          }
+        },
+        {
+          "id": "b51910ee-dd16-4fe0-800e-9d770a7e900f:native:11",
+          "lane": "native",
+          "index": 11,
+          "threadCounterMicroseconds": {
+            "user": 31000,
+            "system": 0
+          },
+          "callWindow": {
+            "startMonotonicMs": 77846.4243,
+            "endMonotonicMs": 77887.5851
+          }
+        },
+        {
+          "id": "b51910ee-dd16-4fe0-800e-9d770a7e900f:flarex:11",
+          "lane": "flarex",
+          "index": 11,
+          "threadCounterMicroseconds": {
+            "user": 187000,
+            "system": 0
+          },
+          "callWindow": {
+            "startMonotonicMs": 78720.2763,
+            "endMonotonicMs": 78969.7467
+          }
+        },
+        {
+          "id": "b51910ee-dd16-4fe0-800e-9d770a7e900f:flarex:12",
+          "lane": "flarex",
+          "index": 12,
+          "threadCounterMicroseconds": {
+            "user": 156000,
+            "system": 0
+          },
+          "callWindow": {
+            "startMonotonicMs": 81032.0866,
+            "endMonotonicMs": 81277.8727
+          }
+        },
+        {
+          "id": "b51910ee-dd16-4fe0-800e-9d770a7e900f:native:12",
+          "lane": "native",
+          "index": 12,
+          "threadCounterMicroseconds": {
+            "user": 47000,
+            "system": 0
+          },
+          "callWindow": {
+            "startMonotonicMs": 83040.7712,
+            "endMonotonicMs": 83078.7205
+          }
+        },
+        {
+          "id": "b51910ee-dd16-4fe0-800e-9d770a7e900f:native:13",
+          "lane": "native",
+          "index": 13,
+          "threadCounterMicroseconds": {
+            "user": 47000,
+            "system": 0
+          },
+          "callWindow": {
+            "startMonotonicMs": 83647.0997,
+            "endMonotonicMs": 83686.3183
+          }
+        },
+        {
+          "id": "b51910ee-dd16-4fe0-800e-9d770a7e900f:flarex:13",
+          "lane": "flarex",
+          "index": 13,
+          "threadCounterMicroseconds": {
+            "user": 141000,
+            "system": 16000
+          },
+          "callWindow": {
+            "startMonotonicMs": 84650.0525,
+            "endMonotonicMs": 84918.3052
+          }
+        },
+        {
+          "id": "b51910ee-dd16-4fe0-800e-9d770a7e900f:flarex:14",
+          "lane": "flarex",
+          "index": 14,
+          "threadCounterMicroseconds": {
+            "user": 172000,
+            "system": 0
+          },
+          "callWindow": {
+            "startMonotonicMs": 87087.2706,
+            "endMonotonicMs": 87337.1741
+          }
+        },
+        {
+          "id": "b51910ee-dd16-4fe0-800e-9d770a7e900f:native:14",
+          "lane": "native",
+          "index": 14,
+          "threadCounterMicroseconds": {
+            "user": 31000,
+            "system": 0
+          },
+          "callWindow": {
+            "startMonotonicMs": 89305.7523,
+            "endMonotonicMs": 89356.1789
+          }
+        }
+      ],
+      "profileLocation": {
+        "counts": {
+          "request admission": {
+            "Effect": 24,
+            "flarex-protocol": 5,
+            "persistence-postgres": 18,
+            "Drizzle": 12,
+            "(idle)": 42,
+            "Node": 14,
+            "other": 12,
+            "Medusa": 1,
+            "(program)": 1
+          },
+          "portable runtime execution": {
+            "other": 48,
+            "(idle)": 313,
+            "Effect": 227,
+            "persistence-postgres": 178,
+            "Medusa": 32,
+            "flarex-protocol": 77,
+            "(garbage collector)": 16,
+            "(program)": 7,
+            "pg": 19,
+            "Node": 42,
+            "Drizzle": 5
+          },
+          "finite freeze and validation": {
+            "Node": 6,
+            "flarex-protocol": 4,
+            "other": 2,
+            "Effect": 1,
+            "persistence-postgres": 1
+          },
+          "authoritative publication": {
+            "persistence-postgres": 43,
+            "other": 29,
+            "flarex-protocol": 27,
+            "(idle)": 304,
+            "Effect": 37,
+            "Drizzle": 33,
+            "Node": 6,
+            "(program)": 6,
+            "pg": 8,
+            "(garbage collector)": 4
+          }
+        },
+        "effect": {
+          "request admission": {
+            "internal/effect": 16,
+            "Context": 3,
+            "SchemaAST": 4,
+            "other Effect": 1
+          },
+          "portable runtime execution": {
+            "internal/effect": 124,
+            "other Effect": 42,
+            "SchemaAST": 30,
+            "Result/Option": 17,
+            "SchemaParser": 9,
+            "Context": 5
+          },
+          "authoritative publication": {
+            "internal/effect": 18,
+            "other Effect": 6,
+            "Result/Option": 2,
+            "SchemaAST": 5,
+            "Context": 2,
+            "SchemaParser": 4
+          },
+          "finite freeze and validation": {
+            "internal/effect": 1
+          }
+        },
+        "uncertain": {
+          "outside": 98,
+          "boundary": 7,
+          "phaseBoundary": 10
+        },
+        "note": "Terminal self sample counts in original complete-call windows and six phase intervals for all admitted clock offsets. Counts are sampled locations, not exclusive CPU durations or removable costs."
+      },
+      "artifacts": [
+        {
+          "path": "work/validation/shared-execution-evidence/cpu-excess-investigation/paired-profiles/b51910ee-dd16-4fe0-800e-9d770a7e900f.json",
+          "sha256": "1c5b301c273040efa6df7b693617ad7bc1624f1925e95d2229dd547da8180898",
+          "bytes": 72771
+        },
+        {
+          "path": "work/validation/shared-execution-evidence/cpu-excess-investigation/paired-profiles/paired-ledger.json",
+          "sha256": "ebd5a07f3af8eed6af6d43bbc17ae270b44e93d68c621ff01399592b8ffc557a",
+          "bytes": 4747851
+        },
+        {
+          "path": "work/validation/shared-execution-evidence/cpu-excess-investigation/paired-profiles/phase-summary.json",
+          "sha256": "3efdb4c9ce390e86dff9d1221768aac546629cf62238a26e4d48ad3550f8e935",
+          "bytes": 14203
+        }
+      ]
+    },
+    {
+      "lane": "phase-counters",
+      "profileEnabled": false,
+      "phaseCountersEnabled": true,
+      "allocations": false,
+      "runId": "00e11aca-44c6-42e1-abe4-796b7407d453",
+      "sources": {
+        "before": "e3cd9296110adfb122edeb84dfdf1bdf3325859580e1b5d1fec2bcbe8ec07118",
+        "after": "e3cd9296110adfb122edeb84dfdf1bdf3325859580e1b5d1fec2bcbe8ec07118",
+        "files": 6962
+      },
+      "execution": "complete",
+      "cleanup": "completed",
+      "gates": [
+        {
+          "name": "sourceStability",
+          "passed": true,
+          "detail": "Authored package code, locks and loaded native sources remain stable"
+        },
+        {
+          "name": "settingsStability",
+          "passed": true,
+          "detail": "Ordinary-role durable settings are retained before and after"
+        },
+        {
+          "name": "cleanup",
+          "passed": true,
+          "detail": "Owned command resources drained"
+        }
+      ],
+      "addedThreadCpu": {
+        "count": 10,
+        "min": 110,
+        "median": 179.5,
+        "max": 312
+      },
+      "actualAddedPairsMs": [
+        111,
+        204,
+        172,
+        171,
+        187,
+        251,
+        125,
+        312,
+        281,
+        110
+      ],
+      "laneThreadCpu": {
+        "native": {
+          "count": 10,
+          "min": 0,
+          "median": 31.5,
+          "max": 61
+        },
+        "flarex": {
+          "count": 10,
+          "min": 156,
+          "median": 218.5,
+          "max": 344
+        }
+      },
+      "phaseCpu": [
+        {
+          "name": "request admission",
+          "cpu": {
+            "count": 10,
+            "min": 0,
+            "median": 31,
+            "max": 47
+          },
+          "wall": {
+            "count": 10,
+            "min": 21.892900000006193,
+            "median": 26.856500000008964,
+            "max": 39.60910000000149
+          }
+        },
+        {
+          "name": "portable runtime execution",
+          "cpu": {
+            "count": 10,
+            "min": 78,
+            "median": 141,
+            "max": 251
+          },
+          "wall": {
+            "count": 10,
+            "min": 206.9100000000035,
+            "median": 239.26545000000624,
+            "max": 383.64970000000903
+          }
+        },
+        {
+          "name": "runtime result validation",
+          "cpu": {
+            "count": 10,
+            "min": 0,
+            "median": 0,
+            "max": 0
+          },
+          "wall": {
+            "count": 10,
+            "min": 0.4028999999864027,
+            "median": 0.6172500000102445,
+            "max": 1.011499999993248
+          }
+        },
+        {
+          "name": "finite freeze and validation",
+          "cpu": {
+            "count": 10,
+            "min": 0,
+            "median": 0,
+            "max": 16
+          },
+          "wall": {
+            "count": 10,
+            "min": 2.357399999978952,
+            "median": 3.109150000003865,
+            "max": 4.9984999999869615
+          }
+        },
+        {
+          "name": "authoritative publication",
+          "cpu": {
+            "count": 10,
+            "min": 16,
+            "median": 47,
+            "max": 62
+          },
+          "wall": {
+            "count": 10,
+            "min": 88.95569999999134,
+            "median": 98.9056500000006,
+            "max": 169.0326000000059
+          }
+        },
+        {
+          "name": "complete call cleanup",
+          "cpu": {
+            "count": 10,
+            "min": 0,
+            "median": 0,
+            "max": 16
+          },
+          "wall": {
+            "count": 10,
+            "min": 0.32730000000447035,
+            "median": 0.4262000000162516,
+            "max": 0.6820999999763444
+          }
+        }
+      ],
+      "flarexPhaseRoots": [
+        {
+          "id": "00e11aca-44c6-42e1-abe4-796b7407d453:flarex:5",
+          "cpuMs": 172,
+          "phases": [
+            {
+              "name": "request admission",
+              "cpuMs": 31,
+              "wallMs": 26.87660000001779
+            },
+            {
+              "name": "portable runtime execution",
+              "cpuMs": 110,
+              "wallMs": 237.0219999999972
+            },
+            {
+              "name": "runtime result validation",
+              "cpuMs": 0,
+              "wallMs": 0.4400999999779742
+            },
+            {
+              "name": "finite freeze and validation",
+              "cpuMs": 0,
+              "wallMs": 3.224500000011176
+            },
+            {
+              "name": "authoritative publication",
+              "cpuMs": 31,
+              "wallMs": 100.22239999999874
+            },
+            {
+              "name": "complete call cleanup",
+              "cpuMs": 0,
+              "wallMs": 0.37880000000586733
+            }
+          ],
+          "phaseCpuMs": 172
+        },
+        {
+          "id": "00e11aca-44c6-42e1-abe4-796b7407d453:flarex:6",
+          "cpuMs": 235,
+          "phases": [
+            {
+              "name": "request admission",
+              "cpuMs": 47,
+              "wallMs": 39.60910000000149
+            },
+            {
+              "name": "portable runtime execution",
+              "cpuMs": 141,
+              "wallMs": 286.56930000000284
+            },
+            {
+              "name": "runtime result validation",
+              "cpuMs": 0,
+              "wallMs": 0.7312000000092667
+            },
+            {
+              "name": "finite freeze and validation",
+              "cpuMs": 0,
+              "wallMs": 3.274600000004284
+            },
+            {
+              "name": "authoritative publication",
+              "cpuMs": 47,
+              "wallMs": 97.58890000000247
+            },
+            {
+              "name": "complete call cleanup",
+              "cpuMs": 0,
+              "wallMs": 0.4882000000216067
+            }
+          ],
+          "phaseCpuMs": 235
+        },
+        {
+          "id": "00e11aca-44c6-42e1-abe4-796b7407d453:flarex:7",
+          "cpuMs": 219,
+          "phases": [
+            {
+              "name": "request admission",
+              "cpuMs": 0,
+              "wallMs": 28.331999999994878
+            },
+            {
+              "name": "portable runtime execution",
+              "cpuMs": 172,
+              "wallMs": 241.50890000001527
+            },
+            {
+              "name": "runtime result validation",
+              "cpuMs": 0,
+              "wallMs": 0.7758000000030734
+            },
+            {
+              "name": "finite freeze and validation",
+              "cpuMs": 0,
+              "wallMs": 2.9891000000061467
+            },
+            {
+              "name": "authoritative publication",
+              "cpuMs": 47,
+              "wallMs": 91.81280000001425
+            },
+            {
+              "name": "complete call cleanup",
+              "cpuMs": 0,
+              "wallMs": 0.43559999999706633
+            }
+          ],
+          "phaseCpuMs": 219
+        },
+        {
+          "id": "00e11aca-44c6-42e1-abe4-796b7407d453:flarex:8",
+          "cpuMs": 218,
+          "phases": [
+            {
+              "name": "request admission",
+              "cpuMs": 31,
+              "wallMs": 23.85099999999511
+            },
+            {
+              "name": "portable runtime execution",
+              "cpuMs": 141,
+              "wallMs": 218.85779999999795
+            },
+            {
+              "name": "runtime result validation",
+              "cpuMs": 0,
+              "wallMs": 0.5537000000185799
+            },
+            {
+              "name": "finite freeze and validation",
+              "cpuMs": 0,
+              "wallMs": 2.5191000000049826
+            },
+            {
+              "name": "authoritative publication",
+              "cpuMs": 46,
+              "wallMs": 94.35989999998128
+            },
+            {
+              "name": "complete call cleanup",
+              "cpuMs": 0,
+              "wallMs": 0.41940000001341105
+            }
+          ],
+          "phaseCpuMs": 218
+        },
+        {
+          "id": "00e11aca-44c6-42e1-abe4-796b7407d453:flarex:9",
+          "cpuMs": 203,
+          "phases": [
+            {
+              "name": "request admission",
+              "cpuMs": 31,
+              "wallMs": 23.840400000015507
+            },
+            {
+              "name": "portable runtime execution",
+              "cpuMs": 125,
+              "wallMs": 219.6860999999917
+            },
+            {
+              "name": "runtime result validation",
+              "cpuMs": 0,
+              "wallMs": 0.4666999999899417
+            },
+            {
+              "name": "finite freeze and validation",
+              "cpuMs": 0,
+              "wallMs": 2.4280000000144355
+            },
+            {
+              "name": "authoritative publication",
+              "cpuMs": 47,
+              "wallMs": 88.95569999999134
+            },
+            {
+              "name": "complete call cleanup",
+              "cpuMs": 0,
+              "wallMs": 0.4330000000190921
+            }
+          ],
+          "phaseCpuMs": 203
+        },
+        {
+          "id": "00e11aca-44c6-42e1-abe4-796b7407d453:flarex:10",
+          "cpuMs": 251,
+          "phases": [
+            {
+              "name": "request admission",
+              "cpuMs": 32,
+              "wallMs": 30.765500000008615
+            },
+            {
+              "name": "portable runtime execution",
+              "cpuMs": 188,
+              "wallMs": 324.0948999999964
+            },
+            {
+              "name": "runtime result validation",
+              "cpuMs": 0,
+              "wallMs": 0.48640000002342276
+            },
+            {
+              "name": "finite freeze and validation",
+              "cpuMs": 0,
+              "wallMs": 2.993799999996554
+            },
+            {
+              "name": "authoritative publication",
+              "cpuMs": 31,
+              "wallMs": 110.32310000000871
+            },
+            {
+              "name": "complete call cleanup",
+              "cpuMs": 0,
+              "wallMs": 0.467899999988731
+            }
+          ],
+          "phaseCpuMs": 251
+        },
+        {
+          "id": "00e11aca-44c6-42e1-abe4-796b7407d453:flarex:11",
+          "cpuMs": 156,
+          "phases": [
+            {
+              "name": "request admission",
+              "cpuMs": 15,
+              "wallMs": 23.162699999986216
+            },
+            {
+              "name": "portable runtime execution",
+              "cpuMs": 78,
+              "wallMs": 206.9100000000035
+            },
+            {
+              "name": "runtime result validation",
+              "cpuMs": 0,
+              "wallMs": 0.6808000000019092
+            },
+            {
+              "name": "finite freeze and validation",
+              "cpuMs": 16,
+              "wallMs": 3.70240000000922
+            },
+            {
+              "name": "authoritative publication",
+              "cpuMs": 47,
+              "wallMs": 108.78369999999995
+            },
+            {
+              "name": "complete call cleanup",
+              "cpuMs": 0,
+              "wallMs": 0.36389999999664724
+            }
+          ],
+          "phaseCpuMs": 156
+        },
+        {
+          "id": "00e11aca-44c6-42e1-abe4-796b7407d453:flarex:12",
+          "cpuMs": 344,
+          "phases": [
+            {
+              "name": "request admission",
+              "cpuMs": 31,
+              "wallMs": 39.48530000000028
+            },
+            {
+              "name": "portable runtime execution",
+              "cpuMs": 251,
+              "wallMs": 383.64970000000903
+            },
+            {
+              "name": "runtime result validation",
+              "cpuMs": 0,
+              "wallMs": 1.011499999993248
+            },
+            {
+              "name": "finite freeze and validation",
+              "cpuMs": 0,
+              "wallMs": 4.340700000000652
+            },
+            {
+              "name": "authoritative publication",
+              "cpuMs": 62,
+              "wallMs": 133.46770000000834
+            },
+            {
+              "name": "complete call cleanup",
+              "cpuMs": 0,
+              "wallMs": 0.32730000000447035
+            }
+          ],
+          "phaseCpuMs": 344
+        },
+        {
+          "id": "00e11aca-44c6-42e1-abe4-796b7407d453:flarex:13",
+          "cpuMs": 312,
+          "phases": [
+            {
+              "name": "request admission",
+              "cpuMs": 31,
+              "wallMs": 26.83640000000014
+            },
+            {
+              "name": "portable runtime execution",
+              "cpuMs": 187,
+              "wallMs": 268.07950000002165
+            },
+            {
+              "name": "runtime result validation",
+              "cpuMs": 0,
+              "wallMs": 0.9334000000089873
+            },
+            {
+              "name": "finite freeze and validation",
+              "cpuMs": 16,
+              "wallMs": 4.9984999999869615
+            },
+            {
+              "name": "authoritative publication",
+              "cpuMs": 62,
+              "wallMs": 169.0326000000059
+            },
+            {
+              "name": "complete call cleanup",
+              "cpuMs": 16,
+              "wallMs": 0.6820999999763444
+            }
+          ],
+          "phaseCpuMs": 312
+        },
+        {
+          "id": "00e11aca-44c6-42e1-abe4-796b7407d453:flarex:14",
+          "cpuMs": 157,
+          "phases": [
+            {
+              "name": "request admission",
+              "cpuMs": 16,
+              "wallMs": 21.892900000006193
+            },
+            {
+              "name": "portable runtime execution",
+              "cpuMs": 94,
+              "wallMs": 211.90669999999227
+            },
+            {
+              "name": "runtime result validation",
+              "cpuMs": 0,
+              "wallMs": 0.4028999999864027
+            },
+            {
+              "name": "finite freeze and validation",
+              "cpuMs": 15,
+              "wallMs": 2.357399999978952
+            },
+            {
+              "name": "authoritative publication",
+              "cpuMs": 16,
+              "wallMs": 92.66820000001462
+            },
+            {
+              "name": "complete call cleanup",
+              "cpuMs": 16,
+              "wallMs": 0.3520000000135042
+            }
+          ],
+          "phaseCpuMs": 157
+        }
+      ],
+      "diagnosticRoots": [
+        {
+          "id": "00e11aca-44c6-42e1-abe4-796b7407d453:native:5",
+          "lane": "native",
+          "index": 5,
+          "threadCounterMicroseconds": {
+            "user": 46000,
+            "system": 15000
+          },
+          "callWindow": {
+            "startMonotonicMs": 190633.7221,
+            "endMonotonicMs": 190720.2434
+          }
+        },
+        {
+          "id": "00e11aca-44c6-42e1-abe4-796b7407d453:flarex:5",
+          "lane": "flarex",
+          "index": 5,
+          "threadCounterMicroseconds": {
+            "user": 172000,
+            "system": 0
+          },
+          "callWindow": {
+            "startMonotonicMs": 191248.3891,
+            "endMonotonicMs": 191616.7046
+          }
+        },
+        {
+          "id": "00e11aca-44c6-42e1-abe4-796b7407d453:flarex:6",
+          "lane": "flarex",
+          "index": 6,
+          "threadCounterMicroseconds": {
+            "user": 235000,
+            "system": 0
+          },
+          "callWindow": {
+            "startMonotonicMs": 193931.131,
+            "endMonotonicMs": 194359.599
+          }
+        },
+        {
+          "id": "00e11aca-44c6-42e1-abe4-796b7407d453:native:6",
+          "lane": "native",
+          "index": 6,
+          "threadCounterMicroseconds": {
+            "user": 31000,
+            "system": 0
+          },
+          "callWindow": {
+            "startMonotonicMs": 196029.613,
+            "endMonotonicMs": 196089.8167
+          }
+        },
+        {
+          "id": "00e11aca-44c6-42e1-abe4-796b7407d453:native:7",
+          "lane": "native",
+          "index": 7,
+          "threadCounterMicroseconds": {
+            "user": 47000,
+            "system": 0
+          },
+          "callWindow": {
+            "startMonotonicMs": 196145.5593,
+            "endMonotonicMs": 196213.6226
+          }
+        },
+        {
+          "id": "00e11aca-44c6-42e1-abe4-796b7407d453:flarex:7",
+          "lane": "flarex",
+          "index": 7,
+          "threadCounterMicroseconds": {
+            "user": 219000,
+            "system": 0
+          },
+          "callWindow": {
+            "startMonotonicMs": 196725.9785,
+            "endMonotonicMs": 197091.9503
+          }
+        },
+        {
+          "id": "00e11aca-44c6-42e1-abe4-796b7407d453:flarex:8",
+          "lane": "flarex",
+          "index": 8,
+          "threadCounterMicroseconds": {
+            "user": 203000,
+            "system": 15000
+          },
+          "callWindow": {
+            "startMonotonicMs": 199089.4228,
+            "endMonotonicMs": 199430.0958
+          }
+        },
+        {
+          "id": "00e11aca-44c6-42e1-abe4-796b7407d453:native:8",
+          "lane": "native",
+          "index": 8,
+          "threadCounterMicroseconds": {
+            "user": 31000,
+            "system": 16000
+          },
+          "callWindow": {
+            "startMonotonicMs": 201070.3457,
+            "endMonotonicMs": 201126.2622
+          }
+        },
+        {
+          "id": "00e11aca-44c6-42e1-abe4-796b7407d453:native:9",
+          "lane": "native",
+          "index": 9,
+          "threadCounterMicroseconds": {
+            "user": 16000,
+            "system": 0
+          },
+          "callWindow": {
+            "startMonotonicMs": 201162.1611,
+            "endMonotonicMs": 201216.102
+          }
+        },
+        {
+          "id": "00e11aca-44c6-42e1-abe4-796b7407d453:flarex:9",
+          "lane": "flarex",
+          "index": 9,
+          "threadCounterMicroseconds": {
+            "user": 203000,
+            "system": 0
+          },
+          "callWindow": {
+            "startMonotonicMs": 201758.8512,
+            "endMonotonicMs": 202094.778
+          }
+        },
+        {
+          "id": "00e11aca-44c6-42e1-abe4-796b7407d453:flarex:10",
+          "lane": "flarex",
+          "index": 10,
+          "threadCounterMicroseconds": {
+            "user": 235000,
+            "system": 16000
+          },
+          "callWindow": {
+            "startMonotonicMs": 204218.5216,
+            "endMonotonicMs": 204687.7778
+          }
+        },
+        {
+          "id": "00e11aca-44c6-42e1-abe4-796b7407d453:native:10",
+          "lane": "native",
+          "index": 10,
+          "threadCounterMicroseconds": {
+            "user": 0,
+            "system": 0
+          },
+          "callWindow": {
+            "startMonotonicMs": 206333.0691,
+            "endMonotonicMs": 206393.1616
+          }
+        },
+        {
+          "id": "00e11aca-44c6-42e1-abe4-796b7407d453:native:11",
+          "lane": "native",
+          "index": 11,
+          "threadCounterMicroseconds": {
+            "user": 31000,
+            "system": 0
+          },
+          "callWindow": {
+            "startMonotonicMs": 206436.014,
+            "endMonotonicMs": 206500.1462
+          }
+        },
+        {
+          "id": "00e11aca-44c6-42e1-abe4-796b7407d453:flarex:11",
+          "lane": "flarex",
+          "index": 11,
+          "threadCounterMicroseconds": {
+            "user": 156000,
+            "system": 0
+          },
+          "callWindow": {
+            "startMonotonicMs": 206988.7529,
+            "endMonotonicMs": 207332.4549
+          }
+        },
+        {
+          "id": "00e11aca-44c6-42e1-abe4-796b7407d453:flarex:12",
+          "lane": "flarex",
+          "index": 12,
+          "threadCounterMicroseconds": {
+            "user": 328000,
+            "system": 16000
+          },
+          "callWindow": {
+            "startMonotonicMs": 209525.7488,
+            "endMonotonicMs": 210088.1539
+          }
+        },
+        {
+          "id": "00e11aca-44c6-42e1-abe4-796b7407d453:native:12",
+          "lane": "native",
+          "index": 12,
+          "threadCounterMicroseconds": {
+            "user": 32000,
+            "system": 0
+          },
+          "callWindow": {
+            "startMonotonicMs": 211917.4407,
+            "endMonotonicMs": 211966.5331
+          }
+        },
+        {
+          "id": "00e11aca-44c6-42e1-abe4-796b7407d453:native:13",
+          "lane": "native",
+          "index": 13,
+          "threadCounterMicroseconds": {
+            "user": 16000,
+            "system": 15000
+          },
+          "callWindow": {
+            "startMonotonicMs": 211998.667,
+            "endMonotonicMs": 212046.7406
+          }
+        },
+        {
+          "id": "00e11aca-44c6-42e1-abe4-796b7407d453:flarex:13",
+          "lane": "flarex",
+          "index": 13,
+          "threadCounterMicroseconds": {
+            "user": 297000,
+            "system": 15000
+          },
+          "callWindow": {
+            "startMonotonicMs": 212546.475,
+            "endMonotonicMs": 213017.2345
+          }
+        },
+        {
+          "id": "00e11aca-44c6-42e1-abe4-796b7407d453:flarex:14",
+          "lane": "flarex",
+          "index": 14,
+          "threadCounterMicroseconds": {
+            "user": 157000,
+            "system": 0
+          },
+          "callWindow": {
+            "startMonotonicMs": 215202.9209,
+            "endMonotonicMs": 215532.5906
+          }
+        },
+        {
+          "id": "00e11aca-44c6-42e1-abe4-796b7407d453:native:14",
+          "lane": "native",
+          "index": 14,
+          "threadCounterMicroseconds": {
+            "user": 47000,
+            "system": 0
+          },
+          "callWindow": {
+            "startMonotonicMs": 217219.8512,
+            "endMonotonicMs": 217284.6392
+          }
+        }
+      ],
+      "profileLocation": null,
+      "artifacts": [
+        {
+          "path": "work/validation/shared-execution-evidence/cpu-excess-investigation/phase-counters/00e11aca-44c6-42e1-abe4-796b7407d453.json",
+          "sha256": "7c8ad12856ed4355d3ac2fc6c8f6ceb7cd5c2f341784e13019677d2a291677a2",
+          "bytes": 73102
+        },
+        {
+          "path": "work/validation/shared-execution-evidence/cpu-excess-investigation/phase-counters/paired-ledger.json",
+          "sha256": "32c724fdb4faf861e1ce527efd2b24395cf79c0ce4b9c22f5390fe2492757309",
+          "bytes": 22979
+        },
+        {
+          "path": "work/validation/shared-execution-evidence/cpu-excess-investigation/phase-counters/phase-summary.json",
+          "sha256": "c7b59d2c71e8cca0db8d9925f447833d373d4beb6dfc0f9bfe85277557479a16",
+          "bytes": 12190
+        }
+      ]
+    },
+    {
+      "lane": "counter-repeat",
+      "profileEnabled": false,
+      "phaseCountersEnabled": false,
+      "allocations": false,
+      "runId": "b3a1ac3c-69b7-4e2c-8c77-765a7826d684",
+      "sources": {
+        "before": "e3cd9296110adfb122edeb84dfdf1bdf3325859580e1b5d1fec2bcbe8ec07118",
+        "after": "e3cd9296110adfb122edeb84dfdf1bdf3325859580e1b5d1fec2bcbe8ec07118",
+        "files": 6962
+      },
+      "execution": "complete",
+      "cleanup": "completed",
+      "gates": [
+        {
+          "name": "sourceStability",
+          "passed": true,
+          "detail": "Authored package code, locks and loaded native sources remain stable"
+        },
+        {
+          "name": "settingsStability",
+          "passed": true,
+          "detail": "Ordinary-role durable settings are retained before and after"
+        },
+        {
+          "name": "cleanup",
+          "passed": true,
+          "detail": "Owned command resources drained"
+        }
+      ],
+      "addedThreadCpu": {
+        "count": 5,
+        "min": 93,
+        "median": 125,
+        "max": 188
+      },
+      "actualAddedPairsMs": [
+        188,
+        125,
+        93,
+        141,
+        108
+      ],
+      "laneThreadCpu": {
+        "native": {
+          "count": 5,
+          "min": 31,
+          "median": 47,
+          "max": 63
+        },
+        "flarex": {
+          "count": 5,
+          "min": 140,
+          "median": 171,
+          "max": 234
+        }
+      },
+      "phaseCpu": [],
+      "flarexPhaseRoots": [
+        {
+          "id": "b3a1ac3c-69b7-4e2c-8c77-765a7826d684:flarex:5",
+          "cpuMs": 234,
+          "phases": [],
+          "phaseCpuMs": 0
+        },
+        {
+          "id": "b3a1ac3c-69b7-4e2c-8c77-765a7826d684:flarex:6",
+          "cpuMs": 156,
+          "phases": [],
+          "phaseCpuMs": 0
+        },
+        {
+          "id": "b3a1ac3c-69b7-4e2c-8c77-765a7826d684:flarex:7",
+          "cpuMs": 140,
+          "phases": [],
+          "phaseCpuMs": 0
+        },
+        {
+          "id": "b3a1ac3c-69b7-4e2c-8c77-765a7826d684:flarex:8",
+          "cpuMs": 204,
+          "phases": [],
+          "phaseCpuMs": 0
+        },
+        {
+          "id": "b3a1ac3c-69b7-4e2c-8c77-765a7826d684:flarex:9",
+          "cpuMs": 171,
+          "phases": [],
+          "phaseCpuMs": 0
+        }
+      ],
+      "diagnosticRoots": [
+        {
+          "id": "b3a1ac3c-69b7-4e2c-8c77-765a7826d684:native:5",
+          "lane": "native",
+          "index": 5,
+          "threadCounterMicroseconds": {
+            "user": 15000,
+            "system": 31000
+          },
+          "callWindow": {
+            "startMonotonicMs": 134679.4582,
+            "endMonotonicMs": 134730.4932
+          }
+        },
+        {
+          "id": "b3a1ac3c-69b7-4e2c-8c77-765a7826d684:flarex:5",
+          "lane": "flarex",
+          "index": 5,
+          "threadCounterMicroseconds": {
+            "user": 234000,
+            "system": 0
+          },
+          "callWindow": {
+            "startMonotonicMs": 135139.798,
+            "endMonotonicMs": 135465.2408
+          }
+        },
+        {
+          "id": "b3a1ac3c-69b7-4e2c-8c77-765a7826d684:flarex:6",
+          "lane": "flarex",
+          "index": 6,
+          "threadCounterMicroseconds": {
+            "user": 156000,
+            "system": 0
+          },
+          "callWindow": {
+            "startMonotonicMs": 137368.9297,
+            "endMonotonicMs": 137700.2695
+          }
+        },
+        {
+          "id": "b3a1ac3c-69b7-4e2c-8c77-765a7826d684:native:6",
+          "lane": "native",
+          "index": 6,
+          "threadCounterMicroseconds": {
+            "user": 31000,
+            "system": 0
+          },
+          "callWindow": {
+            "startMonotonicMs": 139137.6911,
+            "endMonotonicMs": 139191.9469
+          }
+        },
+        {
+          "id": "b3a1ac3c-69b7-4e2c-8c77-765a7826d684:native:7",
+          "lane": "native",
+          "index": 7,
+          "threadCounterMicroseconds": {
+            "user": 47000,
+            "system": 0
+          },
+          "callWindow": {
+            "startMonotonicMs": 139227.2721,
+            "endMonotonicMs": 139284.9992
+          }
+        },
+        {
+          "id": "b3a1ac3c-69b7-4e2c-8c77-765a7826d684:flarex:7",
+          "lane": "flarex",
+          "index": 7,
+          "threadCounterMicroseconds": {
+            "user": 125000,
+            "system": 15000
+          },
+          "callWindow": {
+            "startMonotonicMs": 139674.975,
+            "endMonotonicMs": 139998.5513
+          }
+        },
+        {
+          "id": "b3a1ac3c-69b7-4e2c-8c77-765a7826d684:flarex:8",
+          "lane": "flarex",
+          "index": 8,
+          "threadCounterMicroseconds": {
+            "user": 204000,
+            "system": 0
+          },
+          "callWindow": {
+            "startMonotonicMs": 141808.2251,
+            "endMonotonicMs": 142135.7005
+          }
+        },
+        {
+          "id": "b3a1ac3c-69b7-4e2c-8c77-765a7826d684:native:8",
+          "lane": "native",
+          "index": 8,
+          "threadCounterMicroseconds": {
+            "user": 63000,
+            "system": 0
+          },
+          "callWindow": {
+            "startMonotonicMs": 143600.6841,
+            "endMonotonicMs": 143668.7438
+          }
+        },
+        {
+          "id": "b3a1ac3c-69b7-4e2c-8c77-765a7826d684:native:9",
+          "lane": "native",
+          "index": 9,
+          "threadCounterMicroseconds": {
+            "user": 47000,
+            "system": 16000
+          },
+          "callWindow": {
+            "startMonotonicMs": 143722.4193,
+            "endMonotonicMs": 143805.7199
+          }
+        },
+        {
+          "id": "b3a1ac3c-69b7-4e2c-8c77-765a7826d684:flarex:9",
+          "lane": "flarex",
+          "index": 9,
+          "threadCounterMicroseconds": {
+            "user": 156000,
+            "system": 15000
+          },
+          "callWindow": {
+            "startMonotonicMs": 144204.4145,
+            "endMonotonicMs": 144511.8071
+          }
+        }
+      ],
+      "profileLocation": null,
+      "artifacts": [
+        {
+          "path": "work/validation/shared-execution-evidence/cpu-excess-investigation/counter-repeat/b3a1ac3c-69b7-4e2c-8c77-765a7826d684.json",
+          "sha256": "2f9f26d429a9587257099ed7074a34271398aefef369395b40ebe935e6448cd3",
+          "bytes": 47189
+        },
+        {
+          "path": "work/validation/shared-execution-evidence/cpu-excess-investigation/counter-repeat/paired-ledger.json",
+          "sha256": "622adde32dea936783d1c1864baddfa443aac3bb9a67ffb2206ccfecade4cb7d",
+          "bytes": 1277
+        },
+        {
+          "path": "work/validation/shared-execution-evidence/cpu-excess-investigation/counter-repeat/phase-summary.json",
+          "sha256": "effb58c813e004ca659b710a6ad4f8d46cc208aaa52fbca6f669214028abcaab",
+          "bytes": 1834
+        }
+      ]
+    }
+  ],
+  "pairedProfile": {
+    "admissibleClockOffset": {
+      "low": -60398254.7015,
+      "high": -60398254.25120001,
+      "uncertaintyMs": 0.4502999857068062,
+      "constraints": [
+        {
+          "id": "b51910ee-dd16-4fe0-800e-9d770a7e900f:native:5",
+          "name": "clockMarkerA",
+          "samples": 4,
+          "low": -60398256.3862,
+          "high": -60398254.2406
+        },
+        {
+          "id": "b51910ee-dd16-4fe0-800e-9d770a7e900f:native:5",
+          "name": "clockMarkerB",
+          "samples": 3,
+          "low": -60398257.02640001,
+          "high": -60398254.25120001
+        },
+        {
+          "id": "b51910ee-dd16-4fe0-800e-9d770a7e900f:flarex:6",
+          "name": "clockMarkerA",
+          "samples": 3,
+          "low": -60398258.271299995,
+          "high": -60398253.1047
+        },
+        {
+          "id": "b51910ee-dd16-4fe0-800e-9d770a7e900f:flarex:6",
+          "name": "clockMarkerB",
+          "samples": 4,
+          "low": -60398255.82369999,
+          "high": -60398253.24339999
+        },
+        {
+          "id": "b51910ee-dd16-4fe0-800e-9d770a7e900f:flarex:10",
+          "name": "clockMarkerA",
+          "samples": 3,
+          "low": -60398258.4934,
+          "high": -60398254.029
+        },
+        {
+          "id": "b51910ee-dd16-4fe0-800e-9d770a7e900f:flarex:10",
+          "name": "clockMarkerB",
+          "samples": 1,
+          "low": -60398258.05469998,
+          "high": -60398251.25429998
+        }
+      ]
+    },
+    "flarex": {
+      "nonIdleSelfSamples": 952,
+      "boundaryExcluded": 7,
+      "groups": [
+        {
+          "name": "Effect",
+          "selfSamples": 291,
+          "sharePercent": 30.567226890756306
+        },
+        {
+          "name": "persistence-postgres",
+          "selfSamples": 241,
+          "sharePercent": 25.31512605042017
+        },
+        {
+          "name": "flarex-protocol",
+          "selfSamples": 116,
+          "sharePercent": 12.184873949579831
+        },
+        {
+          "name": "Node",
+          "selfSamples": 69,
+          "sharePercent": 7.247899159663866
+        },
+        {
+          "name": "other",
+          "selfSamples": 67,
+          "sharePercent": 7.03781512605042
+        },
+        {
+          "name": "Drizzle",
+          "selfSamples": 50,
+          "sharePercent": 5.2521008403361344
+        },
+        {
+          "name": "Medusa",
+          "selfSamples": 33,
+          "sharePercent": 3.466386554621849
+        },
+        {
+          "name": "pg",
+          "selfSamples": 27,
+          "sharePercent": 2.8361344537815127
+        },
+        {
+          "name": "(garbage collector)",
+          "selfSamples": 20,
+          "sharePercent": 2.100840336134454
+        },
+        {
+          "name": "(program)",
+          "selfSamples": 14,
+          "sharePercent": 1.4705882352941175
+        },
+        {
+          "name": "executor",
+          "selfSamples": 7,
+          "sharePercent": 0.7352941176470588
+        },
+        {
+          "name": "Payload",
+          "selfSamples": 7,
+          "sharePercent": 0.7352941176470588
+        },
+        {
+          "name": "utils",
+          "selfSamples": 7,
+          "sharePercent": 0.7352941176470588
+        },
+        {
+          "name": "function-runtime",
+          "selfSamples": 2,
+          "sharePercent": 0.21008403361344538
+        },
+        {
+          "name": "time",
+          "selfSamples": 1,
+          "sharePercent": 0.10504201680672269
+        }
+      ],
+      "gcOverlapMs": {
+        "count": 10,
+        "min": 2.528599999845028,
+        "median": 3.081300001591444,
+        "max": 3.4510999992489815
+      }
+    },
+    "native": {
+      "nonIdleSelfSamples": 207,
+      "boundaryExcluded": 6,
+      "groups": [
+        {
+          "name": "Medusa",
+          "selfSamples": 150
+        },
+        {
+          "name": "other",
+          "selfSamples": 19
+        },
+        {
+          "name": "Drizzle",
+          "selfSamples": 9
+        },
+        {
+          "name": "Node",
+          "selfSamples": 8
+        },
+        {
+          "name": "pg",
+          "selfSamples": 7
+        },
+        {
+          "name": "Payload",
+          "selfSamples": 7
+        },
+        {
+          "name": "(program)",
+          "selfSamples": 5
+        },
+        {
+          "name": "(garbage collector)",
+          "selfSamples": 2
+        }
+      ],
+      "gcOverlapMs": {
+        "count": 10,
+        "min": 0,
+        "median": 0,
+        "max": 2.00620000064373
+      }
+    }
+  },
+  "currentDiagnosticTools": [
+    {
+      "path": "work/validation/shared-execution-evidence/cpu-excess-investigation/vitest.config.ts",
+      "sha256": "4d3375f1721b533baf3033c3be63ef39e3bc078ba7fda553d9329224403bf5be",
+      "bytes": 2191
+    },
+    {
+      "path": "work/validation/shared-execution-evidence/cpu-excess-investigation/paired.test.ts",
+      "sha256": "14475c1e06966437adc8ea84e993367f3037bcaac034b5a8825965951afc0ad1",
+      "bytes": 3698
+    },
+    {
+      "path": "work/validation/shared-execution-evidence/cpu-excess-investigation/analyze.cjs",
+      "sha256": "610b64f8a5835f74567e6c3f33bbe16c63559eb5fdf6e7bc2665902a399a1f92",
+      "bytes": 6606
+    },
+    {
+      "path": "work/validation/shared-execution-evidence/cpu-excess-investigation/phase-analysis.cjs",
+      "sha256": "9df6be477632f4fe8da7537647a626197c599e7f61d11ea80093869084a87f4a",
+      "bytes": 3858
+    },
+    {
+      "path": "work/validation/shared-execution-evidence/cpu-excess-investigation/receipt.cjs",
+      "sha256": "924922e6557ee548db4ad36ba27fd08781d5d3b157163bd06a632dc1654bd01e",
+      "bytes": 4598
+    }
+  ],
+  "limits": [
+    "Historical 125 ms, complete OCC 109 ms and all diagnostic cohorts remain separate observations; no causal saving is claimed.",
+    "Aggregate source inventories differ between the first two and latter two diagnostic cohorts. Exact differing file/owner not established.",
+    "Same-digest phase-only and counter-only runs are separate processes, not randomized observer on/off blocks; variance is not causally assigned.",
+    "Approximately 16 ms Windows counter quantization; zero counter delta is not zero real work; phase medians do not sum.",
+    "Sample counts locate terminal self frames and do not partition native-subtracted or removable CPU. No async ancestry is inferred.",
+    "Native independent business calls do not implement all Flarex atomic OCC/revision/history/durable-outcome guarantees.",
+    "External contention and same-isolate background work are not fully controlled. This campaign does not evaluate quiet latency acceptance.",
+    "Raw profiles/tools are retained locally under ignored evidence paths; this compact generated receipt and report are committed."
+  ]
+}

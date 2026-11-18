@@ -6,6 +6,7 @@ import {
   makePayloadContentProfiles,
 } from "@flarex/payload-adapter/internal/profile";
 import { makePayloadRuntime } from "@flarex/payload-adapter/internal/runtime";
+import { bindPayloadParticipant } from "@flarex/payload-adapter/internal/participant";
 import { makePayloadConformanceRuntime, UnsupportedPayloadCapability } from "@flarex/payload-adapter/internal/testing";
 
 it("resolves every declared private package subpath", () =>
@@ -14,6 +15,7 @@ it("resolves every declared private package subpath", () =>
     expect(Object.isFrozen(profiles)).toBe(true);
     expect(payloadIsManagedField("createdAt")).toBe(true);
     expect(makePayloadRuntime).toBeTypeOf("function");
+    expect(bindPayloadParticipant).toBeTypeOf("function");
     expect(compilePayloadCollections).toBeTypeOf("function");
     expect(makePayloadConformanceRuntime).toBeTypeOf("function");
     expect(new UnsupportedPayloadCapability("probe")).toBeInstanceOf(Error);

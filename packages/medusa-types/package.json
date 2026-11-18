@@ -3,6 +3,26 @@
   "version": "2.13.4",
   "private": true,
   "exports": {
+    "./order/common": {
+      "types": "./dist/order/common.d.ts",
+      "source": "./src/order/common.ts",
+      "default": "./dist/order/common.js"
+    },
+    "./order/workflows": {
+      "types": "./dist/order/workflows.d.ts",
+      "source": "./src/order/workflows.ts",
+      "default": "./dist/order/workflows.js"
+    },
+    "./caching/index": {
+      "types": "./dist/caching/index.d.ts",
+      "source": "./src/caching/index.ts",
+      "default": "./dist/caching/index.js"
+    },
+    "./feature-flag/index": {
+      "types": "./dist/feature-flag/index.d.ts",
+      "source": "./src/feature-flag/index.ts",
+      "default": "./dist/feature-flag/index.js"
+    },
     ".": {
       "types": "./dist/index.d.ts",
       "source": "./src/index.ts",
@@ -48,6 +68,11 @@
       "source": "./src/common/common.ts",
       "default": "./dist/common/common.js"
     },
+    "./common/rule": {
+      "types": "./dist/common/rule.d.ts",
+      "source": "./src/common/rule.ts",
+      "default": "./dist/common/rule.js"
+    },
     "./currency/service": {
       "types": "./dist/currency/service.d.ts",
       "source": "./src/currency/service.ts",
@@ -87,6 +112,131 @@
       "types": "./dist/pricing/index.d.ts",
       "source": "./src/pricing/index.ts",
       "default": "./dist/pricing/index.js"
+    },
+    "./workflows/products/mutations": {
+      "types": "./dist/workflows/products/mutations.d.ts",
+      "source": "./src/workflows/products/mutations.ts",
+      "default": "./dist/workflows/products/mutations.js"
+    },
+    "./workflow/fulfillment/service-zones": {
+      "types": "./dist/workflow/fulfillment/service-zones.d.ts",
+      "source": "./src/workflow/fulfillment/service-zones.ts",
+      "default": "./dist/workflow/fulfillment/service-zones.js"
+    },
+    "./locking/index": {
+      "types": "./dist/locking/index.d.ts",
+      "source": "./src/locking/index.ts",
+      "default": "./dist/locking/index.js"
+    },
+    "./workflows/stock-locations/mutations": {
+      "types": "./dist/workflows/stock-locations/mutations.d.ts",
+      "source": "./src/workflows/stock-locations/mutations.ts",
+      "default": "./dist/workflows/stock-locations/mutations.js"
+    },
+    "./cart/index": {
+      "types": "./dist/cart/index.d.ts",
+      "source": "./src/cart/index.ts",
+      "default": "./dist/cart/index.js"
+    },
+    "./cart/common": {
+      "types": "./dist/cart/common.d.ts",
+      "source": "./src/cart/common.ts",
+      "default": "./dist/cart/common.js"
+    },
+    "./cart/mutations": {
+      "types": "./dist/cart/mutations.d.ts",
+      "source": "./src/cart/mutations.ts",
+      "default": "./dist/cart/mutations.js"
+    },
+    "./cart/service": {
+      "types": "./dist/cart/service.d.ts",
+      "source": "./src/cart/service.ts",
+      "default": "./dist/cart/service.js"
+    },
+    "./customer/index": {
+      "types": "./dist/customer/index.d.ts",
+      "source": "./src/customer/index.ts",
+      "default": "./dist/customer/index.js"
+    },
+    "./customer/common": {
+      "types": "./dist/customer/common.d.ts",
+      "source": "./src/customer/common.ts",
+      "default": "./dist/customer/common.js"
+    },
+    "./customer/service": {
+      "types": "./dist/customer/service.d.ts",
+      "source": "./src/customer/service.ts",
+      "default": "./dist/customer/service.js"
+    },
+    "./customer/mutations": {
+      "types": "./dist/customer/mutations.d.ts",
+      "source": "./src/customer/mutations.ts",
+      "default": "./dist/customer/mutations.js"
+    },
+    "./tax/index": {
+      "types": "./dist/tax/index.d.ts",
+      "source": "./src/tax/index.ts",
+      "default": "./dist/tax/index.js"
+    },
+    "./promotion/index": {
+      "types": "./dist/promotion/index.d.ts",
+      "source": "./src/promotion/index.ts",
+      "default": "./dist/promotion/index.js"
+    },
+    "./payment/index": {
+      "types": "./dist/payment/index.d.ts",
+      "source": "./src/payment/index.ts",
+      "default": "./dist/payment/index.js"
+    },
+    "./totals/index": {
+      "types": "./dist/totals/index.d.ts",
+      "source": "./src/totals/index.ts",
+      "default": "./dist/totals/index.js"
+    },
+    "./order/index": {
+      "types": "./dist/order/index.d.ts",
+      "source": "./src/order/index.ts",
+      "default": "./dist/order/index.js"
+    },
+    "./api-key/index": {
+      "types": "./dist/api-key/index.d.ts",
+      "source": "./src/api-key/index.ts",
+      "default": "./dist/api-key/index.js"
+    },
+    "./api-key/service": {
+      "types": "./dist/api-key/service.d.ts",
+      "source": "./src/api-key/service.ts",
+      "default": "./dist/api-key/service.js"
+    },
+    "./api-key/common/index": {
+      "types": "./dist/api-key/common/index.d.ts",
+      "source": "./src/api-key/common/index.ts",
+      "default": "./dist/api-key/common/index.js"
+    },
+    "./api-key/common/api-key": {
+      "types": "./dist/api-key/common/api-key.d.ts",
+      "source": "./src/api-key/common/api-key.ts",
+      "default": "./dist/api-key/common/api-key.js"
+    },
+    "./api-key/mutations/index": {
+      "types": "./dist/api-key/mutations/index.d.ts",
+      "source": "./src/api-key/mutations/index.ts",
+      "default": "./dist/api-key/mutations/index.js"
+    },
+    "./api-key/mutations/api-key": {
+      "types": "./dist/api-key/mutations/api-key.d.ts",
+      "source": "./src/api-key/mutations/api-key.ts",
+      "default": "./dist/api-key/mutations/api-key.js"
+    },
+    "./cart/workflows": {
+      "types": "./dist/cart/workflows.d.ts",
+      "source": "./src/cart/workflows.ts",
+      "default": "./dist/cart/workflows.js"
+    },
+    "./cart/creation": {
+      "types": "./dist/cart/creation.d.ts",
+      "source": "./src/cart/creation.ts",
+      "default": "./dist/cart/creation.js"
     }
   },
   "license": "MIT",

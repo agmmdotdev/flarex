@@ -1,0 +1,8 @@
+{
+  "mixed-product.json": "05db32eef7c223153a6d3744693b803334321529666cc7eaacb8c3f2273341a1",
+  "command.json": "260101ceb8ee05d20f849550f1de391987abbc433eb1fad8f2c315fbae805fd2",
+  "families.json": "97f9497965b92952c08bee82ab968e0d0daf7878326378e670c78698e7853bc9",
+  "source-before.json": "73c96dbe11099dd99ba0f5b3cf8aeae853096a9876e56d48d7b962b20ac4bde5",
+  "source-after.json": "c40064bfe318ba2a0de56086eef2ada1451a05510d034ac5ecd644549a3e09fb",
+  "postgres-before.txt": "8ed8427e3dff90eacb7f791c17ae7917112996eef67f2fa36b9b52bac6748032"
+}

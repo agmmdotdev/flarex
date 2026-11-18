@@ -11,6 +11,7 @@ import { AppCreationTimeV1Schema } from "./app-document";
 import {
   AppDocumentIdV1Schema,
   AppRowIdHexV1Schema,
+  decodeAppDocumentIdentityV1Result,
   type AppDocumentIdV1,
   type AppRowIdHexV1,
 } from "./app-document-id";
@@ -18,6 +19,7 @@ import {
   CatalogEdgeDefinitionIdSchema,
   CatalogIndexDefinitionIdSchema,
   CatalogTableIdSchema,
+  type CatalogTableId,
   type CatalogEdgeDefinitionId,
   type CatalogIndexDefinitionId,
 } from "./catalog";
@@ -32,6 +34,7 @@ import { freezeOwnedProtocolProjection } from "./owned-protocol-projection";
 import {
   encodeCanonicalJson,
   isJsonObject,
+  jsonEqual,
   JsonValue,
   type CanonicalJsonEncodingInvariantIssue,
   type Json,
@@ -47,7 +50,8 @@ import {
   CanonicalNonNegativePostgresBigIntFromString,
   CanonicalPositivePostgresBigIntFromString,
 } from "./postgres-bigint";
-import { CommitSeqSchema } from "./storage-authority";
+import { CommitSeqSchema, ScopeIdSchema } from "./storage-authority";
+import { CatalogSchemaVersionIdSchema } from "./schema-manifest";
 import {
   StrictParseOptions,
   StrictStructOptions,
@@ -70,108 +74,37 @@ import {
   canonicalizeFlarexValueJsonV1,
   canonicalizeFlarexValueV1,
   normalizeFlarexValueJsonV1,
+  type CanonicalFlarexRuntimeValueV1,
   type CanonicalFlarexValueV1,
   type FlarexValueProfileV1,
   type NormalizedFlarexValueV1,
 } from "./value";
+import { createOwnedCanonicalFlarexRuntimeValueReaderV1 } from "./value-runtime-core";
 
 const TEXT_ENCODER = new TextEncoder();
 const TEXT_DECODER = new TextDecoder("utf-8", { fatal: true });
 const LOWERCASE_SHA256_PATTERN = /^[0-9a-f]{64}$/;
 
-export const SESSION_JOURNAL_FORMAT_V1 = "flarex.session-journal";
+export const SESSION_JOURNAL_FORMAT = "flarex.session-journal";
 export const COMMIT_ENVELOPE_FORMAT_V1 = "flarex.commit-envelope";
 
-/**
- * Convex-compatible execution ceilings. These are semantic execution limits,
- * not encoded-envelope limits. Provenance:
- *
- * - crates/common/src/knobs.rs
- * - crates/database/src/execution_size.rs
- * - crates/database/src/reads.rs
- * - crates/database/src/writes.rs
- * - crates/isolate/src/helpers.rs
- */
-export const MAX_COMMIT_READ_DOCUMENTS_V1 = 32_000;
-export const MAX_COMMIT_READ_SEMANTIC_BYTES_V1 = 1 << 24;
-export const MAX_COMMIT_POINT_READ_DEPENDENCIES_V1 = 4_096;
-export const MAX_COMMIT_INDEXED_QUERY_SYSCALLS_V1 = 32;
-export const MAX_COMMIT_INDEXED_QUERY_PAGE_SIZE_V1 = 128;
-export const MAX_COMMIT_INDEX_RANGE_READ_DEPENDENCIES_V1 = 32;
-export const MAX_COMMIT_INDEX_RANGE_DEPENDENCY_EVIDENCE_BYTES_V1 = 1 << 18;
-export const MAX_COMMIT_RELATION_READ_SYSCALLS_V1 = 128;
-export const MAX_COMMIT_RELATION_READ_DEPENDENCIES_V1 = 128;
-export const MAX_COMMIT_RELATION_BASE_OCCURRENCES_V1 = 4_096;
-/**
- * Operational ceiling for net application-row revisions lowered by the
- * current point-commit transaction owner. Unlike point reads, every material
- * row currently requires serialized row, intrinsic-index, and commit-feed
- * work while the scope clock is locked. Keep this bound deliberately smaller
- * until those phases are batched and load-tested at a higher fan-out.
- */
-export const MAX_POINT_COMMIT_MATERIAL_ROWS_V1 = 128;
-export const MAX_COMMIT_WRITE_OPERATIONS_V1 = 16_000;
-export const MAX_COMMIT_WRITE_SEMANTIC_BYTES_V1 = 1 << 24;
-export const MAX_COMMIT_RESULT_SEMANTIC_BYTES_V1 = 1 << 24;
-
-export interface CommitProtocolExecutionLimitsV1 {
-  readonly readDocuments: number;
-  readonly readSemanticBytes: number;
-  readonly pointReadDependencies: number;
-  readonly indexedQuerySyscalls: number;
-  readonly indexedQueryPageSize: number;
-  readonly indexRangeReadDependencies: number;
-  readonly relationReadSyscalls: number;
-  readonly relationReadDependencies: number;
-  readonly relationBaseOccurrences: number;
-  readonly writeOperations: number;
-  readonly writeSemanticBytes: number;
-  readonly resultSemanticBytes: number;
-}
-
-export const COMMIT_PROTOCOL_EXECUTION_LIMITS_V1 = Object.freeze({
-  readDocuments: MAX_COMMIT_READ_DOCUMENTS_V1,
-  readSemanticBytes: MAX_COMMIT_READ_SEMANTIC_BYTES_V1,
-  pointReadDependencies: MAX_COMMIT_POINT_READ_DEPENDENCIES_V1,
-  indexedQuerySyscalls: MAX_COMMIT_INDEXED_QUERY_SYSCALLS_V1,
-  indexedQueryPageSize: MAX_COMMIT_INDEXED_QUERY_PAGE_SIZE_V1,
-  indexRangeReadDependencies: MAX_COMMIT_INDEX_RANGE_READ_DEPENDENCIES_V1,
-  relationReadSyscalls: MAX_COMMIT_RELATION_READ_SYSCALLS_V1,
-  relationReadDependencies: MAX_COMMIT_RELATION_READ_DEPENDENCIES_V1,
-  relationBaseOccurrences: MAX_COMMIT_RELATION_BASE_OCCURRENCES_V1,
-  writeOperations: MAX_COMMIT_WRITE_OPERATIONS_V1,
-  writeSemanticBytes: MAX_COMMIT_WRITE_SEMANTIC_BYTES_V1,
-  resultSemanticBytes: MAX_COMMIT_RESULT_SEMANTIC_BYTES_V1,
-} satisfies CommitProtocolExecutionLimitsV1);
-
-/**
- * Flarex operational/resource-safety divergence, separate from transaction
- * semantics. The checked-in Convex function-runner response boundary is 64 MiB
- * to accommodate reads, writes, a result, and encoding overhead. C02 applies
- * the same pre-copy/pre-parse ceiling to one canonical evidence bundle. C03
- * separately applies that numeric ceiling to the cumulative canonical bytes
- * of temporary material-write events so an attempt cannot amplify trusted
- * storage before seal. That temporary-evidence bound is not a Convex
- * transaction semantic, final-journal substitute, lease authority, or hosted
- * transport guarantee. C07A must re-prove its hosted transport boundary before
- * activating inline carriage.
- */
-export const MAX_COMMIT_CANONICAL_EVIDENCE_BYTES_V1 = 1 << 26;
-export const MAX_COMMIT_MATERIAL_WRITE_EVENT_EVIDENCE_BYTES_V1 = 1 << 26;
-
-export interface CommitProtocolOperationalLimitsV1 {
-  readonly canonicalEvidenceBytes: number;
-  readonly indexRangeDependencyEvidenceBytes: number;
-  readonly materialWriteEventEvidenceBytes: number;
-}
-
-export const COMMIT_PROTOCOL_OPERATIONAL_LIMITS_V1 = Object.freeze({
-  canonicalEvidenceBytes: MAX_COMMIT_CANONICAL_EVIDENCE_BYTES_V1,
-  indexRangeDependencyEvidenceBytes:
-    MAX_COMMIT_INDEX_RANGE_DEPENDENCY_EVIDENCE_BYTES_V1,
-  materialWriteEventEvidenceBytes:
-    MAX_COMMIT_MATERIAL_WRITE_EVENT_EVIDENCE_BYTES_V1,
-} satisfies CommitProtocolOperationalLimitsV1);
+import {
+  MAX_COMMIT_READ_DOCUMENTS_V1,
+  MAX_COMMIT_READ_SEMANTIC_BYTES_V1,
+  MAX_COMMIT_POINT_READ_DEPENDENCIES_V1,
+  MAX_COMMIT_INDEX_RANGE_READ_DEPENDENCIES_V1,
+  MAX_COMMIT_INDEX_RANGE_DEPENDENCY_EVIDENCE_BYTES_V1,
+  MAX_COMMIT_RELATION_READ_DEPENDENCIES_V1,
+  MAX_COMMIT_WRITE_OPERATIONS_V1,
+  MAX_COMMIT_WRITE_SEMANTIC_BYTES_V1,
+  MAX_COMMIT_RESULT_SEMANTIC_BYTES_V1,
+  MAX_COMMIT_CANONICAL_EVIDENCE_BYTES_V1,
+  MAX_COMMIT_MATERIAL_WRITE_EVENT_EVIDENCE_BYTES_V1,
+  MAX_COMMIT_RECEIPT_EVIDENCE_BYTES_V1,
+  MAX_COMMIT_PARTICIPANT_WORK_BYTES_V1,
+  MAX_COMMIT_PARTICIPANT_WORK_CALLS_V1,
+} from "./commit-limits";
+export * from "./commit-limits";
 
 const MAX_COMMIT_CANONICAL_EVIDENCE_BASE64URL_CHARACTERS_V1 =
   canonicalBase64UrlEncodedLength(MAX_COMMIT_CANONICAL_EVIDENCE_BYTES_V1);
@@ -213,6 +146,42 @@ export const ApplicationActivationSequenceV1Schema =
   );
 export type ApplicationActivationSequenceV1 =
   typeof ApplicationActivationSequenceV1Schema.Type;
+
+/** Metadata activation order is independent of application-data commit order. */
+export const MetadataSequenceSchema = CanonicalNonNegativePostgresBigIntFromString.pipe(
+  Schema.brand("FlarexDB/MetadataSequence"),
+);
+export type MetadataSequence = typeof MetadataSequenceSchema.Type;
+
+export const LogicalMetadataKeySchema = Schema.Struct({
+  namespace: Schema.Literals(["application", "binding", "execution"]),
+  ownerKey: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(512)),
+  contractKey: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(4096)),
+}).annotate(StrictStructOptions);
+export type LogicalMetadataKey = typeof LogicalMetadataKeySchema.Type;
+
+export const LogicalMetadataReadDependencySchema = Schema.Struct({
+  kind: Schema.Literal("metadata"),
+  ...LogicalMetadataKeySchema.fields,
+  capturedWatermark: MetadataSequenceSchema,
+  observed: Schema.Union([
+    Schema.Struct({ kind: Schema.Literal("present"),
+      semanticSha256Hex: Schema.String.check(Schema.isPattern(LOWERCASE_SHA256_PATTERN)),
+    }).annotate(StrictStructOptions),
+    Schema.Struct({ kind: Schema.Literal("missing") }).annotate(StrictStructOptions),
+  ]),
+}).annotate(StrictStructOptions);
+export type LogicalMetadataReadDependency = typeof LogicalMetadataReadDependencySchema.Type;
+export const FiniteMetadataConflictSchema = Schema.Struct({ kind: Schema.Literal("metadata"),
+  ...LogicalMetadataKeySchema.fields, capturedMetadataWatermark: MetadataSequenceSchema,
+  lastChangedMetadataSequence: MetadataSequenceSchema,
+}).check(Schema.makeFilter(value =>
+  value.lastChangedMetadataSequence > value.capturedMetadataWatermark ? undefined : "Expected a changed metadata sequence"))
+  .annotate(StrictStructOptions);
+export type FiniteMetadataConflict = typeof FiniteMetadataConflictSchema.Type;
+export const MAX_COMMIT_METADATA_READ_DEPENDENCIES = 4096;
+export const logicalMetadataDependencyIdentity = (key: LogicalMetadataKey): string =>
+  JSON.stringify([key.namespace, key.ownerKey, key.contractKey]);
 
 export const ApplicationActiveHeadSha256HexV1Schema = Schema.String.check(
   Schema.isPattern(LOWERCASE_SHA256_PATTERN),
@@ -330,6 +299,7 @@ export const LogicalReadDependencyV1Schema = Schema.Union([
   LogicalPointReadDependencyV1Schema,
   LogicalIndexRangeReadDependencyV1Schema,
   LogicalApplicationRelationIncomingReadDependencyV1Schema,
+  LogicalMetadataReadDependencySchema,
 ]);
 export type LogicalReadDependencyV1 =
   typeof LogicalReadDependencyV1Schema.Type;
@@ -406,24 +376,298 @@ export const SessionReadUsageV1Schema = Schema.Struct({
 }).annotate(StrictStructOptions);
 export type SessionReadUsageV1 = typeof SessionReadUsageV1Schema.Type;
 
-export const SessionJournalV1Schema = Schema.Struct({
-  format: Schema.Literal(SESSION_JOURNAL_FORMAT_V1),
+const ParticipantDigestSha256HexV1Schema = Schema.String.check(
+  Schema.isPattern(LOWERCASE_SHA256_PATTERN),
+);
+const ParticipantSelectorV1Schema = Schema.String.check(
+  Schema.isMinLength(1), Schema.isMaxLength(512),
+);
+const ParticipantBindingHeadV1Schema = Schema.Struct({
+  sequence: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(64)),
+  sha256: ParticipantDigestSha256HexV1Schema,
+}).annotate(StrictStructOptions);
+
+/** Exact trusted preimage shared by live admission and finish-only recovery.
+ * The caller hashes the canonical bytes; a sandbox selector is never authority. */
+export const AdmittedParticipantBindingV1Schema = Schema.Struct({
+  scopeId: ScopeIdSchema,
+  sessionId: TransactionSessionIdV1Schema,
+  attemptFence: TransactionAttemptFenceSchema,
+  snapshotCommitSeq: CommitSeqSchema,
+  schemaVersionId: CatalogSchemaVersionIdSchema,
+  principalDigest: ParticipantDigestSha256HexV1Schema,
+  participant: ParticipantSelectorV1Schema,
+  method: ParticipantSelectorV1Schema,
+  sourceKey: ParticipantSelectorV1Schema,
+  sourceSha256Hex: ParticipantDigestSha256HexV1Schema,
+  bindingHead: ParticipantBindingHeadV1Schema,
+}).annotate(StrictStructOptions);
+export type AdmittedParticipantBindingV1 =
+  typeof AdmittedParticipantBindingV1Schema.Type;
+const encodeAdmittedParticipantBindingResult = Schema.encodeUnknownResult(
+  AdmittedParticipantBindingV1Schema,
+);
+
+export const canonicalizeAdmittedParticipantBindingV1Result = (
+  candidate: unknown,
+): Result.Result<Readonly<{ bytes: Uint8Array; text: string }>, "invalidBinding"> =>
+  Result.gen(function* () {
+    const encoded = yield* encodeAdmittedParticipantBindingResult(candidate).pipe(
+      Result.mapError(() => "invalidBinding" as const),
+    );
+    if (!isJsonObject(encoded)) return yield* Result.fail("invalidBinding" as const);
+    const text = encodeCanonicalJson(encoded, commitJsonEncodingInvariantFailure);
+    const bytes = TEXT_ENCODER.encode(text);
+    if (bytes.byteLength > 4_096) return yield* Result.fail("invalidBinding" as const);
+    return Object.freeze({ bytes, text });
+  });
+
+/** Ordered trusted source selection for one outer operation. The persisted
+ * receipt stores the digest of these exact bytes. */
+export const AdmittedSourceBindingSchema = Schema.Struct({
+  sourceKey: ParticipantSelectorV1Schema,
+  sourceSha256Hex: ParticipantDigestSha256HexV1Schema,
+  bindingHead: ParticipantBindingHeadV1Schema,
+  sourceBindingSha256Hex: ParticipantDigestSha256HexV1Schema,
+  methods: Schema.Array(ParticipantSelectorV1Schema).check(Schema.isMaxLength(32)),
+}).annotate(StrictStructOptions);
+export type AdmittedSourceBinding = typeof AdmittedSourceBindingSchema.Type;
+export const AdmittedSourceBundleSchema = Schema.Struct({
+  participant: ParticipantSelectorV1Schema,
+  method: ParticipantSelectorV1Schema,
+  profileRevision: ParticipantDigestSha256HexV1Schema,
+  sources: Schema.Array(AdmittedSourceBindingSchema).check(Schema.isMaxLength(3)),
+}).annotate(StrictStructOptions);
+export type AdmittedSourceBundle = typeof AdmittedSourceBundleSchema.Type;
+const encodeAdmittedSourceBundleResult = Schema.encodeUnknownResult(AdmittedSourceBundleSchema);
+export const canonicalizeAdmittedSourceBundleResult = (
+  candidate: unknown,
+): Result.Result<Readonly<{ bytes: Uint8Array; text: string }>, "invalidBundle"> =>
+  Result.gen(function* () {
+    const encoded = yield* encodeAdmittedSourceBundleResult(candidate).pipe(
+      Result.mapError(() => "invalidBundle" as const),
+    );
+    if (!isJsonObject(encoded)) return yield* Result.fail("invalidBundle" as const);
+    const text = encodeCanonicalJson(encoded, commitJsonEncodingInvariantFailure);
+    const bytes = TEXT_ENCODER.encode(text);
+    if (bytes.byteLength > 16_384) return yield* Result.fail("invalidBundle" as const);
+    return Object.freeze({ bytes, text });
+  });
+const ParticipantEffectOrdinalV1Schema = Schema.Number.check(
+  Schema.isInt(),
+  Schema.isBetween({ minimum: 0, maximum: 65_535 }),
+);
+const ParticipantDocumentV1Schema = Schema.Record(Schema.String, JsonValue);
+
+export const AdmittedParticipantLogicalEffectV1Schema = Schema.Struct({
+  effectOrdinal: ParticipantEffectOrdinalV1Schema,
+  tableId: CatalogTableIdSchema,
+  documentId: AppDocumentIdV1Schema,
+  operation: Schema.Literals(["insert", "patch", "replace", "delete"]),
+  before: Schema.NullOr(ParticipantDocumentV1Schema),
+  after: Schema.NullOr(ParticipantDocumentV1Schema),
+}).annotate(StrictStructOptions);
+export type AdmittedParticipantLogicalEffectV1 =
+  typeof AdmittedParticipantLogicalEffectV1Schema.Type;
+
+export const AdmittedParticipantWriteEventSchema = Schema.Struct({
+  kind: Schema.Literal("logicalDocument"),
+  syscallSequence: CommitSyscallSequenceV1Schema,
+  sourceBindingSha256Hex: ParticipantDigestSha256HexV1Schema,
+  effect: AdmittedParticipantLogicalEffectV1Schema,
+}).annotate(StrictStructOptions);
+export type AdmittedParticipantWriteEvent =
+  typeof AdmittedParticipantWriteEventSchema.Type;
+
+export const SourceContributionSchema = Schema.Struct({
+  ...AdmittedSourceBindingSchema.fields,
+  effects: Schema.Array(AdmittedParticipantLogicalEffectV1Schema).check(
+    Schema.isMaxLength(MAX_COMMIT_WRITE_OPERATIONS_V1),
+  ),
+  dependencyEvidence: ParticipantDocumentV1Schema,
+}).annotate(StrictStructOptions);
+export type SourceContribution = typeof SourceContributionSchema.Type;
+
+export const AdmittedParticipantEventIntentSchema = Schema.Struct({
+  sourceKey: Schema.NullOr(ParticipantSelectorV1Schema),
+  intent: JsonValue,
+}).annotate(StrictStructOptions);
+export type AdmittedParticipantEventIntent = typeof AdmittedParticipantEventIntentSchema.Type;
+
+export const AdmittedParticipantOperationSchema = Schema.Struct({
+  syscallSequence: CommitSyscallSequenceV1Schema,
+  participant: ParticipantSelectorV1Schema,
+  method: ParticipantSelectorV1Schema,
+  profileRevision: ParticipantDigestSha256HexV1Schema,
+  admissionBundleSha256Hex: ParticipantDigestSha256HexV1Schema,
+  requestSha256Hex: ParticipantDigestSha256HexV1Schema,
+  resultSha256Hex: ParticipantDigestSha256HexV1Schema,
+  sourceContributions: Schema.Array(SourceContributionSchema).check(Schema.isMaxLength(3)),
+  eventIntents: Schema.Array(AdmittedParticipantEventIntentSchema).check(Schema.isMaxLength(2_048)),
+}).annotate(StrictStructOptions);
+export type AdmittedParticipantOperation =
+  typeof AdmittedParticipantOperationSchema.Type;
+
+/** Private insertion provenance travels inside the authenticated source receipt.
+ * Absence of this field in retained bytes means no explicit insertion intent. */
+export const GeneratedInsertionIntentSchema = Schema.Struct({
+  documentId: AppDocumentIdV1Schema, tableId: CatalogTableIdSchema, rowId: AppRowIdHexV1Schema,
+  effectOrdinal: Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: MAX_COMMIT_WRITE_OPERATIONS_V1 - 1 })),
+}).annotate(StrictStructOptions);
+export const GeneratedInsertionIntentsSchema = Schema.Array(GeneratedInsertionIntentSchema).check(
+  Schema.isMaxLength(MAX_COMMIT_POINT_READ_DEPENDENCIES_V1));
+export type GeneratedInsertionIntent = typeof GeneratedInsertionIntentSchema.Type;
+export interface AuthenticatedGeneratedInsertion extends GeneratedInsertionIntent {
+  readonly origin: Readonly<{ syscallSequence: bigint; sourceBindingSha256Hex: string }>;
+}
+const decodeInsertionCarrier = Schema.decodeUnknownResult(Schema.Struct({
+  generatedInsertions: Schema.optionalKey(GeneratedInsertionIntentsSchema),
+}));
+export function authenticatedGeneratedInsertionsResult(operations: readonly AdmittedParticipantOperation[]) {
+  return Result.gen(function* () {
+    const intents = new Map<AppDocumentIdV1, AuthenticatedGeneratedInsertion>();
+    const firstEffects = new Map<AppDocumentIdV1, Readonly<{ sequence: bigint; ordinal: number; binding: string }>>();
+    for (const operation of operations) for (const source of operation.sourceContributions)
+      for (const effect of source.effects) {
+        const first = firstEffects.get(effect.documentId);
+        if (first === undefined || operation.syscallSequence < first.sequence ||
+          operation.syscallSequence === first.sequence && effect.effectOrdinal < first.ordinal)
+          firstEffects.set(effect.documentId, { sequence: operation.syscallSequence,
+            ordinal: effect.effectOrdinal, binding: source.sourceBindingSha256Hex });
+      }
+    for (const operation of operations) for (const source of operation.sourceContributions) {
+      const carrier = yield* decodeInsertionCarrier(source.dependencyEvidence)
+        .pipe(Result.mapError(() => invalidSchemaError("journal")));
+      for (const intent of carrier.generatedInsertions ?? []) {
+        const identity = yield* decodeAppDocumentIdentityV1Result(intent.documentId)
+          .pipe(Result.mapError(() => invalidSchemaError("journal")));
+        const effect = source.effects.find(member => member.effectOrdinal === intent.effectOrdinal);
+        const first = firstEffects.get(intent.documentId);
+        if (intents.has(intent.documentId) || identity.tableId !== intent.tableId || identity.rowId !== intent.rowId ||
+          effect === undefined || effect.tableId !== intent.tableId || effect.documentId !== intent.documentId ||
+          effect.operation !== "insert" || effect.before !== null || effect.after === null ||
+          first?.sequence !== operation.syscallSequence || first.ordinal !== intent.effectOrdinal ||
+          first.binding !== source.sourceBindingSha256Hex)
+          return yield* Result.fail(invalidSchemaError("journal"));
+        intents.set(intent.documentId, { ...intent, origin: { syscallSequence: operation.syscallSequence,
+          sourceBindingSha256Hex: source.sourceBindingSha256Hex } });
+      }
+    }
+    if (intents.size > MAX_COMMIT_POINT_READ_DEPENDENCIES_V1) return yield* Result.fail(invalidSchemaError("journal"));
+    return intents;
+  });
+}
+
+/** Operational usage is recomputed from retained receipts by the journal
+ * owner at seal, then bound by the canonical journal digest for recovery. */
+export const SessionJournalOperationUsageSchema = Schema.Struct({
+  receiptEvidenceBytes: Schema.Int.check(Schema.isBetween({
+    minimum: 0, maximum: MAX_COMMIT_RECEIPT_EVIDENCE_BYTES_V1,
+  })),
+  participantWorkBytes: Schema.Int.check(Schema.isBetween({
+    minimum: 0, maximum: MAX_COMMIT_PARTICIPANT_WORK_BYTES_V1,
+  })),
+  participantWorkCalls: Schema.Int.check(Schema.isBetween({
+    minimum: 0, maximum: MAX_COMMIT_PARTICIPANT_WORK_CALLS_V1,
+  })),
+}).annotate(StrictStructOptions);
+export type SessionJournalOperationUsage =
+  typeof SessionJournalOperationUsageSchema.Type;
+
+/** The new exact persisted journal format. Application write history remains
+ * its domain contract; participant effects are separately authenticated and
+ * the journal point overlay remains the sole pending row authority. */
+export const SessionJournalSchema = Schema.Struct({
+  format: Schema.Literal(SESSION_JOURNAL_FORMAT),
   protocolVersion: TransactionSessionProtocolVersionV1Schema,
   valueCodecVersion: FlarexValueCodecVersionSchema,
   finalSyscallSequence: CommitFinalSyscallSequenceV1Schema,
   readDependencies: Schema.Array(LogicalReadDependencyV1Schema),
   readUsage: SessionReadUsageV1Schema,
   writes: Schema.Array(LogicalAppWriteV1Schema),
+  operationUsage: SessionJournalOperationUsageSchema,
+  participantOperations: Schema.Array(AdmittedParticipantOperationSchema)
+    .check(Schema.isMaxLength(MAX_COMMIT_WRITE_OPERATIONS_V1)),
+  finiteMetadataReservationSha256Hex: Schema.optionalKey(Schema.String.check(Schema.isPattern(LOWERCASE_SHA256_PATTERN))),
 }).annotate(StrictStructOptions);
-export type SessionJournalV1 = typeof SessionJournalV1Schema.Type;
+export type SessionJournal = typeof SessionJournalSchema.Type;
 
-export const CanonicalSessionJournalBytesV1Schema =
+/** Canonical point evidence projected by the trusted loader. The helper checks
+ * only the neutral effect chain; authority and historical validation stay
+ * with the executor and publisher. */
+export interface ParticipantPointCorrelation {
+  readonly documentId: AppDocumentIdV1;
+  readonly tableId: CatalogTableId;
+  readonly observed: Extract<LogicalReadDependencyV1,
+    { readonly kind: "appRowPoint" }>["observed"] | Readonly<{ kind: "generatedInsertion" }>;
+  readonly overlayKind: "none" | "live" | "deleted";
+  readonly overlayValueJson: JsonObject | null;
+}
+
+export const verifyParticipantPointCorrelationEffect = Effect.fn(
+  "CommitProtocol.verifyParticipantPointCorrelation",
+)(function* (journal: SessionJournal,
+  points: readonly ParticipantPointCorrelation[]): Effect.fn.Return<
+    Readonly<{ effectCount: number; writeSemanticBytes: number }>, CommitProtocolV1Error> {
+  const byId = new Map(points.map(point => [point.documentId, point] as const));
+  if (byId.size !== points.length) {
+    return yield* protocolFailureEffect({ reason: "invalidSchema", component: "journal" });
+  }
+  const appWritten = new Set(journal.writes.map(write => write.documentId));
+  const prior = new Map<AppDocumentIdV1, JsonObject | null>();
+  const deleted = new Set<AppDocumentIdV1>();
+  let effectCount = 0;
+  let writeSemanticBytes = 0;
+  for (const operation of journal.participantOperations) {
+    const orderedEffects = operation.sourceContributions.flatMap(source => source.effects)
+      .toSorted((left, right) => left.effectOrdinal - right.effectOrdinal);
+    for (const effect of orderedEffects) {
+      effectCount += 1;
+      const point = byId.get(effect.documentId);
+      if (point === undefined || appWritten.has(effect.documentId) ||
+        point.tableId !== effect.tableId || deleted.has(effect.documentId) ||
+        (point.observed.kind === "missing" &&
+          point.observed.basis.kind === "tombstone")) {
+        return yield* protocolFailureEffect({ reason: "invalidSchema", component: "journal" });
+      }
+      const hasPrior = prior.has(effect.documentId);
+      const before = hasPrior ? prior.get(effect.documentId) : undefined;
+      if (hasPrior ? before === undefined || !jsonEqual(before, effect.before) :
+        point.observed.kind === "present" ? effect.before === null : effect.before !== null) {
+        return yield* protocolFailureEffect({ reason: "invalidSchema", component: "journal" });
+      }
+      if (effect.operation === "insert" ? effect.before !== null || effect.after === null :
+        effect.operation === "delete" ? effect.before === null || effect.after !== null :
+          effect.before === null || effect.after === null) {
+        return yield* protocolFailureEffect({ reason: "invalidSchema", component: "journal" });
+      }
+      if (effect.after === null) deleted.add(effect.documentId);
+      else {
+        const normalized = yield* normalizeValueJsonEffect(effect.after,
+          "appDocument", "journal", `participantOperations.${effect.documentId}.after`);
+        writeSemanticBytes += normalized.semanticSizeBytes;
+      }
+      prior.set(effect.documentId, effect.after);
+    }
+  }
+  for (const [documentId, final] of prior) {
+    const point = byId.get(documentId);
+    if (point === undefined || (final === null ? point.overlayKind !== "deleted" ||
+      point.overlayValueJson !== null : point.overlayKind !== "live" ||
+      point.overlayValueJson === null || !jsonEqual(final, point.overlayValueJson))) {
+      return yield* protocolFailureEffect({ reason: "invalidSchema", component: "journal" });
+    }
+  }
+  return Object.freeze({ effectCount, writeSemanticBytes });
+});
+
+export const CanonicalSessionJournalBytesSchema =
   Schema.Uint8Array.check(
     Schema.isMinLength(1),
     Schema.isMaxLength(MAX_COMMIT_CANONICAL_EVIDENCE_BYTES_V1),
-  ).pipe(Schema.brand("FlarexDB/CanonicalSessionJournalBytesV1"));
-export type CanonicalSessionJournalBytesV1 =
-  typeof CanonicalSessionJournalBytesV1Schema.Type;
+  ).pipe(Schema.brand("FlarexDB/CanonicalSessionJournalBytes"));
+export type CanonicalSessionJournalBytes =
+  typeof CanonicalSessionJournalBytesSchema.Type;
 
 export const SessionJournalSha256HexV1Schema = Schema.String.check(
   Schema.isPattern(LOWERCASE_SHA256_PATTERN),
@@ -513,10 +757,10 @@ export interface StoredForSessionAttemptCommitEnvelopeV1 {
   readonly successfulResult: CommitEnvelopeV1["successfulResult"];
 }
 
-export interface CanonicalSessionJournalV1 {
-  readonly journal: SessionJournalV1;
+export interface CanonicalSessionJournal {
+  readonly journal: SessionJournal;
   readonly canonicalText: string;
-  readonly canonicalBytes: CanonicalSessionJournalBytesV1;
+  readonly canonicalBytes: CanonicalSessionJournalBytes;
   readonly sha256Hex: SessionJournalSha256HexV1;
 }
 
@@ -534,6 +778,7 @@ export type CommitProtocolV1Component =
   | "successfulResult";
 
 export type CommitProtocolV1LimitDimension =
+  | "metadataReadDependencies"
   | "readDocuments"
   | "readSemanticBytes"
   | "pointReadDependencies"
@@ -548,6 +793,8 @@ export type CommitProtocolV1LimitDimension =
   | "writeSemanticBytes"
   | "resultSemanticBytes"
   | "materialWriteEventEvidenceBytes"
+  | "operationCalls"
+  | "receiptEvidenceBytes"
   | "canonicalEvidenceBytes";
 
 export type CommitProtocolV1Issue =
@@ -628,9 +875,6 @@ export type CommitProtocolV1Issue =
     }
   | {
       readonly reason: "inlineJournalCarriageDormant";
-    }
-  | {
-      readonly reason: "inlineJournalCarriageRequired";
     };
 
 export class CommitProtocolV1Error extends Data.TaggedError(
@@ -639,27 +883,27 @@ export class CommitProtocolV1Error extends Data.TaggedError(
   readonly issue: CommitProtocolV1Issue;
 }> {}
 
-export interface DecodeCanonicalSessionJournalV1Input {
+export interface DecodeCanonicalSessionJournalInput {
   readonly canonicalBytes: unknown;
   readonly expectedSha256Hex: unknown;
 }
 
-const decodeUnknownSessionJournalV1 = Schema.decodeUnknownEffect(
-  SessionJournalV1Schema,
+const decodeUnknownSessionJournal = Schema.decodeUnknownEffect(
+  SessionJournalSchema,
   StrictParseOptions,
 );
-const encodeUnknownSessionJournalV1 = Schema.encodeUnknownEffect(
-  SessionJournalV1Schema,
+const encodeUnknownSessionJournal = Schema.encodeUnknownEffect(
+  SessionJournalSchema,
   StrictParseOptions,
 );
+const decodeUnknownCanonicalSessionJournalBytes =
+  Schema.decodeUnknownEffect(CanonicalSessionJournalBytesSchema);
 const encodeUnknownLogicalIndexRangeReadDependencyV1Result =
   Schema.encodeUnknownResult(
     LogicalIndexRangeReadDependencyV1Schema,
     StrictParseOptions,
   );
 const decodeUnknownJsonValueResult = Schema.decodeUnknownResult(JsonValue);
-const decodeUnknownCanonicalSessionJournalBytesV1 =
-  Schema.decodeUnknownEffect(CanonicalSessionJournalBytesV1Schema);
 const decodeUnknownSessionJournalSha256HexV1 = Schema.decodeUnknownEffect(
   SessionJournalSha256HexV1Schema,
 );
@@ -677,28 +921,192 @@ const encodeUnknownCommitEnvelopeV1 = Schema.encodeUnknownEffect(
 );
 const decodeUnknownJsonValue = Schema.decodeUnknownEffect(JsonValue);
 
-export const canonicalizeSessionJournalV1Effect = Effect.fn(
-  "CommitProtocol.canonicalizeSessionJournalV1",
+export const canonicalizeSessionJournalEffect = Effect.fn(
+  "CommitProtocol.canonicalizeSessionJournal",
 )(function* (
   input: unknown,
-): Effect.fn.Return<CanonicalSessionJournalV1, CommitProtocolV1Error> {
+): Effect.fn.Return<CanonicalSessionJournal, CommitProtocolV1Error> {
   yield* inspectProtocolHeaderEffect(
     input,
     "journal",
-    SESSION_JOURNAL_FORMAT_V1,
+    SESSION_JOURNAL_FORMAT,
   );
   const preflightIssue = preflightSessionJournalCandidate(input);
   if (preflightIssue !== undefined) {
     return yield* protocolFailureEffect(preflightIssue);
   }
-  const encodedInput = yield* encodeUnknownSessionJournalV1(input).pipe(
+  const encodedInput = yield* encodeUnknownSessionJournal(input).pipe(
     Effect.mapError(() => invalidSchemaError("journal")),
   );
-  const detached = yield* decodeUnknownSessionJournalV1(encodedInput).pipe(
+  const detached = yield* decodeUnknownSessionJournal(encodedInput).pipe(
     Effect.mapError(() => invalidSchemaError("journal")),
   );
-  const journal = yield* normalizeSessionJournalV1Effect(detached);
-  const encoded = yield* encodeUnknownSessionJournalV1(journal).pipe(
+  const app = yield* normalizeAppJournalFieldsEffect(detached);
+  if (app.readDependencies.some(dependency => dependency.kind === "metadata") && detached.finiteMetadataReservationSha256Hex === undefined)
+    return yield* Effect.fail(invalidSchemaError("journal"));
+  const ordered = [...detached.participantOperations].toSorted((left, right) =>
+    left.syscallSequence < right.syscallSequence ? -1
+    : left.syscallSequence > right.syscallSequence ? 1
+    : 0
+  );
+  const seen = new Set<CommitSyscallSequenceV1>(
+    app.writes.map((write) => write.syscallSequence),
+  );
+  const participantOperations: AdmittedParticipantOperation[] = [];
+  let effectCount = app.writes.length;
+  let eventCount = 0;
+  let semanticBytes = app.writes.reduce((total, write) =>
+    write.kind === "delete" ? total : total + write.resultingDocumentSemanticBytes,
+  0);
+  for (const operation of ordered) {
+    if (seen.has(operation.syscallSequence)) {
+      return yield* protocolFailureEffect({
+        reason: "duplicateWriteSequence",
+        syscallSequence: operation.syscallSequence,
+      });
+    }
+    seen.add(operation.syscallSequence);
+    if (operation.syscallSequence > detached.finalSyscallSequence) {
+      return yield* protocolFailureEffect({ reason: "sequenceMismatch" });
+    }
+    eventCount += operation.eventIntents.length;
+    if (eventCount > 2_048) {
+      return yield* protocolFailureEffect({
+        reason: "invalidSchema",
+        component: "journal",
+      });
+    }
+    const sourceContributions: SourceContribution[] = [];
+    const sourceKeys = new Set<string>();
+    const allEffects = operation.sourceContributions.flatMap(source => source.effects)
+      .toSorted((left, right) => left.effectOrdinal - right.effectOrdinal);
+    effectCount += allEffects.length;
+    yield* enforceLimitEffect("writeOperations", effectCount, MAX_COMMIT_WRITE_OPERATIONS_V1);
+    if (operation.sourceContributions.length === 0) {
+      return yield* protocolFailureEffect({ reason: "invalidSchema", component: "journal" });
+    }
+    for (const source of operation.sourceContributions) {
+      if (sourceKeys.has(source.sourceKey)) {
+        return yield* protocolFailureEffect({ reason: "invalidSchema", component: "journal" });
+      }
+      sourceKeys.add(source.sourceKey);
+      for (const [position, effect] of source.effects.entries()) {
+        if (position > 0 && effect.effectOrdinal <= source.effects[position - 1]!.effectOrdinal) {
+          return yield* protocolFailureEffect({ reason: "sequenceMismatch" });
+        }
+      }
+    }
+    for (const [ordinal, effect] of allEffects.entries()) {
+      if (effect.effectOrdinal !== ordinal) {
+        return yield* protocolFailureEffect({ reason: "sequenceMismatch" });
+      }
+    }
+    for (const [sourceOrdinal, source] of operation.sourceContributions.entries()) {
+      if (source.methods.length === 0 || new Set(source.methods).size !== source.methods.length) {
+        return yield* protocolFailureEffect({ reason: "invalidSchema", component: "journal" });
+      }
+      const effects: AdmittedParticipantLogicalEffectV1[] = [];
+      for (const effect of source.effects) {
+        const identity = yield* Effect.fromResult(
+          decodeAppDocumentIdentityV1Result(effect.documentId).pipe(
+            Result.mapError(() => invalidSchemaError("journal")),
+          ),
+        );
+        if (identity.tableId !== effect.tableId ||
+          (effect.before !== null && effect.before._id !== effect.documentId) ||
+          (effect.after !== null && effect.after._id !== effect.documentId)) {
+          return yield* protocolFailureEffect({ reason: "invalidSchema", component: "journal" });
+        }
+        const before = yield* normalizeParticipantDocumentV1Effect(
+          effect.before,
+          effect.documentId,
+          "before",
+        );
+        const after = yield* normalizeParticipantDocumentV1Effect(
+          effect.after,
+          effect.documentId,
+          "after",
+        );
+        if (
+          (effect.operation === "insert" && (before !== null || after === null)) ||
+          (effect.operation === "delete" && (before === null || after !== null)) ||
+          ((effect.operation === "patch" || effect.operation === "replace") &&
+            (before === null || after === null))
+        ) {
+          return yield* protocolFailureEffect({
+            reason: "invalidSchema",
+            component: "journal",
+          });
+        }
+        if (after !== null) {
+          const normalized = yield* normalizeValueJsonEffect(
+            after,
+            "appDocument",
+            "journal",
+            `participantOperations.${operation.syscallSequence}.${sourceOrdinal}.${effect.effectOrdinal}.after`,
+          );
+          semanticBytes += normalized.semanticSizeBytes;
+          yield* enforceLimitEffect(
+            "writeSemanticBytes",
+            semanticBytes,
+            MAX_COMMIT_WRITE_SEMANTIC_BYTES_V1,
+          );
+        }
+        effects.push(Object.freeze({ ...effect, before, after }));
+      }
+      const dependencyEvidence = yield* normalizeValueJsonEffect(
+        source.dependencyEvidence,
+        "generalValue",
+        "journal",
+        `participantOperations.${operation.syscallSequence}.${sourceOrdinal}.dependencyEvidence`,
+      );
+      if (!isJsonObject(dependencyEvidence.valueJson)) {
+        return yield* protocolFailureEffect({ reason: "invalidSchema", component: "journal" });
+      }
+      sourceContributions.push(Object.freeze({ ...source, effects,
+        dependencyEvidence: dependencyEvidence.valueJson }));
+    }
+    const eventIntents: AdmittedParticipantEventIntent[] = [];
+    for (const [ordinal, event] of operation.eventIntents.entries()) {
+      if (event.sourceKey !== null && !sourceKeys.has(event.sourceKey)) {
+        return yield* protocolFailureEffect({ reason: "invalidSchema", component: "journal" });
+      }
+      const normalized = yield* normalizeValueJsonEffect(
+        event.intent,
+        "generalValue",
+        "journal",
+        `participantOperations.${operation.syscallSequence}.eventIntents.${ordinal}`,
+      );
+      eventIntents.push(Object.freeze({ sourceKey: event.sourceKey,
+        intent: normalized.valueJson }));
+    }
+    participantOperations.push(Object.freeze({
+      syscallSequence: operation.syscallSequence,
+      participant: operation.participant,
+      method: operation.method,
+      profileRevision: operation.profileRevision,
+      admissionBundleSha256Hex: operation.admissionBundleSha256Hex,
+      requestSha256Hex: operation.requestSha256Hex,
+      resultSha256Hex: operation.resultSha256Hex,
+      sourceContributions,
+      eventIntents,
+    }));
+  }
+  if (
+    detached.finalSyscallSequence === 0n &&
+    participantOperations.length > 0
+  ) {
+    return yield* protocolFailureEffect({ reason: "sequenceMismatch" });
+  }
+  const journal: SessionJournal = {
+    ...app,
+    format: SESSION_JOURNAL_FORMAT,
+    operationUsage: detached.operationUsage,
+    participantOperations,
+    ...(detached.finiteMetadataReservationSha256Hex === undefined ? {} : {
+      finiteMetadataReservationSha256Hex: detached.finiteMetadataReservationSha256Hex }),
+  };
+  const encoded = yield* encodeUnknownSessionJournal(journal).pipe(
     Effect.mapError(() => invalidSchemaError("journal")),
   );
   const json = yield* decodeUnknownJsonValue(encoded).pipe(
@@ -716,25 +1124,46 @@ export const canonicalizeSessionJournalV1Effect = Effect.fn(
   );
   const stableCanonicalBytes = new Uint8Array(rawBytes);
   const sha256Hex = yield* sha256HexEffect(stableCanonicalBytes, "journal");
-  const stableJournal = freezeOwnedProtocolProjection(journal);
   return Object.freeze({
-    journal: stableJournal,
+    journal: freezeOwnedProtocolProjection(journal),
     canonicalText,
-    get canonicalBytes(): CanonicalSessionJournalBytesV1 {
-      return CanonicalSessionJournalBytesV1Schema.make(
+    get canonicalBytes(): CanonicalSessionJournalBytes {
+      return CanonicalSessionJournalBytesSchema.make(
         new Uint8Array(stableCanonicalBytes),
       );
     },
     sha256Hex,
-  } satisfies CanonicalSessionJournalV1);
+  } satisfies CanonicalSessionJournal);
 });
 
-export const decodeCanonicalSessionJournalV1Effect = Effect.fn(
-  "CommitProtocol.decodeCanonicalSessionJournalV1",
+const normalizeParticipantDocumentV1Effect = Effect.fn(function* (
+  value: JsonObject | null,
+  documentId: AppDocumentIdV1,
+  phase: "before" | "after",
+): Effect.fn.Return<JsonObject | null, CommitProtocolV1Error> {
+  if (value === null) return null;
+  const normalized = yield* normalizeValueJsonEffect(
+    value,
+    "appDocument",
+    "journal",
+    `participantOperations.${documentId}.${phase}`,
+  );
+  if (!isJsonObject(normalized.valueJson)) {
+    return yield* protocolFailureEffect({
+      reason: "invalidValue",
+      component: "journal",
+      path: `participantOperations.${documentId}.${phase}`,
+    });
+  }
+  return normalized.valueJson;
+});
+
+export const decodeCanonicalSessionJournalEffect = Effect.fn(
+  "CommitProtocol.decodeCanonicalSessionJournal",
 )(function* (
-  input: DecodeCanonicalSessionJournalV1Input,
-): Effect.fn.Return<CanonicalSessionJournalV1, CommitProtocolV1Error> {
-  const decodedBytes = yield* decodeUnknownCanonicalSessionJournalBytesV1(
+  input: DecodeCanonicalSessionJournalInput,
+): Effect.fn.Return<CanonicalSessionJournal, CommitProtocolV1Error> {
+  const decodedBytes = yield* decodeUnknownCanonicalSessionJournalBytes(
     input.canonicalBytes,
   ).pipe(Effect.mapError(() => invalidSchemaError("journal")));
   const expectedSha256Hex = yield* decodeUnknownSessionJournalSha256HexV1(
@@ -745,12 +1174,12 @@ export const decodeCanonicalSessionJournalV1Effect = Effect.fn(
   yield* inspectProtocolHeaderEffect(
     parsed,
     "journal",
-    SESSION_JOURNAL_FORMAT_V1,
+    SESSION_JOURNAL_FORMAT,
   );
-  const decoded = yield* decodeUnknownSessionJournalV1(parsed).pipe(
+  const decoded = yield* decodeUnknownSessionJournal(parsed).pipe(
     Effect.mapError(() => invalidSchemaError("journal")),
   );
-  const canonical = yield* canonicalizeSessionJournalV1Effect(decoded);
+  const canonical = yield* canonicalizeSessionJournalEffect(decoded);
   if (!bytesEqual(stableInputBytes, canonical.canonicalBytes)) {
     return yield* protocolFailureEffect({
       reason: "nonCanonical",
@@ -766,6 +1195,21 @@ export const decodeCanonicalSessionJournalV1Effect = Effect.fn(
   return canonical;
 });
 
+/** Process-local value provenance, without storage or settlement authority.
+ * The runtime getter reuses immutable branches and detaches every binary leaf.
+ * Neither this projection nor the public result exposes the retained buffers. */
+export interface IssuedCanonicalSuccessfulResultV1 {
+  readonly result: CanonicalSuccessfulResultV1;
+  readonly value: CanonicalFlarexRuntimeValueV1;
+}
+
+/** Only the original fully validating constructor can issue this handoff.
+ * Restored/lookalike values remain foreign and require complete verification. */
+const issuedSuccessfulResults = new WeakMap<object, IssuedCanonicalSuccessfulResultV1>();
+export function readIssuedCanonicalSuccessfulResultV1(input: unknown): IssuedCanonicalSuccessfulResultV1 | undefined {
+  return typeof input === "object" && input !== null ? issuedSuccessfulResults.get(input) : undefined;
+}
+
 export const canonicalizeSuccessfulResultV1Effect = Effect.fn(
   "CommitProtocol.canonicalizeSuccessfulResultV1",
 )(function* (
@@ -775,7 +1219,8 @@ export const canonicalizeSuccessfulResultV1Effect = Effect.fn(
     value,
     "successfulResult",
   );
-  return yield* createCanonicalSuccessfulResultV1Effect(canonical);
+  const result = yield* createCanonicalSuccessfulResultV1Effect(canonical);
+  return issueCanonicalSuccessfulResultV1(result, canonical.value);
 });
 
 export const verifySuccessfulResultEvidenceV1Effect = Effect.fn(
@@ -810,7 +1255,7 @@ export const verifySuccessfulResultEvidenceV1Effect = Effect.fn(
       component: "successfulResult",
     });
   }
-  return verified;
+  return issueCanonicalSuccessfulResultV1(verified, canonical.value);
 });
 
 export const makeCommitEnvelopeV1Effect = Effect.fn(
@@ -881,42 +1326,13 @@ export const requireStoredForSessionAttemptCommitEnvelopeV1Effect = Effect.fn(
   } satisfies StoredForSessionAttemptCommitEnvelopeV1);
 });
 
-/**
- * Integrity inspection only. A successful result does not authenticate these
- * bytes or make inline carriage operational. C07A must first establish a
- * non-forgeable supervisor/facet provenance boundary.
- */
-export const inspectInlineUntrustedJournalIntegrityV1Effect = Effect.fn(
-  "CommitProtocol.inspectInlineUntrustedJournalIntegrityV1",
-)(function* (
-  input: CommitEnvelopeV1,
-): Effect.fn.Return<CanonicalSessionJournalV1, CommitProtocolV1Error> {
-  const envelope = yield* makeCommitEnvelopeV1Effect(input);
-  if (envelope.journal.kind !== "inlineUntrusted") {
-    return yield* protocolFailureEffect({
-      reason: "inlineJournalCarriageRequired",
-    });
-  }
-  const bytes = yield* decodeBase64UrlEffect(
-    envelope.journal.canonicalJournalBase64Url,
-    "journal",
-  );
-  const journal = yield* decodeCanonicalSessionJournalV1Effect({
-    canonicalBytes: bytes,
-    expectedSha256Hex: envelope.journalSha256Hex,
-  });
-  if (
-    journal.journal.protocolVersion !== envelope.protocolVersion ||
-    journal.journal.finalSyscallSequence !== envelope.finalSyscallSequence
-  ) {
-    return yield* protocolFailureEffect({ reason: "sequenceMismatch" });
-  }
-  return journal;
-});
+type AppJournalFields = Pick<SessionJournal,
+  "protocolVersion" | "valueCodecVersion" | "finalSyscallSequence" |
+  "readDependencies" | "readUsage" | "writes">;
 
-const normalizeSessionJournalV1Effect = Effect.fn(function* (
-  journal: SessionJournalV1,
-): Effect.fn.Return<SessionJournalV1, CommitProtocolV1Error> {
+const normalizeAppJournalFieldsEffect = Effect.fn(function* (
+  journal: AppJournalFields,
+): Effect.fn.Return<AppJournalFields, CommitProtocolV1Error> {
   yield* enforceLimitEffect(
     "readDocuments",
     journal.readUsage.documentsRead,
@@ -942,6 +1358,25 @@ const normalizeSessionJournalV1Effect = Effect.fn(function* (
   const applicationRelationDependencies = journal.readDependencies.filter(
     (dependency) => dependency.kind === "appRelationIncoming",
   );
+  const metadataDependencies = journal.readDependencies.filter(
+    (dependency) => dependency.kind === "metadata",
+  );
+  yield* enforceLimitEffect("metadataReadDependencies", metadataDependencies.length,
+    MAX_COMMIT_METADATA_READ_DEPENDENCIES);
+  metadataDependencies.sort((left, right) => compareUtf16Strings(
+    logicalMetadataDependencyIdentity(left), logicalMetadataDependencyIdentity(right)));
+  const normalizedMetadataDependencies: LogicalMetadataReadDependency[] = [];
+  for (const dependency of metadataDependencies) {
+    const previous = normalizedMetadataDependencies.at(-1);
+    if (previous !== undefined && logicalMetadataDependencyIdentity(previous) === logicalMetadataDependencyIdentity(dependency)) {
+      if (previous.capturedWatermark !== dependency.capturedWatermark || previous.observed.kind !== dependency.observed.kind ||
+        previous.observed.kind === "present" && dependency.observed.kind === "present" &&
+          previous.observed.semanticSha256Hex !== dependency.observed.semanticSha256Hex)
+        return yield* Effect.fail(invalidSchemaError("journal"));
+      continue;
+    }
+    normalizedMetadataDependencies.push(dependency);
+  }
   yield* enforceLimitEffect(
     "pointReadDependencies",
     pointDependencies.length,
@@ -1058,6 +1493,7 @@ const normalizeSessionJournalV1Effect = Effect.fn(function* (
     ...pointDependencies,
     ...mergedIndexedDependencies,
     ...normalizedApplicationRelationDependencies,
+    ...normalizedMetadataDependencies,
   ];
 
   const orderedWrites = [...journal.writes].toSorted((left, right) =>
@@ -1100,7 +1536,7 @@ const normalizeSessionJournalV1Effect = Effect.fn(function* (
 
   if (
     journal.finalSyscallSequence === 0n &&
-    (readDependencies.length > 0 ||
+    (readDependencies.some(dependency => dependency.kind !== "metadata") ||
       journal.readUsage.documentsRead > 0 ||
       journal.readUsage.semanticBytesRead > 0 ||
       writes.length > 0)
@@ -1109,7 +1545,6 @@ const normalizeSessionJournalV1Effect = Effect.fn(function* (
   }
 
   return freezeOwnedProtocolProjection({
-    format: SESSION_JOURNAL_FORMAT_V1,
     protocolVersion: journal.protocolVersion,
     valueCodecVersion: journal.valueCodecVersion,
     finalSyscallSequence: journal.finalSyscallSequence,
@@ -1119,7 +1554,7 @@ const normalizeSessionJournalV1Effect = Effect.fn(function* (
       semanticBytesRead: journal.readUsage.semanticBytesRead,
     },
     writes,
-  } satisfies SessionJournalV1);
+  } satisfies AppJournalFields);
 });
 
 function compareApplicationRelationReadDependenciesV1(
@@ -1496,7 +1931,7 @@ const createCanonicalSuccessfulResultV1Effect = Effect.fn(function* (
   } satisfies SuccessfulResultEvidenceV1);
   const stableValueJson = freezeOwnedProtocolProjection(canonical.valueJson);
 
-  return Object.freeze({
+  const result = Object.freeze({
     valueJson: stableValueJson,
     semanticSizeBytes: canonical.semanticSizeBytes,
     canonicalText: canonical.canonicalText,
@@ -1507,7 +1942,24 @@ const createCanonicalSuccessfulResultV1Effect = Effect.fn(function* (
     },
     evidence,
   } satisfies CanonicalSuccessfulResultV1);
+  return result;
 });
+
+/** Foreign evidence reaches this issuer only after exact bytes and digest have
+ * been verified. The canonical runtime tree has never escaped its constructor. */
+function issueCanonicalSuccessfulResultV1(
+  result: CanonicalSuccessfulResultV1,
+  runtimeValue: CanonicalFlarexRuntimeValueV1,
+): CanonicalSuccessfulResultV1 {
+  const readRuntimeValue = createOwnedCanonicalFlarexRuntimeValueReaderV1(runtimeValue);
+  issuedSuccessfulResults.set(result, Object.freeze({
+    result,
+    get value(): CanonicalFlarexRuntimeValueV1 {
+      return readRuntimeValue();
+    },
+  } satisfies IssuedCanonicalSuccessfulResultV1));
+  return result;
+}
 
 const decodeUnknownFlarexValueEnvelopeV1 = Schema.decodeUnknownEffect(
   FlarexValueEnvelopeV1Schema,
@@ -1524,7 +1976,7 @@ const inspectProtocolHeaderEffect = Effect.fn(function* (
   input: unknown,
   component: "journal" | "envelope",
   expectedFormat:
-    | typeof SESSION_JOURNAL_FORMAT_V1
+    | typeof SESSION_JOURNAL_FORMAT
     | typeof COMMIT_ENVELOPE_FORMAT_V1,
 ): Effect.fn.Return<void, CommitProtocolV1Error> {
   if (!isRecord(input) || input.format !== expectedFormat) {
@@ -1681,7 +2133,7 @@ function preflightSessionJournalCandidate(
     input.readDependencies.length >
       MAX_COMMIT_POINT_READ_DEPENDENCIES_V1 +
         MAX_COMMIT_INDEX_RANGE_READ_DEPENDENCIES_V1 +
-        MAX_COMMIT_RELATION_READ_DEPENDENCIES_V1
+        MAX_COMMIT_RELATION_READ_DEPENDENCIES_V1 + MAX_COMMIT_METADATA_READ_DEPENDENCIES
   ) {
     return {
       reason: "invalidSchema",
@@ -1698,6 +2150,36 @@ function preflightSessionJournalCandidate(
       observed: input.writes.length,
       maximum: MAX_COMMIT_WRITE_OPERATIONS_V1,
     };
+  }
+  if (Array.isArray(input.participantOperations)) {
+    if (input.participantOperations.length > MAX_COMMIT_WRITE_OPERATIONS_V1) {
+      return {
+        reason: "limitExceeded",
+        dimension: "writeOperations",
+        observed: input.participantOperations.length,
+        maximum: MAX_COMMIT_WRITE_OPERATIONS_V1,
+      };
+    }
+    let effects = Array.isArray(input.writes) ? input.writes.length : 0;
+    for (const operation of input.participantOperations) {
+      if (!isRecord(operation) || !Array.isArray(operation.sourceContributions) ||
+        !Array.isArray(operation.eventIntents)) {
+        return { reason: "invalidSchema", component: "journal" };
+      }
+      if (operation.sourceContributions.length > 3) {
+        return { reason: "invalidSchema", component: "journal" };
+      }
+      for (const source of operation.sourceContributions) {
+        if (!isRecord(source) || !Array.isArray(source.effects)) {
+          return { reason: "invalidSchema", component: "journal" };
+        }
+        effects += source.effects.length;
+      }
+      if (effects > MAX_COMMIT_WRITE_OPERATIONS_V1 ||
+        operation.eventIntents.length > 2_048) {
+        return { reason: "invalidSchema", component: "journal" };
+      }
+    }
   }
   if (isRecord(input.readUsage)) {
     const documentsRead = input.readUsage.documentsRead;

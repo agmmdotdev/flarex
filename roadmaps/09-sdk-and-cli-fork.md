@@ -7,6 +7,16 @@ code generator, minimal CLI, Vite integration, client/React surface, test SDK,
 and packed-consumer proof. It is not yet a production-ready published ecosystem
 or full Convex SDK/CLI replacement.
 
+For an explicitly configured ordinary Core target, normal HTTP codegen/deploy now
+discovers the storage profile before bundling. Core keeps canonical SDK imports,
+uses packaged module namespaces, supports validated inline JWT settings, and
+emits only typed API/server/data-model output. Stale legacy runtime files are
+removed; analyzed declaration IDs are not reused as legacy storage identifiers.
+The [registered-source contract](../experiments/core/engine/slices/19-registered-source-upgrades.md)
+owns fresh activation and source upgrades with existing data. Normal SDK deploy
+uses durable independent attempts over shared Core schema/index preparation;
+managed production activation and general conversions retain separate gates.
+
 This roadmap owns:
 
 - the public `flarex` developer SDK surface;
@@ -170,6 +180,16 @@ separate adapter concerns owned by
 and do not become public SDK contracts through this handoff.
 
 ### Deferred CMS Facade Handoff
+
+The [unified Application/CMS/commerce developer-contract proposal](./flarexdb-framework-integration/preflight/unified-application-cms-commerce-developer-contract.md)
+records the intended explicit operation boundaries: application document writes,
+Payload-style content operations and Medusa-style services/workflows composed
+through supported mutations. Relation assignment changes the source; target
+mutation uses its owning domain operation. `.cms()`, relation declarations and
+`ctx.cms`/`ctx.commerce` examples are proposals, not selected exports. Private
+mixed-mutation and write-ownership proofs do not implement generated public
+facades or automatic CMS-aware writer narrowing. This roadmap owns their later
+API selection after the required private composition and ownership gates.
 
 The optional CMS package may later generate a `ctx.cms` facade, but the core
 `flarex` package does not acquire Payload runtime dependencies. The accepted

@@ -7,7 +7,7 @@ const ProductCollection = model
     title: model.text().searchable().translatable(),
     handle: model.text(),
     metadata: model.json().nullable(),
-    products: model.hasMany(() => Product, {
+    products: model.hasMany((): typeof Product => Product, {
       mappedBy: "collection",
     }),
   })

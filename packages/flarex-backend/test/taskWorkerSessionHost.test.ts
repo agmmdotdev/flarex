@@ -85,6 +85,88 @@ describe("Task Worker session host", () => {
     },
   );
 
+  it.each([
+    ["revision", {
+      taskDefinitionRevisionId: "taskdef_00000000-0000-4000-8000-000000000005",
+    }],
+    ["profile", { computeProfile: "standard-2x" }],
+    ["duration", { maximumDurationMs: 30_001 }],
+  ] as const)("rejects a legacy %s mismatch before loading", async (_name, mismatch) => {
+    const request = legacyRequest();
+    const loader = new FakeWorkerLoader(start => remoteSession(
+      start, Promise.resolve(settlementForAcceptance(start)),
+    ));
+    const failure = await Effect.runPromise(makeTaskWorkerSessionHost(loader).start({
+      ...startInput("legacy_dynamic_worker_v1"),
+      request: { ...request, dispatch: { ...request.dispatch, ...mismatch } },
+    }).pipe(Effect.flip));
+
+    expect(failure).toMatchObject({ operation: "start", reason: "invalidRequest" });
+    expect(loader.loaded).toHaveLength(0);
+    expect(loader.starts).toBe(0);
+  });
+
+  it.each([
+    ["LegacyTaskWorkerInvalidRequestV1Error", "invalidRequest"],
+    ["LegacyTaskWorkerDefinitionV1Error", "workerDefinitionFailed"],
+    ["LegacyTaskWorkerInputBoundaryV1Error", "inputBoundaryFailed"],
+    ["LegacyTaskWorkerUserCodeV1Error", "userCodeFailed"],
+    ["LegacyTaskWorkerTerminalV1Error", "terminalFailed"],
+  ] as const)("maps %s to %s with its original cause", async (name, reason) => {
+    const cause = Object.assign(new Error(name), { name });
+    const loader = new FakeWorkerLoader(() => Promise.reject(cause));
+    const failure = await Effect.runPromise(makeTaskWorkerSessionHost(loader).start(
+      startInput("legacy_dynamic_worker_v1"),
+    ).pipe(Effect.flip));
+
+    expect(failure).toMatchObject({ operation: "start", reason });
+    expect(failure.cause).toBe(cause);
+    expect(loader.starts).toBe(1);
+  });
+
+  it.each(["application_v1", "legacy_dynamic_worker_v1"] as const)(
+    "rejects and disposes a %s session accepted for another dispatch identity",
+    async generation => {
+      const loader = new FakeWorkerLoader(start => ({
+        ...remoteSessionValue(start, Promise.resolve(settlementForAcceptance(start))),
+        acceptance: async () => {
+          const acceptance = acceptanceFor(start);
+          return { ...acceptance, identity: { ...acceptance.identity, requestedEffectSequence: 2n } };
+        },
+      }));
+      const failure = await Effect.runPromise(makeTaskWorkerSessionHost(loader).start(
+        startInput(generation),
+      ).pipe(Effect.flip));
+
+      expect(failure).toMatchObject({ operation: "start", reason: "invalidResponse" });
+      expect(loader.sessionDisposals).toBe(1);
+    },
+  );
+
+  it.each(["application_v1", "legacy_dynamic_worker_v1"] as const)(
+    "rejects a %s settlement for another dispatch identity and disposes on close",
+    async generation => {
+      const loader = new FakeWorkerLoader(start => {
+        const acceptance = acceptanceFor(start);
+        return remoteSession(start, Promise.resolve({
+          ...settlementFor(acceptance),
+          identity: { ...acceptance.identity, requestedEffectSequence: 2n },
+        }));
+      });
+      const session = await Effect.runPromise(makeTaskWorkerSessionHost(loader).start(
+        startInput(generation),
+      ));
+      try {
+        const failure = await Effect.runPromise(session.settlement.pipe(Effect.flip));
+        expect(failure).toMatchObject({ operation: "settlement", reason: "invalidResponse" });
+        expect(loader.sessionDisposals).toBe(0);
+      } finally {
+        await Effect.runPromise(session.close);
+      }
+      expect(loader.sessionDisposals).toBe(1);
+    },
+  );
+
   it("maps fresh Worker entrypoint acquisition failure before session start", async () => {
     const cause = new Error("entrypoint unavailable");
     let loadCalls = 0;
@@ -614,7 +696,7 @@ function remoteSessionValue(
   settlement: Promise<unknown>,
   owner?: FakeWorkerLoader,
   interrupt?: (request: unknown) => unknown,
-): unknown {
+) {
   const acceptance = acceptanceFor(start);
   return Object.assign({
     acceptance: async () => acceptance,

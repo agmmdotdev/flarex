@@ -24,7 +24,7 @@ import {
   type SourceArtifactV2ModuleRolesV1,
 } from "flarex-protocol/internal/declarative-v2-source-artifact-v2";
 import type { Json } from "flarex-protocol/json";
-import type { ValidatorJsonV1 } from "flarex-protocol/validator-json";
+import { encodeValidatorJsonV1, type ValidatorJsonV1 } from "flarex-protocol/validator-json";
 
 export const DECLARATIVE_V2_MATERIALIZER_FORMAT_V1 =
   "flarex.declarative-materializer/v1" as const;
@@ -84,6 +84,7 @@ export type DeclarativeV2MaterializationV1ErrorReason =
   | "executionRoleRequired"
   | "multipleExecutionModules"
   | "schemaRoleUnsupported"
+  | "indexProjectionUnsupported"
   | "authRoleUnsupported";
 
 export class DeclarativeV2MaterializationV1Error extends Data.TaggedError(
@@ -798,7 +799,7 @@ function validateGraphAgainstProgram(
 }
 
 function validatorJsonAsJson(value: ValidatorJsonV1): Json {
-  return value;
+  return encodeValidatorJsonV1(value);
 }
 
 function functionArgsOwner(functionPath: string): string {
@@ -1121,6 +1122,11 @@ export function materializeDeclarativeV2ArtifactsV1(
   return Result.gen(function* () {
     const budget =
       yield* admitDeclarativeV2MaterializationBudgetV1(rawBudget);
+    // The semantic verifier's native index record does not admit projections.
+    // Refuse before emission instead of stripping authenticated comparison rules.
+    if (program.schema.indexes.some(index => index.decimalFields !== undefined)) {
+      return yield* Result.fail(materializationError("materialize", "indexProjectionUnsupported"));
+    }
     const usage: MutableUsage = {
       modules: 0,
       entryBindings: 0,

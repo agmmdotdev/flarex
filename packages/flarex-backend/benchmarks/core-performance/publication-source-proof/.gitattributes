@@ -1,0 +1,2 @@
+# JSON evidence hashes require exact original bytes, including receipt line endings.
+*.json -text whitespace=cr-at-eol

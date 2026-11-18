@@ -1,3 +1,4 @@
+import { query } from "../src/server";
 import { describe, expect, it } from "vitest";
 import {
   validateFunctionArgs,
@@ -63,7 +64,7 @@ describe("runtime validation", () => {
     ).toThrowError(ValidationError);
   });
 
-  it("constructs exact validators after same-realm intrinsic mutation", () => {
+  it("constructs and exports exact owned validators while same-realm intrinsics are mutated", () => {
     const defineProperty = Object.defineProperty;
     const deleteProperty = Reflect.deleteProperty;
     const freezeDescriptor = Object.getOwnPropertyDescriptor(Object, "freeze");
@@ -92,7 +93,20 @@ describe("runtime validation", () => {
       mapDescriptor === undefined ||
       constructorDescriptor === undefined
     ) throw new Error("Missing intrinsic descriptor.");
+    const apply = Reflect.apply;
+    const objectIsDescriptor = Object.getOwnPropertyDescriptor(Object, "is");
+    const finiteDescriptor = Object.getOwnPropertyDescriptor(Number, "isFinite");
+    const nanDescriptor = Object.getOwnPropertyDescriptor(Number, "isNaN");
+    if (objectIsDescriptor === undefined || finiteDescriptor === undefined || nanDescriptor === undefined) throw new Error("Missing numeric intrinsic descriptor.");
+    const forged = { isFlarexValidator: true, isOptional: "required", kind: "id", json: { type: "id", tableName: "" } };
     let validator: ReturnType<typeof v.object>;
+    let metadata: unknown;
+    let numericMetadata: unknown;
+    let argsExport: string | undefined;
+    let returnsExport: string | undefined;
+    let mapExport: string | undefined;
+    let foreignRejected = false;
+    let validForeignMetadata: unknown;
     try {
       defineProperty(Array.prototype, "0", {
         configurable: true,
@@ -133,11 +147,27 @@ describe("runtime validation", () => {
         value: () => { throw new Error("polluted defineProperty"); },
       });
 
+      defineProperty(Object, "is", { ...objectIsDescriptor, value: () => false });
+      defineProperty(Number, "isFinite", { ...finiteDescriptor, value: () => false });
+      defineProperty(Number, "isNaN", { ...nanDescriptor, value: () => false });
       validator = v.object({
         id: v.string(),
         role: v.union(v.literal("reader"), v.literal("writer")),
       });
+      metadata = validator.json;
+      numericMetadata = v.object({ integer: v.literal(1n), zero: v.literal(-0), ordinary: v.literal(1), special: v.literal(Number.NaN) }).json;
+      const registered = query({ args: validator, returns: v.literal(-0), handler: (): 0 => -0 });
+      argsExport = registered.exportArgs();
+      returnsExport = registered.exportReturns();
+      mapExport = query({ args: { required: v.string(), integer: v.literal(1n) }, handler: () => null }).exportArgs();
+      try { apply(v.array, undefined, [forged]); } catch { foreignRejected = true; }
+      const foreignValid = { isFlarexValidator: true, isOptional: "required", kind: "literal", json: { type: "literal", value: { $integer: "AQAAAAAAAAA=" } } };
+      const foreignArray: ReturnType<typeof v.array> = apply(v.array, undefined, [foreignValid]);
+      validForeignMetadata = foreignArray.json;
     } finally {
+      defineProperty(Number, "isNaN", nanDescriptor);
+      defineProperty(Number, "isFinite", finiteDescriptor);
+      defineProperty(Object, "is", objectIsDescriptor);
       defineProperty(Object, "defineProperty", definePropertyDescriptor);
       defineProperty(Object, "entries", entriesDescriptor);
       defineProperty(Object, "create", createDescriptor);
@@ -152,7 +182,7 @@ describe("runtime validation", () => {
       }
     }
 
-    expect(validator.json).toEqual({
+    expect(metadata).toEqual({
       type: "object",
       value: {
         id: { fieldType: { type: "string" }, optional: false },
@@ -169,8 +199,31 @@ describe("runtime validation", () => {
       },
     });
     expect(Object.isFrozen(validator)).toBe(true);
+    expect(JSON.parse(argsExport ?? "null")).toEqual(metadata);
+    expect(JSON.parse(returnsExport ?? "null")).toEqual({ type: "literal", value: { $float: "AAAAAAAAAIA=" } });
+    expect(JSON.parse(mapExport ?? "null")).toEqual({ type: "object", value: { required: { fieldType: { type: "string" }, optional: false }, integer: { fieldType: { type: "literal", value: { $integer: "AQAAAAAAAAA=" } }, optional: false } } });
+    expect(numericMetadata).toEqual({ type: "object", value: { integer: { fieldType: { type: "literal", value: { $integer: "AQAAAAAAAAA=" } }, optional: false }, zero: { fieldType: { type: "literal", value: { $float: "AAAAAAAAAIA=" } }, optional: false }, ordinary: { fieldType: { type: "literal", value: 1 }, optional: false }, special: { fieldType: { type: "literal", value: { $float: "AAAAAAAA+H8=" } }, optional: false } } });
+    expect(foreignRejected).toBe(true);
+    expect(validForeignMetadata).toEqual({ type: "array", value: { type: "literal", value: { $integer: "AQAAAAAAAAA=" } } });
   });
 
+  it("exports owned metadata while same-realm Object.entries is mutated", () => {
+    const validator = v.object({ required: v.string() });
+    const registered = query({ args: validator, handler: () => null });
+    const defineProperty = Object.defineProperty;
+    const descriptor = Object.getOwnPropertyDescriptor(Object, "entries");
+    if (descriptor === undefined) throw new Error("Missing Object.entries descriptor");
+    let json: unknown;
+    let args: string | undefined;
+    try {
+      defineProperty(Object, "entries", { ...descriptor, value: () => [] });
+      json = validator.json;
+      args = registered.exportArgs();
+    } finally { defineProperty(Object, "entries", descriptor); }
+    const expected = { type: "object", value: { required: { fieldType: { type: "string" }, optional: false } } };
+    expect(json).toEqual(expected);
+    expect(JSON.parse(args ?? "null")).toEqual(expected);
+  });
   it("uses the protocol number domain and rejects non-Flarex values", () => {
     for (const value of [Number.NaN, Number.POSITIVE_INFINITY, -0]) {
       expect(() => validateValue(v.number(), value)).not.toThrow();
@@ -180,15 +233,44 @@ describe("runtime validation", () => {
     );
   });
 
-  it("rejects schema literals that the protocol cannot persist", () => {
+  it("retains literal numeric identity through authoring, export and validation", () => {
     for (const value of [Number.NaN, Number.POSITIVE_INFINITY, -0]) {
-      expect(() => v.literal(value)).toThrow(RangeError);
+      const validator = v.literal(value);
+      expect(() => validateValue(validator, value)).not.toThrow();
+      expect(validator.json).toMatchObject({ type: "literal", value: { $float: expect.any(String) } });
     }
-    expect(() => new Validator(
-      "literal",
-      { type: "literal", value: Number.NaN },
-      "required",
-    )).toThrow();
+    expect(() => validateValue(v.literal(-0), 0)).toThrow(ValidationError);
+    expect(() => validateValue(v.literal(0), -0)).toThrow(ValidationError);
+    expect(() => validateValue(v.literal(1n), 1)).toThrow(ValidationError);
+    expect(() => validateValue(v.literal(1), 1n)).toThrow(ValidationError);
+    expect(v.literal(1n).json).toEqual({ type: "literal", value: { $integer: "AQAAAAAAAAA=" } });
+    expect(v.literal(1).json).toEqual({ type: "literal", value: 1 });
+    expect(() => new Validator("literal", { type: "literal", value: Number.NaN }, "required")).not.toThrow();
+  });
+
+  it("defers unchecked bigint overflow until export, including nested composition", () => {
+    const value = 9223372036854775808n;
+    const literal = v.literal(value);
+    const nested = v.object({ values: v.array(literal), optional: v.optional(literal) });
+    expect(() => literal.json).toThrow();
+    expect(() => nested.json).toThrow();
+    const minimum = v.literal(-9223372036854775808n);
+    const maximum = v.literal(9223372036854775807n);
+    expect(minimum.json).toEqual({ type: "literal", value: { $integer: "AAAAAAAAAIA=" } });
+    expect(maximum.json).toEqual({ type: "literal", value: { $integer: "/////////38=" } });
+    expect(() => validateValue(minimum, -9223372036854775808n)).not.toThrow();
+    expect(() => validateValue(maximum, 9223372036854775807n)).not.toThrow();
+  });
+
+  it("refuses foreign export accessors without invoking them", () => {
+    let reads = 0;
+    const foreign = {
+      isFlarexValidator: true,
+      isOptional: "required",
+      get json() { reads += 1; return v.literal(1n).json; },
+    };
+    expect(() => validateValue(foreign as never, 1n)).toThrow("own data property");
+    expect(reads).toBe(0);
   });
 
   it("does not trust structurally forged validator facades", () => {
@@ -224,7 +306,7 @@ describe("runtime validation", () => {
     ];
 
     for (const compose of compositions) {
-      expect(compose).toThrow('got "not-a-validator"');
+      expect(compose).toThrow("$validator.json: Invalid validator JSON.");
     }
   });
 

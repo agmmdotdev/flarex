@@ -1,18 +1,20 @@
+import { promiseFailureObserver } from "./support/promise-failure-observer";
 import { describe, expect, expectTypeOf, it, vi } from "vitest";
 import { Cause, Effect, Exit, Result, Schema } from "effect";
-import { createStep, createWorkflow, isPreparedWorkflow, WorkflowResponse } from "@medusajs/workflows-sdk";
-import type { AtomicCommerceContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
-import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
+import { createHook, createStep, createWorkflow, isPreparedWorkflow, StepResponse, transform, when, WorkflowResponse } from "@medusajs/workflows-sdk";
+import type { AtomicCommerceContext, LogicalCommerceCallValidation, LogicalCommerceEventValidation } from "@flarex/persistence-postgres/internal/commerce-adapter";
+import { commerceError, defaultCommerceResources } from "@flarex/persistence-postgres/internal/commerce-values";
 import { defineGraphReadCommand } from "../src/local-graph/commands";
 import type { GraphModuleDefinition } from "../src/local-graph/model";
-import { commerceDecoder } from "../src/commerce-decoder";
-import { defineWorkflowMethod, defineWorkflowModule, workflowModuleDefinition, workflowMethodDefinition } from "../src/workflow/module";
-import { prepareWorkflowResources, workflowResourceSelections } from "../src/workflow/resources";
+import { commerceDecoder } from "../src/value/decoder";
+import { defineWorkflowMethod, defineWorkflowModule, workflowModuleDefinition, workflowMethodDefinition, type WorkflowLogicalPolicy } from "../src/workflow/module";
+import { prepareWorkflowResources, workflowResourceSelections, workflowAbsentResources } from "../src/workflow/resources";
 import { bindWorkflowResources } from "../src/workflow/binding";
-import { checkedCommerceValue } from "../src/commerce-checked-value";
-import { prepareAtomicWorkflowHost } from "../src/workflow/host";
-import { runNativeMedusaWorkflow } from "../src/workflow-runtime";
-import type { CommercePromiseOwner } from "../src/commerce-promise-owner";
+import { checkedCommerceValue } from "../src/value/checked";
+import { prepareAtomicWorkflowHost, prepareWorkflowComposition, captureInstalledWorkflowModules, type InstalledWorkflowModule, type AtomicWorkflowExecution } from "../src/workflow/host";
+import { runNativeMedusaWorkflow } from "../src/workflow/runtime";
+import type { CommercePromiseOwner } from "../src/module/promise-owner";
+import { captureWorkflowValue, presentWorkflowValue } from "../src/workflow/value";
 
 const source = { name: "sample-module", profile: "sample", models: [], extensions: [], capabilities: [] };
 const command = defineGraphReadCommand("sampleRead", () => Effect.succeed([[], 0]));
@@ -29,12 +31,511 @@ const members = workflowResourceSelections(resources);
 if (members === undefined) throw new Error("Missing unit resource selection");
 const decodeJson = commerceDecoder(Schema.Json, "invalidInput");
 // A resource-dispatch unit port, not a persistence or transaction simulation.
-const context = (): AtomicCommerceContext => ({ eventGroupId: "unit", checkpoint: Effect.void,
-  capture: input => Effect.fromResult(decodeJson(input)), call: (_participant, _command, args) => Effect.succeed(args),
-  emit: () => Effect.fail(commerceError("unadmittedEvent")), refuse: error => Effect.fail(error),
+const context = (): AtomicCommerceContext => ({ eventGroupId: "unit", checkpoint: Effect.void, recordFailure: promiseFailureObserver(),
+  capture: (input, normalize) => Effect.suspend(() => Effect.fromResult((normalize ?? decodeJson)(input))),
+  call: (_participant, _command, args) => Effect.succeed(args),
+  emit: () => Effect.fail(commerceError("unadmittedEvent")), clearPendingEvents: () => Effect.fail(commerceError("unadmittedEvent")), refuse: error => Effect.fail(error),
 });
 
+function logicalComposition(logical: WorkflowLogicalPolicy) {
+  const selected = Result.getOrThrow(defineWorkflowModule({ name: "sample", source,
+    methods: { echo: method }, graph: graphDefinition(), logical }));
+  const selectedResources = Result.getOrThrow(prepareWorkflowResources({ sample: { module: selected, methods: ["echo"], graph: false } }, false));
+  const flow = createWorkflow("logical-policy-unit", () => new WorkflowResponse(null));
+  const modules: Record<string, InstalledWorkflowModule> = {};
+  // This pure composition port does not authenticate storage or execute database
+  // operations. The core host separately owns that authority boundary.
+  Object.defineProperty(modules, "sample", { enumerable: true, value: { module: selected, logicalStorage: {} } });
+  return { selected, options: { identityAndAccessPolicy: {}, modules, revision: "a".repeat(64), workflow: {
+    name: "logical-policy-unit", resources: selectedResources, prepared: Result.getOrThrow(flow.prepare()), input: Schema.Json, output: Schema.Json,
+  } } };
+}
+
 describe("workflow registration and scoped resource composition", () => {
+  it("binds declared optional resource absence to identity while retaining omitted serialization", async () => {
+    const { selected, options } = logicalComposition({ commands: [command],
+      capture: value => Effect.fromResult(decodeJson(value)), validateLogicalCall: () => Effect.void });
+    const selections = { sample: { module: selected, methods: ["echo"] as const, graph: false } };
+    const omitted = Result.getOrThrow(prepareWorkflowResources(selections, false));
+    const explicitEmpty = Result.getOrThrow(prepareWorkflowResources(selections, false, undefined, { absent: [] }));
+    const declared = Result.getOrThrow(prepareWorkflowResources(selections, false, undefined, { absent: ["caching"] }));
+    const other = Result.getOrThrow(prepareWorkflowResources(selections, false, undefined, { absent: ["logger"] }));
+    const ordered = Result.getOrThrow(prepareWorkflowResources(selections, false, undefined, { absent: ["caching", "logger"] }));
+    const reversed = Result.getOrThrow(prepareWorkflowResources(selections, false, undefined, { absent: ["logger", "caching"] }));
+    expect(workflowAbsentResources(omitted)).toEqual([]);
+    expect(workflowAbsentResources(explicitEmpty)).toEqual([]);
+    expect(workflowAbsentResources(declared)).toEqual(["caching"]);
+    const compositions = [];
+    for (const resources of [omitted, explicitEmpty, declared, other, ordered, reversed]) {
+      const prepared = await Effect.runPromise(prepareWorkflowComposition({ ...options, workflow: { ...options.workflow, resources } }));
+      compositions.push(prepared.composition);
+    }
+    const [ordinary, empty, absent, otherAbsent, orderedAbsent, reversedAbsent] = compositions;
+    if (ordinary === undefined || empty === undefined || absent === undefined || otherAbsent === undefined ||
+      orderedAbsent === undefined || reversedAbsent === undefined) throw new Error("Missing prepared absence composition");
+    expect(empty.identityAndAccessPolicy).toEqual(ordinary.identityAndAccessPolicy);
+    expect(absent.identityAndAccessPolicy).not.toEqual(ordinary.identityAndAccessPolicy);
+    expect(ordinary.identityAndAccessPolicy).not.toHaveProperty("workflow.absentResources");
+    expect(empty.identityAndAccessPolicy).not.toHaveProperty("workflow.absentResources");
+    expect(absent.identityAndAccessPolicy).toHaveProperty("workflow.absentResources", ["caching"]);
+    expect(otherAbsent.identityAndAccessPolicy).toHaveProperty("workflow.absentResources", ["logger"]);
+    expect(orderedAbsent.identityAndAccessPolicy).toHaveProperty("workflow.absentResources", ["caching", "logger"]);
+    expect(reversedAbsent.identityAndAccessPolicy).toHaveProperty("workflow.absentResources", ["logger", "caching"]);
+    expect(new Set([ordinary, absent, otherAbsent, orderedAbsent, reversedAbsent].map(value =>
+      JSON.stringify(value.identityAndAccessPolicy))).size).toBe(5);
+    expect(JSON.stringify(ordinary.identityAndAccessPolicy)).not.toContain('"absentResources"');
+    expect(JSON.stringify(empty.identityAndAccessPolicy)).not.toContain('"absentResources"');
+    expect(ordinary.participants[0]?.commands).toEqual([command]);
+    expect(absent.participants[0]?.commands).toEqual([command]);
+  });
+
+  it("refuses unregistered resource tokens and subscribers when events are omitted", async () => {
+    const { options } = logicalComposition({ commands: [command],
+      capture: value => Effect.fromResult(decodeJson(value)), validateLogicalCall: () => Effect.void });
+    // Both retain the public resource shape but lack its private registration.
+    // Preparing composition never executes a workflow or database operation.
+    const original = options.workflow.resources;
+    for (const resources of [{ ...original }, { events: false, callback: original.callback, hooks: original.hooks }]) {
+      expect(workflowResourceSelections(resources)).toBeUndefined();
+      expect(workflowAbsentResources(resources)).toBeUndefined();
+      expect(await Effect.runPromise(Effect.result(prepareWorkflowComposition({ ...options, workflow: { ...options.workflow, resources } }))))
+        .toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedProfile" } });
+    }
+    const ordinary = await Effect.runPromise(prepareWorkflowComposition(options));
+    expect(ordinary.composition).not.toHaveProperty("events");
+    expect(await Effect.runPromise(Effect.result(prepareWorkflowComposition({ ...options, subscribers: [] }))))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedProfile" } });
+  });
+
+  it("binds direct Link endpoint presence, join keys, paths and bounds to durable workflow identity", async () => {
+    const logical = { commands: [command], capture: (value: unknown) => Effect.fromResult(decodeJson(value)), validateLogicalCall: () => Effect.void };
+    const endpoint = Result.getOrThrow(defineWorkflowModule({ name: "child", source, methods: {}, logical,
+      graph: { aliases: [{ name: "child", model: "Child" }], reads: graphDefinition().reads.map(read => ({ ...read, model: "Child",
+        table: { ...read.table, name: "child" } })) } }));
+    const descriptor = { root: "Sample", path: "child", sourceKey: "target_id", targetModel: "Child", targetKey: "id", maximumSources: 4, maximumTargets: 4 };
+    const flow = createWorkflow("link-endpoint-identity-unit", () => new WorkflowResponse(null));
+    const prepared = Result.getOrThrow(flow.prepare()), identities: unknown[] = [];
+    for (const selected of [undefined, descriptor, { ...descriptor, maximumSources: 3 }, { ...descriptor, maximumTargets: 3 },
+      { ...descriptor, sourceKey: "alternate_id" }, { ...descriptor, path: "alternate" }]) {
+      const graph = graphDefinition();
+      const root = Result.getOrThrow(defineWorkflowModule({ name: "sample", source, methods: {}, logical,
+        graph: { ...graph, reads: graph.reads.map(read => ({ ...read, table: { ...read.table, columns: ["id", "target_id", "alternate_id"] } })),
+          ...(selected === undefined ? {} : { linkEndpoints: [selected] }) } }));
+      const selectedResources = Result.getOrThrow(prepareWorkflowResources({ sample: { module: root, methods: [], graph: true },
+        child: { module: endpoint, methods: [], graph: true } }, false));
+      const modules: Record<string, InstalledWorkflowModule> = {};
+      // This composition-only fixture supplies no storage authority or SQL.
+      for (const [name, module] of [["sample", root], ["child", endpoint]] as const)
+        Object.defineProperty(modules, name, { enumerable: true, value: { module, logicalStorage: {} } });
+      const result = await Effect.runPromise(prepareWorkflowComposition({ modules, identityAndAccessPolicy: {}, revision: "a".repeat(64),
+        workflow: { name: "link-endpoint-identity-unit", resources: selectedResources, prepared, input: Schema.Null, output: Schema.Null } }));
+      identities.push(result.composition.identityAndAccessPolicy);
+    }
+    expect(new Set(identities.map(identity => JSON.stringify(identity))).size).toBe(identities.length);
+  });
+
+  it("forwards an explicit trusted command duration through host preparation and binds only its presence to identity", async () => {
+    const { options } = logicalComposition({ commands: [command],
+      capture: value => Effect.fromResult(decodeJson(value)), validateLogicalCall: () => Effect.void });
+    const refusal = commerceError("invalidAuthority");
+    const prepare = vi.fn<AtomicWorkflowExecution["prepare"]>(() => Effect.fail(refusal));
+    const { identityAndAccessPolicy, ...hostOptions } = options;
+    const execution = { identityAndAccessPolicy, prepare };
+    for (const selection of [{}, { requestCommandMs: 30_000 }]) {
+      const outcome = await Effect.runPromise(Effect.result(prepareAtomicWorkflowHost({ ...hostOptions, execution, ...selection })));
+      expect(outcome).toEqual(Result.fail(refusal));
+    }
+    expect(prepare).toHaveBeenCalledTimes(2);
+    const omitted = prepare.mock.calls[0]?.[0], selected = prepare.mock.calls[1]?.[0];
+    expect(omitted).not.toHaveProperty("requestCommandMs");
+    expect(omitted?.identityAndAccessPolicy).not.toHaveProperty("workflow.requestCommandMs");
+    expect(selected?.requestCommandMs).toBe(30_000);
+    expect(selected?.identityAndAccessPolicy).toHaveProperty("workflow.requestCommandMs", 30_000);
+    expect(selected?.identityAndAccessPolicy).not.toEqual(omitted?.identityAndAccessPolicy);
+    const ownUndefined = Object.defineProperty({ ...options }, "requestCommandMs", { value: undefined, enumerable: true });
+    const unchanged = await Effect.runPromise(prepareWorkflowComposition(ownUndefined));
+    expect(unchanged.composition).not.toHaveProperty("requestCommandMs");
+    expect(unchanged.composition.identityAndAccessPolicy).toEqual(omitted?.identityAndAccessPolicy);
+  });
+
+  it("keeps borrowed-operation scheduling explicit in composition and workflow identity", async () => {
+    const { options } = logicalComposition({ commands: [command],
+      capture: value => Effect.fromResult(decodeJson(value)), validateLogicalCall: () => Effect.void });
+    const rootOnly = await Effect.runPromise(prepareWorkflowComposition({ ...options, operationScheduling: "queued" }));
+    const borrowed = await Effect.runPromise(prepareWorkflowComposition({ ...options,
+      operationScheduling: "queued", borrowedOperationScheduling: "queued" }));
+    expect(Object.hasOwn(rootOnly.composition, "borrowedOperationScheduling")).toBe(false);
+    expect(borrowed.composition.borrowedOperationScheduling).toBe("queued");
+    expect(borrowed.composition.identityAndAccessPolicy).not.toEqual(rootOnly.composition.identityAndAccessPolicy);
+  });
+
+  it("refuses borrowed scheduling without the outer queue and unsupported scheduling values", async () => {
+    const { options } = logicalComposition({ commands: [command],
+      capture: value => Effect.fromResult(decodeJson(value)), validateLogicalCall: () => Effect.void });
+    await expect(Effect.runPromise(prepareWorkflowComposition({ ...options, borrowedOperationScheduling: "queued" })))
+      .rejects.toMatchObject({ reason: "unsupportedProfile" });
+    // @ts-expect-error Deliberate unsupported policy at the trusted runtime boundary.
+    await expect(Effect.runPromise(prepareWorkflowComposition({ ...options, operationScheduling: "queued", borrowedOperationScheduling: "parallel" })))
+      .rejects.toMatchObject({ reason: "unsupportedProfile" });
+  });
+
+  it("admits authenticated native methods without exposing a query graph", async () => {
+    const graphless = Result.getOrThrow(defineWorkflowModule({ name: "method_only", source,
+      methods: { echo: method }, graph: { aliases: [], reads: [] } }));
+    expect(workflowModuleDefinition(graphless)?.graph).toEqual({ aliases: [], reads: [] });
+    expect(workflowMethodDefinition(graphless.methods.echo)?.command).toBe(command);
+    expect(defineWorkflowModule({ name: "forged_method", source, methods: { echo: { ...method } },
+      graph: { aliases: [], reads: [] } })).toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedProfile" } });
+    const selected = Result.getOrThrow(prepareWorkflowResources({ method_only: { module: graphless, methods: ["echo"], graph: false } }, false));
+    const flow = createWorkflow("method-only-composition-unit", () => new WorkflowResponse(null));
+    const modules: Record<string, InstalledWorkflowModule> = {};
+    // The existing pure composition port supplies no storage authority and
+    // performs no SQL; the trusted atomic host authenticates real admissions.
+    Object.defineProperty(modules, "method_only", { enumerable: true, value: { module: graphless, logicalStorage: {} } });
+    const prepared = await Effect.runPromise(prepareWorkflowComposition({ modules, identityAndAccessPolicy: {},
+      revision: "a".repeat(64), workflow: { name: "method-only-composition-unit", resources: selected,
+        prepared: Result.getOrThrow(flow.prepare()), input: Schema.Json, output: Schema.Json } }));
+    expect(prepared.composition.participants).toHaveLength(1);
+    expect(prepared.composition.participants[0]?.commands).toEqual([command]);
+  });
+
+  it("binds explicit scope exclusion to workflow identity without a provider", async () => {
+    const flow = createWorkflow("explicit-scope-exclusion-unit", () => new WorkflowResponse(null));
+    const modules: Record<string, InstalledWorkflowModule> = {};
+    Object.defineProperty(modules, "sample", { enumerable: true, value: { module, logicalStorage: {} } });
+    const input = { modules, identityAndAccessPolicy: {}, revision: "a".repeat(64),
+      workflow: { name: "explicit-scope-exclusion-unit", resources, prepared: Result.getOrThrow(flow.prepare()), input: Schema.Json, output: Schema.Json } };
+    const ordinary = await Effect.runPromise(prepareWorkflowComposition(input));
+    const exclusive = await Effect.runPromise(prepareWorkflowComposition({ ...input, executionIsolation: "scopeExclusive" }));
+    expect(ordinary.composition).not.toHaveProperty("executionIsolation");
+    expect(exclusive.composition.executionIsolation).toBe("scopeExclusive");
+    expect(exclusive.composition.identityAndAccessPolicy).not.toEqual(ordinary.composition.identityAndAccessPolicy);
+    for (const executionIsolation of ["unknown", false, 1, {}])
+      // @ts-expect-error Deliberately exercise runtime preparation input refusal.
+      expect(await Effect.runPromise(Effect.result(prepareWorkflowComposition({ ...input, executionIsolation }))))
+        .toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedProfile" } });
+  });
+
+  it("binds an explicit control selection to the exact prepared command and workflow identity", async () => {
+    const logical = { commands: [command], capture: (value: unknown) => Effect.fromResult(decodeJson(value)), validateLogicalCall: () => Effect.void };
+    const { options } = logicalComposition(logical);
+    const ordinary = await Effect.runPromise(prepareWorkflowComposition(options));
+    const control = await Effect.runPromise(prepareWorkflowComposition({ ...options, allowTaskControl: true }));
+    expect(ordinary.composition).not.toHaveProperty("taskControlCommands");
+    expect(control.composition.taskControlCommands).toEqual([control.command]);
+    expect(control.composition.taskControlCommands?.[0]).toBe(control.command);
+    expect(control.composition.identityAndAccessPolicy).not.toEqual(ordinary.composition.identityAndAccessPolicy);
+    for (const allowTaskControl of [false, "true", 1, {}])
+      // @ts-expect-error Deliberately exercise runtime control selection refusal.
+      expect(await Effect.runPromise(Effect.result(prepareWorkflowComposition({ ...options, allowTaskControl }))))
+        .toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedProfile" } });
+  });
+
+  it("refuses graph selection for a method-only module alone or beside a genuine graph", () => {
+    const graphless = Result.getOrThrow(defineWorkflowModule({ name: "method_only", source,
+      methods: { echo: method }, graph: { aliases: [], reads: [] } }));
+    expect(prepareWorkflowResources({ method_only: { module: graphless, methods: ["echo"], graph: true } }, false))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedProfile" } });
+    expect(prepareWorkflowResources({ method_only: { module: graphless, methods: ["echo"], graph: true },
+      sample: { module, methods: ["echo"], graph: true } }, false))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedProfile" } });
+  });
+
+  it("retains graph-owner refusals for incomplete aliases/reads and dangling remote paths", () => {
+    const graph = graphDefinition();
+    for (const incomplete of [{ aliases: [], reads: graph.reads }, { aliases: graph.aliases, reads: [] },
+      { aliases: [], reads: [], remotePaths: [{ root: "Sample", path: "children", maximumSources: 1, maximumLinks: 1,
+        maximumTargets: 1, maximumPerSource: 1, sourceModel: "Sample", sourceKey: "id", linkModel: "SampleChild",
+        sourceColumn: "sample_id", targetColumn: "child_id", targetModel: "Child", targetKey: "id" }] }])
+      expect(defineWorkflowModule({ name: "incomplete_graph", source, methods: { echo: method }, graph: incomplete }))
+        .toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedProfile" } });
+  });
+
+  it("captures and forwards aggregate and per-call logical validation together", async () => {
+    const refusal = commerceError("unsupportedProfile");
+    const aggregate = vi.fn<LogicalCommerceEventValidation>(() => Effect.fail(refusal));
+    const perCall = vi.fn<LogicalCommerceCallValidation>(() => Effect.void);
+    const policy = { commands: [command], capture: (value: unknown) => Effect.fromResult(decodeJson(value)),
+      validateLogicalCall: perCall, validateLogical: aggregate };
+    const { selected, options } = logicalComposition(policy);
+    const replacement = vi.fn<LogicalCommerceEventValidation>(() => Effect.void);
+    policy.validateLogical = replacement;
+    policy.validateLogicalCall = vi.fn<LogicalCommerceCallValidation>(() => Effect.fail(commerceError("invalidAuthority")));
+    expect(workflowModuleDefinition(selected)?.logical?.validateLogical).toBe(aggregate);
+    const { composition } = await Effect.runPromise(prepareWorkflowComposition(options));
+    const participant = composition.participants[0];
+    if (participant?.validateLogical === undefined || participant.validateLogicalCall === undefined)
+      throw new Error("Expected both captured logical validation callbacks");
+    expect(participant.validateLogical).toBe(aggregate);
+    const call = { commandName: "sampleRead", mode: "read" as const, input: "input", result: "result", events: [],
+      fromAttempt: 0, toAttempt: 0, fromLifecycle: 0, toLifecycle: 0 };
+    const activity = { mutations: [], lifecycle: [], observedRows: [], setNull: [], relationalReads: [], referenceReplacements: [] };
+    await Effect.runPromise(participant.validateLogicalCall(call, activity, command));
+    expect(perCall).toHaveBeenCalledExactlyOnceWith(call, activity, command);
+    expect(await Effect.runPromise(Effect.result(participant.validateLogical([call], [], [], [], [], []))))
+      .toEqual(Result.fail(refusal));
+    expect(aggregate).toHaveBeenCalledExactlyOnceWith([call], [], [], [], [], []);
+    expect(replacement).not.toHaveBeenCalled();
+    expect(policy.validateLogicalCall).not.toHaveBeenCalled();
+  });
+
+  it("keeps omitted and own-undefined aggregate validation absent from the participant", async () => {
+    const policy = { commands: [command], capture: (value: unknown) => Effect.fromResult(decodeJson(value)),
+      validateLogicalCall: vi.fn<LogicalCommerceCallValidation>(() => Effect.void) };
+    for (const logical of [policy, Object.defineProperty({ ...policy }, "validateLogical", { value: undefined, enumerable: true })]) {
+      const { selected, options } = logicalComposition(logical);
+      expect(workflowModuleDefinition(selected)?.logical).not.toHaveProperty("validateLogical");
+      const { composition } = await Effect.runPromise(prepareWorkflowComposition(options));
+      expect(composition.participants[0]).not.toHaveProperty("validateLogical");
+      expect(composition.participants[0]?.validateLogicalCall).toBeTypeOf("function");
+    }
+  });
+
+  it("rejects noncallable and accessor aggregate validation during module capture", () => {
+    const policy = { commands: [command], capture: (value: unknown) => Effect.fromResult(decodeJson(value)),
+      validateLogicalCall: vi.fn<LogicalCommerceCallValidation>(() => Effect.void) };
+    for (const value of [null, false, "validate", {}, []]) {
+      expect(defineWorkflowModule({ name: "sample", source, methods: { echo: method }, graph: graphDefinition(),
+        logical: Object.defineProperty({ ...policy }, "validateLogical", { value, enumerable: true }) }))
+        .toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedProfile" } });
+    }
+    const getter = vi.fn(() => () => Effect.void);
+    expect(defineWorkflowModule({ name: "sample", source, methods: { echo: method }, graph: graphDefinition(),
+      logical: Object.defineProperty({ ...policy }, "validateLogical", { get: getter, enumerable: true }) }))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedProfile" } });
+    expect(getter).not.toHaveBeenCalled();
+  });
+
+  it("snapshots an explicit logical publication profile and omits an undefined selection", () => {
+    const selected = { module, logicalPublication: "mixed" };
+    const registrations: Record<string, InstalledWorkflowModule> = {};
+    Object.defineProperty(registrations, "sample", { value: selected, enumerable: true });
+    const captured = Result.getOrThrow(captureInstalledWorkflowModules(registrations, ["sample"]));
+    expect(captured.sample?.logicalPublication).toBe("mixed");
+    expect(captured.sample?.module).toBe(module);
+    expect(Object.isFrozen(captured.sample)).toBe(true);
+    expect(Reflect.set(selected, "logicalPublication", "invalid")).toBe(true);
+    expect(captured.sample?.logicalPublication).toBe("mixed");
+    const omitted: Record<string, InstalledWorkflowModule> = {};
+    Object.defineProperty(omitted, "sample", { enumerable: true, value: Object.defineProperty({ module },
+      "logicalPublication", { value: undefined, enumerable: true }) });
+    const absent = Result.getOrThrow(captureInstalledWorkflowModules(omitted, ["sample"]));
+    expect(absent.sample).not.toHaveProperty("logicalPublication");
+  });
+
+  it("refuses logical publication accessors and unknown profiles before dispatch", () => {
+    const getter = vi.fn(() => "mixed");
+    const registrations: Record<string, InstalledWorkflowModule> = {};
+    Object.defineProperty(registrations, "accessor", { enumerable: true,
+      value: Object.defineProperty({ module }, "logicalPublication", { get: getter, enumerable: true }) });
+    Object.defineProperty(registrations, "invalid", { enumerable: true,
+      value: Object.defineProperty({ module }, "logicalPublication", { value: "parallel", enumerable: true }) });
+    expect(captureInstalledWorkflowModules(registrations, ["accessor"]))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedProfile" } });
+    expect(captureInstalledWorkflowModules(registrations, ["invalid"]))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedProfile" } });
+    expect(getter).not.toHaveBeenCalled();
+  });
+
+  it("snapshots an explicit logical resource selection without cloning capabilities", () => {
+    const selected = { ...defaultCommerceResources };
+    const registrations: Record<string, InstalledWorkflowModule> = {};
+    // This exercises registration capture only; core separately authenticates
+    // storage admission when a real host is prepared.
+    Object.defineProperty(registrations, "sample", { value: { module, logicalResources: selected }, enumerable: true });
+    const captured = Result.getOrThrow(captureInstalledWorkflowModules(registrations, ["sample"]));
+    selected.catalogRows = 4096;
+    expect(captured.sample?.module).toBe(module);
+    expect(captured.sample?.logicalResources?.catalogRows).toBe(defaultCommerceResources.catalogRows);
+    expect(captured.sample?.logicalResources).not.toBe(selected);
+    expect(Object.isFrozen(captured.sample?.logicalResources)).toBe(true);
+    expect(captureInstalledWorkflowModules(registrations, ["sample"]))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedProfile" } });
+  });
+
+  it("refuses resource getters and unsupported resource values before dispatch", () => {
+    const getter = vi.fn(() => 256);
+    const registrations: Record<string, InstalledWorkflowModule> = {};
+    Object.defineProperty(registrations, "accessor", { enumerable: true, value: { module,
+      logicalResources: Object.defineProperty({ ...defaultCommerceResources }, "catalogRows", { get: getter, enumerable: true }) } });
+    Object.defineProperty(registrations, "oversized", { enumerable: true, value: { module,
+      logicalResources: { ...defaultCommerceResources, calls: 4097 } } });
+    expect(captureInstalledWorkflowModules(registrations, ["accessor"]))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "invalidInput" } });
+    expect(captureInstalledWorkflowModules(registrations, ["oversized"]))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedProfile" } });
+    expect(getter).not.toHaveBeenCalled();
+  });
+
+  it("captures selected installed bindings without invoking registration or nested getters", () => {
+    const getter = vi.fn(() => module);
+    const registrations: Record<string, InstalledWorkflowModule> = {};
+    Object.defineProperty(registrations, "sample", { get: getter, enumerable: true });
+    expect(captureInstalledWorkflowModules(registrations, ["sample"]).pipe(Result.match({
+      onFailure: error => error.reason, onSuccess: () => "accepted",
+    }))).toBe("unsupportedProfile");
+    Object.defineProperty(registrations, "nested", { value: Object.defineProperty({}, "module", { get: getter, enumerable: true }), enumerable: true });
+    expect(captureInstalledWorkflowModules(registrations, ["nested"]).pipe(Result.match({
+      onFailure: error => error.reason, onSuccess: () => "accepted",
+    }))).toBe("unsupportedProfile");
+    expect(getter).not.toHaveBeenCalled();
+  });
+
+  it("preserves selected-binding first-failure order before later registrations", () => {
+    const inspected: string[] = [];
+    const registrations: Record<string, InstalledWorkflowModule> = {};
+    const oversized = Object.fromEntries(Array.from({ length: 4097 }, (_, index) => ["field" + index, index]));
+    Object.defineProperty(registrations, "first", { value: oversized, enumerable: true });
+    const proxy = new Proxy(registrations, { getOwnPropertyDescriptor: (target, name) => {
+      inspected.push(String(name)); return Object.getOwnPropertyDescriptor(target, name);
+    } });
+    expect(captureInstalledWorkflowModules(proxy, ["first", "missing"]).pipe(Result.match({
+      onFailure: error => error.reason, onSuccess: () => "accepted",
+    }))).toBe("limitExceeded");
+    expect(inspected).toEqual(["first"]);
+  });
+
+  it("enters the existing capture operation before inspecting foreign workflow proxies or accessors", async () => {
+    const ctx = context();
+    const inspect = vi.fn();
+    const foreign = new Proxy({}, {
+      getPrototypeOf: () => { inspect(); return Object.prototype; },
+      ownKeys: () => { inspect(); return []; },
+      getOwnPropertyDescriptor: () => { inspect(); return undefined; },
+    });
+    const refusal = commerceError("limitExceeded");
+    const capture = vi.fn<AtomicCommerceContext["capture"]>(() => Effect.fail(refusal));
+    await expect(Effect.runPromise(captureWorkflowValue({ ...ctx, capture }, foreign))).rejects.toBe(refusal);
+    expect(inspect).not.toHaveBeenCalled();
+    expect(capture).toHaveBeenCalledTimes(1);
+    const getter = vi.fn(() => "unsafe");
+    await expect(Effect.runPromise(captureWorkflowValue(ctx,
+      Object.defineProperty({}, "value", { get: getter, enumerable: true })))).rejects.toMatchObject({ reason: "invalidInput" });
+    expect(getter).not.toHaveBeenCalled();
+  });
+
+  it("issues frozen workflow values and presents own undefined fields in mutable detached inputs", async () => {
+    const foreign = { missing: undefined, nested: { missing: undefined, count: 1 } };
+    const issued = await Effect.runPromise(captureWorkflowValue(context(), foreign));
+    expect(issued).toEqual(foreign);
+    expect(issued).not.toBe(foreign);
+    expect(Object.getOwnPropertyDescriptor(issued, "missing")).toMatchObject({ value: undefined, enumerable: true });
+    expect(Object.isFrozen(issued)).toBe(true);
+    const owned = presentWorkflowValue(issued);
+    expect(owned).toEqual(foreign);
+    expect(owned).not.toBe(issued);
+    expect(Object.getOwnPropertyDescriptor(owned, "missing"))
+      .toMatchObject({ value: undefined, enumerable: true, writable: true, configurable: true });
+    expect(Object.isFrozen(owned)).toBe(false);
+    if (typeof owned !== "object" || owned === null) throw new Error("Expected presented workflow object");
+    expect(Reflect.set(owned, "missing", "changed")).toBe(true);
+    expect(foreign.missing).toBeUndefined();
+    expect(issued).toEqual(foreign);
+  });
+  it("detaches each reached native callback without mutating retained outputs or omission fields", async () => {
+    const reached: object[] = [];
+    const mutate = (value: { nested: { count: number }; missing: undefined }, count: number) => {
+      expect(value.nested.count).toBe(1);
+      expect(Object.hasOwn(value, "missing")).toBe(true);
+      expect(Object.isFrozen(value)).toBe(false);
+      expect(Object.isFrozen(value.nested)).toBe(false);
+      reached.push(value);
+      value.nested.count = count;
+      return count;
+    };
+    const foreign = { nested: { count: 1 }, missing: undefined };
+    const produce = createStep("owned-output", () => new StepResponse(foreign));
+    const consume = createStep({ name: "mutating-step", compensation: "transactionCovered" },
+      (value: typeof foreign) => new StepResponse(mutate(value, 3), { missing: undefined, ids: ["compensation"] }),
+      vi.fn());
+    const skipped = vi.fn((_value: typeof foreign) => undefined);
+    const never = createStep("skipped-callback", skipped);
+    const flow = createWorkflow("owned-native-callbacks", () => {
+      const source = produce(undefined);
+      const transformed = transform(source, value => mutate(value, 2));
+      const consumed = consume(source);
+      const hook = createHook<"mutate", typeof foreign, number>("mutate", source);
+      const guarded = when("mutating-predicate", source, value => { mutate(value, 5); return true; })
+        .then(() => source.nested.count);
+      when("skip", source, () => false).then(() => never(source));
+      return new WorkflowResponse({ original: source.nested.count, transformed, consumed,
+        hooked: hook.getResult(), guarded }, { hooks: [hook] });
+    });
+    const ctx = context();
+    const prepared = Result.getOrThrow(flow.prepare({ mutate: value => mutate(value, 4) }));
+    expect(await Effect.runPromise(runNativeMedusaWorkflow(prepared, ctx, null,
+      owner => bindWorkflowResources(resources, members, undefined, [], ctx, owner)))).toEqual({
+      original: 1, transformed: 2, consumed: 3, hooked: 4, guarded: 1,
+    });
+    expect(reached).toHaveLength(4);
+    expect(new Set(reached).size).toBe(4);
+    expect(reached.every(value => value !== foreign)).toBe(true);
+    expect(foreign.nested.count).toBe(1);
+    expect(skipped).not.toHaveBeenCalled();
+  });
+
+  it("captures distinct compensation before later work even when the step output is valid", async () => {
+    const getter = vi.fn(() => "invalid compensation");
+    const later = vi.fn(() => "must not run");
+    const inverse = vi.fn();
+    const step = createStep({ name: "invalid-compensation", compensation: "transactionCovered" },
+      () => new StepResponse(1, Object.defineProperty({}, "private", { get: getter, enumerable: true })), inverse);
+    const after = createStep("after-compensation", later);
+    const flow = createWorkflow("check-full-step-response", () => {
+      const output = step(undefined);
+      return new WorkflowResponse(after(output));
+    });
+    const ctx = context();
+    await expect(Effect.runPromise(runNativeMedusaWorkflow(Result.getOrThrow(flow.prepare()), ctx, null,
+      owner => bindWorkflowResources(resources, members, undefined, [], ctx, owner)))).rejects.toMatchObject({ reason: "invalidInput" });
+    expect(getter).not.toHaveBeenCalled();
+    expect(later).not.toHaveBeenCalled();
+    expect(inverse).not.toHaveBeenCalled();
+  });
+
+  it("keeps unknown and unselected method refusals sticky after native callbacks catch them", async () => {
+    const registered = Result.getOrThrow(defineWorkflowModule({ name: "sample", source,
+      methods: { echo: method, unselected: method }, graph: graphDefinition() }));
+    const selection = Result.getOrThrow(prepareWorkflowResources({
+      sample: { module: registered, methods: ["echo"], graph: false },
+    }, false));
+    const selected = workflowResourceSelections(selection);
+    if (selected === undefined) throw new Error("Missing selection");
+    for (const name of ["unselected", "omittedUnsupported"]) {
+      const step = createStep("caught-method", (_input: unknown, { container }) => {
+        const service = container.resolve<Record<string, () => unknown>>("sample");
+        try { service[name]!(); } catch { /* The root still owns refusal. */ }
+        return "continued";
+      });
+      const flow = createWorkflow("caught-method", () => new WorkflowResponse(step(null)));
+      const ctx = context();
+      const result = await Effect.runPromise(Effect.result(runNativeMedusaWorkflow(Result.getOrThrow(flow.prepare()), ctx, null,
+        owner => bindWorkflowResources(selection, selected, undefined, [], ctx, owner))));
+      expect(result).toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedProfile" } });
+    }
+  });
+
+  it("keeps resource inspection inert and exposes only selected own methods", async () => {
+    const step = createStep("inspect-resource", async (_input: unknown, { container }) => {
+      const service = container.resolve<{ echo(value: string): Promise<string> }>("sample");
+      expect(await Promise.resolve(service)).toBe(service);
+      expect(JSON.stringify(service)).toBe("{}");
+      expect(Object.keys(service)).toEqual(["echo"]);
+      expect("omittedUnsupported" in service).toBe(false);
+      expect(Object.getOwnPropertyDescriptor(service, "omittedUnsupported")).toBeUndefined();
+      expect(Reflect.get(service, Symbol.iterator)).toBeUndefined();
+      expect(service.toString()).toBe("[object Object]");
+      expect(Object.isFrozen(service)).toBe(true);
+      return service.echo("inspected");
+    });
+    const flow = createWorkflow("inspect-resource", () => new WorkflowResponse(step(null)));
+    const ctx = context();
+    expect(await Effect.runPromise(runNativeMedusaWorkflow(Result.getOrThrow(flow.prepare()), ctx, null,
+      owner => bindWorkflowResources(resources, members, undefined, [], ctx, owner)))).toBe("inspected");
+    expect(Result.isFailure(defineWorkflowModule({ name: "sample", source,
+      methods: { toJSON: method }, graph: graphDefinition() }))).toBe(true);
+  });
+
   it("captures finite method event sets and rejects malformed or ambiguous declarations", () => {
     const names = ["product.updated", "collection.updated"];
     const registered = Result.getOrThrow(defineWorkflowMethod({ ...methodInput, moduleEvents: names }));
@@ -148,29 +649,40 @@ describe("workflow registration and scoped resource composition", () => {
     await expect(escaped?.run(Effect.succeed("late"))).rejects.toMatchObject({ reason: "closed" });
   });
 
-  it("normalizes only a completed top-level void result to native null", async () => {
+  it("normalizes a completed top-level void result to native null", async () => {
     for (const value of [undefined, null, false, 0, "", [], {}]) {
       const flow = createWorkflow("completion-value", () => new WorkflowResponse(value));
       expect(await Effect.runPromise(runNativeMedusaWorkflow(Result.getOrThrow(flow.prepare()), context(), null,
         owner => bindWorkflowResources(resources, members, undefined, [], context(), owner))))
         .toEqual(value === undefined ? null : value);
     }
-    for (const value of [{ missing: undefined }, [undefined]]) {
+  });
+
+  it("omits native optional object members while rejecting undefined array entries", async () => {
+    const value = { missing: undefined, kept: 0, nested: { omitted: undefined, kept: false } };
+    const flow = createWorkflow("optional-completion-value", () => new WorkflowResponse(value));
+    expect(await Effect.runPromise(runNativeMedusaWorkflow(Result.getOrThrow(flow.prepare()), context(), null,
+      owner => bindWorkflowResources(resources, members, undefined, [], context(), owner))))
+      .toEqual({ kept: 0, nested: { kept: false } });
+    for (const value of [[undefined], { nested: [undefined] }]) {
       const flow = createWorkflow("invalid-completion-value", () => new WorkflowResponse(value));
       const exit = await Effect.runPromise(Effect.exit(runNativeMedusaWorkflow(Result.getOrThrow(flow.prepare()), context(), null,
         owner => bindWorkflowResources(resources, members, undefined, [], context(), owner))));
       expect(Exit.isFailure(exit)).toBe(true);
     }
+    expect(() => createWorkflow("invalid-symbol-result", () => new WorkflowResponse(Symbol("invalid-result"))))
+      .toThrow("Unsupported or cyclic definition literal");
   });
 
   it("refuses the root on a decoder defect while preserving the defect channel", async () => {
     const ctx = context();
-    const refuse = vi.fn(ctx.refuse);
+    const refuse = vi.fn(ctx.refuse), recordFailure = vi.fn(ctx.recordFailure);
     const defect = new Error("trusted decoder defect");
-    const exit = await Effect.runPromise(Effect.exit(checkedCommerceValue({ ...ctx, refuse }, () => { throw defect; })));
+    const exit = await Effect.runPromise(Effect.exit(checkedCommerceValue({ ...ctx, refuse, recordFailure }, () => { throw defect; })));
     if (Exit.isSuccess(exit)) throw new Error("Expected decoder failure");
     expect(Result.getOrThrow(Cause.findDefect(exit.cause))).toBe(defect);
-    expect(refuse).toHaveBeenCalledWith(expect.objectContaining({ reason: "adapterFailure", cause: defect }));
+    expect(recordFailure).toHaveBeenCalledExactlyOnceWith(exit.cause);
+    expect(refuse).not.toHaveBeenCalled();
   });
 
   it("refuses a callback bound to another selection before invoking its body", async () => {
@@ -191,6 +703,24 @@ describe("workflow registration and scoped resource composition", () => {
       revision: "a".repeat(64), workflow: { name: "incomplete", resources, prepared: Result.getOrThrow(flow.prepare()), input: Schema.Json, output: Schema.Json },
     })));
     expect(Exit.isFailure(exit)).toBe(true); expect(prepare).not.toHaveBeenCalled();
+  });
+
+  it("refuses top-level host accessors before invoking them or the execution factory", async () => {
+    const prepare = vi.fn(() => Effect.fail(commerceError("invalidAuthority")));
+    const flow = createWorkflow("accessor-host", () => new WorkflowResponse(null));
+    const plain = { execution: { identityAndAccessPolicy: {}, prepare }, modules: {},
+      revision: "a".repeat(64), workflow: { name: "accessor", resources,
+        prepared: Result.getOrThrow(flow.prepare()), input: Schema.Json, output: Schema.Json } };
+    for (const key of ["execution", "modules"] as const) {
+      const getter = vi.fn(() => plain[key]);
+      const input = Object.defineProperty({ ...plain }, key, { get: getter, enumerable: true });
+      const exit = await Effect.runPromise(Effect.exit(prepareAtomicWorkflowHost(input)));
+      if (Exit.isSuccess(exit)) throw new Error("Expected host accessor refusal");
+      expect(Result.getOrThrow(Cause.findError(exit.cause)))
+        .toMatchObject({ reason: "unsupportedProfile" });
+      expect(getter).not.toHaveBeenCalled();
+    }
+    expect(prepare).not.toHaveBeenCalled();
   });
 
   it("rejects copied prepared graphs before retaining callbacks or calling the execution factory", async () => {

@@ -1,4 +1,4 @@
-export { createStep, createWorkflow, createHook, transform, when } from "./definition";
+export { createStep, createWorkflow, createHook, transform, when, parallelize } from "./definition";
 export { StepResponse, WorkflowResponse } from "./responses";
 export type { WorkflowData, StepExecutionContext, HookHandlers } from "./model";
 export { WorkflowDefinitionError } from "./model";
@@ -6,3 +6,6 @@ export type { Hook, Invoke, WorkflowContainer, Resolved, StepOptions } from "./m
 export type { WorkflowDefinition, PreparedWorkflow } from "./definition";
 export { isPreparedWorkflow } from "./definition";
 export type { StepFunction, StepOutput } from "./model";
+export { nativePricingContextResult } from "./native-pricing-context";
+export { nativeCartCreationProfile } from "./native-cart-creation-profile";
+export type { NativePricingContext } from "./native-pricing-context";

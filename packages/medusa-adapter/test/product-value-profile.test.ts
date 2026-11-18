@@ -1,8 +1,8 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { Effect, Result } from "effect";
-import { captureProductSchema } from "../src/product-schema";
-import { productRuntimeMetadata, type ProductRuntimeMetadata } from "../src/product-runtime-metadata";
-import { captureProductGraph, validateProductCreate } from "../src/product-graph";
+import { captureProductSchema } from "../src/modules/product/schema";
+import { productRuntimeMetadata, type ProductRuntimeMetadata } from "../src/modules/product/runtime-metadata";
+import { captureProductGraph, validateProductCreate } from "../src/modules/product/graph";
 import type { CommerceTransactionError, Json } from "@flarex/persistence-postgres/internal/commerce-values";
 
 const run = <A>(effect: Effect.Effect<A, CommerceTransactionError>) => Effect.runPromise(effect.pipe(Effect.result, Effect.map(result => Result.match(result, {

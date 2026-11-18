@@ -156,6 +156,26 @@ const parseNulSeparatedPaths = (output) =>
     .filter((value) => value.length > 0)
     .map(normalizeRepositoryPath);
 
+/** @param {string} output */
+export const parseRenamedPaths = (output) => {
+  const entries = output.split("\0").filter((value) => value.length > 0);
+  /** @type {Map<string, string>} */
+  const previousPaths = new Map();
+  for (let index = 0; index < entries.length;) {
+    const status = entries[index++];
+    const previous = entries[index++];
+    if (previous === undefined) throw new Error("Incomplete Git name-status output.");
+    if (status.startsWith("R") || status.startsWith("C")) {
+      const current = entries[index++];
+      if (current === undefined) throw new Error("Incomplete Git rename output.");
+      if (status.startsWith("R")) {
+        previousPaths.set(normalizeRepositoryPath(current), normalizeRepositoryPath(previous));
+      }
+    }
+  }
+  return previousPaths;
+};
+
 /** @param {string} file */
 const isLintableSource = (file) => SOURCE_EXTENSIONS.has(extname(file));
 
@@ -276,6 +296,12 @@ const collectChangedFiles = (base, staged) => {
 const collectChangedLines = ({ diffArguments, files, untracked }) => {
   /** @type {Map<string, Set<number>>} */
   const changedLinesByFile = new Map();
+  // Restricting Git to the destination alone loses the rename's old side and
+  // incorrectly marks the entire moved file as newly added.
+  const previousPaths = parseRenamedPaths(run("git", [
+    "diff", "--name-status", "-z", "--find-renames", ...diffArguments,
+    "--", ...OXLINT_SOURCE_ROOTS,
+  ]));
 
   for (const file of files) {
     if (untracked.has(file)) {
@@ -295,6 +321,7 @@ const collectChangedLines = ({ diffArguments, files, untracked }) => {
       "--find-renames",
       ...diffArguments,
       "--",
+      ...(previousPaths.has(file) ? [previousPaths.get(file) ?? file] : []),
       file,
     ]);
     changedLinesByFile.set(file, parseChangedLines(diff));
@@ -349,6 +376,38 @@ const formatDiagnostic = (diagnostic) => {
   return `${normalizeDiagnosticFile(diagnostic.filename)}${location} ${diagnostic.code}: ${diagnostic.message}`;
 };
 
+/**
+ * Bound the native command line conservatively, including Windows quoting.
+ * Every file keeps the same config and occurs in exactly one invocation.
+ * @param {readonly string[]} files
+ * @param {readonly string[]} fixedArguments
+ * @param {number} [maximumUnits]
+ * @returns {string[][]}
+ */
+export const partitionOxlintFiles = (files, fixedArguments, maximumUnits = 24_000) => {
+  const argumentUnits = (/** @type {string} */ value) => 2 * value.length + 3;
+  const fixedUnits = fixedArguments.reduce((total, value) => total + argumentUnits(value), 0);
+  if (fixedUnits >= maximumUnits) throw new Error("Oxlint fixed arguments exceed the command-line budget.");
+  /** @type {string[][]} */
+  const batches = [];
+  /** @type {string[]} */
+  let batch = [];
+  let units = fixedUnits;
+  for (const file of files) {
+    const cost = argumentUnits(file);
+    if (fixedUnits + cost > maximumUnits) throw new Error(`Oxlint path exceeds the command-line budget: ${file}`);
+    if (units + cost > maximumUnits) {
+      batches.push(batch);
+      batch = [];
+      units = fixedUnits;
+    }
+    batch.push(file);
+    units += cost;
+  }
+  if (batch.length > 0) batches.push(batch);
+  return batches;
+};
+
 const main = () => {
   const { base, help, staged } = readArguments(process.argv.slice(2));
   if (help) {
@@ -385,32 +444,29 @@ const main = () => {
     });
   }
 
-  let output;
+  /** @type {OxlintDiagnostic[]} */
+  const reportedDiagnostics = [];
   try {
-    output = run(
-      process.execPath,
-      [
+    const fixedArguments = [
         OXLINT_ENTRYPOINT,
         "--config",
         resolve(REPOSITORY_ROOT, "oxlint.config.ts"),
         "--format=json",
-        ...lintFiles,
-      ],
-      [0, 1],
-    );
+    ];
+    for (const batch of partitionOxlintFiles(lintFiles, [process.execPath, ...fixedArguments])) {
+      const output = run(process.execPath, [...fixedArguments, ...batch], [0, 1]);
+      const report = /** @type {{ diagnostics?: unknown }} */ (JSON.parse(output));
+      if (!Array.isArray(report.diagnostics)) {
+        throw new Error("Oxlint JSON output did not contain a diagnostics array.");
+      }
+      reportedDiagnostics.push(.../** @type {OxlintDiagnostic[]} */ (report.diagnostics));
+    }
   } finally {
     if (temporaryRoot !== undefined) {
       rmSync(temporaryRoot, { recursive: true, force: true });
     }
   }
-  const report = /** @type {{ diagnostics?: unknown }} */ (JSON.parse(output));
-  if (!Array.isArray(report.diagnostics)) {
-    throw new Error("Oxlint JSON output did not contain a diagnostics array.");
-  }
-
-  const repositoryDiagnostics = /** @type {OxlintDiagnostic[]} */ (
-    report.diagnostics
-  ).map((diagnostic) => ({
+  const repositoryDiagnostics = reportedDiagnostics.map((diagnostic) => ({
     ...diagnostic,
     filename: normalizeDiagnosticFile(diagnostic.filename, lintRoot),
   }));

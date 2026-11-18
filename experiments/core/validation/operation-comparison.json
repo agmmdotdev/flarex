@@ -1,0 +1,1121 @@
+{
+  "status": "complete-bounded-comparison-performance-gates-open",
+  "base": "17dba7ecbfb133d6f6fb1118973d1d9f18804e88",
+  "recordedAt": "2026-10-27T10:59:44.781Z",
+  "method": "Unchanged final harness; 5 warmups and 30 alternating native/candidate latency and CPU pairs per flow; 2 SQL diagnostic pairs. Control and after are separate sequential cohorts. Scaling is diagnostic, not native-relative acceptance.",
+  "flows": {
+    "payload-crud": {
+      "control": {
+        "referenceMs": {
+          "median": 4.789999999993597,
+          "p95": 5.693599999998696,
+          "minimum": 4.109600000003411,
+          "maximum": 5.811199999996461
+        },
+        "candidateMs": {
+          "median": 33.592499999998836,
+          "p95": 37.80619999999908,
+          "minimum": 30.009100000002945,
+          "maximum": 39.01469999999972
+        },
+        "pairedAddedMs": {
+          "median": 28.831500000000233,
+          "p95": 32.87030000000232,
+          "minimum": 25.282499999993888,
+          "maximum": 33.20350000000326
+        },
+        "pairedAddedThreadCpuMs": {
+          "median": 16,
+          "p95": 32,
+          "minimum": -1,
+          "maximum": 47
+        },
+        "cpuCampaignWallTimes": {
+          "diagnosticOnly": false,
+          "referenceMs": {
+            "median": 4.555899999999383,
+            "p95": 38.20370000000548,
+            "minimum": 3.963900000002468,
+            "maximum": 39.82839999999851
+          },
+          "candidateMs": {
+            "median": 36.74169999999867,
+            "p95": 163.71399999999994,
+            "minimum": 30.032500000001164,
+            "maximum": 176.52709999999934
+          },
+          "pairedAddedMs": {
+            "median": 31.11290000000008,
+            "p95": 125.51029999999446,
+            "minimum": 19.895700000000943,
+            "maximum": 136.69870000000083
+          },
+          "pairedAddedThreadCpuMs": {
+            "median": 16,
+            "p95": 32,
+            "minimum": -1,
+            "maximum": 47
+          }
+        },
+        "sql": [
+          {
+            "exchanges": 88,
+            "transactions": 12,
+            "checkouts": 12,
+            "returnedRows": 42,
+            "decodedJsonBytes": 6639
+          },
+          {
+            "exchanges": 88,
+            "transactions": 12,
+            "checkouts": 12,
+            "returnedRows": 42,
+            "decodedJsonBytes": 6642
+          }
+        ],
+        "medianAllowanceMet": false,
+        "p95AllowanceMet": false
+      },
+      "after": {
+        "referenceMs": {
+          "median": 4.293400000002293,
+          "p95": 5.090400000000955,
+          "minimum": 3.8518000000003667,
+          "maximum": 5.244700000002922
+        },
+        "candidateMs": {
+          "median": 28.463599999999133,
+          "p95": 34.34439999999813,
+          "minimum": 25.389099999996688,
+          "maximum": 35.40399999999863
+        },
+        "pairedAddedMs": {
+          "median": 23.97399999999834,
+          "p95": 29.74630000000252,
+          "minimum": 21.16059999999561,
+          "maximum": 30.15929999999571
+        },
+        "pairedAddedThreadCpuMs": {
+          "median": 15,
+          "p95": 31,
+          "minimum": -16,
+          "maximum": 32
+        },
+        "cpuCampaignWallTimes": {
+          "diagnosticOnly": false,
+          "referenceMs": {
+            "median": 4.336799999997311,
+            "p95": 4.755199999999604,
+            "minimum": 3.89429999999993,
+            "maximum": 4.78979999999865
+          },
+          "candidateMs": {
+            "median": 29.134899999997288,
+            "p95": 32.545899999997346,
+            "minimum": 26.042900000000373,
+            "maximum": 32.64059999999881
+          },
+          "pairedAddedMs": {
+            "median": 24.671699999998964,
+            "p95": 27.850800000000163,
+            "minimum": 21.699399999997695,
+            "maximum": 28.209100000000035
+          },
+          "pairedAddedThreadCpuMs": {
+            "median": 15,
+            "p95": 31,
+            "minimum": -16,
+            "maximum": 32
+          }
+        },
+        "sql": [
+          {
+            "exchanges": 77,
+            "transactions": 12,
+            "checkouts": 12,
+            "returnedRows": 30,
+            "decodedJsonBytes": 5848
+          },
+          {
+            "exchanges": 77,
+            "transactions": 12,
+            "checkouts": 12,
+            "returnedRows": 30,
+            "decodedJsonBytes": 5838
+          }
+        ],
+        "medianAllowanceMet": false,
+        "p95AllowanceMet": false
+      }
+    },
+    "product": {
+      "control": {
+        "referenceMs": {
+          "median": 10.322299999999814,
+          "p95": 13.543899999996938,
+          "minimum": 9.421899999993911,
+          "maximum": 13.862099999998463
+        },
+        "candidateMs": {
+          "median": 16.280500000000757,
+          "p95": 21.17729999999574,
+          "minimum": 14.682800000002317,
+          "maximum": 21.481800000001385
+        },
+        "pairedAddedMs": {
+          "median": 6.024799999999232,
+          "p95": 10.64719999999943,
+          "minimum": 1.9163000000044121,
+          "maximum": 11.609299999996438
+        },
+        "pairedAddedThreadCpuMs": {
+          "median": 0,
+          "p95": 31,
+          "minimum": -15,
+          "maximum": 32
+        },
+        "cpuCampaignWallTimes": {
+          "diagnosticOnly": false,
+          "referenceMs": {
+            "median": 10.38810000000376,
+            "p95": 15.34440000000177,
+            "minimum": 9.022499999999127,
+            "maximum": 15.428899999998976
+          },
+          "candidateMs": {
+            "median": 17.224300000001676,
+            "p95": 23.66769999999815,
+            "minimum": 14.689700000002631,
+            "maximum": 31.386500000000524
+          },
+          "pairedAddedMs": {
+            "median": 7.238499999999476,
+            "p95": 14.052199999998265,
+            "minimum": 2.3269000000000233,
+            "maximum": 21.627800000002026
+          },
+          "pairedAddedThreadCpuMs": {
+            "median": 0,
+            "p95": 31,
+            "minimum": -15,
+            "maximum": 32
+          }
+        },
+        "sql": [
+          {
+            "exchanges": 37,
+            "transactions": 5,
+            "checkouts": 5,
+            "returnedRows": 13,
+            "decodedJsonBytes": 2818
+          },
+          {
+            "exchanges": 37,
+            "transactions": 5,
+            "checkouts": 5,
+            "returnedRows": 13,
+            "decodedJsonBytes": 2818
+          }
+        ],
+        "medianAllowanceMet": false,
+        "p95AllowanceMet": false
+      },
+      "after": {
+        "referenceMs": {
+          "median": 9.679100000001199,
+          "p95": 12.861000000000786,
+          "minimum": 8.601800000000367,
+          "maximum": 12.933400000001711
+        },
+        "candidateMs": {
+          "median": 15.177499999997963,
+          "p95": 18.79190000000017,
+          "minimum": 13.363199999999779,
+          "maximum": 19.84820000000036
+        },
+        "pairedAddedMs": {
+          "median": 5.627399999997579,
+          "p95": 8.209900000005291,
+          "minimum": 1.4637999999977183,
+          "maximum": 9.95770000000266
+        },
+        "pairedAddedThreadCpuMs": {
+          "median": 0,
+          "p95": 16,
+          "minimum": -16,
+          "maximum": 16
+        },
+        "cpuCampaignWallTimes": {
+          "diagnosticOnly": false,
+          "referenceMs": {
+            "median": 9.431500000006054,
+            "p95": 11.650199999996403,
+            "minimum": 8.822800000001735,
+            "maximum": 11.954500000007101
+          },
+          "candidateMs": {
+            "median": 15.091100000005099,
+            "p95": 17.235999999997148,
+            "minimum": 13.850299999998242,
+            "maximum": 17.9461999999985
+          },
+          "pairedAddedMs": {
+            "median": 5.735300000000279,
+            "p95": 7.433100000002014,
+            "minimum": 2.329699999994773,
+            "maximum": 8.416700000001583
+          },
+          "pairedAddedThreadCpuMs": {
+            "median": 0,
+            "p95": 16,
+            "minimum": -16,
+            "maximum": 16
+          }
+        },
+        "sql": [
+          {
+            "exchanges": 33,
+            "transactions": 5,
+            "checkouts": 5,
+            "returnedRows": 10,
+            "decodedJsonBytes": 2624
+          },
+          {
+            "exchanges": 33,
+            "transactions": 5,
+            "checkouts": 5,
+            "returnedRows": 10,
+            "decodedJsonBytes": 2623
+          }
+        ],
+        "medianAllowanceMet": false,
+        "p95AllowanceMet": true
+      }
+    },
+    "mixed": {
+      "control": {
+        "referenceMs": {
+          "median": 23.214099999997416,
+          "p95": 28.285000000003492,
+          "minimum": 22.08640000000014,
+          "maximum": 28.549800000000687
+        },
+        "candidateMs": {
+          "median": 31.033599999995204,
+          "p95": 36.88270000000193,
+          "minimum": 27.49620000000141,
+          "maximum": 37.07080000000133
+        },
+        "pairedAddedMs": {
+          "median": 6.59599999999773,
+          "p95": 13.856700000003912,
+          "minimum": 0.8739999999961583,
+          "maximum": 14.517100000004575
+        },
+        "pairedAddedThreadCpuMs": {
+          "median": 0,
+          "p95": 32,
+          "minimum": -17,
+          "maximum": 33
+        },
+        "cpuCampaignWallTimes": {
+          "diagnosticOnly": false,
+          "referenceMs": {
+            "median": 28.09939999999915,
+            "p95": 40.73599999999715,
+            "minimum": 20.716099999997823,
+            "maximum": 73.78609999999753
+          },
+          "candidateMs": {
+            "median": 37.28160000000207,
+            "p95": 46.70289999999659,
+            "minimum": 27.56989999999496,
+            "maximum": 53.88669999999547
+          },
+          "pairedAddedMs": {
+            "median": 9.104900000005728,
+            "p95": 16.52270000000135,
+            "minimum": -33.93269999999757,
+            "maximum": 21.807099999990896
+          },
+          "pairedAddedThreadCpuMs": {
+            "median": 0,
+            "p95": 32,
+            "minimum": -17,
+            "maximum": 33
+          }
+        },
+        "sql": [
+          {
+            "exchanges": 59,
+            "transactions": 10,
+            "checkouts": 10,
+            "returnedRows": 30,
+            "decodedJsonBytes": 6061
+          },
+          {
+            "exchanges": 59,
+            "transactions": 10,
+            "checkouts": 10,
+            "returnedRows": 30,
+            "decodedJsonBytes": 6061
+          }
+        ],
+        "medianAllowanceMet": false,
+        "p95AllowanceMet": false
+      },
+      "after": {
+        "referenceMs": {
+          "median": 20.95140000000538,
+          "p95": 24.853299999995215,
+          "minimum": 19.571799999997893,
+          "maximum": 25.16939999999886
+        },
+        "candidateMs": {
+          "median": 26.905699999995704,
+          "p95": 31.557999999997264,
+          "minimum": 25.39669999999751,
+          "maximum": 32.464200000002165
+        },
+        "pairedAddedMs": {
+          "median": 6.072299999999814,
+          "p95": 9.591800000005605,
+          "minimum": 2.181300000011106,
+          "maximum": 10.670499999992899
+        },
+        "pairedAddedThreadCpuMs": {
+          "median": -1,
+          "p95": 32,
+          "minimum": -32,
+          "maximum": 32
+        },
+        "cpuCampaignWallTimes": {
+          "diagnosticOnly": false,
+          "referenceMs": {
+            "median": 20.607200000005832,
+            "p95": 23.059300000000803,
+            "minimum": 19.745499999997264,
+            "maximum": 27.710800000000745
+          },
+          "candidateMs": {
+            "median": 27.19369999999617,
+            "p95": 29.379300000000512,
+            "minimum": 25.426000000006752,
+            "maximum": 30.264499999997497
+          },
+          "pairedAddedMs": {
+            "median": 6.201199999995879,
+            "p95": 9.276999999994587,
+            "minimum": 1.282599999998638,
+            "maximum": 10.519000000000233
+          },
+          "pairedAddedThreadCpuMs": {
+            "median": -1,
+            "p95": 32,
+            "minimum": -32,
+            "maximum": 32
+          }
+        },
+        "sql": [
+          {
+            "exchanges": 53,
+            "transactions": 10,
+            "checkouts": 10,
+            "returnedRows": 18,
+            "decodedJsonBytes": 5253
+          },
+          {
+            "exchanges": 53,
+            "transactions": 10,
+            "checkouts": 10,
+            "returnedRows": 18,
+            "decodedJsonBytes": 5247
+          }
+        ],
+        "medianAllowanceMet": false,
+        "p95AllowanceMet": true
+      }
+    }
+  },
+  "sourceComparisons": {
+    "latency": {
+      "before": {
+        "sha256": "ad14fd1544d33b370ea5fffc7532a7167395c05ea6cbb9fb792ba15a5a5eefd5",
+        "files": 85970,
+        "artifact": "connected-source-ad14fd1544d33b370ea5fffc7532a7167395c05ea6cbb9fb792ba15a5a5eefd5.json"
+      },
+      "after": {
+        "sha256": "2349cc15f551c319850e3df875f0012af94a0f2711f73196acf18c7c9a0d4d50",
+        "files": 85970,
+        "artifact": "connected-source-2349cc15f551c319850e3df875f0012af94a0f2711f73196acf18c7c9a0d4d50.json"
+      },
+      "changed": [
+        {
+          "path": "experiments/core/src/application-conflicts.ts",
+          "before": "06e27592e1001d4576ecb669f9153a6d0dc67838d079a4eb10129fedad1276ee",
+          "after": "ebd3f7e33ecf2f3380b47ec259fadb45472121806d7018ec8cfeb3f55b770dea"
+        },
+        {
+          "path": "experiments/core/src/application-storage.ts",
+          "before": "5a3fe714e1ffbd6a7fee3fb069e3351199ad8bc307beb0c200c9cbadadbc03d8",
+          "after": "18435f98cb8567a31bb29890e0fb2dcc2046644a6cb5be40f9a4b2c3f45ed349"
+        },
+        {
+          "path": "experiments/core/src/equality-storage.ts",
+          "before": "4400b0381921cbf2ffab2de1834f5d8beb03c217daa7662df34067f73322ce33",
+          "after": "8920692df12d0f24b1a6fddbe413a3b63675440cbae78218ff60bafe52d5d9c4"
+        },
+        {
+          "path": "experiments/core/src/group-storage.ts",
+          "before": "c7a33b7e4aec2094592e30edb28a214ef5e61b736c643b4866cd83062bffa328",
+          "after": "169ce34ff9f4e4f4dbbf419ec0134937299ee4158c0f4319238939aa7d4cc08b"
+        },
+        {
+          "path": "experiments/core/src/persistence.ts",
+          "before": "81fc4759c01155efb710e5dffd3543e3bd0efe684511e3599114c3f630a8a053",
+          "after": "62beede3fae90a88231fe2c76ad1a630e4cb4e70296a5157558955a4b22dc9b2"
+        },
+        {
+          "path": "experiments/core/src/read-guards.ts",
+          "before": "369de0ad581c7d180c345ff1a74c2532850005eee7fcbb3d4bb08058c9222ebe",
+          "after": "5f02e8b6e9dd2685e43bc78a5fe48a70e9b19e5e47e8bae801760e0ea2bf9c14"
+        },
+        {
+          "path": "experiments/core/src/write-conflicts.ts",
+          "before": "a8cc1f154cc1380eb7988264fc132be5daf45e50beb1becf26d60cd3b9313ab0",
+          "after": "0f69b585d7e0601980ab1befb5030938c786b75f83c7f5ebf8d0ee3565442102"
+        }
+      ],
+      "unchangedNativeDependenciesAndHarness": true,
+      "newModule": "settlement-observations.ts is present with identical bytes in both inventories; the control does not import it"
+    },
+    "scaling": {
+      "before": {
+        "sha256": "3a3c53e40fac3a3e89e34513b2fc96308b45dc92e4b2e3c508f27d22eec07596",
+        "files": 85883,
+        "artifact": "connected-source-3a3c53e40fac3a3e89e34513b2fc96308b45dc92e4b2e3c508f27d22eec07596.json"
+      },
+      "after": {
+        "sha256": "41bf4198e8b2b783d105123d4976dbee2a23d2793597f9203fc386303c18a793",
+        "files": 85883,
+        "artifact": "connected-source-41bf4198e8b2b783d105123d4976dbee2a23d2793597f9203fc386303c18a793.json"
+      },
+      "changed": [
+        {
+          "path": "experiments/core/src/application-conflicts.ts",
+          "before": "06e27592e1001d4576ecb669f9153a6d0dc67838d079a4eb10129fedad1276ee",
+          "after": "ebd3f7e33ecf2f3380b47ec259fadb45472121806d7018ec8cfeb3f55b770dea"
+        },
+        {
+          "path": "experiments/core/src/application-storage.ts",
+          "before": "5a3fe714e1ffbd6a7fee3fb069e3351199ad8bc307beb0c200c9cbadadbc03d8",
+          "after": "18435f98cb8567a31bb29890e0fb2dcc2046644a6cb5be40f9a4b2c3f45ed349"
+        },
+        {
+          "path": "experiments/core/src/equality-storage.ts",
+          "before": "4400b0381921cbf2ffab2de1834f5d8beb03c217daa7662df34067f73322ce33",
+          "after": "8920692df12d0f24b1a6fddbe413a3b63675440cbae78218ff60bafe52d5d9c4"
+        },
+        {
+          "path": "experiments/core/src/group-storage.ts",
+          "before": "c7a33b7e4aec2094592e30edb28a214ef5e61b736c643b4866cd83062bffa328",
+          "after": "169ce34ff9f4e4f4dbbf419ec0134937299ee4158c0f4319238939aa7d4cc08b"
+        },
+        {
+          "path": "experiments/core/src/persistence.ts",
+          "before": "81fc4759c01155efb710e5dffd3543e3bd0efe684511e3599114c3f630a8a053",
+          "after": "62beede3fae90a88231fe2c76ad1a630e4cb4e70296a5157558955a4b22dc9b2"
+        },
+        {
+          "path": "experiments/core/src/read-guards.ts",
+          "before": "369de0ad581c7d180c345ff1a74c2532850005eee7fcbb3d4bb08058c9222ebe",
+          "after": "5f02e8b6e9dd2685e43bc78a5fe48a70e9b19e5e47e8bae801760e0ea2bf9c14"
+        },
+        {
+          "path": "experiments/core/src/write-conflicts.ts",
+          "before": "a8cc1f154cc1380eb7988264fc132be5daf45e50beb1becf26d60cd3b9313ab0",
+          "after": "0f69b585d7e0601980ab1befb5030938c786b75f83c7f5ebf8d0ee3565442102"
+        }
+      ],
+      "unchangedNativeDependenciesAndHarness": true,
+      "newModule": "settlement-observations.ts is present with identical bytes in both inventories; the control does not import it"
+    }
+  },
+  "scaling": {
+    "control": {
+      "poolMax": 4,
+      "batches": [
+        {
+          "kind": "insert",
+          "size": 1,
+          "latencyMs": {
+            "median": 9.58259999999791,
+            "p95": 9.76850000000195,
+            "maximum": 9.76850000000195
+          },
+          "exchanges": 27,
+          "transactions": 4
+        },
+        {
+          "kind": "insert",
+          "size": 16,
+          "latencyMs": {
+            "median": 32.84639999999854,
+            "p95": 34.33269999999902,
+            "maximum": 34.33269999999902
+          },
+          "exchanges": 87,
+          "transactions": 19
+        },
+        {
+          "kind": "insert",
+          "size": 64,
+          "latencyMs": {
+            "median": 113.10699999999997,
+            "p95": 144.5648000000001,
+            "maximum": 144.5648000000001
+          },
+          "exchanges": 279,
+          "transactions": 67
+        },
+        {
+          "kind": "overlay",
+          "size": 1,
+          "latencyMs": {
+            "median": 10.349600000001374,
+            "p95": 11.550500000001193,
+            "maximum": 11.550500000001193
+          },
+          "exchanges": 35,
+          "transactions": 6
+        },
+        {
+          "kind": "overlay",
+          "size": 16,
+          "latencyMs": {
+            "median": 42.14689999999973,
+            "p95": 43.991399999998976,
+            "maximum": 43.991399999998976
+          },
+          "exchanges": 128,
+          "transactions": 32
+        },
+        {
+          "kind": "overlay",
+          "size": 64,
+          "latencyMs": {
+            "median": 133.8760000000002,
+            "p95": 139.4350000000013,
+            "maximum": 139.4350000000013
+          },
+          "exchanges": 428,
+          "transactions": 116
+        },
+        {
+          "kind": "indexed",
+          "size": 1,
+          "latencyMs": {
+            "median": 8.225899999997637,
+            "p95": 8.72070000000167,
+            "maximum": 8.72070000000167
+          },
+          "exchanges": 30,
+          "transactions": 4
+        },
+        {
+          "kind": "indexed",
+          "size": 16,
+          "latencyMs": {
+            "median": 29.6958999999988,
+            "p95": 31.52690000000075,
+            "maximum": 31.52690000000075
+          },
+          "exchanges": 90,
+          "transactions": 19
+        },
+        {
+          "kind": "indexed",
+          "size": 64,
+          "latencyMs": {
+            "median": 103.48760000000038,
+            "p95": 115.45760000000155,
+            "maximum": 115.45760000000155
+          },
+          "exchanges": 282,
+          "transactions": 67
+        },
+        {
+          "kind": "nonindexed",
+          "size": 1,
+          "latencyMs": {
+            "median": 7.675500000001193,
+            "p95": 8.487199999999575,
+            "maximum": 8.487199999999575
+          },
+          "exchanges": 30,
+          "transactions": 4
+        },
+        {
+          "kind": "nonindexed",
+          "size": 16,
+          "latencyMs": {
+            "median": 29.689300000001822,
+            "p95": 31.973000000001775,
+            "maximum": 31.973000000001775
+          },
+          "exchanges": 90,
+          "transactions": 19
+        },
+        {
+          "kind": "nonindexed",
+          "size": 64,
+          "latencyMs": {
+            "median": 98.7525999999998,
+            "p95": 234.97490000000107,
+            "maximum": 234.97490000000107
+          },
+          "exchanges": 282,
+          "transactions": 67
+        }
+      ],
+      "contention": [
+        {
+          "concurrency": 1,
+          "distribution": "same",
+          "successfulRequestsPerSecond": 136.46211102834525,
+          "latencyMs": {
+            "median": 7.096499999999651,
+            "p95": 8.702400000001944,
+            "maximum": 13.680000000000291
+          },
+          "failed": 0,
+          "retries": 0,
+          "targetMet": null
+        },
+        {
+          "concurrency": 1,
+          "distribution": "different",
+          "successfulRequestsPerSecond": 137.61838271951774,
+          "latencyMs": {
+            "median": 7.120999999999185,
+            "p95": 8.452499999999418,
+            "maximum": 11.221299999997427
+          },
+          "failed": 0,
+          "retries": 0,
+          "targetMet": null
+        },
+        {
+          "concurrency": 4,
+          "distribution": "same",
+          "successfulRequestsPerSecond": 212.30270982847074,
+          "latencyMs": {
+            "median": 16.204499999999825,
+            "p95": 22.343300000000454,
+            "maximum": 116.43559999999707
+          },
+          "failed": 0,
+          "retries": 0,
+          "targetMet": true
+        },
+        {
+          "concurrency": 4,
+          "distribution": "different",
+          "successfulRequestsPerSecond": 279.94198202422524,
+          "latencyMs": {
+            "median": 14.099000000001979,
+            "p95": 15.657200000001467,
+            "maximum": 16.160900000002584
+          },
+          "failed": 0,
+          "retries": 0,
+          "targetMet": true
+        },
+        {
+          "concurrency": 8,
+          "distribution": "same",
+          "successfulRequestsPerSecond": 245.30480847252113,
+          "latencyMs": {
+            "median": 31.934000000001106,
+            "p95": 37.453400000005786,
+            "maximum": 44.10179999999673
+          },
+          "failed": 0,
+          "retries": 0,
+          "targetMet": null
+        },
+        {
+          "concurrency": 8,
+          "distribution": "different",
+          "successfulRequestsPerSecond": 270.38628060012104,
+          "latencyMs": {
+            "median": 29.18710000000283,
+            "p95": 33.639200000005076,
+            "maximum": 36.81159999999363
+          },
+          "failed": 0,
+          "retries": 0,
+          "targetMet": null
+        }
+      ],
+      "unrelated": [
+        {
+          "definitions": 0,
+          "retainedUnrelatedRows": 0,
+          "exchanges": 27
+        },
+        {
+          "definitions": 64,
+          "retainedUnrelatedRows": 256,
+          "exchanges": 27
+        }
+      ]
+    },
+    "after": {
+      "poolMax": 4,
+      "batches": [
+        {
+          "kind": "insert",
+          "size": 1,
+          "latencyMs": {
+            "median": 8.78399999999965,
+            "p95": 9.327499999999418,
+            "maximum": 9.327499999999418
+          },
+          "exchanges": 24,
+          "transactions": 4
+        },
+        {
+          "kind": "insert",
+          "size": 16,
+          "latencyMs": {
+            "median": 31.687999999998283,
+            "p95": 32.31589999999778,
+            "maximum": 32.31589999999778
+          },
+          "exchanges": 84,
+          "transactions": 19
+        },
+        {
+          "kind": "insert",
+          "size": 64,
+          "latencyMs": {
+            "median": 90.2309000000023,
+            "p95": 103.27850000000035,
+            "maximum": 103.27850000000035
+          },
+          "exchanges": 276,
+          "transactions": 67
+        },
+        {
+          "kind": "overlay",
+          "size": 1,
+          "latencyMs": {
+            "median": 9.153399999999237,
+            "p95": 9.22609999999986,
+            "maximum": 9.22609999999986
+          },
+          "exchanges": 31,
+          "transactions": 6
+        },
+        {
+          "kind": "overlay",
+          "size": 16,
+          "latencyMs": {
+            "median": 37.74409999999989,
+            "p95": 40.44089999999778,
+            "maximum": 40.44089999999778
+          },
+          "exchanges": 124,
+          "transactions": 32
+        },
+        {
+          "kind": "overlay",
+          "size": 64,
+          "latencyMs": {
+            "median": 129.64390000000276,
+            "p95": 135.127199999999,
+            "maximum": 135.127199999999
+          },
+          "exchanges": 424,
+          "transactions": 116
+        },
+        {
+          "kind": "indexed",
+          "size": 1,
+          "latencyMs": {
+            "median": 7.710199999997712,
+            "p95": 8.076799999998912,
+            "maximum": 8.076799999998912
+          },
+          "exchanges": 27,
+          "transactions": 4
+        },
+        {
+          "kind": "indexed",
+          "size": 16,
+          "latencyMs": {
+            "median": 27.67790000000241,
+            "p95": 30.281499999997322,
+            "maximum": 30.281499999997322
+          },
+          "exchanges": 87,
+          "transactions": 19
+        },
+        {
+          "kind": "indexed",
+          "size": 64,
+          "latencyMs": {
+            "median": 109.51339999999982,
+            "p95": 146.10229999999865,
+            "maximum": 146.10229999999865
+          },
+          "exchanges": 279,
+          "transactions": 67
+        },
+        {
+          "kind": "nonindexed",
+          "size": 1,
+          "latencyMs": {
+            "median": 7.792399999998452,
+            "p95": 8.270599999999831,
+            "maximum": 8.270599999999831
+          },
+          "exchanges": 27,
+          "transactions": 4
+        },
+        {
+          "kind": "nonindexed",
+          "size": 16,
+          "latencyMs": {
+            "median": 27.918699999998353,
+            "p95": 29.449200000002747,
+            "maximum": 29.449200000002747
+          },
+          "exchanges": 87,
+          "transactions": 19
+        },
+        {
+          "kind": "nonindexed",
+          "size": 64,
+          "latencyMs": {
+            "median": 94.20650000000023,
+            "p95": 102.96600000000035,
+            "maximum": 102.96600000000035
+          },
+          "exchanges": 279,
+          "transactions": 67
+        }
+      ],
+      "contention": [
+        {
+          "concurrency": 1,
+          "distribution": "same",
+          "successfulRequestsPerSecond": 160.62416542883517,
+          "latencyMs": {
+            "median": 6.061200000003737,
+            "p95": 6.963900000002468,
+            "maximum": 8.116399999998976
+          },
+          "failed": 0,
+          "retries": 0,
+          "targetMet": null
+        },
+        {
+          "concurrency": 1,
+          "distribution": "different",
+          "successfulRequestsPerSecond": 151.44102643888107,
+          "latencyMs": {
+            "median": 6.356699999996636,
+            "p95": 7.605100000000675,
+            "maximum": 11.847499999996217
+          },
+          "failed": 0,
+          "retries": 0,
+          "targetMet": null
+        },
+        {
+          "concurrency": 4,
+          "distribution": "same",
+          "successfulRequestsPerSecond": 239.4553139904588,
+          "latencyMs": {
+            "median": 14.033699999999953,
+            "p95": 19.169000000001688,
+            "maximum": 102.46509999999398
+          },
+          "failed": 0,
+          "retries": 0,
+          "targetMet": true
+        },
+        {
+          "concurrency": 4,
+          "distribution": "different",
+          "successfulRequestsPerSecond": 317.59532698175934,
+          "latencyMs": {
+            "median": 12.446499999998196,
+            "p95": 13.808100000002014,
+            "maximum": 14.529499999996915
+          },
+          "failed": 0,
+          "retries": 0,
+          "targetMet": true
+        },
+        {
+          "concurrency": 8,
+          "distribution": "same",
+          "successfulRequestsPerSecond": 276.44910625947745,
+          "latencyMs": {
+            "median": 28.243499999996857,
+            "p95": 32.38420000000042,
+            "maximum": 41.79710000000341
+          },
+          "failed": 0,
+          "retries": 0,
+          "targetMet": null
+        },
+        {
+          "concurrency": 8,
+          "distribution": "different",
+          "successfulRequestsPerSecond": 320.1908337369088,
+          "latencyMs": {
+            "median": 24.074500000002445,
+            "p95": 34.52580000000307,
+            "maximum": 37.980600000002596
+          },
+          "failed": 0,
+          "retries": 0,
+          "targetMet": null
+        }
+      ],
+      "unrelated": [
+        {
+          "definitions": 0,
+          "retainedUnrelatedRows": 0,
+          "exchanges": 24
+        },
+        {
+          "definitions": 64,
+          "retainedUnrelatedRows": 256,
+          "exchanges": 24
+        }
+      ]
+    }
+  },
+  "campaigns": [
+    {
+      "side": "control",
+      "mode": "latency",
+      "file": "operation-control-retry-latency.json",
+      "status": "complete-declared-profile",
+      "source": {
+        "sha256": "ad14fd1544d33b370ea5fffc7532a7167395c05ea6cbb9fb792ba15a5a5eefd5",
+        "files": 85970,
+        "artifact": "connected-source-ad14fd1544d33b370ea5fffc7532a7167395c05ea6cbb9fb792ba15a5a5eefd5.json"
+      },
+      "cleanup": "complete"
+    },
+    {
+      "side": "control",
+      "mode": "cpu",
+      "file": "operation-control-retry-cpu.json",
+      "status": "complete-declared-profile",
+      "source": {
+        "sha256": "ad14fd1544d33b370ea5fffc7532a7167395c05ea6cbb9fb792ba15a5a5eefd5",
+        "files": 85970,
+        "artifact": "connected-source-ad14fd1544d33b370ea5fffc7532a7167395c05ea6cbb9fb792ba15a5a5eefd5.json"
+      },
+      "cleanup": "complete"
+    },
+    {
+      "side": "control",
+      "mode": "sql",
+      "file": "operation-control-sql.json",
+      "status": "complete-declared-profile",
+      "source": {
+        "sha256": "ad14fd1544d33b370ea5fffc7532a7167395c05ea6cbb9fb792ba15a5a5eefd5",
+        "files": 85970,
+        "artifact": "connected-source-ad14fd1544d33b370ea5fffc7532a7167395c05ea6cbb9fb792ba15a5a5eefd5.json"
+      },
+      "cleanup": "complete"
+    },
+    {
+      "side": "control",
+      "mode": "scaling",
+      "file": "operation-control-scaling.json",
+      "status": "complete-diagnostic-profile",
+      "source": {
+        "sha256": "3a3c53e40fac3a3e89e34513b2fc96308b45dc92e4b2e3c508f27d22eec07596",
+        "files": 85883,
+        "artifact": "connected-source-3a3c53e40fac3a3e89e34513b2fc96308b45dc92e4b2e3c508f27d22eec07596.json"
+      },
+      "cleanup": "complete"
+    },
+    {
+      "side": "after",
+      "mode": "latency",
+      "file": "operation-after-latency.json",
+      "status": "complete-declared-profile",
+      "source": {
+        "sha256": "2349cc15f551c319850e3df875f0012af94a0f2711f73196acf18c7c9a0d4d50",
+        "files": 85970,
+        "artifact": "connected-source-2349cc15f551c319850e3df875f0012af94a0f2711f73196acf18c7c9a0d4d50.json"
+      },
+      "cleanup": "complete"
+    },
+    {
+      "side": "after",
+      "mode": "cpu",
+      "file": "operation-after-cpu.json",
+      "status": "complete-declared-profile",
+      "source": {
+        "sha256": "2349cc15f551c319850e3df875f0012af94a0f2711f73196acf18c7c9a0d4d50",
+        "files": 85970,
+        "artifact": "connected-source-2349cc15f551c319850e3df875f0012af94a0f2711f73196acf18c7c9a0d4d50.json"
+      },
+      "cleanup": "complete"
+    },
+    {
+      "side": "after",
+      "mode": "sql",
+      "file": "operation-after-sql.json",
+      "status": "complete-declared-profile",
+      "source": {
+        "sha256": "2349cc15f551c319850e3df875f0012af94a0f2711f73196acf18c7c9a0d4d50",
+        "files": 85970,
+        "artifact": "connected-source-2349cc15f551c319850e3df875f0012af94a0f2711f73196acf18c7c9a0d4d50.json"
+      },
+      "cleanup": "complete"
+    },
+    {
+      "side": "after",
+      "mode": "scaling",
+      "file": "operation-after-scaling.json",
+      "status": "complete-diagnostic-profile",
+      "source": {
+        "sha256": "41bf4198e8b2b783d105123d4976dbee2a23d2793597f9203fc386303c18a793",
+        "files": 85883,
+        "artifact": "connected-source-41bf4198e8b2b783d105123d4976dbee2a23d2793597f9203fc386303c18a793.json"
+      },
+      "cleanup": "complete"
+    }
+  ],
+  "failedPreparation": {
+    "file": "operation-control-latency.json",
+    "status": "failed-no-acceptance",
+    "reason": "initdb exceeded unchanged 60s deadline while syncing disk, before requests; retry used identical source/settings/limits",
+    "cleanup": "complete"
+  },
+  "cancelledSmoke": {
+    "file": "operation-initial-smoke-cancelled.json",
+    "credit": false
+  },
+  "limitations": [
+    "All three added-median allowances remain missed; only Product/mixed P95 pass.",
+    "Mixed reference uses the same standalone candidate Application and independently committed frameworks; reference Application also benefits (27 to 24 exchanges).",
+    "Windows CPU counters resolve about 15-16ms; zero and negative paired differences do not establish zero work or exclusive CPU savings.",
+    "Fewer client exchanges retain separate underlying existence/dependency probes; no constant physical work, exact lock occupancy, server planner/CPU, allocations or WAL claim.",
+    "64-row indexed-edit latency worsens and concurrency8/different-scope P95 slightly worsens; all samples retained.",
+    "All fresh completed campaigns cleaned up. One interrupted-run stopped directory remains because automatic approval review blocked deletion; no alternate deletion attempted.",
+    "Representative Product relations, full Payload lifecycle, general Application/reactivity, all5graphs and Worker/Hyperdrive gates remain open."
+  ]
+}

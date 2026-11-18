@@ -12,6 +12,11 @@
       "types": "./dist/services/index.d.ts",
       "source": "./src/services/index.ts",
       "default": "./dist/services/index.js"
+    },
+    "./joiner-config": {
+      "types": "./dist/joiner-config.d.ts",
+      "source": "./src/joiner-config.ts",
+      "default": "./dist/joiner-config.js"
     }
   },
   "license": "MIT",

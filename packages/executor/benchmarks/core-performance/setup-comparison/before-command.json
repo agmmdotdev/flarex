@@ -1,0 +1,15 @@
+{
+  "runId": "ec24c964-600f-466c-b65e-9471ed438a80",
+  "revision": "964e13c000fb80a29c2e2c36fbfa3393f51d1e1c",
+  "dirty": true,
+  "totalMs": 69095.4895,
+  "exitCode": 0,
+  "signal": null,
+  "reports": [
+    {
+      "name": "medusa-workflow",
+      "path": "before.json",
+      "available": true
+    }
+  ]
+}

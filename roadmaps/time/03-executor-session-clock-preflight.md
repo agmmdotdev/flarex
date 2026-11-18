@@ -138,7 +138,7 @@ Layer, database codec, timestamp brand, or session policy to it.
 
 ## Completion Evidence
 
-`packages/executor/src/sessions.ts` owns the private executor-instance
+`packages/executor/src/invocation/sessions.ts` owns the private executor-instance
 capability and named Effect operations. Native observations use Effect Clock;
 configured compatibility observations enter a private tagged failure channel
 through `Effect.try`. Persistence, ID, app-data-engine, invalidation, and caller
@@ -146,7 +146,7 @@ Promise boundaries map foreign failures once. The Promise facade unwraps those
 failures by cause identity, while known executor domain errors remain typed and
 unchanged.
 
-`packages/executor/src/retry.ts` composes the Effect operations directly. It
+`packages/executor/src/invocation/retry.ts` composes the Effect operations directly. It
 keeps attempt and finish failures in the Effect error channel and uses
 `Effect.matchEffect` for retry classification. One `Effect.onExit` finalizer
 aborts every failed post-begin attempt, including defects and interruption.

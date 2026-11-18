@@ -2,7 +2,7 @@
 
 Status: accepted architecture correction; implementation is still incomplete
 
-Last reviewed: 2026-09-14
+Last reviewed: 2026-09-20
 
 This document is the decision record for the proposed unified FlarexDB schema,
 commit compiler, sync engine, Payload adapter, and Medusa integration. It keeps
@@ -12,6 +12,209 @@ parts that were unsafe or internally contradictory.
 When another design note conflicts with this document, this document controls.
 Domain roadmaps own durable current status and target direction; Git owns
 chronological implementation history.
+
+## Portable Core Refactor Direction
+
+Accepted design direction: translate the pinned Convex database core into
+portable TypeScript, including its physical persistence schema through Drizzle,
+and migrate the existing core and Medusa/Payload integrations through connected
+owner replacements. Convex supplies the default algorithms, transaction boundary,
+versioned storage, metadata, indexing, OCC, commit and recovery mechanisms.
+Depart only where the DO runtime or required native behavior demands it; record
+the concrete requirement and replacement. Existing Flarex layouts, private APIs,
+optimizations and product-policy choices do not independently justify a
+divergence. An unresolved observable guarantee change remains a scoped decision
+before affected runtime edits. The
+[refactor record](../experiments/core/engine/REFACTOR.md) owns the keep/adapt/replace
+map and migration principles. `experiments/core` is the design and proof area,
+not a requirement to rebuild all framework coverage in a permanent second engine.
+
+This is a total rewrite scope for the current core and its integration internals.
+Current engine/adapter APIs, execution sequences, Drizzle layouts, installers and
+migration contracts impose no compatibility requirement. Reuse correct code only
+where it fits the translated mechanisms; migrate callers and remove displaced
+internals rather than retaining them behind compatibility wrappers. Intended
+native behavior and correctness remain requirements, not the old plumbing.
+
+Payload and Medusa sit above the translated core as schema producers and runtime
+adapters. Application declarations, Payload collections and Medusa models/Links
+feed one shared logical catalog and installation/build/validation/activation
+lifecycle. Runtime adapters lower admitted native queries and writes into the
+same snapshot/index/transaction/persistence owners while their frameworks retain
+access, hooks, business rules and workflow/effect semantics. Required common
+capabilities such as exact values, uniqueness and relationships belong to shared
+core owners, not separate framework database or migration engines.
+The [schema lifecycle](./flarexdb-shared-schema-lifecycle.md) separates physical
+platform upgrades, logical schema installation/evolution and producer-defined
+data conversion. These responsibilities are part of the rewrite architecture;
+concrete transition support still requires its own implementation and proof.
+
+The accepted physical starting point is the pinned Convex PostgreSQL adapter's
+five core tables: `documents`, `indexes`, `leases`, `read_only` and
+`persistence_globals`, expressed through Drizzle with required scope adaptation.
+Payload/Medusa records, native internal records, engine schema/catalog metadata,
+logical installation/build state and migration progress default to logical
+records/indexes over that storage. Required native constraint/relation behavior
+uses shared core enforcement, not dedicated physical framework families.
+The [physical/logical mapping](./flarexdb-shared-logical-storage.md#five-table-physical-starting-point)
+owns this target. Extra core physical storage needs a demonstrated DO/native
+requirement and recorded divergence. Platform upgrades of these base tables stay
+physical; app/framework schema installation and data migration operate logically
+above them. This selects a starting design, not completed DDL or migration.
+
+The project is early and not in production. Necessary internal API, type,
+schema, codec, identity and integration-contract breaks remain accepted. Preserve
+required native behavior and correctness guarantees, not expensive old execution
+sequences or unshipped interfaces. Retaining current PostgreSQL layouts is an
+option, not a constraint; each replacement names affected data and its migration
+or reset disposition. Migrate callers and remove displaced code and planning
+guidance together. No unspecified durable-data deletion follows from this policy.
+
+Keep the core portable and inject runtime/storage/coordination mechanisms, with
+Cloudflare as the first host family. Use pinned Convex mechanisms as the engine
+specification during design and development, recording necessary DO/runtime and
+native-behavior differences under the
+[source and divergence rules](../experiments/core/REFERENCES.md#source-and-divergence-rules).
+The reference pin is `db914cf06e2b06ee985646611b9e12ed7a770318`; inspect its owners
+and relevant tests before each implementation slice and justify every difference.
+Copy the mechanism as closely as possible, including algorithm, ordering,
+invariants and failure behavior. Before each slice, independent sub-agents must
+challenge the current core, this accepted direction and actual pinned Convex
+code, then exchange their findings. The coordinator resolves the implementation
+boundary before assigning coordinated workers. Necessary mechanism differences
+require a dedicated [divergence record](../experiments/core/engine/divergences/README.md)
+with why, how, preserved/changed guarantees and implementation evidence. The
+[goal contract](../experiments/core/engine/GOAL.md) now authorizes the full
+single-owner refactor through those gates and supersedes earlier docs-only scope.
+TypeScript can own RAM caches;
+choose its structures, libraries and SQLite indexes by required semantics and
+cost rather than copying Rust types. PostgreSQL remains durable authority and
+Application, Payload and Medusa retain explicit execution profiles.
+
+The [reference upgrade](../experiments/core/engine/CONVEX-REFERENCE-UPGRADE.md)
+requires staged prevalidation with final suffix/pending checks, bounded group
+commit, indexed conflict history and current index persistence/backfill/retention
+contracts. Shared-page serving now has persistence verification enabled by default;
+no SQL or performance gain follows from the pin update. The five-table baseline
+is the selected PostgreSQL adapter, not a universal upstream storage claim.
+Prior slice/divergence evidence keeps its original pin and must be reassessed
+before affected runtime implementation. This changes the source specification,
+not the status of existing proof, native obligations or data-reset authority.
+
+The [translation plan](../experiments/core/engine/REFACTOR.md#core-and-physical-schema-translation-plan)
+connects transaction/snapshot owners to document/index persistence, safe
+publication and caller retirement. Physical document/index versioning, key
+encoding, hydration, catalog representation and current projections are in scope.
+Preserve PostgreSQL authority, supported native behavior and named durable-data
+obligations through each replacement. Accepting this target does not run
+migrations, reset data, decide every policy difference or establish parity.
+
+Use the accepted [replacement workflow](../experiments/core/engine/REFACTOR.md#convex-guided-replacement-workflow):
+organize work by existing responsibility, using pinned Convex mechanisms as the
+default and reusing correct existing logic. Existing differences and necessary
+internal breaks are refactor targets, not automatic stop conditions. Within a
+selected implementation scope, routine TypeScript choices, interface changes
+and caller migration can proceed. Pause the affected path when an unresolved
+change to guarantees needs a decision, including native effect replay,
+visibility, ownership, recovery or a new divergence to preserve supported behavior.
+Record current owner, pinned mechanism, keep/adapt/replace, correctness cases
+and removed code. Resolve only that slice's semantic prerequisites; unrelated
+open topics do not require advance completion. The
+[starting-slice recommendation](../experiments/core/engine/REFACTOR.md#recommended-starting-slice)
+is a snapshot-correct point/index read path with injected cache and storage
+adapters; its exact boundary must pass the pre-slice challenge before runtime edits.
+
+Keep one focused replacement at a time in the [decision register](../experiments/core/engine/DECISIONS.md).
+The [open-question queue](../experiments/core/engine/OPEN-QUESTIONS.md) is the
+canonical unresolved list. The [app/commit record](../experiments/core/engine/01-commit-coordination.md)
+owns the accepted decisions: one independent app owner shared by Medusa/Payload/
+Application, a coordinator inside the app DO, bounded independent saves that may
+finish out of order, and ordered normal publication/acknowledgement. PostgreSQL
+remains durable authority and enforces ownership/transactional conditions.
+Uncertain persistence stops acceptance/publication, fences old work, reconciles
+all in-flight durable outcomes, rebuilds state and only then resumes.
+
+The [timestamped-snapshot decision](../experiments/core/engine/02-timestamped-snapshots.md)
+fixes each admitted operation's committed-data reads to one safe published
+timestamp across RAM, DO SQLite and PostgreSQL fallback. Explicit versioned
+document/index/deletion history supplies that view; a cache without an eligible
+answer misses rather than disclosing latest data. Publication advancing does not
+change an existing operation's timestamp. Unavailable history requires explicit
+failure or an eligible whole-operation restart, never a silent change of view.
+The [read-after-write policy](../experiments/core/engine/02-read-after-write.md)
+selects the ready app owner's latest published snapshot for new ordinary reads.
+Startup and uncertainty recovery gate those reads with bounded waits or explicit
+failure until a safe view is reconstructed; cold caches then miss to PostgreSQL
+at that timestamp. No separate timestamp-fetch request is required before each
+query. Reactive-client direction follows Convex: retain commit/query timestamps,
+resolve successful mutation promises after applied query-state progress, and
+check reconnect progress against the backend view. Concrete readiness/recovery
+interlocks and client protocols remain open; this does not enable subscriptions
+or native replay.
+The [ordinary-index readiness policy](../experiments/core/engine/02-index-readiness.md)
+follows Convex's Backfilling, Backfilled and Enabled lifecycle. Required builds
+gate deployment activation; staged builds remain unavailable until enabled.
+Queries explicitly requiring an unavailable index fail without waiting, reading
+partial results or silently scanning instead. Operations resolve enabled metadata
+at their own snapshot with the required dependencies. Durable completeness and
+local cache coverage remain distinct. Resumable backfill, concurrent-write proof
+and concrete activation/recovery protocols remain open; no builder is implemented.
+Follow the pinned Convex cache/retention direction: demand population,
+relevant-write invalidation coordinated with ordered publication, validation of
+concurrent cache fills, and separate bounds for cache size and historical data.
+The [mechanism record](../experiments/core/engine/02-timestamped-snapshots.md#accepted-cache-and-retention-direction)
+owns these principles; recorded Convex defaults do not select our settings.
+Snapshot validity does not replace authentication or engine-grant revocation, or
+combine independent native workflow steps into one transaction. The
+[read-authorization decision](../experiments/core/engine/02-read-authorization.md)
+uses identity-aware result reuse and tracked permission reads at the operation's
+snapshot, following Convex. Permission changes invalidate reuse at newer snapshots;
+they do not universally cancel queries already using an older snapshot. Engine
+grants retain their separate scope-revocation contract. Stronger disclosure checks
+need a named supported requirement; native access/hook behavior stays with its
+framework owner. No runtime gate is removed and no arbitrary native result cache
+is approved by this design. Concrete grant enforcement and conformance stay open.
+The [operation-lifetime policy](../experiments/core/engine/02-operation-lifetime.md)
+selects one snapshot and deadline per bounded atomic operation, shared by its
+participating nested work with one outer settlement. Preserve actual native
+transaction groups and hold no snapshot across remote effects or suspension.
+Before acceptance, expiry closes the operation and prevents late acceptance;
+only eligible pure queries/replay-safe Application attempts may restart under
+bounded rules. Automatic Medusa/Payload replay initially remains disabled pending
+whole-command proof. Accepted or uncertain writes remain with the outcome-recovery
+owner, even after caller timeout. Numerical budgets, concrete expiry/interlock
+mechanisms, cache representation, fencing and recovery details remain open.
+Replication is open and
+explicitly deferred. This acceptance is design-only:
+it does not implement or activate a DO host, enable framework replay, remove
+existing checks, resume old optimization work or alter current runtime behavior.
+The hosted topology below remains the implemented/accepted baseline until a
+connected replacement and its cutover are separately selected and proved.
+
+## Task System Replacement Authority
+
+The accepted [independent Trigger fork design](./task-system/README.md) owns
+Task-specific architecture and the [Task roadmap](../roadmaps/task-system/README.md)
+owns its pending implementation gates. Adopt actual Trigger engine source and
+maintain the fork independently. Adopt the [Convex-style storage model](./task-system/02-logical-storage.md#convex-storage-reference):
+platform-owned internal logical tables and indexes over shared physical storage,
+with the Trigger fork retaining Task lifecycle ownership. All Task-owned database
+state uses private logical schemas bound to app/environment or platform scopes,
+including discovery, scheduler ownership and repair progress. Business writes
+and enqueue obligations share settlement through the admitted publication owner;
+separate Task creation and external execution do not become implicitly atomic.
+Tasks also [reuse shared core indexing and the DO cache system](./task-system/02-logical-storage.md#shared-core-indexing-and-do-cache):
+core owners maintain logical indexes, serve eligible cached reads and refresh
+them through committed publication. The Trigger fork and its store adapter do
+not own a separate database or cache layer. Task integration must prove writer
+coverage, scope/privacy isolation, profile-correct freshness and recovery;
+cached candidates do not replace authoritative claim/lease checks. This is an
+accepted integration direction, not evidence that Task caching is implemented.
+The full current Task-specific physical schema is a retirement target;
+there is no routing/control/repair exception or new dedicated physical Task
+table set. General shared storage/catalog/settlement infrastructure remains.
+The old Task designs and DTE folder are legacy evidence. This decision does
+not change runtime behavior or authorize a database reset.
 
 ## Shared Logical Storage Replacement
 
@@ -69,6 +272,423 @@ and bounded capability descriptions below remain evidence of that baseline.
 
 ## Verdict
 
+### Execution Ownership And Organization
+
+The owner authorizes the [execution architecture refactor](../roadmaps/execution-architecture/README.md):
+clear direct Medusa read/write/workflow and Payload Local API entry points,
+Application query/mutation composition, reuse of native framework behavior and
+shared authoritative mechanisms, and removal of displaced internal paths.
+The [architecture map](../roadmaps/execution-architecture/architecture.md) records
+the target and distinguishes it from current private capability coverage.
+
+Direct operations own their execution; admitted participants borrow the outer
+query or mutation contract. A participant cannot fall back to a separately
+committed direct call. Keep Application OCC and framework-native profiles
+explicit; this organization does not select one universal transaction API.
+Cross-framework query snapshot/dependency semantics require their own connected
+proof. Public APIs and hosted activation remain separately gated. Each focused
+slice records contract breaks, consumer migration, durable-data obligations,
+validation and cleanup before implementation.
+
+### Prepared Execution Integrity
+
+#### Selected Standalone Read Replacement
+
+The owner selects the [standalone read execution and installation lifecycle
+redesign](../roadmaps/core-performance/standalone-read-redesign-preflight.md)
+as a connected implementation slice. **The local implementation and consumer
+cutover are complete; full performance acceptance remains unproven.** For its named
+standalone read callers, it supersedes the full-source serving-proof,
+per-request structural-attestation and request-only preparation mechanisms
+below. Those paragraphs retain their contract for unmigrated
+finite/write/durable callers.
+
+Preserve authorization, tenant/placement confinement, authoritative snapshots,
+native results/errors, revocation, required serving eligibility and one outer
+transaction owner. Replace repeated immutable construction, whole-source
+readiness and full role/catalog/function/trigger attestation together. Their
+current sequencing is not an invariant. Readiness follows the actual trusted
+query-required closure; an unrelated unavailable index does not invalidate the
+selected read. Write, activation and publication obligations remain complete.
+
+The installed database structure is owned by a managed lifecycle. Full structural
+verification belongs at installation/restoration and controlled structural
+changes, not every request, cold Worker or pooled session. Restricted serving
+roles cannot change the protected structure. Trusted privileged tooling must
+quiesce users through an enforced installation maintenance gate, record durable
+draining for nontransactional work, rotate identity/generation, reverify and
+reopen. A crash cannot reopen serving; recovery must settle predecessor
+maintenance commands before verification/reopen, not merely fence their final
+status update. Out-of-protocol superuser changes are
+outside the guarantee and require stopped service plus reinstallation proof.
+No epoch, digest, signature or cached pool object independently proves integrity.
+
+Implement the maintenance interlock and complete writer/credential inventory in
+this slice before removing structural checks. Separate it from the existing
+metadata invalidation epoch; preserve clock/head/epoch lock order and mandatory
+metadata fences until their writers have a proved replacement. Fresh accepting
+transactions authenticate actual installation identity, active state, current
+scope/placement/revision/binding/access and required mutable build/coverage.
+Scope revocation and any real profile-specific deadline/fence remain fresh.
+No cached live verdict or fabricated standalone mutation claim is introduced.
+
+Reuse authenticated immutable metadata through the existing bounded host owner
+with explicit keys, allocation, invalidation, eviction and close/drain. A miss
+loads required versioned metadata and is fully charged; it does not rescan global
+catalogs. Actual transaction identity must survive pooling/reconnect and reject
+unexpected incarnation. Control and target retain separate authority, with
+matching immutable references and fenced placement activation, not an assumed
+joint snapshot. No SQL transaction spans untrusted callbacks.
+
+The first native consumers are the measured standalone Product scalar and
+selected collection retrieval. Migrate affected shared standalone readers and
+exercise their real access/visibility semantics. Existing full-proof callers
+may remain only for named distinct profiles; delete displaced read assembly
+and avoid compatibility wrappers. Required narrow installation/metadata schema
+changes are allowed with explicit non-destructive migration; no durable deletion
+or broad schema-evolution platform is selected.
+
+The preflight owns strict complete-request and scaling gates: controlled warm
+paired overhead median/P95 <= 2/5 ms and total request <= 5/10 ms. These are
+engineering targets, not predictions or hosted guarantees. The prior 400 ms
+standalone guardrail cannot accept this slice. Preserve failure evidence and
+redesign an expensive owner rather than lowering a failed gate.
+The owner has accepted the recorded latency for the current local checkpoint and
+paused further tuning. The original targets remain criteria for future
+performance work; this stopping decision does not mark them achieved.
+
+#### Current Implemented Integrity And Other Profiles
+
+The [core acceptance decision](../roadmaps/shared-transaction-core/70-connected-execution-acceptance.md)
+retains immediate verification of selected metadata dependencies in the accepting
+transaction, including replay and recovery. Reuse bounded immutable preparation
+under explicit host lifetime; always authenticate live scope, placement, binding,
+generation, revocation and readiness. Preparation is not an admission verdict.
+
+The [mixed-core 08 protected cutover](../roadmaps/mixed-mutation-core/08-fundamental-latency-redesign-preflight.md)
+permits one narrow exception to repeated structural reads and hashes: the ten
+legacy target Application metadata tables under an authenticated nonowner runtime,
+same-transaction invalidating triggers, preparation epoch capture, and a final
+nonblocking epoch guard in the accepting SQL transaction. A consumer without
+that final guard retains full selected checks. Control catalogs, physical facts,
+framework evidence and the other named live checks remain freshly verified.
+An unchanged readiness root alone cannot replace those checks, and privileged
+owner or superuser repair must quiesce protected preparation. The protected
+epoch does not certify privileged edits, other tables, or a joint control and
+target database snapshot.
+
+The approved [fresh Application acceptance refinement](../roadmaps/core-performance/fresh-application-acceptance-preflight.md)
+extends bounded immutable reuse to existing standalone Commerce/CMS accepting
+transactions through Application-only admission. It authenticates the actual
+issued detached readiness evidence and its original protected installation/epoch
+with complete nonlocking snapshot attestation before local business work, then
+performs the direct complete NOWAIT epoch guard as the last metadata acquisition
+before successful SQL COMMIT and result release. Nominal issuer/evidence identity,
+exact database/transaction/scope/clock/fence/revocation and any actual retained
+lease remain part of that admission. Live framework and Application heads,
+Application activation, revision-schema, physical/build/lifecycle, full source
+and revocation checks remain mandatory. Standalone does not open the finite
+global guard scope or gain uncaptured framework/activation/control reuse.
+
+The precheck authenticates the accepting snapshot, not latest state before each
+operation. A prior snapshot mismatch refuses before local business work; later
+in-flight change can refuse at final guard after tentative local work, with no
+successful result, durable contribution or event released. Only the existing
+trusted Commerce/CMS outer attempt owns this tail through the existing relational
+session; success early returns for initialization, commands and durable replay
+must pass it too. After successful guard there is no further metadata acquisition;
+failure retains rollback and cleanup. A command that writes epoch-covered rows
+cannot rebase the admission epoch to make its own tail pass. Preserve body-first
+Cause and established cleanup, cancellation and uncertain-outcome recovery.
+Unprotected callers retain full canonical proof. Finite execution retains its
+existing protected contract and may compose the exact accepted immutable
+Application observation into its same-entry source union, with every actual
+mutable/source proof still fresh. This refinement is implemented with its covered
+write inventory and bounded connected correctness established. The focused preflight preserves unresolved full mixed latency
+regression and whole-goal limits separately from the passing component.
+
+The approved bounded attestation correction may materialize the exact bounded
+namespace relation/function/trigger inputs inside each SQL statement to avoid
+repeated catalog planning. Complete role/login/catalog, function signature/body/
+grant, all 23 protected-table invalidation and exact-running-tail predicates,
+original epoch comparison and initial/tail timing remain unchanged. This adds no
+cross-statement cache or persistent SQL migration and does not relax the failed
+component performance gate.
+
+The independently committed atomic Commerce host prepares retained catalog sources
+and performs full-live canonical proof; it opens no journal-backed finite global
+guard scope. Its public Product mutation/events therefore do not acquire the
+standalone direct tail or finite global guard merely because a test helper calls
+the operation "standalone". Epoch-only invalidation with unchanged canonical bodies
+can succeed under that existing profile. Preserve actual ordinary-profile atomic
+rollback, cancellation and uncertain-outcome behavior without expanding admission.
+
+For the private finite mixed root, the [approved attempt-local slice](../roadmaps/mixed-mutation-core/11-attempt-admission-preflight.md)
+permits bounded **tentative local** handle, pending-write, cached-result and
+close work after authenticated entry without a fresh SQL transaction for
+each local step. A persisted revocation may be discovered at the next actual
+database access or final validation; data already seen inside the sandbox
+cannot be retracted and no local child result may become durable or externally
+successful. Local handle, scope, closed/cancelled lifetime and budget refusal
+precedes foreign input capture; the earlier database-revocation-versus-foreign-
+getter ordering is deliberately relaxed. No foreign getter runs inside SQL.
+Every actual database access, aggregate seal and later publication retains
+its existing full exact-running/session, source authentication and protected-epoch
+checks in short owned transactions. The [approved dependency-validation slice](../roadmaps/mixed-mutation-core/13-dependency-validation-preflight.md)
+permits private finite internal reads to check source-complete readiness: trusted
+storage owners select every admitted source definition and required transitive
+reference/target/delete dependency. A multi-source bundle derives the complete
+union from actual issued source states; one common proof may be shared only in
+its accepting read transaction under the exact requested set and existing
+common identities. Every source retains its own authority and pinned-head check,
+and full proof remains distinct. Required lifecycle, coverage and physical
+definitions remain fresh; full canonical bodies, heads, membership and complete
+closed unique-set authentication remain mandatory. An unrelated definition that
+becomes unready after entry may permit a tentative internal read; full entry,
+aggregate seal and publication still refuse durability. Complete canonical
+unique closure/spec authentication retains its existing configured-control
+preparation lifetime as detached bounded evidence; accepting transactions check
+fresh target build readiness rather than reread that control closure. This adds
+no wider protection or control/target coordination contract. A selected verdict is
+never full admission, and standalone and durable-operation reads retain full
+readiness. This exception does
+not grant a cached database admission across transactions or relax ordinary
+standalone and durable-operation callers. The [approved target-protection slice](../roadmaps/mixed-mutation-core/15-admission-protection-preflight.md)
+extends the target epoch to thirteen current immutable Application publication,
+function/task/schema/readiness/activation/write-ownership and framework binding
+candidate/lane/activation tables, retaining the ten legacy tables for actual
+callers. All columns and complete membership predicates receive same-transaction
+statement invalidation, including zero-row DML and TRUNCATE. Canonical preparation
+is bracketed by before/after epoch proof; finite reuse requires the exact accepting
+transaction's registered tail guard. The approved standalone Application-only
+refinement above instead requires its direct initial snapshot attestation and
+final tail guard; this refinement is implemented with bounded connected proof. Both
+profiles require full authenticated restricted-login,
+role/catalog/installation, database/schema/incarnation attestation at capture
+and tail. Privileged repair still requires quiescence; this accepts no backend
+certificate, generation-only guard or implemented maintenance barrier. Live
+heads/source authority, mutable lifecycle/build/coverage, physical DDL/GIN facts
+and separately owned control bodies/ordered/unique closure retain their current
+fresh/prepared contracts, with no joint control/target generation. The slice also
+permits issuer-owned scope-clock observation reuse only in its exact accepting
+transaction, whose kernel SHARE/NO KEY UPDATE lock conflicts with revocation's
+FOR UPDATE writer. Compact session guards and cheaper epoch attestation remain
+separate integrity decisions.
+
+The [approved bounded read-execution slice](../roadmaps/mixed-mutation-core/16-batched-read-execution-preflight.md)
+extends tentative local work to finite native method entry, borrowed context
+construction and workflow source inspection after one aggregate full root entry.
+These steps authenticate the existing issued attempt, method/source identity,
+root/fence, lifetime, deadline and resource limits locally. Native callbacks may
+execute tentatively after persisted revocation or readiness changes; pending-only
+results need no fresh database check and cannot establish durable success.
+The next actual storage frontier, aggregate seal or publication must detect those
+changes through fresh exact-running authority and required source-wide readiness.
+Every storage frontier retains its required kernel locks and post-lock database
+time, source and physical evidence. Explicit accepting transactions retain their
+protected-epoch tail. The approved finite capture replacement below has a
+command-local implicit lifetime; live evidence never survives its statement.
+Body or tail refusal latches
+the existing first failure/root abort before any result or contribution escapes.
+Relevant Application point seeds still require original snapshot hydration and
+observation authentication before pending membership is used; construction may
+defer that work to the first actual source frontier. Ordered dependency and
+resource accounting remain unchanged. No SQL spans native callbacks, hooks or
+workflow steps; standalone and durable-operation construction retain their named
+full-admission profiles. This amendment grants no new issuer, certificate,
+maintenance authority, settlement capability or durable format.
+
+The [selected query-required mixed-read replacement](../roadmaps/mixed-mutation-core/20-query-required-read-execution-preflight.md)
+supersedes source-complete intermediate readiness and full structural attestation
+for the named private finite graph. Implementation and acceptance are in progress;
+this is not a performance or deployment claim. Full authenticated root entry,
+aggregate seal and publication retain complete source and mutation obligations.
+Standalone and ordinary durable-operation profiles retain their distinct contracts.
+
+The trusted working-set compiler captures the actual initial storage demand before
+opening its checked frontier. The issued participant/source admission authenticates
+that demand against its prepared catalog, exact root, source/schema, method,
+snapshot, fence and lifetime. A caller table list or digest grants no proof.
+Required row, ordered, unique, search and dynamically discovered relation paths
+are checked before their data is consumed. A rowless transaction-clock demand
+requires fresh authority and source pins without inventing a row dependency.
+Missing finite demand fails closed. The source-complete branch remains only for
+named retained full-profile callers, not as a fallback for selected finite reads.
+
+Finite working sets retain writable catalog mechanics and all write/reference/
+delete constraints. Reusable demand checking is separate from standalone-only
+read mechanics and their read-lifetime guard. Unused same-source readiness damage
+may allow a tentative scalar read after full entry; a demanded path still refuses
+before use, and full final proof refuses durability. Query selection never grants
+full admission. Fresh exact-running authority, post-lock time, revocation,
+placement, snapshot retention and the profile's protected metadata lifetime remain
+mandatory.
+Local capability/lifetime/budget refusal precedes foreign input capture outside
+SQL; body or tail failure latches the first root refusal even when native code
+catches it. No SQL spans native callbacks, hooks or untrusted execution.
+
+The existing installation lifecycle may supply finite structural integrity through
+an issued target/control installation preparation. Each accepting transaction
+acquires the exact installed namespaces in stable order before scope/head locks,
+authenticates the actual restricted target credential and its control-read grant,
+database/namespace identity, incarnation, structural generation and active state,
+and retains the installation admission through its protected tail. Metadata epochs
+remain invalidation fences, not independent integrity authority. Managed finite
+coverage must include entry, storage, final and recovery users of the structures;
+maintenance, reconnect, restore and predecessor-drain proofs remain completion
+gates. This reuses the installed maintenance owner and creates no joint control/
+target snapshot or cached live verdict.
+
+The [approved finite contract](../roadmaps/mixed-mutation-core/23-finite-execution-contract-preflight.md)
+and [whole-mutation capture replacement](../roadmaps/mixed-mutation-core/24-whole-mutation-redesign-preflight.md)
+supersede explicit-transaction choreography for installed named storage captures.
+Except for the named relational-predicate case below, each capture authenticates
+both installed namespaces and the exact placement,
+then acquires kernel and selected build locks and checks fresh post-wait liveness
+inside one implicit SQL statement. Its installation admission and authority
+locks last through that statement; the physical callback view expires before
+release. A refused capture releases no business envelope. Metadata generation
+correlation is command-local, with exact agreement retained across the named
+ownership successor/fence captures. Unrelated immutable publication after a
+completed capture does not retroactively refuse it or impose an unchanged-since-
+entry epoch on ordinary rows, index rows or transaction time. Security and
+serving invalidation use their actual installation interlock or authority writer
+and must serialize with capture admission. Full root entry, aggregate seal,
+publication and recovery retain their distinct explicit protected tails and
+complete obligations. This refinement adds no permission cache, surviving
+transaction observation, public capability or durable format.
+
+The named `relationalPredicate` capture is an explicit short-transaction
+exception under [its closed predicate contract](../roadmaps/shared-logical-storage/68-postgres-relational-predicates.md).
+PostgreSQL can plan an invalid regex in a complete WHERE expression before
+evaluating a rejecting header in the same statement. This capture therefore
+holds one physical checkout/deadline and one protected transaction: acquire the
+actual co-located installation admission, accept the existing static
+ownership-fence header, evaluate the parameterized complete predicate over its
+genuine captured candidates, decode the exact results, and require a fresh
+header tail with the same command-local metadata epochs. Confirm settlement
+before releasing results and the checkout. For installed capture, the existing
+physical driver's initial-transaction owner directly owns BEGIN, COMMIT,
+rollback after cancellation, draining and quarantine. Its callback performs
+only installation admission, entry/body/tail and local admission closure; it
+does not nest a transaction inside a read callback whose work fence closes on
+cancellation. Header, body or tail failure rolls back; callback and cleanup
+Causes remain complete. An uncertain settlement releases no business envelope,
+retains the initial and any quarantine failure, and adds no retry or recovery
+protocol. Existing relational command, lock and cleanup deadlines apply only
+to this named operation. Full-artifact execution retains its existing protected
+transaction-settlement bridge and actual current installation; interruption
+withholds delivery and drains that read-only transaction before checkout release.
+No native or untrusted callback runs inside it, and no independent transaction, database function,
+migration, generic read fallback, reusable SQL capability or permission cache
+is introduced. Other named captures retain the implicit-statement contract.
+
+Pending hydration uses exact captured point identities or, where exclusion cannot
+be proved, the actual queried table's bounded seed set. Original snapshot evidence
+and pending values jointly determine membership. Required historical identities
+are batched while retaining ordered observation, original-witness validation and
+resource charging. Root-owned table membership accelerates seed selection without
+creating another pending-value authority. Full catalog preparation remains bounded
+and separately charged, including complete-request and miss costs; warm selected
+proof and incremental retention must not scale with unrelated source definitions.
+
+The predecessor [aggregate-entry slice](../roadmaps/mixed-mutation-core/19-aggregate-entry-preflight.md)
+connected the private `finiteRoot` profile to one preparatory target
+capture and one accepting transaction for atomic session creation and complete
+ordered source entry. Source refusal rolls back creation. Issuer-bound entry
+facts and journal installation require confirmed COMMIT and the original local
+claim; unknown decisions, cleanup failure and interruption expose no usable fact.
+Actual final session, lease, journal root and claim correlation, all five child
+absence predicates, full Application/function/readiness checks, and the full
+23-table protected tail attestation remain mandatory. Detached immutable schema,
+publication, task, argument and grant authentication runs outside target SQL.
+Existing bounded hashes of fresh physical, head and materialization observations
+remain at their accepting frontier; unprotected PGlite retains complete canonical
+final reread/authentication. Prepared source catalogs share immutable topology
+within their existing host lifetime and retain exact source/factory issuer,
+database/authority, schema and scope provenance. These facts stay in trusted core
+construction, with no Worker RPC, SDK or application author capability transfer.
+Ordinary `durableOperations`, rerun, redispatch and later durable readers retain
+their real obligations; the standard Application default profile is unchanged.
+The complete initial executor retains its fresh renewal and liveness across
+body, seal and transition. Confirmed entry facts establish structural admission,
+and cannot replace that later live observation. Cost comparisons must include
+complete initial authentication and renewal, which the prior measured private
+fixture omitted; the three-transaction structural entry is not a complete
+authenticated-request transaction ceiling.
+Issuer-local entry capacity is reserved before writes and released by the
+activation acquisition/use/release lifetime, including cancelled handoffs;
+database execution remains interruptible. The complete-profile admission gate
+counts the renewal as a fourth transaction. Original whole-request SQL ceilings
+remain applicable to every sample; transaction ceilings include the additional
+renewal, and whole-request latency goals remain unchanged.
+The bounded private profile passed its stage SQL/transaction gates. Whole mixed
+latency goals remain unmet; the earlier measured fixture omitted complete
+initial authentication and renewal, so its timing distribution establishes no
+profile equivalence or causal regression. Host lifecycle work remains conditional
+and unapproved.
+
+### Selected Finite Execution Contract
+
+The owner selects [the finite execution contract](../roadmaps/mixed-mutation-core/23-finite-execution-contract-preflight.md)
+for the existing private Application/Payload/Medusa graph. Its architectural
+cutover and affected private consumer migration are delivered; fixed numerical
+performance acceptance is incomplete. It replaces finite current-head re-admission,
+whole-version epoch refusal and commit-sequencer locking with entry-fixed exact
+metadata selectors, demanded original-snapshot serving, a separate live authority/
+retention owner and consumed metadata OCC. Prior paragraphs retain their exact
+contract for actual unmigrated profiles; they do not constrain the selected
+finite replacement's proof choreography.
+
+Metadata selection is explicit at authenticated entry, using retained canonical
+versions; data timestamp alone does not reconstruct a metadata registry. Capture
+and persist its watermark/selector with the genuine attempt reservation. Only
+confirmed entry makes it usable. Relevant semantic changes, including ABA,
+conflict at publication; unrelated immutable head movement is not a live-authority
+failure. Actual permission withdrawal advances the live scope revocation owner.
+
+Authority holds protect revocation, storage fencing and retained-history floor
+through each real data transaction. Commit sequencing has a separate owner.
+Ordinary commits need not exclude finite snapshot reads; expiry during a read
+does not permit pruning its history. Distinct nominal evidence preserves the
+stronger existing direct/write/durable observation contracts.
+
+Framework business semantics and one Postgres settlement remain unchanged.
+The selected [whole mutation replacement](../roadmaps/mixed-mutation-core/24-whole-mutation-redesign-preflight.md)
+extends that foundation with one compact durable attempt anchor, one shared
+pending evaluator and one final accepting transaction. Finite operation receipts
+and the frozen graph remain local; this profile has no durable child journal or
+seal. Ordinary and durable-operation profiles retain their actual journal and
+finishing obligations.
+
+Replay-eligible finite callbacks may rerun only after conclusive precommit
+nonacceptance and confirmed fencing. Unknown COMMIT resolves before replay;
+permanent refusal terminalizes durably. The persisted budget permits four root
+reruns across five fences. Committed outcomes, events and history remain durable.
+Immutable Application/schema/definition evidence belongs to genuine bounded host
+preparation. Entry, actual storage demands and final settlement retain their fresh
+authority, retention, metadata, serving, conflict and constraint checks. Local
+known-point edits require earlier accepted write ownership; reads cannot grant it.
+Finite entry accepts the capability's exact current Application/binding/schema,
+source and policy correlation without requiring unused serving paths to be ready.
+Actual storage demands check selected readiness; final writes check their complete
+current maintenance closure. The issued attempt retains its original physical
+target, with fresh installation/placement/authority acceptance inside each real
+transaction. Placement movement refuses that attempt rather than rerouting its
+pending graph. Candidate semantics and compiled validators retain the genuine
+charged preparation lifetime and writer/epoch protection.
+
+Post-wait observations must preserve Read Committed freshness. Evaluation order
+inside one joined statement does not establish a new snapshot after a lock wait;
+an installed database projection uses separate internal commands when required.
+The connected runtime's accepting boundaries are under further correction, with
+numerical acceptance open.
+Forward migration preserves stored scope fields, identities and outcomes, and
+refuses new finite activation until any incompatible nonterminal records have
+an explicit drain/migration disposition. No silent data deletion is authorized.
+
+### Overall Direction
+
 The storage backbone is good, but the original unified-runtime proposal was
 too broad for v1.
 
@@ -111,6 +731,21 @@ admitted Payload requests and Medusa service commands use bounded trusted
 database transactions; Medusa workflows retain step-level transactions,
 checkpoints, retries, and compensation. A workflow's recovery transaction is
 not one SQL transaction spanning its complete execution.
+
+The [first mixed mutation preflight](../roadmaps/mixed-mutation-core/01-application-product-attempt-preflight.md)
+established a separate, private admitted Application and Product logical attempt
+for one authenticated scope and placement. It borrowed the native journal and
+one pending view, ran selected real Product operations under their own domain
+authority, and settles one result and event intent with the Application writes.
+This profile is implemented in isolated test scopes and has no public developer
+API or named-environment activation. Existing Application, standalone framework and named
+command profiles remain available to their actual callers.
+
+The [Payload Local API mixed-attempt preflight](../roadmaps/mixed-mutation-core/02-payload-local-api-attempt-preflight.md)
+is implemented as a private isolated-scope proof. It adds one pinned native
+Payload create, update and find-by-ID lifecycle to that private root, with one
+Application/Product/Payload outcome and selected recovery and conflict proofs.
+It does not activate a named environment or provide a public `ctx.cms` API.
 
 Explicit cross-domain atomic commands are an accepted target after the
 participating lanes and a separate atomicity contract pass their gates. One
@@ -275,7 +910,9 @@ work continues.
 | Medusa adapter | Separate trusted transaction lane | Preserve real Medusa repository, workflow, link, migration, and transaction behavior. |
 | DeploymentSyncDO | Accepted first Flarex/Cloudflare coordination adapter | One deterministic instance per scope, durable SQLite cursor/query/dependency state and Postgres catch-up composed around the separately owned portable Query Sync Engine semantics. |
 | VersionDO, DocCacheDO, QueryCacheDO | Deferred optimization | Add only after measurement and a gap-free freshness protocol. |
-| Generic atomic `ctx.db + ctx.cms + ctx.commerce` | Rejected | Explicit domain commands preserve framework mutation ownership. A separately admitted cross-domain command may use one scoped physical transaction and finalizer; workflows and cross-placement follow-up use committed steps and the transactional outbox. |
+| Private admitted mixed Application and Product attempt | Implemented private isolated proof | One authenticated scope/placement, selected Product update and reads, one journal-backed pending view and final outcome. Named-environment activation remains gated by the mixed-core roadmap. |
+| Private admitted mixed Application, Product and Payload attempt | Implemented private isolated proof | One selected native Payload Local API lifecycle borrows the same root and settles with Application and Product. Named-environment activation and public APIs remain gated. |
+| Generic or public atomic `ctx.db + ctx.cms + ctx.commerce` | Deferred | The private selected Product and Payload admissions grant no general or public composition. Broader Payload, workflow and developer API gates remain separate; cross-placement follow-up uses committed steps and durable coordination. |
 
 Replacement strategy is selected from shipped-state evidence:
 
@@ -483,6 +1120,22 @@ Postgres references for this policy:
 
 ## Catalog And Schema Evolution
 
+The accepted [shared schema lifecycle](./flarexdb-shared-schema-lifecycle.md)
+serves Flarex Application, Payload, Medusa and platform Tasks through common
+internal admission, installation, planning, build/validation, progress/recovery,
+readiness and activation APIs. Each consumer retains native schema compilation
+and explicit conversion meaning. Developer schema push/deploy APIs compose
+these core mechanisms. Extend/consolidate existing owners rather than creating
+consumer-specific installers or preserving parallel migration authorities behind
+a facade. Platform Tasks require authenticated system installation independent
+of app code analysis/deployment. Their execution engine remains the Trigger fork.
+
+This is accepted architecture with partial foundations, not completed
+four-consumer runtime support. Generic physical PostgreSQL upgrades remain
+platform maintenance; [advanced logical evolution](../roadmaps/shared-logical-storage/deferred-framework-schema-evolution.md)
+retains its separate implementation boundary. Task-specific physical retirement
+and shared indexing/DO cache requirements remain in force.
+
 Catalog identity must survive schema activation. Separate stable identities
 from immutable versioned definitions:
 
@@ -542,6 +1195,31 @@ indexes remain S03-C work, relation and constraint semantics remain gated on a
 real compiler contract, and Payload/Medusa variants must be derived from their
 own source schemas rather than being disguised as app document validators.
 Extending the closed section requires an explicit semantic-version change.
+
+Fresh Convex-translated declarations use `appDocument` definition version 2.
+They admit the source document roots (any, object, or an immediate union of
+objects), including source normalization, and encode the validator as Source DTO
+JSON text inside the private manifest. Declaration maps therefore do not inherit
+general value-object limits or JSONB's literal NUL restriction. The frozen
+version 1 object definition keeps its original codec and meaning.
+
+Persisted declarations use the backend Source serializer, including numeric
+Float64 `-0.0`, rather than the SDK value-JSON projector. Fresh serialization
+must remain readable through the Source parser. Check the actual raw JSON
+container depth with its owning envelope and expanded metadata byte budget
+before materializing text; these are not logical field/node quotas. Shared
+validator graphs retain immutable ownership without repeated expansion.
+
+Fresh authenticated Application manifest feature versions 1/2/3 and runtime
+targets use the separate `validatorIdentityEncoding: 2` byte generation. Existing
+digest chains bind it; source schema JSON/content hashes do not acquire this
+private marker. CoreProgram stores canonical manifest/target/authority JSON text
+and its stored reader alone preserves original unversioned program identities.
+It must authenticate historical validator payloads without current normalization
+rewriting their bytes. Current execution uses one engine after verification.
+The [identity adaptation](../experiments/core/engine/divergences/validator-authenticated-identities.md)
+owns the retained-byte boundary and external/native cutover gates; no table,
+outcome rekeying or unspecified data reset follows from this format change.
 
 S03-B2b uses an optimistic prepare/commit boundary because stable IDs are part
 of the canonical bytes, while canonicalization and Web Crypto must stay outside
@@ -867,25 +1545,26 @@ one-time compatibility projection is needed only for proven durable rows.
 A schema version is activatable only when its required target-native population,
 any evidence-triggered backfill, and validation have succeeded. For ordinary
 app-document evolution, each scope may have at most one non-active schema-
-validation head. It authenticates one immutable schema version, scans live rows
-at a fixed commit frontier, and remains shadow-enforced by later material point
-commits. A final row that is valid under the active schema but invalid under the
+validation head. It authenticates one immutable schema version, validates fresh
+ById pages at or after the proposal observation, and remains enforced by later
+document writes. A final row that is valid under the active schema but invalid under the
 candidate still commits and atomically fails the candidate; candidate
 deployment cannot make the active application unavailable. Valid concurrent
-writes do not restart the historical scan. Candidate readiness requires the
-exact settled validation receipt, and rollback to an older schema requires a
+writes do not restart completed coverage. Candidate readiness requires the
+exact current validation attempt and completed index builds; rollback to an older schema requires a
 new validation against current data rather than a pointer reversal. The
-detailed bounded lifecycle and implementation gates live in
-`roadmaps/flarexdb-foundation/05-managed-schema-deployment.md`.
+detailed translated lifecycle is owned by the
+[shared schema replacement](../experiments/core/engine/slices/07-shared-schema-lifecycle.md).
+The [registered-source continuation](../experiments/core/engine/slices/19-registered-source-upgrades.md)
+connects that same lifecycle to independent public deployment attempts.
 
-The accepted implementation owner for compatibility, candidate-document
-policy, lifecycle transitions, and service contracts is the separate private
-`@flarex/managed-schema` domain package. It has no PostgreSQL, Worker-runtime,
-point-commit, readiness, activation, or system-test authority. Persistence
-implements its repository and opaque transaction/evidence facets; the existing
-point-commit and readiness owners consume only those narrow authenticated
-facets. System simulations use the live composition and cannot mint schema-
-validation state or receipts.
+The translated Core owns schema compatibility, write-time enforcement,
+validation progress, index builds and atomic activation. Runtime hosts and
+producer adapters borrow those owners. The retained private `@flarex/managed-schema`
+contracts below describe the older compatibility profile and its recorded
+cutover obligations; they do not supply a second installer or validation
+authority for the translated Application path. System simulations use genuine
+Core lifecycle transitions rather than minting validation state or readiness.
 
 `M01-A` now exists inside that package as the pure bounded compatibility
 classifier. It separates document compatibility, physical-requirement drift,
@@ -1179,8 +1858,10 @@ reconnect/reset policy. S08 does not infer either policy from the floor column.
 The compiler is a pure lowering boundary, not a new authority:
 
 ```text
-SessionJournalV1
-  local read dependencies and logical app operations
+SessionJournalV2
+  local Application read dependencies and logical writes,
+  admitted participant operations with ordered effects and event intents,
+  cumulative receipt and participant-work usage
 
 SuccessfulResultEvidenceV1
   separate canonical Value Codec result bytes and digest
@@ -1445,16 +2126,19 @@ the stable deployment binding only as corroboration. It never reads the mutable
 active-schema pointer. C04B1 owns the broader pinned schema/binding
 reauthentication, while C04B2 owns final value/return validation.
 
-C03 persists four exact-attempt tables: one bounded root, one replace-in-place
-latest receipt, at most 4,096 qualified point dependencies with deterministic
-same-row overlay state, and at most 16,000 ordered material-write events. For
-the latest sequence only, exact canonical request bytes replay the exact typed
-outcome; different bytes conflict, lower sequences are stale, and values above
-`last + 1` are gaps. The executor serializes calls per attempt, so a lost
-response for `N` must be recovered before `N + 1` can enter. Catchable missing
-or no-op outcomes advance and replace the receipt without growing row
-cardinality, while incremental resource-limit failures remain sticky until
-lifecycle cleanup.
+C03 persists one bounded exact-attempt root, per-sequence retained receipts,
+at most 4,096 qualified point dependencies with deterministic same-row overlay
+state, and at most 16,000 ordered material-write events. The journal point
+rows are the single pending view for Application and admitted logical work.
+For any accepted sequence, matching canonical request bytes replay its exact
+typed outcome; different bytes conflict, and values above `last + 1` are
+gaps. The executor serializes ordinary point calls per attempt and refuses
+overlapping admitted framework calls. Before a framework callback, C03 stores
+an exact invoking marker in that sequence's receipt and root. Accepted result
+or terminal failure replaces the marker. A duplicate observing a live marker
+cannot invoke the callback; the existing claim and attempt lease govern
+abandonment. Catchable missing and no-op outcomes retain their own receipts,
+while incremental resource-limit failures remain sticky until lifecycle cleanup.
 
 The root separately accounts the exact canonical bytes of persisted material-
 write events and caps their cumulative temporary evidence at 64 MiB. This is a
@@ -1476,7 +2160,7 @@ with exact `nextUp`, atomically with the accepted receipt, including rejected
 post-allocation inserts. Host/user wall-clock values are never accepted.
 
 Sealing first takes a read-only repeatable-read snapshot of at most each child
-limit plus one, detached raw row evidence, counters, and the latest receipt,
+limit plus one, detached raw row evidence, counters, and retained receipts,
 then closes that SQL transaction. Excess cardinality is rejected before child
 decoding. Outside SQL, C03 strictly decodes the children, recomputes cumulative
 material-event bytes against the root counter, constructs an independent
@@ -1670,8 +2354,8 @@ state.
 
 Requirements:
 
-- C02 defines canonical syscall-sequence fields; C03 owns monotonic operational
-  append enforcement, constant-cardinality latest-response replay, raw bounded
+- C02 defines canonical syscall-sequence fields; the journal owner enforces
+  monotonic append, bounded per-sequence retained response replay, raw bounded
   pre-coalescing write events, and trusted read rows/bytes accounting;
 - Convex-compatible execution ceilings are 32,000 documents read, 16 MiB of
   document bytes read, 4,096 point-read dependencies, 16,000 user write
@@ -1685,6 +2369,12 @@ Requirements:
   temporary-storage divergence. It is incrementally enforced before mutation,
   recomputed from detached event bytes at seal, and does not replace the final
   canonical-journal cap;
+- the V2 journal owner separately bounds cumulative retained request/outcome
+  receipt bytes at 64 MiB while a root is open or sealed. One terminal
+  limit-failure receipt may exceed that live cap within a bounded failed-only
+  reserve; the failed root cannot accept another operation or seal. At seal,
+  receipt and participant-work totals are recomputed from retained receipts
+  and bound into the canonical journal for finish-only recovery;
 - one fenced attempt owner;
 - O03-B1 defines initial activation and exact active-anchor replay; O03-B2a
   defines restart-safe exact-fence load; O03-B2b1 defines abort and expiry;
@@ -2031,6 +2721,62 @@ sync.
 
 ## Shared Framework Transaction Ownership
 
+### Efficient Checks And Native Lifecycles
+
+The selected redesign reduces repeated proof construction while keeping each
+check's purpose and freshness explicit. Installation owns structural integrity
+and maintenance interlock; bounded preparation owns authenticated immutable
+metadata; admission owns current execution authority; readiness owns the access
+paths demanded by the actual query. Only the trusted settlement owner accepts
+final authority/OCC/constraints and atomically publishes data, history, outcomes
+and supported event intents. External delivery follows confirmed commit.
+
+Reuse does not turn cached metadata into live authorization or remove required
+read dependencies, activation/coverage checks, fencing or invalidation. Extend
+the proved managed mechanisms to named callers rather than assuming every
+profile has their coverage. Low overhead must be demonstrated with complete
+request and scaling measurements.
+
+Framework-native validation, transformations, nested writes, hook ordering,
+workflow behavior and supported resource locks remain with their adapters.
+Payload `afterChange` and Medusa service event emission are not general
+after-commit guarantees. Capture admitted durable event intents atomically;
+moving an existing hook or external effect requires its own compatibility proof.
+Cheaper checks do not broaden which callbacks may be rerun or select removal of
+durable-seal recovery. Explicit direct, mixed OCC and durable workflow profiles
+share mechanics without becoming one universal transaction contract.
+
+The owner requests a complete remaining mutation redesign with breaking changes
+accepted. The [whole mutation preflight](../roadmaps/mixed-mutation-core/24-whole-mutation-redesign-preflight.md)
+records the selected compact durable entry anchor, one pending-state owner,
+one frozen contribution, distinct-table complete current write maintenance and
+one final settlement. The owner selects replay-safe whole-root re-execution after
+proven precommit nonacceptance, replacing finite durable seal/finishing. Unknown
+COMMIT must be resolved before callbacks rerun. Implement entry, pending state,
+freeze, final acceptance, retry/recovery, reservation readers and actual consumers
+together; current runtime remains until the complete validated cutover. Ordinary
+and durable profiles keep their named checkpoint/finish-only obligations. No
+silent durable-data deletion or general external-effect replay is authorized.
+
+The selected private finite start owns admission through execution, rather than
+returning a detached executable handle that requires another initial renewal.
+Fresh final entry acceptance follows all required waits under the existing
+authority and ownership locks. Callback admission linearizes there; confirmed
+COMMIT is the issuance barrier, followed by immediate owned continuation and
+heartbeat supervision. This does not assert liveness at a delayed acknowledgement.
+Every actual storage frontier and final settlement still accept current ownership.
+Unknown entry COMMIT grants no callback permission. Ordinary detached and durable
+execution retain their initial renewal. Genuine original signed authority may be
+retained by the existing entry/frozen owners; fresh compatible-head admission and
+full cold stored authentication remain distinct obligations. Preflight 24 owns
+the connected migration, cancellation, acknowledgement and cleanup proofs.
+
+The [execution checks and framework lifecycle preflight](../roadmaps/mixed-mutation-core/22-execution-checks-and-framework-lifecycles-preflight.md)
+owns the selected direction, source evidence, replacement inventory and handoff
+gates. Existing runtime obligations remain until their connected cutover.
+
+### Settlement And Existing Profiles
+
 Core owns physical transaction settlement, commit publication, idempotency and
 uncertain-outcome recovery for admitted Application, CMS and commerce writes.
 Framework transaction folders adapt request/service semantics to these owners;
@@ -2046,9 +2792,32 @@ untrusted execution or arbitrary external callbacks.
 An independently settled framework command cannot silently participate in an
 atomic native mutation. Named trusted composition requires one scope/placement,
 authenticated domain capabilities and one finalizer; it can be proved using a
-single bounded SQL transaction. General mixed sandbox OCC is a separately
-selected capability, not the default framework migration. Consolidate actual
+single bounded SQL transaction. The private Application and Product mixed
+sandbox OCC profile is separately admitted under its focused preflight; it is
+not the default framework migration. Consolidate actual
 duplication and retire what it displaces under the replacement policy.
+The private finite mixed root persists an immutable `finiteRoot` execution
+profile on its journal root; existing and ordinary roots default to
+`durableOperations`. Replay must match that profile. After host or claim loss,
+even a row-pristine finite root is abort-only and can be rerun only as a new
+attempt under a new fence, because child results may have been tentative in
+the lost evaluator.
+
+Prepared metadata reuse initially covered the ten legacy Application target
+tables named in the mixed-core 08 preflight; the approved mixed-core 15 preflight
+extends coverage to thirteen current immutable Application and framework binding
+tables under the same full attestation and quiescence contract. Its runtime uses
+an authenticated nonowner PostgreSQL login; same-transaction statement
+triggers invalidate one protected target-schema epoch for all 23 tables.
+The accepting transaction guards that epoch at its tail with a nonblocking
+row lock and fails closed on contention or change. Control catalogs, physical
+catalog facts, live framework head/source/readiness evidence, coverage, clocks, heads, revocation, claims,
+and journal position remain freshly checked. This profile makes no joint
+control/target generation claim and no full-system metadata certificate.
+Owner or superuser repair and structural DDL are separate privileged activity
+that must quiesce protected preparation; they cannot be certified by runtime
+grants or a compact epoch alone. A private consumer without the final guard
+uses its complete live verification.
 The [framework execution profiles](../roadmaps/flarexdb-framework-integration/preflight/14-transaction-execution-profiles.md)
 and [shared-owner preflight](./flarexdb-commerce-occ-migration-preflight.md)
 own the detailed distinction and gates.
@@ -2371,9 +3140,9 @@ Convex-first references inspected for the design:
 
 Current Flarex implementation evidence:
 
-- `packages/persistence-postgres/src/schema.ts`
+- `packages/persistence-postgres/src/database/schema.ts`
   - current document/index, invoke-session, subscription, and outbox baseline.
-- `packages/executor/src/sessions.ts`
+- `packages/executor/src/invocation/sessions.ts`
   - current session finish, commit, and best-effort post-commit wake boundary.
 - `packages/flarex-backend/src/connectionDO.ts`
   - current query execution followed by registration, which exposes the

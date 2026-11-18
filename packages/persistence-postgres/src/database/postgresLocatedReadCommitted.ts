@@ -1,0 +1,495 @@
+import type { Client, PoolClient } from "pg";
+import { Effect } from "effect";
+
+import type { AppRowTransaction } from "../storage/documents/appRows";
+import { flarexSchema } from "./schema";
+import { makePhysicalSessionAccess } from "./physicalSession/drizzle";
+import { closeInstallationAdmission, lockInstallationForCurrentTransaction, acquireCoLocatedInstallationAdmission,
+  acquireInstallationAdmission, InstallationLifecycleError, type PreparedInstallation,
+  type PreparedCoLocatedReadInstallation } from "../installation/installationLifecycle";
+import type { FlarexMetadataDatabase } from "../application/deployments";
+import { recordManagedMetadataFrontierSnapshot } from "../execution/preparation/preparedMetadataEpoch";
+import {
+  LocatedReadCommittedTransactionFailureV1,
+  type LocatedReadCommittedTransactionFailureIssueV1,
+} from "../execution/readCommittedTransactionFailure";
+import type {
+  RunLocatedReadCommittedTransactionV1,
+} from "./locatedTransactionIdentity";
+import {
+  observePostgresClientErrors,
+  type PostgresClientErrorObservation,
+} from "./postgresClientLifetime";
+
+const access = makePhysicalSessionAccess(flarexSchema);
+
+export type PostgresLocatedReadCommittedPhaseV1 =
+  | "beforeCallback"
+  | "configuring"
+  | "runningCallback"
+  | "callbackRejected"
+  | "callbackCompleted";
+
+/**
+ * Package-internal fault seam. It exists only so the isolated PostgreSQL proof
+ * can decorate a genuinely acquired client and its real release operation.
+ * The module is reachable only through the private system-test subpath.
+ */
+export interface PostgresLocatedReadCommittedRunnerOptionsV1 {
+  readonly managedInstallation?: Readonly<{ installation: PreparedCoLocatedReadInstallation; database: FlarexMetadataDatabase }>;
+  readonly directInstallation?: Readonly<{ installation: PreparedInstallation; database: FlarexMetadataDatabase }>;
+  readonly afterAcquire?: (client: PoolClient) => void | Promise<void>;
+  readonly release?: (
+    client: PoolClient,
+    discardError: Error | undefined,
+  ) => void;
+}
+
+/**
+ * The request owner retains Client lifecycle. This callback is the only signal
+ * that a transaction outcome left the connected client unsafe for later work.
+ */
+export interface PostgresClientLocatedReadCommittedRunnerOptionsV1 {
+  readonly quarantine: (discardError: Error) => void | Promise<void>;
+  readonly connectionErrors: PostgresClientErrorObservation;
+}
+
+export type PostgresLocatedReadCommittedTransactionResultV1<Value> =
+  | Readonly<{ readonly kind: "succeeded"; readonly value: Value }>
+  | Readonly<{ readonly kind: "failed"; readonly cause: unknown }>;
+
+export type PostgresLocatedReadCommittedReleaseResultV1 =
+  | Readonly<{ readonly kind: "released" }>
+  | Readonly<{
+      readonly kind: "failed";
+      readonly cause: unknown;
+      readonly quarantineCause?: unknown;
+    }>;
+
+export interface PostgresLocatedReadCommittedPoolV1 {
+  connect(
+    callback: (
+      error: Error | undefined,
+      client: PoolClient | undefined,
+    ) => void,
+  ): void;
+}
+
+export function createPostgresLocatedReadCommittedTransactionRunnerV1(
+  pool: PostgresLocatedReadCommittedPoolV1,
+  options: PostgresLocatedReadCommittedRunnerOptionsV1 = {},
+): RunLocatedReadCommittedTransactionV1 {
+  return createPooledReadCommittedTransactionRunner(
+    pool,
+    options,
+    async tx => { await Effect.runPromise(acquireRunnerInstallationAdmission(options, tx)); },
+    closeInstallationAdmission,
+  );
+}
+
+/** Retained pre-installation repositories keep the same physical settlement
+ * owner without constructing current installation or execution authority. */
+export function createHistoricalPostgresLocatedReadCommittedTransactionRunnerV1(
+  pool: PostgresLocatedReadCommittedPoolV1,
+  options: Pick<PostgresLocatedReadCommittedRunnerOptionsV1, "afterAcquire" | "release"> = {},
+): RunLocatedReadCommittedTransactionV1 {
+  return createPooledReadCommittedTransactionRunner(pool, options, async () => {}, () => {});
+}
+
+function createPooledReadCommittedTransactionRunner(
+  pool: PostgresLocatedReadCommittedPoolV1,
+  options: Pick<PostgresLocatedReadCommittedRunnerOptionsV1, "afterAcquire" | "release">,
+  configure: (tx: AppRowTransaction) => Promise<void>,
+  finalize: (tx: AppRowTransaction) => void,
+): RunLocatedReadCommittedTransactionV1 {
+  return async <Result>(work: (
+    tx: AppRowTransaction,
+  ) => Promise<Result>): Promise<Result> => {
+    let acquired: CheckedOutPoolClientV1;
+    try {
+      acquired = await acquireObservedPoolClient(pool);
+    } catch (cause) {
+      throw locatedFailure({
+        kind: "infrastructureFailure",
+        phase: "acquire",
+        cause,
+      });
+    }
+
+    return runLocatedReadCommittedWithPoolClient(acquired, work, options, configure, finalize);
+  };
+}
+
+async function runLocatedReadCommittedWithPoolClient<Result>(
+  acquired: CheckedOutPoolClientV1,
+  work: (tx: AppRowTransaction) => Promise<Result>,
+  options: Pick<PostgresLocatedReadCommittedRunnerOptionsV1, "afterAcquire" | "release">,
+  configure: (tx: AppRowTransaction) => Promise<void>,
+  finalize: (tx: AppRowTransaction) => void,
+): Promise<Result> {
+  const { client, connectionErrors } = acquired;
+  try {
+    const state: {
+      phase: PostgresLocatedReadCommittedPhaseV1;
+      callbackCause: unknown;
+    } = { phase: "beforeCallback", callbackCause: undefined };
+    let databaseResult:
+      | Readonly<{
+          readonly kind: "succeeded";
+          readonly database: ReturnType<typeof access>["database"];
+        }>
+      | Readonly<{ readonly kind: "failed"; readonly cause: unknown }>;
+    try {
+      await options.afterAcquire?.(client);
+      databaseResult = Object.freeze({
+        kind: "succeeded",
+        database: access(client).database,
+      });
+    } catch (cause) {
+      databaseResult = Object.freeze({ kind: "failed", cause });
+    }
+    if (databaseResult.kind === "failed") {
+      const cause = connectionErrors.capture(databaseResult.cause);
+      const release = releaseClient(client, discardError(cause), options);
+      throw locatedFailure({
+        kind: "infrastructureFailure",
+        phase: "beginOrConfigure",
+        cause,
+        ...(release.kind === "failed"
+          ? {
+              releaseCause: release.cause,
+              ...(release.quarantineCause === undefined
+                ? {}
+                : { quarantineCause: release.quarantineCause }),
+            }
+          : {}),
+      });
+    }
+    const database = databaseResult.database;
+
+    const settledTransaction = await settlePromise(database.transaction(
+      async (tx): Promise<Result> => {
+        state.phase = "configuring";
+        await tx.setTransaction({ isolationLevel: "read committed" });
+        await configure(tx);
+        state.phase = "runningCallback";
+        try {
+          const result = await work(tx);
+          state.phase = "callbackCompleted";
+          return result;
+        } catch (cause) {
+          state.phase = "callbackRejected";
+          state.callbackCause = cause;
+          throw cause;
+        } finally {
+          finalize(tx);
+        }
+      },
+    ));
+    const transaction = connectionErrors.captureTransaction(
+      settledTransaction,
+    );
+
+    const discard = transaction.kind === "failed" &&
+        state.phase !== "callbackRejected"
+      ? discardError(transaction.cause)
+      : transaction.kind === "failed" &&
+          state.phase === "callbackRejected" &&
+          transaction.cause !== state.callbackCause
+      ? discardError(transaction.cause)
+      : undefined;
+    const release = releaseClient(client, discard, options);
+
+    return classifyPostgresLocatedReadCommittedSettlementV1(
+      state.phase,
+      state.callbackCause,
+      transaction,
+      release,
+    );
+  } finally {
+    connectionErrors.close();
+  }
+}
+
+const acquireRunnerInstallationAdmission = Effect.fn("PostgresLocatedReadCommitted.acquireInstallation")(
+  function* (options: PostgresLocatedReadCommittedRunnerOptionsV1, tx: AppRowTransaction) {
+    if (options.managedInstallation !== undefined && options.directInstallation !== undefined)
+      return yield* Effect.fail(new InstallationLifecycleError({ reason: "invalidCapability" }));
+    if (options.directInstallation !== undefined)
+      return yield* acquireInstallationAdmission(options.directInstallation.installation, options.directInstallation.database, tx);
+    if (options.managedInstallation !== undefined) {
+      const { installation, database } = options.managedInstallation;
+      const frontier = yield* acquireCoLocatedInstallationAdmission(installation, database, tx);
+      yield* recordManagedMetadataFrontierSnapshot(tx, database, frontier.targetInstallation, frontier.targetMetadataGeneration);
+      yield* recordManagedMetadataFrontierSnapshot(tx, database, frontier.controlInstallation, frontier.controlMetadataGeneration);
+      return frontier;
+    }
+    return yield* lockInstallationForCurrentTransaction(tx);
+  },
+);
+
+export function createPostgresClientLocatedReadCommittedTransactionRunnerV1(
+  client: Client,
+  options: PostgresClientLocatedReadCommittedRunnerOptionsV1,
+): RunLocatedReadCommittedTransactionV1 {
+  const database = access(client).database;
+  let tail: Promise<void> = Promise.resolve();
+  let unusable:
+    | Readonly<{ readonly cause: unknown }>
+    | undefined;
+
+  return async <Result>(work: (
+    tx: AppRowTransaction,
+  ) => Promise<Result>): Promise<Result> => {
+    const previous = tail;
+    let releaseTurn: (() => void) | undefined;
+    tail = new Promise<void>((resolve) => {
+      releaseTurn = resolve;
+    });
+    await previous;
+    try {
+      if (unusable !== undefined) {
+        throw locatedFailure({
+          kind: "infrastructureFailure",
+          phase: "acquire",
+          cause: unusable.cause,
+        });
+      }
+      const connectionFailure = options.connectionErrors.failure();
+      if (connectionFailure !== undefined) {
+        unusable = Object.freeze({ cause: connectionFailure });
+        const quarantine = await quarantineConnectedClient(connectionFailure, options);
+        throw locatedFailure({
+          kind: "infrastructureFailure",
+          phase: "acquire",
+          cause: connectionFailure,
+          // Only a quarantine failure adds this field.
+          ...(quarantine.kind === "failed" && quarantine.quarantineCause !== undefined
+            ? { quarantineCause: quarantine.quarantineCause }
+            : {}),
+        });
+      }
+
+      const state: {
+        phase: PostgresLocatedReadCommittedPhaseV1;
+        callbackCause: unknown;
+      } = { phase: "beforeCallback", callbackCause: undefined };
+      const settledTransaction = await settleOperation(() => database.transaction(
+        async (tx): Promise<Result> => {
+          state.phase = "configuring";
+          await tx.setTransaction({ isolationLevel: "read committed" });
+          await Effect.runPromise(lockInstallationForCurrentTransaction(tx));
+          state.phase = "runningCallback";
+          try {
+            const result = await work(tx);
+            state.phase = "callbackCompleted";
+            return result;
+          } catch (cause) {
+            state.phase = "callbackRejected";
+            state.callbackCause = cause;
+            throw cause;
+          } finally {
+            closeInstallationAdmission(tx);
+          }
+        },
+      ));
+      const transaction = options.connectionErrors.captureTransaction(settledTransaction);
+
+      const requiresQuarantine = transaction.kind === "failed" &&
+        !(
+          state.phase === "callbackRejected" &&
+          transaction.cause === state.callbackCause
+        );
+      if (requiresQuarantine && transaction.kind === "failed") {
+        unusable = Object.freeze({ cause: transaction.cause });
+      }
+      const lifecycle = requiresQuarantine
+        ? await quarantineConnectedClient(transaction.cause, options)
+        : Object.freeze({ kind: "released" as const });
+
+      return classifyPostgresLocatedReadCommittedSettlementV1(
+        state.phase,
+        state.callbackCause,
+        transaction,
+        lifecycle,
+      );
+    } finally {
+      releaseTurn?.();
+    }
+  };
+}
+
+export function classifyPostgresLocatedReadCommittedSettlementV1<Result>(
+  phase: PostgresLocatedReadCommittedPhaseV1,
+  callbackCause: unknown,
+  transaction: PostgresLocatedReadCommittedTransactionResultV1<Result>,
+  release: PostgresLocatedReadCommittedReleaseResultV1,
+): Result {
+  if (transaction.kind === "succeeded") {
+    if (release.kind === "released") return transaction.value;
+    throw locatedFailure({
+      kind: "decisionUncertain",
+      settlementCause: release.cause,
+      ...(release.quarantineCause === undefined
+        ? {}
+        : { quarantineCause: release.quarantineCause }),
+    });
+  }
+
+  if (
+    phase === "callbackRejected" &&
+    transaction.cause === callbackCause &&
+    release.kind === "released"
+  ) {
+    throw locatedFailure({
+      kind: "callbackRolledBack",
+      callbackCause,
+    });
+  }
+
+  if (phase === "callbackRejected") {
+    throw locatedFailure({
+      kind: "callbackCleanupFailed",
+      callbackCause,
+      transactionCause: transaction.cause,
+      ...(release.kind === "failed"
+        ? {
+            releaseCause: release.cause,
+            ...(release.quarantineCause === undefined
+              ? {}
+              : { quarantineCause: release.quarantineCause }),
+          }
+        : {}),
+    });
+  }
+
+  if (phase === "callbackCompleted") {
+    throw locatedFailure({
+      kind: "decisionUncertain",
+      settlementCause: transaction.cause,
+      ...(release.kind === "failed"
+        ? {
+            releaseCause: release.cause,
+            ...(release.quarantineCause === undefined
+              ? {}
+              : { quarantineCause: release.quarantineCause }),
+          }
+        : {}),
+    });
+  }
+
+  throw locatedFailure({
+    kind: "infrastructureFailure",
+    phase: "beginOrConfigure",
+    cause: transaction.cause,
+    ...(release.kind === "failed"
+      ? {
+          releaseCause: release.cause,
+          ...(release.quarantineCause === undefined
+            ? {}
+            : { quarantineCause: release.quarantineCause }),
+        }
+      : {}),
+  });
+}
+
+interface CheckedOutPoolClientV1 {
+  readonly client: PoolClient;
+  readonly connectionErrors: PostgresClientErrorObservation;
+}
+
+function acquireObservedPoolClient(
+  pool: PostgresLocatedReadCommittedPoolV1,
+): Promise<CheckedOutPoolClientV1> {
+  return new Promise((resolve, reject) => {
+    pool.connect((error, client) => {
+      if (error !== undefined) {
+        reject(error);
+        return;
+      }
+      if (client === undefined) {
+        reject(new Error("PostgreSQL pool returned no acquired client."));
+        return;
+      }
+      resolve(Object.freeze({
+        client,
+        connectionErrors: observePostgresClientErrors(client),
+      }));
+    });
+  });
+}
+
+async function settlePromise<Value>(
+  promise: Promise<Value>,
+): Promise<PostgresLocatedReadCommittedTransactionResultV1<Value>> {
+  try {
+    return Object.freeze({ kind: "succeeded", value: await promise });
+  } catch (cause) {
+    return Object.freeze({ kind: "failed", cause });
+  }
+}
+
+async function settleOperation<Value>(
+  operation: () => Promise<Value>,
+): Promise<PostgresLocatedReadCommittedTransactionResultV1<Value>> {
+  try {
+    return Object.freeze({ kind: "succeeded", value: await operation() });
+  } catch (cause) {
+    return Object.freeze({ kind: "failed", cause });
+  }
+}
+
+function releaseClient(
+  client: PoolClient,
+  discard: Error | undefined,
+  options: PostgresLocatedReadCommittedRunnerOptionsV1,
+): PostgresLocatedReadCommittedReleaseResultV1 {
+  try {
+    if (options.release === undefined) {
+      client.release(discard);
+    } else {
+      options.release(client, discard);
+    }
+    return Object.freeze({ kind: "released" });
+  } catch (cause) {
+    try {
+      client.release(true);
+      return Object.freeze({ kind: "failed", cause });
+    } catch (quarantineCause) {
+      return Object.freeze({
+        kind: "failed",
+        cause,
+        quarantineCause,
+      });
+    }
+  }
+}
+
+async function quarantineConnectedClient(
+  cause: unknown,
+  options: PostgresClientLocatedReadCommittedRunnerOptionsV1,
+): Promise<PostgresLocatedReadCommittedReleaseResultV1> {
+  const discard = discardError(cause);
+  try {
+    await options.quarantine(discard);
+    return Object.freeze({ kind: "failed", cause: discard });
+  } catch (quarantineCause) {
+    return Object.freeze({
+      kind: "failed",
+      cause: discard,
+      quarantineCause,
+    });
+  }
+}
+
+function discardError(cause: unknown): Error {
+  return cause instanceof Error
+    ? cause
+    : new Error("Discard the unsettled PostgreSQL connection.", { cause });
+}
+
+function locatedFailure(
+  issue: LocatedReadCommittedTransactionFailureIssueV1,
+): LocatedReadCommittedTransactionFailureV1 {
+  return new LocatedReadCommittedTransactionFailureV1(Object.freeze(issue));
+}

@@ -1,0 +1,21 @@
+{
+  "capturedAtUtc": "2026-10-05T21:18:36.130Z",
+  "posture": [
+    {
+      "database": "flarex_read_redesign_logical",
+      "version": "18.3",
+      "superuser": false,
+      "bypass_rls": false,
+      "create_database": false,
+      "create_role": false,
+      "synchronous_commit": "on",
+      "fsync": "on",
+      "full_page_writes": "on",
+      "statement_tracking": "none",
+      "io_timing": "off",
+      "wal_io_timing": "off"
+    }
+  ],
+  "otherSelectedDatabaseClients": [],
+  "note": "Read-only database snapshot; excludes its own connection. This does not establish exclusive machine CPU or absence of other database clients throughout measurement."
+}

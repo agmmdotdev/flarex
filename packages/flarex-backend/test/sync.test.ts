@@ -1,10 +1,15 @@
-import { executionArtifactRefForSourcePackage } from "flarex/artifacts";
+import { Result } from "effect";
+import {
+  coreApplicationControlPath,
+  encodeCoreApplicationControl,
+} from "flarex-protocol/internal/core-application";
 import {
   executionIdentityFingerprint,
   type AuthConfig,
   type ExecutionIdentity,
 } from "flarex-protocol/auth";
 import { afterAll, describe, expect, it } from "vitest";
+import { requestSyncUpgrade } from "./support/syncUpgradeRequest";
 import { R2BackendExecutionArtifactStore, type R2BucketLike } from "../src/artifactStore";
 import {
   createExecutionArtifactRuntimeService,
@@ -372,6 +377,33 @@ describe("sync protocol", () => {
       ],
     });
     ws.close();
+  });
+
+  it("refuses a configured Core sync connection before creating legacy application consumers", async () => {
+    const deploymentId = "sync-core-profile-refusal";
+    const control = { format: "flarex.core-application.control" as const, version: 1 as const, kind: "core" as const,
+      route: { deploymentId, scopeUuid: "11111111-1111-4111-8111-111111111111", epochUuid: "22222222-2222-4222-8222-222222222222" },
+      maximumPushRequestBytes: 1_048_576 };
+    const runtimeCalls: unknown[] = [];
+    const executorPaths: string[] = [];
+    const harness = await createSyncHarness(runtimeCalls, undefined, undefined, {
+      bindings: { FLAREX_EXECUTOR_TRANSPORT: "core_application", FLAREX_EXECUTOR_TOKEN: "core-secret" },
+      serviceBindings: { FLAREX_EXECUTOR: async request => {
+        const path = new URL(request.url).pathname;
+        executorPaths.push(path);
+        if (path === coreApplicationControlPath(deploymentId))
+          return Response.json(Result.getOrThrow(encodeCoreApplicationControl(control)));
+        if (path === "/live-query-subscriptions/remove" || path === "/live-query-subscriptions/remove-connection" || path === "/live-query-connections/touch")
+          return Response.json({ deleted: true });
+        return Response.json({ error: "Unexpected legacy application request." }, { status: 500 });
+      } },
+    });
+    harnesses.push(harness);
+    const response = await requestSyncUpgrade(new URL(`/deployments/${deploymentId}/sync`, await harness.mf.ready));
+    expect(response.status).toBe(409);
+    expect(response.body).toEqual({ error: "This route is not admitted by the Core application profile." });
+    expect(runtimeCalls).toEqual([]);
+    expect(executorPaths).toEqual([coreApplicationControlPath(deploymentId)]);
   });
 
   it("returns AuthError for stale Authenticate identity versions", async () => {

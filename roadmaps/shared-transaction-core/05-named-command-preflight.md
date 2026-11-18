@@ -7,6 +7,10 @@ operation identity `publishCurrencyAnnouncement`. One trusted command upserts
 Currency through the real Medusa service, creates a scalar Payload CMS post,
 and inserts one Application-owned record in one scope and physical transaction.
 It returns one retained result and settles through one outer finalizer.
+The current host selects Application, Payload and Currency from one logical
+candidate; the original physical Currency/V3 Payload implementation and its
+binding helper have been retired. [Currency storage cutover](../shared-logical-storage/10-currency-storage-cutover.md)
+owns the current storage and completion gates below this historical preflight.
 
 R1/R2 completed the audited default ownership replacements. This separate
 capability adds actual participation across the framework boundaries. Public
@@ -30,23 +34,22 @@ runtime and process-local recovery do not establish an Action/Task API.
 
 | Source | Implemented responsibility |
 | --- | --- |
-| [Currency announcement host](../../packages/persistence-postgres/src/crossDomainCommand/host.ts) | Explicit fixed-command inputs, required Payload content identity, physical session and admission scopes, aggregate lifetime, retained lookup and recovery. |
-| [Command request](../../packages/persistence-postgres/src/crossDomainCommand/request.ts) | Bounded getter-free capture, schema-checked three-domain envelope, private request-key contract and hashing. Captured arguments remain frozen and shared with replay evidence. |
-| [Command participants](../../packages/persistence-postgres/src/crossDomainCommand/participants.ts) | Borrowed domain contexts, three serial business steps, authenticated once-only closure consumption and combined document-delta preparation. |
-| [Command publication](../../packages/persistence-postgres/src/crossDomainCommand/publication.ts) | One sequence allocation, combined lowering and publication through the existing publisher; physical settlement stays with the session. |
-| [Composite binding](../../packages/persistence-postgres/src/crossDomainCommand/binding.ts) | Live commerce proof bound to the exact transaction, scope-clock object, frame and head; standalone CMS continues rejecting commerce bindings. |
-| [Physical session](../../packages/persistence-postgres/src/physicalSession/postgres.ts), [relational session](../../packages/persistence-postgres/src/relationalTransaction/session.ts) | Existing acquisition, physical settlement and cleanup state machines. |
-| [Document participant](../../packages/persistence-postgres/src/applicationDocumentMaterialization/participant.ts) | Shared preparation, index/head/dependency validation and combined lowering; CMS-specific closure and receipt authority stays with CMS. |
-| [Application insert participant](../../packages/persistence-postgres/src/applicationDocumentMaterialization/insertParticipant.ts) | One schema-validated Application-owned insert, pending read and authenticated once-only closure. |
-| [CMS publication](../../packages/persistence-postgres/src/cmsTransaction/publication.ts), [commerce publication](../../packages/persistence-postgres/src/commerceTransaction/publication.ts) | Existing standalone roots reuse participant preparation or contribution consumption while retaining their own finalization contracts. |
-| [Publication](../../packages/persistence-postgres/src/commitPublication/publication.ts), [request recovery](../../packages/persistence-postgres/src/relationalTransaction/requestRecovery.ts) | One sequence/header, all Application and Currency facts, one retained result/wake/clock advance, and recovery-only re-entry. |
-| [Currency service](../../packages/medusa-adapter/src/currency-service.ts) | Private write command uses the existing internal upsert and module retrieve with the same manager. |
+| [Currency announcement host](../../packages/persistence-postgres/src/frameworks/crossDomainCommand/host.ts) | Explicit fixed-command inputs, selected source admissions, aggregate lifetime, retained lookup and recovery. |
+| [Command request](../../packages/persistence-postgres/src/frameworks/crossDomainCommand/request.ts) | Bounded getter-free capture, schema-checked three-domain envelope, private request-key contract and hashing. Captured arguments remain frozen and shared with replay evidence. |
+| [Command participants](../../packages/persistence-postgres/src/frameworks/crossDomainCommand/participants.ts) | Borrowed domain contexts, three serial business steps, authenticated once-only closure consumption and combined document-delta preparation. |
+| [Command publication](../../packages/persistence-postgres/src/frameworks/crossDomainCommand/publication.ts) | One sequence allocation, combined logical-row lowering and publication through the existing publisher; physical settlement stays with the session. |
+| [Physical session](../../packages/persistence-postgres/src/database/physicalSession/postgres.ts), [relational session](../../packages/persistence-postgres/src/database/relationalTransaction/session.ts) | Existing acquisition, physical settlement and cleanup state machines. |
+| [Document participant](../../packages/persistence-postgres/src/storage/materialization/participant.ts) | Shared preparation, index/head/dependency validation and combined lowering; CMS-specific closure and receipt authority stays with CMS. |
+| [Application insert participant](../../packages/persistence-postgres/src/storage/materialization/insertParticipant.ts) | One schema-validated Application-owned insert, pending read and authenticated once-only closure. |
+| [CMS publication](../../packages/persistence-postgres/src/frameworks/cmsTransaction/publication.ts), [commerce publication](../../packages/persistence-postgres/src/frameworks/commerceTransaction/publication.ts) | Existing standalone roots reuse participant preparation or contribution consumption while retaining their own finalization contracts. |
+| [Publication](../../packages/persistence-postgres/src/commit/publication/publication.ts), [request recovery](../../packages/persistence-postgres/src/database/relationalTransaction/requestRecovery.ts) | One sequence/header, all Application and Currency facts, one retained result/wake/clock advance, and recovery-only re-entry. |
+| [Currency service](../../packages/medusa-adapter/src/modules/currency/service.ts) | Private write command uses the existing internal upsert and module retrieve with the same manager. |
 
 The [combined scenario](../../packages/medusa-adapter/test/currency-announcement.test.ts)
 exercises real Currency and Payload operations, rollback inventories, retained
 replay, authority and closure refusals, native range overlap and physical
-PostgreSQL failures. [Lifetime tests](../../packages/persistence-postgres/test/compositeLifetime.test.ts)
-cover shared budgets and rollback-only state; [failure projection tests](../../packages/persistence-postgres/test/compositeFailure.test.ts)
+PostgreSQL failures. [Lifetime tests](../../packages/persistence-postgres/test/frameworks/atomicCommerce/compositeLifetime.test.ts)
+cover shared budgets and rollback-only state; [failure projection tests](../../packages/persistence-postgres/test/frameworks/atomicCommerce/compositeFailure.test.ts)
 preserve publication corruption/resource categories. Existing standalone
 CMS, scalar Payload, relation/preference, native transaction and Currency proofs
 remain regression obligations. Detailed execution receipts live outside the

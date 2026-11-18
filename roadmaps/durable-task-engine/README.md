@@ -1,8 +1,26 @@
 # Flarex Durable Task Engine Roadmaps
 
+> **Legacy Task record - superseded direction.**
+> The [Task System design](../../design-notes/task-system/README.md) and
+> [current roadmap](../task-system/README.md) own replacement work.
+> This body is historical baseline/source evidence; its statuses, approvals and
+> next steps apply to the former initiative. Preserve applicable behavior and
+> tests until consumer cutover. Do not use this record to extend the custom
+> engine or retain Task-specific physical tables.
+
 ## Status And Scope
 
-**Status:** Vision authority. DTE01 source reuse/package admission, DTE02 task
+The [new Task design](../../design-notes/task-system/README.md) and
+[new roadmap](../task-system/README.md) own current direction and implementation
+gates. This entire folder, including the earlier replacement preflights 72/73,
+is legacy baseline/source evidence. Upstream synchronization is not required;
+all Task-owned database state, including scheduler/discovery/repair metadata,
+must move to logical storage, followed by complete physical Task retirement.
+Existing package/source guards stay effective until implementation reconciles
+their exact admitted scope. Historical completion claims below are not current
+replacement proof or an active backlog; verify current code and consumer owners.
+
+**Historical status:** Former vision authority. DTE01 source reuse/package admission, DTE02 task
 identity/scope admission, and Roadmap 03 lifecycle admission are complete.
 DTE03-A's
 Trigger-to-Flarex lifecycle inventory, DTE03-B's exact five-phase aggregate,
@@ -13,11 +31,18 @@ canonical lifecycle vectors, 37 exact named divergences, and executable
 contract gate are also complete. DTE03-G chose **admit**, and DTE-IP01 now
 implements the private production-inert `@flarex/durable-task` package with its
 closed schemas, pure decisions, service/Layer boundary, provenance map, and
-deterministic compatibility suite. Roadmap 04 is **complete: admit** through
+deterministic compatibility suite. Roadmap 04's **private implementation is admitted** through
 DTE04-F: the five-table schema/migration, scope-bound Drizzle lifecycle,
 creation, due-discovery, and requested-effect read capabilities now exist with
-connected PGlite and real-Postgres proofs, a complete canonical compatibility
-lane, and final provenance, package, bundle, migration, and boundedness gates.
+connected storage proofs, a complete canonical compatibility lane, and
+provenance, package, bundle, migration, and boundedness contracts. Current native
+registered-parent fixture acceptance remains open: Task reads use a pre-0064
+journal with current authority, while compute delivery uses the current schema
+with a retired registration seed. Preserve their assertions and close the
+[Application analysis retirement
+disposition](../49-application-analysis-migration.md#aa-r8-durable-status) before
+treating these fixtures as current PostgreSQL acceptance. Pure/current Task
+store proofs and construction organization do not replace that gate.
 Of 65 canonical vectors, all remain
 covered by the pure oracle: 62 transition-derived histories plus one explicit
 near-overflow setup execute through the adapter, and two invalid commands remain

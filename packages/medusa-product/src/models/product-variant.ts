@@ -29,7 +29,7 @@ const ProductVariant = model
      */
     thumbnail: model.text().nullable(),
     product: model
-      .belongsTo(() => Product, {
+      .belongsTo((): typeof Product => Product, {
         mappedBy: "variants",
       })
       .searchable()
@@ -37,11 +37,11 @@ const ProductVariant = model
     /**
      * @since 2.11.2
      */
-    images: model.manyToMany(() => ProductImage, {
+    images: model.manyToMany((): typeof ProductImage => ProductImage, {
       mappedBy: "variants",
       pivotEntity: () => ProductVariantProductImage,
     }),
-    options: model.manyToMany(() => ProductOptionValue, {
+    options: model.manyToMany((): typeof ProductOptionValue => ProductOptionValue, {
       pivotTable: "product_variant_option",
       mappedBy: "variants",
       joinColumn: "variant_id",

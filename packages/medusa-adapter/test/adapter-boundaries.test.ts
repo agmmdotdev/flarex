@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { Result } from "effect";
-import { decodeCurrencyRead, currencyUpdateRows } from "../src/currency-input";
-import { currencyKeys } from "../src/currency-result";
-import { decodeProductRead, decodeProductFindConfig, decodeProductCreateInput } from "../src/product-service-input";
-import { decodeProductProjection, decodeProductCount } from "../src/product-value-profile";
-import { decodeLocalEventOptions, decodeLocalEventBatch } from "../src/module-event-input";
+import { decodeCurrencyRead, currencyUpdateRows } from "../src/modules/currency/input";
+import { currencyKeys } from "../src/modules/currency/result";
+import { decodeProductRead, decodeProductFindConfig, decodeProductCreateInput } from "../src/modules/product/service-input";
+import { decodeProductProjection, decodeProductCount } from "../src/modules/product/value-profile";
+import { decodeLocalEventOptions, decodeLocalEventBatch } from "../src/module/events";
 import type { CommerceTransactionError } from "@flarex/persistence-postgres/internal/commerce-values";
 
 const outcome = <A>(result: Result.Result<A, CommerceTransactionError>) => Result.match(result, {

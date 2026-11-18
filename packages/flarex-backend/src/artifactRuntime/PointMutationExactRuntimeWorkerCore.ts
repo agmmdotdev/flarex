@@ -1,3 +1,4 @@
+import { decodeValidatorJsonResultCoreV1 } from "flarex-protocol/internal/validator-json-core";
 // Authored exact point-mutation runtime core. Built to an embedded JS artifact.
 import { WorkerEntrypoint } from "cloudflare:workers";
 import {
@@ -55,23 +56,22 @@ const MAX_AUTH_SEMANTIC_BYTES =
 const RANDOM_SEED_BYTES = exactRuntimeConfigurationV1.randomSeedBytes;
 const MAX_ARGUMENT_ARRAY_SEMANTIC_BYTES =
   exactRuntimeConfigurationV1.maxArgumentArraySemanticBytes;
+const PRIVATE_MIXED_OPERATION_FORMAT:
+  typeof import("flarex-protocol/internal/admitted-framework-operation-v1")
+    .ADMITTED_FRAMEWORK_OPERATION_FORMAT_V1 =
+      "flarex.admitted-framework-operation";
+const PRIVATE_MIXED_OPERATION_VERSION:
+  typeof import("flarex-protocol/internal/admitted-framework-operation-v1")
+    .ADMITTED_FRAMEWORK_OPERATION_VERSION_V1 = 1;
 const MAX_VALUE_BYTES = 1 << 25;
 const MAX_VALUE_NESTING = 64;
 const MAX_APP_DOCUMENT_BYTES = 1 << 20;
+const MAX_PRIVATE_MIXED_ARGS_BYTES = 1 << 20;
 const MAX_APP_DOCUMENT_NESTING = 16;
 const MAX_ARRAY_ITEMS = 8192;
 const MAX_OBJECT_FIELDS = 1024;
 const MAX_OBJECT_FIELD_BYTES = 1024;
 const MAX_CATALOG_TABLE_ID = 2147483647;
-const MAX_VALIDATOR_NODES:
-  typeof import("flarex-protocol/validator-json")
-    .MAX_VALIDATOR_JSON_NODES_V1 = 65_536;
-const MAX_VALIDATOR_DEPTH:
-  typeof import("flarex-protocol/validator-json")
-    .MAX_VALIDATOR_JSON_DEPTH_V1 = 128;
-const MAX_VALIDATOR_OBJECT_FIELDS:
-  typeof import("flarex-protocol/validator-json")
-    .MAX_VALIDATOR_JSON_OBJECT_FIELDS_V1 = 1_024;
 const MIN_INT64 = -(1n << 63n);
 const MAX_INT64 = (1n << 63n) - 1n;
 const textEncoder = new TextEncoder();
@@ -148,6 +148,10 @@ interface DecodedExactRuntimeRequest {
 interface JournalCapability {
   readonly resolvePointTable: (
     name: string,
+  ) => unknown | PromiseLike<unknown>;
+  readonly runAdmittedFrameworkOperation?: (
+    syscallSequence: bigint,
+    operation: unknown,
   ) => unknown | PromiseLike<unknown>;
   readonly [Symbol.dispose]?: () => void;
 }
@@ -259,6 +263,13 @@ interface ExactRuntimeDatabase {
 
 interface ExactRuntimeJournal {
   readonly database: ExactRuntimeDatabase;
+  readonly privateMixed: Readonly<{
+    readonly call: (
+      participant: string,
+      operation: string,
+      args: unknown,
+    ) => Promise<unknown>;
+  }> | undefined;
   readonly close: () => void;
   readonly drain: () => Promise<void>;
   readonly dispose: () => void;
@@ -614,10 +625,30 @@ const APPLICATION_DOCUMENT_VALIDATION_ERROR_MESSAGE:
       "The resulting document failed the active schema validator.";
 
 export class FlarexPointMutationExactRuntimeV1 extends WorkerEntrypoint {
-  async run(
+  run(
     input: unknown,
     journal: unknown,
   ): Promise<PointMutationExactRuntimeHostResponseV2> {
+    return runExactRuntime(input, journal, false);
+  }
+
+  /** Internal proof entrypoint. Production exact mutation dispatch calls run
+   * and cannot expose this participant facade. */
+  runPrivateMixed(
+    input: unknown,
+    journal: unknown,
+    initialSyscallSequence: bigint = 0n,
+  ): Promise<PointMutationExactRuntimeHostResponseV2> {
+    return runExactRuntime(input, journal, true, initialSyscallSequence);
+  }
+}
+
+async function runExactRuntime(
+  input: unknown,
+  journal: unknown,
+  privateMixed: boolean,
+  initialSyscallSequence: bigint = 0n,
+): Promise<PointMutationExactRuntimeHostResponseV2> {
     let journalRuntime: ExactRuntimeJournal | undefined;
     let capability: JournalCapability | undefined;
     let settledFailure:
@@ -628,8 +659,16 @@ export class FlarexPointMutationExactRuntimeV1 extends WorkerEntrypoint {
         throw new Error("Exact point-mutation runtime admits one invocation.");
       }
       runAdmitted = true;
+      if (typeof initialSyscallSequence !== "bigint" || initialSyscallSequence < 0n || initialSyscallSequence > MAX_INT64)
+        throw new Error("Invalid private journal operation cursor.");
       const request = decodeRequest(input);
       const admittedCapability = decodeJournalCapability(journal);
+      if (
+        privateMixed &&
+        typeof admittedCapability.runAdmittedFrameworkOperation !== "function"
+      ) {
+        throw new Error("Private mixed operation capability is unavailable.");
+      }
       capability = admittedCapability;
       deterministicTime = request.context.executionTime;
       deterministicRandom = randomFromSeed(request.context.randomSeed);
@@ -645,9 +684,15 @@ export class FlarexPointMutationExactRuntimeV1 extends WorkerEntrypoint {
             journalRuntime = databaseForJournal(
               request.tables,
               admittedCapability,
+              privateMixed,
+              initialSyscallSequence,
             );
             return Object.freeze({
-              context: executionContext(request, journalRuntime.database),
+              context: executionContext(
+                request,
+                journalRuntime.database,
+                journalRuntime.privateMixed,
+              ),
               journal: journalRuntime,
               isCoreApplicationError: inspectCoreApplicationErrorV1,
             });
@@ -723,7 +768,8 @@ export class FlarexPointMutationExactRuntimeV1 extends WorkerEntrypoint {
       }
     }
   }
-}
+
+
 
 function hardenIntrinsic(name: string, value: unknown): void {
   if (
@@ -912,194 +958,20 @@ function decodeRuntimeKernelModule(value: unknown): RuntimeKernelModule {
   });
 }
 
-interface ValidatorDecodeBudget {
-  nodes: number;
-}
-
 function decodeArgsValidator(
   value: unknown,
   path: string,
-  depth: number,
-  budget: ValidatorDecodeBudget,
 ): DecodedExactRuntimeRequest["function"]["argsValidator"] {
-  const validator = decodeValidator(value, path, depth, budget);
+  const validator = decodeValidator(value, path);
   if (validator.type === "object") return validator;
-  if (validator.type === "any") return freeze({ type: "any" });
+  if (validator.type === "any") return validator;
   throw new Error("Exact-runtime argument validator must be object or any.");
 }
 
-function decodeValidator(
-  value: unknown,
-  path: string,
-  depth: number,
-  budget: ValidatorDecodeBudget,
-): ValidatorJsonV1 {
-  if (depth > MAX_VALIDATOR_DEPTH) {
-    throw new Error("Exact-runtime validator nesting exceeds its limit.");
-  }
-  budget.nodes += 1;
-  if (budget.nodes > MAX_VALIDATOR_NODES) {
-    throw new Error("Exact-runtime validator node count exceeds its limit.");
-  }
-  if (!isPlainRecord(value) || typeof value.type !== "string") {
-    throw new Error(`Invalid exact-runtime validator at ${path}.`);
-  }
-  switch (value.type) {
-    case "null":
-    case "number":
-    case "bigint":
-    case "boolean":
-    case "string":
-    case "bytes":
-    case "any": {
-      exactKeys(value, ["type"], "exact-runtime validator");
-      return freeze({ type: value.type });
-    }
-    case "id": {
-      exactKeys(value, ["type", "tableName"], "exact-runtime ID validator");
-      if (
-        typeof value.tableName !== "string" ||
-        value.tableName.length === 0
-      ) {
-        throw new Error(`Invalid exact-runtime ID validator at ${path}.`);
-      }
-      return freeze({ type: "id", tableName: value.tableName });
-    }
-    case "literal": {
-      exactKeys(
-        value,
-        ["type", "value"],
-        "exact-runtime literal validator",
-      );
-      if (
-        !(
-          typeof value.value === "string" ||
-          typeof value.value === "boolean" ||
-          (typeof value.value === "number" &&
-            Number.isFinite(value.value) &&
-            !Object.is(value.value, -0))
-        )
-      ) {
-        throw new Error(`Invalid exact-runtime literal validator at ${path}.`);
-      }
-      return freeze({ type: "literal", value: value.value });
-    }
-    case "array": {
-      exactKeys(
-        value,
-        ["type", "value"],
-        "exact-runtime array validator",
-      );
-      return freeze({
-        type: "array",
-        value: decodeValidator(
-          value.value,
-          `${path}.value`,
-          depth + 1,
-          budget,
-        ),
-      });
-    }
-    case "object": {
-      exactKeys(
-        value,
-        ["type", "value"],
-        "exact-runtime object validator",
-      );
-      if (!isPlainRecord(value.value)) {
-        throw new Error(`Invalid exact-runtime object validator at ${path}.`);
-      }
-      const entries = ownEnumerableDataEntries(
-        value.value,
-        "exact-runtime object validator fields",
-      );
-      if (entries.length > MAX_VALIDATOR_OBJECT_FIELDS) {
-        throw new Error("Exact-runtime object validator has too many fields.");
-      }
-      const fields: Record<
-        string,
-        Readonly<{ readonly fieldType: ValidatorJsonV1; readonly optional: boolean }>
-      > = {};
-      for (const [fieldName, fieldValue] of entries) {
-        const field = exactRecord(
-          fieldValue,
-          ["fieldType", "optional"],
-          "exact-runtime object validator field",
-        );
-        if (typeof field.optional !== "boolean") {
-          throw new Error(
-            `Invalid exact-runtime object validator field at ${path}.`,
-          );
-        }
-        defineProperty(fields, fieldName, {
-          value: freeze({
-            fieldType: decodeValidator(
-              field.fieldType,
-              `${path}.value.${fieldName}.fieldType`,
-              depth + 1,
-              budget,
-            ),
-            optional: field.optional,
-          }),
-          enumerable: true,
-          configurable: false,
-          writable: false,
-        });
-      }
-      return freeze({ type: "object", value: freeze(fields) });
-    }
-    case "record": {
-      exactKeys(
-        value,
-        ["type", "keys", "values"],
-        "exact-runtime record validator",
-      );
-      return freeze({
-        type: "record",
-        keys: decodeValidator(
-          value.keys,
-          `${path}.keys`,
-          depth + 1,
-          budget,
-        ),
-        values: decodeValidator(
-          value.values,
-          `${path}.values`,
-          depth + 1,
-          budget,
-        ),
-      });
-    }
-    case "union": {
-      exactKeys(
-        value,
-        ["type", "value"],
-        "exact-runtime union validator",
-      );
-      if (!Array.isArray(value.value)) {
-        throw new Error(`Invalid exact-runtime union validator at ${path}.`);
-      }
-      validateArrayShape(value.value, "exact-runtime union validator");
-      if (value.value.length > MAX_VALIDATOR_NODES - budget.nodes) {
-        throw new Error(
-          "Exact-runtime union validator exceeds its remaining node budget.",
-        );
-      }
-      return freeze({
-        type: "union",
-        value: freeze(value.value.map((member, index) =>
-          decodeValidator(
-            member,
-            `${path}.value[${index}]`,
-            depth + 1,
-            budget,
-          )
-        )),
-      });
-    }
-    default:
-      throw new Error(`Unknown exact-runtime validator type at ${path}.`);
-  }
+function decodeValidator(value: unknown, path: string): ValidatorJsonV1 {
+  const decoded = decodeValidatorJsonResultCoreV1(value);
+  if (!decoded.ok) throw new Error(`Invalid exact-runtime validator at ${path}.`, { cause: decoded.issue });
+  return decoded.value;
 }
 
 function decodeRequest(value: unknown): DecodedExactRuntimeRequest {
@@ -1159,16 +1031,12 @@ function decodeRequest(value: unknown): DecodedExactRuntimeRequest {
   const argsValidator = decodeArgsValidator(
     fn.argsValidator,
     "$.function.argsValidator",
-    1,
-    { nodes: 0 },
   );
   const returnsValidator = fn.returnsValidator === null
     ? null
     : decodeValidator(
         fn.returnsValidator,
         "$.function.returnsValidator",
-        1,
-        { nodes: 0 },
       );
   const auth = decodeAuth(request.auth);
   const context = decodeContext(request.context);
@@ -1361,13 +1229,17 @@ function isIndexJournalCapability(
 function executionContext(
   request: DecodedExactRuntimeRequest,
   database: ExactRuntimeDatabase,
+  privateMixed: ExactRuntimeJournal["privateMixed"],
 ) {
-  return createFunctionRuntimeDatabaseContextV1(
+  const context = createFunctionRuntimeDatabaseContextV1(
     createFunctionRuntimeAuthV1(
       request.auth,
     ),
     database,
   );
+  return privateMixed === undefined
+    ? context
+    : Object.freeze({ ...context, privateMixed });
 }
 
 function isUserIdentity(value: unknown): value is UserIdentity {
@@ -1450,6 +1322,8 @@ function freezeJsonValue(value: unknown): void {
 function databaseForJournal(
   tables: ReadonlyArray<DecodedExactRuntimeTable>,
   journal: JournalCapability,
+  admitPrivateMixed: boolean,
+  initialSyscallSequence: bigint,
 ): ExactRuntimeJournal {
   const namesById = new Map<string, string>(
     tables.map((table) => [String(table.tableId), table.logicalName]),
@@ -1464,8 +1338,9 @@ function databaseForJournal(
   const receivedTableStubs = new Set<TableJournalCapability>();
   const indexCapabilities = new Map<string, Promise<IndexJournalCapability>>();
   const receivedIndexStubs = new Set<IndexJournalCapability>();
-  let syscallSequence = 0n;
+  let syscallSequence = initialSyscallSequence;
   let operationTail: Promise<void> = Promise.resolve();
+  let admittedOperationPending = false;
   let firstOperationFailure:
     | Readonly<{ readonly cause: ExactRuntimeJournalBoundaryError }>
     | undefined;
@@ -1657,6 +1532,80 @@ function databaseForJournal(
     );
     return execution;
   }
+  const runAdmittedFrameworkOperation = (
+    participant: string,
+    operation: string,
+    args: unknown,
+  ): Promise<unknown> => {
+    if (!acceptingOperations) {
+      const failure = journalBoundaryError(new Error(
+        "Private mixed operation started after handler settlement.",
+      ));
+      firstOperationFailure ??= { cause: failure };
+      throw failure;
+    }
+    if (admittedOperationPending) {
+      const failure = journalBoundaryError(new Error(
+        "Parallel private mixed operations are unsupported.",
+      ));
+      firstOperationFailure ??= { cause: failure };
+      throw failure;
+    }
+    let capturedArgs: CanonicalFlarexRuntimeValueV1;
+    try {
+      const captured = normalizeValue(args, "private mixed arguments", 0, new WeakSet());
+      if (
+        captured.semanticBytes > MAX_PRIVATE_MIXED_ARGS_BYTES ||
+        !isJsonValue(captured.value)
+      ) {
+        throw new Error("Private mixed arguments exceed the admitted JSON boundary.");
+      }
+      capturedArgs = captured.value;
+    } catch (cause) {
+      const failure = journalBoundaryError(cause);
+      firstOperationFailure ??= { cause: failure };
+      throw failure;
+    }
+    admittedOperationPending = true;
+    const execution = operationTail.then(async () => {
+      if (firstOperationFailure !== undefined) {
+        throw firstOperationFailure.cause;
+      }
+      try {
+        const runAdmitted = journal.runAdmittedFrameworkOperation;
+        if (!admitPrivateMixed || typeof runAdmitted !== "function") {
+          throw new Error("Private mixed operation capability is unavailable.");
+        }
+        const operationSequence = syscallSequence + 1n;
+        const result = await runAdmitted.call(
+          journal,
+          operationSequence,
+          Object.freeze({
+            format: PRIVATE_MIXED_OPERATION_FORMAT,
+            version: PRIVATE_MIXED_OPERATION_VERSION,
+            participant,
+            operation,
+            args: capturedArgs,
+          }),
+        );
+        syscallSequence = operationSequence;
+        return result;
+      } catch (cause) {
+        const failure = journalBoundaryError(cause);
+        firstOperationFailure ??= { cause: failure };
+        throw failure;
+      }
+    });
+    operationTail = execution.then(
+      () => {
+        admittedOperationPending = false;
+      },
+      () => {
+        admittedOperationPending = false;
+      },
+    );
+    return trackCallerPromise(execution);
+  };
   const pointReader = createFunctionRuntimePointReaderV1(
     (documentId: string) =>
       trackCallerPromise(run(
@@ -1719,6 +1668,9 @@ function databaseForJournal(
   );
   return Object.freeze({
     database,
+    privateMixed: admitPrivateMixed
+      ? Object.freeze({ call: runAdmittedFrameworkOperation })
+      : undefined,
     close: () => {
       acceptingOperations = false;
     },

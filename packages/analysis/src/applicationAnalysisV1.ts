@@ -1,4 +1,4 @@
-import { Data, Effect, Result, Schema, SchemaGetter } from "effect";
+import { Data, Effect, Result, Schema, SchemaGetter, SchemaIssue } from "effect";
 import { compareUtf16Strings } from "@flarex/utils/strings";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import {
@@ -13,13 +13,21 @@ import {
   measureCanonicalJsonUtf8Bytes,
 } from "flarex-protocol/json";
 import { isCanonicalIsoTimestamp } from "flarex-protocol/iso-timestamp";
+import { snapshotDecodedProtocolPlainData } from "flarex-protocol/internal/decoded-protocol-snapshot";
 import { selectorNameForPartitionField } from "flarex-protocol/partition-selector";
+import { SchemaManifestAppDeveloperOrderedIndexSpecV1Schema } from "flarex-protocol/schema-manifest";
 import {
+  encodeValidatorJsonV1,
   ValidatorJsonV1,
+  ValidatorJsonWireCodecV1,
+  DocumentValidatorJsonWireCodecV1,
+  validatorJsonHasNonfiniteLiteralV1,
   validatorJsonAdmissionIssueV1,
+  validatorJsonWireAdmissionIssueV1,
 } from "flarex-protocol/validator-json";
 import { isDeclarativeV2ArtifactModulePathV1 } from "flarex-protocol/internal/declarative-v2-artifact-module-path-v1";
 import {
+  isSourceArtifactV2ModuleRolesV1,
   SOURCE_ARTIFACT_V2_ROLE_AUTH,
   SOURCE_ARTIFACT_V2_ROLE_EXECUTION,
   SOURCE_ARTIFACT_V2_ROLE_SCHEMA,
@@ -88,7 +96,8 @@ const PositiveSafeIntegerSchema = Schema.Int.check(
   Schema.isBetween({ minimum: 1, maximum: Number.MAX_SAFE_INTEGER }),
 );
 const ModuleRolesSchema = Schema.Int.check(
-  Schema.isBetween({ minimum: 1, maximum: 15 }),
+  Schema.makeFilter(value => isSourceArtifactV2ModuleRolesV1(value)
+    ? undefined : "Expected supported source roles or dependency membership"),
 );
 const SourceByteLengthSchema = NonNegativeSafeIntegerSchema.check(
   Schema.isLessThanOrEqualTo(APPLICATION_ANALYSIS_MAXIMUM_MODULE_BYTES_V1),
@@ -132,26 +141,74 @@ const ApplicationTablePlacementV1Schema = Schema.Union([
 
 const AdmittedValidatorJsonV1Schema = Schema.Unknown.check(
   Schema.makeFilter(value => {
-    const issue = validatorJsonAdmissionIssueV1(value);
+    const issue = validatorJsonWireAdmissionIssueV1(value);
     return issue === undefined
       ? undefined
       : `Validator JSON exceeds the admitted profile: ${issue.reason}`;
   }),
-).pipe(Schema.decodeTo(ValidatorJsonV1));
+).pipe(Schema.decodeTo(ValidatorJsonWireCodecV1)).check(
+  Schema.makeFilter(value => validatorJsonHasNonfiniteLiteralV1(value)
+    ? "Infinite or NaN values are not supported in literal validators."
+    : undefined),
+);
 
 const ApplicationManifestTableV1Schema = Schema.Struct({
   tableId: PositiveSafeIntegerSchema,
   name: NonemptyStringSchema,
-  validator: AdmittedValidatorJsonV1Schema,
+  validator: DocumentValidatorJsonWireCodecV1.check(Schema.makeFilter(value => validatorJsonHasNonfiniteLiteralV1(value)
+    ? "Infinite or NaN values are not supported in literal validators."
+    : undefined)),
   placement: ApplicationTablePlacementV1Schema,
 }).annotate(StrictStructOptions);
 
+/** Explicit validator projection for authenticated JSON; the admitted model stays semantic. */
+export function applicationSchemaWireV1<
+  Input extends { readonly tables: ApplicationManifestV1["schema"]["tables"] },
+>(schema: Input) {
+  return {
+    ...schema,
+    tables: schema.tables.map(table => ({
+      ...table,
+      validator: encodeValidatorJsonV1(table.validator),
+    })),
+  };
+}
+
+export function applicationFunctionWireV1(
+  fn: ApplicationManifestV1["functions"][number],
+) {
+  return {
+    ...fn,
+    args: encodeValidatorJsonV1(fn.args),
+    returns: fn.returns === null ? null : encodeValidatorJsonV1(fn.returns),
+  };
+}
+
+export function applicationManifestWireV1<
+  Input extends {
+    readonly schema: { readonly tables: ApplicationManifestV1["schema"]["tables"] };
+    readonly functions: ApplicationManifestV1["functions"];
+  },
+>(manifest: Input) {
+  return {
+    ...manifest,
+    validatorIdentityEncoding: 2 as const,
+    schema: applicationSchemaWireV1(manifest.schema),
+    functions: manifest.functions.map(applicationFunctionWireV1),
+  };
+}
+
+const isLogicalOrderedIndexSpec = Schema.is(SchemaManifestAppDeveloperOrderedIndexSpecV1Schema);
 const ApplicationManifestIndexV1Schema = Schema.Struct({
   indexId: PositiveSafeIntegerSchema,
   tableId: PositiveSafeIntegerSchema,
   name: NonemptyStringSchema,
   fields: Schema.Array(NonemptyStringSchema),
-}).annotate(StrictStructOptions);
+  decimalFields: Schema.optionalKey(Schema.Array(NonemptyStringSchema)),
+}).check(Schema.makeFilter(index => isLogicalOrderedIndexSpec({
+  kind: "developerOrdered", specVersion: 1, fields: index.fields,
+  ...(index.decimalFields === undefined ? {} : { decimalFields: index.decimalFields }),
+}) ? undefined : "Invalid logical index fields or projections")).annotate(StrictStructOptions);
 
 const ApplicationManifestTablesV1Schema = Schema.Unknown.check(
   Schema.makeFilter(value =>
@@ -222,6 +279,7 @@ const ApplicationManifestFunctionsV1Schema = Schema.Unknown.check(
 const ApplicationManifestV1StructuralSchema = Schema.Struct({
   format: Schema.Literal(APPLICATION_MANIFEST_FORMAT_V1),
   version: Schema.Literal(1),
+  validatorIdentityEncoding: Schema.optionalKey(Schema.Literal(2)),
   sourceArtifact: Schema.Struct({
     rootSha256: LowercaseSha256Schema,
     executionModulePath: NonemptyStringSchema,
@@ -235,28 +293,24 @@ const ApplicationManifestV1StructuralSchema = Schema.Struct({
 export type ApplicationManifestV1 =
   typeof ApplicationManifestV1StructuralSchema.Type;
 
-const ApplicationManifestV1SemanticSchema =
-  ApplicationManifestV1StructuralSchema.check(
-    Schema.makeFilter(value => {
-      const verdict = validateApplicationManifestV1(value, "decodeManifest");
-      return Result.isFailure(verdict)
-        ? `Invalid Application Manifest V1: ${verdict.failure.reason}`
-        : undefined;
-    }),
-  );
-
 const OwnedApplicationManifestV1Schema = Schema.declare<ApplicationManifestV1>(
   (value): value is ApplicationManifestV1 =>
-    isNonArrayRecord(value) && isDeeplyFrozenJson(value),
+    isNonArrayRecord(value) &&
+    Result.isSuccess(captureApplicationManifestV1ShapeResult(value)) &&
+    isDeeplyFrozenData(value),
   { identifier: "OwnedApplicationManifestV1" },
 );
 
 export const ApplicationManifestV1Schema =
-  ApplicationManifestV1SemanticSchema.pipe(Schema.decodeTo(
+  Schema.Unknown.pipe(Schema.decodeTo(
     OwnedApplicationManifestV1Schema,
     {
-      decode: SchemaGetter.transform(snapshotApplicationManifestV1),
-      encode: SchemaGetter.transform(snapshotApplicationManifestV1),
+      decode: SchemaGetter.transformOrFail<ApplicationManifestV1, unknown>((value, options) =>
+        Result.match(decodeApplicationManifestV1(value), {
+          onFailure: cause => Effect.fail(new SchemaIssue.InvalidValue({ message: cause.reason }, value, options)),
+          onSuccess: Effect.succeed,
+        })),
+      encode: SchemaGetter.transform(applicationManifestWireV1),
     },
   ));
 
@@ -315,7 +369,7 @@ export type ApplicationAnalysisReceiptV1 =
 const OwnedApplicationAnalysisReceiptV1Schema =
   Schema.declare<ApplicationAnalysisReceiptV1>(
     (value): value is ApplicationAnalysisReceiptV1 =>
-      isNonArrayRecord(value) && isDeeplyFrozenJson(value),
+      isNonArrayRecord(value) && isJson(value) && isDeeplyFrozenData(value),
     { identifier: "OwnedApplicationAnalysisReceiptV1" },
   );
 
@@ -353,7 +407,7 @@ export class ApplicationAnalysisContractError extends Data.TaggedError(
     "duplicateFunctionPath" | "invalidFunctionPath" |
     "invalidExecutionModuleRole" | "missingSchemaModule" |
     "invalidSchemaModuleRole" | "unsupportedAuthModule" |
-    "invalidSchemaRelationship" | "validatorLimitExceeded" |
+    "invalidSchemaRelationship" |
     "limitExceeded";
   readonly path?: string;
   readonly observed?: number;
@@ -364,6 +418,7 @@ export class ApplicationAnalysisContractError extends Data.TaggedError(
 function preflightApplicationManifest(
   value: unknown,
   operation: "decodeManifest" | "lowerManifest",
+  representation: "semantic" | "wire",
 ): ApplicationAnalysisContractError | undefined {
   try {
     if (!isNonArrayRecord(value)) return undefined;
@@ -476,6 +531,7 @@ function preflightApplicationManifest(
               operation,
               `schema.tables[${index}].validator`,
               validatorRead.value,
+              representation,
             );
             if (failure !== undefined) return failure;
           }
@@ -538,6 +594,7 @@ function preflightApplicationManifest(
             operation,
             `functions[${index}].${key}`,
             validatorRead.value,
+            representation,
           );
           if (failure !== undefined) return failure;
         }
@@ -608,13 +665,16 @@ function validatorAdmissionFailure(
   operation: "decodeManifest" | "lowerManifest",
   path: string,
   value: unknown,
+  representation: "semantic" | "wire",
 ): ApplicationAnalysisContractError | undefined {
-  const issue = validatorJsonAdmissionIssueV1(value);
+  const issue = representation === "wire"
+    ? validatorJsonWireAdmissionIssueV1(value)
+    : validatorJsonAdmissionIssueV1(value);
   return issue === undefined
     ? undefined
     : new ApplicationAnalysisContractError({
         operation,
-        reason: "validatorLimitExceeded",
+        reason: "invalidInput",
         path,
         cause: issue,
       });
@@ -650,6 +710,10 @@ const decodeApplicationManifestV1ShapeResult = Schema.decodeUnknownResult(
   ApplicationManifestV1StructuralSchema,
   StrictParseOptions,
 );
+const captureApplicationManifestV1ShapeResult = Schema.decodeUnknownResult(
+  Schema.toType(ApplicationManifestV1StructuralSchema),
+  StrictParseOptions,
+);
 const decodeApplicationAnalysisReceiptV1ShapeResult = Schema.decodeUnknownResult(
   ApplicationAnalysisReceiptV1StructuralSchema,
   StrictParseOptions,
@@ -658,16 +722,36 @@ const decodeApplicationAnalysisReceiptV1ShapeResult = Schema.decodeUnknownResult
 export function decodeApplicationManifestV1(
   value: unknown,
 ): Result.Result<ApplicationManifestV1, ApplicationAnalysisContractError> {
-  return decodeApplicationManifestV1ForOperation(value, "decodeManifest");
+  if (!isNonArrayRecord(value) || readOwnDataProperty(value, "validatorIdentityEncoding").kind !== "value" ||
+    Object.getOwnPropertyDescriptor(value, "validatorIdentityEncoding")?.value !== 2) {
+    return Result.fail(new ApplicationAnalysisContractError({ operation: "decodeManifest", reason: "invalidInput", path: "validatorIdentityEncoding" }));
+  }
+  return admitApplicationManifestV1(value, "decodeManifest", decodeApplicationManifestV1ShapeResult, "wire");
 }
 
-function decodeApplicationManifestV1ForOperation(
+/** Captures the semantic model supplied by trusted analysis/build owners. */
+export function captureApplicationManifestV1(
+  value: unknown,
+): Result.Result<ApplicationManifestV1, ApplicationAnalysisContractError> {
+  return captureApplicationManifestV1ForOperation(value, "decodeManifest");
+}
+
+function captureApplicationManifestV1ForOperation(
   value: unknown,
   operation: "decodeManifest" | "lowerManifest",
 ): Result.Result<ApplicationManifestV1, ApplicationAnalysisContractError> {
-  const admissionFailure = preflightApplicationManifest(value, operation);
+  return admitApplicationManifestV1(value, operation, captureApplicationManifestV1ShapeResult, "semantic");
+}
+
+function admitApplicationManifestV1(
+  value: unknown,
+  operation: "decodeManifest" | "lowerManifest",
+  decode: typeof decodeApplicationManifestV1ShapeResult,
+  representation: "semantic" | "wire",
+): Result.Result<ApplicationManifestV1, ApplicationAnalysisContractError> {
+  const admissionFailure = preflightApplicationManifest(value, operation, representation);
   if (admissionFailure !== undefined) return Result.fail(admissionFailure);
-  return decodeApplicationManifestV1ShapeResult(value).pipe(
+  return decode(value).pipe(
     Result.mapError(cause => new ApplicationAnalysisContractError({
       operation,
       reason: "invalidInput",
@@ -703,18 +787,25 @@ export function canonicalizeApplicationManifestV1(
   );
 }
 
+/** Serialized or authenticated ingress: wire validators are decoded before semantic canonicalization. */
+export function canonicalizeApplicationManifestWireV1(
+  value: unknown,
+): Result.Result<CanonicalApplicationManifestV1, ApplicationAnalysisContractError> {
+  return decodeApplicationManifestV1(value).pipe(Result.flatMap(canonicalizeApplicationManifestV1));
+}
+
 function canonicalizeApplicationManifestV1ForOperation(
   value: unknown,
   decodeOperation: "decodeManifest" | "lowerManifest",
   encodeOperation: "encodeManifest" | "lowerManifest",
 ): Result.Result<CanonicalApplicationManifestV1, ApplicationAnalysisContractError> {
   return Result.gen(function* () {
-    const manifest = yield* decodeApplicationManifestV1ForOperation(
+    const manifest = yield* captureApplicationManifestV1ForOperation(
       value,
       decodeOperation,
     );
     const canonical = yield* canonicalJsonBytes(
-      manifest,
+      applicationManifestWireV1(manifest),
       APPLICATION_ANALYSIS_MAXIMUM_MANIFEST_BYTES_V1,
       encodeOperation,
       "manifestBytesExceeded",
@@ -824,6 +915,7 @@ export const makeApplicationManifestV1 = Effect.fn(
   return yield* Effect.fromResult(canonicalizeApplicationManifestV1ForOperation({
     format: APPLICATION_MANIFEST_FORMAT_V1,
     version: 1,
+    validatorIdentityEncoding: 2,
     sourceArtifact: source,
     schema: {
       version: deployment.schema.version,
@@ -833,6 +925,7 @@ export const makeApplicationManifestV1 = Effect.fn(
         tableId: index.tableId,
         name: index.name,
         fields: index.fields,
+      ...(index.decimalFields === undefined ? {} : { decimalFields: index.decimalFields }),
       })),
     },
     functions,
@@ -867,6 +960,7 @@ function preflightDeploymentAnalysis(
       "lowerManifest",
       `schema.tables[${index}].validator`,
       table.validator,
+      "semantic",
     );
     if (failure !== undefined) return Result.fail(failure);
   }
@@ -900,6 +994,7 @@ function preflightDeploymentAnalysis(
           "lowerManifest",
           `functions[${moduleIndex}][${functionIndex}].${key}`,
           validator,
+          "semantic",
         );
         if (failure !== undefined) return Result.fail(failure);
       }
@@ -1047,17 +1142,13 @@ function canonicalJsonBytes(
 function snapshotApplicationManifestV1(
   manifest: ApplicationManifestV1,
 ): ApplicationManifestV1 {
-  const snapshot = structuredClone(manifest);
-  freezeOwnedApplicationAnalysisJson(snapshot);
-  return snapshot;
+  return snapshotDecodedProtocolPlainData({ ...manifest, validatorIdentityEncoding: 2 as const });
 }
 
 function snapshotApplicationAnalysisReceiptV1(
   receipt: ApplicationAnalysisReceiptV1,
 ): ApplicationAnalysisReceiptV1 {
-  const snapshot = structuredClone(receipt);
-  freezeOwnedApplicationAnalysisJson(snapshot);
-  return snapshot;
+  return snapshotDecodedProtocolPlainData(receipt);
 }
 
 function validateApplicationManifestV1(
@@ -1381,31 +1472,15 @@ function validatorHasRequiredField(
     validator.value[field]?.optional === false;
 }
 
-function freezeOwnedApplicationAnalysisJson(value: unknown): void {
-  if (value === null || typeof value !== "object") return;
-  if (Array.isArray(value)) {
-    for (const item of value) freezeOwnedApplicationAnalysisJson(item);
-    Object.freeze(value);
-    return;
-  }
-  for (const item of Object.values(value)) {
-    freezeOwnedApplicationAnalysisJson(item);
-  }
-  Object.freeze(value);
-}
-
-function isDeeplyFrozenJson(value: unknown): boolean {
-  if (!isJson(value)) return false;
+function isDeeplyFrozenData(value: unknown): boolean {
   const pending: unknown[] = [value];
+  const visited = new WeakSet<object>();
   while (pending.length > 0) {
     const current = pending.pop();
-    if (current === null || typeof current !== "object") continue;
+    if (current === null || typeof current !== "object" || visited.has(current)) continue;
+    visited.add(current);
     if (!Object.isFrozen(current)) return false;
-    if (Array.isArray(current)) {
-      pending.push(...current);
-    } else {
-      pending.push(...Object.values(current));
-    }
+    for (const item of Object.values(current)) pending.push(item);
   }
   return true;
 }

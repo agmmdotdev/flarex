@@ -1,5 +1,6 @@
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { Data, Effect, Result } from "effect";
+import { isSourceArtifactV2ModuleRolesV1 } from "flarex-protocol/internal/declarative-v2-source-artifact-v2";
 import type {
   DeploymentSqlStorage,
 } from "../deployment/Store";
@@ -798,7 +799,7 @@ function pendingKind(value: unknown): value is SourceArtifactV2PendingCommand["k
 function decodeCurrentModule(uploadId: string, value: unknown): SourceArtifactV2CurrentModule {
   if (
     !isNonArrayRecord(value) || !nonEmpty(value.path) ||
-    typeof value.roles !== "number" || !positiveSafe(value.roles) || value.roles > 15 ||
+    !isSourceArtifactV2ModuleRolesV1(value.roles) ||
     typeof value.sourceMapStarted !== "boolean"
   ) throw corrupt(uploadId, "stored current module is invalid");
   return Object.freeze({

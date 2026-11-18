@@ -1,5 +1,16 @@
 # Workflow Foundations
 
+For Task lifecycle/storage replacement, use the
+[independent Trigger fork design](../../design-notes/task-system/README.md) and
+[current Task roadmap](../task-system/README.md). The former DTE folder is legacy
+baseline evidence. Existing native workflow contracts remain with this domain;
+continuations, checkpoints, child replay and compensation must migrate with
+their consumer rather than remain on a parallel custom Task engine.
+
+The active [Medusa design-quality refactor](../medusa-design-quality/README.md)
+owns current construction/composition simplification and its extension-cost
+acceptance. It is separate from admitting additional commerce workflows below.
+
 ## Shared Logical Storage Authority
 
 The accepted [shared logical storage decision](../../design-notes/flarexdb-shared-logical-storage.md)
@@ -53,8 +64,9 @@ direction, not existing capability approval or the core admission gates.
 - [Accepted Flarex design](../../design-notes/flarex-db-accepted-design.md) and
   [framework storage architecture](../../design-notes/flarexdb-framework-storage-architecture.md)
   retain cross-domain authority.
-- [Durable Task Engine](../durable-task-engine/README.md) owns existing Task
-  lifecycle, persistence, scheduling, and execution contracts.
+- [Task System](../task-system/README.md) owns Task replacement direction and
+  gates. [Legacy DTE records](../durable-task-engine/README.md) describe baseline
+  lifecycle, persistence, scheduling and execution evidence.
 - [Shared transaction core](../shared-transaction-core/README.md) owns common
   transaction, publication, and recovery boundaries.
 - [Framework integration](../flarexdb-framework-integration/README.md) and
@@ -155,8 +167,9 @@ uses explicit ordered composition for this atomic consumer and keeps general
 parallel execution deferred. Remaining outlines retain their own preflights.
 
 The approved [Product relationship workflow slice](./16-product-relationship-workflows.md)
-composes Collection assignment and Category membership with pending Local Graph
-Query reads. Its separately approved host budget extension preserves existing
+composes Category membership and its pending graph snapshot before terminal
+Collection assignment, returning an explicit requested-membership result.
+Its separately approved host budget extension preserves existing
 defaults and allows an explicitly admitted bounded root to share one larger
 call allowance. Topics 09 and 16 record the finding, correction and bounded
 capability.

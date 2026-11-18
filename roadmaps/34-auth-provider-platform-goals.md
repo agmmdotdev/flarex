@@ -56,8 +56,8 @@ Repository findings:
   `Authenticate` but still uses anonymous identity.
 - `packages/flarex-dev/src/sourcePackage.ts` and
   `packages/flarex/src/artifacts.ts` have no auth config field.
-- `packages/persistence-postgres/src/schema.ts` and
-  `packages/persistence-postgres/src/deploymentPackages.ts` have no provider
+- `packages/persistence-postgres/src/database/schema.ts` and
+  `packages/persistence-postgres/src/application/deploymentPackages.ts` have no provider
   config storage.
 - `packages/flarex-backend/src/deployment/Validation.ts` only validates
   modules, functions, schema, and execution in source packages.
@@ -242,11 +242,11 @@ trusting client input.
 
 Files changed:
 
-- `packages/executor/src/authConfig.ts`
-- `packages/executor/src/errors.ts`
+- `packages/executor/src/deployment/authConfig.ts`
+- `packages/executor/src/invocation/errors.ts`
 - `packages/executor/src/index.ts`
-- `packages/executor/src/types.ts`
-- `packages/executor/test/deployments.test.ts`
+- `packages/executor/src/invocation/types.ts`
+- `packages/executor/test/deployment/deployments.test.ts`
 - `packages/flarex-backend/src/deployment/Store.ts`
 - `packages/flarex-backend/test/deploymentService.test.ts`
 - `packages/flarex-protocol/src/auth.ts`

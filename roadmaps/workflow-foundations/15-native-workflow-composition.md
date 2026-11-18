@@ -3,6 +3,11 @@
 ## Status And Scope
 
 Status: implemented, validated and reviewed as a private atomic capability.
+The [Product batch extension](../flarexdb-framework-integration/preflight/103-native-product-batch-workflows.md)
+implements explicit independent sibling regions and native two-argument `when`
+in the same SDK/runner. Structured scheduling shares the existing callback
+lifetime and queued participant operations. Ordered consumers retain their
+existing preparation identities and execution contract.
 This is one coherent
 capability covering SDK composition, its native host integration, and the
 explicit participant-event admission extension described below.
@@ -17,10 +22,13 @@ not new upstream commerce workflows or full Product batch compatibility.
 The SDK API is general. Product supplies the connected business proof; Currency
 supplies a second-module graph read and coexistence evidence. Keep the existing
 64-node definition ceiling and root call, byte, fact, event and time limits.
-Do not add a commerce module, Task, suspension, external effect, parallel
-execution, resource lock, savepoint, relational OCC, migration, child outcome
+Do not add a commerce module, Task, suspension, external effect, resource lock,
+savepoint, relational OCC, migration, child outcome
 store or public serving API. Transaction settlement and durable delivery remain
 with their existing owners.
+Parallel execution is confined to the explicitly prepared sibling-region
+extension above; this does not admit arbitrary dependency graphs or parallel
+database operations.
 
 ## Current Sources Of Truth
 
@@ -44,14 +52,14 @@ source governs executable comparison; this capability upgrades no dependency.
 | --- | --- |
 | [Pinned createWorkflow](../../third_party/medusa/upstream/packages/core/workflows-sdk/src/utils/composer/create-workflow.ts) | `runAsStep` constructs a wrapper step that invokes another workflow runtime, derives transaction context, suppresses early event release and later cancels the child during compensation. Reusing the spelling does not require importing that execution owner. |
 | [Pinned composer tests](../../third_party/medusa/upstream/packages/core/workflows-sdk/src/utils/composer/__tests__/index.spec.ts) | Cover returned child data, parent failure, true/false branches, compensation and context propagation. Preserve applicable assertions; classify distributed/async and compensation behavior as explicit native differences. |
-| [Pinned batch variants](../../third_party/medusa/upstream/packages/core/core-flows/src/product/workflows/batch-product-variants.ts) | Calls create/update/delete workflows through `runAsStep` and `parallelize`. This establishes a real composition need; its further module dependencies and parallel scheduling remain outside this capability. |
+| [Pinned batch variants](../../third_party/medusa/upstream/packages/core/core-flows/src/product/workflows/batch-product-variants.ts) | Calls create/update/delete workflows through `runAsStep` and `parallelize`. The Product batch extension owns its further module dependencies and explicit sibling scheduling. |
 | [SDK definition](../../packages/medusa-workflows-sdk/src/definition.ts), [model](../../packages/medusa-workflows-sdk/src/model.ts) and [runtime](../../packages/medusa-workflows-sdk/src/runtime.ts) | Authenticated prepared child nodes use separate evaluation frames in the one runner. Each call captures its input and completed output through the root port. |
-| [Native runner](../../packages/medusa-adapter/src/workflow-runtime.ts) and [Promise owner](../../packages/medusa-adapter/src/commerce-promise-owner.ts) | One outer boundary owns callback cancellation, pending work, closure and root void-to-null completion. A child must borrow this boundary. |
+| [Native runner](../../packages/medusa-adapter/src/workflow/runtime.ts) and [Promise owner](../../packages/medusa-adapter/src/module/promise-owner.ts) | One outer boundary owns callback cancellation, pending work, closure and root void-to-null completion. A child must borrow this boundary. |
 | [Resource selections](../../packages/medusa-adapter/src/workflow/resources.ts) | Hook wrappers authenticate the exact prepared resource selection. A hook already bound to a separately prepared child host cannot silently borrow a different parent's selection. |
 | [Workflow host](../../packages/medusa-adapter/src/workflow/host.ts) | Derives actual internal event contracts from selected method metadata and supplies an explicit name-to-token selector. External workflow contracts retain their existing selection. |
-| [Atomic participants](../../packages/persistence-postgres/src/atomicCommerce/participants.ts) and [atomic host](../../packages/persistence-postgres/src/atomicCommerce/host.ts) | Capture a finite participant event policy, require local fact validation and bind authenticated participant/installation/contract associations into identity. Duplicate installations remain refused. |
-| [Atomic event capture](../../packages/persistence-postgres/src/atomicCommerce/events.ts) and [stored envelope](../../packages/persistence-postgres/src/commitEvents/model.ts) | Capture message data before selection, authenticate the selected internal token against participant and root admission, then use the same envelope validation, accounting and buffer. Storage and settlement are unchanged. |
-| [Product event policy](../../packages/medusa-adapter/src/product-local-events.ts) and [tag correlation](../../packages/medusa-adapter/src/product-tag-workflow-events.ts) | Module messages correlate with actual per-command facts/lifecycle. Workflow messages correlate with ordered successful command results, or requested IDs for deletion. These are reusable, distinct policies. |
+| [Atomic participants](../../packages/persistence-postgres/src/frameworks/atomicCommerce/participants.ts) and [atomic host](../../packages/persistence-postgres/src/frameworks/atomicCommerce/host.ts) | Capture a finite participant event policy, require local fact validation and bind authenticated participant/installation/contract associations into identity. Duplicate installations remain refused. |
+| [Atomic event capture](../../packages/persistence-postgres/src/frameworks/atomicCommerce/events.ts) and [stored envelope](../../packages/persistence-postgres/src/commit/events/model.ts) | Capture message data before selection, authenticate the selected internal token against participant and root admission, then use the same envelope validation, accounting and buffer. Storage and settlement are unchanged. |
+| [Product event policy](../../packages/medusa-adapter/src/modules/product/events/call-receipts.ts) and [tag correlation](../../packages/medusa-adapter/src/workflows/product/tag-events.ts) | Module messages correlate with actual per-command facts/lifecycle. Workflow messages correlate with ordered successful command results, or requested IDs for deletion. These are reusable, distinct policies. |
 
 ## Accepted Implementation
 
@@ -109,6 +117,33 @@ own condition decisions and caches. A child returning undefined remains an
 intermediate absence; only the outer native completion converts a top-level
 undefined result to null. An empty or entirely skipped root still passes the
 existing root checkpoint, pending-work and final-output checks.
+
+### Explicit Parallel Regions
+
+The Product batch extension adds `parallelize` over authentic staged sibling
+results. Each branch is a consecutive independent region; a conditional result
+includes its condition, guarded work and result. Disjoint or properly nested
+groups are supported. Foreign references, cross-sibling dependencies, gaps and
+partial overlap refuse before execution. Native two-argument `when` receives a
+deterministic local name; existing named conditions keep their contract.
+
+The same interpreter uses structured concurrent Effects for the prepared
+regions, preserves ordering within each region and joins cancelled siblings.
+Repeated children retain separate frames. A shared parent transform has one
+frame-local Deferred retaining its full Exit, so siblings invoke it only once.
+Explicit grouping participates in preparation identity; ordered identities
+retain their existing bytes. Repeated and skipped children still count toward
+the unchanged 64-node ceiling. The root selects queued operations for genuine
+parallel consumers; this does not grant parallel database operations.
+
+Private value capture preserves own undefined positional results through the
+shared value owner's bounded JSON envelope and typed omission paths. The
+source and sidecar have independent byte/node caps, and the complete envelope
+consumes the root byte budget. Only private intermediate values restore those
+slots; final and stored/wire JSON remain strict. A rollback-only lifetime's byte
+accounting retains its complete first Cause rather than replacing it with a
+closed-lifetime refusal. The connected commerce and validation gates belong
+to the Product batch preflight.
 
 ### Explicit Hook Binding And Root Resources
 
@@ -199,6 +234,26 @@ Exact replay bypasses all parent/child callbacks. Uncertain acknowledgement uses
 the existing root recovery path without repeating completed business work.
 Exceeding a bound refuses; it never switches to Tasks or raises a ceiling.
 
+### Native Stored Declarations In The Atomic Profile
+
+The finite SDK admits the exact native declaration `store: true`,
+`idempotent: false`, `retentionTime: 259200` only with an explicit compatibility
+disposition. Both storage fields remain in prepared identity, including nested
+workflow identity. Unsupported option combinations and declaration accessors
+remain refused.
+
+Execution requires the trusted port's `storedWorkflowPolicy: "atomicRootOutcome"`.
+The SDK checks every prepared child before invoking any parent callback. The
+existing atomic Medusa runtime supplies that policy because its outer owner
+already retains the sole committed result and owns replay and retention. Step
+context or container values do not select this policy.
+
+This approved private profile does not provide native resumable step history or
+automatic three-day expiry. It introduces no checkpoint store, child settlement,
+scheduler or additional recovery owner. Ordinary finite declarations keep their
+existing behavior. Native durable workflows retain their separate execution
+and storage contracts.
+
 ## Alternatives And Replacement Inventory
 
 Porting another image-association or simple CRUD wrapper is useful business
@@ -244,10 +299,10 @@ workflow tree likewise remains distinct from this one-commit private profile.
 
 ## Implementation And Validation Owners
 
-[Product tag composition](../../packages/medusa-adapter/src/product-tag-composition.ts)
+[Product tag composition](../../packages/medusa-adapter/src/workflows/product/tag-composition.ts)
 is the private one-tag create/update consumer. It composes the promoted child
 workflows and reuses their native hook decoders. The general host and SDK do not
-contain Product logic. [Product event correlation](../../packages/medusa-adapter/src/product-tag-workflow-events.ts)
+contain Product logic. [Product event correlation](../../packages/medusa-adapter/src/workflows/product/tag-events.ts)
 combines the existing operation policies against the one ordered transcript.
 Repeated creation and create/delete are explicit test scenarios, not a general
 batch API or alternate CRUD implementation.
@@ -310,10 +365,37 @@ Source promotion and browser-bundle guards cover the new private parent.
 Exit criterion: imported workflows compose as reusable typed children under one
 native root, including a mixed-operation Product parent with correctly admitted
 events, without independent execution or settlement authority. Passing these
-gates does not establish durable workflow, full batch-variants, additional-module,
+gates does not establish durable workflow, arbitrary batch graphs, additional-module,
 Cloudflare deployment or public API compatibility.
 
 ## Approval Boundary
+
+### Bounded callback-invoked children
+
+The approved atomic checkout profile also admits the native callable factory
+shape `workflow(container).run({ input })` inside a step callback. The step must
+declare authentic definitions in `invokedWorkflows`; preparation includes their
+complete identities, storage-policy requirements and inclusive node counts.
+Every declared child may run once per callback occurrence. This is a finite
+declaration, not runtime workflow discovery or arbitrary repeated dispatch.
+
+Each live callback receives a private container view that borrows the existing
+resource selection. Its runner borrows the actual parent occurrence and outer
+execution port through the existing Promise owner. Callback completion revokes
+the view. Foreign containers, undeclared/repeated children, malformed runner
+options and unfinished child calls are refused. Caught child failures retain
+the outer owner's sticky failure and cleanup. There is no child commit, host,
+retry, independent replay store, global current runner or compensator scheduler.
+Transaction-covered compensation remains an explicit finite-profile contract;
+this API does not introduce automatic compensator execution.
+
+The native Product parent exposed a type-owner mismatch in SDK `Resolved<T>`:
+recursive object mapping converted DTO `Date` and callable leaves into objects
+of mapped members, making native child results incompatible with their DTOs.
+The SDK now retains these native leaf types before array/object recursion. A
+compile-time native DTO witness covers both leaves; runtime boundary capture
+still refuses Date objects and functions. This is a type-owner correction, not
+new runtime value admission.
 
 Approval of this capability includes the named private participant-event
 contract change and its core capture checks. It does not include unrelated core

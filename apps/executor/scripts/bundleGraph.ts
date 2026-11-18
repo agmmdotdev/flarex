@@ -29,7 +29,7 @@ const requiredInputs = [
   "src/worker.ts",
   "packages/executor/src/index.ts",
   "packages/executor-http/src/fetch.ts",
-  "packages/persistence-postgres/src/postgresClient.ts",
+  "packages/persistence-postgres/src/database/postgresClient.ts",
 ] as const;
 
 const bannedWorkerAdapterSourceSuffixes = [
@@ -48,8 +48,8 @@ const bannedFragments = [
 ] as const;
 
 const bannedSourceSuffixes = [
-  "packages/persistence-postgres/src/pglite.ts",
-  "packages/persistence-postgres/src/postgres.ts",
+  "packages/persistence-postgres/src/database/pglite.ts",
+  "packages/persistence-postgres/src/database/postgres.ts",
 ] as const;
 
 export function verifyExecutorBundleMeta(

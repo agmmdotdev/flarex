@@ -1,0 +1,8 @@
+{
+  "extends": "./tsconfig.json",
+  "include": [
+    "scripts/buildCorePersistenceLayout.ts",
+    "drizzle.config.ts",
+    "drizzle.legacy.config.ts"
+  ]
+}

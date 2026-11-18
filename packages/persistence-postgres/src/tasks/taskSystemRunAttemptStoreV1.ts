@@ -1,0 +1,1819 @@
+import { encodeTrustedWorkflowTaskRunAttemptAggregateJson, decodeTrustedWorkflowTaskRunAttemptAggregateJson,
+  encodeTrustedWorkflowPersistedTaskRequestedEffectJson, projectCurrentTaskRunAttemptPersistence,
+  toCurrentApplicationTaskRunAttemptDecision, fromCurrentTaskRunAttemptAggregate, fromCurrentTaskRequestedEffect,
+  type CurrentTaskRunAttemptAggregate, type CurrentTaskRunAttemptDecision, type CurrentRunAttemptPhase,
+  type CurrentRunAttemptMutationOperation, type CurrentTaskRunAttemptEvidence, type CurrentPersistedTaskRequestedEffect,
+  type CurrentTaskSystemRunAttemptDecisionInput, type TaskSystemRunAttemptInspectionRequestV1,
+  type TrustedWorkflowTaskSystemRunAttemptTransaction, type TrustedWorkflowTaskSystemRunAttemptStoreShape,
+} from "@flarex/durable-task/internal/run-attempt-v1";
+import { correlateLifecycleLedgerCurrent } from "./taskSystemLifecycleLedgerCorrelationV1";
+import {
+  InvalidRunAttemptTransitionError,
+  StaleTaskRunVersionError,
+  TaskRunAttemptCounterExhaustedError,
+  TaskSystemRunAttemptCorruptionError,
+  TaskSystemRunAttemptStaleScopeAuthorityError,
+  TaskSystemRunAttemptStore,
+  TaskSystemRunAttemptTerminalStoreError,
+  TaskSystemRunAttemptTransientStoreError,
+  TaskSystemRunAttemptUnavailableError,
+  decodeApplicationTaskRunAttemptAggregateJsonV1,
+  encodeApplicationPersistedTaskRequestedEffectJsonV1,
+  encodeApplicationTaskRunAttemptAggregateJsonV1,
+  decodePersistedTaskRunAttemptAggregateJsonV1,
+  decodeTaskAttemptIdV1,
+  decodeTaskAttemptNumberV1,
+  decodeTaskDatabaseTimeMsV1,
+  decodeTaskExecutionFenceV1,
+  encodePersistedTaskRequestedEffectJsonV1,
+  encodePersistedTaskRunAttemptAggregateJsonV1,
+  projectApplicationTaskRunAttemptPersistenceV1,
+  projectTaskRunAttemptPersistenceV1,
+  toCurrentTaskRunAttemptAggregate,
+  type ApplicationTaskRunAttemptAggregateV1,
+  type ApplicationTaskRunAttemptDecisionV1,
+  type ApplicationTaskSystemRunAttemptInspectionSnapshotV1,
+  type ApplicationTaskSystemRunAttemptStoreShape,
+  type ApplicationTaskSystemRunAttemptTransactionReceiptV1,
+  type ApplicationTaskSystemRunAttemptTransactionV1,
+  type RunAttemptDecisionFor,
+  type RunAttemptDecisionErrorV1,
+  type CurrentRunAttemptOperation,
+  type RunAttemptServiceReceiptFor,
+  type TaskAttemptGrantCandidateV1,
+  type TaskDatabaseTimeMsV1,
+  type TaskRunAttemptAggregateV1,
+  type TaskRunAttemptDecisionV1,
+  type TaskRunIdV1,
+  type TaskRunVersionV1,
+  type TaskSystemRunAttemptInspectionSnapshotV1,
+  type TaskSystemRunAttemptStoreErrorV1,
+  type TaskSystemRunAttemptStoreShape,
+  type TaskSystemRunAttemptTransactionReceiptV1,
+  type TaskSystemRunAttemptTransactionV1,
+} from "@flarex/durable-task/internal/run-attempt-v1";
+import { and, eq, sql } from "drizzle-orm";
+import { Cause, Effect, Exit, Result } from "effect";
+import type { ScopeId } from "flarex-protocol/storage-authority";
+
+import type { AppRowTransaction } from "../storage/documents/appRows";
+import type { FlarexMetadataDatabase } from "../application/deployments";
+import {
+  getScopeClock,
+} from "../scope/scopeClock";
+import {
+  fxSystemDurableTaskAttemptIdentitiesV1,
+  fxSystemDurableTaskComputePendingV1,
+  fxSystemDurableTaskRequestedEffectsV1,
+  fxSystemDurableTaskRunsV1,
+  fxSystemScopeClocks,
+} from "../database/schema";
+import type {
+  LocatedTrustedScopeAuthority,
+  TrustedScopeAuthority,
+} from "../scope/scopeAuthorityResolution";
+import type { ScopePhysicalLocator } from "../scope/scopeMetadataTypes";
+import { captureScopePhysicalLocator } from "../scope/scopePhysicalLocator";
+import {
+  captureTaskSystemTrustedScopeAuthorityV1,
+  requireLockedTaskSystemScopeAuthorityV1,
+} from "./taskSystemScopeAuthorityV1";
+import { decodeAndCorrelateTaskSystemRunRowV1 } from "./taskSystemRunRowV1";
+import {
+  correlateApplicationTaskSystemLifecycleLedgerV1,
+  correlateTaskSystemLifecycleLedgerV1,
+  taskSystemPersistedValueEqualV1 as persistedValueEqual,
+} from "./taskSystemLifecycleLedgerCorrelationV1";
+import { taskSystemRequestedEffectNotBeforeMsV1 } from
+  "./taskSystemRequestedEffectRowV1";
+import {
+  createDefaultLocatedReadCommittedTransactionRunnerV1,
+} from "../database/locatedReadCommittedRunner";
+import {
+  LocatedReadCommittedTransactionFailureV1,
+} from "../execution/readCommittedTransactionFailure";
+import {
+  RUN_LOCATED_READ_COMMITTED_V1,
+  type LocatedReadCommittedAttemptTargetV1,
+  type RunLocatedReadCommittedTransactionV1,
+} from "../database/locatedTransactionIdentity";
+
+const TASK_RUN_ATTEMPT_TARGET_DB: unique symbol = Symbol(
+  "FlarexDB/taskSystemRunAttemptTargetDbV1",
+);
+const READ_TASK_SYSTEM_DATABASE_NOW_V1: unique symbol = Symbol(
+  "FlarexDB/readTaskSystemDatabaseNowV1",
+);
+const UTF8 = new TextEncoder();
+const POSTGRES_SIGNED_BIGINT_MAX = 9_223_372_036_854_775_807n;
+const MAX_TRANSACTION_EXECUTIONS = 3;
+const ATTEMPT_IDENTITY_PRIMARY_KEY = "fx_task_attempt_identity_v1_pk";
+
+type TaskRunRow = typeof fxSystemDurableTaskRunsV1.$inferSelect;
+export type ReadTaskSystemDatabaseNowV1 = (
+  tx: AppRowTransaction,
+  scopeId: ScopeId,
+  operation: CurrentRunAttemptOperation,
+  runId: TaskRunIdV1,
+) => Promise<TaskDatabaseTimeMsV1>;
+
+export interface LocatedTaskSystemRunAttemptTargetV1
+  extends LocatedReadCommittedAttemptTargetV1 {
+  readonly [TASK_RUN_ATTEMPT_TARGET_DB]: FlarexMetadataDatabase;
+  readonly [READ_TASK_SYSTEM_DATABASE_NOW_V1]: ReadTaskSystemDatabaseNowV1;
+}
+
+export interface TaskSystemRunAttemptStoreOptionsV1 {
+  readonly randomUuid?: () => string;
+}
+
+export function createLocatedTaskSystemRunAttemptTargetV1(
+  db: FlarexMetadataDatabase,
+  physicalLocator: ScopePhysicalLocator,
+  runReadCommitted: RunLocatedReadCommittedTransactionV1 =
+    createDefaultLocatedReadCommittedTransactionRunnerV1(db),
+  readDatabaseNow: ReadTaskSystemDatabaseNowV1 = readTaskSystemDatabaseNowV1,
+): LocatedTaskSystemRunAttemptTargetV1 {
+  return Object.freeze({
+    physicalLocator: captureScopePhysicalLocator(physicalLocator),
+    getCurrentClock: (scopeId: ScopeId) => getScopeClock(db, scopeId),
+    [RUN_LOCATED_READ_COMMITTED_V1]: runReadCommitted,
+    [TASK_RUN_ATTEMPT_TARGET_DB]: db,
+    [READ_TASK_SYSTEM_DATABASE_NOW_V1]: readDatabaseNow,
+  });
+}
+
+/**
+ * Constructs one operation-scoped store over an already-resolved located
+ * authority. The returned capability cannot select or escape its tenant scope.
+ */
+export function makeTaskSystemRunAttemptStoreV1(
+  located: LocatedTrustedScopeAuthority<LocatedTaskSystemRunAttemptTargetV1>,
+  options: TaskSystemRunAttemptStoreOptionsV1 = {},
+): TaskSystemRunAttemptStoreShape {
+  const authority = captureTaskSystemTrustedScopeAuthorityV1(located.authority);
+  const target = located.target;
+  const randomUuid = options.randomUuid ?? (() => crypto.randomUUID());
+
+  return TaskSystemRunAttemptStore.of({
+    transactRunAttempt: <Outcome>(
+      request: TaskSystemRunAttemptTransactionV1<Outcome>,
+    ) => transactRunAttempt(authority, target, randomUuid, request),
+    inspectRunAttempt: (request) => inspectRunAttempt(
+      authority,
+      target,
+      request.operation,
+      request.runId,
+    ),
+  });
+}
+
+export function makeApplicationTaskSystemRunAttemptStoreV1(
+  located: LocatedTrustedScopeAuthority<LocatedTaskSystemRunAttemptTargetV1>,
+  options: TaskSystemRunAttemptStoreOptionsV1 = {},
+): ApplicationTaskSystemRunAttemptStoreShape {
+  const authority = captureTaskSystemTrustedScopeAuthorityV1(located.authority);
+  const target = located.target;
+  const randomUuid = options.randomUuid ?? (() => crypto.randomUUID());
+  return Object.freeze({
+    transactRunAttempt: <Outcome>(
+      request: ApplicationTaskSystemRunAttemptTransactionV1<Outcome>,
+    ) => transactApplicationRunAttempt(authority, target, randomUuid, request),
+    inspectRunAttempt: (request: Readonly<{
+      readonly operation: "inspect_current_attempt";
+      readonly runId: TaskRunIdV1;
+    }>) => inspectApplicationRunAttempt(
+      authority,
+      target,
+      request.operation,
+      request.runId,
+    ),
+  });
+}
+
+const transactRunAttempt = Effect.fn(
+  "TaskSystemRunAttemptStore.transactRunAttempt",
+)(function* <Outcome>(
+  authority: TrustedScopeAuthority,
+  target: LocatedTaskSystemRunAttemptTargetV1,
+  randomUuid: () => string,
+  request: TaskSystemRunAttemptTransactionV1<Outcome>,
+): Effect.fn.Return<
+  TaskSystemRunAttemptTransactionReceiptV1<Outcome>,
+  RunAttemptDecisionErrorV1 | TaskSystemRunAttemptStoreErrorV1
+> {
+  return yield* transactGeneration(
+    authority,
+    target,
+    request,
+    tx => transactOnce(tx, authority, target, randomUuid, request),
+    snapshotReceipt,
+  );
+});
+
+const inspectRunAttempt = Effect.fn(
+  "TaskSystemRunAttemptStore.inspectRunAttempt",
+)(function* (
+  authority: TrustedScopeAuthority,
+  target: LocatedTaskSystemRunAttemptTargetV1,
+  operation: "inspect_current_attempt",
+  runId: TaskRunIdV1,
+): Effect.fn.Return<
+  TaskSystemRunAttemptInspectionSnapshotV1,
+  TaskSystemRunAttemptStoreErrorV1
+> {
+  const settled = yield* Effect.exit(awaitLocatedTransaction(
+    target[RUN_LOCATED_READ_COMMITTED_V1](tx => inspectOnce(
+      tx,
+      authority,
+      target,
+      operation,
+      runId,
+    )),
+  ));
+  if (Exit.isSuccess(settled)) {
+    return yield* Effect.fromResult(
+      snapshotInspection(settled.value, operation, runId),
+    );
+  }
+  const failure = yield* Result.match(Cause.findError(settled.cause), {
+    onFailure: Effect.failCause,
+    onSuccess: Effect.succeed,
+  });
+  const classified = classifyTransactionFailure(
+    operation,
+    runId,
+    failure,
+    MAX_TRANSACTION_EXECUTIONS,
+  );
+  if (classified.kind === "fail") {
+    return isStoreError(classified.error)
+      ? yield* classified.error
+      : yield* Effect.die(classified.error);
+  }
+  if (classified.kind === "retry") {
+    return yield* new TaskSystemRunAttemptTransientStoreError({
+      operation,
+      runId,
+      reason: "transaction_conflict",
+      cause: failure,
+    });
+  }
+  if (classified.kind === "cleanup") {
+    return isStoreError(classified.callback)
+      ? yield* Effect.failCause(Cause.combine(
+          Cause.fail(classified.callback),
+          Cause.die(classified.cause),
+        ))
+      : yield* Effect.die(classified.cause);
+  }
+  return yield* Effect.die(classified.cause);
+});
+
+const transactApplicationRunAttempt = Effect.fn(
+  "ApplicationTaskSystemRunAttemptStore.transactRunAttempt",
+)(function* <Outcome>(
+  authority: TrustedScopeAuthority,
+  target: LocatedTaskSystemRunAttemptTargetV1,
+  randomUuid: () => string,
+  request: ApplicationTaskSystemRunAttemptTransactionV1<Outcome>,
+): Effect.fn.Return<
+  ApplicationTaskSystemRunAttemptTransactionReceiptV1<Outcome>,
+  RunAttemptDecisionErrorV1 | TaskSystemRunAttemptStoreErrorV1
+> {
+  return yield* transactGeneration(
+    authority,
+    target,
+    request,
+    tx => transactApplicationOnce(tx, authority, target, randomUuid, request),
+    snapshotApplicationReceipt,
+  );
+});
+
+const transactGeneration = Effect.fn(
+  "TaskSystemRunAttemptStore.transactGeneration",
+)(function* <_Outcome, Request extends Readonly<{
+  readonly operation: CurrentRunAttemptOperation;
+  readonly runId: TaskRunIdV1;
+}>, Receipt>(
+  authority: TrustedScopeAuthority,
+  target: LocatedTaskSystemRunAttemptTargetV1,
+  request: Request,
+  transaction: (tx: AppRowTransaction) => Promise<Receipt>,
+  snapshot: (
+    receipt: Receipt,
+    request: Request,
+  ) => Result.Result<Receipt, TaskSystemRunAttemptTerminalStoreError>,
+): Effect.fn.Return<
+  Receipt,
+  RunAttemptDecisionErrorV1 | TaskSystemRunAttemptStoreErrorV1
+> {
+  for (let execution = 1; execution <= MAX_TRANSACTION_EXECUTIONS; execution += 1) {
+    const settled = yield* Effect.exit(awaitLocatedTransaction(
+      target[RUN_LOCATED_READ_COMMITTED_V1](transaction),
+    ));
+    if (Exit.isSuccess(settled)) {
+      return yield* Effect.fromResult(snapshot(settled.value, request));
+    }
+    const transactionFailure = yield* Result.match(
+      Cause.findError(settled.cause),
+      {
+        onFailure: cause => Effect.failCause(cause),
+        onSuccess: cause => Effect.succeed(cause),
+      },
+    );
+    const classified = classifyTransactionFailure(
+      request.operation,
+      request.runId,
+      transactionFailure,
+      execution,
+    );
+    if (classified.kind === "retry") continue;
+    if (classified.kind === "fail") return yield* classified.error;
+    if (classified.kind === "cleanup") {
+      return yield* Effect.failCause(Cause.combine(
+        Cause.fail(classified.callback),
+        Cause.die(classified.cause),
+      ));
+    }
+    return yield* Effect.die(classified.cause);
+  }
+  return yield* new TaskSystemRunAttemptTransientStoreError({
+    operation: request.operation,
+    runId: request.runId,
+    reason: "transaction_conflict",
+    cause: null,
+  });
+});
+
+const inspectApplicationRunAttempt = Effect.fn(
+  "ApplicationTaskSystemRunAttemptStore.inspectRunAttempt",
+)(function* (
+  authority: TrustedScopeAuthority,
+  target: LocatedTaskSystemRunAttemptTargetV1,
+  operation: "inspect_current_attempt",
+  runId: TaskRunIdV1,
+): Effect.fn.Return<
+  ApplicationTaskSystemRunAttemptInspectionSnapshotV1,
+  TaskSystemRunAttemptStoreErrorV1
+> {
+  return yield* inspectGeneration(target, tx => inspectApplicationOnce(tx, authority, target, operation, runId), operation, runId);
+});
+const inspectGeneration = Effect.fn("TaskSystem.inspectGeneration")(function* <Receipt>(
+  target: LocatedTaskSystemRunAttemptTargetV1, transaction: (tx: AppRowTransaction) => Promise<Receipt>,
+  operation: "inspect_current_attempt", runId: TaskRunIdV1,
+): Effect.fn.Return<Receipt, TaskSystemRunAttemptStoreErrorV1> {
+  const settled = yield* Effect.exit(awaitLocatedTransaction(
+    target[RUN_LOCATED_READ_COMMITTED_V1](transaction),
+  ));
+  if (Exit.isSuccess(settled)) return settled.value;
+  const failure = yield* Result.match(Cause.findError(settled.cause), {
+    onFailure: Effect.failCause,
+    onSuccess: Effect.succeed,
+  });
+  const classified = classifyTransactionFailure(
+    operation, runId, failure, MAX_TRANSACTION_EXECUTIONS,
+  );
+  if (classified.kind === "fail") {
+    return isStoreError(classified.error)
+      ? yield* classified.error
+      : yield* Effect.die(classified.error);
+  }
+  if (classified.kind === "retry") {
+    return yield* new TaskSystemRunAttemptTransientStoreError({
+      operation, runId, reason: "transaction_conflict", cause: failure,
+    });
+  }
+  if (classified.kind === "cleanup") {
+    return isStoreError(classified.callback)
+      ? yield* Effect.failCause(Cause.combine(
+          Cause.fail(classified.callback), Cause.die(classified.cause),
+        ))
+      : yield* Effect.die(classified.cause);
+  }
+  return yield* Effect.die(classified.cause);
+});
+
+async function transactOnce<Outcome>(
+  tx: AppRowTransaction,
+  authority: TrustedScopeAuthority,
+  target: LocatedTaskSystemRunAttemptTargetV1,
+  randomUuid: () => string,
+  request: TaskSystemRunAttemptTransactionV1<Outcome>,
+): Promise<TaskSystemRunAttemptTransactionReceiptV1<Outcome>> {
+  return transactOnceCore(
+    tx,
+    authority,
+    target,
+    randomUuid,
+    request,
+    {
+      decode: decodeAndCorrelateRunRow,
+      correlate: (innerTx, scopeId, operation, runId, current) =>
+        correlateLifecycleLedger(innerTx, scopeId, operation, runId, current),
+      makeDecisionInput: (databaseNowMs, current, candidate) => Object.freeze({
+        databaseNowMs,
+        current,
+        get attemptGrantCandidate() { return candidate(); },
+      }),
+      decide: (innerRequest, input) => innerRequest.decide(input),
+      apply: applyDecision,
+    },
+  );
+}
+
+async function transactApplicationOnce<Outcome>(
+  tx: AppRowTransaction,
+  authority: TrustedScopeAuthority,
+  target: LocatedTaskSystemRunAttemptTargetV1,
+  randomUuid: () => string,
+  request: ApplicationTaskSystemRunAttemptTransactionV1<Outcome>,
+): Promise<ApplicationTaskSystemRunAttemptTransactionReceiptV1<Outcome>> {
+  return transactOnceCore(
+    tx,
+    authority,
+    target,
+    randomUuid,
+    request,
+    {
+      decode: decodeAndCorrelateApplicationRunRow,
+      correlate: (innerTx, scopeId, operation, runId, current) =>
+        correlateApplicationTaskSystemLifecycleLedgerV1(
+          innerTx,
+          scopeId,
+          runId,
+          current,
+          reason => rollbackStoreError(corruption(operation, runId, reason)),
+        ),
+      makeDecisionInput: (databaseNowMs, current, candidate) => Object.freeze({
+        databaseNowMs,
+        current,
+        get attemptGrantCandidate() { return candidate(); },
+      }),
+      decide: (innerRequest, input) => innerRequest.decide(input),
+      apply: applyApplicationDecision,
+    },
+  );
+}
+
+interface TransactionGenerationAdapter<
+  Current,
+  DecisionInput,
+  Decision,
+  Receipt,
+  Request,
+> {
+  readonly decode: (
+    row: TaskRunRow,
+    operation: CurrentRunAttemptOperation,
+    runId: TaskRunIdV1,
+  ) => Current;
+  readonly correlate: (
+    tx: AppRowTransaction,
+    scopeId: ScopeId,
+    operation: CurrentRunAttemptOperation,
+    runId: TaskRunIdV1,
+    current: Current,
+  ) => Promise<void>;
+  readonly makeDecisionInput: (
+    databaseNowMs: TaskDatabaseTimeMsV1,
+    current: Current,
+    candidate: () => TaskAttemptGrantCandidateV1 | null,
+  ) => DecisionInput;
+  readonly decide: (
+    request: Request,
+    input: DecisionInput,
+  ) => Result.Result<Decision, RunAttemptDecisionErrorV1>;
+  readonly apply: (
+    tx: AppRowTransaction,
+    scopeId: ScopeId,
+    request: Request,
+    current: Current,
+    databaseNowMs: TaskDatabaseTimeMsV1,
+    candidate: TaskAttemptGrantCandidateV1 | null,
+    decision: Decision,
+  ) => Promise<Receipt>;
+}
+
+async function transactOnceCore<
+  Current extends TaskRunAttemptAggregateV1 | ApplicationTaskRunAttemptAggregateV1 | CurrentTaskRunAttemptAggregate,
+  DecisionInput,
+  Decision,
+  Receipt,
+  Request extends Readonly<{
+    readonly operation: CurrentRunAttemptOperation;
+    readonly runId: TaskRunIdV1;
+  }>,
+>(
+  tx: AppRowTransaction,
+  authority: TrustedScopeAuthority,
+  target: LocatedTaskSystemRunAttemptTargetV1,
+  randomUuid: () => string,
+  request: Request,
+  adapter: TransactionGenerationAdapter<
+    Current,
+    DecisionInput,
+    Decision,
+    Receipt,
+    Request
+  >,
+): Promise<Receipt> {
+  await requireLockedScopeAuthority(
+    tx, authority, target, request.operation, request.runId,
+  );
+  const row = await loadRun(tx, authority.scopeId, request.runId, true);
+  if (row === null) throw rollbackStoreError(
+    new TaskSystemRunAttemptUnavailableError({
+      operation: request.operation,
+      runId: request.runId,
+      reason: "unavailable",
+    }),
+  );
+  const databaseNowMs = await target[READ_TASK_SYSTEM_DATABASE_NOW_V1](
+    tx, authority.scopeId, request.operation, request.runId,
+  );
+  const current = adapter.decode(row, request.operation, request.runId);
+  await adapter.correlate(
+    tx,
+    authority.scopeId,
+    request.operation,
+    request.runId,
+    current,
+  );
+  let allocatedCandidate: TaskAttemptGrantCandidateV1 | null | undefined;
+  const candidate = (): TaskAttemptGrantCandidateV1 | null => {
+    if (request.operation !== "start_attempt") return null;
+    if (allocatedCandidate === undefined) {
+      allocatedCandidate = allocateAttemptCandidate(
+        current,
+        randomUuid,
+        request.operation,
+        request.runId,
+      );
+    }
+    return allocatedCandidate;
+  };
+  const decision = Result.getOrThrowWith(
+    adapter.decide(
+      request,
+      adapter.makeDecisionInput(databaseNowMs, current, candidate),
+    ),
+    rollbackDecisionError,
+  );
+  return adapter.apply(
+    tx,
+    authority.scopeId,
+    request,
+    current,
+    databaseNowMs,
+    allocatedCandidate ?? null,
+    decision,
+  );
+}
+
+async function inspectOnce(
+  tx: AppRowTransaction,
+  authority: TrustedScopeAuthority,
+  target: LocatedTaskSystemRunAttemptTargetV1,
+  operation: "inspect_current_attempt",
+  runId: TaskRunIdV1,
+): Promise<TaskSystemRunAttemptInspectionSnapshotV1> {
+  await requireLockedScopeAuthority(tx, authority, target, operation, runId);
+  const observedAtMs = await target[READ_TASK_SYSTEM_DATABASE_NOW_V1](
+    tx,
+    authority.scopeId,
+    operation,
+    runId,
+  );
+  const row = await loadRun(tx, authority.scopeId, runId, false);
+  if (row === null) throw rollbackStoreError(new TaskSystemRunAttemptUnavailableError({
+    operation,
+    runId,
+    reason: "unavailable",
+  }));
+  const current = decodeAndCorrelateRunRow(row, operation, runId);
+  await correlateLifecycleLedger(
+    tx,
+    authority.scopeId,
+    operation,
+    runId,
+    current,
+  );
+  return Object.freeze({ observedAtMs, current });
+}
+
+async function inspectApplicationOnce(
+  tx: AppRowTransaction,
+  authority: TrustedScopeAuthority,
+  target: LocatedTaskSystemRunAttemptTargetV1,
+  operation: "inspect_current_attempt",
+  runId: TaskRunIdV1,
+): Promise<ApplicationTaskSystemRunAttemptInspectionSnapshotV1> {
+  await requireLockedScopeAuthority(tx, authority, target, operation, runId);
+  const observedAtMs = await target[READ_TASK_SYSTEM_DATABASE_NOW_V1](
+    tx, authority.scopeId, operation, runId,
+  );
+  const row = await loadRun(tx, authority.scopeId, runId, true);
+  if (row === null) throw rollbackStoreError(
+    new TaskSystemRunAttemptUnavailableError({ operation, runId, reason: "unavailable" }),
+  );
+  const current = decodeAndCorrelateApplicationRunRow(row, operation, runId);
+  await correlateApplicationTaskSystemLifecycleLedgerV1(
+    tx, authority.scopeId, runId, current,
+    reason => rollbackStoreError(corruption(operation, runId, reason)),
+  );
+  return snapshotOwned(Object.freeze({ observedAtMs, current }));
+}
+
+async function requireLockedScopeAuthority(
+  tx: AppRowTransaction,
+  authority: TrustedScopeAuthority,
+  target: LocatedTaskSystemRunAttemptTargetV1,
+  operation: CurrentRunAttemptOperation,
+  runId: TaskRunIdV1,
+): Promise<void> {
+  await requireLockedTaskSystemScopeAuthorityV1(
+    tx,
+    authority,
+    target,
+    mismatch => rollbackStoreError(staleAuthority(operation, runId, mismatch)),
+  );
+}
+
+async function loadRun(
+  tx: AppRowTransaction,
+  scopeId: ScopeId,
+  runId: TaskRunIdV1,
+  lockForUpdate: boolean,
+): Promise<TaskRunRow | null> {
+  const base = tx.select().from(fxSystemDurableTaskRunsV1).where(and(
+    eq(fxSystemDurableTaskRunsV1.scopeId, scopeId),
+    eq(fxSystemDurableTaskRunsV1.runId, runId),
+  )).limit(1);
+  const rows = lockForUpdate ? await base.for("update") : await base;
+  return rows[0] ?? null;
+}
+
+async function readTaskSystemDatabaseNowV1(
+  tx: AppRowTransaction,
+  scopeId: ScopeId,
+  operation: CurrentRunAttemptOperation,
+  runId: TaskRunIdV1,
+): Promise<TaskDatabaseTimeMsV1> {
+  const rows = await tx.select({
+    milliseconds: sql<string>`
+      floor(extract(epoch from clock_timestamp()) * 1000)::bigint::text
+    `,
+  }).from(fxSystemScopeClocks).where(
+    eq(fxSystemScopeClocks.scopeId, scopeId),
+  ).limit(1);
+  const text = rows[0]?.milliseconds;
+  if (typeof text !== "string" || !/^(0|[1-9][0-9]*)$/.test(text)) {
+    throw rollbackStoreError(corruption(operation, runId, "aggregate_invalid"));
+  }
+  return Result.getOrThrowWith(
+    decodeTaskDatabaseTimeMsV1(Number(text)),
+    () => rollbackStoreError(corruption(operation, runId, "aggregate_invalid")),
+  );
+}
+
+function decodeAndCorrelateRunRow(
+  row: TaskRunRow,
+  operation: CurrentRunAttemptOperation,
+  runId: TaskRunIdV1,
+): TaskRunAttemptAggregateV1 {
+  if (row.runId !== runId) {
+    throw rollbackStoreError(corruption(operation, runId, "aggregate_invalid"));
+  }
+  const decoded = Result.getOrThrowWith(
+    decodeAndCorrelateTaskSystemRunRowV1(row),
+    reason => rollbackStoreError(corruption(operation, runId, reason)),
+  );
+  if (decoded.generation !== "legacy_definition_v1") {
+    throw rollbackStoreError(corruption(
+      operation,
+      runId,
+      "binding_reference_invalid",
+    ));
+  }
+  return decoded.aggregate;
+}
+
+function decodeAndCorrelateApplicationRunRow(
+  row: TaskRunRow,
+  operation: CurrentRunAttemptOperation,
+  runId: TaskRunIdV1,
+): ApplicationTaskRunAttemptAggregateV1 {
+  if (row.runId !== runId) {
+    throw rollbackStoreError(corruption(operation, runId, "aggregate_invalid"));
+  }
+  const decoded = Result.getOrThrowWith(
+    decodeAndCorrelateTaskSystemRunRowV1(row),
+    reason => rollbackStoreError(corruption(operation, runId, reason)),
+  );
+  if (decoded.generation !== "application_v1") {
+    throw rollbackStoreError(corruption(
+      operation, runId, "binding_reference_invalid",
+    ));
+  }
+  return decoded.aggregate;
+}
+
+async function correlateLifecycleLedger(
+  tx: AppRowTransaction,
+  scopeId: ScopeId,
+  operation: CurrentRunAttemptOperation,
+  runId: TaskRunIdV1,
+  aggregate: TaskRunAttemptAggregateV1,
+): Promise<void> {
+  await correlateTaskSystemLifecycleLedgerV1(
+    tx,
+    scopeId,
+    runId,
+    aggregate,
+    reason => rollbackStoreError(corruption(operation, runId, reason)),
+  );
+}
+
+function allocateAttemptCandidate(
+  current: TaskRunAttemptAggregateV1 | ApplicationTaskRunAttemptAggregateV1 | CurrentTaskRunAttemptAggregate,
+  randomUuid: () => string,
+  operation: "start_attempt",
+  runId: TaskRunIdV1,
+): TaskAttemptGrantCandidateV1 {
+  const nextAttemptNumber = current.attemptHistory.kind === "none"
+    ? 1
+    : current.attemptHistory.lastAttemptNumber + 1;
+  const attemptNumber = Result.getOrThrowWith(
+    decodeTaskAttemptNumberV1(nextAttemptNumber),
+    () => rollbackDecisionError(new TaskRunAttemptCounterExhaustedError({
+      operation,
+      runId,
+      counter: "attempt_number",
+    })),
+  );
+  const fenceBasis = current.phase === "ready"
+    ? current.ready.kind === "initial"
+      ? 0n
+      : current.ready.acceptedRetry.previousAttempt.executionFence
+    : current.phase === "retry_waiting"
+    ? current.retry.previousAttempt.executionFence
+    : current.phase === "continuation_waiting" || current.phase === "continuation_ready"
+    ? (current.continuation.resumeAfterAttempt ?? current.continuation.suspendedAttempt).executionFence
+    : current.phase === "attempt_granted" || current.phase === "executing"
+    ? current.currentAttempt.executionFence
+    : current.terminal.attempt?.executionFence ?? 0n;
+  if (fenceBasis >= POSTGRES_SIGNED_BIGINT_MAX) {
+    throw rollbackStoreError(new TaskSystemRunAttemptTerminalStoreError({
+      operation,
+      runId,
+      reason: "fence_allocation_exhausted",
+      cause: null,
+    }));
+  }
+  const executionFence = Result.getOrThrowWith(
+    decodeTaskExecutionFenceV1(String(fenceBasis + 1n)),
+    cause => rollbackStoreError(new TaskSystemRunAttemptTerminalStoreError({
+      operation,
+      runId,
+      reason: "fence_allocation_exhausted",
+      cause,
+    })),
+  );
+  let uuid: string;
+  try {
+    uuid = randomUuid();
+  } catch (cause) {
+    throw rollbackStoreError(new TaskSystemRunAttemptTerminalStoreError({
+      operation,
+      runId,
+      reason: "identity_allocation_exhausted",
+      cause,
+    }));
+  }
+  const attemptId = Result.getOrThrowWith(
+    decodeTaskAttemptIdV1(`attempt_${uuid}`),
+    cause => rollbackStoreError(new TaskSystemRunAttemptTerminalStoreError({
+      operation,
+      runId,
+      reason: "identity_allocation_exhausted",
+      cause,
+    })),
+  );
+  return Object.freeze({
+    attemptId,
+    attemptNumber,
+    executionFence,
+  });
+}
+
+async function applyDecision<Outcome>(
+  tx: AppRowTransaction,
+  scopeId: ScopeId,
+  request: TaskSystemRunAttemptTransactionV1<Outcome>,
+  current: TaskRunAttemptAggregateV1,
+  databaseNowMs: TaskDatabaseTimeMsV1,
+  attemptGrantCandidate: TaskAttemptGrantCandidateV1 | null,
+  decision: TaskRunAttemptDecisionV1<Outcome>,
+): Promise<TaskSystemRunAttemptTransactionReceiptV1<Outcome>> {
+  return applyDecisionCore(
+    request,
+    current,
+    databaseNowMs,
+    attemptGrantCandidate,
+    decision,
+    (candidate, commit) => prepareCommit(
+      request,
+      current,
+      databaseNowMs,
+      candidate,
+      commit,
+    ),
+    prepared => persistPreparedCommit(tx, scopeId, current.runVersion, databaseNowMs, {
+      generation: "legacy_definition_v1",
+      request,
+      prepared,
+    }),
+  );
+}
+
+async function applyApplicationDecision<Outcome>(
+  tx: AppRowTransaction,
+  scopeId: ScopeId,
+  request: ApplicationTaskSystemRunAttemptTransactionV1<Outcome>,
+  current: ApplicationTaskRunAttemptAggregateV1,
+  databaseNowMs: TaskDatabaseTimeMsV1,
+  attemptGrantCandidate: TaskAttemptGrantCandidateV1 | null,
+  decision: ApplicationTaskRunAttemptDecisionV1<Outcome>,
+): Promise<ApplicationTaskSystemRunAttemptTransactionReceiptV1<Outcome>> {
+  return applyDecisionCore(
+    request,
+    current,
+    databaseNowMs,
+    attemptGrantCandidate,
+    decision,
+    (candidate, commit) => prepareApplicationCommit(
+      request,
+      current,
+      databaseNowMs,
+      candidate,
+      commit,
+    ),
+    prepared => persistPreparedCommit(tx, scopeId, current.runVersion, databaseNowMs, {
+      generation: "application_v1",
+      request,
+      prepared,
+    }),
+  );
+}
+
+async function applyDecisionCore<
+  Outcome,
+  Aggregate extends TaskRunAttemptAggregateV1 | ApplicationTaskRunAttemptAggregateV1 | CurrentTaskRunAttemptAggregate,
+  Evidence,
+  RequestedEffect,
+  Prepared extends PreparedPersistenceCommit,
+  Request extends TaskSystemRunAttemptTransactionV1<Outcome>
+    | ApplicationTaskSystemRunAttemptTransactionV1<Outcome>
+    | TrustedWorkflowTaskSystemRunAttemptTransaction<Outcome>,
+>(
+  request: Request,
+  current: Aggregate,
+  databaseNowMs: TaskDatabaseTimeMsV1,
+  attemptGrantCandidate: TaskAttemptGrantCandidateV1 | null,
+  decision: RunAttemptDecisionFor<
+    Outcome,
+    Aggregate,
+    Evidence,
+    RequestedEffect, CurrentRunAttemptPhase
+  >,
+  prepare: (
+    candidate: TaskAttemptGrantCandidateV1 | null,
+    decision: Extract<
+      RunAttemptDecisionFor<Outcome, Aggregate, Evidence, RequestedEffect, CurrentRunAttemptPhase>,
+      { readonly kind: "commit" }
+    >,
+  ) => Prepared,
+  persist: (prepared: Prepared) => Promise<void>,
+): Promise<RunAttemptServiceReceiptFor<Outcome, Evidence, RequestedEffect>> {
+  if (decision.kind === "no_change") {
+    if (decision.disposition === "idempotent") {
+      if (!isStoredAcceptanceReplay(current, decision.replay)) {
+        throw rollbackDecisionError(invalidDecision(
+          request,
+          current,
+          "acceptance_invalid",
+        ));
+      }
+      return Object.freeze({
+        disposition: "idempotent" as const,
+        observedAtMs: decision.replay.observedAtMs,
+        runVersion: decision.replay.acceptedRunVersion,
+        outcome: decision.replay.outcome,
+        evidence: decision.replay.evidence,
+        requestedEffects: decision.replay.requestedEffects,
+      });
+    }
+    return Object.freeze({
+      disposition: "current" as const,
+      observedAtMs: databaseNowMs,
+      runVersion: current.runVersion,
+      outcome: decision.outcome,
+      evidence: Object.freeze([]),
+      requestedEffects: Object.freeze([]),
+    });
+  }
+  const prepared = prepare(attemptGrantCandidate, decision);
+  await persist(prepared);
+  return Object.freeze({
+    disposition: "accepted" as const,
+    observedAtMs: databaseNowMs,
+    runVersion: prepared.next.runVersion,
+    outcome: decision.outcome,
+    evidence: decision.evidence,
+    requestedEffects: decision.requestedEffects,
+  });
+}
+
+type LegacyPreparedPersistenceCommit = ReturnType<typeof prepareCommit>;
+type ApplicationPreparedPersistenceCommit =
+  ReturnType<typeof prepareApplicationCommit>;
+type PreparedPersistenceCommit =
+  | LegacyPreparedPersistenceCommit
+  | ApplicationPreparedPersistenceCommit
+  | ReturnType<typeof prepareCurrentDefinitionCommit>;
+type PreparedPersistenceInput<Outcome> =
+  | Readonly<{ readonly generation: "trusted_workflow"; readonly request: TrustedWorkflowTaskSystemRunAttemptTransaction<Outcome>; readonly prepared: ReturnType<typeof prepareCurrentDefinitionCommit<Outcome>> }>
+  | Readonly<{
+      readonly generation: "legacy_definition_v1";
+      readonly request: TaskSystemRunAttemptTransactionV1<Outcome>;
+      readonly prepared: LegacyPreparedPersistenceCommit;
+    }>
+  | Readonly<{
+      readonly generation: "application_v1";
+      readonly request: ApplicationTaskSystemRunAttemptTransactionV1<Outcome>;
+      readonly prepared: ApplicationPreparedPersistenceCommit;
+    }>;
+
+async function persistPreparedCommit<Outcome>(
+  tx: AppRowTransaction,
+  scopeId: ScopeId,
+  expectedRunVersion: TaskRunVersionV1,
+  databaseNowMs: TaskDatabaseTimeMsV1,
+  input: PreparedPersistenceInput<Outcome>,
+): Promise<void> {
+  const { generation, request, prepared } = input;
+  const updated = await tx.update(fxSystemDurableTaskRunsV1).set({
+    aggregateCodecVersion: 1,
+    aggregateByteLength: prepared.aggregateByteLength,
+    aggregateJson: prepared.aggregateJson,
+    runVersion: prepared.projection.runVersion,
+    phase: prepared.projection.phase,
+    dueKind: prepared.projection.dueKind,
+    dueAtMs: nullableNumberAsBigInt(prepared.projection.dueAtMs),
+    currentAttemptId: prepared.projection.currentAttemptId,
+    executionFenceBasis: prepared.projection.executionFenceBasis,
+    currentLeaseVersion: prepared.projection.currentLeaseVersion,
+    currentLeaseExpiresAtMs: nullableNumberAsBigInt(
+      prepared.projection.currentLeaseExpiresAtMs,
+    ),
+    cancellationGeneration: prepared.projection.cancellationGeneration,
+    requestedEffectSequence: prepared.projection.requestedEffectSequence,
+  }).where(and(
+    eq(fxSystemDurableTaskRunsV1.scopeId, scopeId),
+    eq(fxSystemDurableTaskRunsV1.runId, request.runId),
+    eq(fxSystemDurableTaskRunsV1.definitionGeneration, generation),
+    eq(fxSystemDurableTaskRunsV1.runVersion, expectedRunVersion),
+  )).returning({ runVersion: fxSystemDurableTaskRunsV1.runVersion });
+  if (
+    updated.length !== 1
+    || updated[0]?.runVersion !== prepared.next.runVersion
+  ) {
+    throw rollbackStoreError(new TaskSystemRunAttemptTransientStoreError({
+      operation: request.operation,
+      runId: request.runId,
+      reason: "transaction_conflict",
+      cause: null,
+    }));
+  }
+
+  if (prepared.attemptIdentity !== null) {
+    await tx.insert(fxSystemDurableTaskAttemptIdentitiesV1).values({
+      scopeId,
+      attemptId: prepared.attemptIdentity.attemptId,
+      runId: request.runId,
+      attemptNumber: prepared.attemptIdentity.attemptNumber,
+      executionFence: prepared.attemptIdentity.executionFence,
+      acceptedRunVersion: prepared.next.runVersion,
+    });
+  }
+  if (prepared.effects.length === 0) return;
+
+  await tx.insert(fxSystemDurableTaskRequestedEffectsV1).values(
+    prepared.effects.map(({ persisted, payloadJson, payloadByteLength }) => ({
+      scopeId,
+      runId: request.runId,
+      sequence: persisted.sequence,
+      acceptedRunVersion: persisted.effect.acceptedRunVersion,
+      kind: persisted.effect.kind,
+      payloadCodecVersion: 1,
+      payloadByteLength,
+      payloadJson,
+      notBeforeMs: taskSystemRequestedEffectNotBeforeMsV1(persisted),
+    })),
+  );
+  const pendingComputeEffects: Array<
+    typeof fxSystemDurableTaskComputePendingV1.$inferInsert
+  > = [];
+  for (const { persisted } of prepared.effects) {
+    if (
+      persisted.effect.kind === "dispatch_attempt"
+      || persisted.effect.kind === "request_execution_cancellation"
+    ) {
+      pendingComputeEffects.push({
+        scopeId,
+        runId: request.runId,
+        requestedEffectSequence: persisted.sequence,
+        kind: persisted.effect.kind,
+        eligibleAt: new Date(databaseNowMs),
+      });
+    }
+  }
+  if (pendingComputeEffects.length > 0) {
+    await tx.insert(fxSystemDurableTaskComputePendingV1).values(
+      pendingComputeEffects,
+    );
+  }
+}
+
+function prepareCommit<Outcome>(
+  request: TaskSystemRunAttemptTransactionV1<Outcome>,
+  current: TaskRunAttemptAggregateV1,
+  databaseNowMs: TaskDatabaseTimeMsV1,
+  candidate: TaskAttemptGrantCandidateV1 | null,
+  decision: Extract<TaskRunAttemptDecisionV1<Outcome>, { readonly kind: "commit" }>,
+) {
+  if (decision.expectedRunVersion !== current.runVersion) {
+    throw rollbackDecisionError(new StaleTaskRunVersionError({
+      operation: request.operation,
+      runId: request.runId,
+      reason: "commit_basis_disagrees_with_decoded_state",
+    }));
+  }
+  if (current.runVersion >= POSTGRES_SIGNED_BIGINT_MAX) {
+    throw rollbackStoreError(new TaskSystemRunAttemptTerminalStoreError({
+      operation: request.operation,
+      runId: request.runId,
+      reason: "version_storage_exhausted",
+      cause: null,
+    }));
+  }
+  if (
+    decision.next.runVersion !== current.runVersion + 1n
+    || decision.next.runId !== current.runId
+    || decision.next.taskDefinitionRevisionId !== current.taskDefinitionRevisionId
+    || decision.next.createdAtMs !== current.createdAtMs
+    || !persistedValueEqual(decision.next.boundPolicy, current.boundPolicy)
+  ) {
+    throw rollbackDecisionError(invalidDecision(request, current, "next_state_invalid"));
+  }
+  const preparedAggregate = Result.getOrThrowWith(Result.gen(function* () {
+    const aggregateJson = yield* encodePersistedTaskRunAttemptAggregateJsonV1(
+      decision.next,
+    );
+    const next = yield* decodePersistedTaskRunAttemptAggregateJsonV1(
+      aggregateJson,
+    );
+    return { aggregateJson, next };
+  }), () => rollbackDecisionError(
+    invalidDecision(request, current, "next_state_invalid"),
+  ));
+  const { aggregateJson, next } = preparedAggregate;
+  const acceptance = next.lastLifecycleAcceptance;
+  if (
+    acceptance === null
+    || acceptance.kind !== request.operation
+    || acceptance.accepted.observedAtMs !== databaseNowMs
+    || !persistedValueEqual(acceptance.accepted.outcome, decision.outcome)
+    || !persistedValueEqual(acceptance.accepted.evidence, decision.evidence)
+    || !persistedValueEqual(
+      acceptance.accepted.requestedEffects,
+      decision.requestedEffects,
+    )
+  ) {
+    throw rollbackDecisionError(invalidDecision(request, current, "acceptance_invalid"));
+  }
+  const firstSequence = current.requestedEffectCursor.kind === "none"
+    ? 1n
+    : current.requestedEffectCursor.lastSequence + 1n;
+  if (
+    decision.requestedEffects.length === 0
+    || decision.requestedEffects[0]?.sequence !== firstSequence
+  ) {
+    throw rollbackDecisionError(invalidDecision(request, current, "effect_order_invalid"));
+  }
+  const effects = decision.requestedEffects.map((persisted, index) => {
+    if (
+      persisted.sequence !== firstSequence + BigInt(index)
+      || persisted.effect.runId !== current.runId
+      || persisted.effect.acceptedRunVersion !== next.runVersion
+    ) {
+      throw rollbackDecisionError(invalidDecision(request, current, "effect_order_invalid"));
+    }
+    const payloadJson = Result.getOrThrowWith(
+      encodePersistedTaskRequestedEffectJsonV1(persisted),
+      () => rollbackDecisionError(
+        invalidDecision(request, current, "effect_order_invalid"),
+      ),
+    );
+    return Object.freeze({
+      persisted,
+      payloadJson,
+      payloadByteLength: encodedJsonByteLength(payloadJson),
+    });
+  });
+  const projection = projectTaskRunAttemptPersistenceV1(next);
+  const lastSequence = effects.at(-1)?.persisted.sequence;
+  if (
+    lastSequence === undefined
+    || BigInt(projection.requestedEffectSequence) !== BigInt(lastSequence)
+  ) {
+    throw rollbackDecisionError(invalidDecision(request, current, "effect_order_invalid"));
+  }
+  const attemptIdentity = request.operation === "start_attempt"
+    ? requireAcceptedAttemptIdentity(request, current, next, candidate)
+    : null;
+  return Object.freeze({
+    next,
+    projection,
+    aggregateJson,
+    aggregateByteLength: encodedJsonByteLength(aggregateJson),
+    attemptIdentity,
+    effects: Object.freeze(effects),
+  });
+}
+
+function prepareApplicationCommit<Outcome>(
+  request: ApplicationTaskSystemRunAttemptTransactionV1<Outcome>,
+  current: ApplicationTaskRunAttemptAggregateV1,
+  databaseNowMs: TaskDatabaseTimeMsV1,
+  candidate: TaskAttemptGrantCandidateV1 | null,
+  decision: Extract<ApplicationTaskRunAttemptDecisionV1<Outcome>, {
+    readonly kind: "commit";
+  }>,
+) {
+  return prepareCurrentDefinitionCommit(request,
+    toCurrentTaskRunAttemptAggregate({ generation: "application_v1", aggregate: current }), databaseNowMs, candidate,
+    toCurrentApplicationTaskRunAttemptDecision(request.operation, decision), "application_v1");
+}
+
+function prepareCurrentDefinitionCommit<Outcome>(
+  request: Pick<TrustedWorkflowTaskSystemRunAttemptTransaction<Outcome>, "operation" | "runId">,
+  current: CurrentTaskRunAttemptAggregate, databaseNowMs: TaskDatabaseTimeMsV1,
+  candidate: TaskAttemptGrantCandidateV1 | null,
+  decision: CurrentTaskRunAttemptDecision<Outcome>, generation: "application_v1" | "trusted_workflow",
+) {
+  if (decision.kind !== "commit") throw rollbackDecisionError(invalidDecision(request, current, "next_state_invalid"));
+  if (decision.expectedRunVersion !== current.runVersion) {
+    throw rollbackDecisionError(new StaleTaskRunVersionError({
+      operation: request.operation,
+      runId: request.runId,
+      reason: "commit_basis_disagrees_with_decoded_state",
+    }));
+  }
+  if (current.runVersion >= POSTGRES_SIGNED_BIGINT_MAX) {
+    throw rollbackStoreError(new TaskSystemRunAttemptTerminalStoreError({
+      operation: request.operation,
+      runId: request.runId,
+      reason: "version_storage_exhausted",
+      cause: null,
+    }));
+  }
+  if (generation === "trusted_workflow" && !continuationTransitionPreservesAnchor(request.operation, current, decision.next))
+    throw rollbackDecisionError(invalidDecision(request, current, "next_state_invalid"));
+  const currentModel = current;
+  const nextModel = decision.next;
+  if (
+    decision.next.runVersion !== current.runVersion + 1n
+    || decision.next.runId !== current.runId
+    || !persistedValueEqual(
+      nextModel.definitionReference,
+      currentModel.definitionReference,
+    )
+    || decision.next.createdAtMs !== current.createdAtMs
+    || !persistedValueEqual(decision.next.boundPolicy, current.boundPolicy)
+  ) throw rollbackDecisionError(invalidDecision(
+    request, current, "next_state_invalid",
+  ));
+  const preparedAggregate = Result.getOrThrowWith(Result.gen(function* () {
+    const aggregateJson = yield* encodeCurrentAggregate(decision.next, generation);
+    const next = yield* decodeCurrentAggregate(aggregateJson, generation);
+    return { aggregateJson, next };
+  }), () => rollbackDecisionError(
+    invalidDecision(request, current, "next_state_invalid"),
+  ));
+  const { aggregateJson, next } = preparedAggregate;
+  const acceptance = next.lastLifecycleAcceptance;
+  if (
+    acceptance === null
+    || (acceptance.kind === "workflow_continuation"
+      ? acceptance.accepted.evidence[0]?.kind !== "workflow_continuation" || acceptance.accepted.evidence[0].operation !== request.operation
+      : acceptance.kind !== request.operation)
+    || acceptance.accepted.observedAtMs !== databaseNowMs
+    || !persistedValueEqual(acceptance.accepted.outcome, decision.outcome)
+    || !persistedValueEqual(acceptance.accepted.evidence, decision.evidence)
+    || !persistedValueEqual(
+      acceptance.accepted.requestedEffects,
+      decision.requestedEffects,
+    )
+  ) throw rollbackDecisionError(invalidDecision(
+    request, current, "acceptance_invalid",
+  ));
+  const firstSequence = current.requestedEffectCursor.kind === "none"
+    ? 1n
+    : current.requestedEffectCursor.lastSequence + 1n;
+  if (decision.requestedEffects.length === 0
+    || decision.requestedEffects[0]?.sequence !== firstSequence) {
+    throw rollbackDecisionError(invalidDecision(
+      request, current, "effect_order_invalid",
+    ));
+  }
+  const effects = decision.requestedEffects.map((persisted, index) => {
+    if (
+      persisted.sequence !== firstSequence + BigInt(index)
+      || persisted.effect.runId !== current.runId
+      || persisted.effect.acceptedRunVersion !== next.runVersion
+    ) throw rollbackDecisionError(invalidDecision(
+      request, current, "effect_order_invalid",
+    ));
+    const payloadJson = Result.getOrThrowWith(
+      encodeCurrentEffect(persisted, generation),
+      () => rollbackDecisionError(invalidDecision(
+        request, current, "effect_order_invalid",
+      )),
+    );
+    return Object.freeze({
+      persisted,
+      payloadJson,
+      payloadByteLength: encodedJsonByteLength(payloadJson),
+    });
+  });
+  const projection = projectCurrentTaskRunAttemptPersistence(next);
+  const lastSequence = effects.at(-1)?.persisted.sequence;
+  if (lastSequence === undefined
+    || BigInt(projection.requestedEffectSequence) !== BigInt(lastSequence)) {
+    throw rollbackDecisionError(invalidDecision(
+      request, current, "effect_order_invalid",
+    ));
+  }
+  const attemptIdentity = request.operation === "start_attempt"
+    ? requireAcceptedAttemptIdentity(request, current, next, candidate)
+    : null;
+  return Object.freeze({
+    next,
+    projection,
+    aggregateJson,
+    aggregateByteLength: encodedJsonByteLength(aggregateJson),
+    attemptIdentity,
+    effects: Object.freeze(effects),
+  });
+}
+
+function requireAcceptedAttemptIdentity<Outcome>(
+  request: Pick<TrustedWorkflowTaskSystemRunAttemptTransaction<Outcome>, "operation" | "runId">,
+  current: TaskRunAttemptAggregateV1 | ApplicationTaskRunAttemptAggregateV1 | CurrentTaskRunAttemptAggregate,
+  next: TaskRunAttemptAggregateV1 | ApplicationTaskRunAttemptAggregateV1 | CurrentTaskRunAttemptAggregate,
+  candidate: TaskAttemptGrantCandidateV1 | null,
+): TaskAttemptGrantCandidateV1 {
+  if (
+    candidate === null
+    || next.phase !== "attempt_granted"
+    || next.currentAttempt.attemptId !== candidate.attemptId
+    || next.currentAttempt.attemptNumber !== candidate.attemptNumber
+    || next.currentAttempt.executionFence !== candidate.executionFence
+  ) {
+    throw rollbackDecisionError(invalidDecision(request, current, "candidate_unexpected"));
+  }
+  return candidate;
+}
+
+function isStoredAcceptanceReplay<_Outcome>(
+  current: TaskRunAttemptAggregateV1 | ApplicationTaskRunAttemptAggregateV1 | CurrentTaskRunAttemptAggregate,
+  replay: unknown,
+): boolean {
+  if (
+    current.lastLifecycleAcceptance !== null
+    && persistedValueEqual(current.lastLifecycleAcceptance.accepted, replay)
+  ) return true;
+  if ("continuation" in current && current.continuation !== undefined) {
+    const continuation = current.continuation;
+    if (persistedValueEqual(continuation.registrationReceipt, replay)
+      || persistedValueEqual(continuation.resolutionReceipt, replay)
+      || (continuation.cancellationReceipt !== undefined && persistedValueEqual(continuation.cancellationReceipt, replay))) return true;
+  }
+  return current.completionReplays.some((entry) =>
+    persistedValueEqual(entry.accepted, replay)
+  );
+}
+
+function invalidDecision<Outcome>(
+  request: Pick<TrustedWorkflowTaskSystemRunAttemptTransaction<Outcome>, "operation" | "runId">,
+  current: TaskRunAttemptAggregateV1 | ApplicationTaskRunAttemptAggregateV1 | CurrentTaskRunAttemptAggregate,
+  reason: InvalidRunAttemptTransitionError["reason"],
+): InvalidRunAttemptTransitionError {
+  return new InvalidRunAttemptTransitionError({
+    operation: request.operation,
+    runId: request.runId,
+    phase: current.phase,
+    reason,
+  });
+}
+
+function encodedJsonByteLength(value: unknown): bigint {
+  return BigInt(UTF8.encode(JSON.stringify(value)).byteLength);
+}
+
+function nullableNumberAsBigInt(value: number | null): bigint | null {
+  return value === null ? null : BigInt(value);
+}
+
+function snapshotReceipt<Outcome>(
+  receipt: TaskSystemRunAttemptTransactionReceiptV1<Outcome>,
+  request: TaskSystemRunAttemptTransactionV1<Outcome>,
+): Result.Result<
+  TaskSystemRunAttemptTransactionReceiptV1<Outcome>,
+  TaskSystemRunAttemptTerminalStoreError
+> {
+  try {
+    return Result.succeed(snapshotOwned(receipt));
+  } catch (cause) {
+    return Result.fail(new TaskSystemRunAttemptTerminalStoreError({
+      operation: request.operation,
+      runId: request.runId,
+      reason: "serialization_unsupported",
+      cause,
+    }));
+  }
+}
+
+function snapshotApplicationReceipt<Outcome>(
+  receipt: ApplicationTaskSystemRunAttemptTransactionReceiptV1<Outcome>,
+  request: ApplicationTaskSystemRunAttemptTransactionV1<Outcome>,
+): Result.Result<
+  ApplicationTaskSystemRunAttemptTransactionReceiptV1<Outcome>,
+  TaskSystemRunAttemptTerminalStoreError
+> {
+  try {
+    return Result.succeed(snapshotOwned(receipt));
+  } catch (cause) {
+    return Result.fail(new TaskSystemRunAttemptTerminalStoreError({
+      operation: request.operation,
+      runId: request.runId,
+      reason: "serialization_unsupported",
+      cause,
+    }));
+  }
+}
+
+function snapshotInspection(
+  inspection: TaskSystemRunAttemptInspectionSnapshotV1,
+  operation: "inspect_current_attempt",
+  runId: TaskRunIdV1,
+): Result.Result<
+  TaskSystemRunAttemptInspectionSnapshotV1,
+  TaskSystemRunAttemptTerminalStoreError
+> {
+  try {
+    return Result.succeed(snapshotOwned(inspection));
+  } catch (cause) {
+    return Result.fail(new TaskSystemRunAttemptTerminalStoreError({
+      operation,
+      runId,
+      reason: "serialization_unsupported",
+      cause,
+    }));
+  }
+}
+
+function snapshotOwned<Value>(value: Value): Value {
+  const snapshot = structuredClone(value);
+  freezeOwned(snapshot);
+  return snapshot;
+}
+
+function freezeOwned(value: unknown): void {
+  if (value === null || typeof value !== "object" || ArrayBuffer.isView(value)) return;
+  for (const child of Array.isArray(value) ? value : Object.values(value)) {
+    freezeOwned(child);
+  }
+  Object.freeze(value);
+}
+
+function awaitLocatedTransaction<Value>(
+  transaction: Promise<Value>,
+): Effect.Effect<Value, unknown> {
+  return Effect.uninterruptible(Effect.tryPromise({
+    try: () => transaction,
+    catch: cause => cause,
+  }));
+}
+
+class DecisionRollback {
+  readonly kind = "decision";
+  constructor(readonly error: RunAttemptDecisionErrorV1) {}
+}
+
+class StoreRollback {
+  readonly kind = "store";
+  constructor(readonly error: TaskSystemRunAttemptStoreErrorV1) {}
+}
+
+function rollbackDecisionError(error: RunAttemptDecisionErrorV1): DecisionRollback {
+  return new DecisionRollback(error);
+}
+
+function rollbackStoreError(error: TaskSystemRunAttemptStoreErrorV1): StoreRollback {
+  return new StoreRollback(error);
+}
+
+type ClassifiedTransactionFailure =
+  | Readonly<{ readonly kind: "retry" }>
+  | Readonly<{
+      readonly kind: "fail";
+      readonly error: RunAttemptDecisionErrorV1 | TaskSystemRunAttemptStoreErrorV1;
+    }>
+  | Readonly<{
+      readonly kind: "cleanup";
+      readonly callback:
+        | RunAttemptDecisionErrorV1
+        | TaskSystemRunAttemptStoreErrorV1;
+      readonly cause: LocatedReadCommittedTransactionFailureV1;
+    }>
+  | Readonly<{ readonly kind: "defect"; readonly cause: unknown }>;
+
+function classifyTransactionFailure(
+  operation: CurrentRunAttemptOperation,
+  runId: TaskRunIdV1,
+  cause: unknown,
+  execution: number,
+): ClassifiedTransactionFailure {
+  if (!(cause instanceof LocatedReadCommittedTransactionFailureV1)) {
+    return Object.freeze({ kind: "defect", cause });
+  }
+  switch (cause.issue.kind) {
+    case "callbackRolledBack":
+      return classifyConfirmedRollback(
+        operation,
+        runId,
+        cause.issue.callbackCause,
+        cause,
+        execution,
+      );
+    case "decisionUncertain":
+      return Object.freeze({
+        kind: "fail",
+        error: new TaskSystemRunAttemptTransientStoreError({
+          operation,
+          runId,
+          reason: "driver_failure",
+          cause,
+        }),
+      });
+    case "infrastructureFailure":
+      return classifyInfrastructureFailure(operation, runId, cause);
+    case "callbackCleanupFailed": {
+      const callback = unwrapRollback(cause.issue.callbackCause);
+      if (callback !== null) {
+        return Object.freeze({
+          kind: "cleanup",
+          callback,
+          cause,
+        });
+      }
+      return Object.freeze({ kind: "defect", cause });
+    }
+  }
+}
+
+function classifyConfirmedRollback(
+  operation: CurrentRunAttemptOperation,
+  runId: TaskRunIdV1,
+  callbackCause: unknown,
+  transactionCause: LocatedReadCommittedTransactionFailureV1,
+  execution: number,
+): ClassifiedTransactionFailure {
+  const expected = unwrapRollback(callbackCause);
+  if (expected !== null) return Object.freeze({ kind: "fail", error: expected });
+  if (isRetryableSqlConflict(callbackCause)) {
+    return execution < MAX_TRANSACTION_EXECUTIONS
+      ? Object.freeze({ kind: "retry" })
+      : Object.freeze({
+          kind: "fail",
+          error: new TaskSystemRunAttemptTransientStoreError({
+            operation,
+            runId,
+            reason: "transaction_conflict",
+            cause: transactionCause,
+          }),
+        });
+  }
+  if (isAttemptIdentityPrimaryKeyCollision(callbackCause)) {
+    return execution < MAX_TRANSACTION_EXECUTIONS
+      ? Object.freeze({ kind: "retry" })
+      : Object.freeze({
+          kind: "fail",
+          error: new TaskSystemRunAttemptTerminalStoreError({
+            operation,
+            runId,
+            reason: "identity_allocation_exhausted",
+            cause: transactionCause,
+          }),
+        });
+  }
+  const known = classifyKnownSqlFailure(operation, runId, callbackCause, transactionCause);
+  return known === null
+    ? Object.freeze({ kind: "defect", cause: transactionCause })
+    : Object.freeze({ kind: "fail", error: known });
+}
+
+function unwrapRollback(
+  cause: unknown,
+): RunAttemptDecisionErrorV1 | TaskSystemRunAttemptStoreErrorV1 | null {
+  if (cause instanceof DecisionRollback || cause instanceof StoreRollback) {
+    return cause.error;
+  }
+  return null;
+}
+
+function isStoreError(
+  error: RunAttemptDecisionErrorV1 | TaskSystemRunAttemptStoreErrorV1,
+): error is TaskSystemRunAttemptStoreErrorV1 {
+  return error instanceof TaskSystemRunAttemptUnavailableError
+    || error instanceof TaskSystemRunAttemptCorruptionError
+    || error instanceof TaskSystemRunAttemptStaleScopeAuthorityError
+    || error instanceof TaskSystemRunAttemptTransientStoreError
+    || error instanceof TaskSystemRunAttemptTerminalStoreError;
+}
+
+function transientDriverFailure(
+  operation: CurrentRunAttemptOperation,
+  runId: TaskRunIdV1,
+  sqlCause: unknown,
+  retainedCause: unknown,
+): TaskSystemRunAttemptTransientStoreError {
+  const code = sqlState(sqlCause);
+  return new TaskSystemRunAttemptTransientStoreError({
+    operation,
+    runId,
+    reason: code?.startsWith("08") === true
+      ? "connection_unavailable"
+      : code === "57014"
+      ? "timeout"
+      : "driver_failure",
+    cause: retainedCause,
+  });
+}
+
+function classifyInfrastructureFailure(
+  operation: CurrentRunAttemptOperation,
+  runId: TaskRunIdV1,
+  failure: LocatedReadCommittedTransactionFailureV1,
+): ClassifiedTransactionFailure {
+  if (failure.issue.kind !== "infrastructureFailure") {
+    return Object.freeze({ kind: "defect", cause: failure });
+  }
+  const transient = classifyKnownSqlFailure(
+    operation,
+    runId,
+    failure.issue.cause,
+    failure,
+  );
+  if (transient !== null) {
+    return Object.freeze({ kind: "fail", error: transient });
+  }
+  if (failure.issue.phase === "beginOrConfigure") {
+    return Object.freeze({
+      kind: "fail",
+      error: new TaskSystemRunAttemptTerminalStoreError({
+        operation,
+        runId,
+        reason: "unsupported_integration",
+        cause: failure,
+      }),
+    });
+  }
+  return Object.freeze({ kind: "defect", cause: failure });
+}
+
+function classifyKnownSqlFailure(
+  operation: CurrentRunAttemptOperation,
+  runId: TaskRunIdV1,
+  sqlCause: unknown,
+  retainedCause: unknown,
+): TaskSystemRunAttemptTransientStoreError | null {
+  const code = sqlState(sqlCause);
+  return code?.startsWith("08") === true || code === "57014"
+    ? transientDriverFailure(operation, runId, sqlCause, retainedCause)
+    : null;
+}
+
+function isRetryableSqlConflict(cause: unknown): boolean {
+  const code = sqlState(cause);
+  return code === "40001" || code === "40P01";
+}
+
+function isAttemptIdentityPrimaryKeyCollision(cause: unknown): boolean {
+  const descriptor = sqlErrorDescriptor(cause);
+  return descriptor?.code === "23505"
+    && descriptor.constraint === ATTEMPT_IDENTITY_PRIMARY_KEY;
+}
+
+function sqlState(cause: unknown): string | undefined {
+  return sqlErrorDescriptor(cause)?.code;
+}
+
+function sqlErrorDescriptor(cause: unknown): Readonly<{
+  readonly code: string;
+  readonly constraint: string | undefined;
+}> | undefined {
+  let current = cause;
+  for (let depth = 0; depth < 8; depth += 1) {
+    const code = stringProperty(current, "code");
+    if (code !== undefined) {
+      return Object.freeze({
+        code,
+        constraint: stringProperty(current, "constraint"),
+      });
+    }
+    if (typeof current !== "object" || current === null) return undefined;
+    current = Reflect.get(current, "cause");
+  }
+  return undefined;
+}
+
+function stringProperty(value: unknown, key: string): string | undefined {
+  if (typeof value !== "object" || value === null) return undefined;
+  const property = Reflect.get(value, key);
+  return typeof property === "string" ? property : undefined;
+}
+
+function staleAuthority(
+  operation: CurrentRunAttemptOperation,
+  runId: TaskRunIdV1,
+  authority: TaskSystemRunAttemptStaleScopeAuthorityError["authority"],
+): TaskSystemRunAttemptStaleScopeAuthorityError {
+  return new TaskSystemRunAttemptStaleScopeAuthorityError({
+    operation,
+    runId,
+    authority,
+  });
+}
+
+function corruption(
+  operation: CurrentRunAttemptOperation,
+  runId: TaskRunIdV1,
+  reason: TaskSystemRunAttemptCorruptionError["reason"],
+): TaskSystemRunAttemptCorruptionError {
+  return new TaskSystemRunAttemptCorruptionError({ operation, runId, reason });
+}
+
+function encodeCurrentAggregate(aggregate: CurrentTaskRunAttemptAggregate, generation: "application_v1" | "trusted_workflow") {
+  if (generation === "trusted_workflow") return encodeTrustedWorkflowTaskRunAttemptAggregateJson(aggregate);
+  return fromCurrentTaskRunAttemptAggregate(aggregate, generation).pipe(Result.flatMap(persisted =>
+    persisted.generation === "application_v1" ? encodeApplicationTaskRunAttemptAggregateJsonV1(persisted.aggregate) : Result.fail(new Error("Current aggregate adapter changed definition generation"))));
+}
+function decodeCurrentAggregate(value: unknown, generation: "application_v1" | "trusted_workflow") {
+  return generation === "trusted_workflow" ? decodeTrustedWorkflowTaskRunAttemptAggregateJson(value)
+    : decodeApplicationTaskRunAttemptAggregateJsonV1(value).pipe(Result.map(aggregate => toCurrentTaskRunAttemptAggregate({ generation, aggregate })));
+}
+function encodeCurrentEffect(persisted: import("@flarex/durable-task/internal/run-attempt-v1").CurrentPersistedTaskRequestedEffect, generation: "application_v1" | "trusted_workflow") {
+  if (generation === "trusted_workflow") return encodeTrustedWorkflowPersistedTaskRequestedEffectJson(persisted);
+  return fromCurrentTaskRequestedEffect(persisted.effect, generation).pipe(Result.flatMap(effect =>
+    effect.generation === "application_v1" ? encodeApplicationPersistedTaskRequestedEffectJsonV1({ sequence: persisted.sequence, effect: effect.effect }) : Result.fail(new Error("Current effect adapter changed definition generation"))));
+}
+
+/** Genuine trusted workflow generation, sharing Task locks/decisions/ledger persistence. */
+export function makeTrustedWorkflowTaskSystemRunAttemptStore(
+  located: LocatedTrustedScopeAuthority<LocatedTaskSystemRunAttemptTargetV1>,
+  options: TaskSystemRunAttemptStoreOptionsV1 = {},
+): TrustedWorkflowTaskSystemRunAttemptStoreShape {
+  const authority = captureTaskSystemTrustedScopeAuthorityV1(located.authority);
+  const target = located.target, randomUuid = options.randomUuid ?? (() => crypto.randomUUID());
+  return Object.freeze({
+    transactRunAttempt: <Outcome>(request: TrustedWorkflowTaskSystemRunAttemptTransaction<Outcome>) =>
+      request.operation === "register_continuation" || request.operation === "confirm_continuation" || request.operation === "expire_continuation"
+        ? Effect.fail(new TaskSystemRunAttemptTerminalStoreError({ operation: request.operation, runId: request.runId, reason: "unsupported_integration", cause: "Continuation operations require the checkpoint-owning continuation store" }))
+        : transactGeneration(
+      authority, target, request,
+      tx => transactOnceCore(tx, authority, target, randomUuid, request, {
+        decode: decodeTrustedWorkflowRunRow,
+        correlate: (innerTx, scopeId, operation, runId, current) => correlateLifecycleLedgerCurrent(innerTx, scopeId, runId,
+          { generation: "trusted_workflow", aggregate: current }, reason => rollbackStoreError(corruption(operation, runId, reason))),
+        makeDecisionInput: (databaseNowMs, current, candidate): CurrentTaskSystemRunAttemptDecisionInput => ({ databaseNowMs, current, get attemptGrantCandidate() { return candidate(); } }),
+        decide: (innerRequest, value) => innerRequest.decide(value),
+        apply: (innerTx, scopeId, innerRequest, current, databaseNowMs, candidate, decision) => applyDecisionCore(
+          innerRequest, current, databaseNowMs, candidate, decision,
+          (selectedCandidate, commit) => prepareCurrentDefinitionCommit(innerRequest, current, databaseNowMs, selectedCandidate, commit, "trusted_workflow"),
+          prepared => persistPreparedCommit(innerTx, scopeId, current.runVersion, databaseNowMs, { generation: "trusted_workflow", request: innerRequest, prepared })),
+      }),
+      (receipt, innerRequest) => {
+        try { return Result.succeed(snapshotOwned(receipt)); }
+        catch (cause) { return Result.fail(new TaskSystemRunAttemptTerminalStoreError({ operation: innerRequest.operation, runId: innerRequest.runId, reason: "serialization_unsupported", cause })); }
+      },
+    ),
+    inspectRunAttempt: (request: TaskSystemRunAttemptInspectionRequestV1) => inspectGeneration(target, async tx => {
+      await requireLockedScopeAuthority(tx, authority, target, request.operation, request.runId);
+      const row = await loadRun(tx, authority.scopeId, request.runId, true);
+      if (row === null) throw rollbackStoreError(new TaskSystemRunAttemptUnavailableError({ operation: request.operation, runId: request.runId, reason: "unavailable" }));
+      const current = decodeTrustedWorkflowRunRow(row, request.operation, request.runId);
+      await correlateLifecycleLedgerCurrent(tx, authority.scopeId, request.runId, { generation: "trusted_workflow", aggregate: current }, reason => rollbackStoreError(corruption(request.operation, request.runId, reason)));
+      return snapshotOwned({ current, observedAtMs: await target[READ_TASK_SYSTEM_DATABASE_NOW_V1](tx, authority.scopeId, request.operation, request.runId) });
+    }, request.operation, request.runId),
+  });
+}
+function decodeTrustedWorkflowRunRow(row: TaskRunRow, operation: CurrentRunAttemptOperation, runId: TaskRunIdV1): CurrentTaskRunAttemptAggregate {
+  const decoded = Result.getOrThrowWith(decodeAndCorrelateTaskSystemRunRowV1(row), reason => rollbackStoreError(corruption(operation, runId, reason)));
+  if (decoded.generation !== "trusted_workflow") throw rollbackStoreError(corruption(operation, runId, "binding_reference_invalid"));
+  return decoded.aggregate;
+}
+
+/** INTERNAL Task owner loan. The deadline-owned outer owner holds the scope lock
+ * and settles; this function locks and correlates the existing Task run and
+ * lends only its accepted transition publisher. It opens no transaction. */
+export const borrowTrustedWorkflowTaskRunInTransaction = Effect.fn("TaskSystem.borrowTrustedWorkflowRun")(
+  function* <A, E>(tx: AppRowTransaction, scopeId: ScopeId,
+    operation: CurrentRunAttemptMutationOperation, runId: TaskRunIdV1,
+    work: (loan: Readonly<{
+      current: CurrentTaskRunAttemptAggregate;
+      databaseNowMs: TaskDatabaseTimeMsV1;
+      apply: <Outcome>(decision: CurrentTaskRunAttemptDecision<Outcome>) => Effect.Effect<
+        RunAttemptServiceReceiptFor<Outcome, CurrentTaskRunAttemptEvidence, CurrentPersistedTaskRequestedEffect>,
+        RunAttemptDecisionErrorV1 | TaskSystemRunAttemptStoreErrorV1>;
+    }>) => Effect.Effect<A, E>) {
+    const ownerPromise = <Value>(call: () => Promise<Value>) => taskOwnerPromise(operation, runId, call);
+    const { current, databaseNowMs } = yield* inspectTrustedWorkflowTaskRunInTransaction(tx, scopeId, operation, runId);
+    let applied = false, open = true;
+    return yield* work(Object.freeze({ current: snapshotOwned(current), databaseNowMs,
+      apply: <Outcome>(decision: CurrentTaskRunAttemptDecision<Outcome>) => Effect.suspend(() => {
+        if (!open || applied) return Effect.fail(invalidDecision({ operation, runId }, current, "next_state_invalid"));
+        applied = true;
+        const request: TrustedWorkflowTaskSystemRunAttemptTransaction<Outcome> = { operation, runId, decide: () => Result.succeed(decision) };
+        return ownerPromise(() => applyDecisionCore(request, current, databaseNowMs, null, decision,
+          (candidate, commit) => prepareCurrentDefinitionCommit(request, current, databaseNowMs, candidate, commit, "trusted_workflow"),
+          prepared => persistPreparedCommit(tx, scopeId, current.runVersion, databaseNowMs, { generation: "trusted_workflow", request, prepared })))
+          .pipe(Effect.map(receipt => snapshotOwned(receipt)));
+      }),
+    })).pipe(Effect.ensuring(Effect.sync(() => { open = false; })));
+  });
+
+function continuationAnchor(value: NonNullable<CurrentTaskRunAttemptAggregate["continuation"]>) {
+  return {
+    waitId: value.waitId, checkpoint: value.checkpoint, nativeStartedAtMs: value.nativeStartedAtMs,
+    timeoutMs: value.timeoutMs, deadlineAtMs: value.deadlineAtMs, registeredAtMs: value.registeredAtMs,
+    suspendedAttempt: value.suspendedAttempt, suspendedAttemptAcceptedRunVersion: value.suspendedAttemptAcceptedRunVersion,
+    suspendedComputeProfile: value.suspendedComputeProfile, registrationReceipt: value.registrationReceipt,
+  };
+}
+function continuationTransitionPreservesAnchor(operation: CurrentRunAttemptMutationOperation,
+  current: CurrentTaskRunAttemptAggregate, next: CurrentTaskRunAttemptAggregate): boolean {
+  const before = current.continuation, after = next.continuation;
+  if (before === undefined) return after === undefined || operation === "register_continuation";
+  if (after === undefined || operation === "register_continuation") return false;
+  if (!persistedValueEqual(continuationAnchor(before), continuationAnchor(after))) return false;
+  if (before.resolution !== null && (!persistedValueEqual(before.resolution, after.resolution) ||
+    !persistedValueEqual(before.resolutionReceipt, after.resolutionReceipt))) return false;
+  if (before.cancellationReceipt !== undefined && !persistedValueEqual(before.cancellationReceipt, after.cancellationReceipt)) return false;
+  if (operation !== "confirm_continuation" && operation !== "expire_continuation" && operation !== "request_cancellation")
+    return persistedValueEqual(before.resolution, after.resolution) && persistedValueEqual(before.resolutionReceipt, after.resolutionReceipt) &&
+      persistedValueEqual(before.cancellationReceipt ?? null, after.cancellationReceipt ?? null);
+  return true;
+}
+
+/** INTERNAL read loan over the same Task row/ledger/clock owner. Caller already
+ * holds scope authority and binds the run to its authenticated definition. */
+export const inspectTrustedWorkflowTaskRunInTransaction = Effect.fn("TaskSystem.inspectTrustedWorkflowRun")(
+  function* (tx: AppRowTransaction, scopeId: ScopeId, operation: CurrentRunAttemptOperation, runId: TaskRunIdV1) {
+    const current = yield* taskOwnerPromise(operation, runId, async () => {
+      const row = await loadRun(tx, scopeId, runId, true);
+      if (row === null) throw rollbackStoreError(new TaskSystemRunAttemptUnavailableError({ operation, runId, reason: "unavailable" }));
+      const decodedCurrent = decodeTrustedWorkflowRunRow(row, operation, runId);
+      await correlateLifecycleLedgerCurrent(tx, scopeId, runId, { generation: "trusted_workflow", aggregate: decodedCurrent },
+        reason => rollbackStoreError(corruption(operation, runId, reason)));
+      return decodedCurrent;
+    });
+    const databaseNowMs = yield* taskOwnerPromise(operation, runId, () => readTaskSystemDatabaseNowV1(tx, scopeId, operation, runId));
+    return Object.freeze({ current: snapshotOwned(current), databaseNowMs });
+  });
+function taskOwnerPromise<Value>(operation: CurrentRunAttemptOperation, runId: TaskRunIdV1, call: () => Promise<Value>) {
+  return Effect.tryPromise({ try: call, catch: cause => cause }).pipe(
+    // oxlint-disable-next-line flarex/prefer-tagged-effect-recovery -- REVIEW: transaction - classifies the owned Task Promise rejection channel while preserving rollback errors and defects
+    Effect.catch(cause => {
+    const domain = unwrapRollback(cause);
+    if (domain !== null) return Effect.fail(domain);
+    const transient = classifyKnownSqlFailure(operation, runId, cause, cause);
+    if (transient !== null) return Effect.fail(transient);
+    if (isRetryableSqlConflict(cause)) return Effect.fail(new TaskSystemRunAttemptTransientStoreError({
+      operation, runId, reason: "transaction_conflict", cause }));
+    return Effect.die(cause);
+  }));
+}

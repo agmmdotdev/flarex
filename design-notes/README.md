@@ -35,6 +35,37 @@ Older relationship examples in broad CMS, commerce, developer-API, InstantDB,
 or internal-schema notes remain research vocabulary. They do not override the
 native relational authority above.
 
+## Core Refactor Direction
+
+The [accepted portable-core direction](./flarex-db-accepted-design.md#portable-core-refactor-direction)
+evolves the existing core and reuses Medusa/Payload behavior, with necessary
+breaking internal changes and removal of displaced mechanisms. Start at the
+[engine discussion](../experiments/core/engine/README.md),
+[refactor record](../experiments/core/engine/REFACTOR.md) and
+[open questions](../experiments/core/engine/OPEN-QUESTIONS.md). The experimental
+folder is the proof area, not a separate permanent framework implementation.
+Use the accepted [replacement workflow](../experiments/core/engine/REFACTOR.md#convex-guided-replacement-workflow)
+one connected responsibility at a time, resolving that slice's semantic
+prerequisites rather than the entire question queue.
+[App ownership and commit decisions](../experiments/core/engine/01-commit-coordination.md)
+and [timestamped snapshots](../experiments/core/engine/02-timestamped-snapshots.md)
+and [operation lifetime/expiry](../experiments/core/engine/02-operation-lifetime.md)
+are accepted design. [Read authorization](../experiments/core/engine/02-read-authorization.md)
+follows Convex snapshot dependencies with separate engine-grant revocation.
+Numerical budgets, cache representation and fencing protocols remain open.
+[Read-after-write freshness](../experiments/core/engine/02-read-after-write.md)
+selects latest-ready-owner reads, recovery gating and reactive timestamp synchronization.
+[Index readiness](../experiments/core/engine/02-index-readiness.md) selects the
+Convex lifecycle, deployment gates and snapshot-based query admission.
+The [starting recommendation](../experiments/core/engine/REFACTOR.md#recommended-starting-slice)
+is snapshot-correct point/index reads with injected cache/storage adapters;
+the [goal contract](../experiments/core/engine/GOAL.md) now authorizes bounded
+implementation after coordinated source challenges and requires separate
+[divergence records](../experiments/core/engine/divergences/README.md).
+Resumable index backfill remains open. Replication
+is explicitly deferred. Current runtime behavior and
+historical evidence are not rewritten as completed new-engine work.
+
 ## Query-Sync Replacement Authority
 
 For live-query coordination, use
@@ -53,7 +84,43 @@ replacement does not change those guarantees. The new service is not yet
 implemented or activated. Exact breaks and implementation gates are recorded in
 [the redesign preflight](../roadmaps/query-sync-engine/preflight/15-live-query-service-redesign.md).
 
+## Shared Schema Lifecycle Authority
+
+[Shared schema installation and evolution](./flarexdb-shared-schema-lifecycle.md)
+owns the accepted common internal APIs for Flarex Application, Payload, Medusa
+and platform Tasks. Each supplies native definitions and conversion meaning;
+the core supplies admission, planning, logical installation/builds, validation,
+progress/recovery, readiness and activation. Extend/consolidate current owners;
+do not add consumer-specific installers or migration authorities. Developer
+schema deployment composes this core, while platform schemas use authenticated
+system installation. Existing capabilities remain bounded and full consolidation
+and advanced evolution are pending/separately scoped.
+
+## Task System Replacement Authority
+
+For Task engine, storage, scheduling, compute and migration work, start with
+[Task System: Independent Trigger Fork](./task-system/README.md) and the
+[current roadmap](../roadmaps/task-system/README.md). The accepted target adopts
+actual Trigger methods once, maintains the fork independently, stores all
+Task-owned state in [Convex-style private logical system tables](./task-system/02-logical-storage.md#convex-storage-reference)
+(including platform scheduler and repair data), and injects host adapters.
+Convex supplies the storage precedent; the Trigger fork remains the engine.
+Tasks [reuse shared core indexing and the DO cache system](./task-system/02-logical-storage.md#shared-core-indexing-and-do-cache),
+with explicit writer/freshness integration and no separate Task database or
+cache layer.
+Full Task-specific physical retirement is required after cutover. Runtime
+implementation remains pending.
+
+The two earlier Task design notes and the entire `durable-task-engine` roadmap
+folder are legacy/superseded direction. Preserve applicable baseline behavior
+and source evidence, but do not resume their old next-step instructions.
+
 ## Notes
+
+- [Shared schema installation and evolution](./flarexdb-shared-schema-lifecycle.md)
+  - Accepted four-consumer core API direction, producer/core responsibilities,
+    Task bootstrap and current implementation gaps. Generic physical upgrades
+    remain platform-owned and advanced evolution retains its separate gate.
 
 - [Shared framework integration direction](./flarexdb-framework-integration-direction.md)
   - Accepted core transaction/commit ownership with distinct native OCC and
@@ -87,16 +154,20 @@ implemented or activated. Exact breaks and implementation gates are recorded in
     `@flarex/persistence-postgres`. It authorizes no migration and must be
     revalidated against the working tree before becoming a roadmap.
 
-- `flarex-durable-task-engine.md`
-  - Accepted direction for extracting Trigger.dev's first-class task-definition
-    and durable-run semantics into a canonical Standard Application task
-    catalog plus a host-neutral Flarex state machine backed by a private
-    FlarexDB Task System API and Cloudflare/compute-provider adapters. Current
-    Flarex actions are not task authority. Trigger remains an inactive
-    compatibility island rather than a runtime dependency. Private lifecycle,
-    Postgres, scheduling, provider, and delivery foundations now exist, while
-    connected runtime work is held behind a capability-local Trigger source
-    audit and the first end-to-end private vertical.
+- [Task System: Independent Trigger Fork](./task-system/README.md)
+  - Current accepted Task architecture. Focused documents own engine adoption,
+    Convex-style logical storage, injected host adapters and complete
+    cutover/retirement.
+    The [Task roadmap](../roadmaps/task-system/README.md) owns pending gates.
+
+- [Legacy shared-task replacement proposal](./flarexdb-shared-task-system.md)
+  - Superseded planning and source evidence. Upstream-sync expectations and
+    optional physical Task infrastructure retention are not current decisions.
+
+- [Legacy custom durable task engine](./flarex-durable-task-engine.md)
+  - Historical architecture and implemented-baseline evidence. Its custom
+    lifecycle and physical Task schema are replacement targets; existing callers
+    remain until explicit cutover.
 
 - `flarex-dynamic-worker-bundle-partitioning.md`
   - Accepted runtime design direction for automatic, size-bounded Dynamic

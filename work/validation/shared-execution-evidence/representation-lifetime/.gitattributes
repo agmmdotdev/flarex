@@ -1,0 +1,7 @@
+# These exact producer bytes are fingerprinted by the retained campaigns.
+probe.ts -text
+evidence.ts -text
+transform.mjs -text
+campaign.test.ts -text
+vitest.config.ts -text
+run-campaign.ps1 -text whitespace=cr-at-eol

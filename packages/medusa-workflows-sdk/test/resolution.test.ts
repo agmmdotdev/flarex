@@ -1,0 +1,561 @@
+import { describe, expect, expectTypeOf, it, vi } from "vitest";
+import { Cause, Deferred, Effect, Exit, Fiber, Result } from "effect";
+import type { PricingTypes } from "@medusajs/types";
+import { createHook, createStep, createWorkflow, isPreparedWorkflow, StepResponse, transform, when, WorkflowResponse, type WorkflowData } from "../src/index";
+import { executeWorkflow, type WorkflowExecutionPort } from "../src/runtime";
+import { proxify, referenceOf } from "../src/references";
+import type { Resolved, StepFunction, StepOutput } from "../src/model";
+import type { SkipStepResponse } from "@medusajs/orchestration/transaction/errors";
+
+/** SDK-owned Promise test bridge; typed failures, defects and interruption keep
+ * Effect's normal runtime semantics, with full outcomes asserted through Exit. */
+function runEffect<A, E>(effect: Effect.Effect<A, E>): Promise<A> {
+  return Effect.runPromise(effect);
+}
+
+const port: WorkflowExecutionPort<Error> = {
+  checkpoint: Effect.void,
+  capture: value => Effect.sync(() => structuredClone(value)),
+  invoke: work => Effect.tryPromise({ try: () => Promise.resolve(work()), catch: cause => cause instanceof Error ? cause : new Error("Foreign callback failed") }),
+  context: { container: { resolve() { throw new Error("No resource selected"); } }, eventGroupId: "resolution-test" },
+};
+
+describe("prepared workflow resolution", () => {
+  it("executes implicit-void and explicit-undefined composers without dropping staged work", async () => {
+    const order: string[] = [], captures: unknown[] = [], inverses: unknown[] = [];
+    const write = createStep({ name: "void-composer-write", compensation: "transactionCovered" }, (ids: readonly string[]) => {
+      order.push("write:" + ids.join(",")); return new StepResponse(undefined, [...ids]);
+    }, retained => { inverses.push(retained); });
+    const after = createStep("void-composer-after", () => { order.push("after"); return new StepResponse("ignored"); });
+    const implicit = createWorkflow("native-void-composer", (input: WorkflowData<readonly string[]>): void => {
+      write(input); after(undefined);
+    });
+    const explicit = createWorkflow("native-undefined-composer", (input: WorkflowData<readonly string[]>): undefined => {
+      write(input); after(undefined); return undefined;
+    });
+    const wrapped = createWorkflow("native-void-composer", (input: WorkflowData<readonly string[]>) => {
+      write(input); after(undefined); return new WorkflowResponse(undefined);
+    });
+    const prepared = Result.getOrThrow(implicit.prepare());
+    expect(prepared.nodes.map(node => node.name)).toEqual(["void-composer-write", "void-composer-after"]);
+    expect(prepared.identity).toEqual(Result.getOrThrow(wrapped.prepare()).identity);
+    expect(prepared.identity.result).toEqual({ absent: true });
+    const selected: WorkflowExecutionPort<Error> = { ...port,
+      capture: value => Effect.sync(() => { const result = structuredClone(value); captures.push(result); return result; }) };
+    expect(await runEffect(executeWorkflow(prepared, ["a", "a", ""], selected))).toBeUndefined();
+    expect(await runEffect(executeWorkflow(Result.getOrThrow(explicit.prepare()), ["b"], selected))).toBeUndefined();
+    expect(order).toEqual(["write:a,a,", "after", "write:b", "after"]);
+    expect(captures).toContainEqual({ output: undefined, compensation: ["a", "a", ""] });
+    expect(captures).toContainEqual({ output: undefined, compensation: ["b"] });
+    expect(inverses).toEqual([]);
+    const empty = createWorkflow("native-empty-void-composer", (): void => {});
+    expect(Result.getOrThrow(empty.prepare()).nodes).toEqual([]);
+    expect(await runEffect(executeWorkflow(Result.getOrThrow(empty.prepare()), undefined, selected))).toBeUndefined();
+  });
+
+  it("runs a void child before parent continuation and preserves covered rollback on failure", async () => {
+    const order: string[] = [], inverses: unknown[] = [], failure = new Error("Late void parent refusal");
+    let refuse = false;
+    const write = createStep({ name: "void-child-write", compensation: "transactionCovered" }, (value: number) => {
+      order.push("child-write:" + value); return new StepResponse(undefined, value);
+    }, retained => { inverses.push(retained); });
+    const last = createStep("void-child-last", () => { order.push("child-last"); return new StepResponse(null); });
+    const child = createWorkflow("native-void-child-composer", (input: WorkflowData<number>): void => {
+      write(input); last(undefined);
+    });
+    const after = createStep("void-parent-after", (_input: void) => {
+      order.push("parent-after"); if (refuse) throw failure; return new StepResponse("done");
+    });
+    const parent = createWorkflow("native-void-child-parent", (input: WorkflowData<number>) =>
+      new WorkflowResponse(after(child.runAsStep({ input }))));
+    const prepared = Result.getOrThrow(parent.prepare());
+    expect(await runEffect(executeWorkflow(prepared, 3, port))).toBe("done");
+    expect(order).toEqual(["child-write:3", "child-last", "parent-after"]);
+    refuse = true;
+    await expect(runEffect(executeWorkflow(prepared, 4, port))).rejects.toBe(failure);
+    expect(order).toEqual(["child-write:3", "child-last", "parent-after", "child-write:4", "child-last", "parent-after"]);
+    expect(inverses).toEqual([]);
+  });
+
+  it("keeps void composer inference narrow without accepting unrelated return values", () => {
+    const check = () => {
+      const implicit = createWorkflow("typed-void-composer", (input: WorkflowData<number>): void => { void input; });
+      const explicit = createWorkflow("typed-undefined-composer", () => undefined);
+      expectTypeOf<ReturnType<typeof implicit.runAsStep>>().toEqualTypeOf<StepOutput<void>>();
+      expectTypeOf<ReturnType<typeof explicit.runAsStep>>().toEqualTypeOf<StepOutput<undefined>>();
+      expectTypeOf<Parameters<typeof implicit.runAsStep>[0]["input"]>().toEqualTypeOf<number | WorkflowData<number>>();
+      // @ts-expect-error A bare scalar is neither a response, staged step nor void.
+      createWorkflow("typed-refused-scalar-composer", () => 1);
+      // @ts-expect-error A bare object is not admitted by void callback assignability.
+      createWorkflow("typed-refused-object-composer", () => ({ id: "a" }));
+      // @ts-expect-error Literal null remains distinct from an absent result.
+      createWorkflow("typed-refused-null-composer", () => null);
+      // @ts-expect-error Async void builders are still asynchronous definitions.
+      createWorkflow("typed-refused-async-void-composer", async () => {});
+      // @ts-expect-error A returned Promise is not a synchronous absent value.
+      createWorkflow("typed-refused-promise-composer", () => Promise.resolve(undefined));
+      // @ts-expect-error An input facade is not an authenticated staged step.
+      createWorkflow("typed-refused-input-composer", (input: WorkflowData<number>) => input);
+      // @ts-expect-error A branded void input is not literal void or a staged step.
+      createWorkflow("typed-refused-void-reference-composer", (input: WorkflowData<void>) => input);
+    };
+    expectTypeOf(check).toBeFunction();
+  });
+
+  it("preserves cancellation after a void composer's staged callback without invoking covered inverses", async () => {
+    const reached = Deferred.makeUnsafe<void>(), blocked = Deferred.makeUnsafe<void>(), calls: string[] = [], inverses: unknown[] = [];
+    const first = createStep({ name: "void-cancel-first", compensation: "transactionCovered" }, () => {
+      calls.push("first"); return new StepResponse(undefined, "retained");
+    }, retained => { inverses.push(retained); });
+    const second = createStep("void-cancel-second", () => { calls.push("second"); return new StepResponse(null); });
+    const flow = createWorkflow("native-void-cancel-composer", (): void => { first(undefined); second(undefined); });
+    const prepared = Result.getOrThrow(flow.prepare());
+    let invoked = 0;
+    const suspended: WorkflowExecutionPort<Error> = { ...port, invoke: work => ++invoked === 2
+      ? Deferred.succeed(reached, undefined).pipe(Effect.andThen(Deferred.await(blocked)), Effect.andThen(port.invoke(work))) : port.invoke(work) };
+    await runEffect(Effect.scoped(Effect.gen(function* () {
+      const fiber = yield* Effect.forkScoped(executeWorkflow(prepared, undefined, suspended));
+      yield* Deferred.await(reached); yield* Fiber.interrupt(fiber);
+      const exit = yield* Fiber.await(fiber);
+      expect(Exit.isFailure(exit) && Cause.hasInterruptsOnly(exit.cause)).toBe(true);
+    })));
+    expect(calls).toEqual(["first"]); expect(inverses).toEqual([]);
+    expect(await runEffect(executeWorkflow(prepared, undefined, port))).toBeUndefined();
+    expect(calls).toEqual(["first", "first", "second"]); expect(inverses).toEqual([]);
+  });
+
+  it("composes nested optional typed references while preserving native omission and literal slots", async () => {
+    type OptionalMap = Record<string, string> | undefined;
+    type Input = { members: { selected: OptionalMap; literal: undefined; nullable: null };
+      positional: readonly [OptionalMap, undefined, null]; rows: readonly { selected: OptionalMap; number: number }[] };
+    const seen: Input[] = [];
+    const map = createStep("nested-optional-map", (present: boolean) => new StepResponse<OptionalMap>(present ? { key: "value" } : undefined));
+    const number = createStep("nested-optional-number", () => new StepResponse(7));
+    const nullable = createStep("nested-optional-null", () => new StepResponse(null));
+    const receive = createStep("nested-optional-receiver", (value: Input) => { seen.push(value); return new StepResponse(value); });
+    expectTypeOf<typeof receive>().toEqualTypeOf<StepFunction<Input, Input>>();
+    const flow = createWorkflow("nested-optional-input", (present: WorkflowData<boolean>) => {
+      const selected = map(present), scalar = number(undefined), empty = nullable(undefined);
+      return new WorkflowResponse(receive({ members: { selected, literal: undefined, nullable: empty },
+        positional: [selected, undefined, null], rows: [{ selected, number: scalar }, { selected: undefined, number: 3 }] }));
+    });
+    const prepared = Result.getOrThrow(flow.prepare());
+    const present = { members: { selected: { key: "value" }, literal: undefined, nullable: null },
+      positional: [{ key: "value" }, undefined, null], rows: [{ selected: { key: "value" }, number: 7 }, { selected: undefined, number: 3 }] };
+    const absent = { members: { literal: undefined, nullable: null }, positional: [undefined, undefined, null],
+      rows: [{ number: 7 }, { selected: undefined, number: 3 }] };
+    expect(await runEffect(executeWorkflow(prepared, true, port))).toEqual(present);
+    expect(await runEffect(executeWorkflow(prepared, false, port))).toEqual(absent);
+    expect(seen).toEqual([present, absent]);
+    expect(Object.hasOwn(Object(seen[1]?.members), "selected")).toBe(false);
+    expect(Object.hasOwn(Object(seen[1]?.members), "literal")).toBe(true);
+    expect(Object.hasOwn(Object(seen[1]?.positional), 0)).toBe(true);
+    expect(Object.hasOwn(Object(seen[1]?.rows[1]), "selected")).toBe(true);
+  });
+
+  it("keeps nested authoring reference types, tuple positions and Date/function leaves exact", () => {
+    type Input = { map: Record<string, string> | undefined; rows: readonly { value: string }[];
+      tuple: readonly [string, number]; date: Date; callback: (value: string) => number };
+    const check = (consume: StepFunction<Input, boolean>, map: StepOutput<Record<string, string> | undefined>,
+      text: StepOutput<string>, number: StepOutput<number>, wrongMap: WorkflowData<Record<string, number>>,
+      voidReference: WorkflowData<undefined>, date: Date, callback: (value: string) => number) => {
+      const result = consume({ map, rows: [{ value: text }], tuple: [text, number], date, callback });
+      expectTypeOf(result).toEqualTypeOf<StepOutput<boolean>>();
+      // @ts-expect-error An optional map does not admit a numeric reference.
+      consume({ map: number, rows: [], tuple: ["a", 1], date, callback });
+      // @ts-expect-error An incompatible map reference cannot masquerade as a literal record.
+      consume({ map: wrongMap, rows: [], tuple: ["a", 1], date, callback });
+      // @ts-expect-error Array members retain the receiver's scalar type.
+      consume({ map: undefined, rows: [{ value: number }], tuple: ["a", 1], date, callback });
+      // @ts-expect-error Tuple positions retain their independent types.
+      consume({ map: undefined, rows: [], tuple: [number, text], date, callback });
+      // @ts-expect-error An undefined reference is not a string reference.
+      consume({ map: undefined, rows: [{ value: voidReference }], tuple: ["a", 1], date, callback });
+      // @ts-expect-error Dates remain atomic values rather than mapped method bags.
+      consume({ map: undefined, rows: [], tuple: ["a", 1], date: { toISOString: () => "date" }, callback });
+      // @ts-expect-error Function parameter and return contracts remain intact.
+      consume({ map: undefined, rows: [], tuple: ["a", 1], date, callback: (value: number) => String(value) });
+    };
+    expectTypeOf(check).toBeFunction();
+  });
+
+  it("preserves nominal resolved values while unwrapping nested structural references", () => {
+    class Amount {
+      readonly #kind = "amount";
+      constructor(readonly value: number) {}
+      toString() { return this.#kind + this.value; }
+    }
+    type Nested = { amount: Amount; selected: WorkflowData<string>; rows: readonly { amount: WorkflowData<Amount> }[];
+      tuple: readonly [WorkflowData<Amount>, WorkflowData<number>] };
+    type Expected = { amount: Amount; selected: string; rows: readonly { amount: Amount }[]; tuple: readonly [Amount, number] };
+    const check = (amount: Amount, reference: WorkflowData<Amount>, text: WorkflowData<string>, number: WorkflowData<number>) => {
+      expectTypeOf<Resolved<Amount>>().toEqualTypeOf<Amount>();
+      expectTypeOf<Resolved<WorkflowData<Amount>>>().toEqualTypeOf<Amount>();
+      expectTypeOf<Resolved<Nested>>().toEqualTypeOf<Expected>();
+      expectTypeOf<Resolved<PricingTypes.PriceDTO>>().toEqualTypeOf<PricingTypes.PriceDTO>();
+      const resolved: Resolved<WorkflowData<Amount>> = amount;
+      const consume = (_value: Resolved<Nested>) => undefined;
+      consume({ amount: resolved, selected: "selected", rows: [{ amount }], tuple: [amount, 1] });
+      // @ts-expect-error Public members cannot counterfeit the Amount's private identity.
+      const counterfeit: Resolved<Amount> = { value: 1, toString: () => "amount1" };
+      // @ts-expect-error A nominal reference still resolves to Amount, not its public shape.
+      const counterfeitReference: Resolved<WorkflowData<Amount>> = { value: 1, toString: () => "amount1" };
+      // @ts-expect-error Nested scalar references must actually be resolved to their declared values.
+      consume({ amount, selected: number, rows: [{ amount }], tuple: [amount, 1] });
+      // @ts-expect-error Resolving nested tuples preserves independent nominal/scalar positions.
+      consume({ amount, selected: "selected", rows: [{ amount }], tuple: [text, reference] });
+      void counterfeit; void counterfeitReference;
+    };
+    expectTypeOf(check).toBeFunction();
+    // Retaining a nominal static type grants no class-literal runtime support.
+    expect(() => createWorkflow("nominal-definition-literal", () => new WorkflowResponse(new Amount(1))))
+      .toThrow("Definition literals must be plain records");
+  });
+
+  it("retains native Pricing DTO types through child workflows and a parent response", () => {
+    const check = (price: PricingTypes.PriceDTO) => {
+      const prices = createStep("typed-native-pricing-dtos", () => new StepResponse<PricingTypes.PriceDTO[]>([price]));
+      const child = createWorkflow("typed-native-pricing-child", (): WorkflowResponse<PricingTypes.PriceDTO[]> =>
+        new WorkflowResponse(prices(undefined)));
+      expectTypeOf<ReturnType<typeof child.runAsStep>>().toEqualTypeOf<StepOutput<PricingTypes.PriceDTO[]>>();
+      const parent = createWorkflow("typed-native-pricing-parent", (): WorkflowResponse<{ created: PricingTypes.PriceDTO[] }> => {
+        const created = child.runAsStep({ input: undefined });
+        return new WorkflowResponse(transform({ created }, resolved => {
+          expectTypeOf(resolved.created).toEqualTypeOf<PricingTypes.PriceDTO[]>();
+          return resolved;
+        }));
+      });
+      expectTypeOf<ReturnType<typeof parent.runAsStep>>().toEqualTypeOf<StepOutput<{ created: PricingTypes.PriceDTO[] }>>();
+      const wrong = createStep("typed-wrong-pricing-child", () => new StepResponse<string[]>(["price-id"]));
+      // @ts-expect-error A child returning only IDs cannot supply the native Price DTO contract.
+      createWorkflow("typed-refused-pricing-parent", (): WorkflowResponse<PricingTypes.PriceDTO[]> => new WorkflowResponse(wrong(undefined)));
+    };
+    expectTypeOf(check).toBeFunction();
+  });
+
+  it("resolves authentic bare staged-step returns through the existing response path", async () => {
+    const captures: unknown[] = [], order: string[] = [];
+    const deleted = createStep("native-bare-void", (ids: readonly string[]) => {
+      order.push("pricing"); return new StepResponse(undefined, [...ids]);
+    });
+    const linked = createStep("native-bare-after-returned", () => { order.push("link"); return new StepResponse(null); });
+    const flow = createWorkflow("native-bare-staged-return", (input: WorkflowData<readonly string[]>) => {
+      const result = deleted(input);
+      linked(undefined);
+      return result;
+    });
+    expectTypeOf<NonNullable<typeof flow[" input"]>>().toEqualTypeOf<readonly string[]>();
+    expectTypeOf<ReturnType<typeof flow.runAsStep>>().toEqualTypeOf<ReturnType<typeof deleted>>();
+    const prepared = Result.getOrThrow(flow.prepare());
+    expect(prepared.nodes.map(node => node.name)).toEqual(["native-bare-void", "native-bare-after-returned"]);
+    expect(await runEffect(executeWorkflow(prepared, ["a", "a", ""], { ...port,
+      capture: value => Effect.sync(() => { const captured = structuredClone(value); captures.push(captured); return captured; }),
+    }))).toBeUndefined();
+    expect(order).toEqual(["pricing", "link"]);
+    expect(captures).toContainEqual({ output: undefined, compensation: ["a", "a", ""] });
+    const parent = createWorkflow("native-bare-staged-child", () => new WorkflowResponse(flow.runAsStep({ input: ["child"] })));
+    expect(await runEffect(executeWorkflow(Result.getOrThrow(parent.prepare()), undefined, port))).toBeUndefined();
+  });
+
+  it("preserves nonvoid bare-step inference and the existing wrapped hook contract", async () => {
+    const step = createStep("native-bare-object", (value: number) => new StepResponse({ value }));
+    const bare = createWorkflow("native-bare-object-result", (input: WorkflowData<number>) => step(input));
+    expectTypeOf<ReturnType<typeof bare.runAsStep>>().toEqualTypeOf<ReturnType<typeof step>>();
+    expectTypeOf<Parameters<typeof bare.runAsStep>[0]["input"]>().toEqualTypeOf<number | WorkflowData<number>>();
+    expect(await runEffect(executeWorkflow(Result.getOrThrow(bare.prepare()), 7, port))).toEqual({ value: 7 });
+    const wrapped = createWorkflow("native-wrapped-hook-unchanged", (input: WorkflowData<number>) => {
+      const hook = createHook<"native-bare-hook", number, number>("native-bare-hook", input);
+      return new WorkflowResponse(step(input), { hooks: [hook] });
+    });
+    expectTypeOf<Parameters<typeof wrapped.prepare>[0]>().toEqualTypeOf<{
+      readonly "native-bare-hook"?: (input: number, context: typeof port.context) => number | StepResponse<number> | SkipStepResponse | Promise<number | StepResponse<number> | SkipStepResponse>;
+    } | undefined>();
+    const hook = vi.fn((input: number) => input + 1);
+    expect(await runEffect(executeWorkflow(Result.getOrThrow(wrapped.prepare({ "native-bare-hook": hook })), 9, port))).toEqual({ value: 9 });
+    expect(hook).toHaveBeenCalledWith(9, { ...port.context,
+      idempotencyKey: JSON.stringify([port.context.eventGroupId, 0]) });
+  });
+
+  it("refuses foreign, unknown, non-step and counterfeit bare returns without reading getters", () => {
+    const step = createStep("native-return-owner-step", () => new StepResponse(null));
+    let foreign: unknown;
+    createWorkflow("native-return-owner", () => new WorkflowResponse(foreign = step(undefined)));
+    expect(() => Reflect.apply(createWorkflow, undefined, ["native-foreign-bare-return", () => foreign])).toThrow("Return this composer's staged step");
+    expect(() => Reflect.apply(createWorkflow, undefined, ["native-input-bare-return", (input: WorkflowData<number>) => input])).toThrow("Return this composer's staged step");
+    expect(() => Reflect.apply(createWorkflow, undefined, ["native-transform-bare-return", () => transform({}, () => null)])).toThrow("Return this composer's staged step");
+    expect(() => Reflect.apply(createWorkflow, undefined, ["native-property-bare-return", () => {
+      const output = createStep("native-object-property-return", () => ({ id: "a" }))(undefined);
+      return output.id;
+    }])).toThrow("Return this composer's staged step");
+    expect(() => Reflect.apply(createWorkflow, undefined, ["native-unknown-bare-return", (input: WorkflowData<number>) => {
+      const reference = referenceOf(input);
+      if (reference === undefined) throw new Error("Missing authenticated input");
+      return proxify({ kind: "step", owner: reference.owner, step: Object.freeze({}) });
+    }])).toThrow("Return this composer's staged step");
+    const getter = vi.fn(() => null), counterfeit = {};
+    Object.defineProperty(counterfeit, "__type", { enumerable: true, get: getter });
+    for (const value of [null, 1, {}, counterfeit, { __type: "Symbol(WorkflowStep)", __step__: "native-return-owner-step" }])
+      expect(() => Reflect.apply(createWorkflow, undefined, ["native-counterfeit-bare-return", () => value])).toThrow("Return this composer's staged step");
+    const disguised: () => void = () => 1;
+    expect(() => createWorkflow("native-disguised-nonvoid-return", disguised)).toThrow("Return this composer's staged step");
+    expect(getter).not.toHaveBeenCalled();
+    expect(() => Reflect.apply(createWorkflow, undefined, ["native-async-bare-return", () => Promise.resolve(null)])).toThrow("Composer callbacks must be synchronous");
+    const valid = createWorkflow("native-after-invalid-return", () => new WorkflowResponse(step(undefined)));
+    expect(Result.isSuccess(valid.prepare())).toBe(true);
+  });
+
+  it("snapshots bare native transform Dates as ISO strings before the next callback", async () => {
+    const date = new Date("2026-10-19T01:00:00.000Z"), seen: unknown[] = [];
+    const receive = createStep("native-transform-date-receiver", (input: unknown) => {
+      seen.push(input); date.setTime(0); return new StepResponse(input);
+    });
+    const flow = createWorkflow("native-transform-date", () => new WorkflowResponse(receive(transform({}, () => ({
+      shipped_at: date, positional: [date],
+    })))));
+    expect(await runEffect(executeWorkflow(Result.getOrThrow(flow.prepare()), undefined, port))).toEqual({
+      shipped_at: "2026-10-19T01:00:00.000Z", positional: ["2026-10-19T01:00:00.000Z"],
+    });
+    expect(seen).toEqual([{ shipped_at: "2026-10-19T01:00:00.000Z", positional: ["2026-10-19T01:00:00.000Z"] }]);
+  });
+
+  it("refuses invalid, decorated and counterfeit transform Dates without invoking custom serialization", async () => {
+    const custom = vi.fn(() => "not-native"), decorated = new Date(0);
+    Object.defineProperty(decorated, "toJSON", { get: custom });
+    class DerivedDate extends Date {}
+    for (const date of [new Date(Number.NaN), decorated, Object.create(Date.prototype), new DerivedDate(0)]) {
+      const next = vi.fn(() => new StepResponse(null)), receive = createStep("refused-date-receiver", next);
+      const flow = createWorkflow("refused-transform-date", () => new WorkflowResponse(receive(transform({}, () => ({ date })))));
+      await expect(runEffect(executeWorkflow(Result.getOrThrow(flow.prepare()), undefined, port))).rejects.toMatchObject({ reason: "invalidReference" });
+      expect(next).not.toHaveBeenCalled();
+    }
+    expect(custom).not.toHaveBeenCalled();
+  });
+
+  // Frozen native136 SDK differential, pin48d5cc675e4e8bc821e22c20c88a751acc66fb5f:
+  // create-step-handler's stored response -> resolve-value -> WorkflowResponse.
+  // These are actual native result shapes, including the surprising raw-void
+  // marker; they are not derived by calling the portable representation helper.
+  it("preserves the native distinction between raw void/null and explicit StepResponse outputs", async () => {
+    const rawVoid = createStep("native-raw-void", () => undefined);
+    const rawNull = createStep("native-raw-null", () => null);
+    const wrappedVoid = createStep("native-wrapped-void", () => new StepResponse(undefined));
+    const wrappedNull = createStep("native-wrapped-null", () => new StepResponse(null));
+    const flow = createWorkflow("native-callback-output-kinds", () => new WorkflowResponse({
+      rawVoid: rawVoid(undefined), rawNull: rawNull(undefined), wrappedVoid: wrappedVoid(undefined), wrappedNull: wrappedNull(undefined),
+      literal: undefined,
+    }));
+    const result = await runEffect(executeWorkflow(Result.getOrThrow(flow.prepare()), undefined, port));
+    expect(result).toEqual({ rawVoid: { __type: "Symbol(WorkflowWorkflowData)" },
+      rawNull: { __type: "Symbol(WorkflowWorkflowData)", output: null }, wrappedNull: null, literal: undefined });
+    expect(Object.hasOwn(Object(result), "wrappedVoid")).toBe(false);
+    expect(Object.hasOwn(Object(result), "literal")).toBe(true);
+  });
+
+  it.each([false, 0, "", [], { id: "actual-value" }].map(value => ({ value })))("keeps non-nullish raw and wrapped callback output $value", async ({ value }) => {
+    const raw = createStep("native-falsy-raw", () => value);
+    const wrapped = createStep("native-falsy-wrapped", () => new StepResponse(value));
+    const flow = createWorkflow("native-non-nullish-output", () => new WorkflowResponse({ raw: raw(undefined), wrapped: wrapped(undefined) }));
+    expect(await runEffect(executeWorkflow(Result.getOrThrow(flow.prepare()), undefined, port))).toEqual({ raw: value, wrapped: value });
+  });
+
+  it("keeps direct and ignored void results undefined without turning literal null into a callback marker", async () => {
+    const raw = createStep("ignored-native-void", () => undefined);
+    const ignored = createWorkflow("ignored-native-callback", () => { raw(undefined); return new WorkflowResponse(undefined); });
+    const direct = createWorkflow("direct-native-void", () => new WorkflowResponse(undefined));
+    const nullable = createWorkflow("direct-native-null", () => new WorkflowResponse(null));
+    for (const flow of [ignored, direct]) expect(await runEffect(executeWorkflow(Result.getOrThrow(flow.prepare()), undefined, port))).toBeUndefined();
+    expect(await runEffect(executeWorkflow(Result.getOrThrow(nullable.prepare()), undefined, port))).toBeNull();
+  });
+
+  it("captures actual retained inputs before omitting explicit void record members and keeps array positions", async () => {
+    const compensation = ["retained-native-id"], captures: unknown[] = [];
+    const wrapped = createStep("native-void-with-retained", () => new StepResponse(undefined, compensation));
+    const flow = createWorkflow("native-retained-void-projection", () => {
+      const result = wrapped(undefined);
+      return new WorkflowResponse({ omitted: result, positional: [result, undefined], literal: undefined });
+    });
+    const result = await runEffect(executeWorkflow(Result.getOrThrow(flow.prepare()), undefined, {
+      ...port, capture: value => Effect.sync(() => { const captured = structuredClone(value); captures.push(captured); return captured; }),
+    }));
+    expect(result).toEqual({ positional: [undefined, undefined], literal: undefined });
+    expect(Object.hasOwn(Object(result), "omitted")).toBe(false);
+    expect(captures).toContainEqual({ output: undefined, compensation: ["retained-native-id"] });
+    compensation.push("later-caller-mutation");
+    expect(captures).toContainEqual({ output: undefined, compensation: ["retained-native-id"] });
+  });
+
+  it("passes omitted native void members to transformers without dropping literal undefined", async () => {
+    const wrapped = createStep("native-transform-void", () => new StepResponse(undefined));
+    const inspect = vi.fn((value: { omitted?: undefined; literal: undefined }) => ({ keys: Object.keys(value), literal: value.literal }));
+    const flow = createWorkflow("native-void-transform-input", () => {
+      const output = wrapped(undefined);
+      return new WorkflowResponse(transform({ omitted: output, literal: undefined }, inspect));
+    });
+    expect(await runEffect(executeWorkflow(Result.getOrThrow(flow.prepare()), undefined, port))).toEqual({ keys: ["literal"], literal: undefined });
+    expect(inspect).toHaveBeenCalledWith({ literal: undefined }, port.context);
+  });
+
+  it("keeps skipped references distinct from executed void callbacks", async () => {
+    const callback = vi.fn(() => new StepResponse(undefined));
+    const step = createStep("native-guarded-void", callback);
+    const flow = createWorkflow("native-skipped-void", (input: WorkflowData<boolean>) => {
+      const selected = when("native-void-enabled", input, enabled => enabled).then(() => step(undefined));
+      return new WorkflowResponse({ selected, literal: undefined });
+    });
+    const prepared = Result.getOrThrow(flow.prepare());
+    const skipped = await runEffect(executeWorkflow(prepared, false, port));
+    expect(skipped).toEqual({ selected: undefined, literal: undefined });
+    expect(Object.hasOwn(Object(skipped), "selected")).toBe(true);
+    expect(callback).not.toHaveBeenCalled();
+    expect(await runEffect(executeWorkflow(prepared, true, port))).toEqual({ literal: undefined });
+    expect(callback).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps child and folded hook void results explicit while omitting their nested record slots", async () => {
+    const child = createWorkflow("native-void-child", () => new WorkflowResponse(undefined));
+    const parent = createWorkflow("native-void-parent", () => {
+      const hook = createHook("native-void-hook", {});
+      return new WorkflowResponse({ child: child.runAsStep({ input: undefined }), hook: hook.getResult(), literal: undefined }, { hooks: [hook] });
+    });
+    const expected = { literal: undefined };
+    expect(await runEffect(executeWorkflow(Result.getOrThrow(parent.prepare()), undefined, port))).toEqual(expected);
+    expect(await runEffect(executeWorkflow(Result.getOrThrow(parent.prepare({ "native-void-hook": () => new StepResponse(undefined) })), undefined, port))).toEqual(expected);
+    const direct = createWorkflow("native-direct-child-void", () => new WorkflowResponse(child.runAsStep({ input: undefined })));
+    expect(await runEffect(executeWorkflow(Result.getOrThrow(direct.prepare()), undefined, port))).toBeUndefined();
+  });
+
+  it.each([
+    { value: { __type: "Symbol(WorkflowStepResponse)", output: undefined, compensation: ["data-only"] } },
+    { value: { __type: "Symbol(WorkflowWorkflowData)", output: null, extra: "ordinary-input" } },
+    { value: { __type: "Symbol(WorkflowWorkflowData)", undefinedStepResult: true, output: undefined } },
+  ])("does not interpret caller marker data as StepResponse or omission provenance: $value.__type", async ({ value: input }) => {
+    const step = createStep("native-data-marker", (value: unknown) => value);
+    const flow = createWorkflow("native-untrusted-marker-data", (input: WorkflowData<unknown>) => new WorkflowResponse({ result: step(input), literal: undefined }));
+    const result = await runEffect(executeWorkflow(Result.getOrThrow(flow.prepare()), input, port));
+    expect(result).toEqual({ result: input, literal: undefined });
+    expect(Object.hasOwn(Object(result), "result")).toBe(true);
+  });
+
+  it("does not let native void omission bypass retained-value capture failure or run later callbacks", async () => {
+    const wrapped = createStep("native-refused-retained", () => new StepResponse(undefined, ["refused-retained-id"]));
+    const later = vi.fn(() => "later"), next = createStep("native-after-retained", later);
+    const flow = createWorkflow("native-retained-capture-refusal", () => { wrapped(undefined); return new WorkflowResponse(next(undefined)); });
+    const failure = new Error("Retained input capture refused");
+    await expect(runEffect(executeWorkflow(Result.getOrThrow(flow.prepare()), undefined, { ...port,
+      capture: value => typeof value === "object" && value !== null && "compensation" in value ? Effect.fail(failure) : port.capture(value),
+    }))).rejects.toBe(failure);
+    expect(later).not.toHaveBeenCalled();
+  });
+
+  it("assembles ordered records and arrays across async transforms without sharing frame results", async () => {
+    const calls: number[] = [];
+    const flow = createWorkflow("ordered-resolution", (input: WorkflowData<number>) => {
+      const first = transform(input, async value => { calls.push(value); return { value, absent: undefined }; });
+      const second = transform(input, value => { calls.push(value + 1); return value + 1; });
+      return new WorkflowResponse({ values: [first.value, { second, again: first.value }], absent: first.absent, empty: [] });
+    });
+    const prepared = Result.getOrThrow(flow.prepare());
+    expect(isPreparedWorkflow(prepared)).toBe(true);
+    expect(Object.isFrozen(prepared.resolution)).toBe(true);
+    expect(Object.isFrozen(prepared.resolution.inputs)).toBe(true);
+    expect(await runEffect(executeWorkflow(prepared, 3, port))).toEqual({ values: [3, { second: 4, again: 3 }], absent: undefined, empty: [] });
+    expect(await runEffect(executeWorkflow(prepared, 8, port))).toEqual({ values: [8, { second: 9, again: 8 }], absent: undefined, empty: [] });
+    expect(calls).toEqual([3, 4, 8, 9]);
+  });
+
+  it("keeps malformed guarded reference errors deferred and refuses the first reached member", async () => {
+    const later = vi.fn(() => 2), capture = vi.fn(port.capture);
+    const flow = createWorkflow("deferred-reference-refusal", (input: WorkflowData<boolean>) => {
+      const selected = when("enabled", input, value => value).then(() => {
+        const staged = transform(input, value => value);
+        const reference = referenceOf(staged);
+        if (reference?.guards === undefined) throw new Error("Missing staged branch guards");
+        // Genuine private issuer, deliberately malformed callback metadata. The
+        // skipped transform's input error must not become a preparation error.
+        const missing = proxify({ kind: "property", owner: reference.owner, input });
+        return proxify({ kind: "transform", owner: reference.owner, input: missing, guards: reference.guards });
+      });
+      return new WorkflowResponse([selected, transform(input, later)]);
+    });
+    const prepared = Result.getOrThrow(flow.prepare());
+    expect(await runEffect(executeWorkflow(prepared, false, { ...port, capture }))).toEqual([undefined, 2]);
+    later.mockClear(); capture.mockClear();
+    await expect(runEffect(executeWorkflow(prepared, true, { ...port, capture }))).rejects.toMatchObject({ reason: "invalidReference", detail: "Missing property key" });
+    expect(later).not.toHaveBeenCalled();
+    // Only the condition input is captured; the malformed transform has not
+    // reached its own input capture or callback.
+    expect(capture).toHaveBeenCalledTimes(1);
+  });
+
+  it("captures a malformed transform input before refusing its absent callback", async () => {
+    const captures: unknown[] = [];
+    const later = vi.fn(() => 1);
+    const flow = createWorkflow("missing-transformer", (input: WorkflowData<number>) => {
+      const reference = referenceOf(input);
+      if (reference === undefined) throw new Error("Missing input reference");
+      const malformed = proxify({ kind: "transform", owner: reference.owner, input });
+      return new WorkflowResponse({ first: malformed, later: transform(input, later) });
+    });
+    await expect(runEffect(executeWorkflow(Result.getOrThrow(flow.prepare()), 4, {
+      ...port, capture: value => Effect.sync(() => { captures.push(value); return structuredClone(value); }),
+    }))).rejects.toMatchObject({ reason: "invalidReference", detail: "Missing transformer" });
+    expect(captures).toEqual([4]);
+    expect(later).not.toHaveBeenCalled();
+  });
+
+  it("preserves the depth boundary and refuses foreign or unfinished references during definition capture", async () => {
+    const make = (depth: number) => createWorkflow("reference-depth", (input: WorkflowData<{ value: unknown }>) => {
+      let value: unknown = input;
+      for (let index = 0; index < depth; index++) value = Reflect.get(Object(value), "value");
+      return new WorkflowResponse(value);
+    });
+    let input: unknown = 7;
+    for (let index = 0; index < 64; index++) input = { value: input };
+    expect(await runEffect(executeWorkflow(Result.getOrThrow(make(64).prepare()), input, port))).toBe(7);
+    expect(() => make(65)).toThrow("Definition bounds exceeded");
+    let foreign: unknown;
+    createWorkflow("reference-owner", (input: WorkflowData<number>) => new WorkflowResponse(foreign = input));
+    expect(() => createWorkflow("foreign-reference", () => new WorkflowResponse(foreign))).toThrow("Reference belongs to another workflow");
+    const step = createStep("first", () => 1);
+    expect(() => createWorkflow("unfinished-reference", (input: WorkflowData<number>) => {
+      const reference = referenceOf(input);
+      if (reference === undefined) throw new Error("Missing input reference");
+      step(proxify({ kind: "step", owner: reference.owner, step: Object.freeze({}) }));
+      return new WorkflowResponse(null);
+    })).toThrow("Reference precedes its step");
+  });
+
+  it("checks the final lifetime before resolving result callbacks and rejects copied prepared graphs", async () => {
+    const callback = vi.fn((value: number) => value);
+    const flow = createWorkflow("result-checkpoint", (input: WorkflowData<number>) => new WorkflowResponse(transform(input, callback)));
+    const prepared = Result.getOrThrow(flow.prepare());
+    const failure = new Error("Ended workflow");
+    await expect(runEffect(executeWorkflow(prepared, 1, { ...port, checkpoint: Effect.fail(failure) }))).rejects.toBe(failure);
+    expect(callback).not.toHaveBeenCalled();
+    await expect(runEffect(executeWorkflow({ ...prepared }, 1, port))).rejects.toMatchObject({ reason: "invalidDefinition" });
+    expect(callback).not.toHaveBeenCalled();
+  });
+
+  it("interrupts a pending transform without visiting later members or retaining a partial frame cache", async () => {
+    const reached = Deferred.makeUnsafe<void>();
+    const blocked = Deferred.makeUnsafe<void>();
+    const later = vi.fn((value: number) => value + 1);
+    const first = vi.fn((value: number) => value);
+    const flow = createWorkflow("interrupted-resolution", (input: WorkflowData<number>) =>
+      new WorkflowResponse([transform(input, first), transform(input, later)]));
+    const prepared = Result.getOrThrow(flow.prepare());
+    const suspended: WorkflowExecutionPort<Error> = { ...port,
+      invoke: work => Deferred.succeed(reached, undefined).pipe(Effect.andThen(Deferred.await(blocked)), Effect.andThen(port.invoke(work))),
+    };
+    await runEffect(Effect.scoped(Effect.gen(function* () {
+      const fiber = yield* Effect.forkScoped(executeWorkflow(prepared, 1, suspended));
+      yield* Deferred.await(reached);
+      yield* Fiber.interrupt(fiber);
+      const exit = yield* Fiber.await(fiber);
+      expect(Exit.isFailure(exit) && Cause.hasInterruptsOnly(exit.cause)).toBe(true);
+    })));
+    expect(first).not.toHaveBeenCalled(); expect(later).not.toHaveBeenCalled();
+    expect(await runEffect(executeWorkflow(prepared, 5, port))).toEqual([5, 6]);
+    expect(first).toHaveBeenCalledTimes(1); expect(later).toHaveBeenCalledTimes(1);
+  });
+});

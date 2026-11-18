@@ -1,16 +1,20 @@
-import { Result } from "effect";
+import { Result, Schema } from "effect";
 import type { Invoke, StepExecutionContext, WorkflowContainer } from "@medusajs/workflows-sdk";
+import type { WorkflowGraphOptions } from "@medusajs/core-flows/common/use-query-graph";
 import { defineAtomicCommerceParticipant, type AtomicCommerceParticipant } from "@flarex/persistence-postgres/internal/commerce-adapter";
-import { commerceError, type CommerceTransactionError, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
+import { commerceError, commerceLimits, type CommerceTransactionError, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
 import type { LocalGraphResult } from "../local-graph/model";
-import { captureCommerceInput } from "../commerce-input";
+import { captureCommerceInput } from "../value/input";
 import { captureWorkflowRecord, isWorkflowResourceName } from "./configuration";
 import { workflowMethodDefinition, workflowModuleDefinition, type BoundWorkflowMethod, type WorkflowModule, type WorkflowModuleMethods } from "./module";
+import { composedWorkflowResourceDefinition, type ComposedWorkflowResource, type ComposedWorkflowServices } from "./composed-resource";
+import { commerceDecoder } from "../value/decoder";
 
 export interface WorkflowModuleSelection {
   readonly module: WorkflowModule;
   readonly methods: readonly string[];
   readonly graph: boolean;
+  readonly expose?: boolean;
 }
 export type WorkflowSelections = Readonly<Record<string, WorkflowModuleSelection>>;
 type IsUnion<Value, Whole = Value> = Value extends Whole ? [Whole] extends [Value] ? false : true : never;
@@ -22,10 +26,10 @@ type CheckedSelections<Selections extends WorkflowSelections> = {
 };
 type GraphKeys<Selections extends WorkflowSelections> = { [Key in keyof Selections]: Selections[Key]["graph"] extends true ? Key : never }[keyof Selections];
 export type NativeWorkflowResources<Selections extends WorkflowSelections, Events extends boolean> = {
-  readonly [Key in keyof Selections as Selections[Key]["methods"][number] extends never ? never : Key]: {
+  readonly [Key in keyof Selections as Selections[Key] extends { readonly expose: false } ? never : Selections[Key]["methods"][number] extends never ? never : Key]: {
     readonly [Method in Selections[Key]["methods"][number]]: BoundWorkflowMethod<WorkflowModuleMethods<Selections[Key]["module"]>[Method]>;
   };
-} & ([GraphKeys<Selections>] extends [never] ? {} : { readonly query: { readonly maxPageSize: number; readonly graph: (input: unknown) => Promise<LocalGraphResult> } })
+} & ([GraphKeys<Selections>] extends [never] ? {} : { readonly query: { readonly maxPageSize: number; readonly graph: (input: unknown, options?: typeof WorkflowGraphOptions.Type) => Promise<LocalGraphResult> } })
   & (Events extends true ? { readonly event_bus: { readonly emit: (messages: readonly Json[]) => Promise<void> } } : {});
 export type NativeWorkflowContext<Resources> = StepExecutionContext & { readonly resources: Resources };
 export type NativeWorkflowHooks<Hooks, Resources> = {
@@ -41,14 +45,19 @@ export interface PreparedWorkflowSelection extends WorkflowModuleSelection {
   readonly name: string;
   readonly participant: AtomicCommerceParticipant;
 }
+export interface PreparedComposedResource { readonly name: string; readonly resource: ComposedWorkflowResource }
 const selections = new WeakMap<object, readonly PreparedWorkflowSelection[]>();
+const compositions = new WeakMap<object, readonly PreparedComposedResource[]>();
+const absences = new WeakMap<object, readonly string[]>();
+const decodeAbsences = commerceDecoder(Schema.Struct({ absent: Schema.Array(Schema.String).check(Schema.isMaxLength(commerceLimits.commandDefinitions)) }), "unsupportedProfile");
 const contexts = new WeakMap<WorkflowContainer, { readonly selection: object; readonly resources: unknown; readonly reject: (error: CommerceTransactionError) => never }>();
 
 /** A definition-scoped resource selection. Multiple hosts may prepare the same
  * selection; actual objects only exist during one execution's owned lifetime. */
-export function prepareWorkflowResources<const Selections extends WorkflowSelections, const Events extends boolean>(
-  input: CheckedSelections<Selections>, events: Events,
-): Result.Result<PreparedWorkflowResources<NativeWorkflowResources<Selections, Events>>, CommerceTransactionError> {
+export function prepareWorkflowResources<const Selections extends WorkflowSelections, const Events extends boolean,
+  const Composed extends Readonly<Record<string, ComposedWorkflowResource>> = Record<never, never>>(
+  input: CheckedSelections<Selections>, events: Events, composed?: Composed, options?: { readonly absent: readonly string[] },
+): Result.Result<PreparedWorkflowResources<NativeWorkflowResources<Selections, Events> & ComposedWorkflowServices<Composed>>, CommerceTransactionError> {
   return Result.gen(function* () {
     const record = yield* captureWorkflowRecord(input);
     if (typeof events !== "boolean") return yield* Result.fail(commerceError("unsupportedProfile"));
@@ -56,8 +65,12 @@ export function prepareWorkflowResources<const Selections extends WorkflowSelect
     const seen = new Set<WorkflowModule>();
     for (const [name, member] of Object.entries(record)) {
       const selected = yield* captureWorkflowRecord(member);
-      if (!isWorkflowResourceName(name) || ["query", "event_bus"].includes(name) || typeof selected.graph !== "boolean"
+      if (!isWorkflowResourceName(name) || ["query", "remoteQuery", "event_bus"].includes(name) || typeof selected.graph !== "boolean"
+        || selected.expose !== undefined && typeof selected.expose !== "boolean"
         || workflowModuleDefinition(selected.module) === undefined || seen.has(selected.module)) return yield* Result.fail(commerceError("unsupportedProfile"));
+      const graph = workflowModuleDefinition(selected.module)?.graph;
+      if (selected.graph && (graph === undefined || graph.aliases.length === 0 || graph.reads.length === 0))
+        return yield* Result.fail(commerceError("unsupportedProfile"));
       seen.add(selected.module);
       const names = yield* captureCommerceInput(selected.methods);
       if (!Array.isArray(names) || names.some(key => typeof key !== "string" || !Object.hasOwn(selected.module.methods, key))
@@ -67,10 +80,27 @@ export function prepareWorkflowResources<const Selections extends WorkflowSelect
         if (method === undefined || workflowMethodDefinition(method) === undefined) return yield* Result.fail(commerceError("unsupportedProfile"));
       }
       captured.push(Object.freeze({ name, module: selected.module, graph: selected.graph,
+        ...(selected.expose === false ? { expose: false } : {}),
         methods: Object.freeze(names.filter((name): name is string => typeof name === "string")), participant: defineAtomicCommerceParticipant(name),
       }));
     }
-    type Resources = NativeWorkflowResources<Selections, Events>;
+    const composedRecord = yield* captureWorkflowRecord(composed ?? {});
+    const admitted: PreparedComposedResource[] = [];
+    const selectedMethods = new Set(captured.flatMap(member => member.methods.flatMap(name => {
+      const method = member.module.methods[name]; return method === undefined ? [] : [method];
+    })));
+    for (const [name, resource] of Object.entries(composedRecord)) {
+      const definition = composedWorkflowResourceDefinition(resource);
+      if (!isWorkflowResourceName(name) || ["query", "remoteQuery", "event_bus"].includes(name) || Object.hasOwn(record, name) ||
+        !definition || definition.dependencies.some(method => !selectedMethods.has(method)))
+        return yield* Result.fail(commerceError("unsupportedProfile"));
+      admitted.push(Object.freeze({ name, resource: definition.resource }));
+    }
+    const absent = yield* captureCommerceInput(options === undefined ? { absent: [] } : options).pipe(Result.flatMap(decodeAbsences));
+    if (new Set(absent.absent).size !== absent.absent.length || absent.absent.some(name => !isWorkflowResourceName(name) ||
+      ["query", "remoteQuery", "event_bus"].includes(name) || Object.hasOwn(record, name) || Object.hasOwn(composedRecord, name)))
+      return yield* Result.fail(commerceError("unsupportedProfile"));
+    type Resources = NativeWorkflowResources<Selections, Events> & ComposedWorkflowServices<Composed>;
     const context = (ctx: StepExecutionContext): NativeWorkflowContext<Resources> => {
       const bound = contexts.get(ctx.container);
       if (bound === undefined) throw commerceError("invalidAuthority");
@@ -94,13 +124,24 @@ export function prepareWorkflowResources<const Selections extends WorkflowSelect
       })),
     });
     selections.set(result, Object.freeze(captured));
+    compositions.set(result, Object.freeze(admitted));
+    absences.set(result, Object.freeze([...absent.absent]));
     return result;
   });
 }
 
 export const workflowResourceSelections = (resources: PreparedWorkflowResources) => selections.get(resources);
+export const workflowComposedResources = (resources: PreparedWorkflowResources) => compositions.get(resources);
+export const workflowAbsentResources = (resources: PreparedWorkflowResources) => absences.get(resources);
 export function registerWorkflowResourceContext(container: WorkflowContainer, selection: PreparedWorkflowResources, resources: unknown,
   reject: (error: CommerceTransactionError) => never) {
   contexts.set(container, { selection, resources, reject });
   return () => contexts.delete(container);
+}
+/** A trusted finite callback borrows precisely the parent's admitted selection. */
+export function borrowWorkflowResourceContext(parent: WorkflowContainer, child: WorkflowContainer) {
+  const bound = contexts.get(parent);
+  if (bound === undefined || contexts.has(child)) throw commerceError("invalidAuthority");
+  contexts.set(child, bound);
+  return () => { contexts.delete(child); };
 }

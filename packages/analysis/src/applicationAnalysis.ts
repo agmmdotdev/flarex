@@ -6,10 +6,13 @@ export {
   decodeApplicationManifestV2,
   canonicalizeApplicationManifestV2,
   canonicalizeApplicationManifest,
+  canonicalizeApplicationManifestWireV2,
+  canonicalizeApplicationManifestWire,
   isApplicationManifestV1,
   isApplicationManifestV2,
   makeApplicationManifest,
   verifyApplicationManifestWithRelations,
+  verifyApplicationManifestWithRelationsWire,
 } from "./applicationAnalysisV2.ts";
 export type {
   ApplicationManifestV2,

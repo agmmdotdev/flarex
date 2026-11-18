@@ -19,6 +19,7 @@ describe("Application definition package boundary", () => {
       "@flarex/standard-application-definition": "workspace:*",
       "@flarex/utils": "workspace:*",
       "effect": "catalog:",
+      "flarex-protocol": "workspace:*",
     });
   });
 

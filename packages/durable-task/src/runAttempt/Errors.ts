@@ -3,9 +3,9 @@
 import { Data } from "effect";
 import type { TaskDefinitionReference } from "../runCreation/Model.js";
 import type {
-  RunAttemptMutationOperationV1,
-  RunAttemptOperationV1,
-  RunAttemptPhaseV1,
+  CurrentRunAttemptMutationOperation,
+  CurrentRunAttemptOperation,
+  CurrentRunAttemptPhase,
   TaskAttemptCompletionV1,
   TaskAttemptIdV1,
   TaskCancellationGenerationV1,
@@ -15,7 +15,7 @@ import type {
 export class InvalidRunAttemptCommandError extends Data.TaggedError(
   "InvalidRunAttemptCommandError",
 )<{
-  readonly operation: RunAttemptOperationV1;
+  readonly operation: CurrentRunAttemptOperation;
   readonly issue:
     | "invalid_shape"
     | "invalid_identifier"
@@ -40,9 +40,9 @@ export class TaskDefinitionReferenceIdentityMismatchError extends
 export class InvalidRunAttemptTransitionError extends Data.TaggedError(
   "InvalidRunAttemptTransitionError",
 )<{
-  readonly operation: RunAttemptMutationOperationV1;
+  readonly operation: CurrentRunAttemptMutationOperation;
   readonly runId: TaskRunIdV1;
-  readonly phase: RunAttemptPhaseV1;
+  readonly phase: CurrentRunAttemptPhase;
   readonly reason:
     | "candidate_missing"
     | "candidate_unexpected"
@@ -56,7 +56,7 @@ export class InvalidRunAttemptTransitionError extends Data.TaggedError(
 export class StaleTaskRunVersionError extends Data.TaggedError(
   "StaleTaskRunVersionError",
 )<{
-  readonly operation: RunAttemptMutationOperationV1;
+  readonly operation: CurrentRunAttemptMutationOperation;
   readonly runId: TaskRunIdV1;
   readonly reason: "commit_basis_disagrees_with_decoded_state";
 }> {}
@@ -100,7 +100,10 @@ export class TaskRunAttemptPolicyError extends Data.TaggedError(
     | "start_attempt"
     | "heartbeat_attempt"
     | "complete_attempt"
-    | "handle_lease_expiry";
+    | "handle_lease_expiry"
+    | "register_continuation"
+    | "confirm_continuation"
+    | "expire_continuation";
   readonly runId: TaskRunIdV1;
   readonly reason:
     | "invalid_bound_policy"
@@ -114,7 +117,7 @@ export class TaskRunAttemptPolicyError extends Data.TaggedError(
 export class TaskRunAttemptCounterExhaustedError extends Data.TaggedError(
   "TaskRunAttemptCounterExhaustedError",
 )<{
-  readonly operation: RunAttemptMutationOperationV1;
+  readonly operation: CurrentRunAttemptMutationOperation;
   readonly runId: TaskRunIdV1;
   readonly counter:
     | "run_version"
@@ -136,7 +139,7 @@ export type RunAttemptDecisionErrorV1 =
 export class TaskSystemRunAttemptUnavailableError extends Data.TaggedError(
   "TaskSystemRunAttemptUnavailableError",
 )<{
-  readonly operation: RunAttemptOperationV1;
+  readonly operation: CurrentRunAttemptOperation;
   readonly runId: TaskRunIdV1;
   readonly reason: "unavailable";
 }> {}
@@ -144,7 +147,7 @@ export class TaskSystemRunAttemptUnavailableError extends Data.TaggedError(
 export class TaskSystemRunAttemptCorruptionError extends Data.TaggedError(
   "TaskSystemRunAttemptCorruptionError",
 )<{
-  readonly operation: RunAttemptOperationV1;
+  readonly operation: CurrentRunAttemptOperation;
   readonly runId: TaskRunIdV1;
   readonly reason:
     | "aggregate_invalid"
@@ -158,7 +161,7 @@ export class TaskSystemRunAttemptCorruptionError extends Data.TaggedError(
 export class TaskSystemRunAttemptStaleScopeAuthorityError extends Data.TaggedError(
   "TaskSystemRunAttemptStaleScopeAuthorityError",
 )<{
-  readonly operation: RunAttemptOperationV1;
+  readonly operation: CurrentRunAttemptOperation;
   readonly runId: TaskRunIdV1;
   readonly authority:
     | "epoch"
@@ -170,7 +173,7 @@ export class TaskSystemRunAttemptStaleScopeAuthorityError extends Data.TaggedErr
 export class TaskSystemRunAttemptTransientStoreError extends Data.TaggedError(
   "TaskSystemRunAttemptTransientStoreError",
 )<{
-  readonly operation: RunAttemptOperationV1;
+  readonly operation: CurrentRunAttemptOperation;
   readonly runId: TaskRunIdV1;
   readonly reason:
     | "transaction_conflict"
@@ -183,7 +186,7 @@ export class TaskSystemRunAttemptTransientStoreError extends Data.TaggedError(
 export class TaskSystemRunAttemptTerminalStoreError extends Data.TaggedError(
   "TaskSystemRunAttemptTerminalStoreError",
 )<{
-  readonly operation: RunAttemptOperationV1;
+  readonly operation: CurrentRunAttemptOperation;
   readonly runId: TaskRunIdV1;
   readonly reason:
     | "unsupported_integration"

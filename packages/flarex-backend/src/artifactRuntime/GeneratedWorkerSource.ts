@@ -663,6 +663,9 @@ function executorDatabaseForSessionSource(language: GeneratedExecutorProtocolSou
   const query = (queryRequest) =>
     syscall({ op: "query", request: queryRequest });
   return {
+    normalizeId: () => {
+      throw new Error("ctx.db.normalizeId is not supported by the retained JSON executor profile.");
+    },
     get: id => syscall({ op: "get", id }),
     query: table => createQueryInitializer(table, query),
     insert: async (table, value) => {
@@ -712,6 +715,9 @@ function executorDatabaseForSessionSource(language: GeneratedExecutorProtocolSou
   const query = (request: DatabaseQueryRequest) =>
     syscall({ op: "query", request }) as Promise<DatabaseQueryResult>;
   return {
+    normalizeId: () => {
+      throw new Error("ctx.db.normalizeId is not supported by the retained JSON executor profile.");
+    },
     get: id => syscall({ op: "get", id }) as never,
     query: table => createQueryInitializer(table, query),
     insert: async (table, value) => {

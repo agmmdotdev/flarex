@@ -2,7 +2,8 @@ import { describe, expect, expectTypeOf, it, vi } from "vitest";
 import { Cause, Effect, Exit, Result } from "effect";
 import { createHook, createStep, createWorkflow, transform, when, StepResponse, WorkflowResponse, type StepOutput, type WorkflowData, type WorkflowDefinition } from "@medusajs/workflows-sdk";
 import { executeWorkflow, type WorkflowExecutionPort } from "@medusajs/workflows-sdk/native";
-import { runEffect } from "../../persistence-postgres/test/effectTestRuntime";
+import type { Resolved } from "@medusajs/workflows-sdk";
+import { runEffect } from "../../persistence-postgres/test/support/effectTestRuntime";
 
 const port: WorkflowExecutionPort<Error> = {
   checkpoint: Effect.void, capture: value => Effect.sync(() => structuredClone(value)),
@@ -12,6 +13,10 @@ const port: WorkflowExecutionPort<Error> = {
 const run = <I, O, H extends readonly unknown[]>(flow: WorkflowDefinition<I, O, H>, input: I) => runEffect(executeWorkflow(Result.getOrThrow(flow.prepare()), input, port));
 
 describe("native workflow composition", () => {
+  it("retains native DTO date and callable declarations during child-result resolution", () => {
+    type DTO = { rows: Array<{ created_at: string | Date; describe: (name: string) => string }> };
+    expectTypeOf<Resolved<DTO>>().toEqualTypeOf<DTO>();
+  });
   it("preserves the pinned child result and shared context while isolating repeated frames", async () => {
     const build = vi.fn(), evaluate = vi.fn((value: number) => value + 1);
     const context = createStep("context", (_: unknown, context) => context.eventGroupId);
@@ -61,7 +66,9 @@ describe("native workflow composition", () => {
   it("skips all child work and evaluates reached child results even when unused", async () => {
     const predicate = vi.fn(() => true), result = vi.fn(() => 5), input = vi.fn(() => 1);
     const child = createWorkflow("guard-child", () => new WorkflowResponse(when("inner", null, predicate).then(() => transform(null, result))));
-    const after = createStep("after", () => { expect(result).toHaveBeenCalledTimes(1); return null; });
+    // The child-order assertion wants a literal null output. Native raw null
+    // callbacks retain their workflow-data envelope; StepResponse unwraps it.
+    const after = createStep("after", () => { expect(result).toHaveBeenCalledTimes(1); return new StepResponse(null); });
     const flow = createWorkflow("guard-parent", (enabled: WorkflowData<boolean>) => {
       when("outer", enabled, value => value).then(() => child.runAsStep({ input: transform(null, input) }));
       return new WorkflowResponse(null);
@@ -129,7 +136,7 @@ describe("native workflow composition", () => {
   });
 
   it("executes nested children and counts repeated definitions against one node ceiling", async () => {
-    const step = createStep("leaf", () => null);
+    const step = createStep("leaf", () => new StepResponse(null));
     let child = createWorkflow("leaf-flow", () => new WorkflowResponse(step(undefined)));
     for (let depth = 0; depth < 4; depth++) {
       const previous = child;

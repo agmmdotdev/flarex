@@ -164,10 +164,10 @@ tests before changing any occurrence.
 
 Representative evidence:
 
-- `packages/persistence-postgres/src/appRowPointOcc.ts` correctly copies row
+- `packages/persistence-postgres/src/storage/documents/appRowPointOcc.ts` correctly copies row
   identities before freezing, but also shows why reviewers must check whether
   every nested input is newly owned before freezing it.
-- `packages/executor/src/transactionGrant.ts` uses frozen branded handles with
+- `packages/executor/src/mutation/authentication/transactionGrant.ts` uses frozen branded handles with
   private `WeakMap` inspection state; this is an intentional capability
   boundary.
 - `packages/flarex-protocol/src/value.ts` recursively freezes canonical value

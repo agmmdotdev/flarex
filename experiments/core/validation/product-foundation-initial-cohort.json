@@ -1,0 +1,16 @@
+{
+  "status": "failed-correctness-cohort-no-performance-result",
+  "base": "89e806f7d",
+  "evidence": "Vitest results cache inspected after the original shell handle became terminal/missing; detailed Application assertion output was unavailable",
+  "files": {
+    "test/application.test.ts": { "failed": true, "durationMs": 150979.487 },
+    "test/product.test.ts": { "failed": true, "durationMs": 110577.8038 },
+    "test/create.test.ts": { "failed": false, "durationMs": 86253.8386 },
+    "test/contracts.test.ts": { "failed": false, "durationMs": 148.28150000000005 }
+  },
+  "disposition": {
+    "product": "Two old relation-output expectations failed after candidate output was corrected to match genuine native Medusa. Corrected expectations now require options/tags empty, collection/type null and untouched relations absent.",
+    "application": "Unexplained: specific failing assertion/cause was not retained. Later 71-test both-driver Application pass establishes no root cause. No test or timeout was weakened.",
+    "finalCohort": "Fresh retained full JSON report: 116 passed, 5 skipped, zero failures across Application, Product, Payload and contract tests. Receipt belongs to the scoped Git commit, not a performance claim."
+  }
+}

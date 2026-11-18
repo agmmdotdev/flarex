@@ -3,6 +3,11 @@
 Status: implemented acceptance-integrity correction and request-local
 manifest-binding reuse. Unique-closure preparation reuse remains deferred.
 
+The later [core catalog-restoration slice](../../shared-transaction-core/28-ce0-catalog-restoration.md)
+also reuses the artifact already validated by the bound-root locator within one
+schema resolution. It retains the fresh preparation/acceptance boundary and the
+integrity checks specified here.
+
 ## Acceptance Integrity Correction
 
 The required pre-removal witness exposed missing fresh control-catalog coverage

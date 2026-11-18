@@ -1,6 +1,6 @@
 # Shared Logical Storage For Application, Payload And Medusa
 
-Status: accepted architecture replacement; runtime migration is not implemented.
+Status: accepted architecture replacement; selected runtime consumers have moved, while full migration remains incomplete.
 
 The [query and constraint acceptance contract](../roadmaps/shared-logical-storage/02-query-and-constraint-acceptance.md)
 makes representative Pricing queries, indexed Payload operations, relation-policy
@@ -8,6 +8,23 @@ compatibility and concurrent pending-state proofs early requirements. These are
 implementation acceptance criteria, not completed capabilities or measured gains.
 
 ## Decision And Authority
+
+The [Task System design](./task-system/README.md) adopts
+[Convex-style internal system tables](./task-system/02-logical-storage.md#convex-storage-reference)
+over this shared-storage destination, with its independent Trigger fork as the
+engine. Platform-maintained logical definitions cover each app/environment's
+Task records and private platform discovery and scheduler/repair state; they
+create no dedicated Task SQL schema/table/index family. Its [roadmap](../roadmaps/task-system/README.md)
+owns the separate pending Task cutover. No Task-specific physical table is
+retained as a control-plane exception. General core physical infrastructure
+remains; Task scope does not expand the existing framework completion plan.
+
+The [Task core-reuse contract](./task-system/02-logical-storage.md#shared-core-indexing-and-do-cache)
+requires the same logical index maintenance, read machinery and DO cache adapter
+as other admitted core consumers. Task writes participate in shared publication
+and cache refresh; claims and leases retain their own fresh atomic checks.
+No separate Task database, index engine or cache layer is selected. Task cache
+integration and its runtime proofs remain with the Task roadmap.
 
 Application, Payload content and Medusa commerce use framework-neutral logical
 tables over shared Postgres physical storage families. Creating a shop,
@@ -19,8 +36,10 @@ This is the owner-approved correction to the former separate document/commerce
 storage destination. The [accepted database design](./flarex-db-accepted-design.md)
 incorporates this decision. This note owns its detailed storage, index, relation,
 execution and replacement policy; the [redesign roadmap](../roadmaps/shared-logical-storage/README.md)
-owns sequencing and completion gates. Current code still uses shared Application
-row/index/unique/edge tables and deployment-named physical Medusa module tables.
+owns sequencing and completion gates. Current code uses shared Application
+row/index/unique/edge tables for selected Application, Payload and Medusa
+consumers; remaining physical Medusa callers and retirement gates are inventoried
+in the roadmap.
 Changing these documents does not change that runtime fact.
 
 The project is in development. The owner explicitly permits redesign of core
@@ -59,6 +78,71 @@ Fewer physical objects do not prove faster queries or unlimited scale. The
 replacement must demonstrate indexed selective work, bounded write amplification,
 concurrent correctness and fair resource use across different tenant sizes.
 
+## Five-table physical starting point
+
+Start the rewritten Drizzle persistence schema from the five core tables in
+Convex's pinned [PostgreSQL adapter](../../../crates/postgres/src/sql.rs):
+
+| Physical table | Role and conceptual fields |
+| --- | --- |
+| `documents` | Versioned application and private system documents: scope/instance, timestamp, table ID, document ID, value bytes, deletion marker and previous timestamp. |
+| `indexes` | Versioned ordinary-index entries: scope/instance, index ID, key prefix/suffix/hash, timestamp, deletion marker and live document reference. |
+| `leases` | Persistence ownership/fencing state scoped to the database instance/app owner. |
+| `read_only` | Persistence-level write-disable marker. |
+| `persistence_globals` | Small persistence-level values/checkpoints outside ordinary versioned documents; not a second application catalog. |
+
+Translate the pinned primary/secondary access paths, binary value/key semantics,
+long-key handling and atomic document/index batch writer with required scope
+adaptation. Timestamps remain exact; the index key includes its document-ID
+tie-breaker. Ordinary index entries and document revisions use the selected
+same-timestamp hydration mechanism. Five tables still have physical PostgreSQL
+indexes; a newly declared logical index adds definitions/entries, not a dedicated
+SQL index for every app or framework collection. This is the base persistence
+layout, not a count of every external platform/control or object-storage system.
+
+Payload and Medusa do not inherently require additional physical table families.
+Their content, commerce records, versions/drafts, preferences, Links/pivots and
+admitted workflow/event state are logical data over `documents` and `indexes`.
+Private engine logical records hold table/index/schema definitions, producer
+ownership/dependencies, install/build/activation state, migration progress and
+required durable outcomes. Exact logical names and supported native features
+remain part of their concrete compilation and execution contracts.
+Private logical metadata retains core-controlled access; sharing physical tables
+does not grant ordinary application/framework code access to it. Bootstrap and
+recovery must establish trusted system identities before consuming that metadata,
+without depending on the framework/schema being installed to install itself.
+
+Uniqueness, reference/deletion policies, exact decimals and native visibility are
+shared core capabilities, not guarantees supplied merely by storing documents.
+Translate their enforcement through the shared transaction/index owners; private
+logical claims/relations are possible representations to prove. Existing
+physical unique/edge/catalog/journal families are not automatically retained.
+An additional physical family requires a demonstrated DO/runtime or required
+native-behavior constraint and its own divergence record, not a framework name
+or an existing reader that expects it.
+
+App and framework schema installation/migrations operate logically through the
+[shared lifecycle](./flarexdb-shared-schema-lifecycle.md). A new collection/model
+allocates logical identities/definitions and required index entries/builds.
+Data conversions transform logical documents with explicit producer meaning and
+common progress/recovery. Only platform changes to the shared persistence format
+require physical Drizzle upgrades. Upload binaries may use configured object
+storage while their metadata remains logical data.
+
+This is accepted target architecture, not an implemented five-table cutover.
+Current logical consumers and specialized physical catalogs/installers still
+coexist. Preserve their real obligations through connected replacement and
+explicit retained-data disposition; do not delete tables/checks in isolation.
+
+The active Convex pin is `db914cf06e2b06ee985646611b9e12ed7a770318`; see the
+[reference upgrade](../experiments/core/engine/CONVEX-REFERENCE-UPGRADE.md).
+The five-table selection is PostgreSQL-specific: selectable upstream MySQL V6
+also has latest/backfill-delete/bucketed index storage. It does not change our
+accepted starting point or justify extra physical families automatically.
+Translate the current engine's IndexRef, index write modes/predecessor evidence,
+idempotent backfill/reconciliation and document-pair retention through the shared
+persistence owner. A schema/table list alone does not supply those algorithms.
+
 ## Physical And Logical Model
 
 ```text
@@ -72,7 +156,7 @@ Application definitions    Payload collections    Medusa DML and Module Links
                               |
          one trusted transaction and publication authority
                               |
-             shared physical families in Postgres
+       documents / indexes + persistence ownership/globals
 ```
 
 The existing `fx_app_row_rev`, `fx_app_row_current`,
@@ -80,8 +164,9 @@ The existing `fx_app_row_rev`, `fx_app_row_current`,
 `fx_app_edge_current` and `fx_app_edge_adjacency_version` are reuse candidates,
 not immutable target spellings or proof of full commerce support. Their current
 row bodies use canonical value bytes; this design is not a request to restore a
-redundant JSON copy. Additional or replacement generic families require an
-identified capability and storage-cost justification. Do not create a family
+redundant JSON copy. The five-table translation target supersedes any reading
+that requires those current families to survive. Additional physical families
+require the demonstrated DO/native justification above. Do not create a family
 per framework, module, deployment or shop under a supposedly generic API.
 
 Logical identities distinguish deployment/schema definition, scope, table,
@@ -165,8 +250,10 @@ without importing framework implementations or dispatching on module names.
 Logical indexes are metadata plus entries in shared indexed physical families.
 An index definition is not a new Postgres index for each tenant. The existing
 ordered entry key `(scope_uuid, index_definition_id, encoded_key, row_id)` is a
-starting point. Row history and snapshot requirements must remain correct if
-the physical representation is replaced.
+current implementation baseline, not the new physical target. Translate the
+pinned full-key/timestamp representation under the five-table starting point;
+preserve row history, exact range boundaries and snapshot requirements through
+the connected replacement.
 
 | Logical requirement | Required target behavior |
 | --- | --- |
@@ -254,8 +341,8 @@ schema dependency resolution with the existence of each referenced record.
 | Native stored Module Link | Preserve native pair/endpoint cardinality, record identity, custom data, soft deletion and restoration; do not infer endpoint-existence checks merely from the presence of endpoint IDs. |
 | Strong local cross-framework reference | Enforce admitted target existence, ownership, cardinality and deletion/restore rules atomically within the supported placement. |
 
-The current [Link compiler](../packages/medusa-adapter/src/link-schema.ts) emits
-no endpoint foreign keys. [Native Link conformance](../packages/medusa-adapter/test/product-variant-pricing-workflow.test.ts)
+The current [Link compiler](../packages/medusa-adapter/src/links/schema.ts) emits
+no endpoint foreign keys. [Native Link conformance](../packages/medusa-adapter/test/logical-variant-pricing-link-lifecycle.test.ts)
 includes cardinality/restore scenarios without created endpoint records.
 Stronger target-existence enforcement for a native Link must therefore be named
 as an intentional behavior change, with creation-order, missing-target,
@@ -271,6 +358,38 @@ guarantee is not an external or cross-shop capability: scope, ownership and
 traversal authorization still apply. Generic physical FKs may protect stable
 storage identities; field-specific native FKs require a proven logical
 constraint owner where their semantics are admitted, not weaker adapter checks.
+
+### Bounded high-fan-out relationship transitions
+
+Deleting or changing one logical row may affect many indexed referencing rows.
+The shared relation/transaction owner must execute admitted `set null`, cascade
+or restrict behavior from authenticated relationship metadata; a framework
+adapter may select the native operation but must not enumerate a capped result
+page, split the mutation into independently committed calls, issue private SQL
+or raise a fixed row cap to simulate complete relationship maintenance.
+
+For a single atomic native operation, core selects complete reverse membership
+through scoped indexes, processes it in resource-accounted keyset batches under
+one trusted database transaction, maintains row history and every affected
+index/unique claim, validates concurrent reference insertion and deletion,
+and publishes complete facts, one durable outcome and admitted events at one
+settlement. The operation must not hold a transaction across untrusted code,
+workflow pauses or remote effects. A page limit cannot define the affected
+set; an incomplete page is never a successful transition. Core may reject an
+operation that exceeds an explicit time, byte, row or statement budget, but
+must roll back every staged change and return a capacity refusal. An unbounded
+atomic deletion is not a scalability promise.
+
+The executor must separate the bounded read page from the total affected-row
+budget and avoid keeping every decoded row and revision in one request heap.
+The exact transaction-local staging and publication representation belongs to
+the implementation preflight and must preserve current recovery evidence.
+Cross-framework strong references do not acquire implicit cross-owner cascade
+or `set null` rights: the declared owner policy must explicitly admit any
+affected framework record. Native stored Links retain their distinct policy.
+An ordinary-role PostgreSQL contention witness and a PGlite fan-out witness
+beyond the current working-set identity limit are required before claiming
+general relationship-maintenance parity.
 
 Redesign the current edge/row core when those semantics do not fit. Do not
 preserve application-shaped internals by attaching a second commerce relation
@@ -380,6 +499,13 @@ authorization and integrity acceptance.
 
 ## Schema Evolution And Admission
 
+The [shared schema lifecycle design](./flarexdb-shared-schema-lifecycle.md)
+owns the accepted installation/evolution direction for Flarex Application,
+Payload, Medusa and platform Tasks. All four build on shared core APIs; their
+producers retain native definitions and conversion meaning. The Task engine
+remains the independent Trigger fork and consumes the same installation,
+index/readiness and cache/publication owners as other admitted consumers.
+
 Implementation sequence: [advanced cross-framework evolution](../roadmaps/shared-logical-storage/deferred-framework-schema-evolution.md)
 is deferred to separate sessions after the core redesign. The contracts below
 state the eventual guarantees. Core work prepares shared owners and preserves
@@ -401,14 +527,22 @@ No cached prepared plan is current execution authority. Select the integrity
 contract explicitly before reducing current evidence checks.
 
 Logical evolution must converge on shared definitions, planning, validation,
-index/constraint builds, progress/recovery and readiness mechanics for all three
-consumers. Begin with the Application evolution owners and compare the existing
-framework coordinator's guarantees. Redesign inadequate contracts instead of
-retaining overlapping engines behind a facade or adding framework-name branches
+index/constraint builds, progress/recovery, readiness and activation mechanics
+for Application, Payload, Medusa and Tasks. Begin with the Application evolution
+owners and compare the existing framework coordinator's guarantees. Redesign
+inadequate contracts instead of retaining overlapping engines behind a facade
+or adding framework-name branches
 to the Application planner. Native schema compilation and business conversion
 meaning remain framework-owned. Data conversions execute through admitted,
 bounded operations with shared progress and settlement; they are not arbitrary
 migration callbacks or one long database transaction.
+
+Platform Task definitions use authenticated core system-installation authority
+without fabricated Application analysis or a separate Task installer. Keep
+their logical schema lifetime independent of app code deployment and avoid a
+bootstrap dependency on the not-yet-installed Task engine. Task integration
+retains its own roadmap scope; the existing three-consumer storage completion
+plan and advanced-evolution sequencing are not expanded by this decision.
 
 Current Application evolution is not a ready-made universal engine. Its
 `managed-schema` planner and persistence apply/build/activation owners need a

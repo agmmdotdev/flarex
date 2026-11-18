@@ -1,5 +1,13 @@
 # DTE02-C: Trusted Scope Capability Contract
 
+> **Legacy Task record - superseded direction.**
+> The [Task System design](../../../design-notes/task-system/README.md) and
+> [current roadmap](../../task-system/README.md) own replacement work.
+> This body is historical baseline/source evidence; its statuses, approvals and
+> next steps apply to the former initiative. Preserve applicable behavior and
+> tests until consumer cutover. Do not use this record to extend the custom
+> engine or retain Task-specific physical tables.
+
 ## Decision
 
 **Outcome: ADMIT one two-stage, operation-scoped authority chain and one
@@ -554,11 +562,11 @@ This decision is grounded in:
 
 - `packages/flarex-backend/src/deploymentProjectScopeAuthorization.ts` and its
   request/witness tests;
-- `packages/persistence-postgres/src/scopeAuthorityResolution.ts` and its
+- `packages/persistence-postgres/src/scope/scopeAuthorityResolution.ts` and its
   metadata, provisioning, locator, and scope-clock tests;
-- `packages/persistence-postgres/src/applicationRevisionActivationV1.ts` and
+- `packages/persistence-postgres/src/application/revision/applicationRevisionActivationV1.ts` and
   issuer-backed active selection state;
-- `packages/persistence-postgres/src/applicationPointQuerySnapshotV1.ts` as
+- `packages/persistence-postgres/src/application/applicationPointQuerySnapshotV1.ts` as
   the current scope-bound, transaction-revalidated capability precedent;
 - [`../02-task-definition-identity-and-scope.md`](../02-task-definition-identity-and-scope.md);
 - [`./05-final-package-admission.md`](./05-final-package-admission.md); and

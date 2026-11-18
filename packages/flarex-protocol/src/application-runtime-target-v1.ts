@@ -1,16 +1,16 @@
 import { Data, Result, Schema } from "effect";
 import { isNonArrayRecord } from "@flarex/utils/records";
 
-import { encodeCanonicalJson, type Json, type JsonObject } from "./json";
+import { encodeCanonicalJson, measureCanonicalJsonUtf8Bytes, type Json, type JsonObject } from "./json";
 import { StrictParseOptions, StrictStructOptions } from "./strict-schema-options";
 import {
-  ValidatorJsonV1,
+  ValidatorJsonWireCodecV1,
+  encodeValidatorJsonV1,
   validatorJsonAdmissionIssueV1,
+  validatorJsonWireAdmissionIssueV1,
 } from "./validator-json";
-import {
-  MAX_VALIDATOR_JSON_DEPTH_V1,
-  MAX_VALIDATOR_JSON_NODES_V1,
-} from "./validator-json-core";
+import { decodeLegacyValidatorJsonResultCoreV1, encodeLegacyValidatorJsonWireCoreV1 } from "./validator-json-core";
+import { snapshotDecodedProtocolPlainData } from "./decoded-protocol-snapshot";
 
 export const APPLICATION_RUNTIME_TARGET_FORMAT_V1 =
   "flarex.application-runtime-target" as const;
@@ -18,8 +18,7 @@ export const APPLICATION_RUNTIME_TARGET_VERSION_V1 = 1 as const;
 export const MAX_APPLICATION_RUNTIME_TARGET_BYTES_V1 = 65_536;
 
 const UTF8 = new TextEncoder();
-const MAX_CAPTURE_NODES = MAX_VALIDATOR_JSON_NODES_V1 * 2 + 256;
-const MAX_CAPTURE_DEPTH = MAX_VALIDATOR_JSON_DEPTH_V1 + 8;
+export type ValidatorIdentityEncoding = 1 | 2;
 const NonemptyBoundedText = Schema.String.check(
   Schema.makeFilter(value =>
     value.length > 0 && UTF8.encode(value).byteLength <= 4_096
@@ -70,8 +69,8 @@ const ApplicationRuntimeFunctionV1Schema = Schema.Struct({
     Schema.Literal("public"),
     Schema.Literal("internal"),
   ]),
-  args: ValidatorJsonV1,
-  returns: Schema.Union([ValidatorJsonV1, Schema.Null]),
+  args: ValidatorJsonWireCodecV1,
+  returns: Schema.Union([ValidatorJsonWireCodecV1, Schema.Null]),
   partition: ApplicationRuntimeFunctionPartitionV1Schema,
   entrySha256: LowercaseSha256,
 }).annotate(StrictStructOptions);
@@ -79,6 +78,7 @@ const ApplicationRuntimeFunctionV1Schema = Schema.Struct({
 const ApplicationRuntimeTargetV1StructuralSchema = Schema.Struct({
   format: Schema.Literal(APPLICATION_RUNTIME_TARGET_FORMAT_V1),
   version: Schema.Literal(APPLICATION_RUNTIME_TARGET_VERSION_V1),
+  validatorIdentityEncoding: Schema.optionalKey(Schema.Literal(2)),
   scopeId: IdentityText,
   revisionId: IdentityText,
   candidateId: IdentityText,
@@ -115,19 +115,35 @@ const decodeShape = Schema.decodeUnknownResult(
   ApplicationRuntimeTargetV1StructuralSchema,
   StrictParseOptions,
 );
+const captureShape = Schema.decodeUnknownResult(Schema.toType(ApplicationRuntimeTargetV1StructuralSchema), StrictParseOptions);
 
 export function decodeApplicationRuntimeTargetV1(
   value: unknown,
 ): Result.Result<ApplicationRuntimeTargetV1, ApplicationRuntimeTargetV1Error> {
+  return admitRuntimeTarget(value, decodeShape, "wire").pipe(Result.flatMap(target => target.validatorIdentityEncoding === 2
+    ? Result.succeed(target) : Result.fail(error("decode", "invalidShape"))));
+}
+
+export function captureApplicationRuntimeTargetV1(
+  value: unknown,
+): Result.Result<ApplicationRuntimeTargetV1, ApplicationRuntimeTargetV1Error> {
+  return admitRuntimeTarget(value, captureShape, "semantic");
+}
+
+function admitRuntimeTarget(
+  value: unknown,
+  decode: typeof decodeShape,
+  representation: "wire" | "semantic",
+): Result.Result<ApplicationRuntimeTargetV1, ApplicationRuntimeTargetV1Error> {
   return capturePlainData(value).pipe(
     Result.mapError(cause => error("decode", "invalidShape", cause)),
     Result.flatMap(captured => {
-      const admissionFailure = preflightValidators(captured);
+      const admissionFailure = preflightValidators(captured, representation);
       return admissionFailure === undefined
         ? Result.succeed(captured)
         : Result.fail(error("decode", "invalidShape", admissionFailure));
     }),
-    Result.flatMap(captured => decodeShape(captured).pipe(
+    Result.flatMap(captured => decode(captured).pipe(
       Result.mapError(cause => error("decode", "invalidShape", cause)),
       Result.flatMap(target => target.function.path === functionPath(
           target.function.moduleName,
@@ -145,9 +161,27 @@ export function canonicalizeApplicationRuntimeTargetV1(
   CanonicalApplicationRuntimeTargetV1,
   ApplicationRuntimeTargetV1Error
 > {
-  return decodeApplicationRuntimeTargetV1(value).pipe(
-    Result.flatMap(target => {
-      const canonicalText = encodeCanonicalJson(targetJson(target), issue => {
+  return captureApplicationRuntimeTargetV1(value).pipe(Result.flatMap(target =>
+    recanonicalizeApplicationRuntimeTargetV1({ ...target, validatorIdentityEncoding: 2 }, 2)));
+}
+
+/** The selection's trusted owner supplies the encoding; request data never chooses it. */
+export function recanonicalizeApplicationRuntimeTargetV1(
+  value: unknown, validatorIdentityEncoding: ValidatorIdentityEncoding,
+): Result.Result<CanonicalApplicationRuntimeTargetV1, ApplicationRuntimeTargetV1Error> {
+  if (validatorIdentityEncoding !== 1 && validatorIdentityEncoding !== 2)
+    return Result.fail(error("decode", "invalidShape"));
+  return captureApplicationRuntimeTargetV1(value).pipe(
+    Result.flatMap(captured => {
+      if (validatorIdentityEncoding === 1 && captured.validatorIdentityEncoding !== undefined)
+        return Result.fail(error("decode", "invalidShape"));
+      if (validatorIdentityEncoding === 2 && captured.validatorIdentityEncoding !== 2)
+        return Result.fail(error("decode", "invalidShape"));
+      const target = snapshotTarget(validatorIdentityEncoding === 2 ? { ...captured, validatorIdentityEncoding: 2 } : captured);
+      const wire = applicationRuntimeTargetIdentityWireV1(target, validatorIdentityEncoding);
+      const measured = measureCanonicalJsonUtf8Bytes(wire, MAX_APPLICATION_RUNTIME_TARGET_BYTES_V1);
+      if (measured.kind !== "success") return Result.fail(error("canonicalize", measured.kind === "invalid" ? "invalidShape" : "bytesExceeded"));
+      const canonicalText = encodeCanonicalJson(wire, issue => {
         throw new Error(`Application runtime target invariant: ${issue.reason}`);
       });
       const canonicalBytes = UTF8.encode(canonicalText);
@@ -162,15 +196,36 @@ export function canonicalizeApplicationRuntimeTargetV1(
   );
 }
 
-function preflightValidators(value: unknown): unknown | undefined {
+/** Historical wire ingress is confined to the immutable stored-program reader. */
+export function readStoredLegacyApplicationRuntimeTargetV1(value: unknown) {
+  return capturePlainData(value).pipe(Result.mapError(cause => error("decode", "invalidShape", cause)), Result.flatMap(captured => {
+    if (!isNonArrayRecord(captured) || !isNonArrayRecord(captured.function) || Object.hasOwn(captured, "validatorIdentityEncoding"))
+      return Result.fail(error("decode", "invalidShape"));
+    const args = decodeLegacyValidatorJsonResultCoreV1(captured.function.args);
+    const returns = captured.function.returns === null ? { ok: true as const, value: null }
+      : decodeLegacyValidatorJsonResultCoreV1(captured.function.returns);
+    if (!args.ok || !returns.ok) return Result.fail(error("decode", "invalidShape"));
+    return recanonicalizeApplicationRuntimeTargetV1({ ...captured, function: { ...captured.function,
+      args: args.value, returns: returns.value } }, 1);
+  }));
+}
+
+export function canonicalizeApplicationRuntimeTargetWireV1(
+  value: unknown,
+): Result.Result<CanonicalApplicationRuntimeTargetV1, ApplicationRuntimeTargetV1Error> {
+  return decodeApplicationRuntimeTargetV1(value).pipe(Result.flatMap(canonicalizeApplicationRuntimeTargetV1));
+}
+
+function preflightValidators(value: unknown, representation: "wire" | "semantic"): unknown | undefined {
+  const admissionIssue = representation === "wire" ? validatorJsonWireAdmissionIssueV1 : validatorJsonAdmissionIssueV1;
   try {
     if (!isNonArrayRecord(value) || !isNonArrayRecord(value.function)) {
       return "function";
     }
-    const argsIssue = validatorJsonAdmissionIssueV1(value.function.args);
+    const argsIssue = admissionIssue(value.function.args);
     if (argsIssue !== undefined) return argsIssue;
     if (value.function.returns !== null) {
-      return validatorJsonAdmissionIssueV1(value.function.returns);
+      return admissionIssue(value.function.returns);
     }
     return undefined;
   } catch (cause) {
@@ -179,14 +234,14 @@ function preflightValidators(value: unknown): unknown | undefined {
 }
 
 interface CaptureState {
-  remaining: number;
   readonly ancestors: WeakSet<object>;
+  readonly memo: WeakMap<object, unknown>;
 }
 
 function capturePlainData(value: unknown): Result.Result<unknown, unknown> {
   return capturePlainDataNode(value, {
-    remaining: MAX_CAPTURE_NODES,
     ancestors: new WeakSet<object>(),
+    memo: new WeakMap<object, unknown>(),
   }, 0);
 }
 
@@ -195,9 +250,6 @@ function capturePlainDataNode(
   state: CaptureState,
   depth: number,
 ): Result.Result<unknown, unknown> {
-  if (state.remaining === 0) return Result.fail("captureNodes");
-  state.remaining -= 1;
-  if (depth > MAX_CAPTURE_DEPTH) return Result.fail("captureDepth");
   if (
     value === null ||
     typeof value === "string" ||
@@ -209,6 +261,7 @@ function capturePlainDataNode(
   if (typeof value !== "object" || state.ancestors.has(value)) {
     return Result.fail("plainData");
   }
+  if (state.memo.has(value)) return Result.succeed(state.memo.get(value));
 
   state.ancestors.add(value);
   try {
@@ -218,8 +271,7 @@ function capturePlainDataNode(
         if (
           lengthDescriptor === undefined ||
           !("value" in lengthDescriptor) ||
-          typeof lengthDescriptor.value !== "number" ||
-          lengthDescriptor.value > state.remaining
+          typeof lengthDescriptor.value !== "number"
         ) return yield* Result.fail("array");
         const length = lengthDescriptor.value;
         const keys = Reflect.ownKeys(value);
@@ -238,6 +290,7 @@ function capturePlainDataNode(
             depth + 1,
           ));
         }
+        state.memo.set(value, output);
         return output;
       });
     }
@@ -247,7 +300,6 @@ function capturePlainDataNode(
     }
     return Result.gen(function* () {
       const keys = Reflect.ownKeys(value);
-      if (keys.length > state.remaining) return yield* Result.fail("objectKeys");
       const output: Record<string, unknown> = Object.create(null);
       for (const key of keys) {
         if (typeof key !== "string") return yield* Result.fail("symbolKey");
@@ -268,6 +320,7 @@ function capturePlainDataNode(
           writable: true,
         });
       }
+      state.memo.set(value, output);
       return output;
     });
   } catch (cause) {
@@ -277,13 +330,20 @@ function capturePlainDataNode(
   }
 }
 
-function targetJson(target: ApplicationRuntimeTargetV1): JsonObject {
+export function applicationRuntimeTargetWireV1(target: ApplicationRuntimeTargetV1): JsonObject {
+  return applicationRuntimeTargetIdentityWireV1(target, 2);
+}
+
+/** Pure historical byte projection, distinct from Source DTO Worker transport. */
+export function applicationRuntimeTargetIdentityWireV1(target: ApplicationRuntimeTargetV1, encoding: ValidatorIdentityEncoding): JsonObject {
+  const encode = encoding === 1 ? encodeLegacyValidatorJsonWireCoreV1 : encodeValidatorJsonV1;
   const partition: Json = target.function.partition === null
     ? null
     : { ...target.function.partition };
   return {
     format: target.format,
     version: target.version,
+    ...(encoding === 2 ? { validatorIdentityEncoding: 2 } : {}),
     scopeId: target.scopeId,
     revisionId: target.revisionId,
     candidateId: target.candidateId,
@@ -300,8 +360,8 @@ function targetJson(target: ApplicationRuntimeTargetV1): JsonObject {
       exportName: target.function.exportName,
       kind: target.function.kind,
       visibility: target.function.visibility,
-      args: target.function.args,
-      returns: target.function.returns,
+      args: encode(target.function.args),
+      returns: target.function.returns === null ? null : encode(target.function.returns),
       partition,
       entrySha256: target.function.entrySha256,
     },
@@ -315,19 +375,7 @@ function functionPath(moduleName: string, exportName: string): string {
 function snapshotTarget(
   target: ApplicationRuntimeTargetV1,
 ): ApplicationRuntimeTargetV1 {
-  const snapshot = structuredClone(target);
-  freezeJson(snapshot);
-  return snapshot;
-}
-
-function freezeJson(value: unknown): void {
-  if (typeof value !== "object" || value === null || Object.isFrozen(value)) return;
-  if (Array.isArray(value)) {
-    for (const item of value) freezeJson(item);
-  } else {
-    for (const item of Object.values(value)) freezeJson(item);
-  }
-  Object.freeze(value);
+  return snapshotDecodedProtocolPlainData(target);
 }
 
 function error(

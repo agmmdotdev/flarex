@@ -43,8 +43,11 @@ fields, custom defaults/validation/access/hooks, projections, auth/dashboard,
 uploads, drafts/versions, subscriptions, public SDK/routes, deployed artifacts,
 existing-row migration, ownership transfer and cross-domain references out of
 scope. The existing fixed many/join profiles remain supported regressions, not
-additional configurable capabilities. Combined Commerce/CMS commands remain
-scalar-only; this gate does not extend their relation admission.
+additional configurable capabilities. This standalone gate does not extend
+combined-command relation admission. The
+[mixed optional-one successor](../../mixed-mutation-core/payload-relationships-attempt-preflight.md)
+separately connects the admitted relationship to the existing mixed root;
+other combined-command profiles retain their own gates.
 
 ## Governing Evidence And Why Now
 
@@ -71,10 +74,10 @@ restrictions marked for extension below are now replaced):
 | `packages/payload-adapter/src/collections.ts` | Scalar-only native field decoder; generated declaration has no relations. | Compile the admitted optional relationship using the existing capture, native sanitation, schema-authoring and Analysis path. |
 | `packages/analysis/src/applicationWritePolicy/model.ts`, `schemaCompatibility.ts` | Optional-one name/target are fixed to `relatedPost`/`posts`; relation comparison assumes the exact fixture. | Authenticate checked field/source/target identities and compare their complete native declaration; retain exact many/join constraints. |
 | `packages/payload-adapter/src/profile.ts` | Ordinary binding registers `relationCount: 0`. | Register the actual checked zero/one count with the exact compiled identity through the existing issuer. |
-| `packages/persistence-postgres/src/cmsTransaction/admission.ts` | Whole-schema zero/one/two relation counts are checked against the existing profiles. | Retain the profile/count ceiling and current acceptance; verify the newly admitted one-relation configuration still agrees exactly. |
+| `packages/persistence-postgres/src/frameworks/cmsTransaction/admission.ts` | Whole-schema zero/one/two relation counts are checked against the existing profiles. | Retain the profile/count ceiling and current acceptance; verify the newly admitted one-relation configuration still agrees exactly. |
 | `packages/payload-adapter/src/inputs.ts`, `adapter.ts`, `population.ts` | Input, null removal, projection and population inspect fixed relation names; request admission permits only the root collection. | Drive optional-one translation from owned collection metadata and admit only root-evidenced, target-specific loader reads. |
-| `packages/persistence-postgres/src/cmsTransaction/documents.ts` | Existing `getMany` already accepts an admitted table name, checks each ID's table, and borrows the request lifetime. | Reuse it unchanged; no table scan, SQL bypass or new transaction for population. |
-| `packages/persistence-postgres/src/applicationWriteOwnership/Successor.ts` | Authorizes only the recorded scalar-to-optional-`posts.relatedPost` successor. | Retain that exact transition; prove this fresh-configuration expansion does not grant new migration authority. |
+| `packages/persistence-postgres/src/frameworks/cmsTransaction/documents.ts` | Existing `getMany` already accepts an admitted table name, checks each ID's table, and borrows the request lifetime. | Reuse it unchanged; no table scan, SQL bypass or new transaction for population. |
+| `packages/persistence-postgres/src/application/ownership/Successor.ts` | Authorizes only the recorded scalar-to-optional-`posts.relatedPost` successor. | Retain that exact transition; prove this fresh-configuration expansion does not grant new migration authority. |
 
 The executing package remains `payload@3.88.0`, checked at
 `packages/payload-adapter/node_modules/payload/package.json`. Its installed

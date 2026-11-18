@@ -5,7 +5,7 @@ import { analyzeLoadedApplicationSourcePackageEffect } from "@flarex/analysis";
 import { makeApplicationManifest, verifyApplicationManifestV3 } from "@flarex/analysis/application-analysis";
 import { compilePayloadCollections } from "../src/collections";
 import { PayloadConfigurationSchema } from "@flarex/analysis/internal/application-write-policy";
-import { payloadScalarContentIdentity, payloadScalarConfiguration, payloadRelationContentIdentity, payloadRelationConfiguration, payloadPostsCollection } from "../src/conformanceProfile";
+import { payloadScalarContentIdentity, payloadScalarConfiguration, payloadRelationContentIdentity, payloadRelationConfiguration, payloadPostsCollection, payloadPostsCollectionDefinition } from "../src/testing/profiles";
 
 const definitions = (): CollectionConfig[] => [
   { slug: "news-items", fields: [
@@ -21,6 +21,115 @@ const refusal = (input: unknown) => Effect.runPromise(Effect.result(compilePaylo
 const decodeConfiguration = Schema.decodeUnknownResult(PayloadConfigurationSchema);
 
 describe("Payload collection compiler", () => {
+  it("authenticates nullable scalar storage and indexes optional unique values", async () => {
+    const input = [{ slug: "items", fields: [
+      { name: "alias", type: "text", unique: true },
+      { name: "amount", type: "number", required: false },
+      { name: "category", type: "text", required: true },
+    ], indexes: [{ fields: ["category", "amount"], unique: true }] }];
+    const compiled = await compile(input);
+    expect(compiled.configuration.tables[0]?.fields.slice(0, 3)).toMatchObject([
+      { name: "alias", nullable: true, unique: true }, { name: "amount", nullable: true }, { name: "category", kind: "text" },
+    ]);
+    expect(compiled.configuration.tables[0]?.indexes).toEqual(expect.arrayContaining([
+      expect.objectContaining({ fields: ["alias"] }), expect.objectContaining({ fields: ["category", "amount"], unique: true }),
+    ]));
+    expect(compiled.logicalDefinition.uniqueConstraints).toHaveLength(2);
+    expect(compiled.logicalDefinition.uniqueConstraints).toEqual(expect.arrayContaining([
+      expect.objectContaining({ tableLogicalName: "items", fields: ["alias"], nullsDistinct: true, sparse: false }),
+      expect.objectContaining({ tableLogicalName: "items", fields: ["category", "amount"], nullsDistinct: true, sparse: false }),
+    ]));
+    expect(compiled.schemaDefinition.tables.items?.validator.json).toMatchObject({ type: "object", value: {
+      alias: { optional: false, fieldType: { type: "union", value: [{ type: "string" }, { type: "null" }] } },
+      amount: { optional: false, fieldType: { type: "union", value: [{ type: "number" }, { type: "null" }] } },
+    } });
+    await Effect.runPromise(analyzeLoadedApplicationSourcePackageEffect({ executionModules: {}, sourceMaps: {}, schemaDefinition: compiled.schemaDefinition }));
+    const explicit = await compile([{ ...input[0], fields: input[0]!.fields.map(field => ({ ...field, required: field.required ?? false })) }]);
+    expect(explicit.contentIdentity).toEqual(compiled.contentIdentity);
+    const changed = structuredClone(compiled.configuration);
+    const optional = changed.tables[0]?.fields[0];
+    if (optional === undefined) throw new Error("Missing optional field");
+    Reflect.deleteProperty(optional, "nullable");
+    expect(Result.isSuccess(decodeConfiguration(changed))).toBe(true);
+    for (const tamper of ["missingNull", "missingValue", "optional"]) {
+      const altered = structuredClone(compiled.schemaDefinition);
+      const validator = altered.tables.items?.validator.json;
+      if (validator?.type !== "object" || validator.value.alias === undefined) throw new Error("Missing nullable validator");
+      const field = validator.value.alias;
+      if (tamper === "optional") Reflect.set(field, "optional", true);
+      else Reflect.set(field, "fieldType", { type: tamper === "missingNull" ? "string" : "null" });
+      expect(await Effect.runPromise(analyzeLoadedApplicationSourcePackageEffect({ executionModules: {}, sourceMaps: {}, schemaDefinition: altered }).pipe(Effect.result)))
+        .toMatchObject({ _tag: "Failure" });
+    }
+  });
+  it("authenticates multiple unique fields and canonical compound unique intent", async () => {
+    const fields = [{ name: "title", type: "text", required: true, unique: true },
+      { name: "alias", type: "text", required: true, unique: true },
+      { name: "category", type: "text", required: true }, { name: "price", type: "number", required: true }];
+    const uniqueIndex = { fields: ["category", "price"], unique: true };
+    const ordinaryIndex = { fields: ["category", "price"] };
+    const compiled = await compile([{ slug: "items", fields, indexes: [ordinaryIndex, uniqueIndex] }]);
+    expect(compiled.configuration.tables[0]?.indexes).toEqual(expect.arrayContaining([
+      expect.objectContaining({ fields: ["title"] }), expect.objectContaining({ fields: ["alias"] }),
+      expect.objectContaining({ fields: ["category", "price"], unique: true }),
+    ]));
+    expect((await compile([{ slug: "items", fields, indexes: [uniqueIndex, ordinaryIndex] }])).contentIdentity).toEqual(compiled.contentIdentity);
+    const ordinary = await compile([{ slug: "items", fields, indexes: [ordinaryIndex] }]);
+    expect(ordinary.contentIdentity.configSha256).not.toBe(compiled.contentIdentity.configSha256);
+    const analysis = await Effect.runPromise(analyzeLoadedApplicationSourcePackageEffect({ executionModules: {}, sourceMaps: {}, schemaDefinition: compiled.schemaDefinition }));
+    const manifest = await Effect.runPromise(makeApplicationManifest(analysis, {
+      rootSha256: "1".repeat(64), executionModulePath: "_flarex/execution.js", schemaModulePath: "_flarex/schema.js",
+      modules: [{ path: "_flarex/execution.js", roles: 8, sourceSha256: "2".repeat(64), sourceByteLength: 48 },
+        { path: "_flarex/schema.js", roles: 2, sourceSha256: "3".repeat(64), sourceByteLength: 64 }],
+    }));
+    const verified = await Effect.runPromise(verifyApplicationManifestV3(manifest.manifest));
+    expect(verified.manifest.schema.writePolicies.configuration.tables[0]?.indexes)
+      .toEqual(expect.arrayContaining([expect.objectContaining({ fields: ["category", "price"], unique: true })]));
+    const changed = { ...compiled.schemaDefinition, writePolicies: { ...compiled.schemaDefinition.writePolicies,
+      configuration: ordinary.configuration } };
+    expect(await Effect.runPromise(analyzeLoadedApplicationSourcePackageEffect({ executionModules: {}, sourceMaps: {}, schemaDefinition: changed }).pipe(Effect.result)))
+      .toMatchObject({ _tag: "Failure" });
+  });
+  it("retains a historical ordered index for a required unique Payload title", async () => {
+    const compiled = await compile([payloadPostsCollectionDefinition("payload.scalar")]);
+    expect(compiled.configuration.tables[0]?.indexes).toEqual([
+      expect.objectContaining({ fields: ["title"] }),
+    ]);
+    expect(compiled.logicalDefinition.indexes).toEqual(expect.arrayContaining([
+      expect.objectContaining({ tableLogicalName: "posts", fields: ["title"] }),
+    ]));
+    expect(compiled.logicalDefinition.uniqueConstraints).toEqual(expect.arrayContaining([
+      expect.objectContaining({ tableLogicalName: "posts", fields: ["title"] }),
+    ]));
+  });
+  it("uses the shared 15-field declaration boundary before compiling physical indexes", async () => {
+    const fields = Array.from({ length: 16 }, (_, index) => ({ name: `field${index}`, type: "text", required: true }));
+    const names = fields.map(field => field.name);
+    const compiled = await compile([{ slug: "items", fields, indexes: [{ fields: names.slice(0, 15) }] }]);
+    expect(compiled.configuration.tables[0]?.indexes?.[0]?.fields).toHaveLength(15);
+    expect(await refusal([{ slug: "items", fields, indexes: [{ fields: names }] }]))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedProfile" } });
+    expect(decodeConfiguration({ ...compiled.configuration, tables: compiled.configuration.tables.map(table => ({ ...table,
+      indexes: table.indexes?.map(index => ({ ...index, fields: names })),
+    })) })).toMatchObject({ _tag: "Failure" });
+  });
+  it("compiles ordinary and compound indexes and rejects a missing schema projection", async () => {
+    const input = [{ slug: "items", fields: [{ name: "category", type: "text", required: true },
+      { name: "price", type: "number", required: true, index: true }], indexes: [{ fields: ["category", "price"] }] }];
+    const compiled = await compile(input);
+    expect(compiled.configuration.tables[0]?.indexes?.map(index => [...index.fields]).sort()).toEqual([["category", "price"], ["price"]]);
+    const analyze = (schemaDefinition: unknown) => analyzeLoadedApplicationSourcePackageEffect({ executionModules: {}, sourceMaps: {}, schemaDefinition });
+    const analysis = await Effect.runPromise(analyze(compiled.schemaDefinition));
+    expect(analysis.schema.indexes).toHaveLength(2);
+    const table = compiled.schemaDefinition.tables.items;
+    expect(await Effect.runPromise(analyze({ ...compiled.schemaDefinition, tables: { items: { ...table, indexes: [] } } }).pipe(Effect.result)))
+      .toMatchObject({ _tag: "Failure" });
+    for (const indexes of [[{ fields: ["category", "unknown"] }], [{ fields: ["price", "price"] }]]) {
+      expect(Result.isFailure(await refusal([{ ...input[0], indexes }]))).toBe(true);
+    }
+    const reordered = await compile([{ ...input[0], indexes: [{ fields: ["category", "price"], unique: false }] }]);
+    expect(reordered.contentIdentity).toEqual(compiled.contentIdentity);
+  });
   it.each(["authors", "article-authors"])("compiles one native relationship with target %s through Analysis", async target => {
     const definitions = [
       { slug: target, fields: [{ name: "name", type: "text", required: true }] },
@@ -168,25 +277,24 @@ describe("Payload collection compiler", () => {
       { name: "value", type: "number", required: true, defaultValue: Infinity },
       { name: "value", type: "number", required: true, defaultValue: -0 },
       { name: "value", type: "text", required: true, defaultValue: null },
-      { name: "value", type: "text", required: false },
+      { name: "value", type: "text", required: "false" },
       { name: "value", type: "text", required: true, unique: undefined },
       { name: "value", type: "number", required: true, unique: true },
       { name: "value", type: "relationship", relationTo: "catalog" },
-      { name: "value", type: "text", required: true, index: true },
+      { name: "value", type: "text", required: true, index: "unsupported" },
     ]) expect(Result.isFailure(await refusal([{ slug: "items", fields: [field] }]))).toBe(true);
     for (const flags of [{ timestamps: false }, { lockDocuments: true }, { enableQueryPresets: true }, { defaultSort: "headline" }, { auth: true }, { versions: true }]) {
       expect(Result.isFailure(await refusal([{ ...definitions()[0], ...flags }]))).toBe(true);
     }
   });
 
-  it("refuses duplicate/reserved identities, ambiguous slug mapping and multiple unique fields", async () => {
+  it("refuses duplicate/reserved identities and ambiguous slug mapping", async () => {
     const original = definitions()[0]!;
     for (const input of [
       [original, original], [{ ...original, slug: "news_items" }, original],
       ...["users", "payload-preferences", "constructor", "_hidden"].map(slug => [{ ...original, slug }]),
       ...["id", "createdAt", "updatedAt", "constructor", "__proto__"].map(name => [{ ...original, fields: [{ name, type: "text", required: true }] }]),
       [{ ...original, fields: [original.fields[0], original.fields[0]] }],
-      [{ ...original, fields: [original.fields[0], { name: "second", type: "text", required: true, unique: true }] }],
     ]) expect(Result.isFailure(await refusal(input))).toBe(true);
   });
 

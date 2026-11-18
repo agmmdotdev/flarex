@@ -62,12 +62,12 @@ These are source findings, not fresh timing or throughput measurements.
 
 | Current owner | Observed behavior | Implication |
 | --- | --- | --- |
-| [Commerce store](../../packages/persistence-postgres/src/commerceTransaction/store.ts) | `catalogBound` measures up to `catalogRows + 1` scoped rows, independently of a requested business predicate; `find` and `count` call it first | A selective lookup performs unrelated catalog work and can refuse because the table is too large |
-| [Commerce resources](../../packages/persistence-postgres/src/commerceTransaction/resources.ts) | Catalog and query ceilings are coupled; admission requires `queryRows >= catalogRows` | This is a complete-small-catalog contract, not merely a per-query safety budget |
-| [Atomic host](../../packages/persistence-postgres/src/atomicCommerce/host.ts) and [commerce host](../../packages/persistence-postgres/src/commerceTransaction/host.ts) | The scope clock is locked before admission and business execution; standalone commerce reads use a shared clock lock | Same-scope independent work contends on publication state; this is not a database-global mutex |
-| [Prepared installation](../../packages/persistence-postgres/src/frameworkSchema/installation/runtime.ts) and [runtime evidence](../../packages/persistence-postgres/src/frameworkSchema/installation/runtimeEvidence.ts) | Preparation is already separate, but acceptance freshly fingerprints installation evidence across 16 metadata sections | Small hash transport does not eliminate database hashing/aggregation work |
-| [Atomic execution](../../packages/persistence-postgres/src/atomicCommerce/execution.ts) and [commerce store](../../packages/persistence-postgres/src/commerceTransaction/store.ts) | An outer participant call constructs its store set; immutable table mechanics and mutable observations are assembled together | Profile immutable preparation before considering a pure-plan extraction; never cache mutable request state |
-| [Relation population](../../packages/medusa-adapter/src/commerce-relations.ts) and [read executor](../../packages/medusa-adapter/src/query/read.ts) | Parent IDs are already batched, but complete relation reads rely on the catalog bound | Preserve batching and replace the completeness proof together with catalog-bound removal |
+| [Commerce store](../../packages/persistence-postgres/src/frameworks/commerceTransaction/store.ts) | `catalogBound` measures up to `catalogRows + 1` scoped rows, independently of a requested business predicate; `find` and `count` call it first | A selective lookup performs unrelated catalog work and can refuse because the table is too large |
+| [Commerce resources](../../packages/persistence-postgres/src/frameworks/commerceTransaction/resources.ts) | Catalog and query ceilings are coupled; admission requires `queryRows >= catalogRows` | This is a complete-small-catalog contract, not merely a per-query safety budget |
+| [Atomic host](../../packages/persistence-postgres/src/frameworks/atomicCommerce/host.ts) and [commerce host](../../packages/persistence-postgres/src/frameworks/commerceTransaction/host.ts) | Clock-first ordinary writes use no-key-update protection; standalone commerce reads use repeatable read and key-share protection, with fresh binding-head locking | Reads overlap ordinary publication under the [snapshot contract](./61-ce3-commerce-publication-snapshots.md). Same-scope writers still serialize; bootstrap and scope transitions retain strong protection |
+| [Prepared installation](../../packages/persistence-postgres/src/installation/frameworkSchema/installation/runtime.ts) and [runtime evidence](../../packages/persistence-postgres/src/installation/frameworkSchema/installation/runtimeEvidence.ts) | Preparation is already separate, but acceptance freshly fingerprints installation evidence across 16 metadata sections | Small hash transport does not eliminate database hashing/aggregation work |
+| [Atomic execution](../../packages/persistence-postgres/src/frameworks/atomicCommerce/execution.ts) and [commerce store](../../packages/persistence-postgres/src/frameworks/commerceTransaction/store.ts) | An outer participant call constructs its store set; immutable table mechanics and mutable observations are assembled together | Profile immutable preparation before considering a pure-plan extraction; never cache mutable request state |
+| [Relation population](../../packages/medusa-adapter/src/query/relations.ts) and [read executor](../../packages/medusa-adapter/src/query/read.ts) | Parent IDs are already batched, but complete relation reads rely on the catalog bound | Preserve batching and replace the completeness proof together with catalog-bound removal |
 | [Workflow foundations](../workflow-foundations/README.md) | Current connected workflows are selected private atomic capabilities; durable events already have an owner | Atomic completion and durable event delivery do not establish resumable multi-commit workflow execution |
 
 The installation redesign must not be undone or confused with this request-path
@@ -154,6 +154,14 @@ only the resource schema or deleting `catalogBound` does not complete this gate.
 
 ## B. Separate Prepared Structure, Live Authority And Integrity Audit
 
+Current selection: [connected core acceptance](./70-connected-execution-acceptance.md)
+retains full fresh verification of selected dependencies, including replay and
+recovery. Bounded immutable preparation and explicit runtime drain/release are
+implemented. The protected-root alternative below is not selected: the existing
+writer/protection contract does not enforce dependency-complete invalidation,
+and unchanged-digest tamper refusal remains synchronous. Its retained read/hash
+cost is a declared limitation, not an unfinished protected-root implementation.
+
 Reuse `prepareInstallationRuntime`; do not add a second preparation registry.
 Capture pure schema/query/write mechanics once per exact immutable definition.
 Share only immutable plans, never managers, mutable native DTOs, request-local
@@ -165,7 +173,7 @@ revocation state through the trusted owner. Cache keys must include every
 behavior-changing definition/profile revision. Bound retained cache memory and
 host multiplicity; a per-entry limit alone does not bound many tenants.
 
-The recommended target is a small fresh admission check against a protected,
+The conditional alternative is a small fresh admission check against a protected,
 versioned readiness root, with structural verification at preparation,
 activation and explicit integrity/recovery boundaries. Its prerequisite is a
 written, enforced immutability and invalidation contract: every legitimate
@@ -206,7 +214,7 @@ decision specifies the following:
 | Privileged corruption | Choose immediate request refusal or detection at named verification/audit boundaries; state the detection interval or triggering event, execution policy before detection, and fencing/recovery action afterward. |
 | Regression disposition | Map each existing integrity witness to unchanged refusal or an explicitly approved new detection boundary; prove ordinary-role enforcement and privileged edits with an unchanged root. |
 
-The recommendation is protected immutable metadata with fresh authority checks
+The alternative is protected immutable metadata with fresh authority checks
 and explicit verification boundaries, conditional on that enforcement proof.
 If the required guarantee remains immediate detection of dependency corruption,
 retain the necessary evidence checks. A performance target does not authorize
@@ -342,10 +350,10 @@ workflow involving a provider call, suspension or independent recovery needs
 committed steps. Select the execution mode at trusted definition/admission
 time; exceeding a limit must never silently change its atomicity.
 
-Reuse the [workflow foundations](../workflow-foundations/README.md), existing
-[Durable Task Engine](../durable-task-engine/README.md),
+Reuse the [workflow foundations](../workflow-foundations/README.md), Task
+integration guarantees under the [current replacement direction](../task-system/README.md),
 [durable event owner](../workflow-foundations/07-durable-workflow-events.md),
-and [publication participant](../../packages/persistence-postgres/src/commerceTransaction/publication.ts).
+and [publication participant](../../packages/persistence-postgres/src/frameworks/commerceTransaction/publication.ts).
 Do not introduce a second generic scheduler, result ledger or commit authority
 merely to support Medusa syntax. Record actual missing contracts first.
 

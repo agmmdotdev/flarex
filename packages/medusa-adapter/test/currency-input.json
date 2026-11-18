@@ -59,10 +59,10 @@
         },
         {
           "columnId": "decimal_digits",
-          "type": "integer",
+          "type": "doublePrecision",
           "nullable": false,
           "default": {
-            "kind": "integerLiteral",
+            "kind": "doublePrecisionLiteral",
             "value": 0
           },
           "origin": {

@@ -1,42 +1,21 @@
 # Curated Effect Examples
 
-These compact examples are derived from the local Effect v4 source, Flarex,
-and T3 Code snapshots. Use them as decision evidence, not templates to paste
-unchanged. Confirm exact APIs against the installed Effect version.
-
-## Contents
-
-- Source roles
-- Reusable Effect function instead of a wrapper
-- Choosing pipe, gen, and all by semantics
-- Schema for data, Result or Effect for the parse outcome
-- Result for pure validation data
-- Result at a deliberate Promise boundary
-- Option for intentional absence
-- Exit at an observability boundary
-- Match for exhaustive error translation
-- Gen, pipe, service, Layer, and HTTP together
-- Neighboring code is not authority
+Illustrative Effect v4/Flarex/T3 Code snippets, not paste-ready templates.
+Verify installed APIs; [the catalog](pattern-catalog.md) owns general selection.
 
 ## Source roles
 
-- API authority: installed Effect source/types and the canonical Effect
-  repository. Effect-smol snapshots are historical examples, not authority
-  for a later installed release.
-- Flarex contract evidence: `packages/flarex-protocol/src/validator-engine.ts`,
-  `packages/flarex-protocol/src/live-query.ts`, and
-  `apps/runtime-topology-probe/src/effectBoundary.ts`.
-- Application evidence: T3 Code `VcsProcess.ts`, `ApnsClient.ts`,
-  `EnvironmentConnector.ts`, `DpopProofs.ts`, and relay `observability.ts`.
-
-The installed Effect version defines available APIs. Flarex decides its public
-and trust-boundary contracts. T3 Code shows realistic composition, but its own
-`docs/operations/effect-fn-checklist.md` records unfinished wrapper debt, so it
-must never be treated as uniformly correct precedent.
+Installed Effect source/types define APIs; Flarex owns public/trust contracts.
+Flarex witnesses: `packages/flarex-protocol/src/validator-engine.ts`,
+`live-query.ts`, and `apps/runtime-topology-probe/src/effectBoundary.ts`.
+T3 Code witnesses: VcsProcess, ApnsClient, EnvironmentConnector, DpopProofs and
+relay observability. Effect-smol is historical; T3's
+`docs/operations/effect-fn-checklist.md` records wrapper debt, not uniform
+precedent.
 
 ## Choosing pipe, gen, and all by semantics
 
-A single dependent Result step is a focused pipeline:
+One linear Result transform:
 
 ```ts
 const decodedLimit = optionalPositiveInteger(body.limit, "limit").pipe(
@@ -44,8 +23,7 @@ const decodedLimit = optionalPositiveInteger(body.limit, "limit").pipe(
 )
 ```
 
-When several decoder results must be named and later decoder calls must not run
-after an earlier failure, compose the whole decoder with `Result.gen`:
+Dependent successes with later decoder calls suppressed after failure:
 
 ```ts
 const decoded = Result.gen(function*() {
@@ -55,7 +33,7 @@ const decoded = Result.gen(function*() {
 })
 ```
 
-Do not manually translate one channel and then unwrap the other:
+Translate/propagate composition, rather than inspecting and reboxing channels:
 
 ```ts
 // Avoid
@@ -72,30 +50,23 @@ return planArena(input).pipe(
 )
 ```
 
-Inside a larger `Result.gen`, translate before yielding:
+Inside gen, translate before yielding:
 
 ```ts
 const arena = yield* planArena(input).pipe(Result.mapError(toPlanError))
 const required = arena.usage
 ```
 
-Use `Result.fail` to originate a new failure from a raw failed condition. Use
-`filterOrFail` when that condition validates an existing successful Result;
-do not inspect and rebox the Result by hand.
-
-Do not replace that flow with `Result.all({ limit: decodeLimit(), cursor:
-decodeCursor() })` unless both calls are intentionally independent: JavaScript
-invokes both decoders before `Result.all` receives the record. The same eager
-construction rule applies to `Option.all`. `Effect` is different because the
-members are lazy descriptions, though JavaScript factory calls used to create
-them still run immediately; use `Effect.all` only with an explicit execution
-and cancellation policy. `Exit` is already a completed outcome, so map or fold
-it at its Cause-owning boundary instead of trying to sequence domain work with
-it.
+Result.fail originates a raw-condition failure; filterOrFail validates an existing
+success. Result.all({ limit: decodeLimit(), cursor: decodeCursor() }) calls BOTH
+decoders before receiving the record; Option.all has the same eager construction.
+Effect members are lazy but their JavaScript factories are eager. Use all only
+for intended independence/order/cancellation; Exit folds completed Causes,
+not domain sequencing.
 
 ## Reusable Effect function instead of a wrapper
 
-Avoid hiding a reusable operation inside a plain wrapper:
+Avoid hiding a reusable operation behind a plain gen wrapper:
 
 ```ts
 const decodeChange = (input: unknown) =>
@@ -105,8 +76,7 @@ const decodeChange = (input: unknown) =>
   })
 ```
 
-Prefer a named operation boundary when the operation is meaningful and
-observable:
+A meaningful observable operation owns a named boundary:
 
 ```ts
 const decodeChange = Effect.fn("LiveQuery.decodeChange")(function*(
@@ -117,29 +87,21 @@ const decodeChange = Effect.fn("LiveQuery.decodeChange")(function*(
 })
 ```
 
-This follows Effect-smol's `Effect.fn` guidance and Flarex's committed
-`LiveQueryProtocol.decodeDeliveryChange` shape. Use unnamed `Effect.fn` for an
-internal stack boundary without a span, and use `fnUntraced` only with a
-concrete instrumentation or hot-path reason.
+Flarex's LiveQueryProtocol.decodeDeliveryChange illustrates this shape.
+Unnamed fn supplies an internal stack boundary without a span; fnUntraced needs
+an instrumentation/hot-path reason.
 
 ## Schema for data, Result or Effect for the parse outcome
 
-Use the [data-contract guide](data-contracts.md) and the sibling error skill's
+See [data contracts](data-contracts.md) and the
 [Schema example](../../effect-ts-error-handling/references/effect-error-patterns.md).
-That example declares one required-name/bounded-attempt schema, derives its
-TypeScript type, decodes to Result and enters Effect once. Schema and Result
-solve different parts of the same boundary.
-
-A stored-state union with intrinsic field relationships is another Schema
-candidate. Current lease validity and process-local handle authenticity remain
-explicit operations. Preserve no-getter capture and canonical codecs when their
-semantics exceed ordinary structural decoding.
+Schema owns required fields/bounds and intrinsic stored-state relations;
+Result carries pure parsing, then enters Effect once. Current lease validity
+and issuer authenticity remain contextual. Preserve no-getter capture/codecs.
 
 ## Result for pure validation data
 
-Flarex's validator engine is synchronous and pure. It returns a value-level
-result so callers can short-circuit or accumulate validation without starting
-an Effect runtime:
+ValidatorJson owns Flarex's existing pure validation semantics:
 
 ```ts
 function validate(value: Value): Result.Result<void, ValidationError> {
@@ -150,15 +112,9 @@ function validate(value: Value): Result.Result<void, ValidationError> {
 }
 ```
 
-Here the existing ValidatorJson engine owns validation semantics; Result is
-its outcome type. New ordinary structural contracts should use Schema rather
-than copying this manual guard as a universal decoder pattern.
-
-This is a strong `Result` use: no async work, cancellation, service
-requirements, or defects are being modeled. A throwing compatibility API may
-fold this Result once at its boundary; internal validation should remain data.
-
-Prefer `Result.match` when both branches become a plain value:
+No async/cancellation/runtime is needed. This manual guard is not a template for
+new structural decoders: use Schema. A throwing compatibility edge folds Result
+once; internal validation remains data. Fold when both branches are plain:
 
 ```ts
 const message = Result.match(validation, {
@@ -169,8 +125,7 @@ const message = Result.match(validation, {
 
 ## Result at a deliberate Promise boundary
 
-Flarex's runtime-topology probe intentionally normalizes typed protocol
-failures to `null` for a host-facing probe API:
+The runtime-topology probe's host API explicitly owns this lossy projection:
 
 ```ts
 async function valueOrNull<A, E>(effect: Effect.Effect<A, E>): Promise<A | null> {
@@ -182,15 +137,13 @@ async function valueOrNull<A, E>(effect: Effect.Effect<A, E>): Promise<A | null>
 }
 ```
 
-This is acceptable only because the adapter contract explicitly owns the
-lossy `A | null` conversion. Do not copy it into domain flow, where callers
-usually need the typed `E` channel.
+Do not use it in domain flow that needs E. The real Promise adapter owns the
+runner and A | null contract.
 
 ## Option for intentional absence
 
-An APNs-style adapter can compile a JSON-text error-body decoder once and use
-`Option.match` when its protocol deliberately treats malformed/absent details
-as a fallback. This is a lossy boundary choice, not general validation:
+An APNs-style protocol can deliberately treat malformed/absent error details as
+fallback. Compile its JSON-text decoder once:
 
 ```ts
 const decodeErrorBody = Schema.decodeUnknownOption(
@@ -206,20 +159,14 @@ function reasonFromBody(body: string): string | undefined {
 }
 ```
 
-The Option is internal; the public response still uses its required optional
-field representation. Likewise, convert an optional response header with
-`Option.getOrNull` only at a contract that explicitly requires `null`.
-
-T3 Code also uses `Effect.option` while trying rotated verification keys. That
-conversion is justified only if every verification/decode failure means "this
-key did not verify; try the next key." If transport, configuration, or defect
-reasons must stop the loop, catch only the expected verification error instead
-of erasing the whole typed channel.
+Option stays internal; preserve public optional/null fields, using getOrNull
+only where required. Rotated-key verification may use Effect.option only if EVERY
+typed verification/decode failure means "try another key". Transport/configuration
+failures must stop via specific recovery; defects must not be erased.
 
 ## Exit at an observability boundary
 
-T3 Code's relay tracer receives `Exit` in the tracer span lifecycle and
-inspects failure Causes to annotate typed or defect errors:
+A relay tracer owns completion and can annotate the full Cause:
 
 ```ts
 function annotateFailure(span: Tracer.Span, exit: Exit.Exit<unknown, unknown>) {
@@ -230,14 +177,12 @@ function annotateFailure(span: Tracer.Span, exit: Exit.Exit<unknown, unknown>) {
 }
 ```
 
-This is the correct boundary: the tracer owns completion, defects, and
-interruption. A domain service should keep ordinary recoverable failures in
-`E` rather than returning `Exit` from every method.
+Normal domain services retain recoverable failure in E. Exit belongs to the
+completion/cleanup/diagnostic owner, including defects and interruption.
 
 ## Match for exhaustive error translation
 
-T3 Code's `VcsProcess` maps a tagged process error union into the public VCS
-error union with `Match.valueTags`:
+VcsProcess maps the process error union to its public error union:
 
 ```ts
 const run = processRunner.run(input).pipe(
@@ -253,18 +198,14 @@ const run = processRunner.run(input).pipe(
 )
 ```
 
-Adding a new process error variant now requires updating the translation.
-Prefer this or an exhaustive `switch` over chained tag checks with a catch-all
-default.
+A new variant requires updating the mapping. Exhaustive Match or switch avoids
+a catch-all silently assigning the last known meaning.
 
 ## Gen, pipe, service, Layer, and HTTP together
 
-T3 Code's APNs client demonstrates the intended separation:
-
-An exported factory that closes over injected capabilities and returns reusable
-Effect methods is service-shaped by default. Keep its `make` function as Layer
-construction and leave dependencies visible in `R`; retain a plain or scoped
-factory only when locality, lifetime, or multi-instance cardinality requires it.
+A factory closing over injected capabilities and reusable Effect methods is
+service-shaped; Layer construction keeps requirements visible in R. Plain/scoped
+factories need locality/lifetime/multi-instance justification.
 
 ```ts
 const make = Effect.gen(function*() {
@@ -286,24 +227,13 @@ const make = Effect.gen(function*() {
 export const layer = Layer.effect(Client, make)
 ```
 
-- `Effect.gen` constructs the service once.
-- Named `Effect.fn` marks the observable operation.
-- `pipe` expresses a short transport and error-mapping chain.
-- `HttpClient` is injected and the Layer closes construction requirements.
-- Stable Schema codecs are compiled outside the request method.
-
-Do not infer that every nullable field in the returned public payload should
-become Option; the protocol owner still decides its external representation.
+gen constructs once, named fn marks send, pipe handles transport/error projection,
+HttpClient is injected and Layer closes construction requirements. Compile stable
+Schema codecs outside send; public nullable fields still obey their protocol.
 
 ## Neighboring code is not authority
 
-T3 Code's DPoP service contains both the preferred form and recorded migration
-debt in one file: `consume` and `verifyAndConsume` are named `Effect.fn`
-operations, while `pruneExpired` is still a reusable service property built as
-an `Effect.gen(...).pipe(Effect.withSpan(...))` value.
-
-When adding a similar service operation, follow the intended `Effect.fn`
-standard rather than copying the remaining wrapper/value inconsistency. When a
-change materially relies on the inconsistent operation and behavior-preserving
-tests exist, convert that bounded touched flow instead of postponing it merely
-because it predates the diff.
+In the reviewed DPoP snapshot, consume/verifyAndConsume use named fn while
+pruneExpired retains a gen value with withSpan. Follow the intended operation
+boundary, not neighboring debt. Correct materially relied-on touched-flow debt
+when authorized and behavior-preserving witnesses exist.

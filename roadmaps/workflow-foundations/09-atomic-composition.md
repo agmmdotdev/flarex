@@ -23,6 +23,18 @@ admission to one through eight explicitly selected participants as an authentica
 subset of the active commerce binding. Individual authority checks, whole-binding
 replay evidence and the existing settlement owner remain unchanged.
 
+The default remains eight participants. The trusted host may explicitly select
+`requestParticipantLimit` up to eighteen for an entirely logical composition; a
+selection above eight refuses every physical participant, including a smaller
+mixed cohort. This selection is included in preparation accounting and atomic
+policy identity only when supplied. Physical installation/profile bindings and
+relational fact directories retain their existing eight-member ceiling. The
+[Variant/item pricing root](../flarexdb-framework-integration/preflight/159-native-variant-item-price-calculation.md)
+uses nine genuine logical owners; its separate call allowance does not alter event or byte limits.
+The [native checkout preflight](../flarexdb-framework-integration/preflight/checkout-workflow.md)
+requires eighteen distinct logical owners. Participant admission alone does not
+admit that graph or increase its call, event, byte or deadline budgets.
+
 The approved [shared-installation correction](../flarexdb-framework-integration/preflight/55-shared-installation-atomic-commerce.md)
 separates physical installation preparation/acceptance from logical participant
 authority. It is complete: disjoint profiles may
@@ -52,7 +64,7 @@ in `prepareCoordinatorGraphInTransaction` before any business command runs.
 Expected: independent module installations coexist under the same placement.
 Actual: [DML lowering](../../packages/medusa-adapter/src/schema/lower.ts)
 hardcoded `lineageId: "commerce"` for both modules. The
-[migration coordinator](../../packages/persistence-postgres/src/migrationCoordination/freshCoordinator.ts)
+[migration coordinator](../../packages/persistence-postgres/src/installation/migrationCoordination/freshCoordinator.ts)
 correctly treats their different fresh artifacts as competing heads of the same
 lineage. This is an adapter identity limitation, not evidence that the core
 conflict check should be weakened. The initial source preflight missed it.
@@ -110,14 +122,14 @@ The source island remains reference-only until promotion gates pass.
 
 | Inspected source | Finding and consequence |
 | --- | --- |
-| [Commerce host](../../packages/persistence-postgres/src/commerceTransaction/host.ts) | Executes SQL in a bounded relational session, takes the scope clock lock before services run, and recovers retained outcomes. This is not native journal execution. |
-| [Commerce publication](../../packages/persistence-postgres/src/commerceTransaction/publication.ts) | Authenticated contribution consumption is already separate from finalization. Reuse it instead of adding another publisher. |
-| [Composite host](../../packages/persistence-postgres/src/crossDomainCommand/host.ts) and [actual assertions](../../packages/medusa-adapter/test/currency-announcement.test.ts) | A fixed Currency/CMS/Application command has one physical owner, pending reads, combined facts, retained replay, late-failure rollback and physical-failure assertions. This does not establish a generic two-commerce-module host or application API. |
-| [Binding model](../../packages/persistence-postgres/src/frameworkSchema/binding/model.ts) and [atomic admission](../../packages/persistence-postgres/src/atomicCommerce/admission.ts) | The current unversioned binding model admits bounded installation coverage and direct profile membership. The atomic host selects at most eight logical participants, sharing physical admission only for exact installation references and disjoint profiles. Standalone hosts retain their own profile selection. |
-| [Relational fact reader](../../packages/persistence-postgres/src/commitPublication/relationalFacts.ts) | Validates every fact against a caller-supplied directory of original captured installation layouts before returning a participant projection. Active bindings do not reinterpret old commits. |
-| [Module definition](../../packages/medusa-adapter/src/module-definition.ts) | Checked definitions and fresh scoped services already exist. Preparation stays separate from request authority. |
+| [Commerce host](../../packages/persistence-postgres/src/frameworks/commerceTransaction/host.ts) | Executes SQL in a bounded relational session, takes the scope clock lock before services run, and recovers retained outcomes. This is not native journal execution. |
+| [Commerce publication](../../packages/persistence-postgres/src/frameworks/commerceTransaction/publication.ts) | Authenticated contribution consumption is already separate from finalization. Reuse it instead of adding another publisher. |
+| [Composite host](../../packages/persistence-postgres/src/frameworks/crossDomainCommand/host.ts) and [actual assertions](../../packages/medusa-adapter/test/currency-announcement.test.ts) | A fixed Currency/CMS/Application command has one physical owner, pending reads, combined facts, retained replay, late-failure rollback and physical-failure assertions. This does not establish a generic two-commerce-module host or application API. |
+| [Binding model](../../packages/persistence-postgres/src/installation/frameworkSchema/binding/model.ts) and [atomic admission](../../packages/persistence-postgres/src/frameworks/atomicCommerce/admission.ts) | The current unversioned binding model admits bounded installation coverage and direct profile membership. The atomic host defaults to eight logical participants and admits an explicit identity-bound allowance through eighteen for entirely logical compositions, sharing physical admission only for exact installation references and disjoint profiles. Standalone hosts retain their own profile selection. |
+| [Relational fact reader](../../packages/persistence-postgres/src/commit/publication/relationalFacts.ts) | Validates every fact against a caller-supplied directory of original captured installation layouts before returning a participant projection. Active bindings do not reinterpret old commits. |
+| [Module definition](../../packages/medusa-adapter/src/module/definition.ts) | Checked definitions and fresh scoped services already exist. Preparation stays separate from request authority. |
 | [Read execution](../../packages/medusa-adapter/src/query/read.ts) and [catalog](../../packages/medusa-adapter/src/query/catalog.ts) | Relation filtering, root selection, population, count and projection are reusable semantics; they do not produce native relational OCC dependencies. |
-| [Native journal](../../packages/persistence-postgres/src/sessionJournalStore.ts) and [internal calls](../45-private-internal-user-code-calls.md) | Native calls share an attempt and overlay. These admitted native operations do not establish arbitrary relational query support. |
+| [Native journal](../../packages/persistence-postgres/src/execution/sessionJournalStore.ts) and [internal calls](../45-private-internal-user-code-calls.md) | Native calls share an attempt and overlay. These admitted native operations do not establish arbitrary relational query support. |
 | [Application command invocation](../shared-transaction-core/06-application-command-invocation-preflight.md) | The Action-to-trusted-command boundary is proposed, not implemented. The private host is not an ordinary application API. |
 
 The tests linked below establish the implemented private scope. There is no
@@ -155,7 +167,7 @@ The smaller [create-product-tags workflow](../../third_party/medusa/upstream/pac
 is a useful later target, but includes a hook and workflow event.
 [Workflow export](../../third_party/medusa/upstream/packages/core/workflows-sdk/src/helper/workflow-export.ts)
 releases/clears event groups, while the
-[current Product module](../../packages/medusa-adapter/src/product-module.ts)
+[current Product module](../../packages/medusa-adapter/src/modules/product/module.ts)
 refuses those operations. Local event buffering and the commit wake outbox do
 not establish durable grouped business events. Do not drop the event step to
 claim original workflow compatibility.
@@ -227,7 +239,7 @@ The source-private multi-installation atomic commerce command uses Product and
 Currency with relation reads in the same transaction. It closes a shared
 prerequisite while retaining the physical owner, lock order and retry policy.
 
-The [proof command](../../packages/medusa-adapter/src/category-currency-atomic-command.ts)
+The [proof command](../../packages/medusa-adapter/src/composition/category-currency-command.ts)
 uses real private internal services to create a Category parent, upsert/read a
 Currency, create a Category child, then read the relation, count and Currency
 before commit. Late failure after both participants write rolls back both.
@@ -235,12 +247,12 @@ This is a database conformance operation,
 not a fabricated Medusa core workflow or cross-module foreign-key contract.
 
 The event-free selection is grounded in
-[internal Category assertions](../../packages/medusa-adapter/test/support/product-internal-category-checks.ts)
-and [Currency's private participant](../../packages/medusa-adapter/src/currency-service.ts).
+[logical internal Category assertions](../../packages/medusa-adapter/test/logical-internal-category-boundaries.test.ts)
+and [Currency's private participant](../../packages/medusa-adapter/src/modules/currency/service.ts).
 Internal Category calls deliberately omit the module event aggregator while
-retaining write facts. Public Product operations still require their event
+retaining authenticated ordered attempts and final shared row changes. Public Product operations still require their event
 contract. Do not suppress public events or generalize the internal proof to
-public workflow compatibility. Preserve profile-specific fact/event validation
+public workflow compatibility. Preserve source-specific attempt/event validation
 at each participant's closure.
 
 ### Implemented Owner Changes
@@ -286,9 +298,9 @@ retains its existing input and `newRequestKey`/`run` API. Callers do not assembl
 stores, lifetimes, replay evidence or publication capabilities. No new package
 export, process-global service, transaction owner or persisted format is added.
 
-[Definitions](../../packages/persistence-postgres/src/atomicCommerce/commands.ts)
+[Definitions](../../packages/persistence-postgres/src/frameworks/atomicCommerce/commands.ts)
 hold opaque participant and command identities. The
-[host](../../packages/persistence-postgres/src/atomicCommerce/host.ts) registers
+[host](../../packages/persistence-postgres/src/frameworks/atomicCommerce/host.ts) registers
 each participant with its authentic profile, installation, allowed commands and
 required local event/fact validator. Definitions alone grant no installation or
 transaction authority. Core registration contains no Product or Currency names.
@@ -404,10 +416,10 @@ Currency/CMS/Application composite proves the native overlap-conflict assertion.
 PostgreSQL-specific cases use
 independent connections and verify duplicate keys, lock contention and recovery
 on a fresh backend. The
-[binding value tests](../../packages/persistence-postgres/test/frameworkDataBindingValues.test.ts)
+[binding value tests](../../packages/persistence-postgres/test/installation/frameworkSchema/frameworkDataBindingValues.test.ts)
 pin both persisted formats and reject malformed sets. The existing
-[binding lifecycle](../../packages/persistence-postgres/test/frameworkDataBindings.test.ts)
-and [ordinary-role PostgreSQL lifecycle](../../packages/persistence-postgres/test/frameworkDataBindings.postgres.test.ts)
+[binding lifecycle](../../packages/persistence-postgres/test/installation/frameworkSchema/frameworkDataBindings.test.ts)
+and [ordinary-role PostgreSQL lifecycle](../../packages/persistence-postgres/test/installation/frameworkSchema/frameworkDataBindings.postgres.test.ts)
 retain activation, physical evidence and replay checks.
 
 Compatibility remains pinned by the original internal/public Category suites,
@@ -464,3 +476,44 @@ identity; an explicit selection is included in replay identity. Product's explic
 workflow profile admits 256 calls. The shared lifetime, per-child accounting,
 64-statement SQL limit, other resource ceilings and settlement remain unchanged.
 Topic 16 retains the reproduction, measurement, preflight and validation.
+
+## Explicit Queued Root Operations
+
+Status: implemented bounded private profile. The native Product-update consumer
+and its retained overlap witness are described in
+[preflight 101](../flarexdb-framework-integration/preflight/101-native-product-update-workflow.md#shared-atomic-operation-finding).
+
+Trusted hosts may explicitly select identity-bound `operationScheduling: "queued"`.
+This serializes complete root operations, including participant receipt and
+observation boundaries, while preserving native concurrent submission. It does
+not permit concurrent borrowed contexts or parallel access to a transaction.
+Default roots still refuse overlap. Internal child commands use their current
+borrowed context; they do not submit recursively to the root queue.
+
+Admission captures and charges immutable inputs before waiting, bounds total
+accepted jobs by the existing call allowance, and rechecks the original deadline
+before execution. The first full Cause remains sticky across caught errors.
+Cancellation and closure revoke queued work and interrupt and join the owned
+worker before database exit. Returning with active or pending jobs fails closed.
+No database, clock, finalizer or settlement capability crosses this boundary.
+Neutral core proofs and native regressions apply separately to PGlite and
+ordinary-role PostgreSQL. Application, Payload, isolation and other profiles
+retain their existing contracts.
+
+## Explicit Mixed Logical Publication
+
+Trusted logical participants may select identity-bound
+`logicalPublication: "mixed"` independently of their working-set resources. This admits
+multiple materialization packets for mixed writes only when the participant's
+working set and final changes stay within 256 identities. Omission and own
+`undefined` retain existing replay identity and behavior; physical participants
+cannot select this mode. Larger batch profiles retain mixed-write refusal.
+
+The publication owner lowers authenticated first preimages and final documents
+through the existing canonical unique-key owner. Connected key transfers stay
+in one packet; a component exceeding an existing row, index or unique-transition
+ceiling is refused. Every packet is accepted before any materialization, and
+facts preserve canonical source order. Commit packet limits, reference-replacement
+restrictions, one outer settlement and pure create/delete batching remain unchanged.
+The Product-update consumer selects this mode for Product (256 identities) and
+Pricing (128 identities); Link participants retain their ordinary profiles.

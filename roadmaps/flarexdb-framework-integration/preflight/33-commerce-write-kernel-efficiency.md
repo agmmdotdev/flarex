@@ -25,7 +25,7 @@ No original input or assertion is changed to reduce work.
 
 ## Implemented Owner Contract
 
-`packages/persistence-postgres/src/commerceTransaction/store.ts` owns admitted
+`packages/persistence-postgres/src/frameworks/commerceTransaction/store.ts` owns admitted
 insert/update execution. Its package-private `writeEnvelope.ts` owns SQL
 construction and pure result decoding. The adapter retains Medusa planning;
 it receives no raw SQL capability or replacement transaction authority.

@@ -73,7 +73,7 @@ export async function produceStandardApplicationCurrentRelationSourceBundleV1(
   return sourceBundleFromProduced(produced);
 }
 
-async function sourceBundleFromProduced(
+export async function sourceBundleFromProduced(
   produced: ApplicationSource,
 ): Promise<ApplicationNativeMutationSourceBundle> {
   const modules = Object.freeze(await Promise.all(produced.modules.map(

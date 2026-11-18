@@ -1,5 +1,13 @@
 # Preflight 33: DTE06 Compute Provider And Runtime Contract
 
+> **Legacy Task record - superseded direction.**
+> The [Task System design](../../../design-notes/task-system/README.md) and
+> [current roadmap](../../task-system/README.md) own replacement work.
+> This body is historical baseline/source evidence; its statuses, approvals and
+> next steps apply to the former initiative. Preserve applicable behavior and
+> tests until consumer cutover. Do not use this record to extend the custom
+> engine or retain Task-specific physical tables.
+
 ## Status
 
 **Decision:** DTE06-A completed the docs-only source, ownership, reuse, and
@@ -26,9 +34,9 @@ authority, and supporting deterministic in-memory and Cloudflare adapters?
   attempt, fence, lease, heartbeat, completion, cancellation, and requested-
   effect contracts;
 - `packages/durable-task/src/runCreation` for immutable input references;
-- `packages/persistence-postgres/src/taskSystemRunAttemptStoreV1.ts` for the
+- `packages/persistence-postgres/src/tasks/taskSystemRunAttemptStoreV1.ts` for the
   scope-bound lifecycle transaction adapter;
-- `packages/persistence-postgres/src/taskSystemRunReadV1.ts` for read-only due
+- `packages/persistence-postgres/src/tasks/taskSystemRunReadV1.ts` for read-only due
   and requested-effect capabilities; and
 - Roadmaps 04 and 05 for durable-state, wake, repair, and effect ownership.
 

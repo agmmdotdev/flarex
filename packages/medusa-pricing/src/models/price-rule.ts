@@ -11,7 +11,7 @@ const PriceRule = model
     value: model.text(),
     operator: model.enum(PricingRuleOperator).default(PricingRuleOperator.EQ),
     priority: model.number().default(0),
-    price: model.belongsTo(() => Price, {
+    price: model.belongsTo((): typeof Price => Price, {
       mappedBy: "price_rules",
     }),
   })

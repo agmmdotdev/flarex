@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { Effect, Result } from "effect";
-import { currencyWriteRows, serializeCurrency } from "../src/currency-values";
-import { currencyDto, currencyDtos, currencyCountResult } from "../src/currency-result";
+import { currencyWriteRows, serializeCurrency } from "../src/modules/currency/values";
+import { currencyDto, currencyDtos, currencyCountResult } from "../src/modules/currency/result";
 import { Currency } from "@medusajs/currency/models";
-import { compileCurrencyValueProfile } from "../src/currency-value-profile";
-import { readCurrencyMetadata } from "../src/currency-schema";
+import { compileCurrencyValueProfile } from "../src/modules/currency/value-profile";
+import { readCurrencyMetadata } from "../src/modules/currency/schema";
 import type { CommerceTransactionError, Json } from "@flarex/persistence-postgres/internal/commerce-values";
 
 const outcome = <Value>(result: Result.Result<Value, CommerceTransactionError>) => Result.match(result, {

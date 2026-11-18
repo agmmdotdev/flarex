@@ -78,13 +78,15 @@ source algorithm cannot conflate root and child rank buckets.
 A focused ordinary-role PostgreSQL reproduction confirmed `receiptMismatch` when
 one Category create batch inserts two rank-zero roots after an existing root:
 the existing root has two actual rank updates, while Medusa aggregates its update
-event. The affected owner is the adapter's `productLocalEventPolicy`, which had
+event. The affected historical owner was the adapter's `productLocalEventPolicy` (now retired), which had
 required unique update fact identities. Its Category-command-only validation now
 requires one aggregated event for repeated Category updates and preserves every
 core fact. Other commands, other entities, duplicate messages, missing messages
 and lifecycle observations retain their prior checks. The fifth guard verifies
 five published facts, three events, final ranks and replay, plus negative event
-validation. Core publication remains unchanged; both-driver proof is required.
+validation. Core publication remains unchanged; both-driver proof was required.
+Current logical Category behavior is tracked in
+[Product-module closeout](../../shared-logical-storage/44-product-module-closeout.md).
 
 The earlier authored root-only test now retains its rank, forged-mpath and forged
 batch-event checks; its obsolete refusals for parent/rank mutation are retired.

@@ -1,6 +1,18 @@
-import { Result } from "effect";
+import { Effect, Result } from "effect";
 import { isNonArrayRecord } from "@flarex/utils/records";
-import { commerceError, commerceLimits } from "@flarex/persistence-postgres/internal/commerce-values";
+import { commerceError, commerceLimits, capturePrivateCanonicalValue, capturePrivateJsonDataOmittingUndefined, useCapturedPrivateJsonData } from "@flarex/persistence-postgres/internal/commerce-values";
+
+/** Configuration uses the atomic owner's policy JSON contract (64 KiB and
+ * depth 64), rather than the native business-value envelope. Keep the complete
+ * canonical preimage so existing workflow replay identities remain unchanged. */
+export const captureWorkflowPolicy = (input: unknown) => capturePrivateJsonDataOmittingUndefined(input,
+  // Native optional metadata still omits own undefined members. Bound descriptor
+  // work by the configuration byte ceiling, independently of business values.
+  { bytes: commerceLimits.rowBytes, nodes: commerceLimits.rowBytes, depth: 64 }, commerceError).pipe(
+    Result.flatMap(snapshot => useCapturedPrivateJsonData(snapshot.value, commerceLimits.rowBytes,
+      commerceError, { canonicalNumbers: true, wellFormedUnicode: true })),
+    Result.map(snapshot => snapshot.value),
+  );
 
 /** Capture trusted registration data without dispatching property getters.
  * Nested capabilities are captured by their owners, never cloned as JSON. */
@@ -28,7 +40,7 @@ export function captureWorkflowRecord<T extends object>(input: T) {
 }
 
 export const isWorkflowResourceName = (name: unknown): name is string => typeof name === "string" && /^[a-z][a-zA-Z0-9_-]{0,63}$/.test(name)
-  && !["initialize", "__proto__", "constructor", "prototype", "then"].includes(name);
+  && !["initialize", "__proto__", "constructor", "prototype", "then", "toJSON"].includes(name);
 
 export function captureWorkflowArray<Value>(input: readonly Value[]) {
   return Result.gen(function* () {
@@ -48,3 +60,12 @@ export function captureWorkflowArray<Value>(input: readonly Value[]) {
     return Object.freeze(values) as readonly Value[];
   });
 }
+
+/** An explicit encoding of the complete resource proof. Both its captured
+ * canonical frame and the final workflow policy retain the 64 KiB ceiling. */
+export const captureWorkflowResourceDigest = Effect.fn("Workflow.captureResourceDigest")(function* (input: unknown) {
+  const resources = yield* Effect.fromResult(captureWorkflowPolicy(input));
+  const captured = yield* capturePrivateCanonicalValue({ format: "flarex.medusa-workflow-resources", version: 1, resources },
+    commerceLimits.rowBytes, { invalidInput: () => commerceError("limitExceeded"), hashFailure: cause => commerceError("resourceFailure", cause) });
+  return captured.sha256Hex;
+});

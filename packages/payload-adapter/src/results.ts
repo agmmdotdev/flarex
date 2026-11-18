@@ -26,6 +26,18 @@ export const payloadResults = {
   page: (value: unknown) => capture(decodePage, value),
   count: (value: unknown) => capture(decodeCount, value),
 };
+function callerResult<A extends Json>(decode: (value: unknown) => Result.Result<A, Schema.SchemaError>, value: Json) {
+  return decode(value).pipe(Result.mapError(cause => cmsError("storedCorruption", cause)),
+    Result.map(decoded => structuredClone(decoded)));
+}
+
+/** Saved outcomes retain immutable canonical values. Every Local API return,
+ * including replay, gives its caller a fresh mutable tree after envelope validation. */
+export const payloadCanonicalResults = {
+  document: (value: Json) => callerResult(decodeDocument, value),
+  page: (value: Json) => callerResult(decodePage, value),
+  count: (value: Json) => callerResult(decodeCount, value),
+};
 export type PayloadDocument = typeof Document.Type;
 export type PayloadPageResult = typeof Page.Type;
 export type PayloadCountResult = typeof Count.Type;

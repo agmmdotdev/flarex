@@ -1,0 +1,10 @@
+
+ RUN  v5.0.3 C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor
+
+[⣷] Pulling schema from database...
+[2K[1G[✓] Pulling schema from database...
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  16:57:14
+   Duration  149.18s (tests 91%, transform 7%, import 2%)

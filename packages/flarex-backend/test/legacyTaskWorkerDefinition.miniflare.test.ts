@@ -1,3 +1,6 @@
+import { isNonArrayRecord } from "@flarex/utils/records";
+import { flarexValueToJsonV1, jsonToFlarexValueV1 } from "flarex-protocol/value";
+import { literalWorkerCodecModuleSource } from "./support/literalWorkerCodecModule";
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { Miniflare } from "miniflare";
 import { afterEach, describe, expect, it } from "vitest";
@@ -130,6 +133,36 @@ describe("Legacy task Worker definition", () => {
     );
   }, 20_000);
 
+  it.each([
+    { label: "int64", value: 1n, other: 1, fieldName: "value" },
+    { label: "signed zero with an own __proto__ field", value: -0, other: 0, fieldName: "__proto__" },
+  ])("preserves $label metadata through a real Legacy Worker", async ({ value, other, fieldName }) => {
+    const literal = { type: "literal", value };
+    const payloadValidator = { type: "object", value: Object.fromEntries([
+      [fieldName, { fieldType: literal, optional: false }],
+    ]) };
+    const fixture = await legacyFixture(
+      `export function run(payload) { return payload[${JSON.stringify(fieldName)}]; }`,
+      "standard-1x", ["standard-1x"], { payloadValidator, outputValidator: literal },
+    );
+    const definition = await buildDefinition(fixture.subject);
+    const payload = Object.fromEntries([[fieldName, value]]);
+    const result = await executeDefinition(definition, requestFor(definition), payload);
+    expect(result).toMatchObject({ kind: "completed", value });
+    if (!isNonArrayRecord(result)) throw new Error("Expected a Legacy Worker result.");
+    expect(Object.is(result.value, value)).toBe(true);
+    await expect(executeDefinition(
+      definition, requestFor(definition), Object.fromEntries([[fieldName, other]]),
+    )).rejects.toThrow("LegacyTaskWorkerInputValidationV1Error");
+    const wrongOutputFixture = await legacyFixture(
+      `export function run() { return ${other}; }`,
+      "standard-1x", ["standard-1x"], { payloadValidator, outputValidator: literal },
+    );
+    const wrongOutput = await buildDefinition(wrongOutputFixture.subject);
+    await expect(executeDefinition(wrongOutput, requestFor(wrongOutput), payload))
+      .rejects.toThrow("LegacyTaskWorkerOutputValidationV1Error");
+  }, 30_000);
+
   it("rejects corrupt object bodies and materialization policy", async () => {
     const fixture = await legacyFixture("export function run() { return null; }");
     const corrupt = fixture.subject.runtimeObjects.map((item, index) => index === 0
@@ -254,6 +287,7 @@ async function legacyFixture(
   source: string,
   selectedComputeProfile = "standard-1x",
   supportedComputeProfiles: ReadonlyArray<string> = [selectedComputeProfile],
+  validators: Readonly<{ readonly payloadValidator: unknown; readonly outputValidator: unknown }> = { payloadValidator: { type: "any" }, outputValidator: null },
 ): Promise<Readonly<{
   readonly subject: TaskRuntimeLaunchSubject;
 }>> {
@@ -294,8 +328,8 @@ async function legacyFixture(
       artifactModulePath: moduleFrame.artifactModulePath,
       exportName: "run",
     },
-    payloadValidator: { type: "any" },
-    outputValidator: null,
+    payloadValidator: validators.payloadValidator,
+    outputValidator: validators.outputValidator,
     runAttemptPolicy: {
       version: 1,
       retry: {
@@ -468,12 +502,13 @@ async function executeDefinition(
   request: unknown,
   payload: unknown,
 ): Promise<unknown> {
-  const encoded = JSON.stringify({ request, payload }, (_key, value: unknown) => {
+  const encoded = JSON.stringify({ request }, (_key, value: unknown) => {
     if (typeof value === "bigint") return { __bigint: String(value) };
     return value;
   });
   const outerSource = `
 import { RpcTarget } from "cloudflare:workers";
+import { flarexValueToJsonV1, jsonToFlarexValueV1 } from "./literal-codec.js";
 const code = ${JSON.stringify({
     compatibilityDate: definition.compatibilityDate,
     compatibilityFlags: definition.compatibilityFlags,
@@ -486,27 +521,32 @@ const code = ${JSON.stringify({
 const input = JSON.parse(${JSON.stringify(encoded)}, (_key, value) =>
   value && typeof value === "object" && typeof value.__bigint === "string"
     ? BigInt(value.__bigint) : value);
-class Input extends RpcTarget { read() { return structuredClone(input.payload); } }
+const payload = jsonToFlarexValueV1(JSON.parse(${JSON.stringify(JSON.stringify(flarexValueToJsonV1(payload)))}));
+class Input extends RpcTarget { read() { return structuredClone(payload); } }
 export default { async fetch(_request, env) {
+  try {
   const worker = env.LOADER.load(code);
   const result = await worker.getEntrypoint(${JSON.stringify(definition.entrypoint)})
     .run(input.request, new Input());
-  try { return new Response(JSON.stringify(structuredClone(result), (_key, value) =>
+  try { return new Response(JSON.stringify({ ...structuredClone(result), value: flarexValueToJsonV1(result.value) }, (_key, value) =>
     typeof value === "bigint" ? { __bigint: String(value) } : value),
     { headers: { "content-type": "application/json" } }); }
   finally { result[Symbol.dispose]?.(); }
+  } catch (error) { return Response.json({ name: error?.name, message: error?.message, causeName: error?.cause?.name, causeIssue: error?.cause?.cause?.issue }, { status: 500 }); }
 } };`;
   const runtime = new Miniflare({
     compatibilityDate: "2026-06-14",
-    modules: true,
-    script: outerSource,
+    modules: [{ type: "ESModule", path: "outer.js", contents: outerSource },
+      { type: "ESModule", path: "literal-codec.js", contents: await literalWorkerCodecModuleSource() }],
     workerLoaders: { LOADER: {} },
   });
   instances.push(runtime);
   const response = await runtime.dispatchFetch("https://legacy-task.test/");
   const text = await response.text();
   if (!response.ok) throw new Error(`Legacy Worker failed: ${text}`);
-  return JSON.parse(text);
+  const body: unknown = JSON.parse(text);
+  if (!isNonArrayRecord(body)) throw new Error("Malformed Legacy Worker fixture response.");
+  return { ...body, value: jsonToFlarexValueV1(body.value) };
 }
 
 async function executeSessionDefinition(

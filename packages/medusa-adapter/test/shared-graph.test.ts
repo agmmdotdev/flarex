@@ -1,12 +1,13 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
+import { mockRelationalRead } from "./mock-relational-read";
 import type { PerformedActions } from "@medusajs/types";
-import type { replaceProductRows } from "../src/product-mutation";
+import type { replaceProductRows } from "../src/modules/product/mutation";
 import { Effect, Result, Schema, type Scope } from "effect";
-import { commerceError, defaultCommerceResources, type CommerceTransactionError, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
+import { commerceError, defaultCommerceResources, isJsonObject, type CommerceTransactionError, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import type { CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
-import { makeBoundedRequestLifetime } from "../../persistence-postgres/src/boundedRequestLifetime";
-import { commerceDecoder } from "../src/commerce-decoder";
-import type { CommerceRelation } from "../src/commerce-relations";
+import { makeBoundedRequestLifetime } from "../../persistence-postgres/src/execution/preparation/boundedRequestLifetime";
+import { commerceDecoder } from "../src/value/decoder";
+import type { CommerceRelation } from "../src/query/relations";
 import { captureGraph, insertGraphRows } from "../src/write/create";
 import { replaceGraphRows } from "../src/write/replace";
 import type { CreationProfile, GraphCatalog, GraphEntity, GraphTable, ReplacementProfile } from "../src/write/graph-model";
@@ -33,6 +34,7 @@ const references: GraphTable = { name: "volume_references", columns: [], foreign
 const decodeObject = commerceDecoder(Schema.JsonObject, "invalidInput");
 const decodeString = commerceDecoder(Schema.String, "invalidInput");
 const decodeRows = commerceDecoder(Schema.Array(Schema.JsonObject), "invalidInput");
+const isQueryObject = Schema.is(Schema.JsonObject);
 const catalog: GraphCatalog = {
   entities: [volume, edition, label], tables: [volume.table, edition.table, label.table, pivot, references], writablePivots: [pivot, references],
   queryRelations: new Map([["volumes", new Map<string, CommerceRelation>([
@@ -45,7 +47,8 @@ const catalog: GraphCatalog = {
   decodeAssociation: (entity, input) => Result.flatMap(decodeObject(input), supplied => decodeString(supplied[entity.keyColumn])),
 };
 const replacement: ReplacementProfile = {
-  catalog, allowedRelations: () => ["editions", "labels"], ownedToOne: () => [], mutableForeignKeys: () => false,
+  operation: "upsertWithReplace", ordering: new Map(), catalog, allowedRelations: () => ["editions", "labels"], ownedToOne: () => [], mutableForeignKeys: () => false,
+  admitSelection: () => Result.succeed(undefined), prepareProjection: () => Effect.void,
   toManyMode: () => Result.succeed("replace"), validateLink: () => Effect.void,
   projectionPaths: (_entity, paths) => paths, project: rows => Result.succeed(rows),
 };
@@ -67,6 +70,7 @@ const creation: CreationProfile = {
 const fixture = Effect.fn("GraphTest.fixture")(function* (
   snapshots: ReadonlyMap<string, readonly JsonObject[]>, responses: ReadonlyMap<string, readonly JsonObject[]> = new Map(),
   failure?: { readonly operation: string; readonly error: CommerceTransactionError },
+  readResponse?: (table: string, query: unknown) => readonly JsonObject[] | undefined,
 ) {
   const lifetime = yield* Effect.acquireRelease(makeBoundedRequestLifetime(
     reason => commerceError(reason), { calls: 64, commandBytes: 1_048_576, commandMs: 30_000 }, {}, {}, "graph-test", "write",
@@ -82,12 +86,12 @@ const fixture = Effect.fn("GraphTest.fixture")(function* (
         const name = operation + ":" + table;
         calls.push({ operation: name, input });
         if (name === failure?.operation) return yield* Effect.fail(failure.error);
-        if (operation === "find") return snapshots.get(table) ?? [];
+        if (operation === "find") return readResponse?.(table, input) ?? snapshots.get(table) ?? [];
         const receipt = responses.get(name);
         if (receipt !== undefined) return receipt;
         return yield* Effect.fromResult(decodeRows(input));
       }));
-      return { find: (manager, query) => run(manager, "find", query), count: unused, lifecycle: unused,
+      return { prepareRead(query: unknown) { return mockRelationalRead(this, query); }, findPage: () => Effect.fail(commerceError("unsupportedProfile")), aggregate: () => Effect.fail(commerceError("unsupportedProfile")), find: (manager, query) => run(manager, "find", query), count: unused, lifecycle: unused,
         write: (manager, mode, input) => run(manager, mode, input), delete: (manager, input) => run(manager, "delete", input) };
     })),
   };
@@ -102,7 +106,587 @@ const seeded = new Map<string, readonly JsonObject[]>([
   [references.name, [{ volume_isbn: "v1", edition_serial: "old" }]],
 ]);
 
+describe("native graph update versus upsert replacement operations", () => {
+  it("coalesces only opted-in existing key-only owned references and retains one actual member", async () => {
+    await run(Effect.gen(function* () {
+      const { ctx, calls } = yield* fixture(seeded);
+      const result = yield* replaceGraphRows(ctx, { ...replacement, operation: "update", repeatedOwnedReferences: "coalesceIdentical" }, volume,
+        [{ isbn: "v1", editions: [{ serial: "old" }, { serial: "old" }] }], { relations: ["editions"] });
+      expect(result.entities).toEqual([{ isbn: "v1", title: "Old", editions: [{ serial: "old", volume_isbn: "v1", label: "Old" }] }]);
+      expect(result.performedActions).toEqual({ created: {}, updated: {}, deleted: {} });
+      expect(calls.filter(call => /^(insert|update|delete):/.test(call.operation))).toEqual([]);
+      expect(calls.filter(call => call.operation === "find:editions")).toHaveLength(1);
+    }));
+  });
+
+  it.each([
+    { selected: false, input: [{ isbn: "v1", editions: [{ serial: "old" }, { serial: "old" }] }], operation: "update" as const },
+    { selected: true, input: [{ isbn: "v1", editions: [{ serial: "old" }, { serial: "old", label: "conflicting" }] }], operation: "update" as const },
+    { selected: true, input: [{ isbn: "v1", editions: [{ serial: "old", label: "changed" }, { serial: "old" }] }], operation: "update" as const },
+    { selected: true, input: [{ isbn: "v1", editions: [{ serial: "new" }, { serial: "new" }] }], operation: "update" as const },
+    { selected: true, input: [{ isbn: "v1" }, { isbn: "v1" }], operation: "update" as const },
+    { selected: true, input: [{ isbn: "v1", editions: [{ serial: "old" }, { serial: "old" }] }], operation: "upsertWithReplace" as const },
+  ])("retains duplicate refusal outside the exact opted-in reference branch %#", async ({ selected, input, operation }) => {
+    await run(Effect.gen(function* () {
+      const { ctx, calls } = yield* fixture(seeded);
+      const result = yield* replaceGraphRows(ctx, { ...replacement, operation, ...(selected ? { repeatedOwnedReferences: "coalesceIdentical" as const } : {}) },
+        volume, input, { relations: ["editions"] }).pipe(Effect.result);
+      expect(result).toMatchObject({ _tag: "Failure", failure: { reason: "invalidInput" } });
+      expect(calls.filter(call => /^(insert|update|delete):/.test(call.operation))).toEqual([]);
+    }));
+  });
+
+  it("keeps owner, historical and first-missing-member failures ahead of later repeats", async () => {
+    await run(Effect.gen(function* () {
+      const profile: ReplacementProfile = { ...replacement, operation: "update", repeatedOwnedReferences: "coalesceIdentical" };
+      for (const [root, serial, state] of [
+        ["v2", "old", seeded],
+        ["v1", "old", new Map([...seeded, ["editions", [{ serial: "old", volume_isbn: "v1", label: "Old", deleted_at: "2026-10-19T00:00:00.000Z" }]]])],
+      ] as const) {
+        const { ctx, calls } = yield* fixture(state);
+        expect(yield* replaceGraphRows(ctx, profile, volume, [{ isbn: root, editions: [{ serial }, { serial }] }], { relations: ["editions"] }).pipe(Effect.result))
+          .toMatchObject({ _tag: "Failure", failure: { reason: "invalidInput" } });
+        expect(calls.filter(call => /^(insert|update|delete):/.test(call.operation))).toEqual([]);
+      }
+      const missing = yield* fixture(seeded);
+      const result = yield* replaceGraphRows(missing.ctx, profile, volume,
+        [{ isbn: "v1", labels: ["missing", "featured", "featured"] }], { relations: ["labels"] }).pipe(Effect.result);
+      expect(result).toMatchObject({ _tag: "Failure", failure: { reason: "adapterFailure" } });
+      expect(missing.calls.filter(call => /^(insert|update|delete):/.test(call.operation))).toEqual([]);
+    }));
+  });
+
+  it("keeps ID-only and relation-only update roots unchanged while writing an explicitly supplied same scalar", async () => {
+    await run(Effect.gen(function* () {
+      const profile: ReplacementProfile = { ...replacement, operation: "update" };
+      for (const input of [{ isbn: "v1" }, { isbn: "v1", editions: [{ serial: "old" }] }, { isbn: "v1", title: "Old" }]) {
+        const { ctx, calls } = yield* fixture(seeded);
+        yield* replaceGraphRows(ctx, profile, volume, [input], { relations: "editions" in input ? ["editions"] : [] });
+        expect(calls.filter(call => call.operation === "update:volumes")).toHaveLength("title" in input ? 1 : 0);
+        expect(calls.filter(call => call.operation === "update:editions")).toEqual([]);
+      }
+      const prior = yield* fixture(seeded);
+      yield* replaceGraphRows(prior.ctx, replacement, volume, [{ isbn: "v1" }], { relations: [] });
+      expect(prior.calls.filter(call => call.operation === "update:volumes")).toHaveLength(1);
+    }));
+  });
+
+  it("creates replacement children without a relation-only update root patch", async () => {
+    await run(Effect.gen(function* () {
+      const state = new Map([...seeded, ["editions", []], [references.name, []]]), { ctx, calls } = yield* fixture(state);
+      const result = yield* replaceGraphRows(ctx, { ...replacement, operation: "update" }, volume,
+        [{ isbn: "v1", editions: [{ serial: "new", label: "New" }] }], { relations: ["editions"] });
+      expect(calls.filter(call => call.operation === "update:volumes")).toEqual([]);
+      expect(calls.filter(call => call.operation === "insert:editions").map(call => call.input)).toEqual([[{ serial: "new", label: "New", volume_isbn: "v1" }]]);
+      expect(result.performedActions.created.Edition).toEqual([{ serial: "new" }]);
+    }));
+  });
+
+  it("retains JSON child updates and the profile's default key order alongside new children", async () => {
+    await run(Effect.gen(function* () {
+      const jsonEdition: GraphEntity = { ...edition, table: { ...edition.table, columns: [...edition.table.columns,
+        { name: "payload", type: "json", nullable: true, primaryKey: false, generated: false }] } };
+      const jsonCatalog: GraphCatalog = { ...catalog, entities: catalog.entities.map(value => value === edition ? jsonEdition : value),
+        tables: catalog.tables.map(value => value === edition.table ? jsonEdition.table : value) };
+      const old = { serial: "old", volume_isbn: "v1", label: "Old", payload: { retained: true } },
+        added = { serial: "new", volume_isbn: "v1", label: "New", payload: null };
+      const state = new Map([...seeded, ["editions", [old]], [references.name, []]]);
+      const { ctx, calls } = yield* fixture(state, new Map([["update:editions", [old]], ["insert:editions", [added]]]));
+      const result = yield* replaceGraphRows(ctx, { ...replacement, catalog: jsonCatalog, operation: "update" }, volume,
+        [{ isbn: "v1", editions: [{ serial: "old", payload: { retained: true } }, { serial: "new", label: "New" }] }], { relations: ["editions"] });
+      // This neutral profile selects default key order. Intrinsic insertion
+      // order is authenticated separately by the real database profile tests.
+      expect(result.entities[0]?.editions).toEqual([added, old]);
+      expect(calls.filter(call => call.operation === "update:volumes")).toEqual([]);
+      expect(result.performedActions.created.Edition).toEqual([{ serial: "new" }]); expect(result.performedActions.updated.Edition).toEqual([{ serial: "old" }]);
+    }));
+  });
+
+  it("leaves historical children after native update empty-array cleanup while nonempty update and upsert replacement remove omissions", async () => {
+    await run(Effect.gen(function* () {
+      // The native module has already physically removed its active omissions.
+      // A scripted remaining historical row pins the shared planning boundary.
+      const state = new Map([...seeded, ["editions", [{ serial: "historical", volume_isbn: "v1", label: "History", deleted_at: "2026-01-01T00:00:00.000Z" }]],
+        [references.name, []], [pivot.name, []]]);
+      const emptyUpdate = yield* fixture(state);
+      yield* replaceGraphRows(emptyUpdate.ctx, { ...replacement, operation: "update" }, volume,
+        [{ isbn: "v1", editions: [] }], { relations: ["editions"] });
+      expect(emptyUpdate.calls.filter(call => call.operation === "delete:editions")).toEqual([]);
+      for (const [operation, editions] of [["upsertWithReplace", []], ["update", [{ serial: "new", label: "New" }]]] as const) {
+        const current = yield* fixture(state);
+        yield* replaceGraphRows(current.ctx, { ...replacement, operation }, volume, [{ isbn: "v1", editions: [...editions] }], { relations: ["editions"] });
+        expect(current.calls.filter(call => call.operation === "delete:editions").map(call => call.input)).toEqual([[{ serial: "historical" }]]);
+      }
+    }));
+  });
+
+  it("replaces explicit empty update collections only when the profile selects replacement", async () => {
+    await run(Effect.gen(function* () {
+      const unchanged = yield* fixture(seeded);
+      yield* replaceGraphRows(unchanged.ctx, { ...replacement, operation: "update" }, volume,
+        [{ isbn: "v1", editions: [], labels: [] }], { relations: ["editions", "labels"] });
+      expect(unchanged.calls.filter(call => /^(insert|update|delete):/.test(call.operation))).toEqual([]);
+
+      const selected = yield* fixture(seeded);
+      const result = yield* replaceGraphRows(selected.ctx, { ...replacement, operation: "update", emptyCollections: "replace" }, volume,
+        [{ isbn: "v1", editions: [], labels: [] }], { relations: ["editions", "labels"] });
+      expect(selected.calls.filter(call => call.operation.startsWith("delete:")).map(call => [call.operation, call.input])).toEqual([
+        ["delete:volume_references", [{ volume_isbn: "v1", edition_serial: "old" }]],
+        ["delete:volume_labels", [{ volume_isbn: "v1", label_slug: "featured" }]],
+        ["delete:editions", [{ serial: "old" }]],
+      ]);
+      expect(result.entities).toEqual([{ isbn: "v1", title: "Old", editions: [], labels: [] }]);
+      expect(selected.calls.some(call => call.operation === "update:volumes")).toBe(false);
+    }));
+  });
+
+  it("preserves historical owned members when replacement selects active membership", async () => {
+    await run(Effect.gen(function* () {
+      const historical = { serial: "historical", volume_isbn: "v1", label: "History", deleted_at: "2026-01-01T00:00:00.000Z" };
+      const rows = new Map([...seeded, ["editions", [...seeded.get("editions") ?? [], historical]]]);
+      const { ctx, calls } = yield* fixture(rows);
+      const result = yield* replaceGraphRows(ctx, { ...replacement, operation: "update", replacementMembers: "active" }, volume,
+        [{ isbn: "v1", editions: [{ serial: "new", label: "New" }] }], { relations: ["editions"] });
+      expect(calls.filter(call => call.operation === "delete:editions").map(call => call.input)).toEqual([[{ serial: "old" }]]);
+      expect(calls.filter(call => call.operation === "insert:editions").map(call => call.input))
+        .toEqual([[{ serial: "new", label: "New", volume_isbn: "v1" }]]);
+      expect(result.performedActions.deleted.Edition).toEqual([{ serial: "old" }]);
+    }));
+  });
+
+  it("replaces active empty collections without deleting independent historical members", async () => {
+    await run(Effect.gen(function* () {
+      const historical = { serial: "historical", volume_isbn: "v1", label: "History", deleted_at: "2026-01-01T00:00:00.000Z" };
+      const rows = new Map([...seeded, ["editions", [...seeded.get("editions") ?? [], historical]]]);
+      const { ctx, calls } = yield* fixture(rows);
+      const result = yield* replaceGraphRows(ctx, {
+        ...replacement, operation: "update", emptyCollections: "replace", replacementMembers: "active",
+      }, volume, [{ isbn: "v1", editions: [] }], { relations: ["editions"] });
+      expect(calls.filter(call => call.operation === "delete:editions").map(call => call.input)).toEqual([[{ serial: "old" }]]);
+      expect(result.performedActions.deleted.Edition).toEqual([{ serial: "old" }]);
+      expect(calls.filter(call => /^(insert|update):/.test(call.operation))).toEqual([]);
+    }));
+  });
+
+  it("leaves omitted collections and association membership unchanged under replacement policies", async () => {
+    await run(Effect.gen(function* () {
+      const profile: ReplacementProfile = {
+        ...replacement, operation: "update", emptyCollections: "replace", replacementMembers: "active",
+      };
+      const omitted = yield* fixture(seeded);
+      yield* replaceGraphRows(omitted.ctx, profile, volume, [{ isbn: "v1" }], { relations: [] });
+      expect(omitted.calls.filter(call => /^(insert|update|delete):/.test(call.operation))).toEqual([]);
+      expect(omitted.calls.filter(call => call.operation === "find:editions")).toEqual([]);
+
+      const emptyAssociation = yield* fixture(seeded);
+      yield* replaceGraphRows(emptyAssociation.ctx, { ...profile, toManyMode: () => Result.succeed("associate") }, volume,
+        [{ isbn: "v1", editions: [] }], { relations: ["editions"] });
+      expect(emptyAssociation.calls.filter(call => /^(insert|update|delete):/.test(call.operation))).toEqual([]);
+
+      const moved = [{ serial: "old", volume_isbn: "v2", label: "Old" }];
+      const association = yield* fixture(seeded, new Map([["update:editions", moved]]));
+      const result = yield* replaceGraphRows(association.ctx, { ...profile, toManyMode: () => Result.succeed("associate") }, volume,
+        [{ isbn: "v2", editions: [{ serial: "old" }] }], { relations: ["editions"] });
+      expect(association.calls.filter(call => /^(insert|update|delete):/.test(call.operation)).map(call => [call.operation, call.input]))
+        .toEqual([["update:editions", [{ serial: "old", volume_isbn: "v2" }]]]);
+      expect(result.entities[0]?.editions).toEqual(moved);
+    }));
+  });
+
+  it("refuses selecting a historical member even when historical omissions are preserved", async () => {
+    await run(Effect.gen(function* () {
+      const rows = new Map([...seeded, ["editions", [{ serial: "historical", volume_isbn: "v1", label: "History", deleted_at: "2026-01-01T00:00:00.000Z" }]]]);
+      const { ctx, calls } = yield* fixture(rows);
+      const result = yield* replaceGraphRows(ctx, { ...replacement, operation: "update", replacementMembers: "active" }, volume,
+        [{ isbn: "v1", editions: [{ serial: "historical", label: "Changed" }] }], { relations: ["editions"] }).pipe(Effect.result);
+      expect(result).toMatchObject({ _tag: "Failure", failure: { reason: "invalidInput" } });
+      expect(calls.filter(call => /^(insert|update|delete):/.test(call.operation))).toEqual([]);
+    }));
+  });
+});
+
+describe("checked owned-child managed-field delegation", () => {
+  const datedEdition = entity("editions", "Edition", "serial",
+    ["volume_isbn", "label", "created_at", "updated_at", "deleted_at"], edition.table.foreignKeys);
+  const datedCatalog: GraphCatalog = { ...catalog,
+    entities: catalog.entities.map(value => value === edition ? datedEdition : value),
+    tables: catalog.tables.map(value => value === edition.table ? datedEdition.table : value),
+  };
+  const ordinary: ReplacementProfile = { ...replacement, catalog: datedCatalog };
+  const selected: ReplacementProfile = { ...ordinary, allowReconstitution: true };
+  const previous: JsonObject = { serial: "old", volume_isbn: "v1", label: "Old",
+    created_at: "2026-01-01T00:00:00.000Z", updated_at: "2026-01-02T00:00:00.000Z", deleted_at: null };
+  const state = () => new Map([...seeded, ["editions", []], [references.name, []]]);
+  const input = [{ isbn: "v1", editions: [previous] }];
+
+  it.each([
+    { profile: ordinary, reason: "invalidInput" },
+    { profile: selected, reason: "unsupportedProfile" },
+  ])("refuses managed child fields without both policy and checked port: $reason", async ({ profile, reason }) => {
+    await run(Effect.gen(function* () {
+      const base = yield* fixture(state());
+      const result = yield* replaceGraphRows(base.ctx, profile, volume, input, { relations: ["editions"] }).pipe(Effect.result);
+      expect(result).toMatchObject({ _tag: "Failure", failure: { reason } });
+      expect(base.calls.filter(call => /^(insert|update|delete):/.test(call.operation))).toEqual([]);
+    }));
+  });
+
+  it("passes the complete DTO unchanged to its checked owner and uses actual returned rows", async () => {
+    await run(Effect.gen(function* () {
+      const base = yield* fixture(state()), captured: unknown[] = [];
+      const written = { ...previous, updated_at: "2026-02-01T00:00:00.000Z" };
+      // A scripted write receipt pins this adapter boundary only. Authentic
+      // deletion history and timestamp authority are proved by real core tests.
+      const ctx: typeof base.ctx = { ...base.ctx, table: name => base.ctx.table(name).pipe(Effect.map(table =>
+        name === datedEdition.table.name ? { ...table,
+          reconstitute: (manager: typeof base.ctx.manager, rows: unknown) => Effect.sync(() => {
+            expect(manager).toBe(base.ctx.manager); captured.push(rows); return [written];
+          }),
+        } : table)) };
+      const result = yield* replaceGraphRows(ctx, selected, volume, input, { relations: ["editions"] });
+      expect(captured).toEqual([[previous]]);
+      expect(result.entities[0]?.editions).toEqual([written]);
+      expect(result.performedActions.created.Edition).toEqual([{ serial: "old" }]);
+      expect(base.calls.some(call => call.operation === "insert:editions")).toBe(false);
+    }));
+  });
+
+  it.each([
+    { businessChange: true, suppliedStamp: "2099-01-02T00:00:00.000Z", writes: true },
+    { businessChange: false, suppliedStamp: "2099-01-02T00:00:00.000Z", writes: true },
+    { businessChange: false, suppliedStamp: "2026-01-02T00:00:00.000+00:00", writes: false },
+  ])("delegates an owned child's update clock without forwarding caller time: %j", async ({ businessChange, suppliedStamp, writes }) => {
+    await run(Effect.gen(function* () {
+      const patched = { ...previous, ...(businessChange ? { label: "Changed" } : {}) };
+      const written = { ...patched, updated_at: "2026-10-19T00:00:00.000Z" };
+      const snapshots = new Map([...seeded, ["editions", [previous]]]);
+      const base = yield* fixture(snapshots, new Map([["update:editions", [written]]]));
+      const result = yield* replaceGraphRows(base.ctx, { ...ordinary, operation: "update", ownedChildUpdatedAt: "managed" }, volume,
+        [{ isbn: "v1", editions: [{ ...patched, updated_at: suppliedStamp }] }], { relations: ["editions"] });
+      const updates = base.calls.filter(call => call.operation === "update:editions");
+      if (writes) {
+        expect(updates.map(call => call.input)).toEqual([[{ serial: "old", label: businessChange ? "Changed" : "Old" }]]);
+        expect(result.entities[0]?.editions).toEqual([written]);
+      } else {
+        expect(updates).toEqual([]); expect(result.entities[0]?.editions).toEqual([previous]);
+      }
+      expect(base.calls.filter(call => call.operation === "update:volumes")).toEqual([]);
+    }));
+  });
+});
+
+describe("checked existing-root touch delegation", () => {
+  const datedVolume = entity("volumes", "Volume", "isbn", ["title", "created_at", "updated_at", "deleted_at"]);
+  const datedCatalog: GraphCatalog = { ...catalog,
+    entities: catalog.entities.map(value => value === volume ? datedVolume : value),
+    tables: catalog.tables.map(value => value === volume.table ? datedVolume.table : value),
+  };
+  const ordinary: ReplacementProfile = { ...replacement, operation: "update", catalog: datedCatalog };
+  const selected: ReplacementProfile = { ...ordinary, touchExistingRoot: true };
+  const previous = { isbn: "v1", title: "Old", created_at: "2026-01-01T00:00:00.000Z", updated_at: "2026-01-02T00:00:00.000Z", deleted_at: null };
+
+  it("delegates only the selected existing root's clock and leaves its unchanged owned child alone", async () => {
+    await run(Effect.gen(function* () {
+      const state = new Map([...seeded, ["volumes", [previous]]]);
+      const written = { ...previous, updated_at: "2026-10-19T00:00:00.000Z" };
+      for (const profile of [ordinary, selected]) {
+        const base = yield* fixture(state, new Map([["update:volumes", [written]]]));
+        const result = yield* replaceGraphRows(base.ctx, profile, datedVolume,
+          [{ isbn: "v1", editions: [{ serial: "old" }] }], { relations: ["editions"] });
+        expect(base.calls.filter(call => call.operation === "update:volumes").map(call => call.input))
+          .toEqual(profile === selected ? [[{ isbn: "v1" }]] : []);
+        expect(base.calls.filter(call => call.operation === "update:editions")).toEqual([]);
+        expect(result.entities[0]).toEqual({ ...(profile === selected ? written : previous), editions: seeded.get("editions") });
+      }
+    }));
+  });
+
+  it("keeps immutable root foreign keys protected under the selected touch policy", async () => {
+    await run(Effect.gen(function* () {
+      const base = yield* fixture(seeded);
+      const result = yield* replaceGraphRows(base.ctx, selected, edition,
+        [{ serial: "old", volume_isbn: "v2" }], { relations: [] }).pipe(Effect.result);
+      expect(result).toMatchObject({ _tag: "Failure", failure: { reason: "invalidInput" } });
+      expect(base.calls.filter(call => /^(insert|update|delete):/.test(call.operation))).toEqual([]);
+    }));
+  });
+
+  it("preserves ordinary creation without an extra touch of a newly inserted root", async () => {
+    await run(Effect.gen(function* () {
+      const base = yield* fixture(seeded);
+      yield* replaceGraphRows(base.ctx, selected, datedVolume, [{ isbn: "new", title: "New" }], { relations: [] }, true);
+      expect(base.calls.filter(call => call.operation === "insert:volumes").map(call => call.input)).toEqual([[{ isbn: "new", title: "New" }]]);
+      expect(base.calls.filter(call => call.operation.startsWith("update:"))).toEqual([]);
+    }));
+  });
+});
+
+describe("explicit foreign-key endpoint visibility", () => {
+  const history = "2020-01-01T00:00:00.000Z";
+  const historical = new Map([...seeded, ["volumes", [{ isbn: "past", title: "Historical", deleted_at: history }]]]);
+  const profile: ReplacementProfile = { ...replacement, projectionPaths: () => [],
+    foreignKeyVisibility: (target, column) => target === edition && column === "volume_isbn" ? "existing" : "active" };
+
+  it("retains a complete historical endpoint and writes only the selected new referencing row", async () => {
+    await run(Effect.gen(function* () {
+      const base = yield* fixture(historical);
+      const result = yield* replaceGraphRows(base.ctx, profile, edition,
+        [{ serial: "new", volume_isbn: "past", label: "New" }], { relations: [] });
+      expect(result.entities).toEqual([{ serial: "new", volume_isbn: "past", label: "New" }]);
+      expect(result.performedActions).toEqual({ created: { Edition: [{ serial: "new" }] }, updated: {}, deleted: {} });
+      expect(base.calls.filter(call => /^(insert|update|upsert|delete):/.test(call.operation)))
+        .toEqual([{ operation: "insert:editions", input: [{ serial: "new", volume_isbn: "past", label: "New" }] }]);
+    }));
+  });
+
+  it.each(["default", "wrong-column", "wrong-entity", "missing"] as const)("retains %s reference refusal before writes", async mode => {
+    await run(Effect.gen(function* () {
+      const selected: ReplacementProfile = mode === "default" ? { ...replacement, projectionPaths: () => [] }
+        : { ...profile, foreignKeyVisibility: (target, column) =>
+          target === (mode === "wrong-entity" ? volume : edition) && column === (mode === "wrong-column" ? "serial" : "volume_isbn")
+            ? "existing" : "active" };
+      const base = yield* fixture(historical);
+      expect(yield* replaceGraphRows(base.ctx, selected, edition,
+        [{ serial: "new", volume_isbn: mode === "missing" ? "absent" : "past", label: "Refused" }], { relations: [] }).pipe(Effect.result))
+        .toMatchObject({ _tag: "Failure", failure: { reason: "adapterFailure" } });
+      expect(base.calls.filter(call => /^(insert|update|upsert|delete):/.test(call.operation))).toEqual([]);
+    }));
+  });
+
+  it("does not admit historical roots or move existing children when their FK visibility is selected", async () => {
+    await run(Effect.gen(function* () {
+      const pastChild = yield* fixture(new Map([...historical, ["editions", [{ serial: "old", volume_isbn: "past", deleted_at: history }]]]));
+      expect(yield* replaceGraphRows(pastChild.ctx, profile, edition,
+        [{ serial: "old", label: "Refused" }], { relations: [] }).pipe(Effect.result))
+        .toMatchObject({ _tag: "Failure", failure: { reason: "invalidInput" } });
+      expect(pastChild.calls.filter(call => /^(insert|update|upsert|delete):/.test(call.operation))).toEqual([]);
+      const moved = yield* fixture(historical);
+      expect(yield* replaceGraphRows(moved.ctx, profile, edition,
+        [{ serial: "old", volume_isbn: "past" }], { relations: [] }).pipe(Effect.result))
+        .toMatchObject({ _tag: "Failure", failure: { reason: "invalidInput" } });
+      expect(moved.calls.filter(call => /^(insert|update|upsert|delete):/.test(call.operation))).toEqual([]);
+    }));
+  });
+});
+
+describe("explicit existing-root upsert routing", () => {
+  const datedVolume: GraphEntity = { ...volume, table: { ...volume.table, columns: [...volume.table.columns,
+    ...["updated_at", "deleted_at"].map(name => ({ name, type: "text" as const, primaryKey: false, nullable: name === "deleted_at", generated: false })),
+  ] } };
+  const datedCatalog: GraphCatalog = { ...catalog, entities: [datedVolume, edition, label],
+    tables: catalog.tables.map(table => table === volume.table ? datedVolume.table : table) };
+  const profile: ReplacementProfile = { ...replacement, catalog: datedCatalog, existingRootWrite: "upsert" };
+  const previous = { isbn: "v1", title: "Old", created_at: "2020-01-01T00:00:00.000Z", updated_at: "2020-01-02T00:00:00.000Z", deleted_at: null };
+
+  it("uses actual existing root upsert receipts and keeps child writes and updated action identities", async () => {
+    await run(Effect.gen(function* () {
+      const written = { ...previous, title: "Changed" };
+      const base = yield* fixture(new Map([...seeded, ["volumes", [previous]]]), new Map([["upsert:volumes", [written]]]));
+      const result = yield* replaceGraphRows(base.ctx, profile, datedVolume,
+        [{ isbn: "v1", title: "Changed", editions: [{ serial: "old", label: "Changed" }, { serial: "new", label: "New" }] }], { relations: ["editions"] });
+      expect(base.calls.filter(call => /^(insert|update|upsert):/.test(call.operation)).map(call => call.operation))
+        .toEqual(["insert:editions", "upsert:volumes", "update:editions"]);
+      expect(base.calls.find(call => call.operation === "upsert:volumes")?.input).toEqual([{ isbn: "v1", title: "Changed" }]);
+      expect(result.entities[0]).toMatchObject(written);
+      expect(result.performedActions.updated).toEqual({ Volume: [{ isbn: "v1" }], Edition: [{ serial: "old" }] });
+      expect(result.performedActions.created).toEqual({ Edition: [{ serial: "new" }] });
+    }));
+  });
+
+  it("routes mixed fresh roots to insertion and active roots to preserving upsert without changing child writes", async () => {
+    await run(Effect.gen(function* () {
+      const base = yield* fixture(new Map([...seeded, ["volumes", [previous]]]),
+        new Map([["upsert:volumes", [{ ...previous, title: "Changed" }]]]));
+      const result = yield* replaceGraphRows(base.ctx, { ...profile, existingRootWrite: "upsertOrInsert" }, datedVolume,
+        [{ isbn: "fresh", title: "Fresh", editions: [{ serial: "fresh-child", label: "Fresh child" }] },
+          { isbn: "v1", title: "Changed", editions: [{ serial: "old", label: "Changed" }] }], { relations: ["editions"] });
+      expect(base.calls.filter(call => /^(insert|update|upsert):/.test(call.operation)).map(call => call.operation))
+        .toEqual(["insert:volumes", "insert:editions", "upsert:volumes", "update:editions"]);
+      expect(base.calls.find(call => call.operation === "insert:volumes")?.input).toEqual([{ isbn: "fresh", title: "Fresh" }]);
+      expect(base.calls.find(call => call.operation === "upsert:volumes")?.input).toEqual([{ isbn: "v1", title: "Changed" }]);
+      expect(result.performedActions).toEqual({ created: { Volume: [{ isbn: "fresh" }], Edition: [{ serial: "fresh-child" }] },
+        updated: { Volume: [{ isbn: "v1" }], Edition: [{ serial: "old" }] }, deleted: {} });
+      expect(result.entities.map(row => row.isbn)).toEqual(["fresh", "v1"]);
+    }));
+  });
+
+  it("keeps mixed fresh and existing roots on ordinary insertion/update when no preserving policy is selected", async () => {
+    await run(Effect.gen(function* () {
+      const base = yield* fixture(new Map([...seeded, ["volumes", [previous]]]));
+      yield* replaceGraphRows(base.ctx, { ...replacement, catalog: datedCatalog }, datedVolume,
+        [{ isbn: "fresh", title: "Fresh" }, { isbn: "v1", title: "Changed" }], { relations: [] });
+      expect(base.calls.filter(call => /^(insert|update|upsert):/.test(call.operation)).map(call => call.operation))
+        .toEqual(["insert:volumes", "update:volumes"]);
+    }));
+  });
+
+  it.each(["equal", "changed"] as const)("upserts a supplied %s owned child under its authenticated owner", async mode => {
+    await run(Effect.gen(function* () {
+      const child = { serial: "old", volume_isbn: "v1", label: "Old", created_at: previous.created_at,
+        updated_at: previous.updated_at, deleted_at: null };
+      const label = mode === "equal" ? "Old" : "Changed";
+      const base = yield* fixture(new Map([...seeded, ["volumes", [previous]], ["editions", [child]]]),
+        new Map([["upsert:volumes", [previous]], ["upsert:editions", [{ ...child, label }]]]));
+      const selected: ReplacementProfile = { ...profile, ownedChildWrite: "upsert" };
+      const result = yield* replaceGraphRows(base.ctx, selected, datedVolume,
+        [{ isbn: "v1", editions: [{ serial: "old", label }] }], { relations: ["editions"] });
+      expect(base.calls.filter(call => /^(insert|update|upsert):/.test(call.operation)).map(call => call.operation))
+        .toEqual(["upsert:volumes", "upsert:editions"]);
+      expect(result.performedActions.updated).toEqual({ Volume: [{ isbn: "v1" }], Edition: [{ serial: "old" }] });
+    }));
+  });
+
+  it.each(["historical", "other-owner"] as const)("refuses %s selected owned-child upsert before any write", async mode => {
+    await run(Effect.gen(function* () {
+      const child = { serial: "old", volume_isbn: mode === "other-owner" ? "other" : "v1", label: "Old",
+        deleted_at: mode === "historical" ? previous.updated_at : null };
+      const base = yield* fixture(new Map([...seeded, ["volumes", [previous]], ["editions", [child]]]));
+      expect(yield* replaceGraphRows(base.ctx, { ...profile, ownedChildWrite: "upsert" }, datedVolume,
+        [{ isbn: "v1", editions: [{ serial: "old", label: "Pending" }] }], { relations: ["editions"] }).pipe(Effect.result))
+        .toMatchObject({ _tag: "Failure", failure: { reason: "invalidInput" } });
+      expect(base.calls.filter(call => /^(insert|update|upsert|delete):/.test(call.operation))).toEqual([]);
+    }));
+  });
+
+  it("refuses creation and ordinary-update owned-child upsert selection before storage access", async () => {
+    await run(Effect.gen(function* () {
+      for (const creation of [false, true]) {
+        const base = yield* fixture(seeded);
+        const selected: ReplacementProfile = { ...replacement, ownedChildWrite: "upsert",
+          operation: creation ? "upsertWithReplace" : "update" };
+        expect(yield* replaceGraphRows(base.ctx, selected, volume, [{ isbn: "v1" }], { relations: [] }, creation).pipe(Effect.result))
+          .toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedProfile" } });
+        expect(base.calls).toEqual([]);
+      }
+    }));
+  });
+
+  it.each(["missing", "historical", "late-missing", "created_at", "updated_at", "deleted_at"] as const)(
+    "refuses %s root misuse before any graph write", async kind => {
+      await run(Effect.gen(function* () {
+        const state = kind === "historical" ? { ...previous, deleted_at: previous.updated_at } : previous;
+        const base = yield* fixture(new Map([...seeded, ["volumes", [state]]]));
+        const rows = kind === "missing" ? [{ isbn: "missing", title: "New" }]
+          : kind === "late-missing" ? [{ isbn: "v1", title: "Changed" }, { isbn: "missing", title: "New" }]
+          : [{ isbn: "v1", ...(kind === "historical" ? {} : { [kind]: "2099-01-01T00:00:00.000Z" }) }];
+        expect(yield* replaceGraphRows(base.ctx, profile, datedVolume, rows, { relations: [] }).pipe(Effect.result))
+          .toMatchObject({ _tag: "Failure", failure: { reason: "invalidInput" } });
+        expect(base.calls.filter(call => /^(insert|update|upsert|delete):/.test(call.operation))).toEqual([]);
+      }));
+    });
+
+  it.each(["upsert", "upsertOrInsert"] as const)("refuses creation and ordinary-update %s selection before storage access", async mode => {
+    await run(Effect.gen(function* () {
+      for (const creation of [false, true]) {
+        const base = yield* fixture(seeded);
+        const selected = { ...profile, existingRootWrite: mode, ...(creation ? {} : { operation: "update" as const }) };
+        expect(yield* replaceGraphRows(base.ctx, selected, datedVolume, [{ isbn: "v1" }], { relations: [] }, creation).pipe(Effect.result))
+          .toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedProfile" } });
+        expect(base.calls).toEqual([]);
+      }
+    }));
+  });
+
+  it.each(["upsert", "upsertOrInsert"] as const)("keeps a recursively owned row in the root table on ordinary update under %s", async mode => {
+    await run(Effect.gen(function* () {
+      const recursive: GraphEntity = { ...datedVolume, table: { ...datedVolume.table,
+        columns: [...datedVolume.table.columns, { name: "other_isbn", type: "text", primaryKey: false, nullable: true, generated: false }],
+        foreignKeys: [{ name: "other.volume", columns: ["other_isbn"], referencedTable: "volumes", referencedColumns: ["isbn"] }] } };
+      const recursiveCatalog: GraphCatalog = { ...datedCatalog, entities: [recursive], tables: [recursive.table], queryRelations: new Map([
+        ["volumes", new Map<string, CommerceRelation>([["other", { name: "other", sourcePrimaryKeys: ["isbn"], targetTable: "volumes",
+          targetPrimaryKeys: ["isbn"], join: { type: "belongsTo", foreignKeys: ["other_isbn"] } }]])],
+      ]) };
+      const selected: ReplacementProfile = { ...profile, existingRootWrite: mode, catalog: recursiveCatalog, ownedToOne: () => ["other"],
+        allowedRelations: () => ["other"], projectionPaths: () => [] };
+      const root = { ...previous, other_isbn: "v2" }, child = { ...previous, isbn: "v2", other_isbn: null };
+      const base = yield* fixture(new Map([["volumes", [root, child]]]));
+      yield* replaceGraphRows(base.ctx, selected, recursive,
+        [{ isbn: "v1", title: "Root changed", other: { isbn: "v2", title: "Child changed" } }], { relations: [] });
+      expect(base.calls.filter(call => /^(update|upsert):/.test(call.operation)).map(call => [call.operation, call.input]))
+        .toEqual([["update:volumes", [{ isbn: "v2", title: "Child changed" }]], ["upsert:volumes", [{ isbn: "v1", title: "Root changed" }]]]);
+    }));
+  });
+});
+
+describe("explicit storage insertion ordering for child deletion cohorts", () => {
+  const profile: ReplacementProfile = { ...replacement, orderedDeletionTables: [edition.table.name],
+    ordering: new Map([[edition.table.name, { kind: "storageInsertion", direction: "asc" }]]), projectionPaths: () => [] };
+
+  it("keeps reverse input root updates while deleting an interleaved historical cohort in actual storage order", async () => {
+    await run(Effect.gen(function* () {
+      const owners = ["a", "b", "c", "d"], roots = owners.map(isbn => ({ isbn, title: isbn }));
+      const children = ["z", "a", "q", "b", "x", "c", "w", "d"].map((serial, index) => ({
+        serial, volume_isbn: owners[index % 4] ?? "a", label: serial, deleted_at: index === 1 || index === 6 ? "2020-01-01T00:00:00.000Z" : null,
+      }));
+      const base = yield* fixture(new Map<string, readonly JsonObject[]>([["volumes", roots], ["editions", children]]));
+      const result = yield* replaceGraphRows(base.ctx, profile, volume,
+        [...owners].reverse().map(isbn => ({ isbn, title: "Changed " + isbn, editions: [] })), { relations: ["editions"] });
+      expect(base.calls.find(call => call.operation === "delete:editions")?.input).toEqual(children.map(row => ({ serial: row.serial })));
+      expect(result.performedActions.deleted).toEqual({ Edition: children.map(row => ({ serial: row.serial })) });
+      expect(base.calls.find(call => call.operation === "update:volumes")?.input)
+        .toEqual([...owners].reverse().map(isbn => ({ isbn, title: "Changed " + isbn })));
+      expect(result.entities.map(row => row.isbn)).toEqual([...owners].reverse());
+      expect(base.calls.filter(call => call.operation === "find:editions").at(-1)?.input).toEqual({ take: defaultCommerceResources.queryRows,
+        order: { kind: "storageInsertion", direction: "asc" }, predicate: { kind: "in", column: "serial", values: ["b", "d", "q", "w", "a", "c", "z", "x"] } });
+    }));
+  });
+
+  it.each(["missing", "root", "duplicate", "named-order", "descending"] as const)("refuses %s deletion-order metadata before storage", async mode => {
+    await run(Effect.gen(function* () {
+      const selected: ReplacementProfile = { ...profile,
+        orderedDeletionTables: mode === "missing" ? ["missing"] : mode === "root" ? [volume.table.name]
+          : mode === "duplicate" ? [edition.table.name, edition.table.name] : [edition.table.name],
+        ordering: mode === "named-order" ? new Map([[edition.table.name, "serial"]])
+          : mode === "descending" ? new Map([[edition.table.name, { kind: "storageInsertion", direction: "desc" }]]) : profile.ordering };
+      const base = yield* fixture(seeded);
+      expect(yield* replaceGraphRows(base.ctx, selected, volume, [{ isbn: "v1", editions: [] }], { relations: ["editions"] }).pipe(Effect.result))
+        .toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedProfile" } });
+      expect(base.calls).toEqual([]);
+    }));
+  });
+
+  it.each(["incomplete", "duplicate", "changed", "foreign"] as const)("refuses an %s deletion cohort before any write", async mode => {
+    await run(Effect.gen(function* () {
+      const old = { serial: "old", volume_isbn: "v1", label: "Old" };
+      const supplied = mode === "incomplete" ? [] : mode === "duplicate" ? [old, old]
+        : mode === "changed" ? [{ ...old, label: "Tampered" }] : [{ ...old, serial: "foreign" }];
+      const base = yield* fixture(seeded, new Map(), undefined, (table, query) =>
+        table === "editions" && isQueryObject(query) && query.predicate !== undefined && isJsonObject(query.predicate) && query.predicate.column === "serial" ? supplied : undefined);
+      expect(yield* replaceGraphRows(base.ctx, profile, volume, [{ isbn: "v1", editions: [] }], { relations: ["editions"] }).pipe(Effect.result))
+        .toMatchObject({ _tag: "Failure", failure: { reason: "storedCorruption" } });
+      expect(base.calls.filter(call => /^(insert|update|upsert|delete):/.test(call.operation))).toEqual([]);
+    }));
+  });
+});
+
 describe("shared graph planning over renamed module keys", () => {
+  it("captures a new owned to-one before its owner and preserves normalized reference precedence", async () => {
+    const owned: CreationProfile = { ...creation, root: { entity: volume, omitRelations: ["publisher"], steps: [
+      { kind: "ownedToOne", name: "publisher", foreignKey: "publisher_slug", node: { entity: label, omitRelations: [], steps: [] } },
+    ] } };
+    const input = [{ isbn: "inline", publisher_slug: "displaced", publisher: { slug: "press", name: "Press" } },
+      { isbn: "scalar", publisher_slug: "displaced", publisher: "known" },
+      { isbn: "absent" }, { isbn: "null", publisher: null }];
+    const before = structuredClone(input);
+    const captured = await Effect.runPromise(captureGraph(owned, input));
+    expect(captured.rows.get("labels")).toEqual([{ slug: "press", name: "Press" }]);
+    expect(captured.rows.get("volumes")).toEqual([{ isbn: "inline", publisher_slug: "press" },
+      { isbn: "scalar", publisher_slug: "known" }, { isbn: "absent" }, { isbn: "null", publisher_slug: null }]);
+    expect(input).toEqual(before);
+  });
+
+  it("counts owned to-one inserts and refuses malformed and duplicated child identities", async () => {
+    const owned: CreationProfile = { ...creation, root: { entity: volume, omitRelations: ["publisher"], steps: [
+      { kind: "ownedToOne", name: "publisher", foreignKey: "publisher_slug", node: { entity: label, omitRelations: [], steps: [] } },
+    ] } };
+    const result = await Effect.runPromise(captureGraph(owned, [{ isbn: "book", publisher: { slug: "press", name: "Press" } }],
+      { ...defaultCommerceResources, facts: 1 }).pipe(Effect.result));
+    expect(result).toMatchObject({ _tag: "Failure", failure: { reason: "limitExceeded", cause: { attempted: 2 } } });
+    for (const input of [[{ isbn: "book", publisher: false }], [{ isbn: "book", publisher: ["press"] }],
+      [{ isbn: "one", publisher: { slug: "same", name: "Press" } }, { isbn: "two", publisher: { slug: "same", name: "Press" } }]])
+      expect(await Effect.runPromise(captureGraph(owned, input).pipe(Effect.result))).toMatchObject({ _tag: "Failure", failure: { reason: "invalidInput" } });
+  });
+
   it("keeps arbitrary action keys distinct from Product's checked Medusa id contract", () => {
     expectTypeOf<Effect.Success<ReturnType<typeof replaceGraphRows>>["performedActions"]>().not.toMatchTypeOf<PerformedActions>();
     expectTypeOf<Effect.Success<ReturnType<typeof replaceProductRows>>["performedActions"]>().toEqualTypeOf<PerformedActions>();
@@ -121,7 +705,7 @@ describe("shared graph planning over renamed module keys", () => {
       const receipt = [{ isbn: "book", title: "Stored", created_at: "clock" }];
       const { ctx, calls } = yield* fixture(new Map(), new Map([["insert:volumes", receipt]]));
       const inserted = yield* insertGraphRows(ctx, catalog, graph.rows);
-      expect(inserted.get("volumes")).toBe(receipt);
+      expect(inserted.get("volumes")).toEqual(receipt);
       expect(calls.map(call => call.operation)).toEqual([
         "table:volumes", "insert:volumes", "table:editions", "insert:editions",
         "table:volume_labels", "insert:volume_labels", "table:volume_references", "insert:volume_references",
@@ -156,6 +740,33 @@ describe("shared graph planning over renamed module keys", () => {
     }));
   });
 
+  it("refuses a complete projection cohort during preparation before any write", async () => {
+    await run(Effect.gen(function* () {
+      const { ctx, calls } = yield* fixture(seeded);
+      const error = commerceError("unsupportedProfile");
+      const result = yield* replaceGraphRows(ctx, { ...replacement,
+        admitSelection: table => table === edition.table ? Result.fail(error) : Result.succeed(undefined),
+        prepareProjection: (_entity, roots, load) => load(edition.table, "volume_isbn", roots.flatMap(row => typeof row.isbn === "string" ? [row.isbn] : [])).pipe(Effect.asVoid),
+      }, volume, [{ isbn: "v1", title: "New" }], { relations: ["editions"] }).pipe(Effect.result);
+      expect(Result.isFailure(result) && result.failure).toBe(error);
+      expect(calls.some(call => call.operation === "find:editions")).toBe(true);
+      expect(calls.filter(call => /^(insert|update|delete):/.test(call.operation))).toEqual([]);
+    }));
+  });
+
+  it("reuses the prepared complete cohort for post-write projection", async () => {
+    await run(Effect.gen(function* () {
+      const { ctx, calls } = yield* fixture(seeded);
+      const result = yield* replaceGraphRows(ctx, { ...replacement,
+        prepareProjection: (_entity, roots, load) => load(edition.table, "volume_isbn", roots.flatMap(row => typeof row.isbn === "string" ? [row.isbn] : [])).pipe(Effect.asVoid),
+      }, volume, [{ isbn: "v1", title: "New" }], { relations: ["editions"] });
+      const operations = calls.map(call => call.operation);
+      expect(operations.filter(operation => operation === "find:editions")).toHaveLength(1);
+      expect(operations.indexOf("find:editions")).toBeLessThan(operations.indexOf("update:volumes"));
+      expect(result.entities[0]?.editions).toEqual(seeded.get("editions"));
+    }));
+  });
+
   it("replaces children with cascades before insertion and retains unchanged pivots", async () => {
     await run(Effect.gen(function* () {
       const returned = [{ isbn: "v1", title: "Stored" }];
@@ -173,6 +784,59 @@ describe("shared graph planning over renamed module keys", () => {
       // The delete store returned no entity: actions must not invent a deletion.
       expect(result.performedActions).toEqual({ created: { Edition: [{ serial: "new" }] }, updated: { Volume: [{ isbn: "v1" }] }, deleted: {} });
       for (const table of catalog.tables) expect(calls.filter(call => call.operation === "table:" + table.name)).toHaveLength(1);
+    }));
+  });
+
+  it("selects many referenced members in one bounded lookup", async () => {
+    await run(Effect.gen(function* () {
+      const labels = Array.from({ length: 60 }, (_, index) => ({ slug: `label-${index}`, name: `Label ${index}` }));
+      const rows = new Map(seeded);
+      rows.set("labels", labels);
+      rows.set(pivot.name, []);
+      const { ctx, calls } = yield* fixture(rows);
+      const result = yield* replaceGraphRows(ctx, replacement, volume,
+        [{ isbn: "v1", labels: labels.map(row => row.slug) }], { relations: ["labels"] });
+      expect(result.entities).toMatchObject([{ isbn: "v1", labels }]);
+      expect(calls.filter(call => call.operation === "find:labels")).toHaveLength(1);
+      expect(calls.filter(call => call.operation === "insert:volume_labels")).toHaveLength(1);
+    }));
+  });
+
+  it("reuses a complete child selection for retained members", async () => {
+    await run(Effect.gen(function* () {
+      const editions = Array.from({ length: 60 }, (_, index) => ({
+        serial: `edition-${index}`, volume_isbn: "v1", label: `Edition ${index}`,
+      }));
+      const rows = new Map(seeded);
+      rows.set("editions", editions);
+      rows.set(references.name, []);
+      const { ctx, calls } = yield* fixture(rows);
+      const result = yield* replaceGraphRows(ctx, replacement, volume,
+        [{ isbn: "v1", editions: editions.map(({ serial, label }) => ({ serial, label })) }],
+        { relations: ["editions"] });
+      expect(result.entities).toMatchObject([{ isbn: "v1", editions }]);
+      expect(calls.filter(call => call.operation === "find:editions")).toHaveLength(1);
+    }));
+  });
+
+  it("associates many existing children with one selected-key read", async () => {
+    await run(Effect.gen(function* () {
+      const editions = Array.from({ length: 60 }, (_, index) => ({
+        serial: `association-${index}`, volume_isbn: "v1", label: `Association ${index}`,
+      }));
+      const rows = new Map(seeded);
+      rows.set("editions", editions);
+      const moved = editions.map(row => ({ ...row, volume_isbn: "v2" }));
+      const { ctx, calls } = yield* fixture(rows, new Map([["update:editions", moved]]));
+      const result = yield* replaceGraphRows(ctx, { ...replacement, toManyMode: () => Result.succeed("associate") }, volume,
+        [{ isbn: "v2", editions: editions.map(({ serial }) => ({ serial })) }], { relations: ["editions"] });
+      expect(result.entities).toMatchObject([{ isbn: "v2", editions: moved }]);
+      const selections = calls.filter(call => call.operation === "find:editions");
+      expect(selections).toHaveLength(2);
+      expect(selections.map(call => call.input)).toMatchObject([
+        { predicate: { column: "serial" } }, { predicate: { column: "volume_isbn" } },
+      ]);
+      expect(calls.filter(call => call.operation === "update:editions")).toHaveLength(1);
     }));
   });
 
@@ -201,6 +865,16 @@ describe("shared graph planning over renamed module keys", () => {
       const { ctx, calls } = yield* fixture(seeded);
       const result = yield* replaceGraphRows(ctx, replacement, volume, [input], { relations: ["editions", "labels"] }).pipe(Effect.result);
       expect(result).toMatchObject({ _tag: "Failure", failure: { reason: "invalidInput" } });
+      expect(calls.filter(call => /^(insert|update|delete):/.test(call.operation))).toEqual([]);
+    }));
+  });
+
+  it("reports the first missing member before a later duplicate", async () => {
+    await run(Effect.gen(function* () {
+      const { ctx, calls } = yield* fixture(seeded);
+      const result = yield* replaceGraphRows(ctx, replacement, volume,
+        [{ isbn: "v1", labels: ["missing", "featured", "featured"] }], { relations: ["labels"] }).pipe(Effect.result);
+      expect(result).toMatchObject({ _tag: "Failure", failure: { reason: "adapterFailure" } });
       expect(calls.filter(call => /^(insert|update|delete):/.test(call.operation))).toEqual([]);
     }));
   });

@@ -1,7 +1,7 @@
 import { Option, Result, Schema } from "effect";
 import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
-import { commerceDecoder } from "../commerce-decoder";
-import { captureCommerceInput } from "../commerce-input";
+import { commerceDecoder } from "../value/decoder";
+import { captureCommerceInput } from "../value/input";
 import type { ReadCatalog } from "./catalog";
 import { compileWhere, type Predicate, type WherePolicy } from "./predicate";
 

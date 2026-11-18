@@ -1,0 +1,1168 @@
+import { Data, Effect, Exit, Option, Result, Schema } from "effect";
+import { observeExecution } from "../../../execution/diagnostics/operation";
+import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
+import { applicationSchemaWireV1 } from "@flarex/analysis/application-analysis";
+import { encodeLogicalSchemaSourceDefinition, LogicalSchemaSourceSchema } from "flarex-protocol/internal/logical-schema-candidate";
+import { encodeSchemaManifestAppDocumentDefinition } from "flarex-protocol/schema-manifest";
+import { encodeCanonicalJson, isJson, isJsonObject, type Json, type JsonObject } from "flarex-protocol/json";
+import type { ApplicationManifest } from "@flarex/analysis/application-analysis";
+import { ApplicationLogicalV3Evidence } from "@flarex/analysis/internal/logical-application-source";
+import { compileLogicalDocumentReferences, compileLogicalReferenceIndexes, compileLogicalStrongReferences } from "flarex-protocol/internal/logical-storage-requirements";
+import { canonicalizeAppIndexPhysicalSpecV1 } from "flarex-protocol/index-definition";
+import { MAX_LOGICAL_SCHEMA_CANDIDATE_BYTES, logicalTableKey,
+  type LogicalSchemaSource } from "flarex-protocol/internal/logical-schema-candidate";
+import { CatalogSchemaVersionIdSchema, type CatalogSchemaVersionId,
+  type SchemaManifestAppDocumentDefinition } from "flarex-protocol/schema-manifest";
+import type { MetadataSequence } from "flarex-protocol/commit-protocol";
+import { ReplacementScopeIdV1Schema, type ScopeId } from "flarex-protocol/storage-authority";
+import { TransactionGrantDeploymentIdV1Schema } from "flarex-protocol/transaction-grant";
+import {
+  readApplicationBindingTargetProtection,
+  attachFiniteApplicationSourceComposition,
+  readFiniteApplicationSourceComposition,
+  readApplicationSelectionState,
+  isPreparedApplicationBinding,
+} from "../../../application/activation/selectionIdentity";
+import {
+  requireAcceptedApplicationBindingObservation,
+  requireAcceptedApplicationBindingLending,
+  sameBindingClock,
+} from "../../../application/activation/acceptedBinding";
+import {
+  captureFiniteApplicationMetadata,
+  readFiniteActiveApplicationPreparationState,
+  inspectFiniteApplicationMetadata,
+  readCapturedFiniteApplicationMetadata,
+  readFiniteApplicationStorageCaptureMetadata,
+  readFiniteApplicationCapturePorts,
+  readPreparedFiniteApplicationMetadataProjections,
+  readPreparedFiniteApplicationPublicationDefinitions,
+} from "../../../application/activation/finiteIdentity";
+import {
+  type FiniteApplicationMetadata,
+  type AcceptedApplicationBinding,
+  type ApplicationBindingObservation,
+  type ApplicationBindingInput,
+  type PreparedFiniteActiveApplication,
+} from "../../../application/activation/contracts";
+import {
+  isCheckedApplicationActiveHead,
+} from "../../../application/activeHead/identity";
+import { withApplicationBindingEvidenceInTransaction, withPreparedApplicationBindingEvidenceInTransaction,
+  withAcceptedApplicationBindingEvidenceInTransaction,
+  type ApplicationBindingEvidence } from "../../../application/applicationBindingProjection";
+import type {
+  AppUniqueConstraintSetBuildPortsV1,
+  AppUniqueConstraintSetEligibilityPortV1,
+} from "../../unique/appUniqueConstraintSetBuildV1";
+import { createAppUniqueConstraintDefinitionPortV1 } from "../../unique/appUniqueConstraintCommitV1";
+import type { LocatedAppUniqueConstraintDefinitionV1 } from "../../unique/appUniqueConstraintDefinitions";
+import {
+  locateAppIndexDefinitionByIdEffect,
+  type LocatedAppIndexDefinitionV1,
+} from "../../indexes/appIndexDefinitions";
+import {
+  readBindingSelectedEvidence,
+  readBindingHead,
+  readPreparedBindingCandidate,
+  prepareBindingSelectedStructure,
+  retainBindingSelectedStructure,
+  type PreparedBindingSelectedStructure,
+} from "../../../installation/frameworkSchema/binding/repository";
+import { verifyLogicalSchemaBindingInTransaction, verifyLogicalSchemaReadBindingInTransaction,
+  verifyPreparedLogicalSchemaBinding,
+  type SelectedLogicalStorageReadiness } from "../../../installation/frameworkSchema/binding/logicalSchema";
+import type {
+  DataBindingActivationFrame,
+  DataBindingHeadToken,
+  DataBindingSetFrame,
+} from "../../../installation/frameworkSchema/binding/model";
+import type { StoredBindingValue } from "../../../installation/frameworkSchema/binding/repository";
+import { publishedPhysicalDefinitionMatchesLocated, loadPublishedPhysicalRequirementSnapshotV1,
+  type PublishedPhysicalRequirementSnapshotV1 } from "../../indexes/indexBuildReconciliation";
+import {
+  prepareLogicalStorageReadiness,
+  requirePreparedLogicalStorageCatalog,
+  type PreparedLogicalStorageCatalog,
+} from "../../catalog/logicalStorageReadiness";
+import type { FlarexMetadataTransaction } from "../../../database/metadataTransaction";
+import { runEffectTransaction } from "../../../database/effectTransaction";
+import { chargeHostPreparation, captureHostPreparationCharge, captureHostPreparationLifetime,
+  registerHostPreparationDisposal } from "../../../execution/preparation/preparedHostRuntime";
+import {
+  preparePublicationDefinitions,
+  readPublicationDefinitionPreparationPayload,
+  disposePublicationDefinitions,
+} from "../../../commit/publication/definitionPreparation";
+import { capturePrivateJsonData } from "../../../values/privateJsonData";
+import { type ScopeClockRecord } from "../../../scope/scopeClock";
+import type { TrustedScopeAuthority } from "../../../scope/scopeAuthorityResolution";
+import type { LogicalStorageReadDemand } from "./model";
+import type {
+  SessionJournalAttempt,
+} from "../../../execution/journal/contracts";
+import type { LogicalParticipantAttemptRoot, LogicalParticipantSelection } from "./participantAdmission";
+import {
+  prepareFiniteMetadataProjection,
+  FiniteMetadataError,
+  bindFiniteMetadataSourcePreparation,
+  readFiniteMetadataSourcePreparation,
+  bindFiniteMetadataSourceComposition,
+  readFiniteMetadataSourceComposition,
+  mergeFiniteMetadataProjections,
+  mergeFiniteMetadataContractProjections,
+  finiteMetadataTableKey,
+  finiteMetadataDefinitionKey,
+  requireCurrentFiniteMetadataProjection,
+  matchesFiniteTableWriteClosureProjections,
+  requireFiniteTableWriteClosures,
+  prepareFiniteTableWriteClosureComparison,
+  acceptFiniteTableWriteClosureComparison,
+  type FiniteMetadataComparisonExpected,
+  type FiniteTableWriteClosureComparison,
+  type PreparedFiniteMetadataProjection,
+} from "../../../execution/finiteMetadataDependencies";
+import {
+  disposeFiniteMetadataProjection,
+  readFiniteMetadataProjectionPreparationPayload,
+} from "../../../execution/finiteMetadataDependencies";
+import type { CatalogIndexDefinitionId, CatalogTableId } from "flarex-protocol/catalog";
+import type { LogicalMetadataKey } from "flarex-protocol/commit-protocol";
+import {
+  hasProvisionalFiniteEntry,
+} from "../../../execution/session/finiteSession";
+import type { FiniteEntryObservation } from "../../../execution/finiteEntryObservation";
+import {
+  authenticateProtectedReadinessMetadataPair,
+} from "../../../execution/preparation/preparedMetadataEpoch";
+import {
+  requireAdmittedTargetInstallationIdentity,
+  readAdmittedCoLocatedInstallationPair,
+} from "../../../installation/installationLifecycle";
+
+export class LogicalSourceAdmissionError extends Data.TaggedError("LogicalSourceAdmissionError")<{
+  readonly reason: "invalidInput" | "sourceMismatch" | "notReady" | "bindingMissing" | "unsupportedProfile" | "resourceFailure";
+  readonly cause?: unknown;
+}> {}
+
+const SourceContract = Schema.Struct({
+  sourceKey: Schema.NonEmptyString, writeProfile: Schema.NonEmptyString,
+  definition: Schema.toType(LogicalSchemaSourceSchema.fields.definition), evidence: Schema.Json,
+}).annotate({ parseOptions: { onExcessProperty: "error" } });
+const decodeContract = Schema.decodeUnknownEffect(SourceContract);
+const decodeDeploymentId = Schema.decodeUnknownEffect(TransactionGrantDeploymentIdV1Schema);
+const decodeScopeId = Schema.decodeUnknownEffect(ReplacementScopeIdV1Schema);
+const decodeSchemaVersionId = Schema.decodeUnknownEffect(CatalogSchemaVersionIdSchema);
+const FiniteCommitClosureObservationPagesSchema = Schema.Array(Schema.Unknown);
+const decodeFiniteCommitClosureObservationPages = Schema.decodeUnknownEffect(FiniteCommitClosureObservationPagesSchema);
+const canonical = (value: Json) => encodeCanonicalJson(value, () => { throw new Error("Owned logical source is not JSON"); });
+
+export interface LogicalSourceBindingState {
+  readonly tx: FlarexMetadataTransaction;
+  readonly authority: TrustedScopeAuthority;
+  readonly clock: ScopeClockRecord;
+  readonly schemaVersionId: CatalogSchemaVersionId;
+  readonly source: LogicalSchemaSource;
+  readonly frame: DataBindingSetFrame;
+  readonly head: DataBindingHeadToken;
+}
+export type LogicalSourceFiniteReadBindingState = Pick<LogicalSourceBindingState,
+  "tx" | "authority" | "schemaVersionId" | "head"> & Readonly<{
+    hasPayloadContent: boolean; hasPayloadLifecycle: boolean;
+  }>;
+
+declare const finiteAttemptMetadataBrand: unique symbol;
+export interface FiniteAttemptMetadata { readonly [finiteAttemptMetadataBrand]: true }
+export type FiniteMetadataEntry = Readonly<{ kind: "capture"; metadataWatermark: MetadataSequence;
+  borrowedApplicationBinding?: AcceptedApplicationBinding; observation?: FiniteEntryObservation }> | Readonly<{ kind: "derive"; metadata: FiniteAttemptMetadata }>;
+type FiniteAttemptMetadataState = Readonly<{
+  root: SessionJournalAttempt; owner: LogicalParticipantAttemptRoot; application: ApplicationBindingInput;
+  entryTx: FlarexMetadataTransaction; authority: TrustedScopeAuthority; entryClock: ScopeClockRecord;
+  applicationMetadata: FiniteApplicationMetadata; controlDb?: AppUniqueConstraintSetBuildPortsV1["controlDb"];
+  authorityPort?: AppUniqueConstraintSetBuildPortsV1["authority"]; unique?: AppUniqueConstraintSetEligibilityPortV1;
+  frame?: DataBindingSetFrame; head?: DataBindingHeadToken; manifestSha256?: string; metadataWatermark: MetadataSequence;
+  bindingSelection?: Readonly<{ candidateSha256: string; activationSha256: string }>;
+  sourceProjection?: PreparedFiniteMetadataProjection;
+  sourceComposition?: PreparedFiniteMetadataProjection;
+  sourceOrdinal?: number;
+  boundApplicationProjection?: PreparedFiniteMetadataProjection;
+  nativeApplicationProjection?: PreparedFiniteMetadataProjection;
+  nativeApplicationCatalog?: PublishedPhysicalRequirementSnapshotV1;
+  applicationCatalog?: PublishedPhysicalRequirementSnapshotV1;
+  applicationCatalogOpen?: Effect.Effect<void, Effect.Error<ReturnType<typeof requirePreparedLogicalStorageCatalog>>>;
+}>;
+const finiteAttemptMetadata = new WeakMap<FiniteAttemptMetadata, FiniteAttemptMetadataState>();
+
+/** Bounded private Product-reference selection from the actual bound catalog. */
+export function requireFiniteProductReference(metadata: FiniteAttemptMetadata, root: SessionJournalAttempt,
+  sourceKey: string, tableName: string, field: string) {
+  return Result.gen(function* () {
+    const state = finiteAttemptMetadata.get(metadata);
+    const catalog = state?.root === root ? state.applicationCatalog?.logicalRequirements : undefined;
+    if (catalog === undefined) return yield* Result.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" }));
+    const references = yield* compileLogicalStrongReferences(catalog.evidence.candidate).pipe(
+      Result.mapError(cause => new LogicalSourceAdmissionError({ reason: "sourceMismatch", cause })));
+    const selected = references.filter(reference => reference.sourceKey === sourceKey && reference.source.table.namespace === "app" &&
+      reference.source.table.logicalName === tableName && reference.source.field === field);
+    const reference = selected[0];
+    if (selected.length !== 1 || reference === undefined || reference.target.table.namespace !== "medusa" ||
+      reference.target.table.logicalName !== "commerce.product/product" || reference.target.field !== "id" ||
+      reference.onTargetSoftDelete !== "retain" || reference.onTargetDelete !== "restrict" ||
+      reference.liveness.source.kind !== "current" || reference.liveness.target.kind !== "softDeleteNull" ||
+      reference.liveness.target.field !== "deleted_at")
+      return yield* Result.fail(new LogicalSourceAdmissionError({ reason: "unsupportedProfile" }));
+    const targetBinding = catalog.evidence.tableBindings.find(binding => logicalTableKey(binding.table) === logicalTableKey(reference.target.table));
+    const targetSource = catalog.evidence.candidate.sources.find(source => source.bindings.some(binding =>
+      binding.kind === "definition" && logicalTableKey(binding.table) === logicalTableKey(reference.target.table)));
+    if (targetBinding === undefined || targetSource === undefined)
+      return yield* Result.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" }));
+    return Object.freeze({ ...reference, targetTableId: targetBinding.tableId, targetSourceKey: targetSource.key });
+  });
+}
+const finiteAttemptProjections = new WeakMap<FiniteAttemptMetadata, PreparedFiniteMetadataProjection>();
+
+/** Permission evidence may be inspected only while its original metadata and
+ * host preparation remain authentic. This conveys no fresh database verdict. */
+export function requireFiniteAttemptPreparationOpen(metadata: FiniteAttemptMetadata, root: SessionJournalAttempt) {
+  const state = finiteAttemptMetadata.get(metadata);
+  if (state === undefined || state.root !== root)
+    return Result.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" }));
+  return readFiniteApplicationStorageCaptureMetadata(state.applicationMetadata, root).pipe(
+    Result.map(() => undefined), Result.mapError(cause => new LogicalSourceAdmissionError({ reason: "sourceMismatch", cause })));
+}
+
+export const getFiniteAttemptMetadataProjection = (metadata: FiniteAttemptMetadata, root: SessionJournalAttempt) =>
+  finiteAttemptMetadata.get(metadata)?.root === root ? finiteAttemptProjections.get(metadata) ?? null : null;
+/** Final Application maintenance requires its original native table routing. */
+export const getFiniteApplicationWriteMetadataProjection = (metadata: FiniteAttemptMetadata, root: SessionJournalAttempt) => {
+  const state = finiteAttemptMetadata.get(metadata);
+  return state?.root === root ? state.nativeApplicationProjection ?? null : null;
+};
+
+export const getFiniteApplicationPublicationDefinitions = (metadata: FiniteAttemptMetadata, root: SessionJournalAttempt) => {
+  const state = finiteAttemptMetadata.get(metadata);
+  return state?.root !== root
+    ? Result.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" }))
+    : readPreparedFiniteApplicationPublicationDefinitions(state.applicationMetadata, state.application, root)
+      .pipe(Result.mapError(cause => new LogicalSourceAdmissionError({ reason: "sourceMismatch", cause })));
+};
+
+/** Both actual schema profiles retain their own immutable Application tables. */
+function applicationTables(snapshot: PublishedPhysicalRequirementSnapshotV1): readonly Readonly<{
+  tableId: CatalogTableId; logicalName: string; definition: SchemaManifestAppDocumentDefinition;
+}>[] | null {
+  if (snapshot.manifest.kind === "appSchema") return snapshot.manifest.tableDefinitions.tables;
+  const requirements = snapshot.logicalRequirements;
+  if (requirements === undefined) return null;
+  const nativeNames = new Set<string>();
+  for (const source of requirements.evidence.candidate.sources) {
+    if (source.owner !== "application" || !isJsonObject(source.evidence) || source.evidence.manifest === undefined) continue;
+    const decoded = Result.getOrNull(Schema.decodeUnknownResult(ApplicationLogicalV3Evidence)(source.evidence));
+    if (decoded === null) return null;
+    for (const table of decoded.manifest.schema.tables) nativeNames.add(table.name);
+  }
+  const tables: { tableId: CatalogTableId; logicalName: string; definition: SchemaManifestAppDocumentDefinition }[] = [];
+  for (const source of requirements.evidence.candidate.sources) {
+    if (source.owner !== "application" && source.owner !== "payload") continue;
+    if (source.definition.kind !== "documents") return null;
+    for (const table of source.definition.tables) {
+      if (source.owner !== "application" && !nativeNames.has(table.logicalName)) continue;
+      const binding = source.bindings.find(member => member.kind === "definition" && member.localName === table.logicalName);
+      const located = binding === undefined ? undefined : requirements.evidence.tableBindings.find(member =>
+        logicalTableKey(member.table) === logicalTableKey(binding.table));
+      if (located === undefined || located.table.namespace !== "app") return null;
+      tables.push({ tableId: located.tableId, logicalName: table.logicalName, definition: table.definition });
+    }
+  }
+  return tables;
+}
+
+const applicationCatalogMatches = Effect.fn("LogicalSourceAdmission.matchApplicationCatalog")(function* (
+  original: PublishedPhysicalRequirementSnapshotV1, bound: PublishedPhysicalRequirementSnapshotV1, manifest: ApplicationManifest,
+) {
+  if (manifest.version === 3) {
+    const app = bound.logicalRequirements?.evidence.candidate.sources.filter(source => source.owner === "application");
+    if (app?.length !== 1 || app[0] === undefined) return false;
+    const evidence = Schema.decodeUnknownResult(ApplicationLogicalV3Evidence)(app[0].evidence);
+    const expected: unknown = applicationSchemaWireV1(manifest.schema);
+    const actual: unknown = Result.isSuccess(evidence) ? applicationSchemaWireV1(evidence.success.manifest.schema) : undefined;
+    if (!isJson(expected) || !isJson(actual) || canonical(expected) !== canonical(actual)) return false;
+  }
+  const originalTables = applicationTables(original);
+  const boundTables = applicationTables(bound);
+  if (originalTables === null || boundTables === null || originalTables.length !== boundTables.length) return false;
+  const owned = new Set(originalTables.map(table => table.tableId));
+  const originalDefinitions = original.definitions.filter(member => owned.has(member.tableId));
+  const boundDefinitions = bound.definitions.filter(member => owned.has(member.tableId));
+  const derivedDefinitions = [];
+  if (manifest.version === 3 && bound.logicalRequirements !== undefined) {
+    const requirements = bound.logicalRequirements;
+    const references = yield* Effect.fromResult(compileLogicalReferenceIndexes(requirements.evidence.candidate)).pipe(
+      Effect.mapError(cause => new LogicalSourceAdmissionError({ reason: "sourceMismatch", cause })));
+    for (const reference of references) {
+      const table = requirements.evidence.tableBindings.find(member => logicalTableKey(member.table) === logicalTableKey(reference.table));
+      if (table === undefined) return false;
+      if (!owned.has(table.tableId)) continue;
+      const spec = yield* Effect.tryPromise({ try: () => canonicalizeAppIndexPhysicalSpecV1(reference.physicalSpec),
+        catch: cause => cause }).pipe(
+          // oxlint-disable-next-line flarex/prefer-tagged-effect-recovery -- REVIEW: protocol - native index hashing rejects with DOMException; invalid compiled specs remain defects.
+          Effect.catch(cause => typeof DOMException !== "undefined" && cause instanceof DOMException
+            ? Effect.fail(new LogicalSourceAdmissionError({ reason: "resourceFailure", cause })) : Effect.die(cause)));
+      const matches = boundDefinitions.filter(definition => definition.tableId === table.tableId &&
+        definition.access.kind === "developer" && definition.physicalSpecCodecVersion === spec.codecVersion &&
+        definition.physicalSpecBytesHex === spec.canonicalBytesHex && definition.physicalSpecSha256Hex === spec.sha256Hex);
+      if (matches.length !== 1 || matches[0] === undefined || originalDefinitions.some(definition =>
+        publishedPhysicalDefinitionMatchesLocated(definition, matches[0]!))) return false;
+      derivedDefinitions.push(matches[0]);
+    }
+  }
+  const expectedDefinitions = [...originalDefinitions, ...derivedDefinitions];
+  return originalTables.every(table => boundTables.some(member => member.tableId === table.tableId &&
+    member.logicalName === table.logicalName && canonical(encodeSchemaManifestAppDocumentDefinition(member.definition)) === canonical(encodeSchemaManifestAppDocumentDefinition(table.definition)))) &&
+    expectedDefinitions.length === boundDefinitions.length &&
+    expectedDefinitions.every(definition =>
+      boundDefinitions.some(member => publishedPhysicalDefinitionMatchesLocated(definition, member))) &&
+    boundDefinitions.every(definition =>
+      expectedDefinitions.some(member => publishedPhysicalDefinitionMatchesLocated(definition, member)));
+});
+
+/** Compile the exact ordered source graph under its original generation. The
+ * existing projection and Application selection issuers own the pairing. */
+export const prepareFiniteApplicationSourceComposition = Effect.fn("LogicalSourceAdmission.prepareSourceComposition")(function* (
+  active: PreparedFiniteActiveApplication, sources: readonly LogicalParticipantSelection[],
+) {
+  const issued = readFiniteActiveApplicationPreparationState(active);
+  const selected = issued === undefined ? undefined : readApplicationSelectionState(issued.selection);
+  const lifetime = yield* captureHostPreparationLifetime();
+  if (issued === undefined || selected === undefined || selected.finitePreparation === undefined ||
+    lifetime === undefined || lifetime.checkOpen !== issued.lifetime?.checkOpen || sources.length > 9)
+    return yield* Effect.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" }));
+  yield* Effect.fromResult(readApplicationBindingTargetProtection(issued.selection));
+  const preparation = selected.finitePreparation;
+  const sourceProjections: PreparedFiniteMetadataProjection[] = [];
+  const boundApplications: PreparedFiniteMetadataProjection[] = [];
+  const guards: Effect.Effect<void, FiniteMetadataError>[] = [];
+  const checkedCatalogs = new Set<PublishedPhysicalRequirementSnapshotV1>();
+  for (const source of sources) {
+    if (source.lendFiniteMetadataProjection === undefined)
+      return yield* Effect.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" }));
+    const projection = yield* source.lendFiniteMetadataProjection();
+    const original = yield* Effect.fromResult(readFiniteMetadataSourcePreparation(projection, source));
+    if (original.lifetime?.checkOpen !== lifetime.checkOpen || original.deploymentId !== selected.basis.deploymentId ||
+      original.scopeId !== selected.basis.authority.scopeId)
+      return yield* Effect.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" }));
+    // Native Application and a jointly composed logical source retain their
+    // own schema identities. Only the original bound Application projection
+    // and its complete catalog pairing authorize that cross-domain composition.
+    if (original.schemaVersionId !== selected.basis.schemaVersionId && original.boundApplicationProjection === undefined)
+      return yield* Effect.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" }));
+    if (original.boundApplicationProjection !== undefined && !checkedCatalogs.has(original.applicationCatalog)) {
+      if (!(yield* applicationCatalogMatches(selected.basis.physicalRequirements, original.applicationCatalog, selected.basis.manifest)))
+        return yield* Effect.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" }));
+      checkedCatalogs.add(original.applicationCatalog);
+    }
+    sourceProjections.push(projection);
+    if (original.boundApplicationProjection !== undefined) boundApplications.push(original.boundApplicationProjection);
+    guards.push(original.requirePrepared);
+  }
+  const boundApplicationProjection = boundApplications.length === 0 ? undefined :
+    yield* Effect.fromResult(mergeFiniteMetadataProjections(boundApplications));
+  if (boundApplicationProjection !== undefined) {
+    yield* registerHostPreparationDisposal(() => { disposeFiniteMetadataProjection(boundApplicationProjection); });
+    yield* chargeHostPreparation(yield* Effect.fromResult(readFiniteMetadataProjectionPreparationPayload(boundApplicationProjection)));
+  }
+  const projection = yield* Effect.fromResult(mergeFiniteMetadataContractProjections([
+    preparation.execution, ...(boundApplicationProjection === undefined ? [] : [boundApplicationProjection]),
+    preparation.nativeApplication, ...sourceProjections,
+  ]));
+  yield* registerHostPreparationDisposal(() => { disposeFiniteMetadataProjection(projection); });
+  yield* chargeHostPreparation(yield* Effect.fromResult(readFiniteMetadataProjectionPreparationPayload(projection)));
+  yield* chargeHostPreparation({ sources: sourceProjections.length, catalogs: checkedCatalogs.size });
+  yield* Effect.fromResult(bindFiniteMetadataSourceComposition(projection, Object.freeze({ application: issued.selection,
+    sources: Object.freeze([...sources]), sourceProjections: Object.freeze(sourceProjections), boundApplicationProjection,
+    nativeApplicationCatalog: selected.basis.physicalRequirements,
+    requirePrepared: Effect.forEach(guards, guard => guard, { discard: true }),
+  })));
+  yield* Effect.fromResult(attachFiniteApplicationSourceComposition(issued.selection, projection));
+});
+
+/** Charged entry work under the authenticated sequencer; no request-time repair. */
+export const prepareFiniteAttemptMetadataProjection = Effect.fn("LogicalSourceAdmission.prepareFiniteAttemptProjection")(function* (
+  metadata: FiniteAttemptMetadata, root: SessionJournalAttempt, tx: FlarexMetadataTransaction,
+) {
+  const state = finiteAttemptMetadata.get(metadata);
+  if (state === undefined || state.root !== root || state.entryTx !== tx)
+    return yield* Effect.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" }));
+  const retained = finiteAttemptProjections.get(metadata);
+  if (retained !== undefined) return retained;
+  const prepared = yield* Effect.fromResult(readPreparedFiniteApplicationMetadataProjections(state.applicationMetadata, root));
+  if (state.sourceComposition !== undefined && prepared.sourceComposition !== state.sourceComposition)
+    return yield* Effect.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" }));
+  if (prepared.sourceComposition !== undefined) {
+    if (state.sourceComposition !== prepared.sourceComposition)
+      return yield* Effect.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" }));
+    const composed = yield* Effect.fromResult(readFiniteMetadataSourceComposition(prepared.sourceComposition, state.application));
+    if ((state.sourceOrdinal ?? 0) !== composed.sources.length)
+      return yield* Effect.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" }));
+    yield* composed.requirePrepared;
+    if (!hasProvisionalFiniteEntry(tx)) yield* requireCurrentFiniteMetadataProjection(tx, state.owner.scopeId,
+      state.metadataWatermark, prepared.sourceComposition);
+    finiteAttemptMetadata.set(metadata, Object.freeze({ ...state, nativeApplicationProjection: prepared.nativeApplication,
+      nativeApplicationCatalog: composed.nativeApplicationCatalog,
+      ...(composed.boundApplicationProjection === undefined ? {} : { boundApplicationProjection: composed.boundApplicationProjection }) }));
+    finiteAttemptProjections.set(metadata, prepared.sourceComposition);
+    return prepared.sourceComposition;
+  }
+  const validated = yield* Effect.fromResult(readCapturedFiniteApplicationMetadata(state.applicationMetadata, root));
+  const basis = validated.basis;
+  const inputs = [prepared.execution];
+  if (state.boundApplicationProjection !== undefined) {
+    if (state.applicationCatalog === undefined || !(yield* applicationCatalogMatches(basis.physicalRequirements, state.applicationCatalog, basis.manifest)))
+      return yield* Effect.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" }));
+    inputs.push(state.boundApplicationProjection);
+  }
+  const nativeApplicationProjection = prepared.nativeApplication;
+  inputs.push(nativeApplicationProjection);
+  if (state.sourceProjection !== undefined) inputs.push(state.sourceProjection);
+  const projection = yield* Effect.fromResult(mergeFiniteMetadataContractProjections(inputs));
+  if (!hasProvisionalFiniteEntry(tx))
+    yield* requireCurrentFiniteMetadataProjection(tx, state.owner.scopeId, state.metadataWatermark, projection);
+  finiteAttemptMetadata.set(metadata, Object.freeze({ ...state, nativeApplicationProjection,
+    nativeApplicationCatalog: basis.physicalRequirements }));
+  finiteAttemptProjections.set(metadata, projection);
+  return projection;
+});
+
+/** Native calls consume their schema; bound writes additionally consume the
+ * independently authenticated source owner's complete closure and policy. */
+export function getFiniteApplicationDemandMetadataSelections(metadata: FiniteAttemptMetadata, root: SessionJournalAttempt,
+  tableId: CatalogTableId, purpose: "read" | "write", indexDefinitionId?: CatalogIndexDefinitionId):
+  Result.Result<readonly Readonly<{ projection: PreparedFiniteMetadataProjection; key: LogicalMetadataKey }>[], LogicalSourceAdmissionError> {
+  const state = finiteAttemptMetadata.get(metadata);
+  const native = state?.nativeApplicationProjection;
+  if (state === undefined || state.root !== root || native === undefined || state.nativeApplicationCatalog === undefined)
+    return Result.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" }));
+  const table = finiteMetadataTableKey(native, tableId, "table");
+  if (table === null) return Result.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" }));
+  const selections = [{ projection: native, key: table }];
+  if (purpose === "write") {
+    const projection = state.boundApplicationProjection ?? native;
+    const closure = finiteMetadataTableKey(projection, tableId, "writeClosure");
+    if (closure === null) return Result.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" }));
+    const policy = finiteMetadataTableKey(projection, tableId, "sourcePolicy");
+    if (policy === null) return Result.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" }));
+    selections.push({ projection, key: closure }, { projection, key: policy });
+  }
+  if (indexDefinitionId !== undefined) {
+    if (!state.nativeApplicationCatalog.definitions.some(member => member.indexDefinitionId === indexDefinitionId && member.tableId === tableId))
+      return Result.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" }));
+    const index = finiteMetadataDefinitionKey(native, tableId, "index", indexDefinitionId);
+    if (index === null) return Result.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" }));
+    selections.push({ projection: native, key: index });
+  }
+  return Result.succeed(Object.freeze(selections.map(selection => Object.freeze(selection))));
+}
+
+/** Native Application demand uses the same retained entry tuple as framework sources. */
+export interface FiniteApplicationStorageDemand {
+  readonly metadata: FiniteAttemptMetadata;
+  readonly root: SessionJournalAttempt;
+  readonly demand: LogicalStorageReadDemand;
+}
+
+/** The existing entry issuer selects the build before any storage callback. */
+export function inspectFiniteApplicationStorageDemand(input: FiniteApplicationStorageDemand) {
+  const state = finiteAttemptMetadata.get(input.metadata);
+  const catalog = state?.nativeApplicationCatalog;
+  const demand = input.demand;
+  if (state === undefined || state.root !== input.root || catalog === undefined)
+    return Result.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" }));
+  const tables = applicationTables(catalog);
+  if (demand.kind === "unique" || demand.kind === "search" || (demand.kind !== "clock" &&
+    (tables === null || !tables.some(table => table.tableId === demand.tableId))))
+    return Result.fail(new LogicalSourceAdmissionError({ reason: "unsupportedProfile" }));
+  const definition = demand.kind === "index" ? catalog.definitions.find(member =>
+    member.indexDefinitionId === demand.indexDefinitionId && member.tableId === demand.tableId) : undefined;
+  if (demand.kind === "index" && definition === undefined)
+    return Result.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" }));
+  return Result.succeed(Object.freeze({ root: state.owner, demand, definition }));
+}
+
+/** Detached named captures consume only the existing entry issuer and host
+ * lifetime. Fresh session/build authority remains in the capture statement. */
+// This repeated storage operation names diagnostics only through the SDK;
+// default requests retain the untraced issuer/lifetime checks directly.
+export const readFiniteStorageCaptureMetadata = Effect.fnUntraced(function* (
+  metadata: FiniteAttemptMetadata, root: SessionJournalAttempt,
+) {
+  const state = finiteAttemptMetadata.get(metadata);
+  if (state === undefined || state.root !== root)
+    return yield* Effect.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" }));
+  const basis = yield* Effect.fromResult(readFiniteApplicationStorageCaptureMetadata(state.applicationMetadata, root));
+  if (state.applicationCatalogOpen !== undefined) yield* state.applicationCatalogOpen;
+  const applicationPorts = state.authorityPort === undefined ? yield* Effect.fromResult(
+    readFiniteApplicationCapturePorts(state.applicationMetadata, root)) : undefined;
+  const authorityPorts = state.authorityPort ?? applicationPorts?.authority;
+  return Object.freeze({ owner: state.owner, basis, authorityPorts,
+    controlDb: state.controlDb ?? applicationPorts?.controlDb });
+}, effect => observeExecution("LogicalSourceAdmission.captureMetadata", effect));
+
+/** Retirement may authenticate the original directory after the business
+ * lifetime closes. This projection conveys routing provenance only. */
+export function readFiniteStorageCaptureRetirementAuthority(metadata: FiniteAttemptMetadata, root: SessionJournalAttempt) {
+  const state = finiteAttemptMetadata.get(metadata);
+  if (state === undefined || state.root !== root)
+    return Result.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" }));
+  return state.authorityPort === undefined ? readFiniteApplicationCapturePorts(state.applicationMetadata, root).pipe(
+    Result.map(context => context.authority),
+    Result.mapError(cause => new LogicalSourceAdmissionError({ reason: "sourceMismatch", cause }))) : Result.succeed(state.authorityPort);
+}
+
+/** Detached identity for reservation/seal encoding; it grants no serving authority. */
+export function inspectFiniteAttemptMetadata(metadata: FiniteAttemptMetadata, root: SessionJournalAttempt) {
+  const state = finiteAttemptMetadata.get(metadata);
+  return state === undefined || state.root !== root ? null : Object.freeze({
+    owner: Object.freeze({ ...state.owner }), metadataWatermark: state.metadataWatermark,
+    application: inspectFiniteApplicationMetadata(state.applicationMetadata, root),
+    ...(state.head === undefined ? {} : { head: Object.freeze({ ...state.head }),
+      binding: Object.freeze({ ...state.head, ...state.bindingSelection }) }),
+    ...(state.frame === undefined ? {} : { frame: structuredClone(state.frame) }),
+    ...(state.manifestSha256 === undefined ? {} : { manifestSha256: state.manifestSha256 }) });
+}
+
+/** Application-only entry uses the same genuine issuer and outer reservation. */
+export function captureFiniteApplicationAttemptMetadata(binding: AcceptedApplicationBinding, application: ApplicationBindingInput,
+  root: SessionJournalAttempt, tx: FlarexMetadataTransaction, clock: ScopeClockRecord, authority: TrustedScopeAuthority,
+  owner: LogicalParticipantAttemptRoot, metadataWatermark: MetadataSequence) {
+  return captureFiniteApplicationMetadata(binding, application, tx, clock, root, owner.snapshotCommitSeq).pipe(Result.flatMap(applicationMetadata =>
+    readFiniteApplicationSourceComposition(application).pipe(Result.map(sourceComposition => {
+    // SAFETY: genuine accepted Application evidence owns this opaque tuple;
+    // it grants no source or binding admission and the root owns activation.
+    const metadata = Object.freeze({}) as FiniteAttemptMetadata;
+    finiteAttemptMetadata.set(metadata, Object.freeze({ root, owner: Object.freeze({ ...owner }), application, applicationMetadata,
+      entryTx: tx, authority, entryClock: clock, metadataWatermark,
+      ...(sourceComposition === undefined ? {} : { sourceComposition, sourceOrdinal: 0 }) }));
+    return metadata;
+  }))));
+}
+
+type SharedCheckedBinding = Readonly<{
+  selectionKey: string;
+  application: ApplicationBindingInput;
+  controlDb: AppUniqueConstraintSetBuildPortsV1["controlDb"];
+  authorityPort: AppUniqueConstraintSetBuildPortsV1["authority"];
+  unique: AppUniqueConstraintSetEligibilityPortV1;
+  deploymentId: string;
+  scopeId: ScopeId;
+  authority: TrustedScopeAuthority;
+  clock: ScopeClockRecord;
+  originalClock: ScopeClockRecord;
+  catalog: PreparedLogicalStorageCatalog;
+  targetProtection: Result.Result.Success<ReturnType<typeof readApplicationBindingTargetProtection>>;
+  accepted: AcceptedApplicationBinding | undefined;
+  installation: Result.Result.Success<ReturnType<typeof readAdmittedCoLocatedInstallationPair>>;
+  targetInstallation: Result.Result.Success<ReturnType<typeof requireAdmittedTargetInstallationIdentity>> | undefined;
+  readinessObservation: Extract<Effect.Success<ReturnType<PreparedLogicalStorageCatalog["inspect"]>>, { status: "ready" }> | undefined;
+  schemaVersionId: CatalogSchemaVersionId;
+  manifestSha256: string;
+  frame: DataBindingSetFrame;
+  activation: StoredBindingValue<DataBindingActivationFrame>;
+  head: DataBindingHeadToken;
+  bindingSelection: Readonly<{ candidateSha256: string; activationSha256: string }>;
+  selectedPreparation?: PreparedBindingSelectedStructure;
+}>;
+type SharedCheckedBindingScope = {
+  closed: boolean;
+  lendingOpen: boolean;
+  readonly declaredSourceKeys: ReadonlySet<string> | undefined;
+  readonly declaredSourceCount: number;
+  readonly admittedSourceKeys: Set<string>;
+  readonly previous: SharedCheckedBindingScope | undefined;
+  readonly observations: SharedCheckedBinding[];
+  readonly writeClosures: Map<string, Readonly<{ metadataProjection: PreparedFiniteMetadataProjection;
+    indexes: readonly LocatedAppIndexDefinitionV1[]; unique: readonly LocatedAppUniqueConstraintDefinitionV1[] }>>;
+};
+const checkedBindings = new WeakMap<FlarexMetadataTransaction, SharedCheckedBindingScope>();
+export type LogicalSourceConstruction = Readonly<{ kind: "standalone"; application?: ApplicationBindingInput }> |
+  Readonly<{ kind: "prepared"; catalog: PreparedLogicalStorageCatalog }>;
+
+/** Full entry and direct callers share only their accepting transaction proof. */
+export function withSharedLogicalSourceBindingChecks<Value, Failure, Requirements>(
+  tx: FlarexMetadataTransaction, work: () => Effect.Effect<Value, Failure, Requirements>,
+  declaredSourceKeys?: readonly string[],
+): Effect.Effect<Value, Failure, Requirements> {
+  return Effect.suspend(() => {
+    const previous = checkedBindings.get(tx);
+    const shared: SharedCheckedBindingScope = { closed: false, lendingOpen: true,
+      declaredSourceKeys: declaredSourceKeys === undefined ? undefined : new Set(declaredSourceKeys),
+      declaredSourceCount: declaredSourceKeys?.length ?? 0, admittedSourceKeys: new Set(),
+      previous, observations: [], writeClosures: new Map() };
+    checkedBindings.set(tx, shared);
+    return Effect.suspend(work).pipe(Effect.onExit(exit => Effect.sync(() => {
+      shared.closed = true;
+      shared.lendingOpen = false;
+      if (Exit.isFailure(exit)) invalidateSharedLogicalSourceBindingChecks(tx);
+      shared.observations.length = 0;
+      shared.admittedSourceKeys.clear();
+      shared.writeClosures.clear();
+      if (checkedBindings.get(tx) !== shared) return;
+      let livePrevious = previous;
+      while (livePrevious?.closed === true) livePrevious = livePrevious.previous;
+      if (livePrevious === undefined) checkedBindings.delete(tx);
+      else checkedBindings.set(tx, livePrevious);
+    })));
+  });
+}
+
+/** Native root admission ends before business callbacks and publication. The
+ * finite proof/closure owner keeps its separate existing callback contract. */
+export const closeSharedLogicalSourceBindingLending = Effect.fn("LogicalSourceAdmission.closeCohort")(function* (
+  tx: FlarexMetadataTransaction,
+) {
+  const shared = checkedBindings.get(tx);
+  if (shared?.declaredSourceKeys === undefined) return;
+  const wasOpen = shared.lendingOpen && !shared.closed;
+  // Revoke lending before the final read, including when it fails or is
+  // interrupted. Only this trusted admission prelude can retain the proof.
+  shared.lendingOpen = false;
+  return yield* Effect.gen(function* () {
+    if (!wasOpen || shared.declaredSourceCount !== shared.declaredSourceKeys?.size ||
+      shared.admittedSourceKeys.size !== shared.declaredSourceCount ||
+      [...shared.admittedSourceKeys].some(key => !shared.declaredSourceKeys?.has(key)))
+      return yield* Effect.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" }));
+    if (shared.declaredSourceCount === 0) {
+      if (shared.observations.length !== 0)
+        return yield* Effect.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" }));
+      return;
+    }
+    const observation = shared.observations[0];
+    if (shared.observations.length !== 1 || observation?.accepted === undefined)
+      return yield* Effect.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" }));
+    yield* Effect.fromResult(requireAcceptedApplicationBindingLending(observation.accepted,
+      observation.application, tx, observation.originalClock));
+    yield* observation.catalog.validateCatalog(tx, observation.authority,
+      observation.targetProtection.readinessProtection);
+  }).pipe(Effect.ensuring(Effect.sync(() => {
+    shared.observations.length = 0;
+    shared.admittedSourceKeys.clear();
+  })));
+});
+
+export function invalidateSharedLogicalSourceBindingChecks(tx: FlarexMetadataTransaction): void {
+  let shared = checkedBindings.get(tx);
+  while (shared !== undefined) {
+    shared.observations.length = 0;
+    shared.admittedSourceKeys.clear();
+    shared.writeClosures.clear();
+    if (shared.declaredSourceKeys !== undefined) shared.lendingOpen = false;
+    shared = shared.previous;
+  }
+}
+
+/** Shared immutable catalog checks for a trusted source-specific admission.
+ * This grants no serving token, business profile, transaction or settlement. */
+export const prepareLogicalSourceEvidence = Effect.fn("LogicalSourceAdmission.prepare")(function* (
+  ports: AppUniqueConstraintSetBuildPortsV1, unique: AppUniqueConstraintSetEligibilityPortV1,
+  input: Readonly<{ deploymentId: string; scopeId: ScopeId; schemaVersionId: CatalogSchemaVersionId }>,
+  sourceInput: unknown, expectedOwner: LogicalSchemaSource["owner"], expectedKind: LogicalSchemaSource["definition"]["kind"],
+  construction: LogicalSourceConstruction, sourcePolicy?: JsonObject,
+) {
+  const capturedPorts = Object.freeze({ controlDb: ports.controlDb, authority: ports.authority });
+  const captured = Object.freeze({ ...input });
+  const constructionKind = construction.kind;
+  const owned = yield* Effect.fromResult(capturePrivateJsonData(sourceInput, MAX_LOGICAL_SCHEMA_CANDIDATE_BYTES,
+    (reason, cause) => new LogicalSourceAdmissionError({ reason: "invalidInput", cause: { reason, cause } })));
+  yield* chargeHostPreparation(owned.value);
+  const expected = yield* decodeContract(owned.value).pipe(Effect.mapError(cause =>
+    new LogicalSourceAdmissionError({ reason: "invalidInput", cause })));
+  const readiness = yield* (construction.kind === "standalone"
+    ? prepareLogicalStorageReadiness(capturedPorts, unique, captured, construction.application)
+    : requirePreparedLogicalStorageCatalog(construction.catalog, capturedPorts, unique, captured));
+  if (readiness.status !== "prepared") return yield* Effect.fail(new LogicalSourceAdmissionError({ reason: "notReady" }));
+  const requirements = readiness.requirements;
+  if (encodeBytesToLowercaseHex(requirements.artifact.manifestSha256) !== readiness.reference.manifestSha256)
+    return yield* Effect.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" }));
+  const source = readiness.source(expected.sourceKey);
+  if (source === undefined || source.owner !== expectedOwner || source.definition.kind !== expectedKind ||
+      source.writeProfile !== expected.writeProfile ||
+      canonical(encodeLogicalSchemaSourceDefinition(source.definition)) !== canonical(encodeLogicalSchemaSourceDefinition(expected.definition)) ||
+      canonical(source.evidence) !== canonical(expected.evidence))
+    return yield* Effect.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" }));
+  const selectedTables = readiness.sourceDefinitionTables(source.key);
+  if (selectedTables === undefined) return yield* Effect.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" }));
+  const tableIds = new Set(selectedTables.map(table => table.tableId));
+  // Admit only native declarations lowered to the shared publication policy.
+  // Other document profiles still need their own connected integrity proof.
+  if (source.definition.kind === "documents") {
+    const references = yield* Effect.fromResult(compileLogicalDocumentReferences(source)).pipe(
+      Effect.mapError(cause => new LogicalSourceAdmissionError({ reason: "unsupportedProfile", cause })));
+    if (references.length !== source.definition.relations.length)
+      return yield* Effect.fail(new LogicalSourceAdmissionError({ reason: "unsupportedProfile" }));
+  }
+  const snapshot = readiness.snapshot;
+  if (snapshot === null || encodeBytesToLowercaseHex(snapshot.manifestSha256) !== readiness.reference.manifestSha256)
+    return yield* Effect.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" }));
+  const deploymentId = yield* decodeDeploymentId(captured.deploymentId).pipe(Effect.mapError(cause =>
+    new LogicalSourceAdmissionError({ reason: "sourceMismatch", cause })));
+  const scopeId = yield* decodeScopeId(captured.scopeId).pipe(Effect.mapError(cause =>
+    new LogicalSourceAdmissionError({ reason: "sourceMismatch", cause })));
+  const uniquePort = createAppUniqueConstraintDefinitionPortV1(capturedPorts.controlDb);
+  const applicationSources = requirements.evidence.candidate.sources.filter(member => member.owner === "application");
+  const nativeTables = applicationTables(snapshot);
+  if (nativeTables === null) return yield* Effect.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" }));
+  const catalogTableIds = new Set([...tableIds, ...nativeTables.map(table => table.tableId)]);
+  const acquireDefinitions = (tx: FlarexMetadataTransaction) => Effect.gen(function* () {
+  const catalogIndexes: readonly LocatedAppIndexDefinitionV1[] = Object.freeze(yield* Effect.forEach(
+    snapshot.definitions.filter(definition => catalogTableIds.has(definition.access.tableId)), definition =>
+      locateAppIndexDefinitionByIdEffect(tx, captured.scopeId, definition.indexDefinitionId).pipe(
+        Effect.flatMap(located => located === null ? Effect.fail(new LogicalSourceAdmissionError({ reason: "notReady" })) :
+          located.deploymentId !== captured.deploymentId || !publishedPhysicalDefinitionMatchesLocated(definition, located)
+            ? Effect.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" })) : Effect.succeed(located)))));
+  const uniqueDefinitions = yield* uniquePort.locate({
+    deploymentId, scopeId, schemaVersionId: captured.schemaVersionId,
+    tableIds: [...catalogTableIds], maximumDefinitions: requirements.unique.filter(definition => catalogTableIds.has(definition.tableId)).length,
+  }, tx);
+  if (uniqueDefinitions === null) return yield* Effect.fail(new LogicalSourceAdmissionError({ reason: "notReady" }));
+  const catalogUnique: readonly LocatedAppUniqueConstraintDefinitionV1[] = Object.freeze([...uniqueDefinitions]);
+  return { catalogIndexes, catalogUnique };
+  });
+  const { catalogIndexes, catalogUnique } = yield* runEffectTransaction<Effect.Success<ReturnType<typeof acquireDefinitions>>,
+    Effect.Error<ReturnType<typeof acquireDefinitions>>, LogicalSourceAdmissionError, FlarexMetadataTransaction>(
+    callback => capturedPorts.controlDb.transaction(callback), "Logical source definitions acquisition rolled back", acquireDefinitions,
+    cause => new LogicalSourceAdmissionError({ reason: "notReady", cause }));
+  const indexes = Object.freeze(catalogIndexes.filter(index => tableIds.has(index.access.tableId)));
+  const selectedUnique = Object.freeze(catalogUnique.filter(constraint => tableIds.has(constraint.tableId)));
+  const publicationDefinitions = preparePublicationDefinitions(indexes, selectedUnique);
+  yield* registerHostPreparationDisposal(() => { disposePublicationDefinitions(publicationDefinitions); });
+  yield* chargeHostPreparation(readPublicationDefinitionPreparationPayload(publicationDefinitions));
+  const metadataProjection = yield* prepareFiniteMetadataProjection({ requirements, requirementsProfile: "binding", sourceKey: source.key, indexes,
+    unique: selectedUnique, ...(sourcePolicy === undefined ? {} : { sourcePolicies: [{ sourceKey: source.key, semantic: sourcePolicy }] }) });
+  yield* registerHostPreparationDisposal(() => { disposeFiniteMetadataProjection(metadataProjection); });
+  yield* chargeHostPreparation(yield* Effect.fromResult(readFiniteMetadataProjectionPreparationPayload(metadataProjection)));
+  const applicationProjections = yield* Effect.forEach(applicationSources, member => Effect.gen(function* () {
+    const projection = yield* prepareFiniteMetadataProjection({ requirements, requirementsProfile: "binding", sourceKey: member.key,
+      indexes: catalogIndexes, unique: catalogUnique });
+    yield* registerHostPreparationDisposal(() => { disposeFiniteMetadataProjection(projection); });
+    yield* chargeHostPreparation(yield* Effect.fromResult(readFiniteMetadataProjectionPreparationPayload(projection)));
+    return projection;
+  }));
+  const boundApplicationProjection = applicationProjections.length === 0 ? undefined :
+    yield* Effect.fromResult(mergeFiniteMetadataProjections(applicationProjections));
+  if (boundApplicationProjection !== undefined) {
+    yield* registerHostPreparationDisposal(() => { disposeFiniteMetadataProjection(boundApplicationProjection); });
+    yield* chargeHostPreparation(yield* Effect.fromResult(readFiniteMetadataProjectionPreparationPayload(boundApplicationProjection)));
+  }
+  yield* chargeHostPreparation(JSON.stringify({ tables: selectedTables, indexes: catalogIndexes, unique: catalogUnique },
+    (_, member: unknown) => typeof member === "bigint" ? member.toString() : member));
+  const chargePrepared = yield* captureHostPreparationCharge();
+  const sourceLifetime = yield* captureHostPreparationLifetime();
+  const targetPreparations = new WeakMap<object, PreparedBindingSelectedStructure>();
+  // Preserve the atomic owner's early NONE head/candidate refusal frontier.
+  // Only an already issued plan is lent here: cold preparation and all source
+  // authority checks still occur at the original later admission frontier.
+  const readBindingPrelude = Effect.fnUntraced(
+    function* (application: ApplicationBindingInput, tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority) {
+      const preparation = targetPreparations.get(application);
+      const head = yield* readBindingHead(tx, authority, "none", preparation);
+      const candidate = Option.isNone(head) ? Option.none<StoredBindingValue<DataBindingSetFrame>>() :
+        yield* readPreparedBindingCandidate(tx, authority, head.value, preparation);
+      return { head, candidate };
+    }, effect => observeExecution("LogicalSourceAdmission.readBindingPrelude", effect, "caller"));
+  const requirePrepared = requirePreparedLogicalStorageCatalog(readiness, capturedPorts, unique, captured).pipe(Effect.asVoid);
+  let finiteMetadataSelection: LogicalParticipantSelection | undefined;
+  const registerFiniteMetadataSelection = (selection: LogicalParticipantSelection) => {
+    if (finiteMetadataSelection !== undefined) return Result.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" }));
+    return bindFiniteMetadataSourcePreparation(metadataProjection, Object.freeze({ selection,
+      applicationCatalog: snapshot, boundApplicationProjection, lifetime: sourceLifetime,
+      requirePrepared: requirePrepared.pipe(Effect.mapError(cause => new FiniteMetadataError({ reason: "invalidProjection", cause }))),
+      deploymentId: captured.deploymentId, scopeId: captured.scopeId, schemaVersionId: captured.schemaVersionId,
+    })).pipe(Result.mapError(cause => new LogicalSourceAdmissionError({ reason: "sourceMismatch", cause })),
+      Result.map(() => { finiteMetadataSelection = selection; }));
+  };
+  const lendFiniteMetadataProjection = () => requirePrepared.pipe(Effect.as(metadataProjection));
+  const singletonSourceKeys = Object.freeze([source.key]);
+  let singletonReadiness: SelectedLogicalStorageReadiness | undefined;
+  if (sourceLifetime !== undefined) yield* Effect.fromResult(sourceLifetime.onDispose(() => { singletonReadiness = undefined; }));
+  const selectSingletonReadiness = Effect.fn("LogicalSourceAdmission.selectSingletonReadiness")(function* () {
+    if (singletonReadiness !== undefined) return singletonReadiness;
+    const selected = yield* readiness.selectSources(singletonSourceKeys);
+    // Concurrent first readers may transiently compile the same immutable
+    // closure. Recheck, charge and install synchronously, without waiting while
+    // a storage transaction is open. Only successful retention is remembered.
+    return yield* Effect.suspend(() => {
+      if (singletonReadiness !== undefined) return Effect.succeed(singletonReadiness);
+      return Effect.fromResult((chargePrepared?.({ sourceKeys: selected.sourceKeys,
+        tableIds: selected.tableIds, reference: selected.reference }) ?? Result.succeed(undefined)).pipe(
+        Result.map(() => { singletonReadiness = selected; return selected; })));
+    });
+  });
+
+  const checkBinding = Effect.fnUntraced(function* <Value, Failure, Requirements>(
+    selection: "full" | "read" | "finite",
+    owner: "sourceProof" | "finiteRootPin" | "transactionCompletion",
+    application: ApplicationBindingInput, tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord,
+    work: (state: LogicalSourceBindingState, accepted: AcceptedApplicationBinding | undefined,
+      bindingSelection: Readonly<{ candidateSha256: string; activationSha256: string }>) => Effect.Effect<Value, Failure, Requirements>,
+    applicationObservation?: ApplicationBindingObservation,
+    observation?: FiniteEntryObservation,
+  ) {
+    return yield* Effect.gen(function* () {
+    yield* requirePrepared;
+    if (selection === "finite" && (authority.deploymentId !== captured.deploymentId || authority.scopeId !== captured.scopeId ||
+      clock.scopeId !== captured.scopeId || authority.epoch !== clock.epoch ||
+      authority.storageGeneration !== clock.storageGeneration || authority.storageGenerationFence !== clock.storageGenerationFence))
+      return yield* Effect.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" }));
+    // Authenticity and the actual issuer lease remain mandatory even when a
+    // positive source observation is reused in this accepting transaction.
+    const targetProtection = yield* Effect.fromResult(readApplicationBindingTargetProtection(application));
+    if (applicationObservation !== undefined && !isCheckedApplicationActiveHead(applicationObservation))
+      yield* Effect.fromResult(requireAcceptedApplicationBindingObservation(applicationObservation, application, tx, clock));
+    const readinessProtection = targetProtection.readinessProtection;
+    if (readinessProtection !== undefined) {
+      yield* Effect.fromResult(authenticateProtectedReadinessMetadataPair(tx, readinessProtection.target, readinessProtection.control)).pipe(
+        Effect.mapError(cause => new LogicalSourceAdmissionError({ reason: "sourceMismatch", cause })));
+      yield* requirePreparedLogicalStorageCatalog(readiness, capturedPorts, unique, captured, readinessProtection.control);
+    }
+    const protection = targetProtection.protection ?? readinessProtection?.target;
+    let targetPreparation = targetPreparations.get(application);
+    if (protection !== undefined && targetPreparation === undefined) {
+      // Per-Application plans belong to that exact generation. A request with
+      // no retained Application lifetime keeps its plan only in this callback.
+      targetPreparation = yield* Effect.fromResult(prepareBindingSelectedStructure(authority, protection, targetProtection.lifetime));
+      if (targetProtection.lifetime !== undefined) {
+        targetPreparations.set(application, targetPreparation);
+        yield* Effect.fromResult(targetProtection.lifetime.onDispose(() => { targetPreparations.delete(application); })).pipe(
+          Effect.mapError(cause => {
+            targetPreparations.delete(application);
+            return new LogicalSourceAdmissionError({ reason: "notReady", cause });
+          }));
+      }
+    }
+    const sourceKeys = singletonSourceKeys;
+    if (selection === "read" && !sourceKeys.includes(source.key))
+      return yield* Effect.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" }));
+    // An exact root set under the same authenticated candidate determines one
+    // exact closure. No subset, superset or full proof can satisfy this key.
+    const selectionKey = selection === "read" ? JSON.stringify(sourceKeys) : selection;
+    const sharedScope = checkedBindings.get(tx);
+    const nativeRoot = selection === "full" && owner === "transactionCompletion" && sharedScope?.declaredSourceKeys !== undefined;
+    if (nativeRoot && (!sharedScope.lendingOpen || sharedScope.closed || !sharedScope.declaredSourceKeys?.has(source.key) ||
+      sharedScope.declaredSourceCount !== sharedScope.declaredSourceKeys.size || sharedScope.admittedSourceKeys.has(source.key) ||
+      [...sharedScope.declaredSourceKeys].some(key => readiness.source(key) === undefined)))
+      return yield* Effect.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" }));
+    const targetInstallation = nativeRoot ? yield* Effect.fromResult(requireAdmittedTargetInstallationIdentity(tx)) : undefined;
+    const installation = nativeRoot ? yield* Effect.fromResult(readAdmittedCoLocatedInstallationPair(tx)) : null;
+    const shared = isPreparedApplicationBinding(application) && !nativeRoot ? undefined : sharedScope?.observations.find(checked =>
+      checked.selectionKey === selectionKey && checked.application === application && checked.controlDb === capturedPorts.controlDb &&
+      checked.authorityPort === capturedPorts.authority && checked.unique === unique &&
+      checked.deploymentId === captured.deploymentId && checked.scopeId === captured.scopeId &&
+      checked.authority === authority &&
+      checked.originalClock === clock && sameBindingClock(checked.clock, clock) && checked.schemaVersionId === captured.schemaVersionId &&
+      checked.manifestSha256 === readiness.reference.manifestSha256 && (!nativeRoot ||
+        (checked.catalog === readiness && checked.targetProtection.protection?.token === targetProtection.protection?.token &&
+          checked.targetProtection.readinessProtection === targetProtection.readinessProtection &&
+          checked.targetProtection.lifetime === targetProtection.lifetime &&
+          checked.targetInstallation === targetInstallation &&
+          checked.installation?.database === installation?.database && checked.installation?.target === installation?.target &&
+          checked.installation?.control === installation?.control)));
+    // The declared native union has one accepting catalog and original clock.
+    // Changed or closed evidence is refusal, never a fresh fallback admission.
+    if (nativeRoot && sharedScope.observations.length !== 0 && shared === undefined)
+      return yield* Effect.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" }));
+    if (shared !== undefined) {
+      if (nativeRoot) {
+        if (shared.accepted === undefined || shared.accepted !== applicationObservation)
+          return yield* Effect.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" }));
+        yield* Effect.fromResult(requireAcceptedApplicationBindingLending(shared.accepted, application, tx, clock));
+      }
+      if (targetPreparation !== undefined) {
+        if (shared.selectedPreparation === undefined)
+          return yield* Effect.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" }));
+        yield* Effect.fromResult(retainBindingSelectedStructure(tx, shared.selectedPreparation, targetPreparation, shared.head));
+      }
+      const acceptShared = (accepted?: AcceptedApplicationBinding) => Effect.suspend(() =>
+        work(Object.freeze({ tx, authority, clock,
+          schemaVersionId: captured.schemaVersionId, source, frame: shared.frame, head: shared.head }), accepted, shared.bindingSelection));
+      // Every source still projects live revocation and proves its selected
+      // correlation. Only the genuine Application basis is lent by its owner.
+      const admitShared = (evidence: ApplicationBindingEvidence, accepted: AcceptedApplicationBinding) => Effect.gen(function* () {
+          yield* Effect.fromResult(verifyPreparedLogicalSchemaBinding(readiness, shared.frame, evidence,
+            { kind: "activated", activation: shared.activation }));
+          // The declared cohort retains its initial complete catalog proof
+          // only through trusted admission. closeCohort revalidates it before
+          // business execution; each source still refreshes live readiness.
+          if (nativeRoot) {
+            if (shared.readinessObservation === undefined)
+              return yield* Effect.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" }));
+            yield* readiness.refreshFullObservation(shared.readinessObservation, tx, authority, clock, readinessProtection);
+            sharedScope.admittedSourceKeys.add(source.key);
+          }
+          return yield* acceptShared(accepted);
+        });
+      if (nativeRoot && shared.accepted !== undefined)
+        return yield* withAcceptedApplicationBindingEvidenceInTransaction(application, tx, clock, shared.accepted, admitShared);
+      return yield* withApplicationBindingEvidenceInTransaction(application, tx, clock, admitShared, applicationObservation);
+    }
+    const selectedReadiness: SelectedLogicalStorageReadiness | undefined = selection === "read"
+      ? yield* (sourceKeys.length === 1 && sourceKeys[0] === source.key
+        ? selectSingletonReadiness() : readiness.selectSources(sourceKeys)) : undefined;
+    const selected = yield* readBindingSelectedEvidence(tx, authority, targetPreparation, observation);
+    if (Option.isNone(selected)) return yield* Effect.fail(new LogicalSourceAdmissionError({ reason: "bindingMissing" }));
+    const { head: current, candidate, activation } = selected.value;
+    const admit = (applicationEvidence: ApplicationBindingEvidence, accepted?: AcceptedApplicationBinding) =>
+      Effect.gen(function* () {
+      let readinessObservation: SharedCheckedBinding["readinessObservation"];
+      if (selection === "finite") yield* Effect.fromResult(verifyPreparedLogicalSchemaBinding(readiness, candidate.frame, applicationEvidence,
+        { kind: "activated", activation })).pipe(Effect.andThen(readiness.validateCatalog(tx, authority, readinessProtection)));
+      else if (selectedReadiness === undefined) readinessObservation = yield* verifyLogicalSchemaBindingInTransaction(readiness, candidate.frame, applicationEvidence,
+        tx, authority, clock, { kind: "activated", activation }, applicationEvidence.checkedActive, readinessProtection);
+      else yield* verifyLogicalSchemaReadBindingInTransaction(selectedReadiness, candidate.frame, applicationEvidence,
+        tx, authority, clock, { kind: "activated", activation }, applicationEvidence.checkedActive, readinessProtection);
+      const head = Object.freeze({ sequence: current.frame.sequence, sha256: current.sha256 });
+      const bindingSelection = Object.freeze({ candidateSha256: current.frame.candidateSha256, activationSha256: current.frame.activationSha256 });
+      checkedBindings.get(tx)?.observations.push(Object.freeze({ selectionKey, application, controlDb: capturedPorts.controlDb,
+        authorityPort: capturedPorts.authority, unique, deploymentId: captured.deploymentId,
+        scopeId: captured.scopeId, authority, clock: { ...clock, updatedAt: new Date(clock.updatedAt.getTime()) }, originalClock: clock,
+        catalog: readiness, targetProtection, accepted, installation, targetInstallation, readinessObservation,
+        schemaVersionId: captured.schemaVersionId, manifestSha256: readiness.reference.manifestSha256,
+        frame: candidate.frame, activation, head, bindingSelection,
+        ...(targetPreparation === undefined ? {} : { selectedPreparation: targetPreparation }) }));
+      if (nativeRoot) sharedScope.admittedSourceKeys.add(source.key);
+      return yield* Effect.suspend(() => work(Object.freeze({ tx, authority, clock,
+        schemaVersionId: captured.schemaVersionId, source, frame: candidate.frame, head }), accepted, bindingSelection));
+    });
+    if ((applicationObservation === undefined || isCheckedApplicationActiveHead(applicationObservation)) && owner === "transactionCompletion" &&
+      (constructionKind === "standalone" || nativeRoot) && isPreparedApplicationBinding(application))
+      return yield* withPreparedApplicationBindingEvidenceInTransaction(application, tx, clock, admit, applicationObservation);
+    return yield* withApplicationBindingEvidenceInTransaction(application, tx, clock, admit, applicationObservation);
+    }).pipe(Effect.onExit(exit => Effect.sync(() => {
+      if (Exit.isFailure(exit)) invalidateSharedLogicalSourceBindingChecks(tx);
+    })));
+  }, effect => observeExecution("LogicalSourceAdmission.checkBinding", effect, "caller"));
+  const withBinding = <Value, Failure, Requirements>(application: ApplicationBindingInput, tx: FlarexMetadataTransaction,
+    authority: TrustedScopeAuthority, clock: ScopeClockRecord,
+    work: (state: LogicalSourceBindingState) => Effect.Effect<Value, Failure, Requirements>,
+    applicationObservation?: AcceptedApplicationBinding) =>
+    checkBinding("full", "sourceProof", application, tx, authority, clock, work, applicationObservation);
+  const pinFiniteReadBinding = Effect.fnUntraced(function* <Failure, Requirements>(
+    application: ApplicationBindingInput, root: SessionJournalAttempt, tx: FlarexMetadataTransaction,
+    authority: TrustedScopeAuthority, clock: ScopeClockRecord,
+    validatePin: (state: LogicalSourceBindingState) => Effect.Effect<void, Failure, Requirements>,
+    owner: LogicalParticipantAttemptRoot, entry: FiniteMetadataEntry,
+  ) {
+    yield* requirePrepared;
+    if (entry.kind === "derive") {
+      const state = finiteAttemptMetadata.get(entry.metadata);
+      if (state === undefined || state.frame === undefined || state.head === undefined || state.root !== root || state.entryTx !== tx || state.authority !== authority || state.entryClock !== clock ||
+        state.application !== application || state.controlDb !== capturedPorts.controlDb ||
+        state.authorityPort !== capturedPorts.authority || state.unique !== unique || state.owner.scopeId !== owner.scopeId ||
+        state.owner.sessionId !== owner.sessionId || state.owner.attemptFence !== owner.attemptFence ||
+        state.owner.snapshotCommitSeq !== owner.snapshotCommitSeq || state.owner.schemaVersionId !== owner.schemaVersionId ||
+        state.owner.principalDigest !== owner.principalDigest || state.manifestSha256 !== readiness.reference.manifestSha256 ||
+        state.frame.logicalSchema?.schemaVersionId !== captured.schemaVersionId ||
+        state.frame.logicalSchema.manifestSha256 !== readiness.reference.manifestSha256 ||
+        inspectFiniteApplicationMetadata(state.applicationMetadata, root)?.schemaVersionId !== owner.schemaVersionId)
+        return yield* Effect.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" }));
+      yield* Effect.fromResult(readApplicationBindingTargetProtection(application));
+      yield* validatePin(Object.freeze({ tx, authority, clock, schemaVersionId: captured.schemaVersionId,
+        source, frame: structuredClone(state.frame), head: Object.freeze({ ...state.head }) }));
+      const currentComposition = yield* Effect.fromResult(readFiniteApplicationSourceComposition(application));
+      if (currentComposition !== state.sourceComposition)
+        return yield* Effect.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" }));
+      if (state.sourceComposition !== undefined) {
+        const composed = yield* Effect.fromResult(readFiniteMetadataSourceComposition(state.sourceComposition, application));
+        const ordinal = state.sourceOrdinal ?? 0;
+        if (composed.sources[ordinal] !== finiteMetadataSelection || composed.sourceProjections[ordinal] !== metadataProjection)
+          return yield* Effect.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" }));
+        finiteAttemptMetadata.set(entry.metadata, Object.freeze({ ...state, sourceOrdinal: ordinal + 1 }));
+        return Object.freeze({ head: Object.freeze({ ...state.head }), clock, frame: structuredClone(state.frame), metadata: entry.metadata });
+      }
+      const combined = yield* Effect.fromResult(mergeFiniteMetadataProjections(state.sourceProjection === undefined
+        ? [metadataProjection] : [state.sourceProjection, metadataProjection]));
+      finiteAttemptMetadata.set(entry.metadata, Object.freeze({ ...state, sourceProjection: combined }));
+      finiteAttemptProjections.delete(entry.metadata);
+      return Object.freeze({ head: Object.freeze({ ...state.head }), clock, frame: structuredClone(state.frame), metadata: entry.metadata });
+    }
+    return yield* checkBinding("finite", "finiteRootPin", application, tx, authority, clock,
+      (binding, accepted, bindingSelection) => Effect.gen(function* () {
+        const frame = structuredClone(binding.frame);
+        // Source-local refusals precede correlation capture, as at attempt entry.
+        yield* validatePin(binding);
+        if (accepted === undefined) return yield* Effect.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" }));
+        const applicationMetadata = yield* Effect.fromResult(captureFiniteApplicationMetadata(accepted, application, tx, clock, root, owner.snapshotCommitSeq));
+        if (inspectFiniteApplicationMetadata(applicationMetadata, root)?.schemaVersionId !== owner.schemaVersionId ||
+          frame.logicalSchema?.schemaVersionId !== captured.schemaVersionId || frame.logicalSchema.manifestSha256 !== readiness.reference.manifestSha256)
+          return yield* Effect.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" }));
+        const sourceComposition = yield* Effect.fromResult(readFiniteApplicationSourceComposition(application));
+        if (sourceComposition !== undefined) {
+          const composed = yield* Effect.fromResult(readFiniteMetadataSourceComposition(sourceComposition, application));
+          if (composed.sources[0] !== finiteMetadataSelection || composed.sourceProjections[0] !== metadataProjection)
+            return yield* Effect.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" }));
+        }
+        // SAFETY: only current binding and source acceptance issues this exact attempt tuple.
+        // The root owns confirmation, reservation and its existing lifetime.
+        const metadata = Object.freeze({}) as FiniteAttemptMetadata;
+        finiteAttemptMetadata.set(metadata, Object.freeze({ root, owner: Object.freeze({ ...owner }), application, applicationMetadata,
+          entryTx: tx, authority, entryClock: clock,
+          controlDb: capturedPorts.controlDb, authorityPort: capturedPorts.authority, unique,
+          frame, head: Object.freeze({ ...binding.head }), bindingSelection, manifestSha256: readiness.reference.manifestSha256,
+          metadataWatermark: entry.metadataWatermark,
+          ...(sourceComposition === undefined ? { sourceProjection: metadataProjection } : { sourceComposition, sourceOrdinal: 1 }),
+          ...(boundApplicationProjection === undefined ? {} : { boundApplicationProjection,
+            applicationCatalog: snapshot, applicationCatalogOpen: requirePrepared }) }));
+        return Object.freeze({ head: binding.head, clock, frame: structuredClone(frame), metadata });
+      }), entry.borrowedApplicationBinding, entry.observation);
+  }, effect => observeExecution("LogicalSourceAdmission.pinFiniteReadBinding", effect, "caller"));
+  // Only the trusted standalone host places all native work and publication in
+  // this callback. Attempt pinning and commit verification keep the full
+  // source proof without acquiring the request's final guard before settlement.
+  const withTransactionBinding = <Value, Failure, Requirements>(application: ApplicationBindingInput, tx: FlarexMetadataTransaction,
+    authority: TrustedScopeAuthority, clock: ScopeClockRecord,
+    work: (state: LogicalSourceBindingState, accepted?: AcceptedApplicationBinding) => Effect.Effect<Value, Failure, Requirements>,
+    applicationObservation?: ApplicationBindingObservation) =>
+    checkBinding("full", "transactionCompletion", application, tx, authority, clock, work, applicationObservation);
+  const withTransactionReadBinding = <Value, Failure, Requirements>(application: ApplicationBindingInput, tx: FlarexMetadataTransaction,
+    authority: TrustedScopeAuthority, clock: ScopeClockRecord,
+    work: (state: LogicalSourceBindingState, accepted?: AcceptedApplicationBinding) => Effect.Effect<Value, Failure, Requirements>,
+    applicationObservation?: ApplicationBindingObservation) =>
+    checkBinding("read", "transactionCompletion", application, tx, authority, clock, work, applicationObservation);
+  const prepareFiniteCommitClosurePages = (tx: FlarexMetadataTransaction, touchedTableIds: readonly CatalogTableId[],
+    cacheSnapshot = checkedBindings.get(tx)?.writeClosures) => Result.gen(function* () {
+    const pages: (readonly FiniteMetadataComparisonExpected[])[] = [];
+    const comparisons: FiniteTableWriteClosureComparison[] = [];
+    const demanded = [...new Set(touchedTableIds)];
+    const cache = cacheSnapshot;
+    for (let offset = 0; offset < demanded.length;) {
+      const tableId = demanded[offset];
+      if (tableId === undefined) break;
+      const key = finiteMetadataTableKey(metadataProjection, tableId, "writeClosure");
+      if (key === null) break;
+      const prior = cache?.get(canonical([captured.scopeId, tableId, key.namespace, key.ownerKey]));
+      if (prior !== undefined) {
+        if (!matchesFiniteTableWriteClosureProjections(metadataProjection, prior.metadataProjection, tableId)) break;
+        offset++; continue;
+      }
+      const fresh: CatalogTableId[] = [];
+      while (offset < demanded.length) {
+        const next = demanded[offset];
+        if (next === undefined) break;
+        const nextKey = finiteMetadataTableKey(metadataProjection, next, "writeClosure");
+        if (nextKey === null || cache?.has(canonical([captured.scopeId, next, nextKey.namespace, nextKey.ownerKey])) === true) break;
+        fresh.push(next); offset++;
+      }
+      const plan = yield* prepareFiniteTableWriteClosureComparison(metadataProjection, fresh);
+      // These newly prepared tuples contain only immutable scalar strings and
+      // booleans. Freeze them before lending the submitted pages so the actual
+      // observation cannot be redirected by an escaped projection mutation.
+      for (const page of plan.pages) {
+        for (const expectedClosure of page) Object.freeze(expectedClosure);
+        Object.freeze(page);
+      }
+      pages.push(...plan.pages);
+      comparisons.push(plan);
+      if (plan.invalidProjection) break;
+    }
+    return Object.freeze({ pages: Object.freeze(pages), comparisons: Object.freeze(comparisons) });
+  });
+  const consumeFiniteCommitClosure = Effect.fnUntraced(function* (
+    tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord, touchedTableIds: readonly CatalogTableId[],
+    observation?: unknown, cacheSnapshot = checkedBindings.get(tx)?.writeClosures,
+    preparedComparisons?: readonly FiniteTableWriteClosureComparison[],
+  ) {
+    yield* requirePrepared;
+    if (authority.deploymentId !== captured.deploymentId || authority.scopeId !== captured.scopeId || clock.scopeId !== captured.scopeId ||
+      authority.epoch !== clock.epoch || authority.storageGeneration !== clock.storageGeneration || authority.storageGenerationFence !== clock.storageGenerationFence ||
+      touchedTableIds.some(tableId => !tableIds.has(tableId)))
+      return yield* Effect.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" }));
+    // Read dependencies use the authenticated retained definitions. Current
+    // maintenance is required only for tables with an evidenced write effect;
+    // the outer publication still checks consumed metadata and live authority.
+    if (touchedTableIds.length === 0)
+      return Object.freeze({ indexes: Object.freeze([]), unique: Object.freeze([]) });
+    const acceptedIndexes: LocatedAppIndexDefinitionV1[] = [];
+    const acceptedUnique: LocatedAppUniqueConstraintDefinitionV1[] = [];
+    const observedPages = observation === undefined ? undefined : yield* decodeFiniteCommitClosureObservationPages(observation)
+      .pipe(Effect.mapError(cause => new LogicalSourceAdmissionError({ reason: "sourceMismatch", cause })));
+    let observedOffset = 0;
+    let comparisonOffset = 0;
+    const cache = cacheSnapshot;
+    const demanded = [...new Set(touchedTableIds)];
+    // Compare contiguous uncached demands together. A cached refusal retains
+    // its original position after the preceding actual database comparison.
+    for (let offset = 0; offset < demanded.length;) {
+      const tableId = demanded[offset];
+      if (tableId === undefined) break;
+      const closureKey = finiteMetadataTableKey(metadataProjection, tableId, "writeClosure");
+      if (closureKey === null) return yield* Effect.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" }));
+      const key = canonical([captured.scopeId, tableId, closureKey.namespace, closureKey.ownerKey]);
+      const prior = cache?.get(key);
+      if (prior !== undefined) {
+        if (!matchesFiniteTableWriteClosureProjections(metadataProjection, prior.metadataProjection, tableId))
+          return yield* Effect.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" }));
+        acceptedIndexes.push(...prior.indexes); acceptedUnique.push(...prior.unique);
+        offset++;
+        continue;
+      }
+      const fresh: CatalogTableId[] = [];
+      while (offset < demanded.length) {
+        const next = demanded[offset];
+        if (next === undefined) break;
+        const nextKey = finiteMetadataTableKey(metadataProjection, next, "writeClosure");
+        if (nextKey === null) break;
+        if (cache?.has(canonical([captured.scopeId, next, nextKey.namespace, nextKey.ownerKey])) === true) break;
+        fresh.push(next); offset++;
+      }
+        if (observedPages === undefined) yield* requireFiniteTableWriteClosures(tx, captured.scopeId, metadataProjection, fresh)
+          .pipe(Effect.mapError(cause => new LogicalSourceAdmissionError({ reason: "sourceMismatch", cause })));
+        else {
+          // The accepting closure retains the exact ordered cache snapshot and
+          // each plan used to submit its observations. Reuse those private
+          // expectations, including a later invalid projection; it cannot
+          // preempt an earlier observed SQL refusal.
+          const plan = preparedComparisons?.[comparisonOffset++];
+          if (plan === undefined)
+            return yield* Effect.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" }));
+          yield* Effect.fromResult(acceptFiniteTableWriteClosureComparison(plan,
+            observedPages.slice(observedOffset, observedOffset + plan.pages.length)))
+            .pipe(Effect.mapError(cause => new LogicalSourceAdmissionError({ reason: "sourceMismatch", cause })));
+          observedOffset += plan.pages.length;
+        }
+      for (const acceptedTableId of fresh) {
+        // Actual complete bytes matched: lend original located capabilities.
+        // Mutable physical build/spec/coverage still belongs to publication.
+        const selected = Object.freeze({ metadataProjection,
+          indexes: Object.freeze(indexes.filter(member => member.access.tableId === acceptedTableId)),
+          unique: Object.freeze(selectedUnique.filter(member => member.tableId === acceptedTableId)) });
+        const acceptedKey = finiteMetadataTableKey(metadataProjection, acceptedTableId, "writeClosure");
+        if (acceptedKey === null) return yield* Effect.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" }));
+        checkedBindings.get(tx)?.writeClosures.set(canonical([captured.scopeId, acceptedTableId, acceptedKey.namespace, acceptedKey.ownerKey]), selected);
+        acceptedIndexes.push(...selected.indexes); acceptedUnique.push(...selected.unique);
+      }
+    }
+    if (observedPages !== undefined && observedOffset !== observedPages.length)
+      return yield* Effect.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" }));
+    if (observedPages !== undefined && comparisonOffset !== preparedComparisons?.length)
+      return yield* Effect.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" }));
+    return Object.freeze({ indexes: Object.freeze(acceptedIndexes), unique: Object.freeze(acceptedUnique) });
+  }, effect => observeExecution("LogicalSourceAdmission.consumeFiniteCommitClosure", effect, "caller"));
+  const prepareFiniteCommitClosureObservation = (tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority,
+    clock: ScopeClockRecord, touchedTableIds: readonly CatalogTableId[]) => Result.gen(function* () {
+    // The bounded preparation retains the exact cache demand snapshot for this
+    // submission. Earlier source acceptance may fill the live transaction cache.
+    const liveCache = checkedBindings.get(tx)?.writeClosures;
+    const cacheSnapshot = liveCache === undefined ? undefined : new Map(liveCache);
+    const observedTableIds = Object.freeze([...touchedTableIds]);
+    const prepared = yield* prepareFiniteCommitClosurePages(tx, observedTableIds, cacheSnapshot);
+    return Object.freeze({ pages: prepared.pages, accept: (observation: unknown) =>
+      consumeFiniteCommitClosure(tx, authority, clock, observedTableIds, observation, cacheSnapshot, prepared.comparisons) });
+  });
+  const readFiniteCommitClosure = (tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority,
+    clock: ScopeClockRecord, touchedTableIds: readonly CatalogTableId[]) =>
+    consumeFiniteCommitClosure(tx, authority, clock, touchedTableIds);
+  return Object.freeze({ source, tables: selectedTables, indexes, unique: selectedUnique, withBinding, withTransactionBinding, withTransactionReadBinding,
+    readBindingPrelude,
+    requirements, catalog: readiness, requirePrepared, metadataProjection, publicationDefinitions,
+    preparationLifetime: sourceLifetime,
+    pinFiniteReadBinding, readFiniteCommitClosure, prepareFiniteCommitClosureObservation,
+    registerFiniteMetadataSelection, lendFiniteMetadataProjection });
+});

@@ -10,6 +10,11 @@ const sourceExtensions = new Set([".cjs", ".cts", ".js", ".jsx", ".mjs", ".mts",
 const dependencyFields = ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"];
 const durableTaskManifestPath = "packages/durable-task/package.json";
 const durableTaskSourcePrefix = "packages/durable-task/";
+const triggerRunEnginePackage = "@flarex/trigger-run-engine";
+const triggerRunEnginePrefix = "packages/trigger-run-engine/";
+const triggerRunEngineManifestPath = `${triggerRunEnginePrefix}package.json`;
+const taskPrincipalContractPath =
+  "packages/durable-task/src/runCreation/TaskExecutionPrincipalObject.ts";
 const standardApplicationDefinitionManifestPath =
   "packages/standard-application-definition/package.json";
 const standardApplicationInvocationManifestPath =
@@ -17,6 +22,7 @@ const standardApplicationInvocationManifestPath =
 const persistencePostgresManifestPath =
   "packages/persistence-postgres/package.json";
 const flarexBackendManifestPath = "packages/flarex-backend/package.json";
+const medusaAdapterManifestPath = "packages/medusa-adapter/package.json";
 const standardApplicationTaskComputeDeliveryPath =
   "packages/standard-application-invocation/src/ApplicationTaskComputeDelivery.ts";
 const standardApplicationTaskMutationAuthorityPath =
@@ -32,7 +38,7 @@ const standardApplicationTaskRunListQueryPath =
 const standardApplicationTaskReadQueryPath =
   "packages/standard-application-invocation/src/StandardApplicationTaskReadQuery.ts";
 const persistencePostgresApplicationTaskReadStorePath =
-  "packages/persistence-postgres/src/applicationTaskAttemptHistoryStore.ts";
+  "packages/persistence-postgres/src/application/tasks/applicationTaskAttemptHistoryStore.ts";
 const standardApplicationTaskResultQueryPath =
   "packages/standard-application-invocation/src/StandardApplicationTaskResultQuery.ts";
 const standardApplicationTaskCancellationPath =
@@ -91,67 +97,67 @@ const flarexBackendImmutableR2SourcePrefix =
 const flarexBackendDeclarativeV2RuntimeArtifactStorePath =
   "packages/flarex-backend/src/artifactRuntime/DeclarativeV2RuntimeArtifactStore.ts";
 const persistencePostgresSchemaPath =
-  "packages/persistence-postgres/src/schema.ts";
+  "packages/persistence-postgres/src/database/schema.ts";
 const persistencePostgresTaskRunAttemptStorePath =
-  "packages/persistence-postgres/src/taskSystemRunAttemptStoreV1.ts";
+  "packages/persistence-postgres/src/tasks/taskSystemRunAttemptStoreV1.ts";
 const persistencePostgresTaskAttemptLifecycleGatewayPath =
-  "packages/persistence-postgres/src/taskAttemptLifecycleGateway.ts";
+  "packages/persistence-postgres/src/tasks/taskAttemptLifecycleGateway.ts";
 const persistencePostgresTaskExternalEffectAuthorityPath =
-  "packages/persistence-postgres/src/taskExternalEffectAuthority.ts";
+  "packages/persistence-postgres/src/tasks/taskExternalEffectAuthority.ts";
 const persistencePostgresPostgresTaskExternalEffectAuthorityPath =
-  "packages/persistence-postgres/src/postgresTaskExternalEffectAuthority.ts";
+  "packages/persistence-postgres/src/tasks/postgresTaskExternalEffectAuthority.ts";
 const persistencePostgresTaskLifecycleLedgerCorrelationPath =
-  "packages/persistence-postgres/src/taskSystemLifecycleLedgerCorrelationV1.ts";
+  "packages/persistence-postgres/src/tasks/taskSystemLifecycleLedgerCorrelationV1.ts";
 const persistencePostgresTaskRunCreationPath =
-  "packages/persistence-postgres/src/taskSystemRunCreationV1.ts";
+  "packages/persistence-postgres/src/tasks/taskSystemRunCreationV1.ts";
 const persistencePostgresApplicationTaskRunCreationPath =
-  "packages/persistence-postgres/src/applicationTaskSystemRunCreation.ts";
+  "packages/persistence-postgres/src/application/tasks/applicationTaskSystemRunCreation.ts";
 const persistencePostgresApplicationTaskRunListStorePath =
-  "packages/persistence-postgres/src/applicationTaskRunListStore.ts";
+  "packages/persistence-postgres/src/application/tasks/applicationTaskRunListStore.ts";
 const persistencePostgresTaskSystemRunRowPath =
-  "packages/persistence-postgres/src/taskSystemRunRowV1.ts";
+  "packages/persistence-postgres/src/tasks/taskSystemRunRowV1.ts";
 const persistencePostgresTaskSystemRequestedEffectRowPath =
-  "packages/persistence-postgres/src/taskSystemRequestedEffectRowV1.ts";
+  "packages/persistence-postgres/src/tasks/taskSystemRequestedEffectRowV1.ts";
 const persistencePostgresTaskSystemRunReadPath =
-  "packages/persistence-postgres/src/taskSystemRunReadV1.ts";
+  "packages/persistence-postgres/src/tasks/taskSystemRunReadV1.ts";
 const persistencePostgresTaskComputeDeliveryEvidencePath =
-  "packages/persistence-postgres/src/taskComputeDeliveryEvidenceV1.ts";
+  "packages/persistence-postgres/src/tasks/taskComputeDeliveryEvidenceV1.ts";
 const persistencePostgresTaskComputeDeliveryRepositoryPath =
-  "packages/persistence-postgres/src/taskComputeDeliveryRepositoryV1.ts";
+  "packages/persistence-postgres/src/tasks/taskComputeDeliveryRepositoryV1.ts";
 const persistencePostgresTaskComputeDeliveryDiscoveryPath =
-  "packages/persistence-postgres/src/taskComputeDeliveryDiscovery.ts";
+  "packages/persistence-postgres/src/tasks/taskComputeDeliveryDiscovery.ts";
 const persistencePostgresTaskComputeDeliveryControlDirectoryPath =
-  "packages/persistence-postgres/src/taskComputeDeliveryControlDirectory.ts";
+  "packages/persistence-postgres/src/tasks/taskComputeDeliveryControlDirectory.ts";
 const persistencePostgresTaskComputeDeliveryControlDirectoryTargetPath =
-  "packages/persistence-postgres/src/taskComputeDeliveryControlDirectoryTarget.ts";
+  "packages/persistence-postgres/src/tasks/taskComputeDeliveryControlDirectoryTarget.ts";
 const persistencePostgresTaskComputeDeliveryControlDirectoryTargetSystemTestPath =
-  "packages/persistence-postgres/src/taskComputeDeliveryControlDirectoryTargetSystemTest.ts";
+  "packages/persistence-postgres/src/tasks/taskComputeDeliveryControlDirectoryTargetSystemTest.ts";
 const persistencePostgresPostgresTaskComputeDeliveryControlDirectoryPath =
-  "packages/persistence-postgres/src/postgresTaskComputeDeliveryControlDirectory.ts";
+  "packages/persistence-postgres/src/tasks/postgresTaskComputeDeliveryControlDirectory.ts";
 const persistencePostgresPGlitePath =
-  "packages/persistence-postgres/src/pglite.ts";
+  "packages/persistence-postgres/src/database/pglite.ts";
 const persistencePostgresPhysicalDefinitionRetirementPinsPath =
-  "packages/persistence-postgres/src/physicalDefinitionRetirementPins.ts";
+  "packages/persistence-postgres/src/installation/physicalDefinitionRetirementPins.ts";
 const flarexBackendTaskComputeDeliveryTrustedDirectoryPath =
   "packages/flarex-backend/src/taskComputeDelivery/TrustedDirectory.ts";
 const persistencePostgresTaskWakeSchedulerPartitionPath =
-  "packages/persistence-postgres/src/taskSystemWakeSchedulerPartitionV1.ts";
+  "packages/persistence-postgres/src/tasks/taskSystemWakeSchedulerPartitionV1.ts";
 const persistencePostgresTaskWakeSchedulerDirectoryPath =
-  "packages/persistence-postgres/src/taskSystemWakeSchedulerDirectoryV1.ts";
+  "packages/persistence-postgres/src/tasks/taskSystemWakeSchedulerDirectoryV1.ts";
 const persistencePostgresTaskWakeSchedulerRepairDirectoryPath =
-  "packages/persistence-postgres/src/taskSystemWakeSchedulerRepairDirectoryV1.ts";
+  "packages/persistence-postgres/src/tasks/taskSystemWakeSchedulerRepairDirectoryV1.ts";
 const persistencePostgresTaskWakeSchedulerResolverPath =
-  "packages/persistence-postgres/src/taskSystemWakeSchedulerResolverV1.ts";
+  "packages/persistence-postgres/src/tasks/taskSystemWakeSchedulerResolverV1.ts";
 const persistencePostgresTaskWakeSchedulerCompositionPath =
-  "packages/persistence-postgres/src/taskSystemWakeSchedulerCompositionV1.ts";
+  "packages/persistence-postgres/src/tasks/taskSystemWakeSchedulerCompositionV1.ts";
 const executorTaskQueueWakePath =
-  "packages/executor/src/taskQueueWakeV1.ts";
+  "packages/executor/src/tasks/taskQueueWakeV1.ts";
 const executorTaskRepairSweepPath =
-  "packages/executor/src/taskRepairSweepV1.ts";
+  "packages/executor/src/tasks/taskRepairSweepV1.ts";
 const executorTaskRepairSweepContinuationCodecPath =
-  "packages/executor/src/taskRepairSweepContinuationCodecV1.ts";
+  "packages/executor/src/tasks/taskRepairSweepContinuationCodecV1.ts";
 const executorTaskRepairSchedulerRunPath =
-  "packages/executor/src/taskRepairSchedulerRunV1.ts";
+  "packages/executor/src/tasks/taskRepairSchedulerRunV1.ts";
 const standardApplicationTaskDefinitionSourcePrefix =
   "packages/standard-application-definition/src/taskDefinition/";
 const standardApplicationTaskDefinitionDurableTaskSpecifier =
@@ -453,6 +459,7 @@ const admittedApplicationTaskMutationAuthorityExternalEffectImports = new Map([
 ]);
 const admittedPGliteTaskExternalEffectAuthorityImports = new Map([
   ["createLocatedTaskExternalEffectAuthorityTarget", "value"],
+  ["createLocatedTaskExternalEffectAuthorityTargetFromPolicyInternal", "value"],
   ["LocatedTaskExternalEffectAuthorityTarget", "type"],
   ["TaskExternalEffectAuthorityConfigurationError", "type"],
 ]);
@@ -613,6 +620,231 @@ const admittedBackendTaskResultBodyQueryImports = new Map([
   ["TaskRunResultQuery", "value"],
   ["TaskRunResultQueryApi", "type"],
   ["TaskRunResultQueryError", "type"],
+]);
+/** Portable contract consumers only. These declarations grant no host or
+ * scheduler activation and do not admit neighboring files or Task exports. */
+const admittedTrustedWorkflowContractImports = [
+  makeExactImportAdmission(
+    taskPrincipalContractPath,
+    "flarex-protocol/auth",
+    { values: ["UserIdentitySchema"] },
+  ),
+  makeExactImportAdmission(
+    flarexBackendTaskExecutionPrincipalStorePath,
+    "@flarex/durable-task/internal/run-creation-v1",
+    {
+      values: ["decodeTaskExecutionPrincipalObjectV1", "decodeTaskExecutionPrincipalReferenceV1",
+        "makeTaskExecutionPrincipalReferenceV1", "MAX_TASK_EXECUTION_PRINCIPAL_CANONICAL_BYTES_V1", "ownPrincipalObject"],
+      types: ["TaskExecutionPrincipalObjectV1", "TaskExecutionPrincipalReferenceV1"],
+    },
+  ),
+  makeExactImportAdmission(
+    "packages/persistence-postgres/src/frameworks/atomicCommerce/configuration.ts",
+    "@flarex/durable-task/internal/run-creation-v1",
+    { values: ["inspectTrustedWorkflowTaskBinding"], types: ["TrustedWorkflowTaskBinding"] },
+  ),
+  makeExactImportAdmission(
+    "packages/persistence-postgres/src/tasks/trustedWorkflowExecutionSubject.ts",
+    "@flarex/durable-task/internal/run-creation-v1",
+    {
+      values: ["decodeTaskExecutionPrincipalReferenceV1", "decodeTaskExecutionPrincipalObjectV1",
+        "inspectTrustedWorkflowTaskBinding", "trustedWorkflowPrincipalMatches"],
+      types: ["TaskExecutionPrincipalReferenceV1", "TaskInputReferenceV1", "TrustedWorkflowTaskBinding",
+        "TrustedWorkflowTaskBindingState", "TaskExecutionPrincipalObjectV1"],
+    },
+  ),
+  makeExactImportAdmission(
+    "packages/persistence-postgres/src/tasks/trustedWorkflowExecutionSubject.ts",
+    "@flarex/durable-task/internal/run-attempt-v1",
+    { values: ["TaskRunIdV1Schema", "TaskAttemptIdV1Schema", "TaskAttemptNumberV1Schema", "TaskExecutionFenceV1Schema"] },
+  ),
+  makeExactImportAdmission(
+    "packages/persistence-postgres/src/tasks/trustedWorkflowCallback.ts",
+    "@flarex/durable-task/internal/run-creation-v1",
+    {
+      values: ["inspectTrustedWorkflowTaskBinding"],
+      types: ["TrustedWorkflowTaskBinding"],
+    },
+  ),
+  makeExactImportAdmission(
+    "packages/persistence-postgres/src/tasks/trustedWorkflowCheckpoint.ts",
+    "@flarex/durable-task/internal/run-creation-v1",
+    {
+      values: ["inspectTrustedWorkflowTaskBinding"],
+      types: ["TrustedWorkflowTaskBinding"],
+    },
+  ),
+  makeExactImportAdmission(
+    "packages/persistence-postgres/src/tasks/trustedWorkflowCheckpoint.ts",
+    "@flarex/durable-task/internal/run-attempt-v1",
+    {
+      values: ["MAX_TRUSTED_WORKFLOW_CHECKPOINT_BYTES","TrustedWorkflowCheckpointDescriptorSchema"],
+    },
+  ),
+  makeExactImportAdmission(
+    "packages/persistence-postgres/src/tasks/trustedWorkflowCheckpointSchema.ts",
+    "@flarex/durable-task/internal/run-attempt-v1",
+    {
+      values: ["MAX_TRUSTED_WORKFLOW_CHECKPOINT_BYTES"],
+      types: ["TaskRunIdV1"],
+    },
+  ),
+  makeExactImportAdmission(
+    "packages/persistence-postgres/src/tasks/trustedWorkflowContinuationStore.ts",
+    "@flarex/durable-task/internal/run-creation-v1",
+    {
+      types: ["TrustedWorkflowTaskBinding"],
+    },
+  ),
+  makeExactImportAdmission(
+    "packages/persistence-postgres/src/tasks/trustedWorkflowContinuationStore.ts",
+    "@flarex/durable-task/internal/run-attempt-v1",
+    {
+      values: [
+        "RegisterTrustedWorkflowContinuationCommandSchema", "ResolveTrustedWorkflowContinuationCommandSchema", "decideTrustedWorkflowRegisterContinuation",
+        "decideTrustedWorkflowConfirmContinuation", "decideTrustedWorkflowExpireContinuation", "decideTrustedWorkflowRequestCancellation",
+        "decodeRunAttemptCommandV1", "decodeTaskRunIdV1",
+      ],
+      types: ["CurrentRunAttemptMutationOperation","TaskRunIdV1"],
+    },
+  ),
+  makeExactImportAdmission(
+    "packages/persistence-postgres/src/tasks/trustedWorkflowEventEligibilityStore.ts",
+    "@flarex/durable-task/internal/run-creation-v1",
+    {
+      types: ["TrustedWorkflowTaskBinding"],
+    },
+  ),
+  makeExactImportAdmission(
+    "packages/persistence-postgres/src/tasks/trustedWorkflowTaskRunCreation.ts",
+    "@flarex/durable-task/internal/run-creation-v1",
+    {
+      values: [
+        "decodeTaskExecutionPrincipalReferenceV1", "decodeTaskInputReferenceV1", "decodeTaskRunCreationRequestKeyV1",
+        "encodeTaskRunCreationRequestKeyPreimageV1", "inspectTrustedWorkflowTaskBinding", "makeTrustedWorkflowTaskRunCreationInitialAggregate",
+        "trustedWorkflowPrincipalMatches", "TrustedWorkflowBindingSha256Schema",
+      ],
+      types: [
+        "TrustedWorkflowTaskBinding", "TaskRunCreationAuthoritySha256V1", "TaskRunCreationRequestKeySha256V1",
+        "TaskRunCreationRequestSha256V1",
+      ],
+    },
+  ),
+  makeExactImportAdmission(
+    "packages/persistence-postgres/src/tasks/trustedWorkflowTaskRunCreation.ts",
+    "@flarex/durable-task/internal/run-attempt-v1",
+    {
+      values: [
+        "decodeTaskDatabaseTimeMsV1", "decodeTaskRunIdV1", "encodeTrustedWorkflowTaskRunAttemptAggregateJson",
+        "projectCurrentTaskRunAttemptPersistence",
+      ],
+    },
+  ),
+  makeExactImportAdmission(
+    "packages/persistence-postgres/src/tasks/taskSystemRunAttemptStoreV1.ts",
+    "@flarex/durable-task/internal/run-attempt-v1",
+    {
+      values: [
+        "encodeTrustedWorkflowTaskRunAttemptAggregateJson", "decodeTrustedWorkflowTaskRunAttemptAggregateJson", "encodeTrustedWorkflowPersistedTaskRequestedEffectJson",
+        "projectCurrentTaskRunAttemptPersistence", "toCurrentApplicationTaskRunAttemptDecision", "fromCurrentTaskRunAttemptAggregate",
+        "fromCurrentTaskRequestedEffect",
+      ],
+      types: [
+        "CurrentTaskRunAttemptAggregate", "CurrentTaskRunAttemptDecision", "CurrentRunAttemptPhase",
+        "CurrentRunAttemptMutationOperation", "CurrentTaskRunAttemptEvidence", "CurrentPersistedTaskRequestedEffect",
+        "CurrentTaskSystemRunAttemptDecisionInput", "TaskSystemRunAttemptInspectionRequestV1", "TrustedWorkflowTaskSystemRunAttemptTransaction",
+        "TrustedWorkflowTaskSystemRunAttemptStoreShape",
+      ],
+    },
+  ),
+  makeExactImportAdmission(
+    "packages/persistence-postgres/src/tasks/taskSystemRunAttemptStoreV1.ts",
+    "@flarex/durable-task/internal/run-attempt-v1",
+    {
+      values: [
+        "InvalidRunAttemptTransitionError", "StaleTaskRunVersionError", "TaskRunAttemptCounterExhaustedError",
+        "TaskSystemRunAttemptCorruptionError", "TaskSystemRunAttemptStaleScopeAuthorityError", "TaskSystemRunAttemptStore",
+        "TaskSystemRunAttemptTerminalStoreError", "TaskSystemRunAttemptTransientStoreError", "TaskSystemRunAttemptUnavailableError",
+        "decodeApplicationTaskRunAttemptAggregateJsonV1", "encodeApplicationPersistedTaskRequestedEffectJsonV1", "encodeApplicationTaskRunAttemptAggregateJsonV1",
+        "decodePersistedTaskRunAttemptAggregateJsonV1", "decodeTaskAttemptIdV1", "decodeTaskAttemptNumberV1",
+        "decodeTaskDatabaseTimeMsV1", "decodeTaskExecutionFenceV1", "encodePersistedTaskRequestedEffectJsonV1",
+        "encodePersistedTaskRunAttemptAggregateJsonV1", "projectApplicationTaskRunAttemptPersistenceV1", "projectTaskRunAttemptPersistenceV1",
+        "toCurrentTaskRunAttemptAggregate",
+      ],
+      types: [
+        "ApplicationTaskRunAttemptAggregateV1", "ApplicationTaskRunAttemptDecisionV1", "ApplicationTaskSystemRunAttemptInspectionSnapshotV1",
+        "ApplicationTaskSystemRunAttemptStoreShape", "ApplicationTaskSystemRunAttemptTransactionReceiptV1", "ApplicationTaskSystemRunAttemptTransactionV1",
+        "RunAttemptDecisionFor", "RunAttemptDecisionErrorV1", "CurrentRunAttemptOperation",
+        "RunAttemptServiceReceiptFor", "TaskAttemptGrantCandidateV1", "TaskDatabaseTimeMsV1",
+        "TaskRunAttemptAggregateV1", "TaskRunAttemptDecisionV1", "TaskRunIdV1",
+        "TaskRunVersionV1", "TaskSystemRunAttemptInspectionSnapshotV1", "TaskSystemRunAttemptStoreErrorV1",
+        "TaskSystemRunAttemptStoreShape", "TaskSystemRunAttemptTransactionReceiptV1", "TaskSystemRunAttemptTransactionV1",
+      ],
+    },
+  ),
+  makeExactImportAdmission(
+    "packages/persistence-postgres/src/tasks/taskSystemRunRowV1.ts",
+    "@flarex/durable-task/internal/run-creation-v1",
+    {
+      values: ["decodeTaskInputReferenceV1"],
+    },
+  ),
+  makeExactImportAdmission(
+    "packages/persistence-postgres/src/tasks/taskSystemRunRowV1.ts",
+    "@flarex/durable-task/internal/run-attempt-v1",
+    {
+      values: [
+        "decodeTrustedWorkflowTaskRunAttemptAggregateJson", "encodeTrustedWorkflowTaskRunAttemptAggregateJson", "projectCurrentTaskRunAttemptPersistence",
+      ],
+      types: ["CurrentTaskRunAttemptAggregate"],
+    },
+  ),
+  makeExactImportAdmission(
+    "packages/medusa-adapter/src/workflow/durable-native-storage.ts",
+    "@flarex/durable-task/internal/run-attempt-v1",
+    {
+      values: ["MAX_TRUSTED_WORKFLOW_CHECKPOINT_BYTES"],
+      types: ["TrustedWorkflowCheckpointDescriptor"],
+    },
+  ),
+  makeExactImportAdmission(
+    "packages/medusa-adapter/src/workflows/product/import-inline-input.ts",
+    "@flarex/durable-task/internal/run-creation-v1",
+    {
+      values: ["makeTaskInputReferenceV1","decodeTaskInputReferenceV1"],
+    },
+  ),
+  makeExactImportAdmission(
+    "packages/medusa-adapter/src/workflows/product/import-inline-task.ts",
+    "@flarex/durable-task/internal/run-creation-v1",
+    {
+      values: ["inspectTrustedWorkflowTaskBinding"],
+    },
+  ),
+  makeExactImportAdmission(
+    "packages/medusa-adapter/src/workflows/product/import-inline-task.ts",
+    "@flarex/durable-task/internal/run-attempt-v1",
+    {
+      values: [
+        "decideTrustedWorkflowStartAttempt", "decideTrustedWorkflowHeartbeatAttempt", "decideTrustedWorkflowCompleteAttempt",
+        "decideTrustedWorkflowHandleLeaseExpiry", "decodeTaskRetryJitterV1", "decodeTaskHeartbeatSequenceV1", "decodeTaskDurationMsV1",
+        "TaskFailureMessageV1Schema",
+      ],
+      types: ["TaskAttemptCompletionV1", "CurrentTaskRunAttemptAggregate"],
+    },
+  ),
+  makeExactImportAdmission(
+    "packages/medusa-adapter/src/workflows/product/import-inline.ts",
+    "@flarex/durable-task/internal/run-attempt-v1",
+    {
+      types: ["TrustedWorkflowContinuation"],
+    },
+  ),
+];
+const admittedPrincipalContractReExports = new Map([
+  ["decodeTaskExecutionPrincipalObjectV1", "value"],
+  ["TaskExecutionPrincipalIdentity", "type"],
+  ["TaskExecutionPrincipalObjectV1", "type"],
 ]);
 const admittedLaterDurableTaskImports = [
   makeExactImportAdmission(
@@ -1291,6 +1523,16 @@ if (isCliEntrypoint()) {
       }
     }
   }
+  const triggerRunEngineRoot = path.join(repoRoot, triggerRunEnginePrefix);
+  if (existsSync(triggerRunEngineRoot)) {
+    try {
+      report.errors.push(...analyzeTriggerRunEngineTsconfig(
+        JSON.parse(readFileSync(path.join(triggerRunEngineRoot, "tsconfig.json"), "utf8")),
+      ));
+    } catch (error) {
+      report.errors.push(`${triggerRunEnginePrefix}tsconfig.json must exist and be valid JSON: ${errorMessage(error)}.`);
+    }
+  }
 
   if (report.errors.length > 0) {
     console.error(report.errors.join("\n"));
@@ -1319,6 +1561,11 @@ export function analyzeTriggerCompatibilityBoundary(manifests, sources) {
       if (!isRecord(dependencies)) continue;
 
       for (const [name, value] of Object.entries(dependencies)) {
+        if (relativePath !== triggerRunEngineManifestPath
+          && (isTriggerRunEngineSpecifier(name, relativePath)
+            || (typeof value === "string" && isTriggerRunEngineDependencyReference(value, relativePath)))) {
+          errors.push(`${relativePath}: ${field} must not activate ${triggerRunEnginePackage} before shared-core admission.`);
+        }
         if (isForbiddenModuleSpecifier(name) || (typeof value === "string" && isForbiddenDependencyReference(value))) {
           errors.push(`${relativePath}: ${field} must not reference Trigger compatibility dependency "${name}".`);
         }
@@ -1339,6 +1586,9 @@ export function analyzeTriggerCompatibilityBoundary(manifests, sources) {
 
     if (relativePath === durableTaskManifestPath) {
       errors.push(...analyzeDurableTaskManifest(manifest));
+    }
+    if (relativePath === triggerRunEngineManifestPath) {
+      errors.push(...analyzeTriggerRunEngineManifest(manifest));
     }
   }
 
@@ -1364,6 +1614,26 @@ export function analyzeTriggerCompatibilityBoundary(manifests, sources) {
         errors.push(`${relativePath}:${line} production source must not re-export an admitted compatibility binding beyond its owning file.`);
       }
       const specifier = moduleSpecifierForNode(node);
+      if (specifier !== undefined && isProductionSource(relativePath)) {
+        const line = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1;
+        if (relativePath.startsWith(triggerRunEnginePrefix)) {
+          const normalized = specifier.replaceAll("\\", "/");
+          const resolved = resolveRepositorySpecifier(specifier, relativePath);
+          if (normalized !== "effect" && !normalized.startsWith("effect/")
+            && !(normalized.startsWith(".") && resolved.startsWith(`${triggerRunEnginePrefix}src/`))) {
+            errors.push(`${relativePath}:${line} must not import non-portable trigger-run-engine module "${specifier}".`);
+          }
+        } else if (isTriggerRunEngineSpecifier(specifier, relativePath)) {
+          errors.push(`${relativePath}:${line} must not activate ${triggerRunEnginePackage} before shared-core admission.`);
+        }
+      }
+      if (relativePath.startsWith(triggerRunEnginePrefix) && isProductionSource(relativePath)) {
+        const prohibitedGlobal = prohibitedDurableTaskGlobalForNode(node);
+        if (prohibitedGlobal !== undefined) {
+          const line = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1;
+          errors.push(`${relativePath}:${line} must not use prohibited trigger-run-engine global "${prohibitedGlobal}".`);
+        }
+      }
       if (specifier !== undefined && isForbiddenModuleSpecifier(specifier)) {
         const line = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1;
         errors.push(`${relativePath}:${line} must not import Trigger compatibility module "${specifier}".`);
@@ -1374,7 +1644,7 @@ export function analyzeTriggerCompatibilityBoundary(manifests, sources) {
         && isProductionSource(relativePath)
         && !isForbiddenModuleSpecifier(specifier)
         && !isDurableTaskCompatibilityHarnessSpecifier(specifier, relativePath)
-        && !isAllowedDurableTaskProductionSpecifier(specifier, relativePath)
+        && !isAllowedDurableTaskProductionSpecifier(specifier, relativePath, node)
       ) {
         const line = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1;
         errors.push(`${relativePath}:${line} must not import non-portable durable-task module "${specifier}".`);
@@ -1969,7 +2239,16 @@ export function analyzeDurableTaskManifest(manifest) {
 
 /** @param {unknown} tsconfig */
 export function analyzeDurableTaskTsconfig(tsconfig) {
-  const label = "packages/durable-task/tsconfig.json";
+  return analyzePortableTaskTsconfig(tsconfig, "packages/durable-task/tsconfig.json");
+}
+
+/** @param {unknown} tsconfig */
+export function analyzeTriggerRunEngineTsconfig(tsconfig) {
+  return analyzePortableTaskTsconfig(tsconfig, `${triggerRunEnginePrefix}tsconfig.json`);
+}
+
+/** @param {unknown} tsconfig @param {string} label */
+function analyzePortableTaskTsconfig(tsconfig, label) {
   if (!isRecord(tsconfig)) return [`${label} must be an object.`];
   /** @type {string[]} */
   const errors = [];
@@ -2000,6 +2279,58 @@ export function analyzeDurableTaskTsconfig(tsconfig) {
     errors.push(`${label} compilerOptions.noUncheckedIndexedAccess must be true.`);
   }
   return errors;
+}
+
+/** @param {unknown} manifest */
+export function analyzeTriggerRunEngineManifest(manifest) {
+  if (!isRecord(manifest)) return [`${triggerRunEngineManifestPath}: manifest must be an object.`];
+  /** @type {string[]} */
+  const errors = [];
+  if (manifest.name !== triggerRunEnginePackage || manifest.version !== "0.0.1"
+    || manifest.private !== true || manifest.type !== "module") {
+    errors.push(`${triggerRunEngineManifestPath}: package must remain private ${triggerRunEnginePackage}@0.0.1 with type module.`);
+  }
+  /** @type {Readonly<Record<string, Readonly<Record<string, string>>>>} */
+  const admittedFields = {
+    exports: { "./internal/run-attempt": "./src/runAttempt.ts" },
+    dependencies: { effect: "catalog:" },
+    devDependencies: { tsrs: "catalog:", vitest: "catalog:" },
+    scripts: { typecheck: "tsrs -p tsconfig.json --fast --noEmit", test: "vitest run" },
+  };
+  for (const [field, expected] of Object.entries(admittedFields)) {
+    if (!hasExactStringRecord(manifest[field], expected)) {
+      errors.push(`${triggerRunEngineManifestPath}: ${field} must exactly match the portable attempt-start admission.`);
+    }
+  }
+  for (const field of ["optionalDependencies", "peerDependencies"]) {
+    if (manifest[field] !== undefined && !hasExactStringRecord(manifest[field], {})) {
+      errors.push(`${triggerRunEngineManifestPath}: ${field} must be absent or empty.`);
+    }
+  }
+  const expectedFiles = ["src", "README.md", "THIRD_PARTY_NOTICES.md", "trigger-source-map.json", "licenses"];
+  if (JSON.stringify(manifest.files) !== JSON.stringify(expectedFiles)) {
+    errors.push(`${triggerRunEngineManifestPath}: files must exactly match the admitted distribution list.`);
+  }
+  return errors;
+}
+
+/** @param {string} specifier @param {string} relativePath */
+function isTriggerRunEngineSpecifier(specifier, relativePath) {
+  const resolved = resolveRepositorySpecifier(specifier, relativePath);
+  return resolved === triggerRunEnginePackage || resolved.startsWith(`${triggerRunEnginePackage}/`)
+    || resolved === triggerRunEnginePrefix.slice(0, -1) || resolved.startsWith(triggerRunEnginePrefix);
+}
+
+/** @param {string} reference @param {string} manifestPath */
+function isTriggerRunEngineDependencyReference(reference, manifestPath) {
+  if (packageNameFromDependencyReference(reference) === triggerRunEnginePackage) return true;
+  let target = reference.replaceAll("\\", "/");
+  while (target.startsWith("workspace:")) target = target.slice("workspace:".length);
+  if (target.startsWith("file:") || target.startsWith("link:")) target = target.slice(target.indexOf(":") + 1);
+  const resolved = resolveRepositorySpecifier(target, manifestPath).toLowerCase();
+  const root = triggerRunEnginePrefix.slice(0, -1);
+  return resolved === root || resolved.startsWith(`${root}/`)
+    || resolved.endsWith(`/${root}`) || resolved.includes(`/${root}/`);
 }
 
 /** @returns {{ relativePath: string; manifest: unknown }[]} */
@@ -2108,8 +2439,9 @@ function isForbiddenDependencyReference(reference) {
   return target === "@trigger.dev" || target.startsWith("@trigger.dev/") || [...forbiddenInternalPackages].some((name) => target === name || target.startsWith(`${name}@`) || target.startsWith(`${name}/`));
 }
 
-/** @param {string} specifier @param {string} relativePath */
-function isAllowedDurableTaskProductionSpecifier(specifier, relativePath) {
+/** @param {string} specifier @param {string} relativePath @param {ts.Node} node */
+function isAllowedDurableTaskProductionSpecifier(specifier, relativePath, node) {
+  if (matchesExactAdmittedImport(admittedTrustedWorkflowContractImports, relativePath, specifier, node)) return true;
   const normalized = path.posix.normalize(specifier.replaceAll("\\", "/"));
   const resolved = resolveRepositorySpecifier(specifier, relativePath);
   if (normalized === "effect" || normalized.startsWith("effect/")) return true;
@@ -2662,6 +2994,7 @@ function isAdmittedDurableTaskConsumerDependency(
     || relativePath === standardApplicationInvocationManifestPath
     || relativePath === persistencePostgresManifestPath
     || relativePath === flarexBackendManifestPath
+    || relativePath === medusaAdapterManifestPath
     || relativePath === systemTestManifestPath
   )
     && name === expectedTargetPackage
@@ -2674,6 +3007,20 @@ function isAdmittedDurableTaskConsumerDependency(
  * @param {ts.Node} node
  */
 function isAdmittedDurableTaskConsumerImport(relativePath, specifier, node) {
+  if (matchesExactAdmittedImport(admittedTrustedWorkflowContractImports, relativePath, specifier, node)) return true;
+  if (relativePath === flarexBackendTaskExecutionPrincipalStorePath
+    && specifier === "@flarex/durable-task/internal/run-creation-v1"
+    && ts.isExportDeclaration(node) && node.exportClause !== undefined
+    && ts.isNamedExports(node.exportClause)
+    && node.exportClause.elements.length === admittedPrincipalContractReExports.size) {
+    const names = new Set();
+    return node.exportClause.elements.every(element => {
+      if (element.propertyName !== undefined || names.has(element.name.text)) return false;
+      names.add(element.name.text);
+      return admittedPrincipalContractReExports.get(element.name.text) ===
+        (node.isTypeOnly || element.isTypeOnly ? "type" : "value");
+    });
+  }
   if (matchesExactAdmittedImport(
     admittedLaterDurableTaskImports,
     relativePath,

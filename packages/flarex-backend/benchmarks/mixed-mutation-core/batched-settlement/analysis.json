@@ -1,0 +1,871 @@
+{
+  "format": "flarex.batched-settlement-analysis",
+  "baseline": "../bounded-read-execution",
+  "definitions": {
+    "successfulWarmSamples": "status=ok, temperature=warm; all warmup/cold/error records retained separately",
+    "terminalPhase": "phase => /journal seal and OCC verification|authoritative publication/.test(phase)",
+    "percentiles": "Arithmetic median; p95 descriptive nearest rank",
+    "sqlFamilies": "A group counts once for each fx_ physical table named in its normalized template. Families overlap; they are diagnostics, not an additive query decomposition."
+  },
+  "interpretation": "Structural acceptance uses traced dispatch/transaction observations. Latency acceptance uses the independent untraced full series. Nested phase, transaction and driver-await intervals overlap; no CPU, server, transport, lock or connection causal subtraction follows.",
+  "unavailable": [
+    "PostgreSQL server execution time (driver await includes transport and scheduling).",
+    "Exact native workflow child inclusive/exclusive spans; native steps are not instrumented, so SQL owner mapping is used instead.",
+    "Exact inner OCC/materialization phase duration where the existing owner has no test observation hook.",
+    "Exact scope-clock lock acquisition wait and lock-hold interval; transaction duration is only a BEGIN-to-settlement envelope.",
+    "Sealed attempt bytes for failed attempts and standalone workflow; settled journal rows are removed, so inventory separately records only remaining live journal bytes.",
+    "Client SQL that loses trace context during an active invocation is detected and invalidates that sample, but SQL through uninstrumented pools or outside the invocation cannot be counted; named phase checks do not prove universal SQL coverage.",
+    "Hosted Cloudflare transport, native ORM parity, and production capacity.",
+    "SQL dispatches, awaited time, phase spans, transaction intervals and trace coverage in untraced mode.",
+    "Statement/row work inside PostgreSQL functions and triggers",
+    "Isolated publication CPU/decode/hash",
+    "Server execution and lock-hold attribution",
+    "Hosted Cloudflare transport and production latency"
+  ],
+  "workloads": {
+    "product": {
+      "baseline": {
+        "warm": {
+          "n": 20,
+          "median": 635.4032000000007,
+          "p95": 668.3257000000012,
+          "min": 611.9226999999955,
+          "max": 689.0283999999956
+        },
+        "cold": {
+          "n": 3,
+          "median": 680.4119999999821,
+          "p95": 696.1468000000023,
+          "min": 647.6345000000001,
+          "max": 696.1468000000023
+        },
+        "dispatches": [
+          643,
+          643
+        ],
+        "transactions": [
+          29,
+          29
+        ]
+      },
+      "batched": {
+        "warm": {
+          "n": 20,
+          "median": 595.5876500000013,
+          "p95": 616.078600000008,
+          "min": 572.4799999999959,
+          "max": 623.2744999999995
+        },
+        "cold": {
+          "n": 3,
+          "median": 602.7793999999994,
+          "p95": 641.8304000000062,
+          "min": 598.2638999999908,
+          "max": 641.8304000000062
+        },
+        "counts": [
+          {
+            "id": "product-warm-0-3",
+            "dispatches": 562,
+            "transactions": 25,
+            "terminalDispatches": 175,
+            "terminalTransactions": 3
+          },
+          {
+            "id": "product-warm-0-4",
+            "dispatches": 562,
+            "transactions": 25,
+            "terminalDispatches": 175,
+            "terminalTransactions": 3
+          },
+          {
+            "id": "product-warm-0-5",
+            "dispatches": 562,
+            "transactions": 25,
+            "terminalDispatches": 175,
+            "terminalTransactions": 3
+          },
+          {
+            "id": "product-warm-0-6",
+            "dispatches": 562,
+            "transactions": 25,
+            "terminalDispatches": 175,
+            "terminalTransactions": 3
+          },
+          {
+            "id": "product-warm-0-7",
+            "dispatches": 562,
+            "transactions": 25,
+            "terminalDispatches": 175,
+            "terminalTransactions": 3
+          },
+          {
+            "id": "product-warm-0-8",
+            "dispatches": 562,
+            "transactions": 25,
+            "terminalDispatches": 175,
+            "terminalTransactions": 3
+          },
+          {
+            "id": "product-warm-0-9",
+            "dispatches": 562,
+            "transactions": 25,
+            "terminalDispatches": 175,
+            "terminalTransactions": 3
+          },
+          {
+            "id": "product-warm-0-10",
+            "dispatches": 562,
+            "transactions": 25,
+            "terminalDispatches": 175,
+            "terminalTransactions": 3
+          },
+          {
+            "id": "product-warm-0-11",
+            "dispatches": 562,
+            "transactions": 25,
+            "terminalDispatches": 175,
+            "terminalTransactions": 3
+          },
+          {
+            "id": "product-warm-0-12",
+            "dispatches": 562,
+            "transactions": 25,
+            "terminalDispatches": 175,
+            "terminalTransactions": 3
+          },
+          {
+            "id": "product-warm-0-13",
+            "dispatches": 562,
+            "transactions": 25,
+            "terminalDispatches": 175,
+            "terminalTransactions": 3
+          },
+          {
+            "id": "product-warm-0-14",
+            "dispatches": 562,
+            "transactions": 25,
+            "terminalDispatches": 175,
+            "terminalTransactions": 3
+          },
+          {
+            "id": "product-warm-0-15",
+            "dispatches": 562,
+            "transactions": 25,
+            "terminalDispatches": 175,
+            "terminalTransactions": 3
+          },
+          {
+            "id": "product-warm-0-16",
+            "dispatches": 562,
+            "transactions": 25,
+            "terminalDispatches": 175,
+            "terminalTransactions": 3
+          },
+          {
+            "id": "product-warm-0-17",
+            "dispatches": 562,
+            "transactions": 25,
+            "terminalDispatches": 175,
+            "terminalTransactions": 3
+          },
+          {
+            "id": "product-warm-0-18",
+            "dispatches": 562,
+            "transactions": 25,
+            "terminalDispatches": 175,
+            "terminalTransactions": 3
+          },
+          {
+            "id": "product-warm-0-19",
+            "dispatches": 562,
+            "transactions": 25,
+            "terminalDispatches": 175,
+            "terminalTransactions": 3
+          },
+          {
+            "id": "product-warm-0-20",
+            "dispatches": 562,
+            "transactions": 25,
+            "terminalDispatches": 175,
+            "terminalTransactions": 3
+          },
+          {
+            "id": "product-warm-0-21",
+            "dispatches": 562,
+            "transactions": 25,
+            "terminalDispatches": 175,
+            "terminalTransactions": 3
+          },
+          {
+            "id": "product-warm-0-22",
+            "dispatches": 562,
+            "transactions": 25,
+            "terminalDispatches": 175,
+            "terminalTransactions": 3
+          }
+        ],
+        "tracedWarm": {
+          "n": 20,
+          "median": 592.2771500000017,
+          "p95": 615.6287000000011,
+          "min": 575.1269000000029,
+          "max": 636.5344999999943
+        }
+      },
+      "regressionPercent": -6.266186572557286,
+      "stageGate": {
+        "ceilings": {
+          "dispatches": 633,
+          "terminalDispatches": 228,
+          "transactions": 25
+        },
+        "minimumWrapperCeilingsPassed": true,
+        "healthySevenToThreeTerminalTransactions": true,
+        "dispatchReductionBeyondMinimumWrappers": true,
+        "originalDemandLedgerAvailable": true,
+        "ownerBatchingInterpretation": "Compare actual original-demand ledgers, owner query observations and SQL templates. A net dispatch difference alone is not per-owner row-write or byte savings."
+      },
+      "latencyGate": {
+        "goals": {
+          "p50": 100,
+          "p95": 200
+        },
+        "p50Passed": false,
+        "p95Passed": false
+      }
+    },
+    "productPayload": {
+      "baseline": {
+        "warm": {
+          "n": 20,
+          "median": 689.9652999999962,
+          "p95": 751.7447999999858,
+          "min": 672.5752000000211,
+          "max": 782.1731999999902
+        },
+        "cold": {
+          "n": 3,
+          "median": 726.4616000000096,
+          "p95": 899.3792000000249,
+          "min": 719.5397999999695,
+          "max": 899.3792000000249
+        },
+        "dispatches": [
+          670,
+          670
+        ],
+        "transactions": [
+          30,
+          30
+        ]
+      },
+      "batched": {
+        "warm": {
+          "n": 20,
+          "median": 627.3790500000177,
+          "p95": 784.6239999999816,
+          "min": 616.1364999999932,
+          "max": 788.7896000000183
+        },
+        "cold": {
+          "n": 3,
+          "median": 651.1578000000154,
+          "p95": 665.2586999999767,
+          "min": 645.6228000000119,
+          "max": 665.2586999999767
+        },
+        "counts": [
+          {
+            "id": "productPayload-warm-0-3",
+            "dispatches": 585,
+            "transactions": 26,
+            "terminalDispatches": 180,
+            "terminalTransactions": 3
+          },
+          {
+            "id": "productPayload-warm-0-4",
+            "dispatches": 585,
+            "transactions": 26,
+            "terminalDispatches": 180,
+            "terminalTransactions": 3
+          },
+          {
+            "id": "productPayload-warm-0-5",
+            "dispatches": 585,
+            "transactions": 26,
+            "terminalDispatches": 180,
+            "terminalTransactions": 3
+          },
+          {
+            "id": "productPayload-warm-0-6",
+            "dispatches": 585,
+            "transactions": 26,
+            "terminalDispatches": 180,
+            "terminalTransactions": 3
+          },
+          {
+            "id": "productPayload-warm-0-7",
+            "dispatches": 585,
+            "transactions": 26,
+            "terminalDispatches": 180,
+            "terminalTransactions": 3
+          },
+          {
+            "id": "productPayload-warm-0-8",
+            "dispatches": 585,
+            "transactions": 26,
+            "terminalDispatches": 180,
+            "terminalTransactions": 3
+          },
+          {
+            "id": "productPayload-warm-0-9",
+            "dispatches": 585,
+            "transactions": 26,
+            "terminalDispatches": 180,
+            "terminalTransactions": 3
+          },
+          {
+            "id": "productPayload-warm-0-10",
+            "dispatches": 585,
+            "transactions": 26,
+            "terminalDispatches": 180,
+            "terminalTransactions": 3
+          },
+          {
+            "id": "productPayload-warm-0-11",
+            "dispatches": 585,
+            "transactions": 26,
+            "terminalDispatches": 180,
+            "terminalTransactions": 3
+          },
+          {
+            "id": "productPayload-warm-0-12",
+            "dispatches": 585,
+            "transactions": 26,
+            "terminalDispatches": 180,
+            "terminalTransactions": 3
+          },
+          {
+            "id": "productPayload-warm-0-13",
+            "dispatches": 585,
+            "transactions": 26,
+            "terminalDispatches": 180,
+            "terminalTransactions": 3
+          },
+          {
+            "id": "productPayload-warm-0-14",
+            "dispatches": 585,
+            "transactions": 26,
+            "terminalDispatches": 180,
+            "terminalTransactions": 3
+          },
+          {
+            "id": "productPayload-warm-0-15",
+            "dispatches": 585,
+            "transactions": 26,
+            "terminalDispatches": 180,
+            "terminalTransactions": 3
+          },
+          {
+            "id": "productPayload-warm-0-16",
+            "dispatches": 585,
+            "transactions": 26,
+            "terminalDispatches": 180,
+            "terminalTransactions": 3
+          },
+          {
+            "id": "productPayload-warm-0-17",
+            "dispatches": 585,
+            "transactions": 26,
+            "terminalDispatches": 180,
+            "terminalTransactions": 3
+          },
+          {
+            "id": "productPayload-warm-0-18",
+            "dispatches": 585,
+            "transactions": 26,
+            "terminalDispatches": 180,
+            "terminalTransactions": 3
+          },
+          {
+            "id": "productPayload-warm-0-19",
+            "dispatches": 585,
+            "transactions": 26,
+            "terminalDispatches": 180,
+            "terminalTransactions": 3
+          },
+          {
+            "id": "productPayload-warm-0-20",
+            "dispatches": 585,
+            "transactions": 26,
+            "terminalDispatches": 180,
+            "terminalTransactions": 3
+          },
+          {
+            "id": "productPayload-warm-0-21",
+            "dispatches": 585,
+            "transactions": 26,
+            "terminalDispatches": 180,
+            "terminalTransactions": 3
+          },
+          {
+            "id": "productPayload-warm-0-22",
+            "dispatches": 585,
+            "transactions": 26,
+            "terminalDispatches": 180,
+            "terminalTransactions": 3
+          }
+        ],
+        "tracedWarm": {
+          "n": 20,
+          "median": 639.3370500000019,
+          "p95": 1472.1610000000219,
+          "min": 620.8243000000075,
+          "max": 2181.018299999996
+        }
+      },
+      "regressionPercent": -9.07092719010345,
+      "stageGate": {
+        "ceilings": {
+          "dispatches": 660,
+          "terminalDispatches": 236,
+          "transactions": 26
+        },
+        "minimumWrapperCeilingsPassed": true,
+        "healthySevenToThreeTerminalTransactions": true,
+        "dispatchReductionBeyondMinimumWrappers": true,
+        "originalDemandLedgerAvailable": true,
+        "ownerBatchingInterpretation": "Compare actual original-demand ledgers, owner query observations and SQL templates. A net dispatch difference alone is not per-owner row-write or byte savings."
+      },
+      "latencyGate": {
+        "goals": {
+          "p50": 200,
+          "p95": 400
+        },
+        "p50Passed": false,
+        "p95Passed": false
+      }
+    },
+    "mixedWorkflow": {
+      "baseline": {
+        "warm": {
+          "n": 20,
+          "median": 1169.3341000000073,
+          "p95": 1226.9268999999622,
+          "min": 1072.1137000000454,
+          "max": 1237.6429000000353
+        },
+        "cold": {
+          "n": 3,
+          "median": 1196.341000000015,
+          "p95": 1232.7740999999805,
+          "min": 1178.112300000037,
+          "max": 1232.7740999999805
+        },
+        "dispatches": [
+          1034,
+          1034
+        ],
+        "transactions": [
+          43,
+          43
+        ]
+      },
+      "batched": {
+        "warm": {
+          "n": 20,
+          "median": 1056.6627000000153,
+          "p95": 1094.727899999998,
+          "min": 1029.104400000011,
+          "max": 1096.430400000012
+        },
+        "cold": {
+          "n": 3,
+          "median": 1124.7966000000015,
+          "p95": 1194.107799999998,
+          "min": 1117.806099999987,
+          "max": 1194.107799999998
+        },
+        "counts": [
+          {
+            "id": "mixedWorkflow-warm-0-3",
+            "dispatches": 888,
+            "transactions": 39,
+            "terminalDispatches": 218,
+            "terminalTransactions": 3
+          },
+          {
+            "id": "mixedWorkflow-warm-0-4",
+            "dispatches": 888,
+            "transactions": 39,
+            "terminalDispatches": 218,
+            "terminalTransactions": 3
+          },
+          {
+            "id": "mixedWorkflow-warm-0-5",
+            "dispatches": 888,
+            "transactions": 39,
+            "terminalDispatches": 218,
+            "terminalTransactions": 3
+          },
+          {
+            "id": "mixedWorkflow-warm-0-6",
+            "dispatches": 888,
+            "transactions": 39,
+            "terminalDispatches": 218,
+            "terminalTransactions": 3
+          },
+          {
+            "id": "mixedWorkflow-warm-0-7",
+            "dispatches": 888,
+            "transactions": 39,
+            "terminalDispatches": 218,
+            "terminalTransactions": 3
+          },
+          {
+            "id": "mixedWorkflow-warm-0-8",
+            "dispatches": 888,
+            "transactions": 39,
+            "terminalDispatches": 218,
+            "terminalTransactions": 3
+          },
+          {
+            "id": "mixedWorkflow-warm-0-9",
+            "dispatches": 888,
+            "transactions": 39,
+            "terminalDispatches": 218,
+            "terminalTransactions": 3
+          },
+          {
+            "id": "mixedWorkflow-warm-0-10",
+            "dispatches": 888,
+            "transactions": 39,
+            "terminalDispatches": 218,
+            "terminalTransactions": 3
+          },
+          {
+            "id": "mixedWorkflow-warm-0-11",
+            "dispatches": 888,
+            "transactions": 39,
+            "terminalDispatches": 218,
+            "terminalTransactions": 3
+          },
+          {
+            "id": "mixedWorkflow-warm-0-12",
+            "dispatches": 888,
+            "transactions": 39,
+            "terminalDispatches": 218,
+            "terminalTransactions": 3
+          },
+          {
+            "id": "mixedWorkflow-warm-0-13",
+            "dispatches": 888,
+            "transactions": 39,
+            "terminalDispatches": 218,
+            "terminalTransactions": 3
+          },
+          {
+            "id": "mixedWorkflow-warm-0-14",
+            "dispatches": 888,
+            "transactions": 39,
+            "terminalDispatches": 218,
+            "terminalTransactions": 3
+          },
+          {
+            "id": "mixedWorkflow-warm-0-15",
+            "dispatches": 888,
+            "transactions": 39,
+            "terminalDispatches": 218,
+            "terminalTransactions": 3
+          },
+          {
+            "id": "mixedWorkflow-warm-0-16",
+            "dispatches": 888,
+            "transactions": 39,
+            "terminalDispatches": 218,
+            "terminalTransactions": 3
+          },
+          {
+            "id": "mixedWorkflow-warm-0-17",
+            "dispatches": 888,
+            "transactions": 39,
+            "terminalDispatches": 218,
+            "terminalTransactions": 3
+          },
+          {
+            "id": "mixedWorkflow-warm-0-18",
+            "dispatches": 888,
+            "transactions": 39,
+            "terminalDispatches": 218,
+            "terminalTransactions": 3
+          },
+          {
+            "id": "mixedWorkflow-warm-0-19",
+            "dispatches": 888,
+            "transactions": 39,
+            "terminalDispatches": 218,
+            "terminalTransactions": 3
+          },
+          {
+            "id": "mixedWorkflow-warm-0-20",
+            "dispatches": 888,
+            "transactions": 39,
+            "terminalDispatches": 218,
+            "terminalTransactions": 3
+          },
+          {
+            "id": "mixedWorkflow-warm-0-21",
+            "dispatches": 888,
+            "transactions": 39,
+            "terminalDispatches": 218,
+            "terminalTransactions": 3
+          },
+          {
+            "id": "mixedWorkflow-warm-0-22",
+            "dispatches": 888,
+            "transactions": 39,
+            "terminalDispatches": 218,
+            "terminalTransactions": 3
+          }
+        ],
+        "tracedWarm": {
+          "n": 20,
+          "median": 1069.24549999999,
+          "p95": 1102.6648000000278,
+          "min": 1037.7157000000007,
+          "max": 1223.8451999999816
+        }
+      },
+      "regressionPercent": -9.635518197920623,
+      "stageGate": {
+        "ceilings": {
+          "dispatches": 1024,
+          "terminalDispatches": 321,
+          "transactions": 39
+        },
+        "minimumWrapperCeilingsPassed": true,
+        "healthySevenToThreeTerminalTransactions": true,
+        "dispatchReductionBeyondMinimumWrappers": true,
+        "originalDemandLedgerAvailable": true,
+        "ownerBatchingInterpretation": "Compare actual original-demand ledgers, owner query observations and SQL templates. A net dispatch difference alone is not per-owner row-write or byte savings."
+      },
+      "latencyGate": {
+        "goals": {
+          "p50": 500,
+          "p95": 1000
+        },
+        "p50Passed": false,
+        "p95Passed": false
+      }
+    },
+    "standaloneWorkflow": {
+      "baseline": {
+        "warm": {
+          "n": 20,
+          "median": 321.15305000002263,
+          "p95": 342.65729999996256,
+          "min": 312.8426000000909,
+          "max": 380.017300000065
+        },
+        "cold": {
+          "n": 3,
+          "median": 327.0167000000365,
+          "p95": 403.94229999999516,
+          "min": 300.40830000001006,
+          "max": 403.94229999999516
+        },
+        "dispatches": [
+          354,
+          354
+        ],
+        "transactions": [
+          6,
+          6
+        ]
+      },
+      "batched": {
+        "warm": {
+          "n": 20,
+          "median": 287.061149999965,
+          "p95": 316.843499999959,
+          "min": 276.1215000000084,
+          "max": 324.3576999999932
+        },
+        "cold": {
+          "n": 3,
+          "median": 289.17319999996107,
+          "p95": 293.92849999992177,
+          "min": 279.8098999999929,
+          "max": 293.92849999992177
+        },
+        "counts": [
+          {
+            "id": "standaloneWorkflow-warm-0-3",
+            "dispatches": 309,
+            "transactions": 6,
+            "terminalDispatches": 0,
+            "terminalTransactions": 0
+          },
+          {
+            "id": "standaloneWorkflow-warm-0-4",
+            "dispatches": 309,
+            "transactions": 6,
+            "terminalDispatches": 0,
+            "terminalTransactions": 0
+          },
+          {
+            "id": "standaloneWorkflow-warm-0-5",
+            "dispatches": 309,
+            "transactions": 6,
+            "terminalDispatches": 0,
+            "terminalTransactions": 0
+          },
+          {
+            "id": "standaloneWorkflow-warm-0-6",
+            "dispatches": 309,
+            "transactions": 6,
+            "terminalDispatches": 0,
+            "terminalTransactions": 0
+          },
+          {
+            "id": "standaloneWorkflow-warm-0-7",
+            "dispatches": 309,
+            "transactions": 6,
+            "terminalDispatches": 0,
+            "terminalTransactions": 0
+          },
+          {
+            "id": "standaloneWorkflow-warm-0-8",
+            "dispatches": 309,
+            "transactions": 6,
+            "terminalDispatches": 0,
+            "terminalTransactions": 0
+          },
+          {
+            "id": "standaloneWorkflow-warm-0-9",
+            "dispatches": 309,
+            "transactions": 6,
+            "terminalDispatches": 0,
+            "terminalTransactions": 0
+          },
+          {
+            "id": "standaloneWorkflow-warm-0-10",
+            "dispatches": 309,
+            "transactions": 6,
+            "terminalDispatches": 0,
+            "terminalTransactions": 0
+          },
+          {
+            "id": "standaloneWorkflow-warm-0-11",
+            "dispatches": 309,
+            "transactions": 6,
+            "terminalDispatches": 0,
+            "terminalTransactions": 0
+          },
+          {
+            "id": "standaloneWorkflow-warm-0-12",
+            "dispatches": 309,
+            "transactions": 6,
+            "terminalDispatches": 0,
+            "terminalTransactions": 0
+          },
+          {
+            "id": "standaloneWorkflow-warm-0-13",
+            "dispatches": 309,
+            "transactions": 6,
+            "terminalDispatches": 0,
+            "terminalTransactions": 0
+          },
+          {
+            "id": "standaloneWorkflow-warm-0-14",
+            "dispatches": 309,
+            "transactions": 6,
+            "terminalDispatches": 0,
+            "terminalTransactions": 0
+          },
+          {
+            "id": "standaloneWorkflow-warm-0-15",
+            "dispatches": 309,
+            "transactions": 6,
+            "terminalDispatches": 0,
+            "terminalTransactions": 0
+          },
+          {
+            "id": "standaloneWorkflow-warm-0-16",
+            "dispatches": 309,
+            "transactions": 6,
+            "terminalDispatches": 0,
+            "terminalTransactions": 0
+          },
+          {
+            "id": "standaloneWorkflow-warm-0-17",
+            "dispatches": 309,
+            "transactions": 6,
+            "terminalDispatches": 0,
+            "terminalTransactions": 0
+          },
+          {
+            "id": "standaloneWorkflow-warm-0-18",
+            "dispatches": 309,
+            "transactions": 6,
+            "terminalDispatches": 0,
+            "terminalTransactions": 0
+          },
+          {
+            "id": "standaloneWorkflow-warm-0-19",
+            "dispatches": 309,
+            "transactions": 6,
+            "terminalDispatches": 0,
+            "terminalTransactions": 0
+          },
+          {
+            "id": "standaloneWorkflow-warm-0-20",
+            "dispatches": 309,
+            "transactions": 6,
+            "terminalDispatches": 0,
+            "terminalTransactions": 0
+          },
+          {
+            "id": "standaloneWorkflow-warm-0-21",
+            "dispatches": 309,
+            "transactions": 6,
+            "terminalDispatches": 0,
+            "terminalTransactions": 0
+          },
+          {
+            "id": "standaloneWorkflow-warm-0-22",
+            "dispatches": 309,
+            "transactions": 6,
+            "terminalDispatches": 0,
+            "terminalTransactions": 0
+          }
+        ],
+        "tracedWarm": {
+          "n": 20,
+          "median": 291.63355000002775,
+          "p95": 326.27309999999125,
+          "min": 282.3810999999987,
+          "max": 359.5744999999879
+        }
+      },
+      "regressionPercent": -10.61546823237558,
+      "stageGate": {
+        "ceilings": {
+          "dispatches": 354,
+          "terminalDispatches": null,
+          "transactions": 6
+        },
+        "minimumWrapperCeilingsPassed": true,
+        "healthySevenToThreeTerminalTransactions": null,
+        "dispatchReductionBeyondMinimumWrappers": null,
+        "originalDemandLedgerAvailable": false,
+        "ownerBatchingInterpretation": "Compare actual original-demand ledgers, owner query observations and SQL templates. A net dispatch difference alone is not per-owner row-write or byte savings."
+      },
+      "latencyGate": {
+        "medianBelow400Ms": true,
+        "comparableRegressionStrictlyBelow10Percent": true
+      }
+    }
+  }
+}

@@ -83,6 +83,15 @@ export default {};`,
     });
   });
 
+  it("keeps import-time crypto blocked despite trusted write-policy hashing", async () => {
+    const definition = makeApplicationAnalysisWorkerDefinition(sourceBundle(
+      `await crypto.subtle.digest("SHA-256", new Uint8Array([1])); export default {};`,
+    ));
+    const response = await makeMiniflare(definition).dispatchFetch("https://analysis.invalid/");
+    const body = decodeColdLoadPair(await response.json());
+    expect(body.first).toMatchObject({ kind: "rejected", failureCode: "forbidden_import_effect" });
+  });
+
   it("does not leak server-only registrations through the values shim", async () => {
     const definition = makeApplicationAnalysisWorkerDefinition(sourceBundle(
       `import { query } from "flarex/values";

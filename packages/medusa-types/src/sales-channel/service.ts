@@ -77,7 +77,7 @@ export interface ISalesChannelModuleService extends IModuleService {
    * @param {FilterableSalesChannelProps} selector - The filters specifying which sales channels to update.
    * @param {UpdateSalesChannelDTO} data - The attributes to update in the sales channel.
    * @param {Context} sharedContext - A context used to share resources, such as transaction manager, between the application and the module.
-   * @returns {Promise<SalesChannelDTO[]>} The updated sales channels.
+   * @returns {Promise<SalesChannelDTO | undefined>} The first updated sales channel, or undefined if no channel matched.
    *
    * @example
    * const salesChannels = await salesChannelModuleService.updateSalesChannels(
@@ -93,7 +93,7 @@ export interface ISalesChannelModuleService extends IModuleService {
     selector: FilterableSalesChannelProps,
     data: UpdateSalesChannelDTO,
     sharedContext?: Context
-  ): Promise<SalesChannelDTO[]>
+  ): Promise<SalesChannelDTO | undefined>
 
   /**
    * This method updates or creates a sales channel if it doesn't exist.

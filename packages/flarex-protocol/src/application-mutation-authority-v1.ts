@@ -9,7 +9,11 @@ import { Data, Effect, Result, Schema } from "effect";
 
 import {
   canonicalizeApplicationRuntimeTargetV1,
+  recanonicalizeApplicationRuntimeTargetV1,
+  decodeApplicationRuntimeTargetV1,
+  applicationRuntimeTargetIdentityWireV1,
   type ApplicationRuntimeTargetV1,
+  type ValidatorIdentityEncoding,
 } from "./application-runtime-target-v1";
 import { encodeCanonicalJson, type JsonObject } from "./json";
 import { CatalogSchemaVersionIdSchema } from "./schema-manifest";
@@ -35,6 +39,7 @@ export interface ApplicationMutationExecutionAuthorityV1 {
 }
 
 export interface CanonicalApplicationMutationExecutionAuthorityV1 {
+  readonly validatorIdentityEncoding: ValidatorIdentityEncoding;
   readonly authority: ApplicationMutationExecutionAuthorityV1;
   readonly authorityJson: JsonObject;
   readonly canonicalBytes: Uint8Array;
@@ -66,8 +71,24 @@ export const canonicalizeApplicationMutationExecutionAuthorityV1 = Effect.fn(
   ApplicationMutationExecutionAuthorityV1Error
 > {
   const captured = yield* Effect.fromResult(captureAuthority(input));
+  const target = yield* Effect.fromResult(canonicalizeApplicationRuntimeTargetV1(captured.runtimeTarget)).pipe(
+    Effect.mapError(cause => failure("invalidRuntimeTarget", cause)));
+  return yield* recanonicalizeApplicationMutationExecutionAuthorityV1({
+    format: APPLICATION_MUTATION_EXECUTION_AUTHORITY_FORMAT_V1,
+    version: APPLICATION_MUTATION_EXECUTION_AUTHORITY_VERSION_V1,
+    ...captured, runtimeTarget: target.target,
+  }, 2);
+});
+
+/** Recheck an already selected immutable authority in its authenticated byte generation. */
+export const recanonicalizeApplicationMutationExecutionAuthorityV1 = Effect.fn(
+  "ApplicationMutationExecutionAuthority.recanonicalizeV1",
+)(function* (input: unknown, validatorIdentityEncoding: ValidatorIdentityEncoding): Effect.fn.Return<
+  CanonicalApplicationMutationExecutionAuthorityV1, ApplicationMutationExecutionAuthorityV1Error
+> {
+  const captured = yield* Effect.fromResult(captureAuthority(input));
   const target = yield* Effect.fromResult(
-    canonicalizeApplicationRuntimeTargetV1(captured.runtimeTarget).pipe(
+    recanonicalizeApplicationRuntimeTargetV1(captured.runtimeTarget, validatorIdentityEncoding).pipe(
       Result.mapError(cause => failure("invalidRuntimeTarget", cause)),
     ),
   );
@@ -84,7 +105,7 @@ export const canonicalizeApplicationMutationExecutionAuthorityV1 = Effect.fn(
   if (runtimeTargetSha256 !== captured.runtimeTargetSha256) {
     return yield* failureEffect("runtimeTargetDigestMismatch");
   }
-  const authorityJson = Object.freeze({
+  const authority = Object.freeze({
     format: APPLICATION_MUTATION_EXECUTION_AUTHORITY_FORMAT_V1,
     version: APPLICATION_MUTATION_EXECUTION_AUTHORITY_VERSION_V1,
     runtimeTarget: target.target,
@@ -92,7 +113,8 @@ export const canonicalizeApplicationMutationExecutionAuthorityV1 = Effect.fn(
     activationSequence: captured.activationSequence,
     activeHeadSha256: captured.activeHeadSha256,
     schemaVersionId: captured.schemaVersionId,
-  }) satisfies JsonObject;
+  });
+  const authorityJson = Object.freeze({ ...authority, runtimeTarget: applicationRuntimeTargetIdentityWireV1(target.target, validatorIdentityEncoding) }) satisfies JsonObject;
   const canonicalBytes = UTF8.encode(encodeCanonicalJson(
     authorityJson,
     issue => {
@@ -110,7 +132,8 @@ export const canonicalizeApplicationMutationExecutionAuthorityV1 = Effect.fn(
   const stableBytes = copyBytes(canonicalBytes);
   const stableSha256 = copyBytes(sha256);
   return Object.freeze({
-    authority: Object.freeze({ ...authorityJson }),
+    validatorIdentityEncoding,
+    authority,
     authorityJson,
     get canonicalBytes(): Uint8Array {
       return copyBytes(stableBytes);
@@ -119,6 +142,18 @@ export const canonicalizeApplicationMutationExecutionAuthorityV1 = Effect.fn(
       return copyBytes(stableSha256);
     },
   } satisfies CanonicalApplicationMutationExecutionAuthorityV1);
+});
+
+/** The stored-program reader supplies an independently decoded historical target. */
+export const readStoredLegacyApplicationMutationExecutionAuthorityV1 = Effect.fn(
+  "ApplicationMutationExecutionAuthority.readStoredLegacyV1",
+)(function* (input: unknown, runtimeTarget: ApplicationRuntimeTargetV1) {
+  const captured = yield* Effect.fromResult(captureAuthority(input));
+  return yield* recanonicalizeApplicationMutationExecutionAuthorityV1({
+    format: APPLICATION_MUTATION_EXECUTION_AUTHORITY_FORMAT_V1,
+    version: APPLICATION_MUTATION_EXECUTION_AUTHORITY_VERSION_V1,
+    ...captured, runtimeTarget,
+  }, 1);
 });
 
 interface CapturedAuthority {
@@ -196,6 +231,22 @@ function captureAuthority(
   });
 }
 
+/** Strict serialized authority ingress; semantic authorities use the builder above. */
+export const canonicalizeApplicationMutationExecutionAuthorityWireV1 = Effect.fn(
+  "ApplicationMutationExecutionAuthority.canonicalizeWireV1",
+)(function* (input: unknown): Effect.fn.Return<
+  CanonicalApplicationMutationExecutionAuthorityV1, ApplicationMutationExecutionAuthorityV1Error
+> {
+  const captured = yield* Effect.fromResult(captureAuthority(input));
+  const runtimeTarget = yield* Effect.fromResult(decodeApplicationRuntimeTargetV1(captured.runtimeTarget)).pipe(
+    Effect.mapError(cause => failure("invalidRuntimeTarget", cause)),
+  );
+  return yield* canonicalizeApplicationMutationExecutionAuthorityV1({
+    format: APPLICATION_MUTATION_EXECUTION_AUTHORITY_FORMAT_V1,
+    version: APPLICATION_MUTATION_EXECUTION_AUTHORITY_VERSION_V1,
+    ...captured, runtimeTarget,
+  });
+});
 function sha256Hex(
   bytes: Uint8Array,
 ): Effect.Effect<string, ApplicationMutationExecutionAuthorityV1Error> {

@@ -1,0 +1,3 @@
+
+> @flarex/persistence-postgres@0.0.1 typecheck C:\Users\Admin\Documents\github\convex-backend\custom\cloudflare-executor\packages\persistence-postgres
+> tsc -p tsconfig.json

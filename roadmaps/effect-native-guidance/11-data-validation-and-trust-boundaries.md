@@ -3,8 +3,7 @@
 Status: active cross-cutting implementation guidance.
 
 Evidence basis: the transaction-grant protocol and executor verification flow
-inspected on 2026-07-16. Re-check current code before an implementation
-preflight.
+inspected on 2026-07-16. Re-check current code before implementation.
 
 ## Decision
 
@@ -201,7 +200,7 @@ the remaining transitional debt:
 - Executor verification owns key, crypto, time, policy, and pin decisions.
   When that flow is Effect-native, prefer a named `Effect.fn`, tagged failures,
   and clear guards inside its dependent orchestration.
-- WeakMap-backed inspectors in `packages/executor/src/transactionGrant.ts`
+- WeakMap-backed inspectors in `packages/executor/src/mutation/authentication/transactionGrant.ts`
   prove process-local capability authenticity. Schema must not replace them.
 - Promise/throw canonicalizers wrapped by broad `tryPromise` catches remain a
   migration seam. Prefer typed Effect-native protocol operations.
@@ -212,8 +211,8 @@ the remaining transitional debt:
   remain an `if`.
 
 This classification is guidance, not authorization to refactor the active
-transaction-grant slice. A behavior-changing port still requires its own
-preflight and focused verification.
+transaction-grant slice. A behavior-changing port must stay within the
+requested scope and receive focused verification.
 
 ## Review Checklist
 

@@ -108,7 +108,7 @@ the cross-boundary parity test.
 
 Files changed:
 
-- `packages/executor/src/deploymentPackages.ts`
+- `packages/executor/src/deployment/deploymentPackages.ts`
 - `packages/executor/src/index.ts`
 - `packages/flarex-backend/package.json`
 - `packages/flarex-backend/test/hostedRuntimeCore.test.ts`

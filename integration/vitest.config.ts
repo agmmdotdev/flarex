@@ -27,7 +27,7 @@ export default defineConfig({
       },
       {
         find: /^@flarex\/persistence-postgres\/pglite$/,
-        replacement: resolve(root, "packages/persistence-postgres/src/pglite.ts"),
+        replacement: resolve(root, "packages/persistence-postgres/src/database/pglite.ts"),
       },
       {
         find: /^@flarex\/persistence-postgres$/,

@@ -39,8 +39,8 @@ describe("executor Worker bundle graph verifier", () => {
     "../../node_modules/.pnpm/@electric-sql+pglite@0.3.14/index.js",
     "../../node_modules/drizzle-orm/pglite/migrator.js",
     "../../node_modules/drizzle-orm/node-postgres/migrator.js",
-    "../../packages/persistence-postgres/src/pglite.ts",
-    "../../packages/persistence-postgres/src/postgres.ts",
+    "../../packages/persistence-postgres/src/database/pglite.ts",
+    "../../packages/persistence-postgres/src/database/postgres.ts",
     "../../packages/persistence-postgres/drizzle/0019_schema.sql",
     "../../packages/persistence-postgres/drizzle.config.ts",
   ])("rejects prohibited persistence input %s", (path) => {
@@ -136,7 +136,7 @@ interface TestBundleMeta {
 const executorInputPath = "../../packages/executor/src/index.ts";
 const fetchAdapterInputPath = "../../packages/executor-http/src/fetch.ts";
 const persistenceInputPath =
-  "../../packages/persistence-postgres/src/postgresClient.ts";
+  "../../packages/persistence-postgres/src/database/postgresClient.ts";
 
 function validMeta(): TestBundleMeta {
   return {

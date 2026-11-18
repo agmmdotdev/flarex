@@ -286,13 +286,13 @@ Use these sources in order:
 
 The most important implementation and prototype-regression evidence is:
 
-- [`../../packages/persistence-postgres/src/schema.ts`](../../packages/persistence-postgres/src/schema.ts)
+- [`../../packages/persistence-postgres/src/database/schema.ts`](../../packages/persistence-postgres/src/database/schema.ts)
   for current legacy plus additive foundation tables;
-- [`../../packages/persistence-postgres/src/commits.ts`](../../packages/persistence-postgres/src/commits.ts)
+- [`../../packages/persistence-postgres/src/commit/commits.ts`](../../packages/persistence-postgres/src/commit/commits.ts)
   for the mixed legacy commit function still awaiting separation;
-- [`../../packages/executor/src/sessions.ts`](../../packages/executor/src/sessions.ts)
+- [`../../packages/executor/src/invocation/sessions.ts`](../../packages/executor/src/invocation/sessions.ts)
   for wall-clock `beginTs` sessions; and
-- [`../../packages/executor/src/types.ts`](../../packages/executor/src/types.ts)
+- [`../../packages/executor/src/invocation/types.ts`](../../packages/executor/src/invocation/types.ts)
   for the broad prototype persistence surface.
 
 ## Hosted Execution Gate

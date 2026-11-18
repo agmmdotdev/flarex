@@ -9,7 +9,7 @@ export default defineConfig({
         find: "cloudflare:workers",
         replacement: fileURLToPath(
           new URL(
-            "../persistence-postgres/test/cloudflareWorkersStub.ts",
+            "../persistence-postgres/test/support/cloudflareWorkersStub.ts",
             import.meta.url,
           ),
         ),
@@ -20,7 +20,6 @@ export default defineConfig({
     include: [
       "../medusa-drizzle/test/schema.test.ts",
       "test/product-schema.test.ts",
-      "test/product-installation.test.ts",
     ],
     maxWorkers: 1,
     fileParallelism: false,

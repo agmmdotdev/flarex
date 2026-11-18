@@ -1,3 +1,7 @@
+import { decodeValidatorJsonWireCoreV1 } from "flarex-protocol/internal/validator-json-core";
+import { isNonArrayRecord } from "@flarex/utils/records";
+import { flarexValueToJsonV1, jsonToFlarexValueV1 } from "flarex-protocol/value";
+import { literalWorkerCodecModuleSource } from "./support/literalWorkerCodecModule";
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { Miniflare } from "miniflare";
 import { createHash } from "node:crypto";
@@ -273,6 +277,35 @@ describe("Application task Worker definition", () => {
     )).rejects.toThrow("ApplicationTaskWorkerMutationBoundaryV1Error");
   }, 20_000);
 
+  it.each([
+    { label: "int64", value: 1n, other: 1, fieldName: "value" },
+    { label: "signed zero with an own __proto__ field", value: -0, other: 0, fieldName: "__proto__" },
+  ])("preserves $label metadata through a real task Worker", async ({ value, other, fieldName }) => {
+    const literal = { type: "literal", value };
+    const payloadValidator = { type: "object", value: Object.fromEntries([
+      [fieldName, { fieldType: literal, optional: false }],
+    ]) };
+    const fixture = taskFixture(
+      `export function run(_ctx, payload) { return payload[${JSON.stringify(fieldName)}]; }`,
+      payloadValidator,
+      literal,
+    );
+    const definition = await buildDefinition(fixture);
+    const payload = Object.fromEntries([[fieldName, value]]);
+    const result = await executeDefinition(definition, requestFor(definition), payload);
+    expect(result).toMatchObject({ kind: "completed", value });
+    if (!isNonArrayRecord(result)) throw new Error("Expected a Task Worker result.");
+    expect(Object.is(result.value, value)).toBe(true);
+    await expect(executeDefinition(
+      definition, requestFor(definition), Object.fromEntries([[fieldName, other]]),
+    )).rejects.toThrow("ApplicationTaskWorkerInputValidationV1Error");
+    const wrongOutput = await buildDefinition(taskFixture(
+      `export function run() { return ${other}; }`, payloadValidator, literal,
+    ));
+    await expect(executeDefinition(wrongOutput, requestFor(wrongOutput), payload))
+      .rejects.toThrow("ApplicationTaskWorkerOutputValidationV1Error");
+  }, 30_000);
+
   it("rejects payload and output validator violations", async () => {
     const fixture = taskFixture(
       "export function run(_ctx, payload) { return payload.name.length; }",
@@ -328,14 +361,16 @@ describe("Application task Worker definition", () => {
     }
   }, 20_000);
 
-  it("embeds canonical definition JSON through JSON.parse", async () => {
+  it("parses embedded wire JSON before rehydrating semantic validators", async () => {
     const definition = await buildDefinition(taskFixture(
       "export function run() { return null; }",
     ));
     const entrypoint = definition.modules[definition.mainModule];
     expect(entrypoint).toBeTypeOf("object");
     expect((entrypoint as { readonly js: string }).js)
-      .toContain("const definition = Object.freeze(JSON.parse(");
+      .toContain("const wireDefinition = JSON.parse(");
+    expect((entrypoint as { readonly js: string }).js)
+      .toContain("payloadValidator: decodeValidatorJsonWireCoreV1(");
   });
 
   it("disposes the input duplicate when query-capability duplication fails", async () => {
@@ -776,7 +811,7 @@ async function executeDefinition(
   enableMutation = false,
   mutationBehavior: "success" | "delayed_failure" = "success",
 ): Promise<unknown> {
-  const encoded = JSON.stringify({ request: requestValue, payload },
+  const encoded = JSON.stringify({ request: requestValue },
     (_key, value: unknown) => {
       if (typeof value === "bigint") return { __bigint: String(value) };
       if (value instanceof Uint8Array) return { __bytes: Array.from(value) };
@@ -792,6 +827,7 @@ async function executeDefinition(
   };
   const outerSource = `
 import { RpcTarget } from "cloudflare:workers";
+import { flarexValueToJsonV1, jsonToFlarexValueV1 } from "./literal-codec.js";
 const workerCode = ${JSON.stringify(workerCode)};
 const input = JSON.parse(${JSON.stringify(encoded)}, (_key, value) =>
   value && typeof value === "object" && Array.isArray(value.__bytes)
@@ -800,8 +836,9 @@ const input = JSON.parse(${JSON.stringify(encoded)}, (_key, value) =>
     ? BigInt(value.__bigint)
     : value
 );
+const payload = jsonToFlarexValueV1(JSON.parse(${JSON.stringify(JSON.stringify(flarexValueToJsonV1(payload)))}));
 class InputCapability extends RpcTarget {
-  read() { return JSON.parse(JSON.stringify(input.payload)); }
+  read() { return structuredClone(payload); }
   [Symbol.dispose]() { globalThis.capabilityDisposals += 1; }
 }
 class QueryCapability extends RpcTarget {
@@ -865,6 +902,7 @@ export default {
       );
       try {
         const projection = { ...structuredClone(result),
+          value: flarexValueToJsonV1(result.value),
           disposals: globalThis.capabilityDisposals,
           queryPath: globalThis.queryPath,
           mutationCalls: globalThis.mutationCalls };
@@ -888,15 +926,16 @@ export default {
 };`;
   const runtime = new Miniflare({
     compatibilityDate: "2026-06-14",
-    modules: true,
-    script: outerSource,
+    modules: [{ type: "ESModule", path: "outer.js", contents: outerSource },
+      { type: "ESModule", path: "literal-codec.js", contents: await literalWorkerCodecModuleSource() }],
     workerLoaders: { LOADER: {} },
   });
   instances.push(runtime);
   const response = await runtime.dispatchFetch("https://application-task.test/");
-  const body = await response.json() as { readonly name?: string };
+  const body: unknown = await response.json();
   if (!response.ok) throw new Error(`Worker failure ${JSON.stringify(body)}`);
-  return body;
+  if (!isNonArrayRecord(body)) throw new Error("Malformed Task Worker fixture response.");
+  return { ...body, value: jsonToFlarexValueV1(body.value) };
 }
 
 async function executeSessionDefinition(
@@ -1301,6 +1340,7 @@ function evaluateGeneratedEntrypoint(source: string): new () =>
   const factory = Function(
     "RpcTarget",
     "WorkerEntrypoint",
+    "decodeValidatorJsonWireCoreV1",
     "executeApplicationTaskWorkerV1",
     "startApplicationTaskWorkerSessionV1",
     executable,
@@ -1308,6 +1348,7 @@ function evaluateGeneratedEntrypoint(source: string): new () =>
   const evaluated: unknown = factory(
     TestRpcTarget,
     TestWorkerEntrypoint,
+    decodeValidatorJsonWireCoreV1,
     () => undefined,
     () => undefined,
   );

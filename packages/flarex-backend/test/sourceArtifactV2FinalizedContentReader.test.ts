@@ -315,6 +315,41 @@ describe("Source Artifact V2 finalized content reader", () => {
     expect(fixture.bucket.bodyAccesses).toBe(3);
   });
 
+  it("authenticates requested map bodies, preserves BOM and enforces map/output budgets", async () => {
+    const sourceMap = "\uFEFF{\"version\":3}";
+    const fixture = await makeSourceFixture("functions/main.js", true, { sourceMap });
+    const reader = makeSourceArtifactV2FinalizedContentReader({ r2: fixture.store, sourceMaps: "read" });
+    const bundle = await Effect.runPromise(makeApplicationAnalysisSourceReader({
+      source: reader, sourceMaps: "read",
+    }).read(encodeBytesToLowercaseHex(fixture.rootDigest)));
+    expect(bundle.modules[0]?.sourceMap).toBe(sourceMap);
+    expect(fixture.bucket.lookupCount).toBe(4);
+
+    fixture.bucket.lookupCount = 0;
+    const mapBudget = await Effect.runPromiseExit(reader.read(fixture.rootDigest,
+      budgetTracker({ sourceMapBytes: BigInt(new TextEncoder().encode(sourceMap).byteLength - 1) })));
+    expect(Exit.isFailure(mapBudget)).toBe(true);
+    if (Exit.isFailure(mapBudget)) expect(Cause.findErrorOption(mapBudget.cause)).toMatchObject({
+      _tag: "Some", value: { _tag: "DeclarativeV2ContentReadBudgetError", dimension: "sourceMapBytes" },
+    });
+    expect(fixture.bucket.lookupCount).toBe(1);
+
+    const outputBudget = await Effect.runPromiseExit(reader.read(fixture.rootDigest, budgetTracker({ outputBytes: 33n })));
+    expect(Exit.isFailure(outputBudget)).toBe(true);
+    if (Exit.isFailure(outputBudget)) expect(Cause.findErrorOption(outputBudget.cause)).toMatchObject({
+      _tag: "Some", value: { _tag: "DeclarativeV2ContentReadBudgetError", dimension: "outputBytes" },
+    });
+
+    const missing = await makeSourceFixture("functions/main.js", true);
+    const missingMap = await Effect.runPromiseExit(makeSourceArtifactV2FinalizedContentReader({
+      r2: missing.store, sourceMaps: "read",
+    }).read(missing.rootDigest, budgetTracker()));
+    expect(Exit.isFailure(missingMap)).toBe(true);
+    if (Exit.isFailure(missingMap)) expect(Cause.findErrorOption(missingMap.cause)).toMatchObject({
+      _tag: "Some", value: { _tag: "SourceArtifactV2R2NotFoundError" },
+    });
+  });
+
   it("classifies hostile and non-intrinsic root digests as typed invalidRoot", async () => {
     const fixture = await makeSourceFixture();
     const proxied = new Proxy(new Uint8Array(32), {});
@@ -397,6 +432,7 @@ async function makeSourceFixture(
     readonly schemaPath?: string;
     readonly functionModuleCount?: bigint;
     readonly source?: string;
+    readonly sourceMap?: string;
   }> = {},
 ) {
   const bucket = new SourceFixtureBucket();
@@ -418,6 +454,16 @@ async function makeSourceFixture(
   const sourceDigest = await digest(sha256, sourceFrame);
   await put(store, "source-block", sourceDigest, sourceFrame);
 
+  const sourceMapBytes = options.sourceMap === undefined ? undefined : new TextEncoder().encode(options.sourceMap);
+  let sourceMapDigest: Uint8Array | null = withSourceMap ? new Uint8Array(32).fill(7) : null;
+  if (sourceMapBytes !== undefined) {
+    const mapFrame = success(sourceArtifactV2BlockFrame("sourceMap", 0n, sourceMapBytes, FRAME_BUDGET)).bytes;
+    const mapDigest = await digest(sha256, mapFrame);
+    sourceMapDigest = mapDigest;
+    await put(store, "source-map-block", mapDigest, mapFrame);
+  }
+  const sourceMapLength = BigInt(sourceMapBytes?.byteLength ?? (withSourceMap ? 10 : 0));
+
   const moduleFrame = success(sourceArtifactV2ModuleFrame({
     ordinal: 0n,
     path,
@@ -428,9 +474,9 @@ async function makeSourceFixture(
     sourceByteLength: BigInt(sourceBytes.byteLength),
     sourceBlockCount: 1n,
     sourceTreeDigest: sourceDigest,
-    sourceMapByteLength: withSourceMap ? 10n : 0n,
-    sourceMapBlockCount: withSourceMap ? 1n : 0n,
-    sourceMapTreeDigest: withSourceMap ? new Uint8Array(32).fill(7) : null,
+    sourceMapByteLength: sourceMapLength,
+    sourceMapBlockCount: sourceMapDigest === null ? 0n : 1n,
+    sourceMapTreeDigest: sourceMapDigest,
   }, FRAME_BUDGET)).bytes;
   const moduleDigest = await digest(sha256, moduleFrame);
   await put(store, "module", moduleDigest, moduleFrame);
@@ -439,7 +485,7 @@ async function makeSourceFixture(
     moduleCount: 1n,
     functionModuleCount: options.functionModuleCount ?? 1n,
     totalSourceBytes: BigInt(sourceBytes.byteLength),
-    totalSourceMapBytes: withSourceMap ? 10n : 0n,
+    totalSourceMapBytes: sourceMapLength,
     moduleTreeDigest: moduleDigest,
     executionPath: path,
     schemaPath: options.schemaPath ?? null,

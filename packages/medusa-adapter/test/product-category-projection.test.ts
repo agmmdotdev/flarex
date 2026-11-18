@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { Result } from "effect";
 import { defaultCommerceResources } from "@flarex/persistence-postgres/internal/commerce-values";
-import { captureCategoryProjection, decodeCategoryProjection } from "../src/product-category-projection";
-import { captureCommerceInput } from "../src/commerce-input";
+import { captureCategoryProjection, decodeCategoryProjection } from "../src/modules/product/category-projection";
+import { captureCommerceInput } from "../src/value/input";
 
 describe("Category projection representation", () => {
   it("round trips own undefined properties without changing null, absence or caller data", () => {

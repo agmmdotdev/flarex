@@ -83,7 +83,7 @@ All paths below refer to the admitted fork at
   unchanged or suppress events and claim compatibility.
 
 Current Flarex definitions in
-[`relationalSchema/model.ts`](../../../packages/persistence-postgres/src/relationalSchema/model.ts)
+[`relationalSchema/model.ts`](../../../packages/flarex-protocol/src/relational-schema/model.ts)
 and its policy/lowering owners carry boolean values/defaults, typed text-set
 checks, partial unique indexes and explicit FK actions. Keyless tables require
 an unconditional non-null unique key. The opaque schema-only commerce profile

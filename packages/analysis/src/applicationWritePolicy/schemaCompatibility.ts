@@ -2,14 +2,21 @@ import { Result } from "effect";
 import type { ValidatorJSON } from "flarex/values";
 import { ApplicationWritePolicyError, type ApplicationWritePolicies } from "./model.ts";
 import type { AnalyzedApplicationRelation } from "../applicationRelationAnalysis.ts";
+import type { DeploymentAnalysis } from "../index.ts";
 
 /** Payload-owned validators and native relation declarations must agree exactly. */
 export function validateApplicationWritePolicySchema(
   policies: ApplicationWritePolicies,
-  tables: ReadonlyArray<Readonly<{ readonly name: string; readonly validator: ValidatorJSON }>>,
+  tables: ReadonlyArray<Readonly<{ readonly tableId: number; readonly name: string; readonly validator: ValidatorJSON }>>,
   relations: ReadonlyArray<AnalyzedApplicationRelation> = [],
+  indexes: DeploymentAnalysis["schema"]["indexes"] = [],
 ): Result.Result<void, ApplicationWritePolicyError> {
   for (const configured of policies.configuration.tables) {
+    const table = tables.find(candidate => candidate.name === configured.logicalTableName);
+    if (configured.indexes?.some(expected => !indexes.some(actual => actual.tableId === table?.tableId &&
+      actual.name === expected.name && actual.decimalFields === undefined && actual.fields.length === expected.fields.length && actual.fields.every((field, position) => field === expected.fields[position])))) {
+      return Result.fail(new ApplicationWritePolicyError({ reason: "configurationMismatch", path: `configuration.tables.${configured.logicalTableName}.indexes` }));
+    }
     const validator = tables.find(table => table.name === configured.logicalTableName)?.validator;
     if (validator?.type !== "object" ||
       Object.keys(validator.value).length !== configured.fields.length ||
@@ -23,7 +30,10 @@ export function validateApplicationWritePolicySchema(
             declared.fieldType.value.type !== "id" || declared.fieldType.value.tableName !== field.target;
         }
         const expected = field.kind === "text" || field.kind === "date" ? "string" : field.kind;
-        return declared === undefined || declared.optional || declared.fieldType.type !== expected;
+        if (declared === undefined || declared.optional) return true;
+        if (field.nullable !== true) return declared.fieldType.type !== expected;
+        return declared.fieldType.type !== "union" || declared.fieldType.value.length !== 2 ||
+          declared.fieldType.value[0]?.type !== expected || declared.fieldType.value[1]?.type !== "null";
       })) {
       return Result.fail(new ApplicationWritePolicyError({
         reason: "configurationMismatch", path: `configuration.tables.${configured.logicalTableName}`,

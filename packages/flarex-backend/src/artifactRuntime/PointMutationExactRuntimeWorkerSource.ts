@@ -14,6 +14,7 @@ import {
 import {
   MAX_POINT_MUTATION_ARGUMENT_ARRAY_SEMANTIC_BYTES_V1,
 } from "flarex-protocol/point-mutation-start";
+import { decodeValidatorJsonV1, encodeValidatorJsonV1 } from "flarex-protocol/validator-json";
 import {
   POINT_MUTATION_EXACT_RUNTIME_WORKER_CORE_SOURCE_V1,
 } from "./PointMutationExactRuntimeWorkerCore.generated.ts";
@@ -22,6 +23,18 @@ export interface PointMutationExactRuntimeWorkerSourceOptions {
   readonly executionModule: string;
   readonly moduleTime: number;
   readonly moduleRandomSeedHex: string;
+}
+
+/** Configuration source uses JSON wire data; the live RPC contract stays semantic. */
+export function pointMutationExactRuntimeFunctionWireV1<Input extends {
+  readonly argsValidator: unknown;
+  readonly returnsValidator: unknown;
+}>(fn: Input) {
+  return {
+    ...fn,
+    argsValidator: encodeValidatorJsonV1(decodeValidatorJsonV1(fn.argsValidator)),
+    returnsValidator: fn.returnsValidator === null ? null : encodeValidatorJsonV1(decodeValidatorJsonV1(fn.returnsValidator)),
+  };
 }
 
 /**

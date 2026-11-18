@@ -1,7 +1,7 @@
 import { compareUtf16Strings } from "@flarex/utils/strings";
 import {
   decodeSchemaManifestAppIndexDeclarationsV1,
-  decodeSchemaManifestAppTableDeclarationsV1,
+  captureSchemaManifestAppTableDeclarationsV1,
   schemaManifestAppValidatorCanContainFieldPathV1,
   type SchemaManifestAppIndexDeclarationInputV1,
   type SchemaManifestAppIndexDeclarationV1,
@@ -9,7 +9,7 @@ import {
   type SchemaManifestAppTableDeclarationInputV1,
   type SchemaManifestAppTableDeclarationV1,
 } from "flarex-protocol/schema-manifest";
-import type { ObjectValidatorJsonV1 } from "flarex-protocol/validator-json";
+import type { DocumentValidatorJsonV1, ValidatorJsonV1 } from "flarex-protocol/validator-json";
 
 import { snapshotApplicationValidatorJson } from "./ValidatorJson.js";
 
@@ -18,10 +18,11 @@ const DRAFT_TABLE_LOGICAL_NAME = "table";
 export interface ApplicationTableIndexDefinition {
   readonly descriptor: string;
   readonly fields: ReadonlyArray<string>;
+  readonly decimalFields?: ReadonlyArray<string>;
 }
 
 export interface ApplicationTableDefinition {
-  readonly documentType: ObjectValidatorJsonV1;
+  readonly documentType: DocumentValidatorJsonV1;
   readonly indexes: ReadonlyArray<ApplicationTableIndexDefinition>;
 }
 
@@ -36,10 +37,10 @@ export interface ApplicationSchemaDefinition {
 }
 
 export function applicationTableDefinition(
-  documentType: ObjectValidatorJsonV1,
+  documentType: DocumentValidatorJsonV1,
 ): ApplicationTableDefinition {
   return Object.freeze({
-    documentType: snapshotObjectValidator(documentType),
+    documentType: snapshotDocumentValidator(documentType),
     indexes: Object.freeze([]),
   });
 }
@@ -66,9 +67,10 @@ export function snapshotApplicationTableDefinition(
       tableLogicalName: DRAFT_TABLE_LOGICAL_NAME,
       descriptor: index.descriptor,
       fields: index.fields,
+      ...(index.decimalFields === undefined ? {} : { decimalFields: index.decimalFields }),
     })),
   );
-  const documentType = snapshotObjectValidator(definition.documentType);
+  const documentType = snapshotDocumentValidator(definition.documentType);
   for (const index of decodedIndexes) {
     requireApplicationIndexFieldsCanExist(
       documentType,
@@ -81,6 +83,7 @@ export function snapshotApplicationTableDefinition(
     indexes: Object.freeze(decodedIndexes.map(index => Object.freeze({
       descriptor: index.descriptor,
       fields: Object.freeze([...index.fields]),
+      ...(index.decimalFields === undefined ? {} : { decimalFields: Object.freeze([...index.decimalFields]) }),
     }))),
   });
 }
@@ -99,7 +102,7 @@ export function applicationSchemaDefinition(
       logicalName,
       definition: {
         kind: "appDocument",
-        definitionVersion: 1,
+        definitionVersion: 2,
         documentType: definition.documentType,
       },
     });
@@ -108,6 +111,7 @@ export function applicationSchemaDefinition(
         tableLogicalName: logicalName,
         descriptor: index.descriptor,
         fields: index.fields,
+        ...(index.decimalFields === undefined ? {} : { decimalFields: index.decimalFields }),
       });
     }
   }
@@ -117,7 +121,7 @@ export function applicationSchemaDefinition(
 export function snapshotApplicationSchemaDefinition(
   input: ApplicationSchemaDefinitionInput,
 ): ApplicationSchemaDefinition {
-  const decodedTables = decodeSchemaManifestAppTableDeclarationsV1(input.tables);
+  const decodedTables = captureSchemaManifestAppTableDeclarationsV1(input.tables);
   const decodedIndexes = decodeSchemaManifestAppIndexDeclarationsV1(input.indexes);
   const tablesByLogicalName = new Map(
     decodedTables.map(table => [table.logicalName, table] as const),
@@ -143,14 +147,7 @@ export function snapshotApplicationSchemaDefinition(
     );
   }
 
-  const tables = decodedTables.map(table => Object.freeze({
-    logicalName: table.logicalName,
-    definition: Object.freeze({
-      kind: "appDocument" as const,
-      definitionVersion: 1 as const,
-      documentType: snapshotObjectValidator(table.definition.documentType),
-    }),
-  }));
+  const tables = decodedTables.map(snapshotTableDeclaration);
   tables.sort((left, right) =>
     compareUtf16Strings(left.logicalName, right.logicalName)
   );
@@ -159,6 +156,7 @@ export function snapshotApplicationSchemaDefinition(
     tableLogicalName: index.tableLogicalName,
     descriptor: index.descriptor,
     fields: Object.freeze([...index.fields]),
+    ...(index.decimalFields === undefined ? {} : { decimalFields: Object.freeze([...index.decimalFields]) }),
   }));
   indexes.sort((left, right) => {
     const table = compareUtf16Strings(
@@ -176,18 +174,31 @@ export function snapshotApplicationSchemaDefinition(
   });
 }
 
-function snapshotObjectValidator(
-  documentType: ObjectValidatorJsonV1,
-): ObjectValidatorJsonV1 {
+function snapshotDocumentValidator(
+  documentType: ValidatorJsonV1,
+): DocumentValidatorJsonV1 {
   const snapshot = snapshotApplicationValidatorJson(documentType);
-  if (snapshot.type !== "object") {
-    throw new TypeError("Application table definitions require an object validator.");
+  if (snapshot.type === "object" || snapshot.type === "any") return snapshot;
+  if (snapshot.type === "union" && snapshot.value.every(member => member.type === "object")) {
+    return Object.freeze({ type: "union", value: Object.freeze(snapshot.value.filter(member => member.type === "object")) });
   }
-  return snapshot;
+  throw new TypeError("Application table definitions require any, an object, or a union of objects.");
+}
+
+function snapshotTableDeclaration(table: SchemaManifestAppTableDeclarationV1): SchemaManifestAppTableDeclarationV1 {
+  if (table.definition.definitionVersion === 1) {
+    const documentType = snapshotApplicationValidatorJson(table.definition.documentType);
+    if (documentType.type !== "object") throw new TypeError("Historical Application definitions require an object validator.");
+    return Object.freeze({ logicalName: table.logicalName,
+      definition: Object.freeze({ kind: "appDocument", definitionVersion: 1, documentType }) });
+  }
+  return Object.freeze({ logicalName: table.logicalName,
+    definition: Object.freeze({ kind: "appDocument", definitionVersion: 2,
+      documentType: snapshotDocumentValidator(table.definition.documentType) }) });
 }
 
 function requireApplicationIndexFieldsCanExist(
-  documentType: ObjectValidatorJsonV1,
+  documentType: ValidatorJsonV1,
   descriptor: string,
   fields: ReadonlyArray<SchemaManifestAppIndexFieldPath>,
 ): void {

@@ -2,7 +2,8 @@
  * Source: packages/database/drizzle/src/medusa.ts at 48d5cc675e4e8bc821e22c20c88a751acc66fb5f.
  * toPopulateTree, projectRowFields and the grouping portions of
  * loadHasManyRelation/loadManyToManyRelation retain their source algorithms.
- * Reads, mutation of parent rows and SQL descriptors are left to the caller.
+ * The native fillEmptyToManyRelations initialization mutates detached creation
+ * results; reads and SQL descriptors remain with the caller.
  */
 import type { DatabaseColumn, DatabaseRelationship } from "./schema"
 
@@ -135,4 +136,164 @@ export function projectRowFields<Value>(
     if (fields.has(field)) projected[field] = value
   }
   return projected
+}
+
+/** Pinned preservePrimaryKeyOrFilterOrder and its two selector helpers from
+ * medusa.ts. Only the row generic and explicit key guard adapt their types;
+ * default/id-ASC filter ordering retains the native in-place algorithm. */
+export function preservePrimaryKeyOrFilterOrder<Row extends Record<string, unknown>>(
+  rows: Row[],
+  where: unknown,
+  primaryKeys: readonly string[],
+  ordering: ReadonlyArray<readonly [string, "ASC" | "DESC"]>
+): Row[] {
+  const primaryKey = primaryKeys[0]
+  if (primaryKeys.length !== 1 || primaryKey === undefined ||
+    !canPreservePrimaryKeyOrFilterOrder(ordering, primaryKey)) {
+    return rows
+  }
+  const orderedPrimaryKeys = primaryKeyOrderFromFilter(where, primaryKey)
+  if (!orderedPrimaryKeys.length) return rows
+  const orderByPrimaryKey = new Map(
+    orderedPrimaryKeys.map((key, index) => [key, index])
+  )
+  return rows.sort((left, right) => {
+    const leftOrder = orderByPrimaryKey.get(String(left[primaryKey]))
+    const rightOrder = orderByPrimaryKey.get(String(right[primaryKey]))
+    if (leftOrder === undefined && rightOrder === undefined) return 0
+    if (leftOrder === undefined) return 1
+    if (rightOrder === undefined) return -1
+    return leftOrder - rightOrder
+  })
+}
+
+function canPreservePrimaryKeyOrFilterOrder(
+  ordering: ReadonlyArray<readonly [string, "ASC" | "DESC"]>, primaryKey: string
+): boolean {
+  return !ordering.length || (ordering.length === 1 &&
+    ordering[0]?.[0] === primaryKey && ordering[0][1] === "ASC")
+}
+
+function primaryKeyOrderFromFilter(where: unknown, primaryKey: string): string[] {
+  if (!where || typeof where !== "object" || Array.isArray(where)) return []
+  const orFilter = Reflect.get(where, "$or")
+  if (Array.isArray(orFilter)) return orFilter.flatMap(entry => primaryKeyOrderFromFilter(entry, primaryKey))
+  const value = Reflect.get(where, primaryKey)
+  if (Array.isArray(value)) return value.filter(entry => typeof entry === "string" || typeof entry === "number").map(String)
+  if (typeof value === "string" || typeof value === "number") return [String(value)]
+  return []
+}
+
+/** Native zero-to-many initialization for detached creation results. This does
+ * not load or validate relation members and grants no relationship capability. */
+export function fillEmptyToManyRelations(
+  rows: Record<string, unknown>[],
+  descriptors: ReadonlyMap<string, { readonly relationship: Pick<DatabaseRelationship, "type"> }>
+): void {
+  for (const row of rows) {
+    for (const [relationName, descriptor] of descriptors) {
+      if (
+        relationName in row ||
+        (descriptor.relationship.type !== "hasMany" &&
+          descriptor.relationship.type !== "manyToMany")
+      ) {
+        continue
+      }
+
+      row[relationName] = []
+    }
+  }
+}
+
+/** Native nullable to-one initialization on detached creation results. */
+export function fillNullToOneRelations(
+  rows: Record<string, unknown>[],
+  descriptors: ReadonlyMap<string, {
+    readonly relationship: Pick<DatabaseRelationship, "type" | "nullable">
+    readonly ownerForeignKeys: readonly string[]
+  }>
+): void {
+  for (const row of rows) {
+    for (const [relationName, descriptor] of descriptors) {
+      if (
+        relationName in row ||
+        (descriptor.relationship.type !== "belongsTo" &&
+          descriptor.relationship.type !== "hasOneWithFK") ||
+        !descriptor.relationship.nullable ||
+        !descriptor.ownerForeignKeys.length
+      ) {
+        continue
+      }
+
+      if (
+        descriptor.ownerForeignKeys.every(
+          (foreignKey) => row[foreignKey] === null
+        )
+      ) {
+        row[relationName] = null
+      }
+    }
+  }
+}
+
+/** Metadata-only native descriptor seam; SQL tables/managers are not required
+ * to resolve relation paths to real scalar projection fields. */
+export interface ScalarFieldRelationDescriptor {
+  readonly targetModel: { parse(): { schema: Readonly<Record<string, unknown>> } }
+  readonly relationship: { readonly targetModel: string }
+}
+
+/** Exact native relationScalarFieldPaths algorithm from medusa.ts. Only its
+ * SQL-bearing descriptor types are replaced by the metadata-only seam above. */
+export function relationScalarFieldPaths(
+  populate: string[] | boolean | undefined,
+  descriptors: ReadonlyMap<string, ScalarFieldRelationDescriptor>,
+  descriptorsByModel: ReadonlyMap<string, ReadonlyMap<string, ScalarFieldRelationDescriptor>>
+): string[] {
+  if (!Array.isArray(populate)) {
+    return []
+  }
+
+  const fields: string[] = []
+  for (const path of populate) {
+    const parts = path.split(".").filter(Boolean)
+    let currentDescriptors = descriptors
+    const relationParts: string[] = []
+    let currentModel: ScalarFieldRelationDescriptor["targetModel"] | undefined
+
+    for (let index = 0; index < parts.length; index++) {
+      const part = parts[index]
+      const descriptor = currentDescriptors.get(part)
+      if (!descriptor) {
+        if (relationParts.length) {
+          fields.push([...relationParts, part].join("."))
+          if (
+            currentModel &&
+            part.startsWith("raw_") &&
+            part.slice(4) in currentModel.parse().schema
+          ) {
+            fields.push([...relationParts, part.slice(4)].join("."))
+          }
+
+          const virtualField = parts[parts.length - 1]
+          if (
+            currentModel &&
+            index < parts.length - 1 &&
+            virtualField in currentModel.parse().schema
+          ) {
+            fields.push([...relationParts, virtualField].join("."))
+          }
+        }
+        break
+      }
+
+      relationParts.push(part)
+      currentModel = descriptor.targetModel
+      currentDescriptors =
+        descriptorsByModel.get(descriptor.relationship.targetModel) ??
+        new Map()
+    }
+  }
+
+  return fields
 }

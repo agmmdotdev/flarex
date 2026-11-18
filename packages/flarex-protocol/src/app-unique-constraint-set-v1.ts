@@ -1,5 +1,5 @@
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
-import { Result, Schema } from "effect";
+import { Data, Effect, Result, Schema } from "effect";
 
 import {
   CatalogTableIdSchema,
@@ -136,11 +136,20 @@ export interface CanonicalAppUniqueConstraintSetV1 {
   readonly sha256Hex: AppUniqueConstraintSetSha256HexV1;
 }
 
+export class AppUniqueConstraintSetCanonicalizationError extends Data.TaggedError(
+  "AppUniqueConstraintSetCanonicalizationError",
+)<{
+  readonly reason: "invalidMembers" | "canonicalBytesExceeded" | "digestUnavailable";
+  readonly cause?: unknown;
+}> {}
+
 /** Canonical target-native commitment to one schema version's complete set. */
-export async function canonicalizeAppUniqueConstraintSetV1(
+export const canonicalizeAppUniqueConstraintSetV1 = Effect.fn("AppUniqueConstraintSet.canonicalize")(function* (
   value: unknown,
-): Promise<CanonicalAppUniqueConstraintSetV1> {
-  const decoded = Result.getOrThrow(decodeMembersResult(value));
+): Effect.fn.Return<CanonicalAppUniqueConstraintSetV1, AppUniqueConstraintSetCanonicalizationError> {
+  const decoded = yield* Effect.fromResult(decodeMembersResult(value)).pipe(
+    Effect.mapError(cause => new AppUniqueConstraintSetCanonicalizationError({ reason: "invalidMembers", cause })),
+  );
   const members = Array.from(decoded, snapshotMember).toSorted(compareMembers);
   const canonicalText =
     `{"format":"flarexdb-app-unique-constraint-set",` +
@@ -148,12 +157,18 @@ export async function canonicalizeAppUniqueConstraintSetV1(
     `"setCodecVersion":1}`;
   const bytes = new TextEncoder().encode(canonicalText);
   if (bytes.byteLength > MAX_CANONICAL_APP_UNIQUE_CONSTRAINT_SET_BYTES_V1) {
-    throw new RangeError("Canonical unique-constraint set exceeds its byte limit.");
+    return yield* Effect.fail(new AppUniqueConstraintSetCanonicalizationError({ reason: "canonicalBytesExceeded" }));
   }
   const digestInput = new ArrayBuffer(bytes.byteLength);
   new Uint8Array(digestInput).set(bytes);
-  const digest = new Uint8Array(
-    await crypto.subtle.digest("SHA-256", digestInput),
+  const digest = yield* Effect.tryPromise({
+    try: () => crypto.subtle.digest("SHA-256", digestInput),
+    catch: cause => new AppUniqueConstraintSetCanonicalizationError({ reason: "digestUnavailable", cause }),
+  });
+  const sha256Hex = yield* Effect.fromResult(
+    decodeSha256HexResult(encodeBytesToLowercaseHex(new Uint8Array(digest))),
+  ).pipe(
+    Effect.mapError(cause => new AppUniqueConstraintSetCanonicalizationError({ reason: "digestUnavailable", cause })),
   );
   return Object.freeze({
     codecVersion: APP_UNIQUE_CONSTRAINT_SET_CODEC_VERSION_V1,
@@ -163,11 +178,9 @@ export async function canonicalizeAppUniqueConstraintSetV1(
     canonicalBytesHex: Result.getOrThrow(
       decodeCanonicalBytesHexResult(encodeBytesToLowercaseHex(bytes)),
     ),
-    sha256Hex: Result.getOrThrow(
-      decodeSha256HexResult(encodeBytesToLowercaseHex(digest)),
-    ),
+    sha256Hex,
   });
-}
+});
 
 export function appUniqueConstraintSetSha256HexV1ToBytes(
   value: AppUniqueConstraintSetSha256HexV1,

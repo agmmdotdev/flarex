@@ -1,0 +1,133 @@
+{
+  "runtimeBase": "4ae75a35b4bdef52d131e20998f3d402ff601d2f",
+  "primaryFreshAttempts": 34,
+  "otherProfilesFreshAttempts": 44,
+  "profiles": [
+    {
+      "profile": "mixed-product",
+      "runId": "dd95ff04-c138-4eb6-9e7a-949058c650cd",
+      "rawBytes": 131900636,
+      "gzipBytes": 4777491,
+      "rawSha256": "aba901ed9f9efb4748443ae7b3f58e02478f137907a758767daa3a94163a4188",
+      "gzipSha256": "61a4f62805a81ac0c3c8d6f26ee89f577aa5b4a52bd53215a44982cfcc32c6e3",
+      "source": {
+        "before": "628e120d5c14a49d25aa6391d63bc2b619a3865e48fc88a41160024bb9681c9e",
+        "after": "628e120d5c14a49d25aa6391d63bc2b619a3865e48fc88a41160024bb9681c9e",
+        "files": 2592
+      },
+      "observerPairs": 10,
+      "warmups": 5,
+      "diagnosticExchanges": [
+        40,
+        40,
+        40,
+        40,
+        40,
+        40,
+        40,
+        40,
+        40,
+        40
+      ]
+    },
+    {
+      "profile": "mixed-product-refined",
+      "runId": "45093f77-852b-4c18-8198-dfcf86c6569c",
+      "rawBytes": 26708667,
+      "gzipBytes": 984989,
+      "rawSha256": "8fdd7539fe9f754484b38a7ece7e6f8f203ba536e4dd7008401b960ee4b3dabf",
+      "gzipSha256": "78ac095c9d9a9a03335115a3068f5e11eb397a681aae6bc1818ae2407af7129f",
+      "source": {
+        "before": "71190d95fd52e47446831ac31afbfb063ed3cd9f4c14b7518d4c191a29445e7f",
+        "after": "71190d95fd52e47446831ac31afbfb063ed3cd9f4c14b7518d4c191a29445e7f",
+        "files": 2592
+      },
+      "observerPairs": 2,
+      "warmups": 5,
+      "diagnosticExchanges": [
+        40,
+        40
+      ]
+    },
+    {
+      "profile": "payload-create",
+      "runId": "19db7237-0cf7-4210-9961-b828e2bb6d04",
+      "rawBytes": 21580863,
+      "gzipBytes": 760015,
+      "rawSha256": "dcf3927ab0e7b723bfdbdc642578f82b551c38c2ede4ca356ce821b1aa25df37",
+      "gzipSha256": "2b52ed88e451b1e1fdbd9e4558712cb6ed8cc0da6d5cfba2f2c2a60012821501",
+      "source": {
+        "before": "a76699a0fafbced15d3536f0d980f732bc013be28f133903221524de182d6e01",
+        "after": "a76699a0fafbced15d3536f0d980f732bc013be28f133903221524de182d6e01",
+        "files": 2592
+      },
+      "observerPairs": 3,
+      "warmups": 5,
+      "diagnosticExchanges": [
+        111,
+        111,
+        111
+      ]
+    },
+    {
+      "profile": "medusa-workflow",
+      "runId": "7477afd2-8246-489d-a0a6-c21ebf6b7327",
+      "rawBytes": 151633641,
+      "gzipBytes": 4289961,
+      "rawSha256": "cdb674e3334f9351a934078ccc2d83a8c8bd97810a9a8947222a29d915670002",
+      "gzipSha256": "7e4b04d39c523674d5c3e377544f19247f38c87810cb23dc8ad343570e84a419",
+      "source": {
+        "before": "a76699a0fafbced15d3536f0d980f732bc013be28f133903221524de182d6e01",
+        "after": "a76699a0fafbced15d3536f0d980f732bc013be28f133903221524de182d6e01",
+        "files": 2592
+      },
+      "observerPairs": 3,
+      "warmups": 5,
+      "diagnosticExchanges": [
+        252,
+        252,
+        252
+      ]
+    },
+    {
+      "profile": "mixed-payload",
+      "runId": "7c1097c3-1b5e-415f-80c3-642c4c56d88b",
+      "rawBytes": 44275955,
+      "gzipBytes": 1650945,
+      "rawSha256": "470a0c36b367b3c730588bb9251c48e43f3386b8ec0b8bbc4504efa5fee95cab",
+      "gzipSha256": "407b56d9d07bd22807fe827290e9fd6020678e520913ea13f9586422d6f22f75",
+      "source": {
+        "before": "a76699a0fafbced15d3536f0d980f732bc013be28f133903221524de182d6e01",
+        "after": "a76699a0fafbced15d3536f0d980f732bc013be28f133903221524de182d6e01",
+        "files": 2592
+      },
+      "observerPairs": 3,
+      "warmups": 5,
+      "diagnosticExchanges": [
+        42,
+        42,
+        42
+      ]
+    },
+    {
+      "profile": "mixed-workflow",
+      "runId": "bb0d0765-7fdf-44d8-a9ef-4e1395691e8a",
+      "rawBytes": 109189106,
+      "gzipBytes": 3748867,
+      "rawSha256": "5777e49ed7ac468899ba91d607dbea5faf13146b825e2242d7c96b70b65759c1",
+      "gzipSha256": "e474bf9caf647b361c5cc89c1a14907b86990864fca67d45603450d74fc3a18f",
+      "source": {
+        "before": "a76699a0fafbced15d3536f0d980f732bc013be28f133903221524de182d6e01",
+        "after": "a76699a0fafbced15d3536f0d980f732bc013be28f133903221524de182d6e01",
+        "files": 2592
+      },
+      "observerPairs": 3,
+      "warmups": 5,
+      "diagnosticExchanges": [
+        58,
+        58,
+        58
+      ]
+    }
+  ]
+}

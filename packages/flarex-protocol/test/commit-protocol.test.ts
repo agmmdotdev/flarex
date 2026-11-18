@@ -1,5 +1,5 @@
-import { Effect, Encoding, Result, Schema } from "effect";
-import { describe, expect, it } from "vitest";
+import { Cause, Effect, Encoding, Exit, Result, Schema } from "effect";
+import { describe, expect, it, vi } from "vitest";
 
 import * as protocolRoot from "../src/index";
 import * as commitProtocolLeaf from "flarex-protocol/commit-protocol";
@@ -18,6 +18,9 @@ import {
   CommitReadDocumentsV1Schema,
   CommitReadSemanticBytesV1Schema,
   CommitSyscallSequenceV1Schema,
+  AdmittedParticipantOperationSchema,
+  authenticatedGeneratedInsertionsResult,
+  GeneratedInsertionIntentsSchema,
   MAX_COMMIT_POINT_READ_DEPENDENCIES_V1,
   MAX_COMMIT_RELATION_BASE_OCCURRENCES_V1,
   MAX_COMMIT_RELATION_READ_DEPENDENCIES_V1,
@@ -29,25 +32,27 @@ import {
   MAX_COMMIT_RESULT_SEMANTIC_BYTES_V1,
   MAX_COMMIT_WRITE_OPERATIONS_V1,
   MAX_COMMIT_WRITE_SEMANTIC_BYTES_V1,
-  SESSION_JOURNAL_FORMAT_V1,
+  MetadataSequenceSchema,
+  FiniteMetadataConflictSchema,
+  SESSION_JOURNAL_FORMAT,
   SuccessfulResultSha256HexV1Schema,
-  canonicalizeSessionJournalV1Effect,
+  canonicalizeSessionJournalEffect,
   canonicalizeSuccessfulResultV1Effect,
-  decodeCanonicalSessionJournalV1Effect,
+  readIssuedCanonicalSuccessfulResultV1,
+  decodeCanonicalSessionJournalEffect,
   decodeCommitEnvelopeV1Effect,
-  inspectInlineUntrustedJournalIntegrityV1Effect,
   makeCommitEnvelopeV1Effect,
   measureLogicalIndexRangeReadDependencyEvidenceBytesV1Result,
   normalizeLogicalIndexRangeReadDependenciesV1Result,
   requireStoredForSessionAttemptCommitEnvelopeV1Effect,
   verifySuccessfulResultEvidenceV1Effect,
-  type CanonicalSessionJournalV1,
+  type CanonicalSessionJournal,
   type CanonicalSuccessfulResultV1,
   type CommitEnvelopeV1,
   type CommitProtocolV1Issue,
   type LogicalAppWriteV1,
   type LogicalReadDependencyV1,
-  type SessionJournalV1,
+  type SessionJournal,
 } from "../src/commit-protocol";
 import {
   decodeAppDocumentIdV1,
@@ -74,7 +79,7 @@ import {
   TransactionAttemptFenceSchema,
   decodeTransactionSessionIdV1,
 } from "../src/transaction-session";
-import { FLAREX_VALUE_CODEC_VERSION_V1 } from "../src/value";
+import { FLAREX_VALUE_CODEC_VERSION_V1, isCanonicalFlarexRuntimeObjectV1 } from "../src/value";
 
 const SESSION_ID = decodeTransactionSessionIdV1(
   "018f22e2-58cc-7b2a-91d8-f3f3401a0874",
@@ -85,8 +90,89 @@ const DOCUMENT_B = documentId(2);
 const encodeCommitEnvelope = Schema.encodeSync(CommitEnvelopeV1Schema);
 
 describe("commit protocol C02", () => {
+  it("preserves retained participant bytes without inferring insertion origin", async () => {
+    for (const version of [1, 2]) {
+      const operation = insertionOperation({ format: "flarex.logical-participant-evidence", version,
+        indexRanges: [], indexPages: [], uniqueReads: [],
+        ...(version === 2 ? { metadataWatermark: "0", metadataDependencies: [] } : {}) });
+      const canonical = await runEffect(canonicalizeSessionJournalEffect({
+        ...sessionJournal({ finalSyscallSequence: 1n, readDependencies: [missingDependency(DOCUMENT_A)] }),
+        participantOperations: [operation],
+      }));
+      const restored = await runEffect(decodeCanonicalSessionJournalEffect({
+        canonicalBytes: canonical.canonicalBytes, expectedSha256Hex: canonical.sha256Hex,
+      }));
+      const intents = Result.getOrThrow(authenticatedGeneratedInsertionsResult(restored.journal.participantOperations));
+      expect(intents.size).toBe(0);
+      expect(restored.journal.readDependencies).toEqual([missingDependency(DOCUMENT_A)]);
+      const repeated = await runEffect(canonicalizeSessionJournalEffect(restored.journal));
+      expect(repeated.canonicalBytes).toEqual(canonical.canonicalBytes);
+      expect(repeated.sha256Hex).toBe(canonical.sha256Hex);
+      expect(repeated.canonicalText).not.toContain('"generatedInsertions"');
+    }
+  });
+
+  it("correlates explicit insertion intent while retaining an independent same-ID read", async () => {
+    const identity = decodeAppDocumentIdentityV1(DOCUMENT_A);
+    const intent = { documentId: DOCUMENT_A, tableId: identity.tableId, rowId: identity.rowId, effectOrdinal: 0 };
+    const operation = insertionOperation({ generatedInsertions: [intent] });
+    const journal = await runEffect(canonicalizeSessionJournalEffect({
+      ...sessionJournal({ finalSyscallSequence: 1n, readDependencies: [missingDependency(DOCUMENT_A)] }),
+      participantOperations: [operation],
+    }));
+    const intents = Result.getOrThrow(authenticatedGeneratedInsertionsResult(journal.journal.participantOperations));
+    expect([...intents.values()]).toEqual([{ ...intent,
+      origin: { syscallSequence: 1n, sourceBindingSha256Hex: "a".repeat(64) } }]);
+    expect(journal.journal.readDependencies).toEqual([missingDependency(DOCUMENT_A)]);
+  });
+
+  it("refuses mismatched insertion identity, event ordinal, duplicate origin and overflow", () => {
+    const identity = decodeAppDocumentIdentityV1(DOCUMENT_A);
+    const intent = { documentId: DOCUMENT_A, tableId: identity.tableId, rowId: identity.rowId, effectOrdinal: 0 };
+    expect(authenticatedGeneratedInsertionsResult([insertionOperation({ generatedInsertions: [intent] })]))
+      .toMatchObject({ _tag: "Success" });
+    for (const generatedInsertions of [
+      [{ ...intent, tableId: decodeCatalogTableId(2) }],
+      [{ ...intent, rowId: decodeAppDocumentIdentityV1(DOCUMENT_B).rowId }],
+      [{ ...intent, effectOrdinal: 1 }], [intent, intent],
+    ]) {
+      expect(authenticatedGeneratedInsertionsResult([insertionOperation({ generatedInsertions })]))
+        .toMatchObject({ _tag: "Failure", failure: { issue: { reason: "invalidSchema", component: "journal" } } });
+    }
+    expect(Schema.decodeUnknownResult(GeneratedInsertionIntentsSchema)(
+      Array.from({ length: MAX_COMMIT_POINT_READ_DEPENDENCIES_V1 + 1 }, () => intent),
+    )).toMatchObject({ _tag: "Failure" });
+  });
+
+  it("retains canonical consumed metadata at syscall zero only with a finite reservation", async () => {
+    const dependency = { kind: "metadata", namespace: "binding", ownerKey: "medusa.product",
+      contractKey: '["accessFamily","product","ordered","title"]',
+      capturedWatermark: Schema.decodeUnknownSync(MetadataSequenceSchema)("7"), observed: { kind: "missing" } } as const;
+    const journal = { ...sessionJournal({ finalSyscallSequence: 0n, readDependencies: [dependency, dependency] }),
+      finiteMetadataReservationSha256Hex: "a".repeat(64) };
+    const canonical = await runEffect(canonicalizeSessionJournalEffect(journal));
+    expect(canonical.journal.readDependencies).toEqual([dependency]);
+    expect(canonical.canonicalText).toContain('"capturedWatermark":"7"');
+    expect((await runEffect(decodeCanonicalSessionJournalEffect({ canonicalBytes: canonical.canonicalBytes,
+      expectedSha256Hex: canonical.sha256Hex }))).journal.readDependencies).toEqual([dependency]);
+    expect(await runEffect(Effect.result(canonicalizeSessionJournalEffect(sessionJournal({
+      finalSyscallSequence: 0n, readDependencies: [dependency],
+    }))))).toMatchObject({ _tag: "Failure" });
+    expect(await runEffect(Effect.result(canonicalizeSessionJournalEffect({ ...journal,
+      readDependencies: [dependency, { ...dependency, observed: { kind: "present", semanticSha256Hex: "b".repeat(64) } }],
+    })))).toMatchObject({ _tag: "Failure" });
+  });
+  it("requires a strict, advancing metadata conflict witness independently of data sequences", () => {
+    const witness = { kind: "metadata", namespace: "application", ownerKey: "application", contractKey: '["function","users:create"]',
+      capturedMetadataWatermark: "5", lastChangedMetadataSequence: "6" };
+    expect(Schema.decodeUnknownResult(FiniteMetadataConflictSchema)(witness)).toMatchObject({ _tag: "Success" });
+    expect(Schema.decodeUnknownResult(FiniteMetadataConflictSchema)({ ...witness, lastChangedMetadataSequence: "5" }))
+      .toMatchObject({ _tag: "Failure" });
+    expect(Schema.decodeUnknownResult(FiniteMetadataConflictSchema)({ ...witness, unexpected: true }))
+      .toMatchObject({ _tag: "Failure" });
+  });
   it("pins canonical journal bytes and digest with result evidence outside the journal", async () => {
-    const canonical = await runEffect(canonicalizeSessionJournalV1Effect(
+    const canonical = await runEffect(canonicalizeSessionJournalEffect(
       sessionJournal({
         finalSyscallSequence: 2n,
         readDependencies: [presentDependency(DOCUMENT_A, 4n)],
@@ -100,8 +186,10 @@ describe("commit protocol C02", () => {
     ));
 
     expect(canonical.canonicalText).toBe(
-      `{"finalSyscallSequence":"2","format":"${SESSION_JOURNAL_FORMAT_V1}",` +
-      '"protocolVersion":1,"readDependencies":[{' +
+      `{"finalSyscallSequence":"2","format":"${SESSION_JOURNAL_FORMAT}",` +
+      '"operationUsage":{"participantWorkBytes":0,"participantWorkCalls":0,' +
+      '"receiptEvidenceBytes":0},' +
+      '"participantOperations":[],"protocolVersion":1,"readDependencies":[{' +
       `"documentId":"${DOCUMENT_A}","kind":"appRowPoint",` +
       '"observed":{"kind":"present","revisionCommitSeq":"4"}}],' +
       '"readUsage":{"documentsRead":1,"semanticBytesRead":128},' +
@@ -112,7 +200,7 @@ describe("commit protocol C02", () => {
       '"resultingDocumentSemanticBytes":256,"syscallSequence":"2"}]}',
     );
     expect(canonical.sha256Hex).toBe(
-      "c7a2943641a9ed1df5e8418378a035f518a69529d1eb3e937d442482217f0429",
+      "c7bc3855b347844b0a1d15d347e8d46eb8d99f4d2dc2e19f80e74b4992cbce1d",
     );
     expect(canonical.journal).not.toHaveProperty("successfulResult");
 
@@ -127,7 +215,7 @@ describe("commit protocol C02", () => {
   });
 
   it("canonicalizes dependency, write, and patch permutations identically", async () => {
-    const first = await runEffect(canonicalizeSessionJournalV1Effect(
+    const first = await runEffect(canonicalizeSessionJournalEffect(
       sessionJournal({
         finalSyscallSequence: 3n,
         readDependencies: [
@@ -143,7 +231,7 @@ describe("commit protocol C02", () => {
         ],
       }),
     ));
-    const second = await runEffect(canonicalizeSessionJournalV1Effect(
+    const second = await runEffect(canonicalizeSessionJournalEffect(
       sessionJournal({
         finalSyscallSequence: 3n,
         readDependencies: [
@@ -178,7 +266,7 @@ describe("commit protocol C02", () => {
         inclusive: true,
       },
     });
-    const canonical = await runEffect(canonicalizeSessionJournalV1Effect(
+    const canonical = await runEffect(canonicalizeSessionJournalEffect(
       sessionJournal({
         finalSyscallSequence: 1n,
         readDependencies: [range],
@@ -193,12 +281,14 @@ describe("commit protocol C02", () => {
       '"rowId":"00000000000000000000000000000001"}}';
     expect(canonical.canonicalText).toBe(
       '{"finalSyscallSequence":"1","format":"flarex.session-journal",' +
-      '"protocolVersion":1,"readDependencies":[' + rangeCanonicalText +
+      '"operationUsage":{"participantWorkBytes":0,"participantWorkCalls":0,' +
+      '"receiptEvidenceBytes":0},' +
+      '"participantOperations":[],"protocolVersion":1,"readDependencies":[' + rangeCanonicalText +
       '],"readUsage":{"documentsRead":0,"semanticBytesRead":0},' +
       '"valueCodecVersion":1,"writes":[]}',
     );
     expect(canonical.sha256Hex).toBe(
-      "8b8d2f789bcb0abd94757402d338dd2514ae9070ae7822f1ecba36abdb58ed3a",
+      "e62abc84e8782241bc20c9be56bbe1eda9897afddb061f4f43840f379bded2d9",
     );
 
     const measured = measureLogicalIndexRangeReadDependencyEvidenceBytesV1Result(
@@ -254,7 +344,7 @@ describe("commit protocol C02", () => {
       reason: "invalidIndexRangeDependency",
     });
 
-    const overLimit = await runFailure(canonicalizeSessionJournalV1Effect(
+    const overLimit = await runFailure(canonicalizeSessionJournalEffect(
       sessionJournal({
         finalSyscallSequence: 1n,
         readDependencies: Array.from(
@@ -278,7 +368,7 @@ describe("commit protocol C02", () => {
       "ff".repeat(2_049),
     );
     const evidenceFailure = await runFailure(
-      canonicalizeSessionJournalV1Effect(sessionJournal({
+      canonicalizeSessionJournalEffect(sessionJournal({
         finalSyscallSequence: 1n,
         readDependencies: Array.from(
           { length: MAX_COMMIT_INDEX_RANGE_READ_DEPENDENCIES_V1 },
@@ -313,7 +403,7 @@ describe("commit protocol C02", () => {
   it("canonicalizes and bounds exact incoming relation dependencies", async () => {
     const relationA = relationIncomingDependency(2, 2, 9n);
     const relationB = relationIncomingDependency(1, 3, 0n);
-    const canonical = await runEffect(canonicalizeSessionJournalV1Effect(
+    const canonical = await runEffect(canonicalizeSessionJournalEffect(
       sessionJournal({
         finalSyscallSequence: 1n,
         readDependencies: [relationA, relationB],
@@ -325,7 +415,7 @@ describe("commit protocol C02", () => {
       relationA,
     ]);
 
-    const coalesced = await runEffect(canonicalizeSessionJournalV1Effect(
+    const coalesced = await runEffect(canonicalizeSessionJournalEffect(
       sessionJournal({
         finalSyscallSequence: 1n,
         readDependencies: [
@@ -338,7 +428,7 @@ describe("commit protocol C02", () => {
       relationIncomingDependency(1, 3, 0n),
     ]);
 
-    const conflicting = await runFailure(canonicalizeSessionJournalV1Effect(
+    const conflicting = await runFailure(canonicalizeSessionJournalEffect(
       sessionJournal({
         finalSyscallSequence: 1n,
         readDependencies: [
@@ -356,7 +446,7 @@ describe("commit protocol C02", () => {
     });
 
     const conflictingSelection = await runFailure(
-      canonicalizeSessionJournalV1Effect(sessionJournal({
+      canonicalizeSessionJournalEffect(sessionJournal({
         finalSyscallSequence: 1n,
         readDependencies: [
           relationIncomingDependency(1, 3, 0n),
@@ -375,7 +465,7 @@ describe("commit protocol C02", () => {
     });
 
     const conflictingSelectionDigest = await runFailure(
-      canonicalizeSessionJournalV1Effect(sessionJournal({
+      canonicalizeSessionJournalEffect(sessionJournal({
         finalSyscallSequence: 1n,
         readDependencies: [
           relationIncomingDependency(1, 3, 0n),
@@ -399,7 +489,7 @@ describe("commit protocol C02", () => {
       ...missingSelectionDependency
     } = completeRelationDependency;
     const missingSelection = await runFailure(
-      canonicalizeSessionJournalV1Effect({
+      canonicalizeSessionJournalEffect({
         ...sessionJournal({ finalSyscallSequence: 1n }),
         readDependencies: [missingSelectionDependency],
       }),
@@ -410,7 +500,7 @@ describe("commit protocol C02", () => {
     });
 
     const malformedSelection = await runFailure(
-      canonicalizeSessionJournalV1Effect({
+      canonicalizeSessionJournalEffect({
         ...sessionJournal({ finalSyscallSequence: 1n }),
         readDependencies: [{
           ...completeRelationDependency,
@@ -423,7 +513,7 @@ describe("commit protocol C02", () => {
       component: "journal",
     });
 
-    const overLimit = await runFailure(canonicalizeSessionJournalV1Effect(
+    const overLimit = await runFailure(canonicalizeSessionJournalEffect(
       sessionJournal({
         finalSyscallSequence: 1n,
         readDependencies: Array.from(
@@ -440,7 +530,7 @@ describe("commit protocol C02", () => {
   });
 
   it("binds insert creation time into stable canonical journal evidence", async () => {
-    const first = await runEffect(canonicalizeSessionJournalV1Effect(
+    const first = await runEffect(canonicalizeSessionJournalEffect(
       sessionJournal({
         finalSyscallSequence: 1n,
         writes: [insertWrite(
@@ -452,7 +542,7 @@ describe("commit protocol C02", () => {
         )],
       }),
     ));
-    const reordered = await runEffect(canonicalizeSessionJournalV1Effect(
+    const reordered = await runEffect(canonicalizeSessionJournalEffect(
       sessionJournal({
         finalSyscallSequence: 1n,
         writes: [insertWrite(
@@ -465,7 +555,7 @@ describe("commit protocol C02", () => {
       }),
     ));
     const differentCreationTime = await runEffect(
-      canonicalizeSessionJournalV1Effect(sessionJournal({
+      canonicalizeSessionJournalEffect(sessionJournal({
         finalSyscallSequence: 1n,
         writes: [insertWrite(
           1n,
@@ -486,7 +576,7 @@ describe("commit protocol C02", () => {
   });
 
   it("does not eagerly manufacture inline carriage for stored evidence", async () => {
-    const canonical = await runEffect(canonicalizeSessionJournalV1Effect(
+    const canonical = await runEffect(canonicalizeSessionJournalEffect(
       sessionJournal({ finalSyscallSequence: 0n }),
     ));
     const result = await runEffect(
@@ -504,7 +594,7 @@ describe("commit protocol C02", () => {
 
   it("round-trips canonical evidence and returns defensive bytes", async () => {
     const mutableFields = { name: "before" };
-    const canonical = await runEffect(canonicalizeSessionJournalV1Effect(
+    const canonical = await runEffect(canonicalizeSessionJournalEffect(
       sessionJournal({
         finalSyscallSequence: 1n,
         writes: [insertWrite(1n, DOCUMENT_A, mutableFields, 128)],
@@ -514,7 +604,7 @@ describe("commit protocol C02", () => {
 
     const exposed = canonical.canonicalBytes;
     exposed.fill(0);
-    const decoded = await runEffect(decodeCanonicalSessionJournalV1Effect({
+    const decoded = await runEffect(decodeCanonicalSessionJournalEffect({
       canonicalBytes: canonical.canonicalBytes,
       expectedSha256Hex: canonical.sha256Hex,
     }));
@@ -529,12 +619,12 @@ describe("commit protocol C02", () => {
   });
 
   it("rejects noncanonical bytes, digest mismatch, versions, and authority fields", async () => {
-    const canonical = await runEffect(canonicalizeSessionJournalV1Effect(
+    const canonical = await runEffect(canonicalizeSessionJournalEffect(
       sessionJournal({ finalSyscallSequence: 0n }),
     ));
     const nonCanonical = new TextEncoder().encode(`${canonical.canonicalText}\n`);
     const nonCanonicalFailure = await runFailure(
-      decodeCanonicalSessionJournalV1Effect({
+      decodeCanonicalSessionJournalEffect({
         canonicalBytes: nonCanonical,
         expectedSha256Hex: canonical.sha256Hex,
       }),
@@ -545,7 +635,7 @@ describe("commit protocol C02", () => {
     });
 
     const digestFailure = await runFailure(
-      decodeCanonicalSessionJournalV1Effect({
+      decodeCanonicalSessionJournalEffect({
         canonicalBytes: canonical.canonicalBytes,
         expectedSha256Hex: "0".repeat(64),
       }),
@@ -556,7 +646,7 @@ describe("commit protocol C02", () => {
     });
 
     const versionFailure = await runFailure(
-      canonicalizeSessionJournalV1Effect({
+      canonicalizeSessionJournalEffect({
         ...sessionJournal({ finalSyscallSequence: 0n }),
         protocolVersion: 2,
       }),
@@ -568,7 +658,7 @@ describe("commit protocol C02", () => {
     });
 
     const authorityFailure = await runFailure(
-      canonicalizeSessionJournalV1Effect({
+      canonicalizeSessionJournalEffect({
         ...sessionJournal({ finalSyscallSequence: 0n }),
         scopeId: "scope_018f22e2-58cc-7b2a-91d8-f3f3401a0874",
       }),
@@ -580,7 +670,7 @@ describe("commit protocol C02", () => {
   });
 
   it("preserves present, missing, tombstone, set, and remove semantics", async () => {
-    const canonical = await runEffect(canonicalizeSessionJournalV1Effect(
+    const canonical = await runEffect(canonicalizeSessionJournalEffect(
       sessionJournal({
         finalSyscallSequence: 3n,
         readDependencies: [
@@ -622,7 +712,7 @@ describe("commit protocol C02", () => {
 
   it("rejects duplicate or forged logical evidence and developer system fields", async () => {
     const duplicateDependency = await runFailure(
-      canonicalizeSessionJournalV1Effect(sessionJournal({
+      canonicalizeSessionJournalEffect(sessionJournal({
         finalSyscallSequence: 1n,
         readDependencies: [
           missingDependency(DOCUMENT_A),
@@ -636,7 +726,7 @@ describe("commit protocol C02", () => {
     });
 
     const duplicateSequence = await runFailure(
-      canonicalizeSessionJournalV1Effect(sessionJournal({
+      canonicalizeSessionJournalEffect(sessionJournal({
         finalSyscallSequence: 1n,
         writes: [
           deleteWrite(1n, DOCUMENT_A),
@@ -649,7 +739,7 @@ describe("commit protocol C02", () => {
     });
 
     const duplicatePatch = await runFailure(
-      canonicalizeSessionJournalV1Effect(sessionJournal({
+      canonicalizeSessionJournalEffect(sessionJournal({
         finalSyscallSequence: 1n,
         writes: [patchWrite(1n, DOCUMENT_A, [
           { kind: "set", field: "name", valueJson: "one" },
@@ -663,7 +753,7 @@ describe("commit protocol C02", () => {
     });
 
     const systemField = await runFailure(
-      canonicalizeSessionJournalV1Effect(sessionJournal({
+      canonicalizeSessionJournalEffect(sessionJournal({
         finalSyscallSequence: 1n,
         writes: [insertWrite(1n, DOCUMENT_A, { _id: DOCUMENT_A }, 64)],
       })),
@@ -678,7 +768,7 @@ describe("commit protocol C02", () => {
       sql: "delete from app_rows",
     };
     const physicalFailure = await runFailure(
-      canonicalizeSessionJournalV1Effect(sessionJournal({
+      canonicalizeSessionJournalEffect(sessionJournal({
         finalSyscallSequence: 1n,
         writes: [physicalWrite],
       })),
@@ -692,7 +782,7 @@ describe("commit protocol C02", () => {
       Array.from({ length: 1_025 }, (_, index) => [`inherited${index}`, true]),
     );
     const inheritedTraversalFailure = await runFailure(
-      canonicalizeSessionJournalV1Effect(Object.assign(
+      canonicalizeSessionJournalEffect(Object.assign(
         Object.create(pollutedPrototype),
         sessionJournal(),
       )),
@@ -728,6 +818,7 @@ describe("commit protocol C02", () => {
       canonicalEvidenceBytes: 67_108_864,
       indexRangeDependencyEvidenceBytes: 262_144,
       materialWriteEventEvidenceBytes: 67_108_864,
+      receiptEvidenceBytes: 67_108_864,
     });
     expect(MAX_COMMIT_MATERIAL_WRITE_EVENT_EVIDENCE_BYTES_V1).toBe(
       67_108_864,
@@ -758,7 +849,7 @@ describe("commit protocol C02", () => {
       { length: MAX_COMMIT_POINT_READ_DEPENDENCIES_V1 },
       (_, index) => missingDependency(documentId(index + 1)),
     );
-    await expect(runEffect(canonicalizeSessionJournalV1Effect(
+    await expect(runEffect(canonicalizeSessionJournalEffect(
       sessionJournal({
         finalSyscallSequence: 1n,
         readDependencies: [
@@ -768,7 +859,7 @@ describe("commit protocol C02", () => {
       }),
     ))).resolves.toBeDefined();
     const dependencyFailure = await runFailure(
-      canonicalizeSessionJournalV1Effect(sessionJournal({
+      canonicalizeSessionJournalEffect(sessionJournal({
         finalSyscallSequence: 1n,
         readDependencies: [
           ...exactDependencies,
@@ -786,14 +877,14 @@ describe("commit protocol C02", () => {
       { length: MAX_COMMIT_WRITE_OPERATIONS_V1 },
       (_, index) => deleteWrite(BigInt(index + 1), documentId(index + 1)),
     );
-    await expect(runEffect(canonicalizeSessionJournalV1Effect(
+    await expect(runEffect(canonicalizeSessionJournalEffect(
       sessionJournal({
         finalSyscallSequence: BigInt(MAX_COMMIT_WRITE_OPERATIONS_V1),
         writes: exactWrites,
       }),
     ))).resolves.toBeDefined();
     const writeCountFailure = await runFailure(
-      canonicalizeSessionJournalV1Effect(sessionJournal({
+      canonicalizeSessionJournalEffect(sessionJournal({
         finalSyscallSequence: BigInt(MAX_COMMIT_WRITE_OPERATIONS_V1 + 1),
         writes: [
           ...exactWrites,
@@ -821,7 +912,7 @@ describe("commit protocol C02", () => {
       )
     );
     const writeBytesFailure = await runFailure(
-      canonicalizeSessionJournalV1Effect(sessionJournal({
+      canonicalizeSessionJournalEffect(sessionJournal({
         finalSyscallSequence: 17n,
         writes: oversizedWrites,
       })),
@@ -834,7 +925,7 @@ describe("commit protocol C02", () => {
     });
 
     const readUsageFailure = await runFailure(
-      canonicalizeSessionJournalV1Effect(sessionJournal({
+      canonicalizeSessionJournalEffect(sessionJournal({
         finalSyscallSequence: 1n,
         readDocuments: MAX_COMMIT_READ_DOCUMENTS_V1 + 1,
       })),
@@ -845,7 +936,7 @@ describe("commit protocol C02", () => {
     });
 
     const zeroSequenceReadBytesFailure = await runFailure(
-      canonicalizeSessionJournalV1Effect(sessionJournal({
+      canonicalizeSessionJournalEffect(sessionJournal({
         finalSyscallSequence: 0n,
         readSemanticBytes: 1,
       })),
@@ -901,7 +992,7 @@ describe("commit protocol C02", () => {
   });
 
   it("keeps inline carriage explicitly untrusted and operationally dormant", async () => {
-    const canonical = await runEffect(canonicalizeSessionJournalV1Effect(
+    const canonical = await runEffect(canonicalizeSessionJournalEffect(
       sessionJournal({ finalSyscallSequence: 0n }),
     ));
     const result = await runEffect(
@@ -912,11 +1003,6 @@ describe("commit protocol C02", () => {
     ));
 
     expect(inline.journal.kind).toBe("inlineUntrusted");
-    const integrityOnly = await runEffect(
-      inspectInlineUntrustedJournalIntegrityV1Effect(inline),
-    );
-    expect(integrityOnly.sha256Hex).toBe(canonical.sha256Hex);
-
     const dormant = await runFailure(
       requireStoredForSessionAttemptCommitEnvelopeV1Effect(inline),
     );
@@ -924,17 +1010,10 @@ describe("commit protocol C02", () => {
       reason: "inlineJournalCarriageDormant",
     });
 
-    const sequenceMismatch = await runFailure(
-      inspectInlineUntrustedJournalIntegrityV1Effect({
-        ...inline,
-        finalSyscallSequence: CommitFinalSyscallSequenceV1Schema.make(1n),
-      }),
-    );
-    expect(sequenceMismatch.issue).toEqual({ reason: "sequenceMismatch" });
   });
 
   it("accepts only locator-free stored carriage and keeps the leaf out of the root barrel", async () => {
-    const canonical = await runEffect(canonicalizeSessionJournalV1Effect(
+    const canonical = await runEffect(canonicalizeSessionJournalEffect(
       sessionJournal({ finalSyscallSequence: 0n }),
     ));
     const result = await runEffect(
@@ -961,11 +1040,25 @@ describe("commit protocol C02", () => {
       component: "envelope",
     });
 
-    expect(commitProtocolLeaf.SessionJournalV1Schema).toBeDefined();
-    expect("SessionJournalV1Schema" in protocolRoot).toBe(false);
+    expect(commitProtocolLeaf.SessionJournalSchema).toBeDefined();
+    expect("SessionJournalSchema" in protocolRoot).toBe(false);
     expect("PreparedCommitV1" in commitProtocolLeaf).toBe(false);
   });
 });
+
+function insertionOperation(dependencyEvidence: JsonObject) {
+  return Schema.decodeUnknownSync(AdmittedParticipantOperationSchema)({
+    syscallSequence: "1", participant: "fixture.participant", method: "insert",
+    profileRevision: "b".repeat(64), admissionBundleSha256Hex: "c".repeat(64),
+    requestSha256Hex: "d".repeat(64), resultSha256Hex: "e".repeat(64), eventIntents: [],
+    sourceContributions: [{ sourceKey: "fixture.source", sourceSha256Hex: "f".repeat(64),
+      sourceBindingSha256Hex: "a".repeat(64), bindingHead: { sequence: "1", sha256: "1".repeat(64) },
+      methods: ["insert"], dependencyEvidence,
+      effects: [{ effectOrdinal: 0, tableId: 1, documentId: DOCUMENT_A, operation: "insert", before: null,
+        after: { _id: DOCUMENT_A, _creationTime: 1, name: "inserted" } }],
+    }],
+  });
+}
 
 function sessionJournal(options: {
   readonly finalSyscallSequence?: bigint;
@@ -973,9 +1066,9 @@ function sessionJournal(options: {
   readonly readDocuments?: number;
   readonly readSemanticBytes?: number;
   readonly writes?: ReadonlyArray<LogicalAppWriteV1>;
-} = {}): SessionJournalV1 {
+} = {}): SessionJournal {
   return {
-    format: SESSION_JOURNAL_FORMAT_V1,
+    format: SESSION_JOURNAL_FORMAT,
     protocolVersion: TRANSACTION_SESSION_PROTOCOL_VERSION_V1,
     valueCodecVersion: FLAREX_VALUE_CODEC_VERSION_V1,
     finalSyscallSequence: CommitFinalSyscallSequenceV1Schema.make(
@@ -991,7 +1084,10 @@ function sessionJournal(options: {
       ),
     },
     writes: options.writes ?? [],
-  } satisfies SessionJournalV1;
+    operationUsage: { receiptEvidenceBytes: 0, participantWorkBytes: 0,
+      participantWorkCalls: 0 },
+    participantOperations: [],
+  } satisfies SessionJournal;
 }
 
 function presentDependency(
@@ -1143,7 +1239,7 @@ function deleteWrite(
 }
 
 function storedEnvelope(
-  journal: CanonicalSessionJournalV1,
+  journal: CanonicalSessionJournal,
   result: CanonicalSuccessfulResultV1,
 ): CommitEnvelopeV1 {
   return {
@@ -1159,7 +1255,7 @@ function storedEnvelope(
 }
 
 function inlineEnvelope(
-  journal: CanonicalSessionJournalV1,
+  journal: CanonicalSessionJournal,
   result: CanonicalSuccessfulResultV1,
 ): CommitEnvelopeV1 {
   return {
@@ -1191,3 +1287,110 @@ function runFailure<A>(
 ): Promise<CommitProtocolV1Error> {
   return Effect.runPromise(Effect.flip(effect));
 }
+
+
+describe("issued successful result handoff", () => {
+  it("retains exact canonical bytes while rejecting lookalike issuance and detached mutations", async () => {
+    const input = { nested: { name: "original" } };
+    const result = await Effect.runPromise(canonicalizeSuccessfulResultV1Effect(input));
+    const originalBytes = result.canonicalBytes;
+    const originalEvidence = result.evidence;
+    const issued = readIssuedCanonicalSuccessfulResultV1(result);
+    expect(issued?.result).toBe(result);
+    expect(issued?.value).toEqual(input);
+    expect(issued?.value).toBe(issued?.value);
+    input.nested.name = "changed";
+    result.canonicalBytes.fill(0);
+    expect(result.valueJson).toEqual({ nested: { name: "original" } });
+    expect(result.canonicalBytes).toEqual(originalBytes);
+    expect(result.evidence).toEqual(originalEvidence);
+    expect(readIssuedCanonicalSuccessfulResultV1({ ...result })).toBeUndefined();
+    const detached = structuredClone(result);
+    expect(readIssuedCanonicalSuccessfulResultV1(detached)).toBeUndefined();
+    const verified = await Effect.runPromise(verifySuccessfulResultEvidenceV1Effect(detached.evidence));
+    expect(verified.canonicalBytes).toEqual(originalBytes);
+    expect(verified.evidence).toEqual(originalEvidence);
+    Reflect.set(detached.evidence, "sha256Hex", "0".repeat(64));
+    await expect(Effect.runPromise(verifySuccessfulResultEvidenceV1Effect(detached.evidence))).rejects.toMatchObject({
+      issue: { reason: "digestMismatch", component: "successfulResult" },
+    });
+  });
+
+  it("preserves the runtime value domain and never exposes retained binary leaves", async () => {
+    const bytes = new Uint8Array([1, 2, 3]).buffer;
+    const result = await runEffect(canonicalizeSuccessfulResultV1Effect({
+      bigint: 42n, bytes, nested: [{ bytes }], nan: NaN,
+      negativeZero: -0, negativeInfinity: -Infinity, positiveInfinity: Infinity,
+      immutable: { label: "retained" },
+    }));
+    const issued = readIssuedCanonicalSuccessfulResultV1(result);
+    if (issued === undefined) throw new Error("Expected exact successful-result issuance");
+    const first = issued.value;
+    if (!isCanonicalFlarexRuntimeObjectV1(first) || !(first.bytes instanceof ArrayBuffer) ||
+      !Array.isArray(first.nested) || !isCanonicalFlarexRuntimeObjectV1(first.nested[0]) ||
+      !(first.nested[0].bytes instanceof ArrayBuffer)) throw new Error("Expected the canonical binary-bearing runtime tree");
+    expect(first.bigint).toBe(42n);
+    expect(Number.isNaN(first.nan)).toBe(true);
+    expect(Object.is(first.negativeZero, -0)).toBe(true);
+    expect(first.negativeInfinity).toBe(-Infinity);
+    expect(first.positiveInfinity).toBe(Infinity);
+    expect(Object.isFrozen(first)).toBe(true);
+    expect(Object.isFrozen(first.nested)).toBe(true);
+    expect(Reflect.set(first, "bigint", 0n)).toBe(false);
+    const originalBytes = result.canonicalBytes;
+    new Uint8Array(bytes).fill(4);
+    new Uint8Array(first.bytes).fill(5);
+    new Uint8Array(first.nested[0].bytes).fill(6);
+    result.canonicalBytes.fill(7);
+    const second = issued.value;
+    if (!isCanonicalFlarexRuntimeObjectV1(second) || !(second.bytes instanceof ArrayBuffer) ||
+      !Array.isArray(second.nested) || !isCanonicalFlarexRuntimeObjectV1(second.nested[0]) ||
+      !(second.nested[0].bytes instanceof ArrayBuffer)) throw new Error("Expected a second detached runtime tree");
+    expect(new Uint8Array(second.bytes)).toEqual(new Uint8Array([1, 2, 3]));
+    expect(new Uint8Array(second.nested[0].bytes)).toEqual(new Uint8Array([1, 2, 3]));
+    expect(second.bytes).not.toBe(first.bytes);
+    expect(second.immutable).toBe(first.immutable);
+    expect(result.canonicalBytes).toEqual(originalBytes);
+    expect(result).not.toHaveProperty("value");
+    expect(readIssuedCanonicalSuccessfulResultV1(Object.freeze({ ...result }))).toBeUndefined();
+    expect(readIssuedCanonicalSuccessfulResultV1(structuredClone(issued))).toBeUndefined();
+
+    const foreign = structuredClone(result);
+    const restored = await runEffect(verifySuccessfulResultEvidenceV1Effect(foreign.evidence));
+    const restoredIssued = readIssuedCanonicalSuccessfulResultV1(restored);
+    const restoredValue = restoredIssued?.value;
+    if (restoredValue === undefined || !isCanonicalFlarexRuntimeObjectV1(restoredValue) || !(restoredValue.bytes instanceof ArrayBuffer))
+      throw new Error("Expected a fully verified foreign runtime tree");
+    new Uint8Array(restoredValue.bytes).fill(8);
+    const restoredAgain = restoredIssued?.value;
+    if (restoredAgain === undefined || !isCanonicalFlarexRuntimeObjectV1(restoredAgain) || !(restoredAgain.bytes instanceof ArrayBuffer))
+      throw new Error("Expected a second fully verified foreign runtime tree");
+    expect(new Uint8Array(restoredAgain.bytes)).toEqual(new Uint8Array([1, 2, 3]));
+    expect(readIssuedCanonicalSuccessfulResultV1(foreign)).toBeUndefined();
+  });
+
+  it("refuses an unsupported foreign version before inspecting its value body", async () => {
+    let bodyReads = 0;
+    const foreign = {
+      valueCodecVersion: 2,
+      get canonicalValueBase64Url() { bodyReads++; throw new Error("Later body must remain untouched"); },
+      sha256Hex: "0".repeat(64),
+    };
+    const failure = await runFailure(verifySuccessfulResultEvidenceV1Effect(foreign));
+    expect(failure.issue).toMatchObject({ reason: "unsupportedVersion", component: "successfulResult", field: "valueCodecVersion" });
+    expect(bodyReads).toBe(0);
+    expect(readIssuedCanonicalSuccessfulResultV1(foreign)).toBeUndefined();
+  });
+
+  it("preserves unexpected hashing defects without issuing a successful runtime projection", async () => {
+    const defect = new Error("Unexpected successful-result hashing defect");
+    const digest = vi.spyOn(crypto.subtle, "digest").mockRejectedValue(defect);
+    try {
+      const exit = await Effect.runPromiseExit(canonicalizeSuccessfulResultV1Effect({ value: 42n }));
+      if (Exit.isSuccess(exit)) throw new Error("Expected the original hash defect");
+      expect(Cause.hasDies(exit.cause)).toBe(true);
+      expect(Cause.hasFails(exit.cause)).toBe(false);
+      expect(Result.getOrThrow(Cause.findDefect(exit.cause))).toBe(defect);
+    } finally { digest.mockRestore(); }
+  });
+});

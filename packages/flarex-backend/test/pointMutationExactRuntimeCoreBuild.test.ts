@@ -20,6 +20,7 @@ describe("point mutation exact-runtime core build", () => {
       'import("./pointMutationExactRuntimeWorker/flarex-point-mutation-exact-runtime-execution-v1.js")',
     );
     expect(receipt.source).not.toContain("__vitePreload");
+    expect(receipt.source).not.toMatch(/(?:from\s+|import\s*\()\s*["']flarex-protocol/u);
 
     const marker = "base64,";
     const markerIndex = receipt.source.lastIndexOf(marker);
@@ -31,10 +32,14 @@ describe("point mutation exact-runtime core build", () => {
       ).toString("utf8"),
     );
     expect(sourceMap).toMatchObject({
-      sources: ["PointMutationExactRuntimeWorkerCore.ts"],
-      sourcesContent: [
+      sources: expect.arrayContaining([
+        expect.stringContaining("PointMutationExactRuntimeWorkerCore.ts"),
+        expect.stringContaining("flarex-protocol/src/validator-json-core.ts"),
+      ]),
+      sourcesContent: expect.arrayContaining([
         expect.stringContaining("interface DecodedExactRuntimeRequest"),
-      ],
+        expect.stringContaining("function captureValidatorLiteralV1"),
+      ]),
     });
   });
 });

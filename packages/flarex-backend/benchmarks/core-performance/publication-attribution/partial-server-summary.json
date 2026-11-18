@@ -1,0 +1,493 @@
+{
+  "format": "flarex.publication-attribution-partial-server",
+  "source": "server-partial.json.gz",
+  "complete": false,
+  "limits": [
+    "Only two Product samples; n=1 retained; invalid matrix",
+    "Parent and nested calls/rows/times are separate inclusive levels, never sum",
+    "Empty delta is an observed counter difference, not proof that no SQL executed",
+    "No selected log exists; function/trigger timings and complete all-profile reconciliation unavailable"
+  ],
+  "windows": [
+    {
+      "id": null,
+      "profile": "product",
+      "status": {
+        "failures": 0,
+        "openWindows": 0
+      },
+      "windows": [
+        {
+          "name": "setup",
+          "startMs": 10185.2472,
+          "endMs": 48426.9686,
+          "snapshotMs": 123.2870000000039,
+          "beforeInfo": [
+            {
+              "stats_reset": "2026-10-01 23:25:38.279142+06:30",
+              "dealloc": 0
+            }
+          ],
+          "afterInfo": [
+            {
+              "stats_reset": "2026-10-01 23:25:38.279142+06:30",
+              "dealloc": 0
+            }
+          ],
+          "entries": 1468,
+          "levels": [
+            {
+              "toplevel": true,
+              "entries": 1166,
+              "calls": 17352,
+              "total_plan_time": 805.7424000000001,
+              "total_exec_time": 3564.4343000000003,
+              "rows": 25945,
+              "shared_blks_hit": 813546,
+              "shared_blks_read": 1560,
+              "shared_blks_dirtied": 1967,
+              "shared_blks_written": 1123,
+              "temp_blks_read": 0,
+              "temp_blks_written": 0
+            },
+            {
+              "toplevel": false,
+              "entries": 302,
+              "calls": 3277,
+              "total_plan_time": 348.2117000000002,
+              "total_exec_time": 35.26400000000002,
+              "rows": 2727,
+              "shared_blks_hit": 30785,
+              "shared_blks_read": 607,
+              "shared_blks_dirtied": 13,
+              "shared_blks_written": 4,
+              "temp_blks_read": 0,
+              "temp_blks_written": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "product-0-detailed",
+      "profile": "product",
+      "status": {
+        "failures": 0,
+        "openWindows": 0
+      },
+      "windows": [
+        {
+          "name": "prepareAttempt",
+          "startMs": 49424.9437,
+          "endMs": 49425.0876,
+          "snapshotMs": 1047.6682,
+          "beforeInfo": [
+            {
+              "stats_reset": "2026-10-01 23:25:38.279142+06:30",
+              "dealloc": 0
+            }
+          ],
+          "afterInfo": [
+            {
+              "stats_reset": "2026-10-01 23:25:38.279142+06:30",
+              "dealloc": 0
+            }
+          ],
+          "entries": 0,
+          "levels": [
+            {
+              "toplevel": true,
+              "entries": 0,
+              "calls": 0,
+              "total_plan_time": 0,
+              "total_exec_time": 0,
+              "rows": 0,
+              "shared_blks_hit": 0,
+              "shared_blks_read": 0,
+              "shared_blks_dirtied": 0,
+              "shared_blks_written": 0,
+              "temp_blks_read": 0,
+              "temp_blks_written": 0
+            },
+            {
+              "toplevel": false,
+              "entries": 0,
+              "calls": 0,
+              "total_plan_time": 0,
+              "total_exec_time": 0,
+              "rows": 0,
+              "shared_blks_hit": 0,
+              "shared_blks_read": 0,
+              "shared_blks_dirtied": 0,
+              "shared_blks_written": 0,
+              "temp_blks_read": 0,
+              "temp_blks_written": 0
+            }
+          ]
+        },
+        {
+          "name": "preparationAndFinishing",
+          "startMs": 51839.0135,
+          "endMs": 52030.7048,
+          "snapshotMs": 346.5726000000068,
+          "beforeInfo": [
+            {
+              "stats_reset": "2026-10-01 23:25:38.279142+06:30",
+              "dealloc": 0
+            }
+          ],
+          "afterInfo": [
+            {
+              "stats_reset": "2026-10-01 23:25:38.279142+06:30",
+              "dealloc": 0
+            }
+          ],
+          "entries": 62,
+          "levels": [
+            {
+              "toplevel": true,
+              "entries": 56,
+              "calls": 66,
+              "total_plan_time": 9.120399999999998,
+              "total_exec_time": 9.7944,
+              "rows": 219,
+              "shared_blks_hit": 775,
+              "shared_blks_read": 2,
+              "shared_blks_dirtied": 17,
+              "shared_blks_written": 11,
+              "temp_blks_read": 0,
+              "temp_blks_written": 0
+            },
+            {
+              "toplevel": false,
+              "entries": 6,
+              "calls": 24,
+              "total_plan_time": 0.4547,
+              "total_exec_time": 0.14339999999999967,
+              "rows": 24,
+              "shared_blks_hit": 72,
+              "shared_blks_read": 0,
+              "shared_blks_dirtied": 0,
+              "shared_blks_written": 0,
+              "temp_blks_read": 0,
+              "temp_blks_written": 0
+            }
+          ]
+        },
+        {
+          "name": "publication",
+          "startMs": 52147.9487,
+          "endMs": 52323.9653,
+          "snapshotMs": 69.62039999999979,
+          "beforeInfo": [
+            {
+              "stats_reset": "2026-10-01 23:25:38.279142+06:30",
+              "dealloc": 0
+            }
+          ],
+          "afterInfo": [
+            {
+              "stats_reset": "2026-10-01 23:25:38.279142+06:30",
+              "dealloc": 0
+            }
+          ],
+          "entries": 102,
+          "levels": [
+            {
+              "toplevel": true,
+              "entries": 89,
+              "calls": 107,
+              "total_plan_time": 9.750199999999992,
+              "total_exec_time": 9.1339,
+              "rows": 292,
+              "shared_blks_hit": 1137,
+              "shared_blks_read": 0,
+              "shared_blks_dirtied": 0,
+              "shared_blks_written": 0,
+              "temp_blks_read": 0,
+              "temp_blks_written": 0
+            },
+            {
+              "toplevel": false,
+              "entries": 13,
+              "calls": 29,
+              "total_plan_time": 0.2491,
+              "total_exec_time": 0.20210000000000009,
+              "rows": 42,
+              "shared_blks_hit": 115,
+              "shared_blks_read": 0,
+              "shared_blks_dirtied": 0,
+              "shared_blks_written": 0,
+              "temp_blks_read": 0,
+              "temp_blks_written": 0
+            }
+          ]
+        },
+        {
+          "name": "wholeAttempt",
+          "startMs": 48589.4474,
+          "endMs": 52362.0165,
+          "snapshotMs": 74.03469999999652,
+          "beforeInfo": [
+            {
+              "stats_reset": "2026-10-01 23:25:38.279142+06:30",
+              "dealloc": 0
+            }
+          ],
+          "afterInfo": [
+            {
+              "stats_reset": "2026-10-01 23:25:38.279142+06:30",
+              "dealloc": 0
+            }
+          ],
+          "entries": 172,
+          "levels": [
+            {
+              "toplevel": true,
+              "entries": 154,
+              "calls": 481,
+              "total_plan_time": 49.69219999999999,
+              "total_exec_time": 52.802700000000016,
+              "rows": 1970,
+              "shared_blks_hit": 7606,
+              "shared_blks_read": 7,
+              "shared_blks_dirtied": 48,
+              "shared_blks_written": 29,
+              "temp_blks_read": 0,
+              "temp_blks_written": 0
+            },
+            {
+              "toplevel": false,
+              "entries": 18,
+              "calls": 107,
+              "total_plan_time": 1.7701,
+              "total_exec_time": 1.0919999999999999,
+              "rows": 120,
+              "shared_blks_hit": 415,
+              "shared_blks_read": 0,
+              "shared_blks_dirtied": 0,
+              "shared_blks_written": 0,
+              "temp_blks_read": 0,
+              "temp_blks_written": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "product-1-detailed",
+      "profile": "product",
+      "status": {
+        "failures": 0,
+        "openWindows": 0
+      },
+      "windows": [
+        {
+          "name": "prepareAttempt",
+          "startMs": 52501.6491,
+          "endMs": 52501.6667,
+          "snapshotMs": 86.08629999999539,
+          "beforeInfo": [
+            {
+              "stats_reset": "2026-10-01 23:25:38.279142+06:30",
+              "dealloc": 0
+            }
+          ],
+          "afterInfo": [
+            {
+              "stats_reset": "2026-10-01 23:25:38.279142+06:30",
+              "dealloc": 0
+            }
+          ],
+          "entries": 0,
+          "levels": [
+            {
+              "toplevel": true,
+              "entries": 0,
+              "calls": 0,
+              "total_plan_time": 0,
+              "total_exec_time": 0,
+              "rows": 0,
+              "shared_blks_hit": 0,
+              "shared_blks_read": 0,
+              "shared_blks_dirtied": 0,
+              "shared_blks_written": 0,
+              "temp_blks_read": 0,
+              "temp_blks_written": 0
+            },
+            {
+              "toplevel": false,
+              "entries": 0,
+              "calls": 0,
+              "total_plan_time": 0,
+              "total_exec_time": 0,
+              "rows": 0,
+              "shared_blks_hit": 0,
+              "shared_blks_read": 0,
+              "shared_blks_dirtied": 0,
+              "shared_blks_written": 0,
+              "temp_blks_read": 0,
+              "temp_blks_written": 0
+            }
+          ]
+        },
+        {
+          "name": "preparationAndFinishing",
+          "startMs": 54237.3555,
+          "endMs": 54353.2164,
+          "snapshotMs": 72.8582000000024,
+          "beforeInfo": [
+            {
+              "stats_reset": "2026-10-01 23:25:38.279142+06:30",
+              "dealloc": 0
+            }
+          ],
+          "afterInfo": [
+            {
+              "stats_reset": "2026-10-01 23:25:38.279142+06:30",
+              "dealloc": 0
+            }
+          ],
+          "entries": 62,
+          "levels": [
+            {
+              "toplevel": true,
+              "entries": 56,
+              "calls": 66,
+              "total_plan_time": 9.007099999999998,
+              "total_exec_time": 7.9276,
+              "rows": 224,
+              "shared_blks_hit": 700,
+              "shared_blks_read": 0,
+              "shared_blks_dirtied": 4,
+              "shared_blks_written": 8,
+              "temp_blks_read": 0,
+              "temp_blks_written": 0
+            },
+            {
+              "toplevel": false,
+              "entries": 6,
+              "calls": 24,
+              "total_plan_time": 0.19869999999999993,
+              "total_exec_time": 0.17209999999999992,
+              "rows": 24,
+              "shared_blks_hit": 71,
+              "shared_blks_read": 0,
+              "shared_blks_dirtied": 0,
+              "shared_blks_written": 0,
+              "temp_blks_read": 0,
+              "temp_blks_written": 0
+            }
+          ]
+        },
+        {
+          "name": "publication",
+          "startMs": 54429.8212,
+          "endMs": 54549.4698,
+          "snapshotMs": 86.1443999999974,
+          "beforeInfo": [
+            {
+              "stats_reset": "2026-10-01 23:25:38.279142+06:30",
+              "dealloc": 0
+            }
+          ],
+          "afterInfo": [
+            {
+              "stats_reset": "2026-10-01 23:25:38.279142+06:30",
+              "dealloc": 0
+            }
+          ],
+          "entries": 100,
+          "levels": [
+            {
+              "toplevel": true,
+              "entries": 87,
+              "calls": 103,
+              "total_plan_time": 9.166300000000005,
+              "total_exec_time": 7.546600000000002,
+              "rows": 294,
+              "shared_blks_hit": 1108,
+              "shared_blks_read": 0,
+              "shared_blks_dirtied": 4,
+              "shared_blks_written": 6,
+              "temp_blks_read": 0,
+              "temp_blks_written": 0
+            },
+            {
+              "toplevel": false,
+              "entries": 13,
+              "calls": 29,
+              "total_plan_time": 0.18159999999999998,
+              "total_exec_time": 0.18619999999999895,
+              "rows": 42,
+              "shared_blks_hit": 116,
+              "shared_blks_read": 0,
+              "shared_blks_dirtied": 0,
+              "shared_blks_written": 0,
+              "temp_blks_read": 0,
+              "temp_blks_written": 0
+            }
+          ]
+        },
+        {
+          "name": "wholeAttempt",
+          "startMs": 52466.9263,
+          "endMs": 54598.8778,
+          "snapshotMs": 115.33339999999589,
+          "beforeInfo": [
+            {
+              "stats_reset": "2026-10-01 23:25:38.279142+06:30",
+              "dealloc": 0
+            }
+          ],
+          "afterInfo": [
+            {
+              "stats_reset": "2026-10-01 23:25:38.279142+06:30",
+              "dealloc": 0
+            }
+          ],
+          "entries": 172,
+          "levels": [
+            {
+              "toplevel": true,
+              "entries": 154,
+              "calls": 477,
+              "total_plan_time": 43.94840000000001,
+              "total_exec_time": 39.60230000000001,
+              "rows": 2032,
+              "shared_blks_hit": 6590,
+              "shared_blks_read": 0,
+              "shared_blks_dirtied": 10,
+              "shared_blks_written": 18,
+              "temp_blks_read": 0,
+              "temp_blks_written": 0
+            },
+            {
+              "toplevel": false,
+              "entries": 18,
+              "calls": 107,
+              "total_plan_time": 0.5738,
+              "total_exec_time": 1.0269999999999988,
+              "rows": 120,
+              "shared_blks_hit": 337,
+              "shared_blks_read": 0,
+              "shared_blks_dirtied": 0,
+              "shared_blks_written": 0,
+              "temp_blks_read": 0,
+              "temp_blks_written": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": null,
+      "profile": "productPayload",
+      "status": {
+        "failures": 1,
+        "openWindows": 0
+      },
+      "windows": []
+    }
+  ]
+}

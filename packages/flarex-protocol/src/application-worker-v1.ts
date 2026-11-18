@@ -8,14 +8,16 @@ import { isNonBlankString } from "@flarex/utils/strings";
 import { Data, Effect, Result, Schema } from "effect";
 
 import {
-  canonicalizeApplicationRuntimeTargetV1,
+  recanonicalizeApplicationRuntimeTargetV1,
   type ApplicationRuntimeTargetV1,
+  type ValidatorIdentityEncoding,
 } from "./application-runtime-target-v1";
 import {
   decodeUserIdentityEffect,
   type UserIdentity,
 } from "./auth";
-import { CatalogTableIdSchema, type CatalogTableId } from "./catalog";
+import { CatalogTableIdSchema } from "./catalog";
+import { decodeDocumentId, DeveloperDocumentIdSchema, DocumentTableNumberSchema } from "./document-id";
 import {
   SchemaManifestAppTableNameSchema,
   type SchemaManifestAppTableName,
@@ -56,6 +58,8 @@ export const MAX_APPLICATION_WRITE_ARGUMENT_SEMANTIC_BYTES_V1 =
   POINT_MUTATION_ARGUMENT_ARRAY_OVERHEAD_SEMANTIC_BYTES_V1;
 export const MAX_APPLICATION_WORKER_RESULT_SEMANTIC_BYTES_V1 = 8 * 1_048_576;
 export const MAX_APPLICATION_WORKER_TABLES_V1 = 1_024;
+/** Source active-user-table cap, selected only by the trusted fresh-core host. */
+export const MAX_CORE_APPLICATION_WORKER_TABLES = 10_000;
 export const MAX_APPLICATION_WORKER_VALUE_NODES_V1 = 65_536;
 export const MAX_APPLICATION_WORKER_MEMBER_INSPECTIONS_V1 = 131_072;
 
@@ -67,6 +71,7 @@ const ARRAY_BUFFER_BYTE_LENGTH_GETTER = Object.getOwnPropertyDescriptor(
 const VALUE_BUDGET_EXCEEDED = Symbol("applicationWorkerValueBudgetExceeded");
 class ApplicationWorkerProtocolV1Defect extends Error {}
 const decodeCatalogTableId = Schema.decodeUnknownResult(CatalogTableIdSchema);
+const decodeCoreTableNumber = Schema.decodeUnknownResult(DocumentTableNumberSchema);
 const decodeAppTableName = Schema.decodeUnknownResult(
   SchemaManifestAppTableNameSchema,
 );
@@ -76,17 +81,42 @@ export type ApplicationWorkerAuthV1 =
   | Readonly<{ readonly kind: "user"; readonly user: UserIdentity }>;
 
 export interface ApplicationWorkerTableV1 {
-  readonly tableId: CatalogTableId;
+  readonly tableId: number;
   readonly logicalName: SchemaManifestAppTableName;
 }
 
-export interface ApplicationTransactionQueryContextV1 {
+const CoreInsertTable = Schema.Struct({ tableId: DocumentTableNumberSchema, logicalName: SchemaManifestAppTableNameSchema });
+const CoreInsertResult = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("tooManyTables") }),
+  Schema.Struct({ kind: Schema.Literal("inserted"), id: DeveloperDocumentIdSchema, table: CoreInsertTable }),
+  Schema.Struct({ kind: Schema.Literal("documentValidation"), table: CoreInsertTable }),
+]);
+export type CoreApplicationInsertResult = typeof CoreInsertResult.Type;
+const decodeCoreInsertResult = Schema.decodeUnknownResult(CoreInsertResult, { onExcessProperty: "error" });
+
+/** Trusted insert mapping delta; no table or transaction capability crosses it. */
+export function decodeCoreApplicationInsertResult(value: unknown) {
+  return Result.gen(function* () {
+    const frame = yield* decodeCoreInsertResult(value);
+    if (frame.kind === "inserted") {
+      const identity = yield* decodeDocumentId(frame.id);
+      if (identity.tableNumber !== frame.table.tableId)
+        return yield* Result.fail(new TypeError("Insert result table identity mismatch."));
+    }
+    return frame;
+  });
+}
+interface ApplicationTransactionQueryContextBaseV1 {
   readonly mode: "query";
   readonly executionId: string;
   readonly randomSeed: Uint8Array;
   readonly executionTime: number;
-  readonly snapshotCommitSeq: bigint;
 }
+
+export type ApplicationTransactionQueryContextV1 = ApplicationTransactionQueryContextBaseV1 & (
+  | Readonly<{ snapshotCommitSeq: bigint; snapshotTimestamp?: never }>
+  | Readonly<{ snapshotTimestamp: bigint; snapshotCommitSeq?: never }>
+);
 
 export interface ApplicationTransactionWriteContextV1 {
   readonly mode: "write";
@@ -196,6 +226,8 @@ export const decodeApplicationTransactionWorkerRequestV1Effect = Effect.fn(
   "ApplicationWorkerProtocol.decodeTransactionRequestV1",
 )(function* (
   input: unknown,
+  documentIdFormat?: "convex",
+  validatorIdentityEncoding: ValidatorIdentityEncoding = 2,
 ): Effect.fn.Return<
   ApplicationTransactionWorkerRequestV1,
   ApplicationWorkerProtocolV1Error
@@ -216,7 +248,7 @@ export const decodeApplicationTransactionWorkerRequestV1Effect = Effect.fn(
     request.version !== APPLICATION_TRANSACTION_WORKER_REQUEST_VERSION_V1
   ) return yield* fail(boundary, "invalidShape", "$request");
 
-  const target = yield* decodeTarget(request.target, boundary);
+  const target = yield* decodeTarget(request.target, boundary, validatorIdentityEncoding);
   if (target.function.kind === "action") {
     return yield* fail(boundary, "invalidTargetKind", "target.function.kind");
   }
@@ -244,7 +276,7 @@ export const decodeApplicationTransactionWorkerRequestV1Effect = Effect.fn(
     normalizedArguments.semanticSizeBytes,
     boundary,
   );
-  const tables = yield* decodeTables(request.tables, boundary);
+  const tables = yield* decodeTables(request.tables, boundary, documentIdFormat);
 
   return Object.freeze({
     format: APPLICATION_TRANSACTION_WORKER_REQUEST_FORMAT_V1,
@@ -262,6 +294,7 @@ export const decodeApplicationActionWorkerRequestV1Effect = Effect.fn(
   "ApplicationWorkerProtocol.decodeActionRequestV1",
 )(function* (
   input: unknown,
+  validatorIdentityEncoding: ValidatorIdentityEncoding = 2,
 ): Effect.fn.Return<
   ApplicationActionWorkerRequestV1,
   ApplicationWorkerProtocolV1Error
@@ -281,7 +314,7 @@ export const decodeApplicationActionWorkerRequestV1Effect = Effect.fn(
     request.version !== APPLICATION_ACTION_WORKER_REQUEST_VERSION_V1
   ) return yield* fail(boundary, "invalidShape", "$request");
 
-  const target = yield* decodeTarget(request.target, boundary);
+  const target = yield* decodeTarget(request.target, boundary, validatorIdentityEncoding);
   if (target.function.kind !== "action") {
     return yield* fail(boundary, "invalidTargetKind", "target.function.kind");
   }
@@ -401,9 +434,10 @@ function isBoundedApplicationErrorText(value: unknown): value is string {
 function decodeTarget(
   value: unknown,
   boundary: "transactionRequest" | "actionRequest",
+  validatorIdentityEncoding: ValidatorIdentityEncoding,
 ): Effect.Effect<ApplicationRuntimeTargetV1, ApplicationWorkerProtocolV1Error> {
   return Effect.fromResult(
-    canonicalizeApplicationRuntimeTargetV1(value).pipe(
+    recanonicalizeApplicationRuntimeTargetV1(value, validatorIdentityEncoding).pipe(
       Result.map(canonical => canonical.target),
       Result.mapError(cause =>
         protocolError(boundary, "invalidTarget", "target", cause)
@@ -823,11 +857,13 @@ function verifyArgumentSize(
 function decodeTables(
   value: unknown,
   boundary: "transactionRequest",
+  documentIdFormat?: "convex",
 ): Effect.Effect<
   ReadonlyArray<ApplicationWorkerTableV1>,
   ApplicationWorkerProtocolV1Error
 > {
-  return Effect.fromResult(captureExactArray(value, MAX_APPLICATION_WORKER_TABLES_V1)).pipe(
+  return Effect.fromResult(captureExactArray(value, documentIdFormat === "convex"
+    ? MAX_CORE_APPLICATION_WORKER_TABLES : MAX_APPLICATION_WORKER_TABLES_V1)).pipe(
     Effect.mapError(cause =>
       protocolError(boundary, "invalidShape", "tables", cause)
     ),
@@ -843,7 +879,7 @@ function decodeTables(
           `tables[${index}]`,
         );
         const tableId = yield* Effect.fromResult(
-          decodeCatalogTableId(table.tableId).pipe(
+          (documentIdFormat === "convex" ? decodeCoreTableNumber : decodeCatalogTableId)(table.tableId).pipe(
             Result.mapError(cause => protocolError(
               boundary,
               "invalidShape",
@@ -877,74 +913,81 @@ function decodeTables(
   );
 }
 
-function decodeTransactionContext(
+const decodeTransactionContext = Effect.fn("ApplicationWorker.decodeTransactionContext")(function* (
   value: unknown,
   boundary: "transactionRequest",
-): Effect.Effect<
+): Effect.fn.Return<
   ApplicationTransactionWorkerContextV1,
   ApplicationWorkerProtocolV1Error
 > {
-  return Effect.gen(function* () {
-    const context = yield* decodeRecordUnion(value, [[
-      "mode",
-      "executionId",
-      "randomSeed",
-      "executionTime",
-      "snapshotCommitSeq",
-    ], [
-      "mode",
-      "executionId",
-      "logScopeId",
-      "randomSeed",
-      "executionTime",
-      "initialCreationTimeCursor",
-    ]], boundary, "context");
-    if (context.mode === "query") {
-      const randomSeed = yield* decodeBytes(
-        context.randomSeed,
-        APPLICATION_WORKER_RANDOM_SEED_BYTES_V1,
-        boundary,
-        "context.randomSeed",
-      );
-      if (
-        !isBoundedText(context.executionId) ||
-        !isFiniteNumber(context.executionTime) ||
-        typeof context.snapshotCommitSeq !== "bigint" ||
-        context.snapshotCommitSeq < 0n
-      ) return yield* fail(boundary, "invalidShape", "context");
-      return Object.freeze({
-        mode: "query" as const,
-        executionId: context.executionId,
-        randomSeed,
-        executionTime: context.executionTime,
-        snapshotCommitSeq: context.snapshotCommitSeq,
-      });
-    }
-    if (context.mode !== "write") {
-      return yield* fail(boundary, "invalidShape", "context.mode");
-    }
+  const context = yield* decodeRecordUnion(value, [[
+    "mode",
+    "executionId",
+    "randomSeed",
+    "executionTime",
+    "snapshotCommitSeq",
+  ], [
+    "mode",
+    "executionId",
+    "randomSeed",
+    "executionTime",
+    "snapshotTimestamp",
+  ], [
+    "mode",
+    "executionId",
+    "logScopeId",
+    "randomSeed",
+    "executionTime",
+    "initialCreationTimeCursor",
+  ]], boundary, "context");
+  if (context.mode === "query") {
     const randomSeed = yield* decodeBytes(
       context.randomSeed,
       APPLICATION_WORKER_RANDOM_SEED_BYTES_V1,
       boundary,
       "context.randomSeed",
     );
+    const snapshot = "snapshotTimestamp" in context
+      ? context.snapshotTimestamp : context.snapshotCommitSeq;
     if (
       !isBoundedText(context.executionId) ||
-      !isBoundedText(context.logScopeId) ||
-      !isAppCreationTime(context.executionTime) ||
-      !isAppCreationTime(context.initialCreationTimeCursor)
+      !isFiniteNumber(context.executionTime) ||
+      typeof snapshot !== "bigint" ||
+      snapshot < 0n
     ) return yield* fail(boundary, "invalidShape", "context");
     return Object.freeze({
-      mode: "write" as const,
+      mode: "query" as const,
       executionId: context.executionId,
-      logScopeId: context.logScopeId,
       randomSeed,
       executionTime: context.executionTime,
-      initialCreationTimeCursor: context.initialCreationTimeCursor,
+      ...("snapshotTimestamp" in context
+        ? { snapshotTimestamp: snapshot } : { snapshotCommitSeq: snapshot }),
     });
+  }
+  if (context.mode !== "write") {
+    return yield* fail(boundary, "invalidShape", "context.mode");
+  }
+  const randomSeed = yield* decodeBytes(
+    context.randomSeed,
+    APPLICATION_WORKER_RANDOM_SEED_BYTES_V1,
+    boundary,
+    "context.randomSeed",
+  );
+  if (
+    !isBoundedText(context.executionId) ||
+    !isBoundedText(context.logScopeId) ||
+    !isAppCreationTime(context.executionTime) ||
+    !isAppCreationTime(context.initialCreationTimeCursor)
+  ) return yield* fail(boundary, "invalidShape", "context");
+  return Object.freeze({
+    mode: "write" as const,
+    executionId: context.executionId,
+    logScopeId: context.logScopeId,
+    randomSeed,
+    executionTime: context.executionTime,
+    initialCreationTimeCursor: context.initialCreationTimeCursor,
   });
-}
+});
 
 function decodeActionContext(
   value: unknown,

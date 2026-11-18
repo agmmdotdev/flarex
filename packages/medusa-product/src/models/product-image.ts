@@ -11,13 +11,13 @@ const ProductImage = model
       url: model.text(),
       metadata: model.json().nullable(),
       rank: model.number().default(0),
-      product: model.belongsTo(() => Product, {
+      product: model.belongsTo((): typeof Product => Product, {
         mappedBy: "images",
       }),
       /**
        * @since 2.11.2
        */
-      variants: model.manyToMany(() => ProductVariant, {
+      variants: model.manyToMany((): typeof ProductVariant => ProductVariant, {
         mappedBy: "images",
         pivotEntity: () => ProductVariantProductImage,
       }),

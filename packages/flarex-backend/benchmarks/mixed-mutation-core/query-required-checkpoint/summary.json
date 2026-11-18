@@ -1,0 +1,588 @@
+{
+  "revision": "6026d24fdaf6e1c898c1a9627209da315007c9bc",
+  "runtimeChanged": false,
+  "benchmarkHarnessCorrection": "Payload latency observer expects one fresh manifest-binding resolution per request; bind-time preparation remains outside request timing.",
+  "methodology": "Serial Node24.16.0 / ordinary-role PostgreSQL18.3 loopback, fsync/synchronous_commit/full_page_writes on. Existing workloads, 3 warmups/20 warm/3 cold; no failed-sample replacement. Quiet latency and separate traced SQL. Cold request excludes separately reported fixture provisioning/preparation.",
+  "lanes": [
+    {
+      "lane": "quiet",
+      "revision": "6026d24fdaf6e1c898c1a9627209da315007c9bc",
+      "sourceFingerprint": "496b8a6a627e0520027e56b058636564e973e53f476ebcba440fc0e09c92331c",
+      "mode": "full",
+      "observation": "untraced",
+      "planned": {
+        "warmups": 3,
+        "warm": 20,
+        "cold": 3
+      },
+      "setupFailures": [],
+      "samples": 27,
+      "workloadResults": [
+        {
+          "workload": "product",
+          "successful": 26,
+          "warmLatencyMs": {
+            "count": 20,
+            "median": 535.0849999999991,
+            "p95": 554.3585000000021,
+            "min": 513.8752999999997,
+            "max": 589.9734999999928
+          },
+          "coldLatencyMs": {
+            "count": 3,
+            "median": 558.1823000000004,
+            "p95": 560.9879999999976,
+            "min": 554.8987000000052,
+            "max": 560.9879999999976
+          },
+          "warmSqlDispatches": null,
+          "warmTransactions": null,
+          "traceCoverage": null,
+          "failures": []
+        },
+        {
+          "workload": "productPayload",
+          "successful": 0,
+          "warmLatencyMs": null,
+          "coldLatencyMs": null,
+          "warmSqlDispatches": null,
+          "warmTransactions": null,
+          "traceCoverage": null,
+          "failures": [
+            {
+              "id": "productPayload-warm-0-0",
+              "temperature": "warmup",
+              "stage": "invoke",
+              "name": "Error",
+              "diagnosticTokens": [
+                "Native Worker failed",
+                "LogicalParticipantAdmissionError",
+                "resourceFailure"
+              ],
+              "failedPrefixSql": null,
+              "failedPrefixTransactions": null,
+              "rollbackPhases": [],
+              "failedDurationIsNotSuccessfulLatency": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "lane": "traced",
+      "revision": "6026d24fdaf6e1c898c1a9627209da315007c9bc",
+      "sourceFingerprint": "496b8a6a627e0520027e56b058636564e973e53f476ebcba440fc0e09c92331c",
+      "mode": "full",
+      "observation": "traced",
+      "planned": {
+        "warmups": 3,
+        "warm": 20,
+        "cold": 3
+      },
+      "setupFailures": [],
+      "samples": 27,
+      "workloadResults": [
+        {
+          "workload": "product",
+          "successful": 26,
+          "warmLatencyMs": null,
+          "coldLatencyMs": null,
+          "warmSqlDispatches": {
+            "count": 20,
+            "median": 522,
+            "p95": 522,
+            "min": 522,
+            "max": 522
+          },
+          "warmTransactions": {
+            "count": 20,
+            "median": 48,
+            "p95": 48,
+            "min": 48,
+            "max": 48
+          },
+          "traceCoverage": {
+            "unknownStatements": 0,
+            "queryErrors": 0,
+            "lostContext": 0,
+            "unobserved": 0,
+            "incompleteSpans": 0
+          },
+          "failures": []
+        },
+        {
+          "workload": "productPayload",
+          "successful": 0,
+          "warmLatencyMs": null,
+          "coldLatencyMs": null,
+          "warmSqlDispatches": null,
+          "warmTransactions": null,
+          "traceCoverage": {
+            "unknownStatements": 0,
+            "queryErrors": 0,
+            "lostContext": 0,
+            "unobserved": 0,
+            "incompleteSpans": 0
+          },
+          "failures": [
+            {
+              "id": "productPayload-warm-0-0",
+              "temperature": "warmup",
+              "stage": "invoke",
+              "name": "Error",
+              "diagnosticTokens": [
+                "Native Worker failed",
+                "LogicalParticipantAdmissionError",
+                "resourceFailure"
+              ],
+              "failedPrefixSql": 304,
+              "failedPrefixTransactions": 33,
+              "rollbackPhases": [
+                "invocation / Worker execution / Worker dispatch / payload.posts.0b4edceefb42629ee482a9c2b07fac8215b5259781761b11d0d2370e56ab1d3b:payload-create"
+              ],
+              "failedDurationIsNotSuccessfulLatency": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "lane": "mixed-workflow-quiet",
+      "revision": "6026d24fdaf6e1c898c1a9627209da315007c9bc",
+      "sourceFingerprint": "496b8a6a627e0520027e56b058636564e973e53f476ebcba440fc0e09c92331c",
+      "mode": "full",
+      "observation": "untraced",
+      "planned": {
+        "warmups": 3,
+        "warm": 20,
+        "cold": 3
+      },
+      "setupFailures": [],
+      "samples": 1,
+      "workloadResults": [
+        {
+          "workload": "mixedWorkflow",
+          "successful": 0,
+          "warmLatencyMs": null,
+          "coldLatencyMs": null,
+          "warmSqlDispatches": null,
+          "warmTransactions": null,
+          "traceCoverage": null,
+          "failures": [
+            {
+              "id": "mixedWorkflow-warm-0-0",
+              "temperature": "warmup",
+              "stage": "invoke",
+              "name": "Error",
+              "diagnosticTokens": [
+                "Native Worker failed",
+                "CommerceTransactionError",
+                "rollbackOnly",
+                "resourceFailure"
+              ],
+              "failedPrefixSql": null,
+              "failedPrefixTransactions": null,
+              "rollbackPhases": [],
+              "failedDurationIsNotSuccessfulLatency": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "lane": "mixed-workflow-traced",
+      "revision": "6026d24fdaf6e1c898c1a9627209da315007c9bc",
+      "sourceFingerprint": "496b8a6a627e0520027e56b058636564e973e53f476ebcba440fc0e09c92331c",
+      "mode": "full",
+      "observation": "traced",
+      "planned": {
+        "warmups": 3,
+        "warm": 20,
+        "cold": 3
+      },
+      "setupFailures": [],
+      "samples": 1,
+      "workloadResults": [
+        {
+          "workload": "mixedWorkflow",
+          "successful": 0,
+          "warmLatencyMs": null,
+          "coldLatencyMs": null,
+          "warmSqlDispatches": null,
+          "warmTransactions": null,
+          "traceCoverage": {
+            "unknownStatements": 0,
+            "queryErrors": 0,
+            "lostContext": 0,
+            "unobserved": 0,
+            "incompleteSpans": 0
+          },
+          "failures": [
+            {
+              "id": "mixedWorkflow-warm-0-0",
+              "temperature": "warmup",
+              "stage": "invoke",
+              "name": "Error",
+              "diagnosticTokens": [
+                "Native Worker failed",
+                "CommerceTransactionError",
+                "rollbackOnly",
+                "resourceFailure"
+              ],
+              "failedPrefixSql": 304,
+              "failedPrefixTransactions": 33,
+              "rollbackPhases": [
+                "invocation / Worker execution / Worker dispatch / medusa.workflow:run"
+              ],
+              "failedDurationIsNotSuccessfulLatency": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "lane": "standalone-workflow-quiet",
+      "revision": "6026d24fdaf6e1c898c1a9627209da315007c9bc",
+      "sourceFingerprint": "496b8a6a627e0520027e56b058636564e973e53f476ebcba440fc0e09c92331c",
+      "mode": "full",
+      "observation": "untraced",
+      "planned": {
+        "warmups": 3,
+        "warm": 20,
+        "cold": 3
+      },
+      "setupFailures": [],
+      "samples": 26,
+      "workloadResults": [
+        {
+          "workload": "standaloneWorkflow",
+          "successful": 26,
+          "warmLatencyMs": {
+            "count": 20,
+            "median": 302.02514999999767,
+            "p95": 333.39390000000276,
+            "min": 285.60059999999794,
+            "max": 348.6531999999861
+          },
+          "coldLatencyMs": {
+            "count": 3,
+            "median": 300.439200000008,
+            "p95": 303.40909999998985,
+            "min": 279.8856000000087,
+            "max": 303.40909999998985
+          },
+          "warmSqlDispatches": null,
+          "warmTransactions": null,
+          "traceCoverage": null,
+          "failures": []
+        }
+      ]
+    },
+    {
+      "lane": "standalone-workflow-traced",
+      "revision": "6026d24fdaf6e1c898c1a9627209da315007c9bc",
+      "sourceFingerprint": "496b8a6a627e0520027e56b058636564e973e53f476ebcba440fc0e09c92331c",
+      "mode": "full",
+      "observation": "traced",
+      "planned": {
+        "warmups": 3,
+        "warm": 20,
+        "cold": 3
+      },
+      "setupFailures": [],
+      "samples": 26,
+      "workloadResults": [
+        {
+          "workload": "standaloneWorkflow",
+          "successful": 26,
+          "warmLatencyMs": null,
+          "coldLatencyMs": null,
+          "warmSqlDispatches": {
+            "count": 20,
+            "median": 301,
+            "p95": 301,
+            "min": 301,
+            "max": 301
+          },
+          "warmTransactions": {
+            "count": 20,
+            "median": 13,
+            "p95": 13,
+            "min": 13,
+            "max": 13
+          },
+          "traceCoverage": {
+            "unknownStatements": 0,
+            "queryErrors": 0,
+            "lostContext": 0,
+            "unobserved": 0,
+            "incompleteSpans": 0
+          },
+          "failures": []
+        }
+      ]
+    }
+  ],
+  "originalStandalonePayloadHarnessFailure": "Expected two manifest-binding lookup spans, observed one. Original log retained; all other assertions preserved.",
+  "artifacts": [
+    {
+      "file": "quiet/raw.json",
+      "sha256": "93081d6fc9d54e7a8dd1f5f14f08637fb5859d78764d4ff52c9fe3d3891389da"
+    },
+    {
+      "file": "traced/raw.json",
+      "sha256": "cd07771d35ade53360ee392d2d2d3ad157afa1e1a0c218d321d68126a2eaff7c"
+    },
+    {
+      "file": "mixed-workflow-quiet/raw.json",
+      "sha256": "c30d7f94c03e6ad38f49f395e5f9a746bf8a5e1de8ade43ad1a285c4af3f8a1f"
+    },
+    {
+      "file": "mixed-workflow-traced/raw.json",
+      "sha256": "c8f39f3dda7ed367276eb4b182993cbfb38da07bdf5aa735c5c997df3ef34c78"
+    },
+    {
+      "file": "standalone-workflow-quiet/raw.json",
+      "sha256": "96b34f0f4b1b7715be45ee655b3f595cba5bf077c7ba2e1e56f13a7da0754869"
+    },
+    {
+      "file": "standalone-workflow-traced/raw.json",
+      "sha256": "9e5eb4efb6987be7b50f6313c6cc17e2a50361b59ab5a30ae97ffe707eb9f880"
+    }
+  ],
+  "standalonePayload": {
+    "environment": [
+      {
+        "version": "18.3",
+        "superuser": false,
+        "bypass": false,
+        "createDb": false,
+        "createRole": false,
+        "synchronousCommit": "on",
+        "tracking": "top",
+        "utilityTracking": "on"
+      }
+    ],
+    "method": "three warmup pairs; twenty alternating cohort pairs; nearest-rank quantiles; inclusive spans; live cardinality8/9; retained tombstones grow to46",
+    "groups": [
+      {
+        "operation": "compile",
+        "latencyMs": {
+          "n": 1,
+          "p50": 35.7916,
+          "p95": 35.7916
+        },
+        "sqlStatements": {
+          "n": 1,
+          "p50": 0,
+          "p95": 0
+        },
+        "postgresExecutionMs": {
+          "n": 1,
+          "p50": 0,
+          "p95": 0
+        }
+      },
+      {
+        "operation": "first-instance",
+        "latencyMs": {
+          "n": 1,
+          "p50": 63.7168,
+          "p95": 63.7168
+        },
+        "sqlStatements": {
+          "n": 1,
+          "p50": 0,
+          "p95": 0
+        },
+        "postgresExecutionMs": {
+          "n": 1,
+          "p50": 0,
+          "p95": 0
+        }
+      },
+      {
+        "operation": "bind",
+        "latencyMs": {
+          "n": 21,
+          "p50": 102.79,
+          "p95": 161.9476
+        },
+        "sqlStatements": {
+          "n": 21,
+          "p50": 141,
+          "p95": 141
+        },
+        "postgresExecutionMs": {
+          "n": 21,
+          "p50": 3.796599999997852,
+          "p95": 4.3039000000026135
+        }
+      },
+      {
+        "operation": "fresh-instance",
+        "latencyMs": {
+          "n": 20,
+          "p50": 1.0463,
+          "p95": 1.3476
+        },
+        "sqlStatements": {
+          "n": 20,
+          "p50": 0,
+          "p95": 0
+        },
+        "postgresExecutionMs": {
+          "n": 20,
+          "p50": 0,
+          "p95": 0
+        }
+      },
+      {
+        "operation": "create",
+        "latencyMs": {
+          "n": 20,
+          "p50": 79.9293,
+          "p95": 122.0384
+        },
+        "sqlStatements": {
+          "n": 20,
+          "p50": 125,
+          "p95": 125
+        },
+        "postgresExecutionMs": {
+          "n": 20,
+          "p50": 4.326000000011845,
+          "p95": 4.700200000002951
+        }
+      },
+      {
+        "operation": "findByID",
+        "latencyMs": {
+          "n": 20,
+          "p50": 48.1547,
+          "p95": 81.5146
+        },
+        "sqlStatements": {
+          "n": 20,
+          "p50": 65,
+          "p95": 65
+        },
+        "postgresExecutionMs": {
+          "n": 20,
+          "p50": 1.995199999993929,
+          "p95": 2.1178000000072643
+        }
+      },
+      {
+        "operation": "find",
+        "latencyMs": {
+          "n": 20,
+          "p50": 50.9299,
+          "p95": 66.4517
+        },
+        "sqlStatements": {
+          "n": 20,
+          "p50": 65,
+          "p95": 65
+        },
+        "postgresExecutionMs": {
+          "n": 20,
+          "p50": 2.505700000012439,
+          "p95": 3.1868999999933294
+        }
+      },
+      {
+        "operation": "count",
+        "latencyMs": {
+          "n": 20,
+          "p50": 49.8746,
+          "p95": 52.9964
+        },
+        "sqlStatements": {
+          "n": 20,
+          "p50": 65,
+          "p95": 65
+        },
+        "postgresExecutionMs": {
+          "n": 20,
+          "p50": 2.5367999999980384,
+          "p95": 3.1415000000015425
+        }
+      },
+      {
+        "operation": "update",
+        "latencyMs": {
+          "n": 20,
+          "p50": 78.9049,
+          "p95": 89.9934
+        },
+        "sqlStatements": {
+          "n": 20,
+          "p50": 122,
+          "p95": 122
+        },
+        "postgresExecutionMs": {
+          "n": 20,
+          "p50": 3.7334999999875436,
+          "p95": 3.9038999999938824
+        }
+      },
+      {
+        "operation": "replay",
+        "latencyMs": {
+          "n": 20,
+          "p50": 54.4245,
+          "p95": 61.2307
+        },
+        "sqlStatements": {
+          "n": 20,
+          "p50": 96,
+          "p95": 96
+        },
+        "postgresExecutionMs": {
+          "n": 20,
+          "p50": 2.4285000000127184,
+          "p95": 2.66720000001078
+        }
+      },
+      {
+        "operation": "delete",
+        "latencyMs": {
+          "n": 20,
+          "p50": 80.3342,
+          "p95": 102.3119
+        },
+        "sqlStatements": {
+          "n": 20,
+          "p50": 126,
+          "p95": 126
+        },
+        "postgresExecutionMs": {
+          "n": 20,
+          "p50": 4.141699999985576,
+          "p95": 4.584600000005594
+        }
+      }
+    ],
+    "countMethod": "Per-role/per-database pg_stat_statements top-level + utility deltas; observer excluded. Distinct from client SQL dispatch tracing."
+  },
+  "sourceFreeze": {
+    "paths": 147,
+    "changed": []
+  },
+  "standalonePayloadArtifacts": [
+    {
+      "path": "work/validation/current-framework-measurements-20261003/payload-standalone.log",
+      "sha256": "d43675e2031f338b37ad8d9dc1095ac698ffe6ad0392f448123a91f9fa252aed"
+    },
+    {
+      "path": "work/validation/current-framework-measurements-20261003/payload-standalone-corrected.log",
+      "sha256": "ec1df57549c29ee8f902077e70d152134d565131877fd9f805344021242663df"
+    },
+    {
+      "path": "work/validation/current-framework-measurements-20261003/payload-standalone.json",
+      "sha256": "0bb6feeb8c545345be28dfe468edbd049debd37084a533f03b94a02487df2fc9"
+    }
+  ],
+  "measurementBoundary": "Source freeze was captured at measurement completion, before documentation reconciliation. The sole executable change is the reviewed Payload observer assertion from two binding resolutions to one; runtime implementation remains paused."
+}

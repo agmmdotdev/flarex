@@ -23,7 +23,7 @@ one installed Product + Sales Channel schema, two explicitly authorized and
 table-confined service profiles, independently executed through the existing
 commerce host. This does not make their separate transactions atomic.
 
-`packages/persistence-postgres/src/frameworkSchema/binding` owns canonical
+`packages/persistence-postgres/src/installation/frameworkSchema/binding` owns canonical
 binding values, activation and durable membership. `commerceTransaction` owns
 authentication of the loaded profile, table capabilities and request admission.
 The Medusa adapter owns configured metadata and native services. Neither owner
@@ -94,7 +94,7 @@ The displaced implementation had the following limitation:
   Commerce runtime verification does not separately dispatch adapter/query/store
   implementations. Keeping three repeated grants is not necessary for that proof.
 - `commerceTransaction/admission.ts` re-reads the active candidate per request;
-  `atomicCommerce/admission.ts` and `crossDomainCommand/binding.ts` also project
+  `atomicCommerce/admission.ts` and the now-retired physical announcement binding also projected
   an installation reference by stripping `profiles`. New fields must not leak
   into those exact-reference comparisons.
 - `atomicCommerce/participants.ts` independently refuses duplicate installations.

@@ -27,7 +27,7 @@ The goal is a coherent programming model:
 
 This is not a file-by-file refactor plan, a demand to maximize Effect imports,
 or authorization for a repository-wide migration. A future behavior-changing
-slice still requires the preflight and validation required by
+slice follows the scope, ownership, and validation rules in
 [`../../AGENTS.md`](../../AGENTS.md).
 
 ## Main Conclusions
@@ -124,8 +124,8 @@ For a future approved slice:
    editing implementation syntax;
 4. correct bounded touched-flow debt when behavior can be preserved and
    focused validation exists; and
-5. stop for a new preflight if the correction changes a public contract,
-   transaction boundary, trust boundary, lifecycle owner, or execution order.
+5. confirm task scope before changing a public contract, transaction boundary,
+   trust boundary, lifecycle owner, or execution order.
 
 Neighboring code is evidence of the current state, not authority for the next
 implementation.

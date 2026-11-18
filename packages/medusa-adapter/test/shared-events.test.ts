@@ -1,18 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { Deferred, Effect, Result } from "effect";
+import { mockRelationalRead } from "./mock-relational-read";
+import { Cause, Deferred, Effect, Exit, Result } from "effect";
 import type { Context, IMessageAggregator, ModulePersistenceMutationEventArgs, ModulePersistenceMutationService } from "@medusajs/types";
 import { dispatchPerformedActions, suppressMutationEventDispatch } from "@medusajs/drizzle/mutation-events";
-import { commerceError, commerceLimits, defaultCommerceResources } from "@flarex/persistence-postgres/internal/commerce-values";
-import { commerceMutationEvents } from "../src/commerce-mutation-events";
-import { makeCommercePromiseOwner } from "../src/commerce-promise-owner";
-import { productRepository } from "../src/product-repository";
-import { captureProductSchema } from "../src/product-schema";
-import { productRuntimeMetadata } from "../src/product-runtime-metadata";
-import { makeBoundedRequestLifetime } from "../../persistence-postgres/src/boundedRequestLifetime";
-import { makeCommerceCommandContext } from "../../persistence-postgres/src/commerceTransaction/context";
+import { commerceError, commerceLimits, CommerceTransactionError, defaultCommerceResources } from "@flarex/persistence-postgres/internal/commerce-values";
+import { commerceMutationEvents } from "../src/repository/mutation-events";
+import { makeCommercePromiseOwner } from "../src/module/promise-owner";
+import { productRepository } from "../src/modules/product/repository";
+import { captureProductSchema } from "../src/modules/product/schema";
+import { productRuntimeMetadata } from "../src/modules/product/runtime-metadata";
+import { makeBoundedRequestLifetime } from "../../persistence-postgres/src/execution/preparation/boundedRequestLifetime";
+import { makeCommerceCommandContext } from "../../persistence-postgres/src/frameworks/commerceTransaction/context";
 
 const fixture = Effect.gen(function* () {
-  const owner = yield* Effect.acquireRelease(Effect.sync(makeCommercePromiseOwner), owner => owner.close);
+  const owner = yield* Effect.acquireRelease(makeCommercePromiseOwner(), owner => owner.close);
   return { owner, events: commerceMutationEvents(owner) };
 });
 type Receipt = { event: Parameters<ModulePersistenceMutationService["interceptEntityMutationEvents"]>[0]; args: ModulePersistenceMutationEventArgs; context: Context };
@@ -84,9 +85,9 @@ describe("shared request-owned Medusa mutation dispatch", () => {
       yield* events.dispatch("afterCreate", args, suppressMutationEventDispatch(context));
       expect(registered).toEqual([]);
       // The original framework action dispatcher records one duplicate token.
-      yield* Effect.promise(signal => owner.callback(() => dispatchPerformedActions({
+      yield* owner.invoke(() => dispatchPerformedActions({
         created: { Publication: [{ id: "book" }] }, updated: {}, deleted: {},
-      }, context), signal));
+      }, context));
       yield* events.dispatch("afterCreate", args, context);
       expect(registered).toHaveLength(1);
       yield* events.dispatch("afterCreate", args, context);
@@ -112,14 +113,23 @@ describe("shared request-owned Medusa mutation dispatch", () => {
     })));
   });
 
-  it.each([new Error("foreign callback"), commerceError("unadmittedEvent")])("retains the existing foreign failure envelope %#", async error => {
+  it.each([new Error("foreign callback"), commerceError("unadmittedEvent")])("retains typed native failures and foreign defects at dispatch %#", async error => {
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
       const { events } = yield* fixture;
       const context: Context = {};
       events.registerSubscriber(context, events.createSubscriber(["Publication"], { interceptEntityMutationEvents: () => { throw error; } }));
-      const result = yield* events.rows("afterUpdate", "Publication", [{ id: "book" }], context).pipe(Effect.result);
-      expect(result).toMatchObject({ _tag: "Failure", failure: { reason: "adapterFailure" } });
-      if (Result.isFailure(result)) expect(result.failure.cause).toBe(error);
+      const result = yield* Effect.exit(events.rows("afterUpdate", "Publication", [{ id: "book" }], context));
+      if (Exit.isSuccess(result)) throw new Error("Expected subscriber rejection");
+      expect(result.cause.reasons).toHaveLength(1);
+      const reason = result.cause.reasons[0];
+      if (reason === undefined) throw new Error("Missing subscriber outcome");
+      if (error instanceof CommerceTransactionError) {
+        if (!Cause.isFailReason(reason)) throw new Error("Expected typed native failure");
+        expect(reason.error).toBe(error);
+      } else {
+        if (!Cause.isDieReason(reason)) throw new Error("Expected foreign subscriber defect");
+        expect(reason.defect).toBe(error);
+      }
     })));
   });
 
@@ -151,7 +161,7 @@ describe("shared request-owned Medusa mutation dispatch", () => {
       const receipts: Receipt[] = [];
       const late = events.createSubscriber(["Publication"], collector(receipts));
       const result = yield* events.dispatch("afterCreate", { entity: { id: "late" }, meta: { className: "Publication" } }, {}, late).pipe(Effect.result);
-      expect(result).toMatchObject({ _tag: "Failure", failure: { reason: "adapterFailure", cause: { reason: "closed" } } });
+      expect(result).toMatchObject({ _tag: "Failure", failure: { reason: "closed" } });
       expect(receipts).toEqual([]);
     })));
   });
@@ -162,7 +172,7 @@ describe("shared request-owned Medusa mutation dispatch", () => {
       const lifetime = yield* Effect.acquireRelease(makeBoundedRequestLifetime(reason => commerceError(reason), commerceLimits, {}, {}, "event-admission", "write"), lifetime => lifetime.close);
       const unused = () => Effect.fail(commerceError("unsupportedProfile"));
       const root = makeCommerceCommandContext(lifetime, { resources: defaultCommerceResources,
-        store: { find: unused, count: unused, write: unused, delete: unused, lifecycle: unused }, table: unused,
+        store: { prepareRead(query: unknown) { return mockRelationalRead(this, query); }, findPage: () => Effect.fail(commerceError("unsupportedProfile")), aggregate: () => Effect.fail(commerceError("unsupportedProfile")), find: unused, count: unused, write: unused, delete: unused, lifecycle: unused }, table: unused,
       }, "event-admission", lifetime.context, unused, unused);
       const metadata = yield* captureProductSchema("event-admission").pipe(Effect.flatMap(value => productRuntimeMetadata(value.metadata.frame)));
       const { mutationPersistence: persistence } = productRepository(root, owner, metadata);

@@ -1,0 +1,60 @@
+{
+  "format": "flarex.mixed-mutation-performance-artifacts",
+  "dataset": "selected-evidence-untraced",
+  "measuredRevision": "4afceadda203e32f20ff42ced933a46246efe9c8",
+  "measuredWorkingDiffSha256": "381be1f7c0f956bba4a8cdfbcd15debcd229299558064ef61042808c62d9c9fd",
+  "mode": "full",
+  "observationMode": "untraced",
+  "planned": {
+    "warmups": 3,
+    "warm": 20,
+    "cold": 3
+  },
+  "plannedWorkloads": [
+    "product",
+    "productPayload",
+    "mixedWorkflow",
+    "standaloneWorkflow"
+  ],
+  "sampleCount": 104,
+  "successfulSamples": 104,
+  "failedSamples": 0,
+  "setupFailures": 0,
+  "sourceHashes": {
+    "packages/flarex-backend/test/mixedMutationPerformance.postgres.test.ts": "7900b3eb41e587b37f3a95036003ff6eaef1b26291ee5504d8f8ad9385e5de85",
+    "packages/flarex-backend/test/support/mixedMutationProductFixture.ts": "299b0b9a2b87610c1837bfea19b5c00c74b5fa1930659d3c852440fb4fd84887",
+    "packages/flarex-backend/test/support/mixedMutationPerformanceReport.ts": "a76f10c870d360d4117d30afa509ee6bbb11a345dea640b3473b6879fcea060d",
+    "packages/medusa-adapter/test/support/product-launch-performance-fixture.ts": "e891829bfbd48aa9bc8c9f5765c3ce5a7d752877cfd10088d52c5fe3b0b21c35",
+    "packages/persistence-postgres/src/appRows.ts": "ca7a2a67f70e587da10b5a796bfdde20f84bcb0cd7dc4e0bc22e27bcbac6ad0e",
+    "packages/persistence-postgres/src/appUniqueConstraintSetBuildV1.ts": "27cbb62d616c3c6a9413bab17903a3975da1edc7821f911a27048bd541676fd5",
+    "packages/persistence-postgres/src/applicationActivation.ts": "af29252779772604269b21a36ff19f200a46cc686918be7c29dd7d673bf7db8d",
+    "packages/persistence-postgres/src/applicationReadiness.ts": "b74697ade7ef0112031b90d56b740cace179715480f0665b8873e39d8e3a36b5",
+    "packages/persistence-postgres/src/applicationRelationReadinessFold.ts": "c9e3c34a1d7eb4de52d47c04480c0bd290530cbd4c1ea17bb83ccd61709ce06f",
+    "packages/persistence-postgres/src/indexBuildStates.ts": "717297da4b03f890c18698bb488a4a21f5f90fb1ca286c46b16dbc214e68a299",
+    "packages/persistence-postgres/src/logicalDocuments/workingSet.ts": "8872e57cdfa37474c5a710e4eb58a1cc23f796ad73031ba3e40ad9530a051d52",
+    "packages/persistence-postgres/src/logicalSearchBuild.ts": "c30e410ac6d28fdbc4c35e2387d0ff544c5edf5c7449f1ee788fcedb678e9934",
+    "packages/persistence-postgres/src/logicalStorageReadiness.ts": "d93c09c2faa661749de858679fdb1261441bcbcfcf4ec92f7b65ff68b60f9958",
+    "packages/persistence-postgres/test/mixedMutationPerformanceTrace.ts": "a633ba98dfcc3c0b786a0b95e269510bc2ca2f54903c1e3812ba89445f522476"
+  },
+  "files": {
+    "raw.json.gz": {
+      "bytes": 9930,
+      "sha256": "35c72775b3cab9308cff244a06a6d5901f08f3e3519ea0f7771fc3db8e7f4a09",
+      "uncompressedBytes": 128881,
+      "uncompressedSha256": "7ece47c24f88d0d7a141e577372cdb2d9e698587c428782a153b2e1d8d8700f7"
+    },
+    "report.md": {
+      "bytes": 12043,
+      "sha256": "26aa46382a1bbd3149b9bd1829a41b2baef4e8be548e5c3899642ba0bfa6c762"
+    },
+    "samples.csv": {
+      "bytes": 10339,
+      "sha256": "13bede757b42a95fae27d88c0d6657a4e3ba01b4853eb889bc611bb70be8bfa3",
+      "rows": 104
+    },
+    "exclusions.json": {
+      "bytes": 280,
+      "sha256": "0d05567bc7af7f6dcd12424dff66e7b63b02d05ad07903df22e9bcddde07300b"
+    }
+  }
+}

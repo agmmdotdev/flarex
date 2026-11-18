@@ -109,7 +109,7 @@ copying the PGlite lifecycle.
 ## Completed Slice 1 Functional Evidence
 
 The focused
-`packages/persistence-postgres/test/frameworkCoordinatorTargetSession.test.ts`
+`packages/persistence-postgres/test/installation/frameworkSchema/frameworkCoordinatorTargetSession.test.ts`
 PGlite lane covers, without exporting the implementation:
 
 - opaque frozen target snapshots and sequential plus concurrently competing
@@ -184,7 +184,7 @@ they do not admit caller SQL.
 ## Completed Slice 2 PGlite Functional Evidence
 
 The focused
-`packages/persistence-postgres/test/frameworkCoordinatorRelationalStructuralRunner.test.ts`
+`packages/persistence-postgres/test/installation/frameworkSchema/frameworkCoordinatorRelationalStructuralRunner.test.ts`
 lane passes all fifteen tests and proves:
 
 - one exact seven-step fresh synthetic plan in deterministic order: two table
@@ -456,7 +456,7 @@ Inspect and classify these existing owners before implementing the native seam:
 | `migrationCoordination/targetSession.ts` | Keep authority/lifetime semantics; adapt only the private native lifecycle contract where required |
 | `migrationCoordination/pgliteTarget.ts` | Keep as functional/test adapter; do not copy deferred interruption as native cancellation policy |
 | `migrationCoordination/freshCoordinator.ts` and its repository helpers | Keep state-machine authority; fix only native-profile integration defects within the approved capability |
-| `frameworkSchema/artifact/postgresControlSession.ts` and its native tests | Port applicable acquisition, cancellation/drain and settlement mechanics behind the target seam; artifact-specific identities and repository authority stay with their owner |
+| `postgresCatalogControlSession.ts` and its native tests | Port applicable acquisition, cancellation/drain and settlement mechanics behind the target seam; artifact-specific identities and repository authority stay with their owner |
 | Platform migrations, Application execution, commit/feed/outbox and production host resolvers | Keep unchanged; a required change to these owners needs its own preflight |
 
 The artifact adapter uses artifact-specific session contracts and schema
@@ -500,10 +500,10 @@ is required by this new private native test capability.
   reviews. Missing native database access leaves native acceptance incomplete.
 
 The test/code anchors are under `packages/persistence-postgres/src/` at the
-owners above, plus `test/frameworkCoordinatorTargetSession.test.ts`,
-`test/frameworkCoordinatorRelationalStructuralRunner.test.ts`,
-`test/frameworkCoordinatorFreshCoordinator.test.ts`, and
-`test/frameworkSchemaArtifactControlSession.postgres.test.ts`. PostgreSQL's
+owners above, plus `test/installation/frameworkSchema/frameworkCoordinatorTargetSession.test.ts`,
+`test/installation/frameworkSchema/frameworkCoordinatorRelationalStructuralRunner.test.ts`,
+`test/installation/frameworkSchema/frameworkCoordinatorFreshCoordinator.test.ts`, and
+`test/database/catalogControlSession.postgres.test.ts`. PostgreSQL's
 [explicit-locking contract](https://www.postgresql.org/docs/18/explicit-locking.html)
 governs row-lock and deadlock expectations.
 

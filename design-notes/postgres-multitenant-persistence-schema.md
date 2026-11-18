@@ -104,7 +104,7 @@ future value codec can stay Convex-compatible instead of locking the storage
 layer to JSONB too early.
 
 The TypeScript source of truth for this schema now lives in Drizzle table
-definitions under `packages/persistence-postgres/src/schema.ts`. Migration files
+definitions under `packages/persistence-postgres/src/database/schema.ts`. Migration files
 are package-local under `packages/persistence-postgres/drizzle/` and generated with
 Drizzle Kit from the package-local `drizzle.config.ts`.
 

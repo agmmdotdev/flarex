@@ -7,7 +7,7 @@ export const ShippingOptionType = model.define("shipping_option_type", {
   label: model.text().searchable().translatable(),
   description: model.text().searchable().translatable().nullable(),
   code: model.text().searchable(),
-  shipping_options: model.hasMany(() => ShippingOption, {
+  shipping_options: model.hasMany((): typeof ShippingOption => ShippingOption, {
     mappedBy: "type",
   }),
 })

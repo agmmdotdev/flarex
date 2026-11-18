@@ -1,5 +1,13 @@
 # DTE04-P20: Task System Storage And Schema Contract
 
+> **Legacy Task record - superseded direction.**
+> The [Task System design](../../../design-notes/task-system/README.md) and
+> [current roadmap](../../task-system/README.md) own replacement work.
+> This body is historical baseline/source evidence; its statuses, approvals and
+> next steps apply to the former initiative. Preserve applicable behavior and
+> tests until consumer cutover. Do not use this record to extend the custom
+> engine or retain Task-specific physical tables.
+
 ## Status
 
 **Status:** **Complete: admit DTE04-A3; DTE04-B/C/D implemented.** Lifecycle
@@ -8,6 +16,13 @@ contracts are complete. The admitted five-table Drizzle schema now backs the
 scope-bound lifecycle, creation, discovery, and requested-effect-ledger
 capabilities. This file still does not admit registration, effect delivery,
 host composition, or routing.
+
+The [trusted workflow binding prerequisite](#trusted-workflow-binding-prerequisite)
+adds a distinct private definition reference and binding table for framework
+workflows. The [private continuation storage owner](#private-trusted-workflow-continuation-owner)
+extends that generation with checkpointed waits, control state and exact
+callback/child evidence. It preserves the original generations and does not
+admit compute delivery or hosted workflow activation.
 
 ## Objective
 
@@ -18,7 +33,9 @@ lifecycle model in SQL.
 
 ## Authoritative Model
 
-One decoded `TaskRunAttemptAggregateV1` is the semantic authority for a run.
+For the original lifecycle generation, one decoded `TaskRunAttemptAggregateV1`
+is the semantic authority for a run. The private trusted generation uses its
+distinct current-reference envelope as described below.
 Postgres additionally stores relational projections needed to locate, lock,
 compare-and-swap, and discover the aggregate efficiently.
 
@@ -449,3 +466,125 @@ run plus request-identity insertion, stable replay/conflict handling, and
 stored immutable binding/input/authority correlation. It creates no attempt or
 requested-effect row. Definition registration, discovery, effect delivery,
 host composition, and activation remain closed until their own checkpoints.
+
+## Trusted Workflow Binding Prerequisite
+
+The closed `trusted_workflow` definition reference identifies a scoped immutable
+binding by SHA-256. Its canonical definition pins reviewed workflow and adapter
+revisions, execution profile/policy, the existing bound attempt policy and one
+authenticated-user principal digest. Trusted construction owns bounded capture
+and the authentic in-process handle. A supplied digest or decoded definition
+alone grants no execution authority.
+
+`fx_system_trusted_workflow_task_binding` stores bounded canonical bytes and
+their identity. Runs have an optional binding digest constrained to this
+generation and a restrictive scoped foreign key. The additive migration enrolls
+the table in installation writer protection. Existing generations and rows keep
+their prior meaning; there is no reset or synthetic Application artifact.
+
+The trusted creation store binds the request key, input/principal references,
+scope authority and exact immutable binding. It inserts the initial aggregate
+and request identity atomically, and correlates retained evidence on replay.
+The existing Task attempt, lease, fence, heartbeat, completion and cancellation
+owners operate on its current-reference envelope. Retained Application and
+legacy persistence codecs remain separate.
+
+This prerequisite has no compute delivery or due-discovery admission. Those
+existing profiles explicitly refuse trusted workflow runs. The private execution
+subject issuer validates persisted canonical binding bytes, policy and principal
+against authentic construction evidence, then the current executing attempt,
+cancellation state, attempt identity and database wall-clock lease. The shared
+Task principal object decoder owns its canonical object shape and detached,
+deeply frozen value. Lifecycle row/digest correlation alone is insufficient.
+
+The [Task command integration](../../workflow-foundations/05-task-command-integration.md)
+adds a separate `child_commerce` kind to existing external-effect evidence.
+Its finite database-only prepare/dispatch/confirmation phases commit with the
+commerce child and retained result. A partial unique scope/request-key index
+correlates the same logical occurrence across attempts. Existing HTTP and
+Application mutation rows keep their prior fields and semantics; no Application
+function path or runtime identity represents commerce. The additive migration
+preserves existing rows and enrolls new event eligibility tables in installation
+writer protection.
+
+The concrete consumer is the
+[inline Product import preflight](../../flarexdb-framework-integration/preflight/109-native-inline-product-import-workflow.md).
+Its bounded private connected profile is implemented and validated. The shared owners below
+provide its private continuation, checkpoint, callback and event-decision
+contracts; this binding table is not an independent workflow engine or scheduler.
+
+## Private Trusted Workflow Continuation Owner
+
+The `trusted_workflow` generation extends the current Task aggregate with
+`continuation_waiting` and `continuation_ready`. Original Application and retained
+legacy aggregate, persistence, command and evidence codecs remain separate and
+unchanged. The decoded current aggregate remains lifecycle authority; relational
+phase/due fields are validated projections, never another decision owner.
+
+The existing Task run transaction and requested-effect ledger commit
+registration, resolution and cancellation evidence through the same version,
+fence, attempt-identity and effect-cursor rules. A continuation records its wait
+identity, opaque checkpoint descriptor, native start/timeout/deadline, suspended
+attempt and accepted grant anchor, retained registration/resolution receipts,
+and any later resume attempt or control retry. These anchors are correlated on
+load and cannot be replaced by an application-supplied checkpoint digest.
+
+`makeTrustedWorkflowContinuationStore` constructs an authenticated scope/binding/
+principal facade with `register`, `inspect`, `confirm`, `expire` and `cancel`.
+Registration borrows the existing run owner and commits checkpoint CAS with
+the lifecycle transition in one bounded transaction. It retires the executing
+lease wake; no lease, connection or database transaction spans the native wait.
+Exact receipt replay survives retirement of that old lease without recreating
+the wait. Resolution retains the first accepted decision, with timeout eligible
+only at database time strictly greater than the native deadline. A later fresh
+Task grant is required for actual resumed execution.
+
+`fx_system_trusted_workflow_checkpoint` stores one latest checkpoint per scoped
+run, with restrictive scoped run/binding foreign keys, codec, positive bigint
+revision, byte length, SHA-256 and opaque bytes bounded to 1 MiB.
+`makeTrustedWorkflowCheckpointStore.prepare/load/save` owns no-getter capture,
+byte copies, digest verification and revision CAS. Live ordinary/control
+interpreter authority is checked for execution reads/writes. Authorized cold
+continuation inspection reads and correlates the latest checkpoint with its
+retained anchor without issuing an execution capability. Framework-native
+decoding, topology and interpretation stay outside Task storage.
+
+Cancellation/timeout may select control mode. Pending native cleanup can retain
+an existing-policy retry in `continuation_ready` under
+`continuation.controlRetry`, with its previous attempt and accepted not-before
+time, preserving the same continuation rather
+than relabelling it as a new wait. Exhaustion remains terminal failure. Genuine
+control issuance still validates the persisted canonical binding, complete
+policy/principal and current attempt/fence, cancellation/control condition and
+database-clock lease; stored row correlation alone supplies no permission.
+
+Finite `child_commerce` and `trusted_callback` evidence reuse
+`fx_system_external_effect_attempt_v1`. Their stable identities include scope,
+logical run and ordinal, independently of attempt/fence, while exact evidence
+separately pins binding, command or callback policy and input. Ordinary/control
+cleanup shares logical receipt identity but never bypasses live permission or
+the host's explicit cleanup allowlist. Other effect kinds keep their own fields
+and enforce null foreign-kind fields; commerce does not use Application mutation
+function-path or synthetic HTTP fields.
+
+Commerce prepares, declares dispatch, publishes and confirms within the actual
+finite child transaction. Callback dispatch commits before genuine foreign work
+outside SQL; known returned/failed tagged JSON outcome commits afterward only
+under still-live authority and the configured deadline. Confirmed known outcomes
+replay; dispatching/uncertain evidence never authorizes another invocation.
+Provider-owned expected failure data is distinct from arbitrary Effect failure,
+defect or interruption. SQL deadlines cannot bound a hanging foreign callback.
+
+Task-bound event eligibility reuses the existing commit-event group owner and
+subscriber outcomes. Immutable constructor roles and bounds derive stable
+scope/run/role/occurrence groups; authentic live interpreter checks authorize
+opening and release/clear. Up to two conjunctive groups gate delivery. Native
+message group strings grant no authority, and clearing a group cannot change
+committed rows, facts or history.
+
+The [inline import profile](../../flarexdb-framework-integration/preflight/109-native-inline-product-import-workflow.md)
+owns its specific native timeout/control, Product-child and Notification phase
+mapping. This storage contract supplies no autonomous scheduler, Redis workflow
+store, public signal/host route, general workflow graph, exactly-once provider
+claim, retention policy or garbage collector. Existing original Task discovery,
+Application execution and retained data retain their own admission gates.

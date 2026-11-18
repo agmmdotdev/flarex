@@ -1,0 +1,64 @@
+import { Schema } from "effect";
+import { commerceDecoder } from "../../value/decoder";
+import { QueryLimit, QueryOffset } from "../../query/decoder";
+
+export const PricingId = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Text = Schema.String.check(Schema.isLengthBetween(1, 256));
+const Numeric = Schema.Union([Schema.String, Schema.Number]);
+export const BasePriceInput = Schema.Struct({
+  id: Schema.optionalKey(PricingId), title: Schema.optionalKey(Schema.NullOr(Schema.String)),
+  currency_code: Text, amount: Numeric,
+  min_quantity: Schema.optionalKey(Schema.NullOr(Numeric)), max_quantity: Schema.optionalKey(Schema.NullOr(Numeric)),
+  rules: Schema.optionalKey(Schema.Record(Text, Text).check(Schema.makeFilter(value => Object.keys(value).length <= 1))),
+});
+export const PriceSetInput = Schema.Struct({ id: Schema.optionalKey(PricingId),
+  prices: Schema.optionalKey(Schema.Array(BasePriceInput).check(Schema.isMaxLength(2))),
+});
+export const PriceSetsInput = Schema.Array(PriceSetInput).check(Schema.isMaxLength(4));
+export const decodePriceSetCreate = commerceDecoder(Schema.Union([PriceSetInput, PriceSetsInput]), "invalidInput");
+const UpdateRules = Schema.optionalKey(Schema.Record(Text, Schema.NullOr(Text)).check(Schema.makeFilter(value => Object.keys(value).length <= 1)));
+export const BasePriceUpdateInput = Schema.Struct({
+  id: PricingId, title: Schema.optionalKey(Schema.NullOr(Schema.String)),
+  currency_code: Schema.optionalKey(Text), amount: Schema.optionalKey(Numeric),
+  min_quantity: Schema.optionalKey(Schema.NullOr(Numeric)), max_quantity: Schema.optionalKey(Schema.NullOr(Numeric)),
+  rules: UpdateRules,
+});
+export const BasePricesUpdate = Schema.Array(Schema.Union([BasePriceUpdateInput, Schema.Struct({ ...BasePriceInput.fields, rules: UpdateRules })])).check(Schema.isMaxLength(2));
+export const PriceSetsUpsertInput = Schema.Array(Schema.Struct({ id: PricingId, prices: BasePricesUpdate })).check(Schema.isMaxLength(4));
+export const PriceSetsUpdateInput = Schema.Struct({ selector: Schema.Struct({ id: Schema.Union([PricingId,
+  Schema.Array(PricingId).check(Schema.isMaxLength(4))]) }), update: Schema.Struct({ prices: BasePricesUpdate }) });
+export const decodePriceSetUpsert = commerceDecoder(PriceSetsUpsertInput, "invalidInput");
+export const decodePriceSetUpdate = commerceDecoder(PriceSetsUpdateInput, "invalidInput");
+const ListText = Schema.String.check(Schema.isMaxLength(256));
+export const ListPriceInput = Schema.Struct({ id: Schema.optionalKey(PricingId), price_set_id: PricingId,
+  currency_code: ListText, amount: Numeric, title: Schema.optionalKey(Schema.NullOr(Schema.String)),
+  min_quantity: Schema.optionalKey(Schema.NullOr(Numeric)), max_quantity: Schema.optionalKey(Schema.NullOr(Numeric)),
+  rules: Schema.optionalKey(Schema.Record(ListText, ListText).check(Schema.makeFilter(value => Object.keys(value).length <= 2))),
+});
+export const PriceListInput = Schema.Struct({ id: Schema.optionalKey(PricingId), title: ListText, description: Schema.String,
+  status: Schema.optionalKey(Schema.Literals(["active", "draft"])), type: Schema.optionalKey(Schema.Literals(["sale", "override"])),
+  starts_at: Schema.optionalKey(Schema.NullOr(ListText)), ends_at: Schema.optionalKey(Schema.NullOr(ListText)),
+  prices: Schema.optionalKey(Schema.Array(ListPriceInput).check(Schema.isMaxLength(2))),
+  rules: Schema.optionalKey(Schema.Record(ListText, Schema.Array(ListText).check(Schema.isMaxLength(2)))
+    .check(Schema.makeFilter(value => Object.keys(value).length <= 2))),
+});
+export const PriceListsInput = Schema.Array(PriceListInput).check(Schema.isMaxLength(4));
+export const decodePriceListCreate = commerceDecoder(PriceListsInput, "invalidInput");
+const PreferenceText = Schema.String.check(Schema.isMaxLength(256));
+export const PricePreferenceInput = Schema.Struct({
+  attribute: PreferenceText,
+  value: Schema.optionalKey(Schema.NullOr(PreferenceText)),
+  is_tax_inclusive: Schema.optionalKey(Schema.NullOr(Schema.Boolean)),
+});
+export const PricePreferencesInput = Schema.Array(PricePreferenceInput).pipe(Schema.mutable).check(Schema.isMaxLength(4));
+export const decodePricePreferenceCreate = commerceDecoder(PricePreferencesInput, "invalidInput");
+export const PriceSetFilters = Schema.Struct({ id: Schema.optionalKey(Schema.Union([PricingId, Schema.Array(PricingId).check(Schema.isMaxLength(256))])) });
+export const PriceSetConfig = Schema.Struct({
+  select: Schema.optionalKey(Schema.Array(Schema.String).check(Schema.isMinLength(1))),
+  relations: Schema.optionalKey(Schema.Array(Schema.Literals(["prices", "prices.price_rules"])).check(Schema.isMaxLength(2))),
+  skip: Schema.optionalKey(QueryOffset), take: Schema.optionalKey(QueryLimit),
+  order: Schema.optionalKey(Schema.Struct({ id: Schema.optionalKey(Schema.Literals(["ASC", "DESC"])) })),
+  withDeleted: Schema.optionalKey(Schema.Boolean),
+});
+export const decodePriceSetRead = commerceDecoder(Schema.Struct({ filters: Schema.optionalKey(PriceSetFilters), config: Schema.optionalKey(PriceSetConfig) }), "invalidInput");
+export const decodePriceSetRetrieve = commerceDecoder(Schema.Struct({ id: PricingId, config: Schema.optionalKey(PriceSetConfig) }), "invalidInput");

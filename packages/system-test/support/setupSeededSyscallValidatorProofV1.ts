@@ -12,7 +12,7 @@ import {
   setupSeededSyscallValidatorStateV1,
 } from "@flarex/persistence-postgres/internal/system-test/applicationRevisionSyscallValidatorStateV1";
 
-/** Temporary C07-only adapter until that proof enters through FSV05 + C03-V. */
+/** Temporary C07 adapter; remove when its consumers use current admitted, scoped session validators. */
 export function issueSetupSeededSyscallValidatorProofV1(input: Readonly<{
   readonly scopeId?: ScopeId;
   readonly schemaVersionId?: CatalogSchemaVersionId;

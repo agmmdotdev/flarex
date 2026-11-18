@@ -1,0 +1,3 @@
+
+> @flarex/workspace@ lint:core C:\Users\Admin\Documents\github\convex-backend\custom\cloudflare-executor
+> oxlint --quiet packages/utils/src packages/time/src packages/query-sync/src packages/flarex-protocol/src packages/executor/src packages/executor-http/src packages/executor-nitro/src packages/persistence-postgres/src packages/payload-adapter/src

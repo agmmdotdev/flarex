@@ -7,11 +7,19 @@ registrations and one shared host now assemble commands, graph reads, events and
 scoped resources. The Product-tag consumer uses this assembly; its displaced
 manual wrappers and outer participant-list construction are removed.
 
-Product and Currency remain the admitted consumers. The approved
+Product, Currency, Pricing, SalesChannel, ShippingProfile and the admitted Link
+modules use this host. The [design-quality refactor](../medusa-design-quality/README.md)
+owns current module policy and query contracts. The approved
 [Product-tag update capability](./12-product-tag-updates.md) extends admission
 to one through eight selected participants. Command limits, transaction ownership
 and recovery contracts remain in force. This adds no Task, suspension, remote effect, lock, relational OCC,
 schema, commerce module or public application API.
+
+The default participant allowance remains eight. The host forwards the trusted,
+identity-bound [logical participant selection](./09-atomic-composition.md) for
+allowances through eighteen. The Variant/item pricing graph selects nine; the
+native checkout graph remains gated by its owning preflight. This grants no additional
+module methods, physical bindings, transaction lifetimes or resource budgets.
 
 [Product-tag deletion](./13-product-tag-deletion.md) uses the same host with
 Product soft deletion, graph and events selected. The native runner maps only a
@@ -46,15 +54,15 @@ This capability changes their assembly and adapter validation boundaries.
 
 | Owner | Current responsibility |
 | --- | --- |
-| [Module definition](../../packages/medusa-adapter/src/module-definition.ts) | Repository/internal-service construction and fresh scoped services; independent of workflow orchestration. |
-| [Product commands](../../packages/medusa-adapter/src/product-service.ts) and [Currency commands](../../packages/medusa-adapter/src/currency-service.ts) | Existing command tokens, service translation, graph metadata and module-owned workflow registration. |
+| [Module definition](../../packages/medusa-adapter/src/module/definition.ts) | Repository/internal-service construction and fresh scoped services; independent of workflow orchestration. |
+| [Product commands](../../packages/medusa-adapter/src/modules/product/service.ts) and [Currency commands](../../packages/medusa-adapter/src/modules/currency/service.ts) | Existing command tokens, service translation, graph metadata and module-owned workflow registration. |
 | [Workflow module registration](../../packages/medusa-adapter/src/workflow/module.ts) | Authentic typed method adapters and captured module/graph metadata; no command execution or installation authority. |
 | [Resource selections](../../packages/medusa-adapter/src/workflow/resources.ts) | Select methods/graph/events and infer the native callback view from that exact selection. |
 | [Shared host](../../packages/medusa-adapter/src/workflow/host.ts) | Derive participants, allowlists, graph bindings, event contracts and replay policy; delegate preparation to the trusted atomic host factory. |
 | [Shared binding](../../packages/medusa-adapter/src/workflow/binding.ts) | Create the native and Medusa compatibility views over the same scoped functions. |
-| [Product-tag adapter](../../packages/medusa-adapter/src/product-tag-workflow.ts) | Business input, actual core-flow sequence, hook adaptation and event correlation. |
-| [Native runner](../../packages/medusa-adapter/src/workflow-runtime.ts) | Foreign callbacks, borrowed runners, cancellation, pending-work detection and closure, including resource-construction failure. |
-| [Atomic host](../../packages/persistence-postgres/src/atomicCommerce/host.ts) | Authentic command/installations/scope admission, root accounting, settlement and recovery. |
+| [Product-tag adapter](../../packages/medusa-adapter/src/workflows/product/tag.ts) | Business input, actual core-flow sequence, hook adaptation and event correlation. |
+| [Native runner](../../packages/medusa-adapter/src/workflow/runtime.ts) | Foreign callbacks, borrowed runners, cancellation, pending-work detection and closure, including resource-construction failure. |
+| [Atomic host](../../packages/persistence-postgres/src/frameworks/atomicCommerce/host.ts) | Authentic command/installations/scope admission, root accounting, settlement and recovery. |
 
 The Medusa reference remains the exact revision in
 [SOURCE.json](../../third_party/medusa/SOURCE.json). The pinned step handler takes
@@ -69,6 +77,16 @@ A module-owned registration references its existing checked command tokens.
 Each selected method has a tuple argument decoder, command-input encoder and
 result decoder. Graph registration reuses the existing read tokens and checked
 metadata. Module event capture and fact validation stay module-owned.
+
+Method input capture omits own object properties whose value is `undefined` by
+default, while retaining dense positional array values. A trusted method may
+select `inputPresence: "preserveOwnUndefined"` when the native contract observes
+object presence. That selection preserves every captured path before the tuple
+decoder and transports the encoded intermediate through a bounded JSON envelope.
+The command uses `decodeWorkflowCommandInput` with its authoritative input
+decoder; checked paths restore a detached value and convey no authority. The
+same descriptor, cycle, depth, node and complete-envelope byte limits apply.
+Query inputs and existing method registrations retain their default behavior.
 
 Product exposes the selected array-only tag creation signature and its current
 graph profile. Native tag results validate `id` and `value` and retain checked
@@ -108,6 +126,26 @@ inside the atomic command. Output decodes before settlement; returned and
 replayed values use the same Schema's decoded-type validator. Transformations
 therefore do not run again against already normalized stored results.
 
+### Requested Optional Resources
+
+The shared resource selection can declare a finite `absent` list. Each name is
+checked, captured and kept distinct from selected modules, composed resources
+and reserved graph/event resources. Nonempty absence declarations enter the
+existing workflow identity. Omitting the list preserves existing identities.
+
+The native resolver returns `undefined` only for a declared absent name requested
+with the exact `{ allowUnregistered: true }` options. A selected resource retains
+the same scoped methods under either supported resolver signature. Required or
+undeclared resolution, malformed options and invalid selections retain sticky
+refusal. The existing Promise owner checks closure before synchronous resolution;
+a fenced late failure cannot reopen completed cleanup.
+
+The native `useCache` helper still resolves Caching before its uncached callback.
+Its checked source and FlagRouter dependency remain framework-owned. Declaring
+Caching absent supplies no provider and skips no native lookup. This prerequisite
+supports the characterized [Customer selection child](../flarexdb-framework-integration/preflight/162-native-cart-customer-selection.md);
+Customer adapter admission and complete Cart composition remain separate.
+
 ## Trusted Host And Execution
 
 `AtomicWorkflowExecution` contains captured identity/access policy and one
@@ -130,9 +168,12 @@ const host = yield* prepareProductTagWorkflow({
 const tags = yield* host.run(requestKey, input)
 ```
 
-Each installed binding pairs a module registration with its already prepared
-profile/installation and optional module-event capture/validation. It neither
-installs a schema nor authorizes itself. The shared host derives the exact
+Each installed binding contains only a module registration and its scoped
+`logicalStorage`. The module owner binds native command provenance, call receipts,
+event capture and required capabilities in its authenticated definition. The
+unused physical workflow binding and caller-installed policy bags are removed;
+lower-level physical Commerce hosts retain their separate consumers. A workflow
+binding neither installs a schema nor authorizes itself. The shared host derives the exact
 participant tokens, command allowlists, graph and event policy and delegates to
 core. Ordinary callers no longer construct those lists or a resolver.
 
@@ -155,6 +196,18 @@ existing command path; live managers/services are never cached across requests.
   before a callback can catch the rejection. Trusted decoder defects also poison
   pending work while retaining their defect channel. Existing participant calls
   bypass this adapter check and preserve their already-owned full Cause.
+- Native Promise crossings preserve complete owned Causes through private
+  owner-issued receipts. Genuine native domain errors retain typed behavior;
+  foreign defects remain defects. The bounded lifetime authenticates completion
+  of its initiating failure across annotation cloning, domain projection and
+  exact charge-result receipts. Context-bound failure recording grants no data
+  or settlement authority, and successful seal fences later recording. The
+  existing Promise owner joins body, runners and finalizers and records their
+  complete outcome before return. The
+  [Promise/Cause contract](../flarexdb-framework-integration/preflight/161-native-promise-cause-preservation.md)
+  owns these guarantees and their bounded verification scope. Atomic rollback
+  does not automatically run transaction-covered native inverses; explicit
+  retained inverses and durable SDK compensation retain their own owners.
 - Root call/byte/deadline limits, cancellation, draining/joining and escaped-method
   closure remain with the existing runtime. Finalization also covers resource
   construction. Resources cannot grant raw SQL, managers or delivery authority.
@@ -163,8 +216,10 @@ existing command path; live managers/services are never cached across requests.
   results and deletion IDs with captured inputs of successful calls. Shared
   event handling captures batches, checks names/group and
   dispatches admitted contracts, preserving event order and subscriber policy.
-- Event-free hosts have no event bus, contracts or subscribers. The durable
-  Product binding uses capture/validation directly, without a dummy local
+- Hosts without an event policy have no event bus, contracts or subscribers.
+  A selected empty policy may retain native EventBus lifecycle and subscriber
+  identity while admitting no business event contracts. The durable Product
+  binding uses capture/validation directly, without a dummy local
   destination. The standalone local-event profile retains delivery for its
   supported callers.
 - Trusted bundle revision covers workflow, hook, decoder and adapter code.
@@ -203,7 +258,7 @@ delivery. A different event-free composition proves reuse with both real modules
 
 PGlite and ordinary-role PostgreSQL cover the connected workflow/atomic/graph
 lanes. Competing transactions and pending-write invisibility remain PostgreSQL
-proofs. Original Product/Currency and selected composer assertions, affected
+proofs. Native Product/Currency behavior and selected composer assertions, affected
 TypeScript, provenance, portable imports, lint and both reviewer scopes remain
 required regression evidence. These checks do not establish whole-SDK parity,
 Cloudflare deployment or production dispatcher readiness.

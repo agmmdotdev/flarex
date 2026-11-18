@@ -1,0 +1,2038 @@
+{
+  "runId": "bb0d0765-7fdf-44d8-a9ef-4e1395691e8a",
+  "scenario": "mixed-workflow",
+  "execution": "complete",
+  "acceptance": "notEvaluated",
+  "sources": {
+    "before": "a76699a0fafbced15d3536f0d980f732bc013be28f133903221524de182d6e01",
+    "after": "a76699a0fafbced15d3536f0d980f732bc013be28f133903221524de182d6e01",
+    "files": 2592
+  },
+  "sampling": {
+    "requestedSamples": 3,
+    "warmups": 5,
+    "size": "small",
+    "scenario": "mixed-workflow",
+    "driver": "postgres",
+    "pairOrder": "alternating"
+  },
+  "cleanup": "completed",
+  "environment": {
+    "before": {
+      "flarex": {
+        "driver": "postgres",
+        "control": {
+          "postgresVersion": "18.3",
+          "role": "flarex_read_redesign_logical",
+          "superuser": false,
+          "bypassRls": false,
+          "createDb": false,
+          "createRole": false,
+          "synchronousCommit": "on",
+          "fsync": "on",
+          "fullPageWrites": "on",
+          "statementTracking": "none",
+          "autoExplainMinDuration": "-1"
+        },
+        "target": {
+          "postgresVersion": "18.3",
+          "role": "flarex_dataruntime_1791298135568_o5dv9ss6ea9",
+          "superuser": false,
+          "bypassRls": false,
+          "createDb": false,
+          "createRole": false,
+          "synchronousCommit": "on",
+          "fsync": "on",
+          "fullPageWrites": "on",
+          "statementTracking": "none",
+          "autoExplainMinDuration": "-1"
+        }
+      },
+      "native": null
+    },
+    "after": {
+      "flarex": {
+        "driver": "postgres",
+        "control": {
+          "postgresVersion": "18.3",
+          "role": "flarex_read_redesign_logical",
+          "superuser": false,
+          "bypassRls": false,
+          "createDb": false,
+          "createRole": false,
+          "synchronousCommit": "on",
+          "fsync": "on",
+          "fullPageWrites": "on",
+          "statementTracking": "none",
+          "autoExplainMinDuration": "-1"
+        },
+        "target": {
+          "postgresVersion": "18.3",
+          "role": "flarex_dataruntime_1791298135568_o5dv9ss6ea9",
+          "superuser": false,
+          "bypassRls": false,
+          "createDb": false,
+          "createRole": false,
+          "synchronousCommit": "on",
+          "fsync": "on",
+          "fullPageWrites": "on",
+          "statementTracking": "none",
+          "autoExplainMinDuration": "-1"
+        }
+      },
+      "native": null
+    }
+  },
+  "observer": {
+    "pairs": 3,
+    "quietMedianMs": 435.1883999999991,
+    "diagnosticMedianMs": 485.8200999999972,
+    "differenceMedianMs": 68.46179999999003,
+    "differenceP95Ms": 82.26489999999467,
+    "differencesMs": [
+      82.26489999999467,
+      68.46179999999003,
+      22.251600000003236
+    ]
+  },
+  "diagnostic": {
+    "samples": 3,
+    "rootMedianMs": 485.3703999999998,
+    "driverUnionMedianMs": 183.0721999999805,
+    "checkoutUnionMedianMs": 1.1058999999659136,
+    "observerUnionMedianMs": 29.778900000761496,
+    "strictUnknownMedianMs": 163.0008000001544,
+    "strictAmbiguousMedianMs": 312.22609999999986,
+    "contextUnknownMedianMs": 0.24340000000665896,
+    "contextAmbiguousMedianMs": 177.0958000000537,
+    "unknownLeaves": [
+      {
+        "name": "MedusaWorkflow.frame",
+        "medianMs": 170.92530000006082,
+        "samples": 3
+      },
+      {
+        "name": "BoundedRequest.operation",
+        "medianMs": 13.990399999980582,
+        "samples": 3
+      },
+      {
+        "name": "FlarexValue.canonicalizeV1",
+        "medianMs": 12.269599999985076,
+        "samples": 3
+      },
+      {
+        "name": "PayloadAdapter.call",
+        "medianMs": 10.480300000010175,
+        "samples": 3
+      },
+      {
+        "name": "MedusaAdapter.withService",
+        "medianMs": 8.679899999959162,
+        "samples": 3
+      },
+      {
+        "name": "BoundedRequest.enter",
+        "medianMs": 8.049000000028173,
+        "samples": 3
+      },
+      {
+        "name": "LogicalDocuments.compileRelationalRead",
+        "medianMs": 5.7880999999906635,
+        "samples": 3
+      },
+      {
+        "name": "SessionJournalStore.runAdmittedOperation",
+        "medianMs": 5.415800000002491,
+        "samples": 3
+      },
+      {
+        "name": "MedusaWorkflow.captureValue",
+        "medianMs": 4.534399999931338,
+        "samples": 3
+      },
+      {
+        "name": "BoundedRequest.checkContext",
+        "medianMs": 4.1472000000067055,
+        "samples": 3
+      },
+      {
+        "name": "BoundedRequest.nested",
+        "medianMs": 3.6427000000112457,
+        "samples": 3
+      },
+      {
+        "name": "InstalledScopeAuthority.lockAttempt",
+        "medianMs": 3.2374999999883585,
+        "samples": 3
+      },
+      {
+        "name": "LogicalDocuments.validateNextUnique",
+        "medianMs": 3.020699999979115,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationDocument.prepareSettlement",
+        "medianMs": 2.8519999999989523,
+        "samples": 3
+      },
+      {
+        "name": "AppUniqueKeys.withSlots",
+        "medianMs": 2.843899999948917,
+        "samples": 3
+      },
+      {
+        "name": "MedusaWorkflow.resolve",
+        "medianMs": 2.7746000000770437,
+        "samples": 3
+      },
+      {
+        "name": "AppIndexEntries.decodeCapturedSnapshotPage",
+        "medianMs": 2.7391999999963446,
+        "samples": 3
+      },
+      {
+        "name": "AppIndexEntries.sha256",
+        "medianMs": 2.088499999983469,
+        "samples": 3
+      },
+      {
+        "name": "MedusaGraph.replaceRows",
+        "medianMs": 2.00590000009106,
+        "samples": 3
+      },
+      {
+        "name": "BoundedRequest.resolveId",
+        "medianMs": 1.9401999999972759,
+        "samples": 3
+      },
+      {
+        "name": "LogicalDocuments.locateUnique",
+        "medianMs": 1.8700999999564374,
+        "samples": 3
+      },
+      {
+        "name": "AppIndexEntries.prepareSnapshotRead",
+        "medianMs": 1.817200000063167,
+        "samples": 3
+      },
+      {
+        "name": "LogicalDocuments.activitySnapshot",
+        "medianMs": 1.750800000023446,
+        "samples": 3
+      },
+      {
+        "name": "Commerce.checkedValue",
+        "medianMs": 1.6649000000033993,
+        "samples": 3
+      },
+      {
+        "name": "AppIndexEntries.acceptKeyTransitions",
+        "medianMs": 1.6635000000242144,
+        "samples": 3
+      },
+      {
+        "name": "SessionJournalStore.canonicalizeStoredRequest",
+        "medianMs": 1.6107000000047265,
+        "samples": 3
+      },
+      {
+        "name": "CommittedPointOutcome.executeStatement",
+        "medianMs": 1.5060000000084983,
+        "samples": 3
+      },
+      {
+        "name": "LogicalDocuments.relationalTable",
+        "medianMs": 1.3665000001201406,
+        "samples": 3
+      },
+      {
+        "name": "IndexBuildState.beginFiniteMaterialization",
+        "medianMs": 1.2357000000047265,
+        "samples": 3
+      },
+      {
+        "name": "AppDocument.decodeCanonicalEvidenceV1",
+        "medianMs": 1.1995999999926426,
+        "samples": 3
+      },
+      {
+        "name": "MedusaGraph.load",
+        "medianMs": 1.1913000000058673,
+        "samples": 3
+      },
+      {
+        "name": "MedusaRead.execute",
+        "medianMs": 1.1691000000282656,
+        "samples": 3
+      },
+      {
+        "name": "LogicalDocuments.insertRecord",
+        "medianMs": 1.1358000000327593,
+        "samples": 3
+      },
+      {
+        "name": "LogicalParticipantAttemptAdmission.with",
+        "medianMs": 1.0618000000249594,
+        "samples": 3
+      },
+      {
+        "name": "LocatedReadCommitted.runEffect",
+        "medianMs": 1.0239000000001397,
+        "samples": 3
+      },
+      {
+        "name": "AppRows.prepareSnapshotRead",
+        "medianMs": 0.9612000000779517,
+        "samples": 3
+      },
+      {
+        "name": "ProductAdapter.findRelated",
+        "medianMs": 0.9374000000098022,
+        "samples": 3
+      },
+      {
+        "name": "LogicalDocumentAttemptAdmission.with",
+        "medianMs": 0.9190000000235159,
+        "samples": 3
+      },
+      {
+        "name": "MedusaAdapter.populateTree",
+        "medianMs": 0.9158000000170432,
+        "samples": 3
+      },
+      {
+        "name": "MedusaGraph.apply",
+        "medianMs": 0.9117999999725726,
+        "samples": 3
+      },
+      {
+        "name": "BoundedRequest.withinDeadline",
+        "medianMs": 0.8444000000308733,
+        "samples": 3
+      },
+      {
+        "name": "ProductAdapter.find",
+        "medianMs": 0.8192000000271946,
+        "samples": 3
+      },
+      {
+        "name": "FrameworkSchema.capturePrivateCanonicalValue",
+        "medianMs": 0.796199999997043,
+        "samples": 3
+      },
+      {
+        "name": "AppUniqueKeys.prepareSlotRead",
+        "medianMs": 0.7708000000566244,
+        "samples": 3
+      },
+      {
+        "name": "SessionJournalStore.captureAdmittedOperationRequest",
+        "medianMs": 0.768499999991036,
+        "samples": 3
+      },
+      {
+        "name": "PricingRepository.find",
+        "medianMs": 0.7399999999906868,
+        "samples": 3
+      },
+      {
+        "name": "CommitProtocol.verifySuccessfulResultEvidenceV1",
+        "medianMs": 0.7312999999994645,
+        "samples": 3
+      },
+      {
+        "name": "MedusaAdapter.readRelationRows",
+        "medianMs": 0.715299999967101,
+        "samples": 3
+      },
+      {
+        "name": "AppIndexEntries.prepareMembershipPositions",
+        "medianMs": 0.7048999999969965,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationActivation.withValidatedBindingBasis",
+        "medianMs": 0.6922999999806052,
+        "samples": 3
+      },
+      {
+        "name": "PointCommitTransaction.prepareFiniteSourceAcceptance",
+        "medianMs": 0.6873999999952503,
+        "samples": 3
+      },
+      {
+        "name": "DataBindingRepository.readHeadProjection",
+        "medianMs": 0.6789999999891734,
+        "samples": 3
+      },
+      {
+        "name": "LogicalStorageReadiness.requireCatalog",
+        "medianMs": 0.628100000001723,
+        "samples": 3
+      },
+      {
+        "name": "SessionJournalStore.runFinitePointOperation",
+        "medianMs": 0.6125999999931082,
+        "samples": 3
+      },
+      {
+        "name": "AppRows.decodeRevisionRow",
+        "medianMs": 0.6038999999727821,
+        "samples": 3
+      },
+      {
+        "name": "AppUniqueKeys.hashBytes",
+        "medianMs": 0.594600000011269,
+        "samples": 3
+      },
+      {
+        "name": "AtomicEvents.retain",
+        "medianMs": 0.5837000000174157,
+        "samples": 3
+      },
+      {
+        "name": "MedusaAdapter.populateRelations",
+        "medianMs": 0.5762000000104308,
+        "samples": 3
+      },
+      {
+        "name": "AppRows.consumeCapturedSnapshotRead",
+        "medianMs": 0.5693000000319444,
+        "samples": 3
+      },
+      {
+        "name": "ProductEvents.capture",
+        "medianMs": 0.5133000000059837,
+        "samples": 3
+      },
+      {
+        "name": "SessionJournalStore.enterFiniteInActivation",
+        "medianMs": 0.5042999999568565,
+        "samples": 3
+      },
+      {
+        "name": "ExecutorApplicationPointMutationSessionActivation.withFiniteStart",
+        "medianMs": 0.49340000000665896,
+        "samples": 3
+      },
+      {
+        "name": "CommitProtocol.canonicalizeSuccessfulResultV1",
+        "medianMs": 0.4907999999995809,
+        "samples": 3
+      },
+      {
+        "name": "CommerceRepository.select",
+        "medianMs": 0.4646999999968102,
+        "samples": 3
+      },
+      {
+        "name": "PointCommitTransaction.prepareFiniteDefinitions",
+        "medianMs": 0.4600999999966007,
+        "samples": 3
+      },
+      {
+        "name": "MedusaGraph.plan",
+        "medianMs": 0.45679999998537824,
+        "samples": 3
+      },
+      {
+        "name": "PayloadAdapter.makeNative",
+        "medianMs": 0.45200000000477303,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationMutationSessionActivation.activateFinite",
+        "medianMs": 0.43560000001161825,
+        "samples": 3
+      },
+      {
+        "name": "MedusaRead.window",
+        "medianMs": 0.4226999999664258,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationActiveHead.validateFrame",
+        "medianMs": 0.41899999997986015,
+        "samples": 3
+      },
+      {
+        "name": "SessionJournalStore.runPointOperation",
+        "medianMs": 0.41670000000158325,
+        "samples": 3
+      },
+      {
+        "name": "LogicalSourceAdmission.consumeFiniteCommitClosure",
+        "medianMs": 0.41610000003129244,
+        "samples": 3
+      },
+      {
+        "name": "BoundedRequest.makeLifetime",
+        "medianMs": 0.414600000003702,
+        "samples": 3
+      },
+      {
+        "name": "LinkRepository.find",
+        "medianMs": 0.39500000001862645,
+        "samples": 3
+      },
+      {
+        "name": "MedusaAdapter.readRelation",
+        "medianMs": 0.38980000001902226,
+        "samples": 3
+      },
+      {
+        "name": "PointMutationJournal.runAdmittedOperation",
+        "medianMs": 0.3764000000228407,
+        "samples": 3
+      },
+      {
+        "name": "LogicalDocuments.observe",
+        "medianMs": 0.37640000000828877,
+        "samples": 3
+      },
+      {
+        "name": "AtomicEvents.captureSelected",
+        "medianMs": 0.3625999999931082,
+        "samples": 3
+      },
+      {
+        "name": "MedusaGraph.store",
+        "medianMs": 0.3615999999892665,
+        "samples": 3
+      },
+      {
+        "name": "AppUniqueKeys.hashClaim",
+        "medianMs": 0.35220000000845175,
+        "samples": 3
+      },
+      {
+        "name": "FrameworkSchema.verifyStoredPrivateCanonicalValue",
+        "medianMs": 0.3508000000147149,
+        "samples": 3
+      },
+      {
+        "name": "SessionJournalStore.prepareLogicalWriteEvent",
+        "medianMs": 0.3392000000021653,
+        "samples": 3
+      },
+      {
+        "name": "LogicalParticipantAdmissionBundle.with",
+        "medianMs": 0.3324999999895226,
+        "samples": 3
+      },
+      {
+        "name": "ProductAdapter.executePrivateAttempt",
+        "medianMs": 0.32530000001133885,
+        "samples": 3
+      },
+      {
+        "name": "StoredAttemptAuthentication.verifyFiniteCommitValues",
+        "medianMs": 0.31880000000819564,
+        "samples": 3
+      },
+      {
+        "name": "PricingEvents.captureLogical",
+        "medianMs": 0.316499999986263,
+        "samples": 3
+      },
+      {
+        "name": "CommerceEvents.invoke",
+        "medianMs": 0.3120000000053551,
+        "samples": 3
+      },
+      {
+        "name": "LogicalDocuments.changeRows",
+        "medianMs": 0.30880000002798624,
+        "samples": 3
+      },
+      {
+        "name": "PointMutationExactRuntimeProtocol.decodeResult",
+        "medianMs": 0.2888999999995576,
+        "samples": 3
+      },
+      {
+        "name": "CommitEvents.digest",
+        "medianMs": 0.28369999999995343,
+        "samples": 3
+      },
+      {
+        "name": "PayloadParticipant.invoke",
+        "medianMs": 0.2820999999967171,
+        "samples": 3
+      },
+      {
+        "name": "AppSchemaCandidateValidation.canonicalizeFrameV1",
+        "medianMs": 0.2795999999943888,
+        "samples": 3
+      },
+      {
+        "name": "Workflow.validateModuleCall",
+        "medianMs": 0.26809999998658895,
+        "samples": 3
+      },
+      {
+        "name": "MixedFixture.observePayload",
+        "medianMs": 0.26239999999233987,
+        "samples": 3
+      },
+      {
+        "name": "CommerceModule.use",
+        "medianMs": 0.26179999999294523,
+        "samples": 3
+      },
+      {
+        "name": "SessionJournalStore.planInsert",
+        "medianMs": 0.2527000000118278,
+        "samples": 3
+      },
+      {
+        "name": "PayloadAdapter.buildConfiguration",
+        "medianMs": 0.24859999999171123,
+        "samples": 3
+      },
+      {
+        "name": "LogicalCommerce.workflowCall",
+        "medianMs": 0.24109999999927823,
+        "samples": 3
+      },
+      {
+        "name": "LocalGraph.query",
+        "medianMs": 0.2400999999808846,
+        "samples": 3
+      },
+      {
+        "name": "SessionJournalStore.tryCanonicalizeDocument",
+        "medianMs": 0.2395999999862397,
+        "samples": 3
+      },
+      {
+        "name": "LogicalCommerce.projectActivity",
+        "medianMs": 0.23889999998209532,
+        "samples": 3
+      },
+      {
+        "name": "AppUniqueKeys.readCapturedSlotOrdinal",
+        "medianMs": 0.2303000000101747,
+        "samples": 3
+      },
+      {
+        "name": "LogicalRelationalAttemptAdmission.bind",
+        "medianMs": 0.21899999999732245,
+        "samples": 3
+      },
+      {
+        "name": "MixedFixture.borrowPayload",
+        "medianMs": 0.2116999999852851,
+        "samples": 3
+      },
+      {
+        "name": "InstalledScopeAuthority.acceptPlacement",
+        "medianMs": 0.2106999999814434,
+        "samples": 3
+      },
+      {
+        "name": "BoundedRequest.begin",
+        "medianMs": 0.20589999998628628,
+        "samples": 3
+      },
+      {
+        "name": "MedusaAdapter.decodeExactNumeric",
+        "medianMs": 0.20299999999406282,
+        "samples": 3
+      },
+      {
+        "name": "DataBindingRepository.readSelectedEvidence",
+        "medianMs": 0.19910000001254957,
+        "samples": 3
+      },
+      {
+        "name": "mixed-workflow",
+        "medianMs": 0.19440000000759028,
+        "samples": 3
+      },
+      {
+        "name": "InstalledScopeAuthority.acceptRow",
+        "medianMs": 0.18830000000889413,
+        "samples": 3
+      },
+      {
+        "name": "PointMutationJournal.openConfirmedFiniteEntry",
+        "medianMs": 0.1825000000098953,
+        "samples": 3
+      },
+      {
+        "name": "FinitePointMutationExecution.prepare",
+        "medianMs": 0.18249999998079147,
+        "samples": 3
+      },
+      {
+        "name": "AtomicEvents.validateSelectedIntents",
+        "medianMs": 0.17959999998856802,
+        "samples": 3
+      },
+      {
+        "name": "PayloadAdapter.invoke",
+        "medianMs": 0.17679999995743856,
+        "samples": 3
+      },
+      {
+        "name": "MedusaGraph.captureNode",
+        "medianMs": 0.1765999999915948,
+        "samples": 3
+      },
+      {
+        "name": "LogicalDocuments.validateContribution",
+        "medianMs": 0.1765999999915948,
+        "samples": 3
+      },
+      {
+        "name": "DataBinding.restoreValue",
+        "medianMs": 0.17169999997713603,
+        "samples": 3
+      },
+      {
+        "name": "ProductAdapter.updateRelated",
+        "medianMs": 0.17119999998249114,
+        "samples": 3
+      },
+      {
+        "name": "PrivateSha256V1.digest",
+        "medianMs": 0.16989999999350403,
+        "samples": 3
+      },
+      {
+        "name": "LogicalSourceAdmission.prepareFiniteAttemptProjection",
+        "medianMs": 0.16799999999057036,
+        "samples": 3
+      },
+      {
+        "name": "LinkEvents.captureLogical",
+        "medianMs": 0.16599999999743886,
+        "samples": 3
+      },
+      {
+        "name": "AppSchemaCandidateValidation.decodeCanonicalFrameV1",
+        "medianMs": 0.16290000001026783,
+        "samples": 3
+      },
+      {
+        "name": "Product.validateNativeCall",
+        "medianMs": 0.161099999997532,
+        "samples": 3
+      },
+      {
+        "name": "MedusaGraph.insert",
+        "medianMs": 0.15950000000884756,
+        "samples": 3
+      },
+      {
+        "name": "FiniteAttemptAnchor.readContext",
+        "medianMs": 0.15720000000146683,
+        "samples": 3
+      },
+      {
+        "name": "PricingRepository.createGraph",
+        "medianMs": 0.15549999997892883,
+        "samples": 3
+      },
+      {
+        "name": "CommittedPointOutcome.resolve",
+        "medianMs": 0.15419999998994172,
+        "samples": 3
+      },
+      {
+        "name": "PointCommitTransaction.prepareFiniteSettlement",
+        "medianMs": 0.15379999998549465,
+        "samples": 3
+      },
+      {
+        "name": "FinitePointMutationExecution.settle",
+        "medianMs": 0.15159999999741558,
+        "samples": 3
+      },
+      {
+        "name": "MedusaGraph.selectValues",
+        "medianMs": 0.151499999963562,
+        "samples": 3
+      },
+      {
+        "name": "AppUniqueKeys.authenticateSlotRead",
+        "medianMs": 0.1511000000173226,
+        "samples": 3
+      },
+      {
+        "name": "FiniteMetadataReservation.capture",
+        "medianMs": 0.14949999999953434,
+        "samples": 3
+      },
+      {
+        "name": "MedusaWorkflow.runNative",
+        "medianMs": 0.14609999999811407,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationWriteOwnership.decodeCapturedSnapshot",
+        "medianMs": 0.14320000002044253,
+        "samples": 3
+      },
+      {
+        "name": "SessionJournal.recordFiniteApplicationDemandMetadata",
+        "medianMs": 0.14300000001094304,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationActiveHead.readCheckedCoherentForShare",
+        "medianMs": 0.14000000001396984,
+        "samples": 3
+      },
+      {
+        "name": "SessionJournalStore.planPatch",
+        "medianMs": 0.1367000000027474,
+        "samples": 3
+      },
+      {
+        "name": "ProductAdapter.relatedReadInput",
+        "medianMs": 0.13660000001254957,
+        "samples": 3
+      },
+      {
+        "name": "StoredCommitAuthority.prepareFiniteTerminalControl",
+        "medianMs": 0.13659999999799766,
+        "samples": 3
+      },
+      {
+        "name": "AtomicEvents.prepareAdmittedIntents",
+        "medianMs": 0.13509999999951106,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationMutationSessionActivation.captureBasis",
+        "medianMs": 0.1349999999947613,
+        "samples": 3
+      },
+      {
+        "name": "PreparedMetadataEpoch.registerTransactionFinalGuard",
+        "medianMs": 0.13460000001941808,
+        "samples": 3
+      },
+      {
+        "name": "FiniteAttemptAnchor.readRow",
+        "medianMs": 0.13160000000789296,
+        "samples": 3
+      },
+      {
+        "name": "PayloadParticipant.borrow",
+        "medianMs": 0.13080000001355074,
+        "samples": 3
+      },
+      {
+        "name": "ProductAdapter.readInput",
+        "medianMs": 0.12910000000556465,
+        "samples": 3
+      },
+      {
+        "name": "LogicalSourceAdmission.checkBinding",
+        "medianMs": 0.12879999999131542,
+        "samples": 3
+      },
+      {
+        "name": "AtomicEvents.prepare",
+        "medianMs": 0.1284999999916181,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationActivation.validateBindingBasisOwned",
+        "medianMs": 0.1270000000076834,
+        "samples": 3
+      },
+      {
+        "name": "PreparedMetadataEpoch.registerFinalGuard",
+        "medianMs": 0.1247999999759486,
+        "samples": 3
+      },
+      {
+        "name": "FiniteAttemptAnchor.capture",
+        "medianMs": 0.1235000000015134,
+        "samples": 3
+      },
+      {
+        "name": "StoredCommitAuthority.materializeFiniteApplicationExecutionEvidence",
+        "medianMs": 0.12220000001252629,
+        "samples": 3
+      },
+      {
+        "name": "ProductEvents.validateLogicalCall",
+        "medianMs": 0.12170000000332948,
+        "samples": 3
+      },
+      {
+        "name": "Workflow.moduleEvent",
+        "medianMs": 0.11899999996239785,
+        "samples": 3
+      },
+      {
+        "name": "LogicalRelationalAttemptAdmission.with",
+        "medianMs": 0.1182000000262633,
+        "samples": 3
+      },
+      {
+        "name": "PricingCommand.prepare",
+        "medianMs": 0.11590000000433065,
+        "samples": 3
+      },
+      {
+        "name": "FlarexValue.canonicalizeJsonV1",
+        "medianMs": 0.1157999999995809,
+        "samples": 3
+      },
+      {
+        "name": "PointMutationJournal.runPointOperation",
+        "medianMs": 0.1155999999755295,
+        "samples": 3
+      },
+      {
+        "name": "SessionJournal.captureFiniteMetadataReservation",
+        "medianMs": 0.11540000000968575,
+        "samples": 3
+      },
+      {
+        "name": "AtomicEvents.validateAdmittedIntents",
+        "medianMs": 0.11509999999543652,
+        "samples": 3
+      },
+      {
+        "name": "DataBindingRepository.decode",
+        "medianMs": 0.11310000000230502,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationActiveHead.decodeFiniteEntryObservation",
+        "medianMs": 0.11289999999280553,
+        "samples": 3
+      },
+      {
+        "name": "PreparedMetadataEpoch.recordManagedSnapshot",
+        "medianMs": 0.11080000000947621,
+        "samples": 3
+      },
+      {
+        "name": "LogicalCms.borrowAttempt",
+        "medianMs": 0.11039999997592531,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationDocumentMaterialization.prepareIntrinsicIndexActions",
+        "medianMs": 0.11010000000533182,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationMutationSessionActivation.captureFiniteMetadata",
+        "medianMs": 0.10839999999734573,
+        "samples": 3
+      },
+      {
+        "name": "PointMutationJournal.freezeFiniteAttempt",
+        "medianMs": 0.1075999999884516,
+        "samples": 3
+      },
+      {
+        "name": "PointCommitTransaction.prepareFiniteResolution",
+        "medianMs": 0.10650000000896398,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationActivation.decodeRow",
+        "medianMs": 0.1058000000048196,
+        "samples": 3
+      },
+      {
+        "name": "PreparedMetadataEpoch.prepareFinalBatch",
+        "medianMs": 0.10410000001138542,
+        "samples": 3
+      },
+      {
+        "name": "VariantPricingLink.command",
+        "medianMs": 0.10199999998440035,
+        "samples": 3
+      },
+      {
+        "name": "PayloadInput.findByID",
+        "medianMs": 0.10050000001501758,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationDocument.acceptPreparedOriginals",
+        "medianMs": 0.09939999999187421,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationActiveHead.decodeRow",
+        "medianMs": 0.09890000002633315,
+        "samples": 3
+      },
+      {
+        "name": "PayloadInput.envelope",
+        "medianMs": 0.09840000000258442,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationReadiness.validateStoredIssuedReadiness",
+        "medianMs": 0.09730000000854488,
+        "samples": 3
+      },
+      {
+        "name": "InstallationLifecycle.acceptCoLocatedAdmission",
+        "medianMs": 0.09700000000884756,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationMutationSessionActivation.acceptFiniteContinuation",
+        "medianMs": 0.0956000000005588,
+        "samples": 3
+      },
+      {
+        "name": "LogicalDocuments.selectCandidates",
+        "medianMs": 0.09450000000651926,
+        "samples": 3
+      },
+      {
+        "name": "ExecutorApplicationPointMutationSessionActivation.captureEvidence",
+        "medianMs": 0.09369999999762513,
+        "samples": 3
+      },
+      {
+        "name": "payload.posts.0b4edceefb42629ee482a9c2b07fac8215b5259781761b11d0d2370e56ab1d3b:payload-findByID",
+        "medianMs": 0.09309999999823049,
+        "samples": 3
+      },
+      {
+        "name": "ProductAdapter.change",
+        "medianMs": 0.0891000000119675,
+        "samples": 3
+      },
+      {
+        "name": "MedusaGraph.capture",
+        "medianMs": 0.08900000000721775,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationActivation.readBindingActiveHead",
+        "medianMs": 0.08560000000579748,
+        "samples": 3
+      },
+      {
+        "name": "PointMutationExecutionLiveness.superviseAdmittedWork",
+        "medianMs": 0.08449999999720603,
+        "samples": 3
+      },
+      {
+        "name": "PayloadMixedConformance.make",
+        "medianMs": 0.08400000000256114,
+        "samples": 3
+      },
+      {
+        "name": "ProductAdapter.replaceRows",
+        "medianMs": 0.08399999998800922,
+        "samples": 3
+      },
+      {
+        "name": "FiniteAttemptAnchor.lendPublication",
+        "medianMs": 0.08260000000882428,
+        "samples": 3
+      },
+      {
+        "name": "MixedFixture.ensurePayloadRuntime",
+        "medianMs": 0.0819000000046799,
+        "samples": 3
+      },
+      {
+        "name": "LogicalDocumentAttemptAdmission.bind",
+        "medianMs": 0.081400000010035,
+        "samples": 3
+      },
+      {
+        "name": "MedusaAdapter.encodeExactNumeric",
+        "medianMs": 0.07959999999729916,
+        "samples": 3
+      },
+      {
+        "name": "AppSchemaCandidateValidation.prepareFiniteCapturedWriteGuard",
+        "medianMs": 0.07610000000568107,
+        "samples": 3
+      },
+      {
+        "name": "PreparedMetadataEpoch.acceptFinalBatch",
+        "medianMs": 0.07590000001073349,
+        "samples": 3
+      },
+      {
+        "name": "PricingEvents.validateLogicalCreate",
+        "medianMs": 0.07430000002204906,
+        "samples": 3
+      },
+      {
+        "name": "ScopePublication.requireStrongReferences",
+        "medianMs": 0.07399999999324791,
+        "samples": 3
+      },
+      {
+        "name": "ProductAdapter.updateTagsBySelector",
+        "medianMs": 0.07379999999830034,
+        "samples": 3
+      },
+      {
+        "name": "LinkEvents.validateLogicalCall",
+        "medianMs": 0.07030000000668224,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationSyscallValidator.validateSessionPinnedDocument",
+        "medianMs": 0.06940000000759028,
+        "samples": 3
+      },
+      {
+        "name": "AppSchemaCandidateValidation.capturePlanningHead",
+        "medianMs": 0.06929999998828862,
+        "samples": 3
+      },
+      {
+        "name": "PreparedMetadataEpoch.registerManagedFinalGuard",
+        "medianMs": 0.0687000000034459,
+        "samples": 3
+      },
+      {
+        "name": "ProductEvents.validateLogicalUpdate",
+        "medianMs": 0.06859999999869615,
+        "samples": 3
+      },
+      {
+        "name": "Workflow.selectModuleEvent",
+        "medianMs": 0.06830000001355074,
+        "samples": 3
+      },
+      {
+        "name": "LogicalCommerce.borrowAttempt",
+        "medianMs": 0.06709999997110572,
+        "samples": 3
+      },
+      {
+        "name": "PointMutationJournal.discardTentativeRoot",
+        "medianMs": 0.06690000000526197,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationSyscallValidator.validateCapturedDocument",
+        "medianMs": 0.0667000000103144,
+        "samples": 3
+      },
+      {
+        "name": "SessionJournal.recordFiniteExecutionMetadata",
+        "medianMs": 0.06669999999576248,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationSyscallValidator.derive",
+        "medianMs": 0.06660000000556465,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationActivation.decodeCapturedRow",
+        "medianMs": 0.06660000000556465,
+        "samples": 3
+      },
+      {
+        "name": "LogicalDocuments.checkRemovedRelationalKeys",
+        "medianMs": 0.0647000000171829,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationActiveHead.decodeCapturedRow",
+        "medianMs": 0.06420000000798609,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationReadiness.validateFiniteEntry",
+        "medianMs": 0.06399999998393469,
+        "samples": 3
+      },
+      {
+        "name": "PayloadInput.readOptions",
+        "medianMs": 0.06260000000474975,
+        "samples": 3
+      },
+      {
+        "name": "PointMutationJournal.prepareFiniteEntry",
+        "medianMs": 0.06040000000211876,
+        "samples": 3
+      },
+      {
+        "name": "Workflow.runAtomic",
+        "medianMs": 0.06040000000211876,
+        "samples": 3
+      },
+      {
+        "name": "AppSchemaCandidateValidation.decodeHeadRow",
+        "medianMs": 0.059999999997671694,
+        "samples": 3
+      },
+      {
+        "name": "ProductAdapter.relatedCreateInput",
+        "medianMs": 0.05869999999413267,
+        "samples": 3
+      },
+      {
+        "name": "AtomicEvents.capture",
+        "medianMs": 0.05869999999413267,
+        "samples": 3
+      },
+      {
+        "name": "CommerceEvents.created",
+        "medianMs": 0.05860000000393484,
+        "samples": 3
+      },
+      {
+        "name": "PayloadInput.update",
+        "medianMs": 0.05810000000928994,
+        "samples": 3
+      },
+      {
+        "name": "FinitePointMutationExecution.prepareRunnerBase",
+        "medianMs": 0.0580000000045402,
+        "samples": 3
+      },
+      {
+        "name": "SessionJournalStore.prepareFiniteEntryControl",
+        "medianMs": 0.05780000000959262,
+        "samples": 3
+      },
+      {
+        "name": "ProductAdapter.validateGraphLink",
+        "medianMs": 0.0545000000129221,
+        "samples": 3
+      },
+      {
+        "name": "PreparedMetadataEpoch.capture",
+        "medianMs": 0.054199999998672865,
+        "samples": 3
+      },
+      {
+        "name": "AtomicEvents.close",
+        "medianMs": 0.05390000001352746,
+        "samples": 3
+      },
+      {
+        "name": "PointMutationJournal.resolvePointTable",
+        "medianMs": 0.053800000008777715,
+        "samples": 3
+      },
+      {
+        "name": "ProductAdapter.relatedListInput",
+        "medianMs": 0.053199999980279244,
+        "samples": 3
+      },
+      {
+        "name": "FinitePointMutationExecution.runPreparedAttempt",
+        "medianMs": 0.05199999999604188,
+        "samples": 3
+      },
+      {
+        "name": "payload.posts.0b4edceefb42629ee482a9c2b07fac8215b5259781761b11d0d2370e56ab1d3b:payload-create",
+        "medianMs": 0.05089999998745043,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationWriteOwnership.validateCommit",
+        "medianMs": 0.04980000000796281,
+        "samples": 3
+      },
+      {
+        "name": "MedusaWorkflow.borrowPrivateProductLaunch",
+        "medianMs": 0.04940000000351574,
+        "samples": 3
+      },
+      {
+        "name": "medusa.product:update",
+        "medianMs": 0.046900000001187436,
+        "samples": 3
+      },
+      {
+        "name": "productretrieve",
+        "medianMs": 0.04679999999643769,
+        "samples": 3
+      },
+      {
+        "name": "SessionJournalStore.acceptFiniteContinuation",
+        "medianMs": 0.045700000002398156,
+        "samples": 3
+      },
+      {
+        "name": "PayloadInput.create",
+        "medianMs": 0.04539999998814892,
+        "samples": 3
+      },
+      {
+        "name": "payload.posts.0b4edceefb42629ee482a9c2b07fac8215b5259781761b11d0d2370e56ab1d3b:payload-update",
+        "medianMs": 0.04490000000805594,
+        "samples": 3
+      },
+      {
+        "name": "productVariantcount",
+        "medianMs": 0.044899999993504025,
+        "samples": 3
+      },
+      {
+        "name": "productcount",
+        "medianMs": 0.04479999998875428,
+        "samples": 3
+      },
+      {
+        "name": "PayloadInput.collection",
+        "medianMs": 0.044199999974807724,
+        "samples": 3
+      },
+      {
+        "name": "ProductEvents.validateLogicalVariantCreate",
+        "medianMs": 0.04400000000896398,
+        "samples": 3
+      },
+      {
+        "name": "pricingCreate",
+        "medianMs": 0.043999999994412065,
+        "samples": 3
+      },
+      {
+        "name": "medusa.workflow:run",
+        "medianMs": 0.04349999999976717,
+        "samples": 3
+      },
+      {
+        "name": "PayloadInput.writeData",
+        "medianMs": 0.043300000004819594,
+        "samples": 3
+      },
+      {
+        "name": "linkCreate",
+        "medianMs": 0.04320000000006985,
+        "samples": 3
+      },
+      {
+        "name": "AppIndexEntries.requireScopeUuid",
+        "medianMs": 0.042899999985820614,
+        "samples": 3
+      },
+      {
+        "name": "LogicalDocuments.consumeIndexRanges",
+        "medianMs": 0.042600000015227124,
+        "samples": 3
+      },
+      {
+        "name": "medusa.product:retrieve",
+        "medianMs": 0.0420999999914784,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationActivation.withPreparedFiniteActive",
+        "medianMs": 0.04170000000158325,
+        "samples": 3
+      },
+      {
+        "name": "ProductTagWorkflow.validateEvents",
+        "medianMs": 0.04169999998703133,
+        "samples": 3
+      },
+      {
+        "name": "productCreatevariant",
+        "medianMs": 0.0415999999968335,
+        "samples": 3
+      },
+      {
+        "name": "linkCount",
+        "medianMs": 0.04140000000188593,
+        "samples": 3
+      },
+      {
+        "name": "StoredAttemptAuthentication.publishKnownSettledPointCommit",
+        "medianMs": 0.04069999999774154,
+        "samples": 3
+      },
+      {
+        "name": "pricingCount",
+        "medianMs": 0.04050000000279397,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationMutationAdmission.acceptPreparedFinite",
+        "medianMs": 0.03900000000430737,
+        "samples": 3
+      },
+      {
+        "name": "PointMutationSessionActivation.generateExecutionClaimOwner",
+        "medianMs": 0.03770000000076834,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationBindingProjection.project",
+        "medianMs": 0.03770000000076834,
+        "samples": 3
+      },
+      {
+        "name": "SessionJournalStore.resolvePointTable",
+        "medianMs": 0.03740000000107102,
+        "samples": 3
+      },
+      {
+        "name": "productTaglist",
+        "medianMs": 0.03629999999247957,
+        "samples": 3
+      },
+      {
+        "name": "SessionJournalStore.planFinitePointOperation",
+        "medianMs": 0.035199999998440035,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationBindingProjection.withEvidenceInTransaction",
+        "medianMs": 0.03500000000349246,
+        "samples": 3
+      },
+      {
+        "name": "ProductTagWorkflow.returnedIds",
+        "medianMs": 0.03470000000379514,
+        "samples": 3
+      },
+      {
+        "name": "PointMutationSessionActivation.generateSessionId",
+        "medianMs": 0.034299999999348074,
+        "samples": 3
+      },
+      {
+        "name": "AtomicEvents.consume",
+        "medianMs": 0.03269999999611173,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationBindingProjection.projectEvidence",
+        "medianMs": 0.031000000002677552,
+        "samples": 3
+      },
+      {
+        "name": "DataBindingRepository.requireSelectedPreparation",
+        "medianMs": 0.030200000022887252,
+        "samples": 3
+      },
+      {
+        "name": "DataBindingRepository.restoreHeadRecord",
+        "medianMs": 0.030100000018137507,
+        "samples": 3
+      },
+      {
+        "name": "DataBindingRepository.decodeCandidateWithLanes",
+        "medianMs": 0.029800000003888272,
+        "samples": 3
+      },
+      {
+        "name": "DataBindingRepository.decodeActivation",
+        "medianMs": 0.028200000000651926,
+        "samples": 3
+      },
+      {
+        "name": "CommerceEvents.rows",
+        "medianMs": 0.027900000000954606,
+        "samples": 3
+      },
+      {
+        "name": "LogicalDocuments.consumeIndexPages",
+        "medianMs": 0.027900000000954606,
+        "samples": 3
+      },
+      {
+        "name": "ProductEvents.validateLogicalEntity",
+        "medianMs": 0.02789999998640269,
+        "samples": 3
+      },
+      {
+        "name": "LogicalCommerce.borrowWorkflow",
+        "medianMs": 0.027699999991455115,
+        "samples": 3
+      },
+      {
+        "name": "SessionJournalStore.planReadPointOperation",
+        "medianMs": 0.027300000001559965,
+        "samples": 3
+      },
+      {
+        "name": "ProductEvents.validateLogicalTagCall",
+        "medianMs": 0.0268999999971129,
+        "samples": 3
+      },
+      {
+        "name": "ProductTagWorkflow.validateComposition",
+        "medianMs": 0.02629999999771826,
+        "samples": 3
+      },
+      {
+        "name": "AppUniqueKeys.consumeSlots",
+        "medianMs": 0.02519999998912681,
+        "samples": 3
+      },
+      {
+        "name": "CommerceEvents.dispatch",
+        "medianMs": 0.023399999990942888,
+        "samples": 3
+      },
+      {
+        "name": "MedusaWorkflow.execute",
+        "medianMs": 0.023300000015296973,
+        "samples": 3
+      },
+      {
+        "name": "SessionJournalStore.discardFiniteRoot",
+        "medianMs": 0.023199999995995313,
+        "samples": 3
+      },
+      {
+        "name": "AtomicEvents.validateOperationIntents",
+        "medianMs": 0.023000000001047738,
+        "samples": 3
+      },
+      {
+        "name": "PointCommitTransaction.requireFrozenOrigin",
+        "medianMs": 0.020900000003166497,
+        "samples": 3
+      },
+      {
+        "name": "LogicalDocuments.combineWriteMechanics",
+        "medianMs": 0.02019999999902211,
+        "samples": 3
+      },
+      {
+        "name": "DataBindingRepository.decodeActiveReferences",
+        "medianMs": 0.017900000006193295,
+        "samples": 3
+      },
+      {
+        "name": "PreparedHostRuntime.charge",
+        "medianMs": 0.017600000006495975,
+        "samples": 3
+      },
+      {
+        "name": "SessionJournalStore.resolveJournalTarget",
+        "medianMs": 0.01699999999254942,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationActiveHead.retainCoherentPreparation",
+        "medianMs": 0.01639999999315478,
+        "samples": 3
+      },
+      {
+        "name": "ProductEvents.membershipPivots",
+        "medianMs": 0.01570000000356231,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationMutationSessionActivation.correlateFiniteEntry",
+        "medianMs": 0.015499999994062819,
+        "samples": 3
+      },
+      {
+        "name": "AppRows.consumeTableWriteFrontiers",
+        "medianMs": 0.013700000010430813,
+        "samples": 3
+      },
+      {
+        "name": "ScopeClock.requireAuthorizationRevocationEpochInTransaction",
+        "medianMs": 0.012300000002142042,
+        "samples": 3
+      }
+    ]
+  },
+  "operations": [
+    {
+      "name": "mixed-workflow",
+      "samples": 3,
+      "count": 1,
+      "wallMs": 485.3703999999998,
+      "processCpuMs": 360,
+      "threadCpuMs": 329,
+      "eventLoopIdleMs": 163.94750000000204,
+      "eventLoopActiveMs": 321.4041000062207,
+      "driverAwaitUnionMs": 183.0721999999805,
+      "driverExchangeCount": 58
+    },
+    {
+      "name": "portable runtime execution",
+      "samples": 3,
+      "count": 1,
+      "wallMs": 333.6377000000066,
+      "processCpuMs": 266,
+      "threadCpuMs": 219,
+      "eventLoopIdleMs": 95.92130000000179,
+      "eventLoopActiveMs": 235.5926999999283,
+      "driverAwaitUnionMs": 104.88940000001458,
+      "driverExchangeCount": 30
+    },
+    {
+      "name": "native Medusa workflow",
+      "samples": 3,
+      "count": 1,
+      "wallMs": 189.20850000000792,
+      "processCpuMs": 125,
+      "threadCpuMs": 110,
+      "eventLoopIdleMs": 54.17849999999453,
+      "eventLoopActiveMs": 135.30830000698188,
+      "driverAwaitUnionMs": 57.43980000002193,
+      "driverExchangeCount": 16
+    },
+    {
+      "name": "LogicalDocuments.readRelationalSelection",
+      "samples": 3,
+      "count": 43,
+      "wallMs": 149.9774999999936,
+      "processCpuMs": 92,
+      "threadCpuMs": 92,
+      "eventLoopIdleMs": 59.448400000008405,
+      "eventLoopActiveMs": 90.15940004220465,
+      "driverAwaitUnionMs": 65.35360000000219,
+      "driverExchangeCount": 17
+    },
+    {
+      "name": "FiniteStorageCapture.acceptOwnership",
+      "samples": 3,
+      "count": 29,
+      "wallMs": 141.78660000006494,
+      "processCpuMs": 32,
+      "threadCpuMs": 32,
+      "eventLoopIdleMs": 90.8816000000079,
+      "eventLoopActiveMs": 50.27459997780534,
+      "driverAwaitUnionMs": 101.03770000001532,
+      "driverExchangeCount": 29
+    },
+    {
+      "name": "FiniteStorageCapture.run",
+      "samples": 3,
+      "count": 29,
+      "wallMs": 138.99139999998442,
+      "processCpuMs": 32,
+      "threadCpuMs": 32,
+      "eventLoopIdleMs": 90.86690000000817,
+      "eventLoopActiveMs": 47.76019995295792,
+      "driverAwaitUnionMs": 101.03770000001532,
+      "driverExchangeCount": 29
+    },
+    {
+      "name": "LogicalDocuments.collectSelections",
+      "samples": 3,
+      "count": 87,
+      "wallMs": 136.6534999999567,
+      "processCpuMs": 62,
+      "threadCpuMs": 61,
+      "eventLoopIdleMs": 62.817600000009406,
+      "eventLoopActiveMs": 73.5194000324118,
+      "driverAwaitUnionMs": 68.8127999999997,
+      "driverExchangeCount": 18
+    },
+    {
+      "name": "authoritative publication",
+      "samples": 3,
+      "count": 1,
+      "wallMs": 122.9661999999953,
+      "processCpuMs": 79,
+      "threadCpuMs": 62,
+      "eventLoopIdleMs": 59.06400000000576,
+      "eventLoopActiveMs": 63.92200000142475,
+      "driverAwaitUnionMs": 63.162000000011176,
+      "driverExchangeCount": 22
+    },
+    {
+      "name": "native Product operation",
+      "samples": 3,
+      "count": 2,
+      "wallMs": 101.88670000000275,
+      "processCpuMs": 94,
+      "threadCpuMs": 78,
+      "eventLoopIdleMs": 34.687000000005355,
+      "eventLoopActiveMs": 65.36360000639252,
+      "driverAwaitUnionMs": 40.52419999999984,
+      "driverExchangeCount": 11
+    },
+    {
+      "name": "publication.lowering",
+      "samples": 3,
+      "count": 1,
+      "wallMs": 66.65129999999772,
+      "processCpuMs": 32,
+      "threadCpuMs": 31,
+      "eventLoopIdleMs": 33.119900000005146,
+      "eventLoopActiveMs": 31.633200001670048,
+      "driverAwaitUnionMs": 0,
+      "driverExchangeCount": 0
+    },
+    {
+      "name": "LogicalDocuments.relationalChange",
+      "samples": 3,
+      "count": 7,
+      "wallMs": 66.36079999999492,
+      "processCpuMs": 32,
+      "threadCpuMs": 31,
+      "eventLoopIdleMs": 30.604599999998754,
+      "eventLoopActiveMs": 35.72299999434472,
+      "driverAwaitUnionMs": 33.11960000000545,
+      "driverExchangeCount": 10
+    },
+    {
+      "name": "publication.materializationWrites",
+      "samples": 3,
+      "count": 1,
+      "wallMs": 35.99199999999837,
+      "processCpuMs": 0,
+      "threadCpuMs": 0,
+      "eventLoopIdleMs": 27.685700000001816,
+      "eventLoopActiveMs": 8.157200007961364,
+      "driverAwaitUnionMs": 28.459900000001653,
+      "driverExchangeCount": 1
+    },
+    {
+      "name": "request admission",
+      "samples": 3,
+      "count": 1,
+      "wallMs": 23.398600000000442,
+      "processCpuMs": 15,
+      "threadCpuMs": 15,
+      "eventLoopIdleMs": 6.836799999997311,
+      "eventLoopActiveMs": 16.562900000884838,
+      "driverAwaitUnionMs": 0,
+      "driverExchangeCount": 0
+    },
+    {
+      "name": "LogicalDocuments.validateContribution",
+      "samples": 3,
+      "count": 1,
+      "wallMs": 20.0680999999895,
+      "processCpuMs": 16,
+      "threadCpuMs": 15,
+      "eventLoopIdleMs": 9.704499999999825,
+      "eventLoopActiveMs": 8.017499999194115,
+      "driverAwaitUnionMs": 12.352399999988847,
+      "driverExchangeCount": 2
+    },
+    {
+      "name": "finite outer entry activation",
+      "samples": 3,
+      "count": 1,
+      "wallMs": 18.987900000007357,
+      "processCpuMs": 15,
+      "threadCpuMs": 15,
+      "eventLoopIdleMs": 6.57999999999447,
+      "eventLoopActiveMs": 12.410500003104971,
+      "driverAwaitUnionMs": 0,
+      "driverExchangeCount": 0
+    },
+    {
+      "name": "native Payload operation",
+      "samples": 3,
+      "count": 4,
+      "wallMs": 12.335699999995995,
+      "processCpuMs": 16,
+      "threadCpuMs": 15,
+      "eventLoopIdleMs": 3.61710000000312,
+      "eventLoopActiveMs": 8.721599996468285,
+      "driverAwaitUnionMs": 3.915599999992992,
+      "driverExchangeCount": 1
+    },
+    {
+      "name": "Application point",
+      "samples": 3,
+      "count": 2,
+      "wallMs": 9.04649999999674,
+      "processCpuMs": 16,
+      "threadCpuMs": 16,
+      "eventLoopIdleMs": 2.7283000000097672,
+      "eventLoopActiveMs": 6.206400019022112,
+      "driverAwaitUnionMs": 3.0736999999935506,
+      "driverExchangeCount": 2
+    },
+    {
+      "name": "publication.developerIndexPreparation",
+      "samples": 3,
+      "count": 1,
+      "wallMs": 8.790399999998044,
+      "processCpuMs": 16,
+      "threadCpuMs": 15,
+      "eventLoopIdleMs": 2.5388999999995576,
+      "eventLoopActiveMs": 6.0661999922958785,
+      "driverAwaitUnionMs": 0,
+      "driverExchangeCount": 0
+    },
+    {
+      "name": "LogicalDocuments.compileRelationalRead",
+      "samples": 3,
+      "count": 43,
+      "wallMs": 7.909799999993993,
+      "processCpuMs": 0,
+      "threadCpuMs": 0,
+      "eventLoopIdleMs": 0,
+      "eventLoopActiveMs": 7.963999971747398,
+      "driverAwaitUnionMs": 0,
+      "driverExchangeCount": 0
+    },
+    {
+      "name": "ApplicationMutationSessionActivation.completeFiniteEntry",
+      "samples": 3,
+      "count": 1,
+      "wallMs": 4.780299999998533,
+      "processCpuMs": 0,
+      "threadCpuMs": 0,
+      "eventLoopIdleMs": 3.241600000001199,
+      "eventLoopActiveMs": 1.5568999890383566,
+      "driverAwaitUnionMs": 3.6190000000060536,
+      "driverExchangeCount": 1
+    },
+    {
+      "name": "finite freeze and validation",
+      "samples": 3,
+      "count": 1,
+      "wallMs": 3.9896000000007916,
+      "processCpuMs": 0,
+      "threadCpuMs": 0,
+      "eventLoopIdleMs": 0.0011999999987892807,
+      "eventLoopActiveMs": 3.9896999949705787,
+      "driverAwaitUnionMs": 0,
+      "driverExchangeCount": 0
+    },
+    {
+      "name": "freeze and verify",
+      "samples": 3,
+      "count": 1,
+      "wallMs": 3.869300000005751,
+      "processCpuMs": 0,
+      "threadCpuMs": 0,
+      "eventLoopIdleMs": 0.0011999999987892807,
+      "eventLoopActiveMs": 3.8711999857914634,
+      "driverAwaitUnionMs": 0,
+      "driverExchangeCount": 0
+    },
+    {
+      "name": "FiniteStorageCapture.acceptDemandBuild",
+      "samples": 3,
+      "count": 29,
+      "wallMs": 3.5157000000035623,
+      "processCpuMs": 0,
+      "threadCpuMs": 0,
+      "eventLoopIdleMs": 0,
+      "eventLoopActiveMs": 3.073600023984909,
+      "driverAwaitUnionMs": 0,
+      "driverExchangeCount": 0
+    },
+    {
+      "name": "publication.intrinsicMembership",
+      "samples": 3,
+      "count": 1,
+      "wallMs": 3.083100000003469,
+      "processCpuMs": 0,
+      "threadCpuMs": 0,
+      "eventLoopIdleMs": 0.8062000000063563,
+      "eventLoopActiveMs": 2.2717999941523885,
+      "driverAwaitUnionMs": 0.9740999999921769,
+      "driverExchangeCount": 1
+    },
+    {
+      "name": "SessionJournalStore.freezeFiniteRoot",
+      "samples": 3,
+      "count": 1,
+      "wallMs": 2.711699999999837,
+      "processCpuMs": 0,
+      "threadCpuMs": 0,
+      "eventLoopIdleMs": 0.0008999999990919605,
+      "eventLoopActiveMs": 2.711300005961675,
+      "driverAwaitUnionMs": 0,
+      "driverExchangeCount": 0
+    },
+    {
+      "name": "stored read and source preparation",
+      "samples": 3,
+      "count": 1,
+      "wallMs": 2.6134000000020023,
+      "processCpuMs": 0,
+      "threadCpuMs": 0,
+      "eventLoopIdleMs": 0.30710000000544824,
+      "eventLoopActiveMs": 2.3167000073881354,
+      "driverAwaitUnionMs": 0,
+      "driverExchangeCount": 0
+    },
+    {
+      "name": "PointCommitTransaction.prepareFiniteCommand",
+      "samples": 3,
+      "count": 1,
+      "wallMs": 1.3347000000067055,
+      "processCpuMs": 0,
+      "threadCpuMs": 0,
+      "eventLoopIdleMs": 0,
+      "eventLoopActiveMs": 1.3354000002145767,
+      "driverAwaitUnionMs": 0,
+      "driverExchangeCount": 0
+    },
+    {
+      "name": "publication.uniquePreparation",
+      "samples": 3,
+      "count": 1,
+      "wallMs": 1.3018999999912921,
+      "processCpuMs": 0,
+      "threadCpuMs": 0,
+      "eventLoopIdleMs": 0.47439999999915017,
+      "eventLoopActiveMs": 0.8303000020750915,
+      "driverAwaitUnionMs": 0,
+      "driverExchangeCount": 0
+    },
+    {
+      "name": "publication.finalReferences",
+      "samples": 3,
+      "count": 1,
+      "wallMs": 1.1687000000092667,
+      "processCpuMs": 0,
+      "threadCpuMs": 0,
+      "eventLoopIdleMs": 0.24309999999968568,
+      "eventLoopActiveMs": 0.9167999947312637,
+      "driverAwaitUnionMs": 0.3533000000024913,
+      "driverExchangeCount": 1
+    },
+    {
+      "name": "publication.clockAdvance",
+      "samples": 3,
+      "count": 1,
+      "wallMs": 0.7198000000062166,
+      "processCpuMs": 0,
+      "threadCpuMs": 0,
+      "eventLoopIdleMs": 0.47660000000178115,
+      "eventLoopActiveMs": 0.24450000252545578,
+      "driverAwaitUnionMs": 0,
+      "driverExchangeCount": 0
+    },
+    {
+      "name": "runtime result validation",
+      "samples": 3,
+      "count": 1,
+      "wallMs": 0.40920000000915024,
+      "processCpuMs": 0,
+      "threadCpuMs": 0,
+      "eventLoopIdleMs": 0,
+      "eventLoopActiveMs": 0.4113999903202057,
+      "driverAwaitUnionMs": 0,
+      "driverExchangeCount": 0
+    },
+    {
+      "name": "complete call cleanup",
+      "samples": 3,
+      "count": 1,
+      "wallMs": 0.38259999999718275,
+      "processCpuMs": 0,
+      "threadCpuMs": 0,
+      "eventLoopIdleMs": 0,
+      "eventLoopActiveMs": 0.38449999690055847,
+      "driverAwaitUnionMs": 0,
+      "driverExchangeCount": 0
+    },
+    {
+      "name": "publication.priorDocuments",
+      "samples": 3,
+      "count": 1,
+      "wallMs": 0.14059999999881256,
+      "processCpuMs": 0,
+      "threadCpuMs": 0,
+      "eventLoopIdleMs": 0,
+      "eventLoopActiveMs": 0.140500009059906,
+      "driverAwaitUnionMs": 0,
+      "driverExchangeCount": 0
+    },
+    {
+      "name": "publication.relationPreparation",
+      "samples": 3,
+      "count": 1,
+      "wallMs": 0.04340000000956934,
+      "processCpuMs": 0,
+      "threadCpuMs": 0,
+      "eventLoopIdleMs": 0,
+      "eventLoopActiveMs": 0.04469999670982361,
+      "driverAwaitUnionMs": 0,
+      "driverExchangeCount": 0
+    }
+  ],
+  "databaseOperations": [
+    {
+      "name": "PostgresPhysicalSession.implicitRead",
+      "medianAwaitSumMs": 101.03770000001532,
+      "medianExchanges": 29
+    },
+    {
+      "name": "ApplicationDocument.applyPreparedMaterializationBlock",
+      "medianAwaitSumMs": 28.459900000001653,
+      "medianExchanges": 1
+    },
+    {
+      "name": "PointCommitTransaction.publishFinite",
+      "medianAwaitSumMs": 15.011699999959092,
+      "medianExchanges": 13
+    },
+    {
+      "name": "AppIndexEntries.consumeCurrentPages",
+      "medianAwaitSumMs": 8.689399999988382,
+      "medianExchanges": 1
+    },
+    {
+      "name": "FinitePublication.observeMetadata",
+      "medianAwaitSumMs": 3.9466000000102213,
+      "medianExchanges": 1
+    },
+    {
+      "name": "PayloadAdapter.call",
+      "medianAwaitSumMs": 3.915599999992992,
+      "medianExchanges": 1
+    },
+    {
+      "name": "ApplicationMutationSessionActivation.completeFiniteEntry",
+      "medianAwaitSumMs": 3.6190000000060536,
+      "medianExchanges": 1
+    },
+    {
+      "name": "InstalledScopeAuthority.lockAttempt",
+      "medianAwaitSumMs": 2.9725999999936903,
+      "medianExchanges": 2
+    },
+    {
+      "name": "FiniteEntryObservation.capture",
+      "medianAwaitSumMs": 1.7483000000065658,
+      "medianExchanges": 1
+    },
+    {
+      "name": "AppUniqueKeys.withSlots",
+      "medianAwaitSumMs": 1.466999999989639,
+      "medianExchanges": 1
+    },
+    {
+      "name": "CommittedPointOutcome.executeStatement",
+      "medianAwaitSumMs": 1.028200000000652,
+      "medianExchanges": 1
+    },
+    {
+      "name": "AppIndexEntries.acceptKeyTransitions",
+      "medianAwaitSumMs": 0.9740999999921769,
+      "medianExchanges": 1
+    },
+    {
+      "name": "IndexBuildState.beginFiniteMaterialization",
+      "medianAwaitSumMs": 0.6680000000051223,
+      "medianExchanges": 1
+    },
+    {
+      "name": "LocatedReadCommitted.runEffect",
+      "medianAwaitSumMs": 0.5830999999889173,
+      "medianExchanges": 3
+    },
+    {
+      "name": "DataBindingRepository.readHeadProjection",
+      "medianAwaitSumMs": 0.3533000000024913,
+      "medianExchanges": 1
+    }
+  ]
+}

@@ -16,10 +16,11 @@ export interface ProductRunnerOptions {
   injectedDependencies?: { event_bus: IEventBusModuleService };
   testSuite: (context: { service: ProductTestService }) => void;
 }
-/** Source-test compiler boundary; the implementation checks these same overloads. */
+
+/** Type-only test-utils contract shared by the separately selected Currency
+ * and Product runners; each Vitest config binds its own runtime implementation. */
 export declare function moduleIntegrationTestRunner(options: CurrencyRunnerOptions): void;
 export declare function moduleIntegrationTestRunner(options: ProductRunnerOptions): void;
-
 /** Source-proven explicit IDs and nested tag references in the private test profile. */
 interface ProductFixtureCreates {
   createProducts(input: (ProductFixtureInput)[]): Promise<ProductTypes.ProductDTO[]>;

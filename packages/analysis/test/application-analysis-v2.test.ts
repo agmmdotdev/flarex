@@ -280,6 +280,7 @@ describe("Application Manifest V2", () => {
     expect(JSON.parse(new TextDecoder().decode(v2Frame))).toEqual({
       format: "flarex.application-schema-publication",
       version: 2,
+      validatorIdentityEncoding: 2,
       schema: v2.manifest.schema,
     });
 

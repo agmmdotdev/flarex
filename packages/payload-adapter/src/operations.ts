@@ -1,10 +1,12 @@
-import { Effect, type Result } from "effect";
+import { payloadPaginationPolicy } from "./query";
+import { Effect, Exit, type Result } from "effect";
+import { captureExecutionDiagnosticContext, observeExecution } from "@flarex/persistence-postgres/internal/execution-diagnostics";
 import type { BasePayload, PayloadRequest } from "payload";
 import { cmsError, defineCmsCommand, type CmsCommandContext, type CmsTransactionError } from "@flarex/persistence-postgres/internal/cms-adapter";
 import type { Json } from "flarex-protocol/json";
 import { makePayloadDatabaseAdapter } from "./adapter";
 import { type PayloadContentProfile } from "./contract";
-import { projectPayloadFailure } from "./errors";
+import { projectPayloadCause } from "./errors";
 import { makePayloadInputs, type PayloadCreateInput, type PayloadUpdateInput, type PayloadDeleteInput,
   type PayloadFindInput, type PayloadFindByIdInput, type PayloadCountInput } from "./inputs";
 import type { PayloadJoinQuery } from "./joins";
@@ -15,11 +17,20 @@ type Bridge = ReturnType<typeof makePayloadDatabaseAdapter>;
 type ReadOptions = Pick<PayloadFindByIdInput, "depth" | "joins" | "joinRead">;
 const noJoins: PayloadJoinQuery = { referencedBy: false, referencedByMany: false };
 const noPopulation: ReadOptions = { depth: 0, joins: noJoins, joinRead: false };
+const restoreOutcome = (outcome: Exit.Exit<unknown, unknown>) =>
+  Exit.isFailure(outcome) ? Effect.failCause(outcome.cause) : Effect.succeed(outcome.value);
+
+/** Source-private observations and trusted request state; never operation input. */
+export interface PayloadOperationInstrumentation {
+  readonly onExecute?: () => void;
+  readonly onCollection?: (collection: string) => void;
+  readonly requestContext?: PayloadRequest["context"];
+}
 
 /** These handlers belong to one Payload instance; no request state is retained. */
 export function makePayloadOperations(payload: BasePayload, bridge: Bridge, profile: PayloadContentProfile,
-  collections: readonly PayloadCollectionRuntime[], isLive: () => boolean, onExecute?: () => void) {
-  const inputs = makePayloadInputs(profile, collections);
+  inputs: ReturnType<typeof makePayloadInputs>, isLive: () => boolean,
+  instrumentation?: PayloadOperationInstrumentation) {
   const options = (req: Partial<PayloadRequest>, collection: PayloadCollectionRuntime, read: ReadOptions) => ({
     collection: collection.collectionSlug, req, depth: read.depth, overrideAccess: false,
     ...(profile === "payload.content-joins" ? { joins: read.joinRead ? {
@@ -28,22 +39,42 @@ export function makePayloadOperations(payload: BasePayload, bridge: Bridge, prof
     } : false as const } : {}),
   } as const);
 
-  const call = Effect.fn("PayloadAdapter.call")(function* <A extends Json>(
+  // Stable invocation mechanics are observed only by explicit SDK composition.
+  const call = Effect.fnUntraced(function* <A extends Json>(
     context: CmsCommandContext, collection: PayloadCollectionRuntime, write: boolean, read: ReadOptions,
     invoke: (common: ReturnType<typeof options>) => Promise<unknown>,
     decode: (value: unknown) => Result.Result<A, CmsTransactionError>,
   ) {
-    const req: Partial<PayloadRequest> = write ? { transactionID: context.transactionId } : {};
+    // Each outer Local API call owns a fresh request and therefore a fresh
+    // Payload dataloader. Native nested calls reuse this exact mutable request.
+    const req: Partial<PayloadRequest> = {
+      // Standalone snapshot reads intentionally omit an ID. A mixed-attempt
+      // read is borrowed work and must present the owned ID like a write.
+      ...(write || !context.standaloneRead ? { transactionID: context.transactionId } : {}),
+      ...(instrumentation?.requestContext === undefined ? {} : { context: { ...instrumentation.requestContext } }),
+    };
     const common = options(req, collection, read);
-    onExecute?.();
-    const result = yield* Effect.tryPromise({
-      try: signal => bridge.within(context, collection, req, signal, () => invoke(common), read.depth === 1, read.joins),
-      catch: cause => cause,
-    }).pipe(
-      // oxlint-disable-next-line flarex/prefer-tagged-effect-recovery -- REVIEW: compatibility - Payload rejects with its own errors or a CMS failure; unknown rejection remains a defect.
-      Effect.catch(projectPayloadFailure));
+    instrumentation?.onExecute?.();
+    const diagnostics = yield* Effect.withFiber(fiber => Effect.succeed(captureExecutionDiagnosticContext(fiber)));
+    const result = yield* Effect.uninterruptibleMask(restore => {
+      let pending: Promise<Exit.Exit<unknown, unknown>> | undefined;
+      return restore(Effect.tryPromise({
+        try: signal => {
+          pending = bridge.within(context, collection, req, signal, diagnostics, () => invoke(common), read.depth === 1, read.joins,
+            instrumentation?.onCollection);
+          return pending;
+        },
+        catch: cause => cause,
+      })).pipe(Effect.onInterrupt(() => Effect.suspend(() => {
+        const completion = pending;
+        // Abort requests cancellation; the native Promise must actually settle
+        // before its request, host or transaction owner may finish draining.
+        return completion === undefined ? Effect.void : Effect.tryPromise({ try: () => completion, catch: cause => cause }).pipe(
+          Effect.flatMap(restoreOutcome), Effect.asVoid);
+      })), Effect.flatMap(restoreOutcome), Effect.catchCause(cause => Effect.failCause(projectPayloadCause(cause))));
+    });
     return yield* Effect.fromResult(decode(result));
-  });
+  }, work => observeExecution("PayloadAdapter.call", work));
 
   const handlers = {
     create: (ctx: CmsCommandContext, args: PayloadCreateInput) =>
@@ -58,7 +89,7 @@ export function makePayloadOperations(payload: BasePayload, bridge: Bridge, prof
       call(ctx, args.collection, false, args, common => payload.find({ ...common, where: args.where,
         ...(args.page === undefined ? {} : { page: args.page }),
         ...(args.pagination === undefined ? {} : { pagination: args.pagination }),
-        limit: args.limit ?? 10, sort: "id" }), payloadResults.page),
+        limit: args.limit ?? payloadPaginationPolicy.defaultLimit, sort: "id" }), payloadResults.page),
     count: (ctx: CmsCommandContext, args: PayloadCountInput) =>
       call(ctx, args.collection, false, noPopulation, common => payload.count({ ...common, where: args.where }), payloadResults.count),
   };
@@ -68,10 +99,10 @@ export function makePayloadOperations(payload: BasePayload, bridge: Bridge, prof
   const command = <A, Output extends Json>(name: string, mode: "read" | "write",
     decode: (ctx: CmsCommandContext, input: Json) => Effect.Effect<A, CmsTransactionError>,
     handle: (ctx: CmsCommandContext, args: NoInfer<A>) => Effect.Effect<Output, CmsTransactionError>,
-  ) => defineCmsCommand({ name, mode, run: Effect.fn("PayloadAdapter.invoke")(function* (ctx, args) {
+  ) => defineCmsCommand({ name, mode, run: Effect.fnUntraced(function* (ctx, args) {
     if (!isLive()) return yield* Effect.fail(cmsError("closed"));
     return yield* handle(ctx, yield* decode(ctx, args));
-  }) });
+  }, work => observeExecution("PayloadAdapter.invoke", work)) });
 
   return {
     create: command("payload-create", "write", inputs.create, handlers.create),

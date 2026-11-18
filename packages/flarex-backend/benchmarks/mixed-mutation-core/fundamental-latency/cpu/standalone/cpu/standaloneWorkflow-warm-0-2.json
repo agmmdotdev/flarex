@@ -1,0 +1,35 @@
+{
+  "format": "flarex.mixed-mutation-node-cpu-diagnostic",
+  "id": "standaloneWorkflow-warm-0-2",
+  "workload": "standaloneWorkflow",
+  "temperature": "warm",
+  "revision": "33a6056ebf82bf1006bb7df81ff732de1dd87c20",
+  "workingDiffSha256": "63d9f1feb51701a057686db04bbb410b429af457d8bd9bdc3907aadf96749265",
+  "sourceHashes": {
+    "packages/flarex-backend/test/mixedMutationPerformance.postgres.test.ts": "05335a65551e161a84c54a9bbd26de3dc9d82dfc0d1ce76dd8ada1a1a3a3272d",
+    "packages/flarex-backend/test/support/mixedMutationProductFixture.ts": "299b0b9a2b87610c1837bfea19b5c00c74b5fa1930659d3c852440fb4fd84887",
+    "packages/flarex-backend/test/support/mixedMutationCpuProfile.ts": "b3a6d5f42492a66316eb9c3d2804de8d0d99191ec23eaef360a6122d2c5a96ac",
+    "packages/flarex-backend/test/support/mixedMutationPerformanceReport.ts": "1ff079da5c937ba1988107fc4233abc03d9b43015069dc3f197d6e664fd610a3",
+    "packages/medusa-adapter/test/support/product-launch-performance-fixture.ts": "e891829bfbd48aa9bc8c9f5765c3ce5a7d752877cfd10088d52c5fe3b0b21c35",
+    "packages/persistence-postgres/src/appRows.ts": "ca7a2a67f70e587da10b5a796bfdde20f84bcb0cd7dc4e0bc22e27bcbac6ad0e",
+    "packages/persistence-postgres/src/appUniqueConstraintSetBuildV1.ts": "27cbb62d616c3c6a9413bab17903a3975da1edc7821f911a27048bd541676fd5",
+    "packages/persistence-postgres/src/applicationActivation.ts": "af29252779772604269b21a36ff19f200a46cc686918be7c29dd7d673bf7db8d",
+    "packages/persistence-postgres/src/applicationReadiness.ts": "b74697ade7ef0112031b90d56b740cace179715480f0665b8873e39d8e3a36b5",
+    "packages/persistence-postgres/src/applicationRelationReadinessFold.ts": "c9e3c34a1d7eb4de52d47c04480c0bd290530cbd4c1ea17bb83ccd61709ce06f",
+    "packages/persistence-postgres/src/indexBuildStates.ts": "717297da4b03f890c18698bb488a4a21f5f90fb1ca286c46b16dbc214e68a299",
+    "packages/persistence-postgres/src/logicalDocuments/workingSet.ts": "8872e57cdfa37474c5a710e4eb58a1cc23f796ad73031ba3e40ad9530a051d52",
+    "packages/persistence-postgres/src/logicalSearchBuild.ts": "c30e410ac6d28fdbc4c35e2387d0ff544c5edf5c7449f1ee788fcedb678e9934",
+    "packages/persistence-postgres/src/logicalStorageReadiness.ts": "d93c09c2faa661749de858679fdb1261441bcbcfcf4ec92f7b65ff68b60f9958",
+    "packages/persistence-postgres/test/mixedMutationPerformanceTrace.ts": "a633ba98dfcc3c0b786a0b95e269510bc2ca2f54903c1e3812ba89445f522476"
+  },
+  "profileSha256": "3ba972554389565fd1a48de26f82161e294ac34141b827fdc9e1c6fc885bd280",
+  "invocationWallMs": 387.3525000000009,
+  "nodeHostOnly": true,
+  "observerOverhead": "included; not a latency acceptance sample",
+  "profileWindow": "includes Node Inspector start/stop sampling overhead outside invocation wall",
+  "missing": [
+    "separate Workerd CPU",
+    "allocation accounting",
+    "async wait stacks"
+  ]
+}

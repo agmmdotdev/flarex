@@ -1,0 +1,17 @@
+{
+  "status": "cancelled-no-validation-credit",
+  "reason": "Run started before the first typecheck completed. That compile exposed an unfinished conflict-probe builder; a PGlite failure witness waited on an unreached gate. Stopped only the verified owned Vitest runner and worker. A PostgreSQL daemon started after the initial process scan and survived that interrupted run; the later audit identified it by creation time, experiment-owner.json and postmaster PID. Corrected code passed scoped typecheck before tests restarted.",
+  "stoppedPids": [
+    15344,
+    28072
+  ],
+  "recordedAt": "2026-10-27T10:17:17.173Z",
+  "cleanup": {
+    "root": "C:/Users/Admin/AppData/Local/Temp/flarex-core-pg-kU7RFs",
+    "pid": 16992,
+    "port": 60692,
+    "daemon": "stopped by verified pg_ctl -m fast -w stop",
+    "directory": "retained; automatic approval review rejected the cleanup command with blocked by policy; no alternate deletion attempted",
+    "recordedAt": "2026-10-27T10:29:35.559Z"
+  }
+}

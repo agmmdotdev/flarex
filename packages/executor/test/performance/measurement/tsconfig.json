@@ -1,0 +1,9 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "paths": {
+      "@medusajs/framework/utils/portable": ["../../../../medusa-framework/dist/utils/portable.d.ts"]
+    }
+  },
+  "include": ["./**/*.ts"]
+}

@@ -54,7 +54,11 @@ export function projectQueryInvocationError(
     case "ApplicationSchemaAuthorityError":
       return queryInvocationError(projectSchemaAuthorityReason(error), error);
     case "InvalidApplicationRelationReadinessInputError":
+    case "InvalidAppRowReadInputError":
+    case "CommitFeedInputErrorV1":
       return queryInvocationError("invalidConfiguration", error);
+    case "CommitFeedCursorResetRequiredErrorV1":
+      return queryInvocationError("historyUnavailable", error);
     case "ApplicationRelationBuildUnavailableError":
     case "ApplicationRelationReadinessUnavailableError":
       return queryInvocationError("applicationUnavailable", error);
@@ -92,18 +96,26 @@ export function projectQueryInvocationError(
     case "TrustedScopeAuthorityResolutionError":
     case "ScopeClockNotFoundError":
     case "ScopeExecutionAuthorityError":
+    case "AppRowScopeAuthorityUnavailableError":
+    case "CommitFeedScopeNotFoundErrorV1":
     case "AppUniqueConstraintSetBuildStaleAuthorityV1Error":
       return queryInvocationError("staleScopeAuthority", error);
     case "TrustedScopeAuthorityPortError":
+    case "AppRowReadPersistenceError":
+    case "CommitFeedSqlErrorV1":
     case "ScopeAuthorizationRevocationEpochPersistenceError":
     case "AppIndexDefinitionReadPersistenceError":
     case "AppSchemaVersionIndexBindingPersistenceError":
     case "AppUniqueConstraintCatalogPersistenceError":
     case "AppUniqueConstraintSetClosurePersistenceV1Error":
+    case "AppUniqueConstraintSetClosureResourceError":
     case "PhysicalDefinitionLifecyclePersistenceError":
     case "SchemaVersionArtifactPersistenceError":
       return queryInvocationError("unavailable", error);
     case "ScopeClockCorruptionError":
+    case "AppRowTableFrontierCorruptionError":
+    case "AppRowStorageCorruptionError":
+    case "CommitFeedCorruptionErrorV1":
     case "AppIndexDefinitionCatalogCorruptionError":
     case "AppUniqueConstraintCatalogCorruptionError":
     case "AppUniqueConstraintSetBuildStateV1Error":
@@ -135,12 +147,116 @@ export function projectQueryInvocationError(
       );
     case "ApplicationExecutionHostError":
       return queryInvocationError(projectExecutionHostReason(error), error);
+    case "CoreApplicationProgramError":
+      return queryInvocationError(projectCoreProgramReason(error), error);
+    case "CoreApplicationQueryError":
+      return queryInvocationError(projectCoreQueryReason(error), error);
+    case "CoreTransactionError":
+      return queryInvocationError(projectCoreTransactionReason(error), error);
+    case "CorePersistenceError":
+      return queryInvocationError(projectCorePersistenceReason(error), error);
+    case "CoreSchemaError":
+      return queryInvocationError(projectCoreSchemaReason(error), error);
+    case "CoreApplicationAdmissionError":
+      return queryInvocationError(projectCoreAdmissionReason(error), error);
+    case "CoreQueryInputError":
+      return queryInvocationError("invalidInput", error);
+    case "CoreNativeUniqueConflict":
+    case "CoreNativeReferenceError":
+    case "CoreNativeReferencePlanError":
+    case "CoreNativeForeignKeyError":
+    case "CoreNativeQueryError":
+    case "CoreNativeBudgetError":
+      return queryInvocationError("invalidConfiguration", error);
     default: {
       const unhandledError: never = error;
       throw new TypeError(
         `Unhandled Query invocation error: ${String(unhandledError)}`,
       );
     }
+  }
+}
+
+function projectCoreProgramReason(
+  error: Extract<InvokeApplicationQueryError, { readonly _tag: "CoreApplicationProgramError" }>,
+): QueryInvocationErrorReason {
+  switch (error.reason) {
+    case "metadataInvalid": return "corruptData";
+    case "argumentsInvalid": return "invalidInput";
+    case "hashFailure": return "unavailable";
+    case "unsupportedSelection": return "incompatibleRuntime";
+  }
+}
+
+function projectCoreQueryReason(
+  error: Extract<InvokeApplicationQueryError, { readonly _tag: "CoreApplicationQueryError" }>,
+): QueryInvocationErrorReason {
+  switch (error.reason) {
+    case "functionUnsupported": return "incompatibleRuntime";
+    case "invalidComposition":
+    case "invalidExecutionContext": return "invalidConfiguration";
+    case "sourceReadFailed":
+    case "workerDefinitionFailed": return "unavailable";
+  }
+}
+
+function projectCoreTransactionReason(
+  error: Extract<InvokeApplicationQueryError, { readonly _tag: "CoreTransactionError" }>,
+): QueryInvocationErrorReason {
+  switch (error.reason) {
+    case "programUnavailable": return "queryNotFound";
+    case "missingIndex":
+    case "indexUnavailable": return "indexUnavailable";
+    case "tooManyTables":
+    case "capacity": return "budgetExceeded";
+    case "invalidValue":
+    case "documentValidation":
+    case "documentExists":
+    case "documentDeleted":
+    case "invalidDocumentId": return "invalidInput";
+    case "readonly": return "incompatibleRuntime";
+    case "authorityRevoked": return "staleScopeAuthority";
+    case "admissionExpired": return "terminal";
+    case "closed":
+    case "unavailable": return "unavailable";
+    case "conflict": return "transient";
+    case "missingTable":
+    case "missingDocument": return "corruptData";
+    case "inflight":
+    case "foreignFinalization":
+    case "requestMismatch":
+    case "foreignClaim": return "invalidConfiguration";
+  }
+}
+
+function projectCorePersistenceReason(
+  error: Extract<InvokeApplicationQueryError, { readonly _tag: "CorePersistenceError" }>,
+): QueryInvocationErrorReason {
+  switch (error.reason) {
+    case "outOfRetention": return "historyUnavailable";
+    case "corruptData": return "corruptData";
+    case "invalidTarget": return "invalidConfiguration";
+    case "uncertainWrite": return "settlementUncertain";
+    case "leaseLost":
+    case "timeout":
+    case "readOnly":
+    case "unavailable": return "unavailable";
+  }
+}
+
+function projectCoreSchemaReason(
+  error: Extract<InvokeApplicationQueryError, { readonly _tag: "CoreSchemaError" }>,
+): QueryInvocationErrorReason {
+  switch (error.reason) {
+    case "invalidSchema":
+    case "unsupportedFloatLiteral":
+    case "stagedEnforcedConflict": return "invalidInput";
+    case "unsupportedCapability": return "incompatibleRuntime";
+    case "hashFailure": return "unavailable";
+    case "schemaNotFound":
+    case "schemaFailed":
+    case "schemaOverwritten":
+    case "notValidated": return "applicationUnavailable";
   }
 }
 
@@ -180,6 +296,7 @@ function projectCompositionReason(
       return "corruptData";
     case "sourceReadFailed":
     case "workerDefinitionFailed":
+    case "requestResourceFailed":
       return "unavailable";
   }
 }
@@ -452,5 +569,16 @@ function projectTransactionFailureReason(
     case "infrastructureFailure":
     case "callbackRolledBack":
       return "unavailable";
+  }
+}
+
+function projectCoreAdmissionReason(error: Extract<InvokeApplicationQueryError, { readonly _tag: "CoreApplicationAdmissionError" }>): QueryInvocationErrorReason {
+  switch (error.reason) {
+    case "invalidConfiguration": return "invalidConfiguration";
+    case "overloaded":
+    case "waitExpired": return "transient";
+    case "closed": return "unavailable";
+    case "callbackCapacity":
+    case "queryCapacity": return "budgetExceeded";
   }
 }

@@ -94,7 +94,7 @@ export interface CreatePriceListPriceDTO extends CreateMoneyAmountDTO {
   /**
    * The rules to add to the price. The object's keys are the attribute, and values are the value of that rule associated with this price.
    */
-  rules?: CreatePriceListPriceRules
+  rules?: CreatePriceListPriceRules | undefined
 }
 
 export interface UpdatePriceListPriceDTO extends UpdateMoneyAmountDTO {

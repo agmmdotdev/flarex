@@ -2,15 +2,16 @@ import { Effect, Schema } from "effect";
 import { generateEntityId } from "@medusajs/framework/utils/portable";
 import type { CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError, defaultCommerceResources, type CommerceResources, type CommerceTransactionError, type Json, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
-import { captureCommerceInput } from "../commerce-input";
-import { commerceDecoder } from "../commerce-decoder";
+import { captureCommerceInput } from "../value/input";
+import { commerceDecoder } from "../value/decoder";
 import type { CreatedGraph, CreationNode, CreationProfile, GraphCatalog, GraphRows } from "./graph-model";
 
 const decodeGraphArray = commerceDecoder(Schema.Array(Schema.Json), "invalidInput");
+const decodeOwnedToOne = commerceDecoder(Schema.Union([Schema.String, Schema.JsonObject, Schema.Null]), "invalidInput");
 
 /** Traverse the module's declared steps in order. Each root owns its reference
  * snapshots; duplicate identities and the row budget cover the entire graph. */
-export const captureGraph = Effect.fn("MedusaGraph.capture")(function* (
+export const captureGraph = Effect.fnUntraced(function* (
   profile: CreationProfile, input: unknown, resources: CommerceResources = defaultCommerceResources,
 ) {
   const captured = yield* Effect.fromResult(captureCommerceInput(input, resources));
@@ -19,7 +20,7 @@ export const captureGraph = Effect.fn("MedusaGraph.capture")(function* (
   for (const table of profile.catalog.writablePivots) rows.set(table.name, []);
   const ids = new Set<string>();
   const roots: string[] = [];
-  const add = Effect.fn("MedusaGraph.captureNode")(function* (
+  const add = Effect.fnUntraced(function* (
     node: CreationNode, inputRow: Json, extra: JsonObject, scope: Map<string, JsonObject>,
   ): Effect.fn.Return<string, CommerceTransactionError> {
     const { supplied, key: suppliedKey } = yield* Effect.fromResult(profile.catalog.decodeRow(node.entity, inputRow));
@@ -28,10 +29,20 @@ export const captureGraph = Effect.fn("MedusaGraph.capture")(function* (
     const token = node.entity.table.name + ":" + key;
     if (ids.has(token)) return yield* Effect.fail(commerceError("invalidInput"));
     ids.add(token);
-    const row: JsonObject = { ...Object.fromEntries(Object.entries(supplied).filter(([name]) => !node.omitRelations.includes(name))), ...extra, [node.entity.keyColumn]: key };
+    const row: Record<string, Json> = { ...Object.fromEntries(Object.entries(supplied).filter(([name]) => !node.omitRelations.includes(name))), ...extra, [node.entity.keyColumn]: key };
+    // Native create resolves owned to-one values before inserting the owner.
+    // The already normalized relation value takes precedence over its FK.
+    for (const step of node.steps) if (step.kind === "ownedToOne" && supplied[step.name] !== undefined) {
+      const target = yield* Effect.fromResult(decodeOwnedToOne(supplied[step.name]));
+      if (target === null) row[step.foreignKey] = null;
+      else if (typeof target === "string")
+        row[step.foreignKey] = (yield* Effect.fromResult(profile.catalog.decodeReference(step.node.entity, target))).key;
+      else row[step.foreignKey] = yield* add(step.node, target, {}, scope);
+    }
     rows.get(node.entity.table.name)?.push(row);
     scope.set(token, supplied);
     for (const step of node.steps) {
+      if (step.kind === "ownedToOne") continue;
       if (step.kind === "children") {
         const members = yield* Effect.fromResult(decodeGraphArray(supplied[step.name] ?? []));
         for (const member of members) yield* add(step.node, member, { [step.foreignKey]: key }, scope);
@@ -59,19 +70,44 @@ export const captureGraph = Effect.fn("MedusaGraph.capture")(function* (
     resources.facts, graphRows, Object.fromEntries([...rows].map(([table, group]) => [table, group.length])),
   )));
   return { roots, rows } satisfies CreatedGraph;
-});
+}, effect => Effect.withSpan(effect, "MedusaGraph.capture", { captureStackTrace: false }));
 
 /** The checked catalog supplies insertion order. The caller retains the sole
  * transaction manager; only rows actually returned by writes leave this step. */
-export const insertGraphRows = Effect.fn("MedusaGraph.insert")(function* (
-  ctx: Pick<CommerceCommandContext, "manager" | "table">, catalog: GraphCatalog, graph: GraphRows,
+export const insertGraphRows = Effect.fnUntraced(function* (
+  ctx: Pick<CommerceCommandContext, "manager" | "table" | "announce">, catalog: GraphCatalog, graph: GraphRows,
+  options: { readonly allowReconstitution?: true } = {},
 ) {
   const inserted = new Map<string, readonly JsonObject[]>();
-  for (const table of [...catalog.entities.map(item => item.table.name), ...catalog.writablePivots.map(item => item.name)]) {
+  const tables = [...catalog.entities.map(item => item.table.name), ...catalog.writablePivots.map(item => item.name)];
+  // The complete rows of the ordered table inserts that follow at once.
+  // Reconstituted rows keep their own deletion proof and are not announced.
+  const announced = tables.flatMap(tableName => {
+    const rows = (graph.get(tableName) ?? []).filter(row => options.allowReconstitution !== true || row.created_at === undefined);
+    return rows.length === 0 ? [] : [{ tableName, rows }];
+  });
+  if (ctx.announce !== undefined && announced.length > 1) yield* ctx.announce({ inserts: announced });
+  for (const table of tables) {
     const rows = graph.get(table) ?? [];
     if (rows.length === 0) { inserted.set(table, []); continue; }
     const store = yield* ctx.table(table);
-    inserted.set(table, yield* store.write(ctx.manager, "insert", rows));
+    const restored: JsonObject[] = [];
+    let start = 0;
+    while (start < rows.length) {
+      const reconstitute = options.allowReconstitution === true && rows[start]?.created_at !== undefined;
+      let end = start + 1;
+      while (end < rows.length && (options.allowReconstitution === true && rows[end]?.created_at !== undefined) === reconstitute) end++;
+      const cohort = rows.slice(start, end);
+      // Complete retained rows still require the core's exact same-root deletion
+      // proof. Keep mixed cohorts in native order and preserve ordinary inserts.
+      if (reconstitute) {
+        const restore = store.reconstitute;
+        if (restore === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
+        restored.push(...(yield* restore(ctx.manager, cohort)));
+      } else restored.push(...(yield* store.write(ctx.manager, "insert", cohort)));
+      start = end;
+    }
+    inserted.set(table, restored);
   }
   return inserted;
-});
+}, effect => Effect.withSpan(effect, "MedusaGraph.insert", { captureStackTrace: false }));

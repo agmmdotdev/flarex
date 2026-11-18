@@ -5,7 +5,24 @@ deferred until after the shared core redesign and requires separate approved
 implementation sessions. This note is a warning and future work contract, not
 authorization to start a migration engine now.
 
+The accepted [shared schema lifecycle](../../design-notes/flarexdb-shared-schema-lifecycle.md)
+defines one internal installation/evolution responsibility for Flarex Application,
+Payload, Medusa and platform Tasks. It consolidates existing core owners; native
+schema compilation and conversion meaning remain producer-owned. Initial Task
+installation uses that foundation under the [Task roadmap](../task-system/README.md),
+without a separate Task installer. This does not activate the general
+populated-data transitions deferred here or expand the current core completion scope.
+
 ## Core First, Advanced Evolution Later
+
+The accepted [total core rewrite](../../experiments/core/engine/REFACTOR.md#framework-adapters-and-shared-schema-installation)
+includes shared schema installation/migration architecture and Payload/Medusa
+schema producers/runtime adapters over the translated Convex core. This
+sequencing boundary applies to general populated-data transition capabilities;
+it does not freeze current installers/APIs or defer shared lifecycle replacement,
+physical engine upgrades, required storage cutover migrations or duplicate-engine
+retirement. Producer conversion meaning and concrete transition proofs remain
+necessary; architecture acceptance does not infer every native upgrade's meaning.
 
 The owner prioritizes generic shared storage, three-producer schema composition,
 cross-framework relationships, indexed queries, trusted settlement and core
@@ -60,10 +77,13 @@ Implement these in later sessions with concrete source-backed transitions:
 - Explicit rollback/forward-repair policy. Restoring an old schema definition
   does not automatically reverse transformed data.
 
-This is one shared evolution responsibility with framework-owned inputs, not
-three independently authoritative migration engines. Exact algorithms, storage
-tables and callable interfaces are intentionally undecided until the core
-contracts and the first real transition are available.
+This is one shared evolution responsibility with producer-owned inputs from
+Application, Payload, Medusa and Tasks. There are no independently authoritative
+per-consumer migration engines. Task schema upgrades use the same progress,
+validation and activation mechanisms; platform definitions retain their private
+scope and lifecycle. Exact algorithms, storage tables and callable interfaces
+are intentionally undecided until the core contracts and the first real
+transition are available.
 
 ## Cleanup Is Still Core Work
 

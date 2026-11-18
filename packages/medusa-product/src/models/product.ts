@@ -31,30 +31,30 @@ const Product = model
     discountable: model.boolean().default(true),
     external_id: model.text().nullable(),
     metadata: model.json().nullable(),
-    variants: model.hasMany(() => ProductVariant, {
+    variants: model.hasMany((): typeof ProductVariant => ProductVariant, {
       mappedBy: "product",
     }),
     type: model
-      .belongsTo(() => ProductType, {
+      .belongsTo((): typeof ProductType => ProductType, {
         mappedBy: "products",
       })
       .nullable(),
-    tags: model.manyToMany(() => ProductTag, {
+    tags: model.manyToMany((): typeof ProductTag => ProductTag, {
       mappedBy: "products",
       pivotTable: "product_tags",
     }),
-    options: model.hasMany(() => ProductOption, {
+    options: model.hasMany((): typeof ProductOption => ProductOption, {
       mappedBy: "product",
     }),
-    images: model.hasMany(() => ProductImage, {
+    images: model.hasMany((): typeof ProductImage => ProductImage, {
       mappedBy: "product",
     }),
     collection: model
-      .belongsTo(() => ProductCollection, {
+      .belongsTo((): typeof ProductCollection => ProductCollection, {
         mappedBy: "products",
       })
       .nullable(),
-    categories: model.manyToMany(() => ProductCategory, {
+    categories: model.manyToMany((): typeof ProductCategory => ProductCategory, {
       pivotTable: "product_category_product",
       mappedBy: "products",
     }),

@@ -2,11 +2,40 @@
 
 ## Status And Scope
 
-Status: owner-requested design and implementation-gate plan; execution changes,
-reference benchmarks and measured improvements remain pending. Documentation
+This record describes the earlier selected core-execution work and its retained
+acceptance evidence. Successor planning now follows the
+[portable core refactor direction](../../design-notes/flarex-db-accepted-design.md#portable-core-refactor-direction),
+[decision register](../../experiments/core/engine/DECISIONS.md) and
+[open-question queue](../../experiments/core/engine/OPEN-QUESTIONS.md).
+Existing Medusa/Payload integrations are reuse assets and consumers of the future
+replacement, not work that must all be rebuilt after a parallel core completes.
+
+Earlier slice-by-slice implementation authorization does not authorize the
+new DO topology, caches or replica protocol. The successor is currently
+design-only, one concept at a time. Later selected implementation scopes must
+include affected callers, behavioral/data obligations, verification and removal
+of displaced paths. Necessary internal breaks remain permitted; data deletion
+and unrelated capability expansion are not implicit.
+
+Status: selected core execution contracts and connected acceptance complete;
+retained limits and retirement gates are tracked in
+[the acceptance disposition](./70-connected-execution-acceptance.md).
+Bounded preparation/materialization, continuous index maintenance, coordinated
+CMS/native/commerce admission and shared host lifetime are implemented. Immediate
+fresh integrity verification is retained; protected-root replacement and native
+journal coalescing are not selected. Documentation
 approval does not activate new storage, remove locks or broaden any framework
 capability. This is a workstream within the existing shared transaction core,
 not another runtime or metadata authority.
+
+The [remaining implementation plan](./62-core-completion-plan.md) groups the
+selected gates into connected work packages. It owns the selected completion
+inventory; the existing CE evidence below remains valid. Delivery size follows
+the complete behavioral outcome, without an artificial component or size cap.
+The successor [core performance program](../core-performance/README.md) owns
+remaining complete native-relative performance acceptance.
+Do not reopen completed proofs or expand reference coverage without a concrete
+replacement-contract or acceptance question.
 
 The [core execution design](../../design-notes/flarexdb-core-execution-redesign.md)
 owns the recommended contracts and fair-comparison rules. The
@@ -29,18 +58,20 @@ Do not benchmark legacy serving while reporting a private target kernel, or
 charge native syscall journaling to a framework path that does not use it.
 
 The pure point OCC comparison is not evidence of a large CPU bottleneck. Current
-head reads already batch dependencies. Remaining concerns include sequential
-row/index/unique application, exclusive index-build-state access and coverage
-updates during normal commits, broad commit exclusion, and execution evidence
-across the request. These are source-derived risks, not measured regressions.
+head reads already batch dependencies, and prepared row writes now batch at the
+shared row owner. Index and unique application also use bounded sets. Activated
+ordered indexes and unique constraints now use shared build protection without
+per-commit progress updates. Remaining concerns include broad commit exclusion,
+execution evidence across the request, and the cost of validating continuous
+maintenance. These are source-derived risks, not measured regressions.
 
-[Materialization](../../packages/persistence-postgres/src/applicationDocumentMaterialization/materialization.ts)
-and the [point commit owner](../../packages/persistence-postgres/src/pointCommitTransaction.ts)
+[Materialization](../../packages/persistence-postgres/src/storage/materialization/materialization.ts)
+and the [point commit owner](../../packages/persistence-postgres/src/commit/point/README.md)
 are the initial investigation boundaries. The existing
-[publisher](../../packages/persistence-postgres/src/commitPublication/publication.ts)
+[publisher](../../packages/persistence-postgres/src/commit/publication/publication.ts)
 already batches some fact families. The
-[physical owner](../../packages/persistence-postgres/src/physicalSession/postgres.ts)
-and [request recovery](../../packages/persistence-postgres/src/relationalTransaction/requestRecovery.ts)
+[physical owner](../../packages/persistence-postgres/src/database/physicalSession/postgres.ts)
+and [request recovery](../../packages/persistence-postgres/src/database/relationalTransaction/requestRecovery.ts)
 retain cancellation and authoritative decision handling. Do not replace these
 owners with benchmark-local production logic.
 
@@ -62,8 +93,9 @@ breaking-change policy without silently resetting named durable data.
 ## Gate Sequence
 
 These gates name outcomes and evidence, not mandatory new packages or a demand
-to finish the entire core before exercising a framework. CE1 and CE2 may proceed
-as coherent independent slices after CE0; CE3 uses their actual findings. CE4 is
+to finish the entire core before exercising a framework. CE1 and CE2 use scoped
+CE0 evidence for coherent independent slices; complete-request CE0 acceptance
+remains a separate gate. CE3 uses their actual findings. CE4 is
 conditional on measured native evidence cost. Each slice migrates its real
 consumers and removes what it displaces before reporting completion.
 
@@ -78,16 +110,274 @@ consumers and removes what it displaces before reporting completion.
 
 ## First Implementation Handoff
 
-The next recommended executable slice is CE0: instrument current supported core
-entry points and establish the benchmark equivalence and failure baseline. It
+The [first workload handoff](./11-ce0-first-workload.md) names the selected
+executing path, implemented publication observation, correctness witnesses and
+remaining coverage gaps. It is not complete CE0 acceptance or a measured win.
+The [native lifecycle and row-store reference](./12-ce0-native-lifecycle-and-reference.md)
+separates native journal cost from publication and admits only a bounded
+first-revision storage comparison. Full publication/reference equivalence remains open.
+[Native invocation attribution](./32-ce0-native-invocation-attribution.md) extends
+measurement through real admission, cryptographic grants, execution host, journal
+and finalization with independently observed control/target pools. The
+[source-execution extension](./35-ce0-native-workerd-attribution.md) now executes
+the registered body in local Workerd through the existing test capability bridge.
+Deployed transport/scheduling, broader workloads and equivalent complete-request
+references remain open. Its calibrated
+phase observations guide owner selection without treating pool elapsed times as
+additive or client intervals as server lock-hold measurements.
+The [bounded authority capture](./33-ce4-bounded-authority-capture.md) replaces
+separate clock/session/lease/journal metadata reads with one bounded header in
+the existing repeatable-read loader. Size-before-payload admission and complete
+authentication remain intact; this does not remove durable journal evidence.
+The [shared prior-document state](./34-ce3-shared-prior-document-state.md)
+consolidates predecessor reads and canonical decoding across index, unique and
+relation planning in native/CMS materialization. Publication exclusion and exact
+dependency validation remain; coordinated parallel materialization is still open.
+The [scope-clock lock contract](./36-ce3-scope-clock-lock-contract.md) provides
+PostgreSQL witnesses for separating snapshot-reader protection from ordinary
+sequence advancement on the existing row, while retaining strong transition
+exclusion and stale-snapshot refusal. The [CMS snapshot cutover](./38-ce3-cms-snapshot-publication.md)
+applies this contract at the physical/session, admission and publication owners.
+Standalone CMS reads overlap ordinary CMS publication with coherent document
+and incoming-relation snapshots. [Native publication](./39-ce3-native-publication-snapshots.md)
+also overlaps these readers. [Native attempt protection](./40-ce3-native-attempt-snapshots.md)
+extends overlap through active selection, session activation, journal work and
+finishing. Attempt replacement, recovery and terminalization use ordinary-write
+protection; actual scope transitions retain their strong locks.
+[Commerce snapshots and publication](./61-ce3-commerce-publication-snapshots.md)
+extend these profiles to existing commerce reads and ordinary standalone/atomic
+writes. Fresh binding-head protection rejects revoked membership after snapshot
+formation. Bootstrap retains strong protection; standalone
+CMS still refuses commerce-bearing bindings outside its admitted composite gate.
+The CMS/native/commerce admission and execution cutovers below supersede the
+earlier writer exclusion; sequence-consuming materialization remains serialized.
+The [active readiness lock correction](./37-ce3-active-readiness-locks.md) replaces
+exclusive stored-active validation locks with shared protection at the existing
+fold owner. Same-scope CMS reads can admit concurrently; lifecycle updates remain
+excluded until those reads finish. The snapshot cutover preserves these checks
+while removing ordinary CMS publication exclusion.
+The [publication persistence preflight](./13-ce0-publication-persistence-reference.md)
+extends the matched comparison at the existing shared publication owner, without
+duplicating native authentication or transaction recovery in a benchmark engine.
+The [matched bounded row reference](./41-ce0-batched-row-reference.md) replaces
+its scalar SQL baseline with independent batching and exact returned-set checks.
+Row/byte boundary, late-batch rollback and real contention witnesses constrain
+that comparison; it remains a row-store boundary, not a complete request.
+
+Continue CE0 with complete request attribution and an equivalent PostgreSQL
+reference. Select each execution correction against its declared baseline and
+correctness contract without calling the wider CE0 gate complete. The initial publication slice
+provides repeated core samples and a deterministic scope-clock contention witness. It
 changes observability/test support, not the authoritative lock or storage
 protocol. Discover actual package/lane commands and reuse existing observation
 hooks; count SQL that bypasses those hooks through the physical execution
 boundary without logging tenant data. Keep overhead bounded and report the
 instrumented versus normal measurement boundary.
 
-Complete this alongside the existing candidate-admission work rather than
-reopening its producer/identity scope. CE1 begins actual shared storage execution
+The owner-approved [intrinsic membership preparation slice](./14-ce1-intrinsic-membership-preparation.md)
+refines this broad sequencing for an owner-local CE1 correction: use the existing
+bounded membership reader once for the admitted transition set, with direct
+before/after and connected correctness proofs. Complete-request CE0 acceptance
+remains open; it is not required to duplicate unchanged authority/recovery code
+in a benchmark before removing these repeated reads. Other execution changes
+retain their focused evidence and preflight gates.
+
+The [bounded row application slice](./15-ce1-row-batch-application.md) replaces
+prepared scalar row writes in the shared native/CMS materializer. It checks exact
+returned identities, predecessor creation times and conditional current-pointer
+updates while retaining the existing transaction and locks. The
+[statement reuse refinement](./42-ce1-row-statement-reuse.md) compiles repeated
+revision/pointer insert shapes once per append and supplies fresh batch bindings;
+it retains unnamed driver execution and the existing transaction lifetime. The
+[index application slice](./16-ce1-index-batch-application.md) extends bounded
+execution to membership/parent checks and index revisions/current pointers.
+The [unique ownership slice](./17-ce1-unique-batch-application.md) replaces scalar
+unique writes with bounded validation and release/claim phases. Shared document
+admission now allows 128 aggregate transitions and 256 release/claim actions;
+ownership reads and mutations retain 32-position statement batches within one
+transaction. The [Currency storage cutover](../shared-logical-storage/10-currency-storage-cutover.md)
+owns this budget alignment and its remaining native initialization gates. The
+[CE2 continuous-maintenance preflight](./18-ce2-continuous-index-maintenance.md)
+selects activation-bound coverage and identifies exact writer composition as
+its prerequisite. [Exact developer selection](./19-ce2-exact-developer-index-selection.md)
+now rejects incomplete touched sets from the issued catalog port.
+[Required composition](./20-ce2-required-ordered-index-composition.md) verifies
+issued native/CMS ports against their control database. [Legacy-writer exclusion](./21-ce2-legacy-writer-exclusion.md)
+now refuses material, attempted and unauthenticated legacy writes under active
+Application heads. [Required intrinsic build state](./22-ce2-required-intrinsic-build-state.md)
+also prevents selected creation-time definitions from silently skipping missing
+build metadata. The [activation maintenance cutover](./23-ce2-activation-maintenance-cutover.md)
+now binds ordered-index coverage to the coherent active head and its verified
+schema/physical requirements. Native/CMS serving writes no longer update enabled
+ordered-build progress; readers, activation and builders share the replacement
+proof. Existing uncertified active heads require fresh validated activation.
+Bounded candidate history and the scope clock remain authoritative.
+[Exact unique selection](./24-ce2-exact-unique-constraint-selection.md) binds
+fresh touched definitions to the existing closed unique set, with one retained
+immutable closure per issued port. [Unique maintenance](./26-ce2-unique-maintenance-cutover.md)
+now extends activation-bound coverage to unique workspaces; native/CMS serving
+writes preserve their certified build tuples. Matched complete-request measurements
+and wider lifecycle concurrency remain CE2 work. Broader CE0 references and connected CE1 acceptance
+also remain open.
+
+[Split-catalog activation](./25-ce2-split-catalog-activation.md) now borrows its
+existing catalog transaction for outgoing requirements. This closes the core
+transaction-reuse gap without changing adapter behavior. Ordered and unique
+maintenance retain the scope clock. The next CE2 acceptance work is matched
+measurement and wider lifecycle concurrency, with actual native/CMS publication.
+
+[Active CMS request measurement](./27-ce2-active-request-measurement.md) now
+exercises admission through settlement and durable replay with certified ordered
+and unique builds. Its growing-catalog witness exposed and removed the CMS core's
+whole-table uniqueness scan: indexed claim lookup plus the bounded pending
+overlay preserves eager conflict semantics without tying selective writes to
+total stored rows. Request limits and final claim/publication authority remain.
+Repeated catalog/readiness preparation is still a full-request and replay cost;
+native attribution, matched references and wider concurrency remain open.
+
+The [complete-request comparison contract](./47-ce0-complete-request-contract.md)
+maps the missing authority, materialization and recovery obligations beyond the
+existing row/publication references. Its empty-operation baseline distinguishes
+a standalone read from a successful zero-row mutation and mutation replay from
+a repeated read. Neither composing the existing references nor timing these
+real core requests establishes an independent complete-request comparator.
+
+The [zero-row request reference](./48-ce0-empty-mutation-reference.md) now
+independently assembles request evidence and explicit publication SQL, with
+cross-host replay, rollback and actual PostgreSQL settlement witnesses. Admission,
+empty-delta validation, lifetime and recovery owners are shared and disclosed.
+This bounded first profile is not timed; nonempty and remaining differential
+acceptance still gate the complete-request comparison.
+
+[Reference authority and absence](./49-ce0-reference-authority-and-absence.md)
+adds cross-scope, stale-preparation and absent-outcome witnesses. It exposed an
+accepting-catalog gap: ordered definitions and their normalized bindings now
+receive fresh integrity validation beside the existing unique closure. The
+bounded correction reuses the registered catalog reader and canonical decoder;
+it adds correctness work and requires refreshed request baselines before timing
+claims. The [first-insert reference](./50-ce0-first-insert-reference.md) now adds
+independent row/index/claim persistence at one/eight/thirty-two rows with exact
+stored evidence, cross replay and late-write rollback. The
+[nonempty settlement matrix](./51-ce0-nonempty-settlement.md) adds eight-row
+uncertainty and cancellation, duplicate/disjoint/unique contention and progress
+in another scope during a held publication. Those measurements predate the
+[CMS concurrency cutover](./64-cms-concurrent-command-settlement.md).
+The [first-insert executor](./52-ce0-first-insert-execution.md) independently owns
+pending inserts, collision/eager uniqueness decisions and accounting order. Schema
+validation, bounded readers, lifetime, admission and build/candidate authority
+remain common components. The [standalone read reference](./53-ce0-standalone-read-reference.md)
+adds independent empty and bounded point readback, unchanged publication state,
+scoped absence/corruption and real snapshot overlap. The
+[cumulative request budget witnesses](./54-ce0-cumulative-request-budget.md)
+compare valid-document accumulation, distinct/cached read boundaries, refusal
+without publication and corrected explicit requests after confirmed rollback.
+The [explicit title-list extension](./55-ce0-pending-unique-equivalence.md) adds
+early/late pending unique conflicts, committed conflicts after pending work,
+first-failure ordering and request identity without a second mutation owner.
+The [request authority matrix](./56-ce0-request-authority-matrix.md) compares
+stale-preparation refusal across zero/eight-row fresh/replayed mutations and
+standalone reads, preserving active-binding absence versus corruption errors.
+The [paired scalar measurement](./57-ce0-paired-request-measurement.md) supplies
+the first admitted complete-request comparison for these bounded operations.
+The current [connected comparison](./70-connected-execution-acceptance.md) misses
+the thirty-two-row insert relative-latency target and the one-row read per-pair
+consistency target. Other admitted profiles meet them in the bounded sample;
+variation between runs is not an attributable improvement. Several observer calibrations
+miss tolerance, so instrumented timings are not accepted as neutral. Common
+authority/readiness cost and additional nonempty core SQL are traced in the
+[request SQL attribution](./58-ce0-request-sql-attribution.md). The remaining
+nonempty difference belongs to generic dependency, authority, parent, membership
+and ownership checks plus bounded index writes.
+[Combined membership application](./59-ce1-combined-membership-application.md)
+removes duplicated batch entry and combines writes within existing chunk limits;
+it establishes fewer SQL calls, not a general latency improvement. Removing
+validation is not an admitted shortcut.
+[Membership read preparation](./60-ce1-membership-read-preparation.md) separates
+definition preparation from range handling and checks the immutable scope
+identity once per nonempty read operation. Every issued definition, key, row and
+stored membership still passes its existing validation. This removes repeated
+scope reads for mixed definitions without changing epoch/readiness ownership,
+32-position chunks or the open scalar latency interpretation.
+Protected readiness-root replacement is not selected under the retained immediate
+integrity contract. Broader reference profiles and capacity remain outside the
+bounded connected acceptance claim.
+
+[Bounded current-row capture](./45-ce1-bounded-current-capture.md) combines the
+current reader's size probe and document fetch in one statement snapshot. Its
+identity and byte verdict gates body transfer, while scope-clock validation,
+canonical decoding and corruption refusal remain with the existing owner.
+This removes one statement per capture; it does not change writer exclusion or
+establish a capacity improvement. The aggregate plan remains necessary for
+set-wide budgets but adds unnecessary work to exact point selection.
+The [point plan refinement](./46-ce1-point-capture-plan.md) uses the current-row
+primary key to check a single selected row without aggregate CTE work, retaining
+SQL-side body withholding and the shared capture validation/decoding owner.
+Its measured local point-heavy request lane improves without changing SQL counts;
+batch/scan, large-catalog and capacity acceptance remain distinct open work.
+
+[Catalog restoration reuse](./28-ce0-catalog-restoration.md) removes the schema
+resolver's duplicate artifact read within one resolution and omits relation/edge
+lookups for empty ID sets. Fresh preparation and accepting integrity checks
+remain independent; the normalized relation-set query still detects unexpected
+rows even for an empty root. This does not implement cross-request preparation
+retention or the broader readiness/audit contract.
+
+[Active request concurrency](./29-ce3-active-request-concurrency.md) proves that
+another active CMS scope can settle through the shared physical families while a
+publication remains uncommitted. [Unlocked planning](./31-ce3-unlocked-planning.md)
+removes the earlier same-scope wait in binding and document preparation: planning
+captures authenticated definitions and candidate inputs without claiming live
+readiness. The accepting transaction checks current unique builds, candidate
+receipts, head/fence and lifecycle before issuing authority. The subsequent
+[CMS concurrency cutover](./64-cms-concurrent-command-settlement.md) also permits
+independent same-scope command execution. Duplicates wait on request exclusion;
+sequence-consuming materialization and publication retain the shared lock.
+[Native final admission](./65-native-admission-before-publication.md) validates
+schema, ownership and relation selection under lifecycle protection while other
+ordinary publication may complete. Its final build/session locks, exact OCC and
+materialization still serialize. [Commerce/composite admission](./66-commerce-admission-before-execution.md)
+also precedes publication exclusion; direct-SQL callbacks and finalizers require
+explicit protected entry and share its fresh clock. The
+[acceptance disposition](./70-connected-execution-acceptance.md) owns the selected
+integrity contract, connected proof map and retained performance limits.
+
+[CMS preparation lifetime](./67-host-owned-cms-preparation.md) binds immutable
+Application preparation to the private CMS and existing composite host. Every
+request and recovery attempt still resolves current placement and validates
+live catalog, readiness and binding evidence before execution or replay. This
+does not replace integrity verification with a readiness-root cache.
+[Prepared payload retention](./68-prepared-metadata-payloads.md) now discards
+verified publication/function byte copies from Application bundles and includes
+installation evidence in its payload budget.
+[Scoped prepared hosts](./69-scoped-prepared-hosts.md) adds shared host-count and
+preparation-data admission with explicit drain/release across private CMS,
+commerce, atomic-commerce and existing composite hosts. This bounds each supplied
+runtime's retained metadata, not process heap or hosted shop capacity.
+
+The [concurrent CMS load baseline](./43-ce0-concurrent-cms-load.md) extends these
+barriers to finite complete-request bursts on one and four scopes sharing a
+pool. It separates bounded client queueing from host execution, records SQL and
+sampled pool pressure, and verifies successful publications and explicit replay.
+The [colocated admission correction](./44-ce3-colocated-admission-catalog.md)
+reuses the held transaction for catalog checks when registered database identity
+matches, preserving separate catalog placement and integrity validation. It
+removes the observed nested pool demand. The current hot-scope twelve-slot runs
+still expose scope-clock deadlines at publication after callback execution, so
+zero-refusal behavior is not established across runs.
+Those refusals must leave no durable effects and support an explicit untimed
+retry of the replay-safe fixture after rollback. Admission deadlines require zero
+callbacks; publication deadlines require exactly one. This preserves a measured CE3 limitation; it neither raises
+timeouts nor establishes sustained capacity or complete-reference equivalence.
+
+The [publication deadline witness](./30-ce3-publication-deadline.md) now proves
+that the existing PostgreSQL physical owner ends a stalled active CMS publication
+before COMMIT, releases its transaction and preserves complete rollback. An
+explicit retry can publish once and subsequent duplicate calls replay. Keep this
+single deadline/settlement owner; the witness does not bound preparation before
+the main session or shorten same-scope commit exclusion.
+
+Candidate admission is already implemented and does not need its producer/identity
+scope reopened for measurements. CE1 begins actual shared storage execution
 with a supported native and CMS mutation and follows the Medusa consumer as
 GLS2/GLS3 admits it. Do not optimize a growing set of generated commerce schemas
 as a second destination just to obtain a benchmark result.
@@ -155,12 +445,15 @@ unpaired percentiles or hiding queue time.
 
 ## Evidence Reconciliation And Completion
 
-The commit-compiler roadmap records C04A-VAL-001 as an open issue. CE0 must check
-its current reproduction and disposition at the actual evaluated revision.
-Do not assume it still fails, silently declare it fixed, or omit it from a broad
-correctness claim. Other independently supported cases may be measured with
-that limitation explicitly scoped; affected acceptance remains blocked until
-its owner resolves or properly reclassifies it.
+The [commit-compiler roadmap](../flarexdb-foundation/03-commit-compiler.md)
+retires C04A-VAL-001 as a current blocker after validating the original cases,
+full ordered PGlite lane and focused ordinary-role PostgreSQL counterparts.
+Runtime bigint/wire-string separation and fail-closed current-authority
+classification remain enforced. This reconciliation does not establish the
+historical failure's cause, complete native request attribution or close CE0's
+equivalent-reference and capacity gates. Recheck affected witnesses when their
+owning contracts change instead of carrying historical failures forward as
+current status.
 
 Update the existing living status owners when verified truth changes. The
 storage redesign already describes implemented canonical row bodies, stable

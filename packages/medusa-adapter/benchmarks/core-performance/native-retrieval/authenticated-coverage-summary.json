@@ -1,0 +1,235 @@
+{
+  "status": "boundedNativeRetrievalMeasurementPassed",
+  "checkpoint": "f3258681a",
+  "node": "v24.16.0",
+  "platform": "win32",
+  "architecture": "x64",
+  "sourceEvidenceSha256": "7bf114f5a18d03805b903798d94b1c5ac254889ea1726ede9468d0ec69188b3f",
+  "scope": "Pinned native Product/MikroORM PostgreSQL versus promoted Product protected standalone CommerceHost.read; scalar and populated collection, exact complete DTO and missing-error parity",
+  "methods": {
+    "quiet": "serial alternating paired order, five warmups and thirty samples per case/lane; median middle-pair arithmetic mean; P95 nearest-rank ceil(n*0.95); no trace or server logging",
+    "trace": "one diagnostic sample per case/lane; exact SQL dispatch/BEGIN counts and returned driver-row JSON bytes; inclusive native method timing is not additive",
+    "server": "one separate diagnostic sample per case/lane; pg_stat_statements.track=all, full selected root-exclusive database/all-role coverage from separate observer database; top-level planning/execution summed within each isolated interval, nested entries separately retained"
+  },
+  "quiet": {
+    "warmupsPerCaseLane": 5,
+    "settingsSha256": "27a505905f944d0a829adc1a27ed73bd877c3f7f468a180fc886eeea88ca5ec3",
+    "metrics": {
+      "scalar/native": {
+        "samples": 30,
+        "medianMs": 1.5192499999993743,
+        "p95Ms": 3.2106999999996333,
+        "minMs": 0.896100000001752,
+        "maxMs": 5.727999999999156,
+        "failures": 0
+      },
+      "scalar/flarex": {
+        "samples": 30,
+        "medianMs": 75.46020000000135,
+        "p95Ms": 137.29680000000008,
+        "minMs": 68.72779999999693,
+        "maxMs": 142.6730000000025,
+        "failures": 0
+      },
+      "collection/native": {
+        "samples": 30,
+        "medianMs": 1.865349999998216,
+        "p95Ms": 2.362600000000384,
+        "minMs": 1.0279000000009546,
+        "maxMs": 2.8659999999945285,
+        "failures": 0
+      },
+      "collection/flarex": {
+        "samples": 30,
+        "medianMs": 76.47609999999986,
+        "p95Ms": 93.29079999999522,
+        "minMs": 71.12260000000242,
+        "maxMs": 107.57880000000296,
+        "failures": 0
+      }
+    }
+  },
+  "trace": {
+    "settingsSha256": "20221aae63a37577e42c8990d1277dd3f4ad3b8c16d201503aa2d9d320c0dc21",
+    "metrics": {
+      "scalar/native": {
+        "samples": 1,
+        "clientDispatches": 1,
+        "explicitTransactions": 0,
+        "rows": 1,
+        "resultJsonBytes": 146,
+        "unavailableRowObservations": 0,
+        "unavailableJsonByteObservations": 0,
+        "inclusiveProductMethodMs": 3.592899999999645
+      },
+      "scalar/flarex": {
+        "samples": 1,
+        "clientDispatches": 106,
+        "explicitTransactions": 6,
+        "rows": 222,
+        "resultJsonBytes": 248475,
+        "unavailableRowObservations": 0,
+        "unavailableJsonByteObservations": 0,
+        "inclusiveProductMethodMs": 5.0429000000003725
+      },
+      "collection/native": {
+        "samples": 1,
+        "clientDispatches": 1,
+        "explicitTransactions": 0,
+        "rows": 1,
+        "resultJsonBytes": 186,
+        "unavailableRowObservations": 0,
+        "unavailableJsonByteObservations": 0,
+        "inclusiveProductMethodMs": 3.3566000000028
+      },
+      "collection/flarex": {
+        "samples": 1,
+        "clientDispatches": 108,
+        "explicitTransactions": 6,
+        "rows": 224,
+        "resultJsonBytes": 250593,
+        "unavailableRowObservations": 0,
+        "unavailableJsonByteObservations": 0,
+        "inclusiveProductMethodMs": 8.89600000000064
+      }
+    }
+  },
+  "server": {
+    "settingsSha256": "b822263a7c0fd36eca6c94047f79a32c39b724ffcbe94cc9f77e6eefc10991a9",
+    "metrics": {
+      "scalar/native": {
+        "samples": 1,
+        "topLevelCalls": 1,
+        "topLevelPlanMs": 0.11770000000000003,
+        "topLevelExecutionMs": 0.0199,
+        "independentlyObservedNestedEntries": 0,
+        "topLevelSharedDiskBlockReads": 0
+      },
+      "scalar/flarex": {
+        "samples": 1,
+        "topLevelCalls": 106,
+        "topLevelPlanMs": 10.98369999999999,
+        "topLevelExecutionMs": 2.9192999999999882,
+        "independentlyObservedNestedEntries": 0,
+        "topLevelSharedDiskBlockReads": 0
+      },
+      "collection/native": {
+        "samples": 1,
+        "topLevelCalls": 1,
+        "topLevelPlanMs": 0.19430000000000003,
+        "topLevelExecutionMs": 0.037300000000000014,
+        "independentlyObservedNestedEntries": 0,
+        "topLevelSharedDiskBlockReads": 0
+      },
+      "collection/flarex": {
+        "samples": 1,
+        "topLevelCalls": 108,
+        "topLevelPlanMs": 11.154199999999989,
+        "topLevelExecutionMs": 2.8858999999999955,
+        "independentlyObservedNestedEntries": 0,
+        "topLevelSharedDiskBlockReads": 0
+      }
+    },
+    "logSegment": "server-authenticated-coverage.log.gz",
+    "logStartOffsetBytes": 63766349
+  },
+  "setupOutsideRetrievalIntervals": {
+    "quiet": {
+      "flarexFixtureAndHostConstructionMs": 12601.3612,
+      "nativeSchemaPreparationMs": 218.93379999999888,
+      "nativeSchemaAndModuleConstructionMs": 342.09449999999924,
+      "nativePublicSeedMs": 30.07879999999932,
+      "flarexPublicSeedMs": 270.515199999998
+    },
+    "trace": {
+      "flarexFixtureAndHostConstructionMs": 14783.982600000001,
+      "nativeSchemaPreparationMs": 241.72559999999794,
+      "nativeSchemaAndModuleConstructionMs": 370.42229999999836,
+      "nativePublicSeedMs": 33.38959999999861,
+      "flarexPublicSeedMs": 345.91389999999956
+    },
+    "server": {
+      "flarexFixtureAndHostConstructionMs": 14124.754500000001,
+      "nativeSchemaPreparationMs": 226.67469999999958,
+      "nativeSchemaAndModuleConstructionMs": 341.78269999999975,
+      "nativePublicSeedMs": 34.338700000000244,
+      "flarexPublicSeedMs": 372.84730000000127
+    },
+    "interpretation": "Fixture/schema/module construction and public seeding are setup diagnostics, not production admission cost"
+  },
+  "failedStages": [
+    {
+      "file": "quiet-parity-smoke.json",
+      "stage": "native schema bootstrap",
+      "observedRetrievals": 0
+    },
+    {
+      "file": "quiet-parity-smoke-configured.json",
+      "stage": "ordinary role restricted preload setting capture",
+      "observedRetrievals": 0
+    },
+    {
+      "file": "quiet-parity-smoke-visible-settings.json",
+      "stage": "public seed compiler-helper loading collision",
+      "observedRetrievals": 0
+    },
+    {
+      "file": "quiet-matched-native-control.json",
+      "stage": "harness expected collection DTO omitted retained collection_id",
+      "observedRetrievals": 4
+    },
+    {
+      "file": "trace-matched-complete-dto.json",
+      "stage": "dynamic native repository wrapper instrumentation recursion"
+    }
+  ],
+  "limits": [
+    "Selected unchanged method bodies establish source parity, not identical constructors or all native Product behavior.",
+    "Raw samples, outliers, before/after source/settings and server counters remain in their original reports.",
+    "Returned row JSON bytes are diagnostic serialization size, not network wire bytes.",
+    "Client SQL counts do not establish all server work. No independent nested pg_stat_statements entries were observed in these intervals, despite track=all; function/trigger work is not proven absent.",
+    "Inclusive call and parent/nested server times cannot be summed. Server instrumentation overhead differs from quiet latency.",
+    "Setup is outside retrieval intervals; authentication, liveness and every actual fresh check within the request remain included.",
+    "This is local ordinary-role PostgreSQL evidence, not Cloudflare, deployment, arbitrary-framework, scale or whole-performance-goal acceptance.",
+    "Source-boundary tests are a syntactic ownership check, not a JavaScript sandbox."
+  ],
+  "sourceCheckpoint": "authenticated database coverage; scenario/server review fixes; raw before/after hashes match all three modes",
+  "previousSupportedCheckpoint": {
+    "sourceEvidenceSha256": "36cc4eed9255bb408dfb9e3365b6b7111f2b8023ecd9d2a8497a4033f6dd2adb",
+    "summary": "descriptor-observer-summary.json",
+    "manifest": "descriptor-observer-manifest.json",
+    "reports": [
+      "quiet-descriptor-observer.json",
+      "trace-descriptor-observer.json",
+      "server-descriptor-observer.json.gz"
+    ],
+    "disposition": "Valid earlier source checkpoint; retained unchanged, not substituted for current source results"
+  },
+  "reports": {
+    "quiet": "quiet-authenticated-coverage.json",
+    "trace": "trace-authenticated-coverage.json",
+    "server": "server-authenticated-coverage.json.gz"
+  },
+  "authenticatedSelectedDatabaseNames": [
+    "flarex_orchestration_native_20261001",
+    "flarex_orchestration_logical_20261001"
+  ],
+  "artifactNameNormalization": {
+    "suppliedRunLabels": {
+      "quiet": "quiet-authenticated-coverage",
+      "trace": "trace-authenticated-coverage",
+      "server": "server-authenticated-coverage"
+    },
+    "generatedFiles": [
+      "quiet-quiet-authenticated-coverage.json",
+      "trace-trace-authenticated-coverage.json",
+      "server-server-authenticated-coverage.json"
+    ],
+    "retainedCanonicalFiles": [
+      "quiet-authenticated-coverage.json",
+      "trace-authenticated-coverage.json",
+      "server-authenticated-coverage.json.gz"
+    ],
+    "disposition": "Root renamed only newly generated reports to single-prefix filenames without changing bytes; server JSON then losslessly compressed. Future supplied label authenticated-coverage receives one automatic mode prefix."
+  }
+}

@@ -1,9 +1,12 @@
+import { decodePublicDeploymentProfileEffect, encodeDeploymentAnalysis, encodeDeploymentCodegenAnalysis,
+  type PublicDeploymentProfile } from "flarex-protocol/deployment";
 import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
 import { isNonEmptyString } from "@flarex/utils/strings";
 import type { Miniflare } from "miniflare";
-import { Data, Effect } from "effect";
+import { Data, Effect, Schema } from "effect";
 import {
   backendCodegenAnalysisFromCodegenAnalysisEffect,
+  encodeCodegenDeploymentAnalysis,
   deploymentAnalysisFromCodegenAnalysisEffect,
 } from "@flarex/analysis";
 import {
@@ -11,13 +14,9 @@ import {
   decodeDeploymentCodegenAnalysisEffect,
   type DeploymentAnalysis as ProtocolDeploymentAnalysis,
   type DeploymentCodegenAnalysis as ProtocolDeploymentCodegenAnalysis,
-  type ValidatorJson as ProtocolValidatorJson,
 } from "flarex-protocol/deployment";
-import type { ValidatorJSON } from "flarex/values";
 import type {
-  DeploymentAnalysis as BackendDeploymentAnalysis,
   AbandonPushRequest,
-  AnalyzeSourcePackageResponse,
   FinishPushRejectionCode,
   FinishPushRequest,
   FinishPushResponse,
@@ -43,9 +42,10 @@ import { readDevResponseJsonOrNullEffect } from "./responseJson.ts";
 import type { SourcePackage } from "./sourcePackage.ts";
 
 export type DevPushStatus = {
+  storageProfile?: "core_application";
   pushId: string;
   state: PushState;
-  analysis?: BackendDeploymentAnalysis;
+  analysis?: ProtocolDeploymentAnalysis;
   codegenAnalysis?: CodegenDeploymentAnalysis;
   error?: string;
   diagnostics?: AnalyzerDiagnostic[];
@@ -102,6 +102,8 @@ export function devFinishPushRejectionHint(code: FinishPushRejectionCode): strin
 }
 
 export interface BackendPushCoordinator {
+  /** The backend selects storage before source bundling; no lookup fallback. */
+  getStorageProfile?(): Promise<PublicDeploymentProfile["storageProfile"]>;
   start(sourcePackage: SourcePackage): Promise<DevPushStatus>;
   finish(pushId: string): Promise<DevFinishPushResponse>;
   abandon?(pushId: string, request?: AbandonPushRequest): Promise<DevPushStatus>;
@@ -134,7 +136,7 @@ export type HttpBackendPushCoordinatorOptions = {
 
 type BackendPushHttpResponse = Pick<Response, "json" | "ok" | "status">;
 
-type BackendPushResponseContext = "analyzer" | "push" | "finish";
+type BackendPushResponseContext = "analyzer" | "push" | "finish" | "profile";
 
 export class BackendPushResponseError extends Data.TaggedError("BackendPushResponseError")<{
   readonly context: BackendPushResponseContext;
@@ -285,6 +287,19 @@ export class HttpBackendPushCoordinator implements BackendPushCoordinator {
     this.deploymentId = options.deploymentId;
     this.fetcher = options.fetch ?? fetch;
     this.headers = options.headers;
+  }
+
+  async getStorageProfile(): Promise<PublicDeploymentProfile["storageProfile"]> {
+    const response = await this.fetcher(backendRequestUrl(this.url,
+      `/deployments/${encodeURIComponent(this.deploymentId)}/profile`),
+    this.headers === undefined ? undefined : { headers: this.headers });
+    // Deliberate runtime bridge: the public coordinator is a Promise HTTP API.
+    return await Effect.runPromise(Effect.gen(function* () {
+      const body = yield* readBackendPushResponseJson(response);
+      if (!response.ok) return yield* backendPushResponseFailure("profile", response, body,
+        errorMessageFromBody(body) ?? `Backend profile request failed with status ${response.status}.`);
+      return (yield* decodePublicDeploymentProfileEffect(body)).storageProfile;
+    }));
   }
 
   async start(sourcePackage: SourcePackage): Promise<DevPushStatus> {
@@ -449,9 +464,10 @@ export function createLocalAnalyzerService(
           analysis: yield* deploymentAnalysisFromCodegenAnalysisEffect(result.analysis),
           codegenAnalysis: yield* backendCodegenAnalysisFromCodegenAnalysisEffect(result.analysis),
           diagnostics: result.diagnostics ?? [],
-        } satisfies AnalyzeSourcePackageResponse;
+        };
       }));
-      return Response.json(payload);
+      return Response.json({ ...payload, analysis: encodeDeploymentAnalysis(payload.analysis),
+        codegenAnalysis: encodeDeploymentCodegenAnalysis(payload.codegenAnalysis) });
     } catch (error) {
       return Response.json(
         {
@@ -500,49 +516,10 @@ function parseError<T = never>(message: string): ParseResult<T> {
 function decodeProtocolDeploymentAnalysisEffect(
   value: unknown,
   diagnostics: AnalyzerDiagnostic[],
-): Effect.Effect<BackendDeploymentAnalysis, ExecutionArtifactAnalysisError> {
+): Effect.Effect<ProtocolDeploymentAnalysis, ExecutionArtifactAnalysisError> {
   return decodeDeploymentAnalysisEffect(value).pipe(
     Effect.mapError(error => new ExecutionArtifactAnalysisError(error.message, diagnostics)),
-    Effect.map(backendDeploymentAnalysisFromProtocol),
   );
-}
-
-function backendDeploymentAnalysisFromProtocol(
-  analysis: ProtocolDeploymentAnalysis,
-): BackendDeploymentAnalysis {
-  return {
-    schema: {
-      version: analysis.schema.version,
-      tables: analysis.schema.tables.map(table => ({
-        tableId: table.tableId,
-        name: table.name,
-        ...(table.state === undefined ? {} : { state: table.state }),
-        ...(table.validator === undefined ? {} : { validator: table.validator }),
-        placement: { ...table.placement },
-      })),
-      indexes: analysis.schema.indexes.map(index => ({
-        indexId: index.indexId,
-        tableId: index.tableId,
-        name: index.name,
-        fields: [...index.fields],
-        ...(index.state === undefined ? {} : { state: index.state }),
-      })),
-    },
-    functions: {
-      functions: analysis.functions.functions.map(fn => ({
-        path: fn.path,
-        kind: fn.kind,
-        ...(fn.visibility === undefined ? {} : { visibility: fn.visibility }),
-        ...(fn.args === undefined ? {} : { args: fn.args }),
-        ...(fn.returns === undefined ? {} : { returns: fn.returns }),
-        ...(fn.route === undefined ? {} : { route: fn.route === null ? null : { ...fn.route } }),
-        ...(fn.partition === undefined
-          ? {}
-          : { partition: fn.partition === null ? null : { ...fn.partition } }),
-        ...(fn.position === undefined ? {} : { position: { ...fn.position } }),
-      })),
-    },
-  };
 }
 
 function codegenDeploymentAnalysisFromProtocolEffect(
@@ -556,7 +533,7 @@ function codegenDeploymentAnalysisFromProtocolEffect(
     tables.push({
       tableId: table.tableId,
       name: table.name,
-      validator: validatorJsonFromProtocol(table.validator),
+      validator: table.validator,
       placement: { ...table.placement },
     });
   }
@@ -569,6 +546,7 @@ function codegenDeploymentAnalysisFromProtocolEffect(
           tableId: index.tableId,
           name: index.name,
           fields: [...index.fields],
+          ...(index.decimalFields === undefined ? {} : { decimalFields: [...index.decimalFields] }),
         })),
       },
       functions: analysis.functions.map(module => ({
@@ -578,8 +556,8 @@ function codegenDeploymentAnalysisFromProtocolEffect(
           exportName: fn.exportName,
           kind: fn.kind,
           visibility: fn.visibility,
-          args: validatorJsonFromProtocol(fn.args),
-          returns: fn.returns === null ? null : validatorJsonFromProtocol(fn.returns),
+          args: fn.args,
+          returns: fn.returns,
           ...(fn.partition === undefined
             ? {}
             : { partition: fn.partition === null ? null : { ...fn.partition } }),
@@ -601,49 +579,6 @@ function rejectCodegenRouteMetadata(value: unknown): ParseResult<void> {
     }
   }
   return { ok: true, value: undefined };
-}
-
-function validatorJsonFromProtocol(value: ProtocolValidatorJson): ValidatorJSON {
-  switch (value.type) {
-    case "null":
-    case "number":
-    case "bigint":
-    case "boolean":
-    case "string":
-    case "bytes":
-    case "any":
-      return { type: value.type };
-    case "id":
-      return { type: "id", tableName: value.tableName };
-    case "literal":
-      return { type: "literal", value: value.value };
-    case "array":
-      return { type: "array", value: validatorJsonFromProtocol(value.value) };
-    case "object":
-      return {
-        type: "object",
-        value: Object.fromEntries(
-          Object.entries(value.value).map(([field, descriptor]) => [
-            field,
-            {
-              fieldType: validatorJsonFromProtocol(descriptor.fieldType),
-              optional: descriptor.optional,
-            },
-          ]),
-        ),
-      };
-    case "record":
-      return {
-        type: "record",
-        keys: validatorJsonFromProtocol(value.keys),
-        values: validatorJsonFromProtocol(value.values),
-      };
-    case "union":
-      return { type: "union", value: value.value.map(validatorJsonFromProtocol) };
-    default:
-      value satisfies never;
-      return value;
-  }
 }
 
 function diagnosticsFromBody(body: unknown): AnalyzerDiagnostic[] {
@@ -669,6 +604,10 @@ function analysisFailure(
   return Effect.fail(new ExecutionArtifactAnalysisError(message, diagnostics));
 }
 
+const decodePushStorageProfile = Schema.decodeUnknownEffect(Schema.Struct({
+  storageProfile: Schema.optionalKey(Schema.Literal("core_application")),
+}));
+
 const parseDevPushStatusEffect = Effect.fn("FlarexDev.parsePushStatus")(
   function (
     value: unknown,
@@ -689,6 +628,8 @@ const parseDevPushStatusEffect = Effect.fn("FlarexDev.parsePushStatus")(
     const pushId = value.pushId;
     const state = value.state;
     return Effect.gen(function* () {
+      const { storageProfile } = yield* decodePushStorageProfile(value).pipe(Effect.mapError(() =>
+        new ExecutionArtifactAnalysisError("Backend push response storageProfile is invalid.", diagnostics)));
       const codegenAnalysis = "codegenAnalysis" in value
         ? yield* parseCodegenAnalysisFromBodyEffect(value)
         : undefined;
@@ -698,6 +639,7 @@ const parseDevPushStatusEffect = Effect.fn("FlarexDev.parsePushStatus")(
       return {
         pushId,
         state,
+        ...(storageProfile === undefined ? {} : { storageProfile }),
         ...(backendAnalysis === undefined ? {} : { analysis: backendAnalysis }),
         ...(codegenAnalysis === undefined ? {} : { codegenAnalysis }),
         ...(typeof value.error === "string" ? { error: value.error } : {}),
@@ -831,7 +773,7 @@ function diagnosticsFromError(error: unknown): AnalyzerDiagnostic[] {
 }
 
 function stableAnalysisJson(analysis: CodegenDeploymentAnalysis): string {
-  return JSON.stringify(analysis);
+  return JSON.stringify(encodeCodegenDeploymentAnalysis(analysis));
 }
 
 async function postLocalBackendPush(

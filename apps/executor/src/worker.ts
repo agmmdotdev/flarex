@@ -15,8 +15,6 @@ import { Effect } from "effect";
 
 import {
   createRequestScopedExecutorWorker,
-  type ExecutorWorker,
-  type ExecutorWorkerEnv,
   type RequestScopedExecutorWorkerDependencies,
 } from "./requestLifecycle";
 import { makeDeploymentProjectScopeLookupHostV1 } from "./deploymentProjectScopeLookup";
@@ -24,6 +22,9 @@ import { deploymentProjectScopeLookupPathV1 } from "@flarex/executor-http/intern
 import { querySyncSourceReadPathV1 } from
   "@flarex/executor-http/internal-query-sync-source-read-v1";
 import { makeQuerySyncSourceReadHostV1 } from "./querySyncSourceRead";
+import { makeApplicationExecutorGateway, type ExecutorApplicationGatewayEnv } from "./applicationGateway";
+
+export { FlarexApplication } from "./application";
 
 const sharedScopePhysicalLocator = Object.freeze({
   kind: "shared_database",
@@ -96,8 +97,8 @@ export function executorPostgresClientConfigForRequest(
     : Object.freeze({ connectionString });
 }
 
-export function createExecutorWorker(): ExecutorWorker {
-  return createRequestScopedExecutorWorker(productionDependencies);
+export function createExecutorWorker() {
+  return makeApplicationExecutorGateway(createRequestScopedExecutorWorker(productionDependencies));
 }
 
-export default createExecutorWorker() satisfies ExportedHandler<ExecutorWorkerEnv>;
+export default createExecutorWorker() satisfies ExportedHandler<ExecutorApplicationGatewayEnv>;

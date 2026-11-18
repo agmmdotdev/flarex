@@ -2,8 +2,9 @@ import type {
   ApplicationActiveSelectionBasis,
   ApplicationActivationRepository,
 } from "@flarex/persistence-postgres/internal/application-activation";
-import { claimApplicationActiveSelection } from
-  "@flarex/persistence-postgres/internal/application-activation";
+import {
+  claimApplicationActiveSelection,
+} from "@flarex/persistence-postgres/internal/application-activation";
 import {
   decodeApplicationTaskRunCreationAuthorityV1,
   decodeApplicationTaskRuntimeTargetV1,

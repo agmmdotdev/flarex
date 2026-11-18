@@ -5,7 +5,7 @@
 Status: complete.
 
 This plan records the completed behavior-preserving decomposition of
-[`storedAttemptAuthentication.ts`](../packages/executor/src/storedAttemptAuthentication.ts).
+[`storedAttemptAuthentication.ts`](../packages/executor/src/mutation/authentication/storedAttemptAuthentication.ts).
 That file is now the private capability contract facade and stage-gated
 composition root over focused private modules that share one explicitly
 constructed capability vault.
@@ -71,65 +71,65 @@ Authority is intentionally split:
   dependency direction and public versus internal surfaces.
 - [`effect-native-guidance/14-domain-services-layers-and-composition.md`](./effect-native-guidance/14-domain-services-layers-and-composition.md)
   owns Effect service, Layer, lifetime, and composition guidance.
-- [`../packages/executor/src/storedAttemptAuthentication.ts`](../packages/executor/src/storedAttemptAuthentication.ts)
+- [`../packages/executor/src/mutation/authentication/storedAttemptAuthentication.ts`](../packages/executor/src/mutation/authentication/storedAttemptAuthentication.ts)
   owns the current facade, contracts, capability brands, and operation
   composition.
-- [`../packages/executor/src/storedAttemptAuthentication/capabilityRuntimeConstruction.ts`](../packages/executor/src/storedAttemptAuthentication/capabilityRuntimeConstruction.ts)
+- [`../packages/executor/src/mutation/authentication/stored/capabilityRuntimeConstruction.ts`](../packages/executor/src/mutation/authentication/stored/capabilityRuntimeConstruction.ts)
   owns current construction-stage policy.
-- [`../packages/executor/src/storedAttemptAuthentication/capabilityState.ts`](../packages/executor/src/storedAttemptAuthentication/capabilityState.ts)
+- [`../packages/executor/src/mutation/authentication/stored/capabilityState.ts`](../packages/executor/src/mutation/authentication/stored/capabilityState.ts)
   owns current per-instance private capability state storage.
-- [`../packages/executor/src/storedAttemptAuthentication/authenticationOperations.ts`](../packages/executor/src/storedAttemptAuthentication/authenticationOperations.ts)
+- [`../packages/executor/src/mutation/authentication/stored/authenticationOperations.ts`](../packages/executor/src/mutation/authentication/stored/authenticationOperations.ts)
   owns the authentication capability brands, authority derivation,
   evidence-load orchestration, capability minting and lookup, and public
   authentication inspectors.
-- [`../packages/executor/src/storedAttemptAuthentication/authenticationVerification.ts`](../packages/executor/src/storedAttemptAuthentication/authenticationVerification.ts)
+- [`../packages/executor/src/mutation/authentication/stored/authenticationVerification.ts`](../packages/executor/src/mutation/authentication/stored/authenticationVerification.ts)
   owns recovered-authority capture, canonical stored-evidence verification,
   caller-envelope comparison, authenticated state capture, and their exact
   validation and ownership helpers.
-- [`../packages/executor/src/storedAttemptAuthentication/authenticationErrors.ts`](../packages/executor/src/storedAttemptAuthentication/authenticationErrors.ts)
+- [`../packages/executor/src/mutation/authentication/stored/authenticationErrors.ts`](../packages/executor/src/mutation/authentication/stored/authenticationErrors.ts)
   owns the typed authentication, persistence, mismatch, and stored-corruption
   error contracts.
-- [`../packages/executor/src/storedAttemptAuthentication/planningOperations.ts`](../packages/executor/src/storedAttemptAuthentication/planningOperations.ts)
+- [`../packages/executor/src/mutation/authentication/stored/planningOperations.ts`](../packages/executor/src/mutation/authentication/stored/planningOperations.ts)
   owns C04B1 commit-authority authentication, C04B2 commit-input verification,
   C04C1 logical planning, their process-local capability handles, prepared
   capability errors, and their public test inspectors.
-- [`../packages/executor/src/storedAttemptAuthentication/pointCommitPersistenceOperations.ts`](../packages/executor/src/storedAttemptAuthentication/pointCommitPersistenceOperations.ts)
+- [`../packages/executor/src/mutation/authentication/stored/pointCommitPersistenceOperations.ts`](../packages/executor/src/mutation/authentication/stored/pointCommitPersistenceOperations.ts)
   owns the O06 rollback-proof and O07 publication adapters over the shared
   prepared-capability state.
-- [`../packages/executor/src/storedAttemptAuthentication/finishingOperations.ts`](../packages/executor/src/storedAttemptAuthentication/finishingOperations.ts)
+- [`../packages/executor/src/mutation/authentication/stored/finishingOperations.ts`](../packages/executor/src/mutation/authentication/stored/finishingOperations.ts)
   owns C05-A running-to-finishing transition, C05-B finishing reconstruction,
   known-settled publication retry, bounded uncertainty recovery, and the normal
   finish/resume compositions while delegating transaction publication to the
   existing O07/O08 owners.
-- [`../packages/executor/src/storedAttemptAuthentication/pointCommitRuntimeModel.ts`](../packages/executor/src/storedAttemptAuthentication/pointCommitRuntimeModel.ts)
+- [`../packages/executor/src/mutation/authentication/stored/pointCommitRuntimeModel.ts`](../packages/executor/src/mutation/authentication/stored/pointCommitRuntimeModel.ts)
   owns the closed point-commit command capture, finishing-state rebasing, and
   exact publication-command comparison model.
-- [`../packages/executor/src/storedAttemptAuthentication/exactPointMutationExecutionOperations.ts`](../packages/executor/src/storedAttemptAuthentication/exactPointMutationExecutionOperations.ts)
+- [`../packages/executor/src/mutation/authentication/stored/exactPointMutationExecutionOperations.ts`](../packages/executor/src/mutation/authentication/stored/exactPointMutationExecutionOperations.ts)
   owns the shared exact-attempt execution kernel, execution-context capture,
   journal binding, runner evidence, and pre-finishing abort cleanup.
-- [`../packages/executor/src/storedAttemptAuthentication/attemptReplacementOperations.ts`](../packages/executor/src/storedAttemptAuthentication/attemptReplacementOperations.ts)
+- [`../packages/executor/src/mutation/authentication/stored/attemptReplacementOperations.ts`](../packages/executor/src/mutation/authentication/stored/attemptReplacementOperations.ts)
   owns O08-A exact-attempt replacement and O08-B1 fresh-attempt handoff,
   including replacement-observation validation, same-runtime execution-claim
   and rerun-capability minting, and fresh-attempt verification.
-- [`../packages/executor/src/storedAttemptAuthentication/occRerunAuthorizationOperations.ts`](../packages/executor/src/storedAttemptAuthentication/occRerunAuthorizationOperations.ts)
+- [`../packages/executor/src/mutation/authentication/stored/occRerunAuthorizationOperations.ts`](../packages/executor/src/mutation/authentication/stored/occRerunAuthorizationOperations.ts)
   owns distinct conflict and decision-uncertainty ticket capture mechanics,
   OCC conflict authorization and backoff, committed-outcome validation,
   single-use rerun claims, and authorization test inspection.
-- [`../packages/executor/src/storedAttemptAuthentication/occRerunExecutionOperations.ts`](../packages/executor/src/storedAttemptAuthentication/occRerunExecutionOperations.ts)
+- [`../packages/executor/src/mutation/authentication/stored/occRerunExecutionOperations.ts`](../packages/executor/src/mutation/authentication/stored/occRerunExecutionOperations.ts)
   owns same-process authorized OCC rerun execution, claim/admission
   composition, liveness-scoped evidence loading and verification, rerun
   conflict looping, and the shared OCC execution-evidence interpretation.
-- [`../packages/executor/src/storedAttemptAuthentication/crashRedispatchOperations.ts`](../packages/executor/src/storedAttemptAuthentication/crashRedispatchOperations.ts)
+- [`../packages/executor/src/mutation/authentication/stored/crashRedispatchOperations.ts`](../packages/executor/src/mutation/authentication/stored/crashRedispatchOperations.ts)
   owns exact-selector crash redispatch, inert safe-state routing, acquired-claim
   admission, finishing recovery delegation, expired-authority closure, and
   dirty/failed-attempt disposition.
-- [`../packages/executor/src/storedAttemptAuthentication/commitAuthorityVerification.ts`](../packages/executor/src/storedAttemptAuthentication/commitAuthorityVerification.ts),
-  [`../packages/executor/src/storedAttemptAuthentication/commitInputVerification.ts`](../packages/executor/src/storedAttemptAuthentication/commitInputVerification.ts),
+- [`../packages/executor/src/mutation/authentication/stored/commitAuthorityVerification.ts`](../packages/executor/src/mutation/authentication/stored/commitAuthorityVerification.ts),
+  [`../packages/executor/src/mutation/authentication/stored/commitInputVerification.ts`](../packages/executor/src/mutation/authentication/stored/commitInputVerification.ts),
   and
-  [`../packages/executor/src/storedAttemptAuthentication/pointCommitPlanning.ts`](../packages/executor/src/storedAttemptAuthentication/pointCommitPlanning.ts)
+  [`../packages/executor/src/mutation/authentication/stored/pointCommitPlanning.ts`](../packages/executor/src/mutation/authentication/stored/pointCommitPlanning.ts)
   remain the focused authority-verification, input-verification, and pure
   planning kernels composed by the planning operation owner.
-- [`../packages/executor/test/storedAttemptAuthentication.test.ts`](../packages/executor/test/storedAttemptAuthentication.test.ts)
+- [`../packages/executor/test/mutation/authentication/storedAttemptAuthentication.test.ts`](../packages/executor/test/mutation/authentication/storedAttemptAuthentication.test.ts)
   is the main focused regression suite for capability surface and provenance.
 
 If this plan conflicts with a behavioral statement in the foundation

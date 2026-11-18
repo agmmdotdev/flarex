@@ -41,16 +41,17 @@ This receipt refines, but does not replace:
   for the ordered AAV-A1, AAV-A2, and SAP07 gates;
 - [`42-standard-application-apis.md`](./42-standard-application-apis.md) for
   Standard API placement and route-independent sequencing;
-- [`durable-task-engine/README.md`](./durable-task-engine/README.md),
+- [Task System](./task-system/README.md) for current replacement authority;
+- [legacy DTE baseline](./durable-task-engine/README.md),
   [`durable-task-engine/02-task-definition-identity-and-scope.md`](./durable-task-engine/02-task-definition-identity-and-scope.md),
   and
   [`durable-task-engine/03-run-attempt-engine.md`](./durable-task-engine/03-run-attempt-engine.md)
-  for first-class task identity and task run/attempt lifecycle;
+  for existing first-class task identity and run/attempt lifecycle evidence;
 - [`durable-task-engine/preflight/10-dte-ip01-input-and-store-port-contract.md`](./durable-task-engine/preflight/10-dte-ip01-input-and-store-port-contract.md)
   and
   [`durable-task-engine/preflight/16-operation-outcomes-evidence-effects-and-errors.md`](./durable-task-engine/preflight/16-operation-outcomes-evidence-effects-and-errors.md)
   for the scope-bound Task System port and sequenced orchestration effects;
-- [`../design-notes/flarex-durable-task-engine.md`](../design-notes/flarex-durable-task-engine.md)
+- [Task engine integration](../design-notes/task-system/01-engine-and-integration.md#convex-developer-model)
   for the direct-action versus durable-task distinction;
 - [`../design-notes/flarexdb-system-apis-proposal.md`](../design-notes/flarexdb-system-apis-proposal.md)
   for private capability ownership;

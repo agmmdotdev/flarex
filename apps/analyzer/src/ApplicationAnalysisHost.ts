@@ -1,6 +1,6 @@
 import {
   ApplicationAnalysisRejectionCodeV1,
-  canonicalizeApplicationManifest,
+  canonicalizeApplicationManifestWire,
   type ApplicationAnalysisRejectionCodeV1 as ApplicationAnalysisRejectionCode,
   type ApplicationManifest,
 } from "@flarex/analysis/application-analysis";
@@ -483,12 +483,12 @@ function decodeColdLoadOutcome(
 function parseCanonicalManifest(
   value: string,
 ): Result.Result<
-  ReturnType<typeof canonicalizeApplicationManifest> extends
+  ReturnType<typeof canonicalizeApplicationManifestWire> extends
     Result.Result<infer Success, unknown> ? Success : never,
   ApplicationAnalysisHostError
 > {
   try {
-    return canonicalizeApplicationManifest(JSON.parse(value)).pipe(
+    return canonicalizeApplicationManifestWire(JSON.parse(value)).pipe(
       Result.mapError(cause => new ApplicationAnalysisHostError({
         reason: "invalidWorkerResult",
         cause,

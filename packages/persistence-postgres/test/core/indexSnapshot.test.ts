@@ -1,0 +1,517 @@
+import { Effect, Exit, Option, Result } from "effect";
+import { describe, expect, it } from "vitest";
+import { bytesEqual, compareBytesLexicographically } from "@flarex/utils/bytes";
+import { encodeDocumentValue } from "flarex-protocol/document-value";
+import { decodeDocumentId } from "flarex-protocol/document-id";
+import { type CoreTableDefinition } from "../../src/core/api";
+import { CorePersistenceError, type CoreHydratedIndexEntry, type CoreIndexPage,
+  type CoreIndexScan, type CoreInterval, type CorePersistenceSnapshot } from "../../src/core/contracts";
+import { captureCoreDocument } from "../../src/core/document";
+import { documentIndexKey } from "../../src/core/documentIndex";
+import { CoreDecodedDocumentHandoff, createCoreIndexSnapshot } from "../../src/core/indexSnapshot";
+import { initialRegistry, publicDocumentId, readDocumentObject } from "../../src/core/registry";
+import { CoreFinalizationVault, createCoreTransaction } from "../../src/core/transaction";
+import { createTransactionIdGenerator } from "../../src/core/transactionIdGenerator";
+import { keyInInterval, pointInterval } from "../../src/core/writeLog";
+
+const internalId = (last: number) => { const bytes = new Uint8Array(16); bytes[15] = last; return bytes; };
+const table: CoreTableDefinition = { name: "items", number: 10000, tabletId: internalId(100), namespace: null, state: "active", indexes: [
+  { name: "by_id", ref: { id: internalId(101) }, fields: [] },
+  { name: "by_value", ref: { id: internalId(102) }, fields: ["value"] },
+] };
+const byId = table.indexes[0];
+const byValue = table.indexes[1];
+if (byId === undefined || byValue === undefined) throw new Error("Missing index fixture");
+const registry = Result.getOrThrow(initialRegistry([
+  { name: "_tables", number: 513, tabletId: internalId(1), namespace: null, state: "active", indexes: [
+    { name: "by_id", ref: { id: internalId(2) }, fields: [] },
+  ] },
+  { name: "_index", number: 514, tabletId: internalId(3), namespace: null, state: "active", indexes: [
+    { name: "by_id", ref: { id: internalId(4) }, fields: [] },
+  ] }, table,
+]));
+
+function documents(count: number) {
+  return Array.from({ length: count }, (_, value) => {
+    const id = internalId(150 + value);
+    const developerId = Result.getOrThrow(publicDocumentId(table, id));
+    return { ts: 9n, tableId: table.tabletId, id, jsonValue: Result.getOrThrow(encodeDocumentValue({
+      _id: developerId, _creationTime: value + 1, value, nested: { text: `value-${value}` },
+    })), deleted: false, prevTs: null };
+  });
+}
+
+/** A pure reader witness, not an SQL implementation or database isolation proof. */
+function reader(count = 4) {
+  const rows = documents(count);
+  const calls: CoreIndexScan[] = [];
+  const snapshot: CorePersistenceSnapshot = {
+    timestamp: 10n,
+    get: () => Effect.die(new Error("Normal point reads must use ById index pages")),
+    preload: () => Effect.void, scan: request => Effect.sync(() => {
+      calls.push(request);
+      const index = table.indexes.find(candidate => bytesEqual(candidate.ref.id, request.index.id));
+      if (index === undefined) throw new Error("Unexpected fixture index");
+      const entries = rows.map(document => ({
+        key: Result.getOrThrow(documentIndexKey(index, Result.getOrThrow(readDocumentObject(document, table)))), document,
+      })).filter(entry => keyInInterval(entry.key, request.interval))
+        .sort((left, right) => compareBytesLexicographically(left.key, right.key) * (request.order === "asc" ? 1 : -1));
+      const selected = entries.slice(0, request.maxResults);
+      const last = selected.at(-1);
+      return { entries: selected, cursor: selected.length >= request.maxResults && last !== undefined
+        ? { kind: "after" as const, key: last.key } : { kind: "end" as const } };
+    }),
+  };
+  return { rows, calls, snapshot };
+}
+
+function request(index = byValue, interval: CoreInterval = { start: null, end: null }, maxResults = 100,
+  order: "asc" | "desc" = "asc"): CoreIndexScan {
+  return { index: index.ref, tableId: table.tabletId, interval, order, maxResults };
+}
+
+const rowValues = (page: CoreIndexPage) => page.entries.map(entry => Result.getOrThrow(readDocumentObject(entry.document, table)).value);
+const keyFor = (entry: CoreHydratedIndexEntry["document"], index = byValue) =>
+  Result.getOrThrow(documentIndexKey(index, Result.getOrThrow(readDocumentObject(entry, table))));
+
+describe("translated operation index snapshot", () => {
+  it("defers the scan and retains its named span under the caller's span", async () => {
+    const physical = reader(0);
+    let calls = 0;
+    const snapshot = createCoreIndexSnapshot({ registry, snapshot: { ...physical.snapshot, scan: input => {
+      calls += 1;
+      return Effect.withFiber(fiber => {
+        const span = fiber.currentSpan;
+        expect(span).toMatchObject({ _tag: "Span", name: "CoreIndexSnapshot.scan",
+          parent: { _tag: "Some", value: { name: "request-parent" } } });
+        return physical.snapshot.scan(input);
+      });
+    } } });
+    const scan = snapshot.scan(request());
+    expect(calls).toBe(0);
+    await Effect.runPromise(Effect.withSpan(scan, "request-parent", { captureStackTrace: false }));
+    expect(calls).toBe(1);
+  });
+
+  it("warms enabled secondary and ById lookups from one fetched range without charging a user read", async () => {
+    const physical = reader();
+    const snapshot = createCoreIndexSnapshot({ snapshot: physical.snapshot, registry });
+    expect(rowValues(await Effect.runPromise(snapshot.scan(request())))).toEqual([0, 1, 2, 3]);
+    for (const row of physical.rows) {
+      const point = await Effect.runPromise(snapshot.scan(request(byId, pointInterval(keyFor(row, byId)), 2)));
+      expect(point.entries).toHaveLength(1);
+      expect(point.cursor).toEqual({ kind: "end" });
+    }
+    expect(rowValues(await Effect.runPromise(snapshot.scan(request(byValue, { start: null, end: null }, 100, "desc")))))
+      .toEqual([3, 2, 1, 0]);
+    expect(physical.calls).toHaveLength(1);
+  });
+
+  it("hands each fetched document to one reader of the same stored revision and table", async () => {
+    const physical = reader();
+    const decoded = new CoreDecodedDocumentHandoff();
+    const snapshot = createCoreIndexSnapshot({ snapshot: physical.snapshot, registry, decoded });
+    const page = await Effect.runPromise(snapshot.scan(request()));
+    const [first, second, third, fourth] = page.entries.map(entry => entry.document);
+    if (first === undefined || second === undefined || third === undefined || fourth === undefined) throw new Error("Missing rows");
+    const fresh = Result.getOrThrow(readDocumentObject(first, table));
+    const handed = decoded.take(first, table);
+    expect(handed).toEqual(fresh);
+    // A handed document has left the owner; the next reader decodes for itself.
+    expect(decoded.take(first, table)).toBeUndefined();
+    // Different stored bytes, another table or another revision are never handed, and the offer is withdrawn.
+    const changed = { ...second, jsonValue: Result.getOrThrow(encodeDocumentValue({ ...Result.getOrThrow(readDocumentObject(second, table)), value: 99 })) };
+    expect(decoded.take(changed, table)).toBeUndefined();
+    expect(decoded.take(second, table)).toBeUndefined();
+    expect(decoded.take(third, { number: table.number + 1, tabletId: table.tabletId })).toBeUndefined();
+    expect(decoded.take(third, table)).toBeUndefined();
+    expect(decoded.take({ ...fourth, ts: fourth.ts + 1n }, table)).toBeUndefined();
+    expect(decoded.take(fourth, table)).toEqual(Result.getOrThrow(readDocumentObject(fourth, table)));
+    // Only the most recent offers stay inside the byte window.
+    const bounded = new CoreDecodedDocumentHandoff(first.jsonValue.byteLength);
+    const small = createCoreIndexSnapshot({ snapshot: reader().snapshot, registry, decoded: bounded });
+    const rows = (await Effect.runPromise(small.scan(request()))).entries.map(entry => entry.document);
+    expect(rows.map(row => bounded.take(row, table) !== undefined)).toEqual([false, false, false, true]);
+  });
+
+  it("retains negative coverage and returns independent mutable byte ownership", async () => {
+    const physical = reader(0);
+    const snapshot = createCoreIndexSnapshot({ snapshot: physical.snapshot, registry });
+    expect(await Effect.runPromise(snapshot.scan(request()))).toEqual({ entries: [], cursor: { kind: "end" } });
+    expect(await Effect.runPromise(snapshot.scan(request(byValue, { start: internalId(1), end: null }))))
+      .toEqual({ entries: [], cursor: { kind: "end" } });
+    expect(physical.calls).toHaveLength(1);
+    const populated = reader(1);
+    const cached = createCoreIndexSnapshot({ snapshot: populated.snapshot, registry });
+    const first = await Effect.runPromise(cached.scan(request()));
+    first.entries[0]?.document.jsonValue.fill(0);
+    first.entries[0]?.key.fill(0);
+    expect(rowValues(await Effect.runPromise(cached.scan(request())))).toEqual([0]);
+    expect(populated.calls).toHaveLength(1);
+  });
+
+  it.each(["asc", "desc"] as const)("certifies only a truncated %s page and preserves its original After cursor", async order => {
+    const physical = reader(3);
+    const snapshot = createCoreIndexSnapshot({ snapshot: physical.snapshot, registry });
+    const first = await Effect.runPromise(snapshot.scan(request(byValue, { start: null, end: null }, 1, order)));
+    expect(rowValues(first)).toEqual(order === "asc" ? [0] : [2]);
+    expect(first.cursor.kind).toBe("after");
+    const last = physical.rows[order === "asc" ? 2 : 0];
+    if (last === undefined) throw new Error("Missing fixture row");
+    expect(rowValues(await Effect.runPromise(snapshot.scan(request(byValue, pointInterval(keyFor(last)))))))
+      .toEqual(order === "asc" ? [2] : [0]);
+    expect(physical.calls).toHaveLength(2);
+  });
+
+  it("allows one body beyond its budget but refuses complete range coverage afterward", async () => {
+    const physical = reader(3);
+    const snapshot = createCoreIndexSnapshot({ snapshot: physical.snapshot, registry, maxBytes: 0 });
+    expect(rowValues(await Effect.runPromise(snapshot.scan(request())))).toEqual([0, 1, 2]);
+    expect(rowValues(await Effect.runPromise(snapshot.scan(request())))).toEqual([0, 1, 2]);
+    expect(physical.calls).toHaveLength(2);
+    const first = physical.rows[0];
+    if (first === undefined) throw new Error("Missing fixture row");
+    await Effect.runPromise(snapshot.scan(request(byId, pointInterval(keyFor(first, byId)), 2)));
+    expect(physical.calls).toHaveLength(2);
+  });
+
+  it("answers an index it never fetched through exactly as if every key had been derived at the fill", async () => {
+    const physical = reader();
+    const snapshot = createCoreIndexSnapshot({ snapshot: physical.snapshot, registry });
+    // Two fills through ById leave by_value untouched until it is first read.
+    const [first, second, third, fourth] = physical.rows;
+    if (first === undefined || second === undefined || third === undefined || fourth === undefined) throw new Error("Missing rows");
+    const split = keyFor(third, byId);
+    expect(rowValues(await Effect.runPromise(snapshot.scan(request(byId, { start: null, end: split }))))).toEqual([0, 1]);
+    expect(rowValues(await Effect.runPromise(snapshot.scan(request(byId, { start: split, end: null }))))).toEqual([2, 3]);
+    expect(physical.calls).toHaveLength(2);
+    // Every row read through ById is a hit on by_value, in either order.
+    for (const row of [fourth, first, third, second]) {
+      const point = await Effect.runPromise(snapshot.scan(request(byValue, pointInterval(keyFor(row)), 2)));
+      expect(point.entries.map(entry => entry.document.id)).toEqual([row.id]);
+      expect(point.cursor).toEqual({ kind: "end" });
+    }
+    expect(physical.calls).toHaveLength(2);
+    // by_value holds the rows but only their own points: the gaps were never
+    // certified through it, so a whole-range read fetches them and nothing else.
+    expect(rowValues(await Effect.runPromise(snapshot.scan(request(byValue, { start: null, end: null }, 100, "desc")))))
+      .toEqual([3, 2, 1, 0]);
+    const gaps = physical.calls.slice(2);
+    expect(gaps).toHaveLength(4);
+    expect(gaps.every(call => bytesEqual(call.index.id, byValue.ref.id)
+      && [first, second, third].every(row => !keyInInterval(keyFor(row), call.interval)))).toBe(true);
+    // That read certified the whole of by_value; ById stays certified as fetched.
+    expect(rowValues(await Effect.runPromise(snapshot.scan(request())))).toEqual([0, 1, 2, 3]);
+    expect(rowValues(await Effect.runPromise(snapshot.scan(request(byId))))).toEqual([0, 1, 2, 3]);
+    expect(physical.calls).toHaveLength(6);
+  });
+
+  it("derives every index key of a captured document with a valid developer ID", () => {
+    const developerId = Result.getOrThrow(publicDocumentId(table, internalId(150)));
+    const captured = Result.getOrThrow(captureCoreDocument({ _id: developerId, _creationTime: 1, value: -0.5, big: 2n ** 62n,
+      flag: false, none: null, text: "a\u0000b", bytes: Uint8Array.of(0, 255).buffer, list: [1, [null, "x"], { deep: { deeper: [true] } }],
+      nested: { "": 1, text: "value", inner: { list: [] } } }, false)).value;
+    // The ID-only key is the proof a fill takes; no field path adds a refusal.
+    expect(Result.isSuccess(documentIndexKey({ fields: [] }, captured))).toBe(true);
+    const paths = ["value", "big", "flag", "none", "text", "bytes", "list", "nested", "nested.text", "nested.inner.list", "nested.",
+      "list.0", "missing", "missing.deeper", "text.length", "_id", "_creationTime", "", "nested..text", "__proto__", "constructor"];
+    for (const first of paths) for (const second of paths) {
+      const key = documentIndexKey({ fields: [first, second] }, captured);
+      expect(Result.isSuccess(key), `${first}, ${second}`).toBe(true);
+    }
+    expect(Result.isSuccess(documentIndexKey({ fields: paths }, captured))).toBe(true);
+  });
+
+  it("cuts an unread index off at the same row as the byte budget cut it at the fill", async () => {
+    const physical = reader();
+    const sizes = physical.rows.map(row => Result.getOrThrow(captureCoreDocument(
+      Result.getOrThrow(readDocumentObject(row, table)), false)).semanticSizeBytes);
+    const [firstSize, secondSize] = sizes;
+    if (firstSize === undefined || secondSize === undefined) throw new Error("Missing rows");
+    // ById precedes by_value. Row 2 is admitted to ById while the budget is
+    // exactly full and charged there, so by_value never receives it; row 3
+    // enters no index. The fetched range is not certified.
+    const snapshot = createCoreIndexSnapshot({ snapshot: physical.snapshot, registry, maxBytes: firstSize + secondSize });
+    expect(rowValues(await Effect.runPromise(snapshot.scan(request(byId))))).toEqual([0, 1, 2, 3]);
+    expect(physical.calls).toHaveLength(1);
+    const served = async (index: typeof byId) => {
+      const hits: boolean[] = [];
+      for (const row of physical.rows) {
+        const before = physical.calls.length;
+        const point = await Effect.runPromise(snapshot.scan(request(index, pointInterval(keyFor(row, index)), 2)));
+        expect(point.entries.map(entry => entry.document.id)).toEqual([row.id]);
+        hits.push(physical.calls.length === before);
+      }
+      return hits;
+    };
+    // The misses are fetched over budget, so they stay misses.
+    expect(await served(byValue)).toEqual([true, true, false, false]);
+    expect(await served(byId)).toEqual([true, true, true, false]);
+    expect(await served(byValue)).toEqual([true, true, false, false]);
+    const before = physical.calls.length;
+    expect(rowValues(await Effect.runPromise(snapshot.scan(request(byId))))).toEqual([0, 1, 2, 3]);
+    expect(physical.calls.length).toBeGreaterThan(before);
+  });
+
+  it("selects resident rows before operation coverage or physical pages", async () => {
+    const physical = reader();
+    const residentPage: CoreIndexPage = { entries: [], cursor: { kind: "end" } };
+    let residentReads = 0;
+    const snapshot = createCoreIndexSnapshot({ snapshot: physical.snapshot, registry, maxBytes: 0,
+      resident: () => { residentReads += 1; return residentPage; } });
+    expect(await Effect.runPromise(snapshot.scan(request()))).toBe(residentPage);
+    expect(await Effect.runPromise(snapshot.scan(request()))).toBe(residentPage);
+    expect(residentReads).toBe(2);
+    expect(physical.calls).toHaveLength(0);
+  });
+
+  it.each(["asc", "desc"] as const)("uses only the first three covered components before the %s fallback", async order => {
+    const physical = reader(9);
+    const snapshot = createCoreIndexSnapshot({ snapshot: physical.snapshot, registry });
+    for (const value of [1, 3, 5, 7]) {
+      const row = physical.rows[value];
+      if (row === undefined) throw new Error("Missing fixture row");
+      await Effect.runPromise(snapshot.scan(request(byValue, pointInterval(keyFor(row)))));
+    }
+    const before = physical.calls.length;
+    expect(rowValues(await Effect.runPromise(snapshot.scan(request(byValue, { start: null, end: null }, 100, order)))))
+      .toEqual(order === "asc" ? [0, 1, 2, 3, 4, 5, 6, 7, 8] : [8, 7, 6, 5, 4, 3, 2, 1, 0]);
+    const fetched = physical.calls.slice(before);
+    expect(fetched).toHaveLength(4);
+    const seventh = physical.rows[7];
+    if (seventh === undefined) throw new Error("Missing fixture row");
+    // The fourth known component is deliberately fetched again. Descending
+    // requests reverse the same source-chosen ascending component plan.
+    expect(fetched.some(call => call.interval.end === null && keyInInterval(keyFor(seventh), call.interval))).toBe(true);
+  });
+
+  it("propagates persistence failure without certifying a negative interval", async () => {
+    const physical = reader();
+    let failing = true;
+    const failure = new CorePersistenceError({ reason: "unavailable" });
+    const snapshot = createCoreIndexSnapshot({ snapshot: { ...physical.snapshot,
+      scan: input => failing ? Effect.fail(failure) : physical.snapshot.scan(input),
+    }, registry });
+    expect(Exit.isFailure(await Effect.runPromiseExit(snapshot.scan(request())))).toBe(true);
+    failing = false;
+    expect(rowValues(await Effect.runPromise(snapshot.scan(request())))).toEqual([0, 1, 2, 3]);
+    expect(physical.calls).toHaveLength(1);
+  });
+
+  it("serves a transaction point through ById, preserves first-original writes and charges repeated gets", async () => {
+    const physical = reader(1);
+    const row = physical.rows[0];
+    if (row === undefined) throw new Error("Missing fixture row");
+    const id = Result.getOrThrow(publicDocumentId(table, row.id));
+    const vault = new CoreFinalizationVault();
+    const transaction = createCoreTransaction({ snapshot: physical.snapshot, registry, now: 10n,
+      idGenerator: Result.getOrThrow(createTransactionIdGenerator(new Uint8Array(32), 10n)), vault }).transaction;
+    const original = await Effect.runPromise(transaction.get(id));
+    expect(Option.isSome(original)).toBe(true);
+    await Effect.runPromise(transaction.get(id));
+    expect((await Effect.runPromise(transaction.usage)).user.documentsRead).toBe(2);
+    expect(physical.calls).toHaveLength(1);
+    expect(physical.calls[0]).toMatchObject({ order: "asc", maxResults: 2, interval: pointInterval(keyFor(row, byId)) });
+    await Effect.runPromise(transaction.patch(id, { value: 20 }));
+    await Effect.runPromise(transaction.patch(id, { value: 30 }));
+    expect(Option.getOrThrow(await Effect.runPromise(transaction.get(id))).value).toBe(30);
+    const finalized = vault.take(await Effect.runPromise(transaction.finalize()));
+    expect(finalized?.changes).toHaveLength(1);
+    expect(finalized?.changes[0]?.original?.ts).toBe(9n);
+    expect(finalized?.changes[0]?.originalDocument?.value).toBe(0);
+    expect(finalized?.changes[0]?.finalDocument?.value).toBe(30);
+    expect(physical.calls).toHaveLength(1);
+  });
+
+  it("keeps new pending insert/delete/reinsert state ahead of cached absence", async () => {
+    const physical = reader(0);
+    const vault = new CoreFinalizationVault();
+    const transaction = createCoreTransaction({ snapshot: physical.snapshot, registry, now: 1_000_000n,
+      idGenerator: Result.getOrThrow(createTransactionIdGenerator(new Uint8Array(32), 1_000_000n)), vault }).transaction;
+    const id = await Effect.runPromise(transaction.insert("items", { value: 1 }));
+    const insertedInternalId = Result.getOrThrow(decodeDocumentId(id)).internalId;
+    expect(Option.getOrThrow(await Effect.runPromise(transaction.get(id))).value).toBe(1);
+    await Effect.runPromise(transaction.delete(id));
+    expect(Option.isNone(await Effect.runPromise(transaction.get(id)))).toBe(true);
+    // Generated inserts stage old=None without a committed read. Their pending
+    // insert/delete observations must stay entirely within this transaction.
+    expect(physical.calls).toHaveLength(0);
+    // The trusted private writer models reinsertion of this same identity;
+    // generated public inserts continue to allocate a new identity.
+    const context = createCoreTransaction({ snapshot: physical.snapshot, registry, now: 1_000_000n,
+      idGenerator: Result.getOrThrow(createTransactionIdGenerator(new Uint8Array(32).fill(1), 1_000_000n)), vault: new CoreFinalizationVault() });
+    await Effect.runPromise(context.writePrivate("items", insertedInternalId, { value: 2 }));
+    expect(physical.calls).toHaveLength(1);
+    await Effect.runPromise(context.writePrivate("items", insertedInternalId, null));
+    await Effect.runPromise(context.writePrivate("items", insertedInternalId, { value: 3 }));
+    expect(Option.getOrThrow(await Effect.runPromise(context.transaction.get(id))).value).toBe(3);
+    await Effect.runPromise(context.transaction.abort());
+    const finalized = vault.take(await Effect.runPromise(transaction.finalize()));
+    expect(finalized?.changes[0]?.original).toBeUndefined();
+    expect(finalized?.changes[0]?.originalDocument).toBeNull();
+    expect(finalized?.changes[0]?.finalDocument).toBeNull();
+    expect(physical.calls).toHaveLength(1);
+  });
+
+  it("does not turn operation prefetch into additional user reads or consumed dependencies", async () => {
+    const physical = reader(3);
+    const first = physical.rows[0];
+    const second = physical.rows[1];
+    if (first === undefined || second === undefined) throw new Error("Missing fixture rows");
+    const context = createCoreTransaction({ snapshot: physical.snapshot, registry, now: 1_000_000n,
+      idGenerator: Result.getOrThrow(createTransactionIdGenerator(new Uint8Array(32), 1_000_000n)), vault: new CoreFinalizationVault(), readonly: true });
+    await Effect.runPromise(context.transaction.get(Result.getOrThrow(publicDocumentId(table, first.id))));
+    const query = await Effect.runPromise(context.transaction.startQuery({ query: {
+      source: { type: "IndexRange", indexName: "items.by_value", order: "asc", range: [] }, operators: [],
+    } }));
+    const page = await Effect.runPromise(query.nextPage({ maxResults: 2, maxBytes: 1024 * 1024 }));
+    expect(page.documents.map(document => document.value)).toEqual([0, 1]);
+    expect((await Effect.runPromise(context.transaction.usage)).user.documentsRead).toBe(3);
+    const token = await Effect.runPromise(context.finishRead());
+    const read = token.reads.find(entry => bytesEqual(entry.indexId, byValue.ref.id));
+    expect(read?.intervals).toHaveLength(1);
+    const consumed = read?.intervals[0];
+    const third = physical.rows[2];
+    if (consumed === undefined || third === undefined) throw new Error("Missing consumed interval fixture");
+    expect(keyInInterval(keyFor(second), consumed)).toBe(true);
+    expect(keyInInterval(keyFor(third), consumed)).toBe(false);
+  });
+
+  it.each(["duplicate", "unfinished"] as const)("rejects a %s singleton ById response", async mode => {
+    const physical = reader(1);
+    const row = physical.rows[0];
+    if (row === undefined) throw new Error("Missing fixture row");
+    const id = Result.getOrThrow(publicDocumentId(table, row.id));
+    const entry = { key: keyFor(row, byId), document: row };
+    const transaction = createCoreTransaction({ snapshot: { ...physical.snapshot, scan: () => Effect.succeed({
+      entries: mode === "duplicate" ? [entry, entry] : [entry], cursor: mode === "duplicate"
+        ? { kind: "end" } : { kind: "after", key: entry.key },
+    }) }, registry, now: 10n, idGenerator: Result.getOrThrow(createTransactionIdGenerator(new Uint8Array(32), 10n)), vault: new CoreFinalizationVault() }).transaction;
+    const exit = await Effect.runPromiseExit(transaction.get(id));
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (Exit.isFailure(exit)) expect(exit.cause.reasons).toMatchObject([{ error: { reason: "corruptData" } }]);
+    await Effect.runPromise(transaction.abort());
+  });
+});
+
+describe("translated operation range batch", () => {
+  it("returns one isolated outcome per request in input order and fills only after every fetch", async () => {
+    const physical = reader(6);
+    const keyed = physical.rows.map(row => keyFor(row));
+    let failFor: Uint8Array | undefined = keyed[2];
+    const snapshot = createCoreIndexSnapshot({ registry, snapshot: { ...physical.snapshot, scan: input =>
+      failFor !== undefined && input.interval.start !== null && bytesEqual(input.interval.start, failFor)
+        ? Effect.fail(new CorePersistenceError({ reason: "unavailable" })) : physical.snapshot.scan(input) } });
+    const requests = [4, 2, 0, 5].map(position => request(byValue, pointInterval(keyed[position]!)));
+    const outcomes = await Effect.runPromise(snapshot.rangeBatch(requests, { concurrency: 2 }));
+    expect(outcomes.map(outcome => Exit.isSuccess(outcome))).toEqual([true, false, true, true]);
+    expect(outcomes.map(outcome => Exit.isSuccess(outcome) ? rowValues(outcome.value) : "failed"))
+      .toEqual([[4], "failed", [0], [5]]);
+    const failed = outcomes[1];
+    expect(failed !== undefined && Exit.isFailure(failed) && failed.cause.reasons[0]).toMatchObject({ error: { reason: "unavailable" } });
+    // Successful slots populated the operation cache; the failed slot did not.
+    const before = physical.calls.length;
+    await Effect.runPromise(snapshot.scan(requests[0]!));
+    await Effect.runPromise(snapshot.scan(requests[3]!));
+    expect(physical.calls).toHaveLength(before);
+    failFor = undefined;
+    expect(rowValues(await Effect.runPromise(snapshot.scan(requests[1]!)))).toEqual([2]);
+    expect(physical.calls).toHaveLength(before + 1);
+  });
+
+  it("serves rows through either index after one batch filled through both", async () => {
+    const physical = reader();
+    const snapshot = createCoreIndexSnapshot({ snapshot: physical.snapshot, registry });
+    const [first, second, third, fourth] = physical.rows;
+    if (first === undefined || second === undefined || third === undefined || fourth === undefined) throw new Error("Missing rows");
+    const outcomes = await Effect.runPromise(snapshot.rangeBatch([
+      request(byId, pointInterval(keyFor(first, byId))), request(byValue, pointInterval(keyFor(second))),
+      request(byId, pointInterval(keyFor(third, byId))), request(byValue, pointInterval(keyFor(first))),
+    ], { concurrency: 4 }));
+    expect(outcomes.map(outcome => Exit.isSuccess(outcome) ? rowValues(outcome.value) : "failed")).toEqual([[0], [1], [2], [0]]);
+    const fetched = physical.calls.length;
+    const again = await Effect.runPromise(snapshot.rangeBatch([
+      request(byValue, pointInterval(keyFor(third))), request(byId, pointInterval(keyFor(second, byId))),
+      request(byValue, pointInterval(keyFor(first))), request(byId, pointInterval(keyFor(first, byId))),
+    ], { concurrency: 4 }));
+    expect(again.map(outcome => Exit.isSuccess(outcome) ? rowValues(outcome.value) : "failed")).toEqual([[2], [1], [0], [0]]);
+    expect(physical.calls).toHaveLength(fetched);
+    expect(rowValues(await Effect.runPromise(snapshot.scan(request(byValue, pointInterval(keyFor(fourth)))))))
+      .toEqual([3]);
+    expect(physical.calls).toHaveLength(fetched + 1);
+  });
+
+  it("serves pages already in hand in input order without leaving the caller's turn", () => {
+    const physical = reader(6);
+    const keyed = physical.rows.map(row => keyFor(row));
+    const snapshot = createCoreIndexSnapshot({ registry, snapshot: { ...physical.snapshot, scan: input =>
+      input.interval.start !== null && bytesEqual(input.interval.start, keyed[3]!)
+        ? Effect.fail(new CorePersistenceError({ reason: "unavailable" })) : physical.snapshot.scan(input) } });
+    const requests = [5, 3, 1, 4, 0].map(position => request(byValue, pointInterval(keyed[position]!)));
+    // No fetch waits on persistence, so the whole batch settles synchronously on its first lane.
+    const outcomes = Effect.runSync(snapshot.rangeBatch(requests, { concurrency: 4 }));
+    expect(outcomes.map(outcome => Exit.isSuccess(outcome) ? rowValues(outcome.value) : "failed")).toEqual([[5], "failed", [1], [4], [0]]);
+    expect(physical.calls.map(call => call.interval.start)).toEqual([5, 1, 4, 0].map(position => keyed[position]));
+  });
+
+  it.each([Number.NaN, Number.POSITIVE_INFINITY, 0, -3])("serves every request one at a time under the bound %s", concurrency => {
+    const physical = reader(3);
+    const snapshot = createCoreIndexSnapshot({ registry, snapshot: physical.snapshot });
+    const requests = physical.rows.map(row => request(byValue, pointInterval(keyFor(row))));
+    const outcomes = Effect.runSync(snapshot.rangeBatch(requests, { concurrency }));
+    expect(outcomes.map(outcome => Exit.isSuccess(outcome) ? rowValues(outcome.value) : "failed")).toEqual([[0], [1], [2]]);
+  });
+
+  it("adds lanes only while a fetch waits and keeps each waiting request's own outcome", async () => {
+    const physical = reader(6);
+    const keyed = physical.rows.map(row => keyFor(row));
+    const waits = new Set([1, 3].map(position => keyed[position]));
+    let active = 0, peak = 0;
+    const started: Array<Uint8Array | null> = [];
+    const snapshot = createCoreIndexSnapshot({ registry, snapshot: { ...physical.snapshot, scan: input => Effect.gen(function* () {
+      started.push(input.interval.start);
+      const waiting = [...waits].some(key => key !== undefined && input.interval.start !== null && bytesEqual(input.interval.start, key));
+      if (!waiting) return yield* physical.snapshot.scan(input);
+      active += 1; peak = Math.max(peak, active);
+      yield* Effect.sleep("2 millis");
+      active -= 1;
+      if (bytesEqual(input.interval.start ?? new Uint8Array(), keyed[3]!)) return yield* new CorePersistenceError({ reason: "unavailable" });
+      return yield* physical.snapshot.scan(input);
+    }) } });
+    const order = [0, 1, 2, 3, 4, 5];
+    const outcomes = await Effect.runPromise(snapshot.rangeBatch(order.map(position => request(byValue, pointInterval(keyed[position]!))), { concurrency: 2 }));
+    expect(outcomes.map(outcome => Exit.isSuccess(outcome) ? rowValues(outcome.value) : "failed")).toEqual([[0], [1], [2], "failed", [4], [5]]);
+    // Requests are claimed in input order; the second lane started only once the first waited.
+    expect(started).toEqual(order.map(position => keyed[position]));
+    expect(peak).toBe(2);
+  });
+
+  it("admits each persistence fetch through the supplied permit and bounds overlap", async () => {
+    const physical = reader(8);
+    let active = 0, peak = 0, admitted = 0;
+    const preloaded: number[] = [];
+    const snapshot = createCoreIndexSnapshot({ registry, snapshot: { ...physical.snapshot,
+      preload: inputs => Effect.sync(() => { preloaded.push(inputs.length); }), scan: input => Effect.gen(function* () {
+      active += 1; peak = Math.max(peak, active);
+      yield* Effect.yieldNow;
+      yield* Effect.sleep("1 millis");
+      active -= 1;
+      return yield* physical.snapshot.scan(input);
+    }) } });
+    const requests = physical.rows.map(row => request(byValue, pointInterval(keyFor(row))));
+    const outcomes = await Effect.runPromise(snapshot.rangeBatch(requests, { concurrency: 3,
+      withPermit: fetch => Effect.andThen(Effect.sync(() => { admitted += 1; }), fetch) }));
+    expect(outcomes.every(outcome => Exit.isSuccess(outcome))).toBe(true);
+    // One shared admission carries every miss's first page, then each fetch is admitted.
+    expect(preloaded).toEqual([8]);
+    expect(admitted).toBe(9);
+    expect(peak).toBeGreaterThan(1);
+    expect(peak).toBeLessThanOrEqual(3);
+    // Cached components need no persistence admission on a repeated batch.
+    const again = await Effect.runPromise(snapshot.rangeBatch(requests, { concurrency: 3,
+      withPermit: fetch => Effect.andThen(Effect.sync(() => { admitted += 1; }), fetch) }));
+    expect(again.every(outcome => Exit.isSuccess(outcome))).toBe(true);
+    expect(preloaded).toEqual([8]);
+    expect(admitted).toBe(9);
+  });
+});

@@ -5,20 +5,29 @@ import {
   type ApplicationNativeMutationPersistence,
 } from
   "@flarex/persistence-postgres/internal/system-test/application-native-mutation-fixture";
-import {
-  defineModule,
-  query,
-  sourceModule,
-  v,
-} from "@flarex/application-definition";
 import { runQuery } from "@flarex/application-invocation";
+import { ExecutionDiagnostics, type ExecutionDiagnosticPolicy } from
+  "@flarex/persistence-postgres/internal/execution-diagnostics";
+import { InvalidAppIndexEntryInputError } from
+  "@flarex/persistence-postgres/internal/app-index-entry-errors";
+import { invokeApplicationMutation } from
+  "@flarex/standard-application-invocation/internal/application-mutation-system";
+import { appDocumentIdV1FromRowIdentity } from
+  "flarex-protocol/app-document-id";
+import { appOrderedIndexDocumentPathV1, compileAppOrderedIndexBoundsV1,
+  lowerAppDeveloperOrderedIndexPhysicalSpecV1, orderedIndexValueFromFlarexValueV1 } from
+  "flarex-protocol/ordered-index";
+import { decodeSchemaManifestAppDeveloperOrderedIndexSpecV1, decodeSchemaManifestAppIndexFieldPath } from
+  "flarex-protocol/schema-manifest";
+import { TransactionFunctionPathV1Schema, TransactionRequestKeyV1Schema } from
+  "flarex-protocol/transaction-session";
 import {
   makeApplicationQuerySystemLayer,
   type ApplicationQuerySystemLive,
 } from
   "@flarex/standard-application-invocation/internal/application-query-system";
-import { Effect } from "effect";
-import { makeApplicationExecutionHost } from
+import { Cause, Effect, Exit, Result, Tracer } from "effect";
+import { ApplicationExecutionHostError, makeApplicationExecutionHost } from
   "flarex-backend/internal/application-execution-host";
 import { ApplicationAnalysisSourceReadError } from
   "flarex-backend/internal/application-analysis-source-reader";
@@ -31,47 +40,14 @@ import {
 } from "./systemTestStructuredCloneBridgeV1";
 import { runSystemTestEffectV1 } from "./systemTestEffectBoundaryV1";
 
-const RUNTIME_HOST_IDENTITY = "flarex-application-runtime-host-v1";
-const COMPATIBILITY_DATE = "2026-06-14";
-
-const USERS_GET_REFERENCE = defineModule({
-  path: "users",
-  source: sourceModule({
-    path: "functions/users.js",
-    bytes: new TextEncoder().encode("export {};\n"),
-  }),
-  functions: {
-    get: query({
-      args: v.object({ id: v.string() }),
-      returns: v.object({
-        _id: v.string(),
-        _creationTime: v.number(),
-        name: v.string(),
-      }),
-    }),
-  },
-}).reference("get");
-
-const USERS_GET_MISMATCH_REFERENCE = defineModule({
-  path: "users",
-  source: sourceModule({
-    path: "functions/users-mismatch.js",
-    bytes: new TextEncoder().encode("export {};\n"),
-  }),
-  functions: {
-    get: query({
-      args: v.object({ id: v.string() }),
-      returns: v.boolean(),
-    }),
-  },
-}).reference("get");
-
-export const APPLICATION_NATIVE_QUERY_FIXTURE_OPTIONS = Object.freeze({
-  runtimeHostIdentity: RUNTIME_HOST_IDENTITY,
-  compatibilityDate: COMPATIBILITY_DATE,
-});
-
-export type ApplicationNativeQueryFixtureFactory = () => Promise<
+import {
+  USERS_GET_REFERENCE, USERS_GET_MISMATCH_REFERENCE,
+  USERS_CACHE_REFERENCE, USERS_CACHE_MISMATCH_REFERENCE,
+  CACHE_ROW_A, CACHE_ROW_B, CACHE_ROW_C, CACHE_ROW_MISSING,
+  APPLICATION_NATIVE_QUERY_FIXTURE_OPTIONS,
+} from "./applicationNativeQueryDefinitions";
+const COMPATIBILITY_DATE = APPLICATION_NATIVE_QUERY_FIXTURE_OPTIONS.compatibilityDate;
+export type ApplicationNativeQueryFixtureFactory = (profile?: "cacheProbe") => Promise<
   ApplicationNativeMutationFixture<ApplicationNativeMutationPersistence>
 >;
 
@@ -199,12 +175,12 @@ export async function proveApplicationNativeQuery(
       });
     },
   });
-  const invoke = () => runSystemTestEffectV1(Effect.scoped(
+  const invoke = () => runSystemTestEffectV1(
     runQuery(
       USERS_GET_REFERENCE,
       { id: seeded.documentId },
     ).pipe(Effect.provide(layer)),
-  ));
+  );
   const invokeMismatch = () => runSystemTestEffectV1(Effect.scoped(
     runQuery(
       USERS_GET_MISMATCH_REFERENCE,
@@ -256,6 +232,154 @@ export async function proveApplicationNativeQuery(
   }
 }
 
+export interface ApplicationNativeQueryDataReadObservation {
+  readonly method: "readPointDocument" | "queryIndexRange";
+  readonly ordinal: number;
+  readonly rowSnapshotReads: number;
+  readonly indexSnapshotReads: number;
+}
+
+type MutableQueryDataReadObservation = {
+  -readonly [Field in keyof ApplicationNativeQueryDataReadObservation]: ApplicationNativeQueryDataReadObservation[Field];
+};
+
+/** Genuine Worker source exercises storage reuse; RPC counts remain logical calls. */
+export async function proveApplicationNativeQueryCache(createFixture: ApplicationNativeQueryFixtureFactory) {
+  const fixture = await createFixture("cacheProbe");
+  const table = fixture.schemaAuthority.tables.find(candidate => candidate.logicalName === "users");
+  if (table === undefined) throw new Error("Application cache probe users table is missing.");
+  const documentId = (rowId: typeof CACHE_ROW_A) => appDocumentIdV1FromRowIdentity({ tableId: table.tableId, rowId });
+  const args = Object.freeze({
+    repeatId: documentId(CACHE_ROW_C),
+    missingId: documentId(CACHE_ROW_MISSING),
+    suffixId: documentId(CACHE_ROW_B),
+    bounds: compileAppOrderedIndexBoundsV1({
+      spec: lowerAppDeveloperOrderedIndexPhysicalSpecV1(decodeSchemaManifestAppDeveloperOrderedIndexSpecV1({
+        kind: "developerOrdered", specVersion: 1, fields: ["name"],
+      })),
+      expressions: [{ op: "eq", field: appOrderedIndexDocumentPathV1(decodeSchemaManifestAppIndexFieldPath("name")),
+        value: orderedIndexValueFromFlarexValueV1("Ada") }],
+    }),
+  });
+  let current: MutableQueryDataReadObservation | undefined;
+  let observations: MutableQueryDataReadObservation[] = [];
+  let indexTransactionSpans: Tracer.NativeSpan[] = [];
+  let observing = false;
+  let refreshRowSnapshotReads = 0;
+  let refreshCaptures = 0;
+  const loader = new MiniflareApplicationWorkerLoader(method => {
+    current = undefined;
+    if (!observing || (method !== "readPointDocument" && method !== "queryIndexRange")) return;
+    current = { method, ordinal: observations.filter(item => item.method === method).length + 1,
+      rowSnapshotReads: 0, indexSnapshotReads: 0 };
+    observations.push(current);
+  });
+  const tracer = Tracer.make({ span(options) {
+    if (observing && options.name === "AppRows.captureSnapshotRead") {
+      if (current === undefined) refreshRowSnapshotReads++;
+      else current.rowSnapshotReads++;
+    }
+    if (observing && options.name === "ApplicationQueryCache.captureRefresh") refreshCaptures++;
+    const span = new Tracer.NativeSpan(options);
+    if (options.name === "ApplicationQuerySnapshot.readIndexInTransaction") indexTransactionSpans.push(span);
+    return span;
+  } });
+  const diagnostics: ExecutionDiagnosticPolicy = {
+    observe(name, work) {
+      if (current !== undefined && name === "AppIndexEntries.scanAtSnapshotInTransaction") current.indexSnapshotReads++;
+      return work;
+    },
+  };
+  const layer = makeApplicationNativeQueryTestLayer(fixture, loader);
+  const invoke = async () => {
+    observations = [];
+    refreshRowSnapshotReads = 0;
+    refreshCaptures = 0;
+    current = undefined;
+    observing = true;
+    const before = loader.loads;
+    try {
+      const value = await runSystemTestEffectV1(runQuery(USERS_CACHE_REFERENCE, args).pipe(
+        Effect.provide(layer), Effect.provideService(Tracer.Tracer, tracer),
+        Effect.provideService(ExecutionDiagnostics, diagnostics),
+      ));
+      return Object.freeze({ value, workerLoads: loader.loads - before, refreshRowSnapshotReads, refreshCaptures,
+        reads: Object.freeze(observations.map(item => Object.freeze({ ...item }))) });
+    } finally {
+      observing = false;
+      current = undefined;
+    }
+  };
+  const invokeInvertedBounds = async (mode: "cold" | "warm") => {
+    observations = [];
+    indexTransactionSpans = [];
+    current = undefined;
+    observing = true;
+    const before = loader.loads;
+    try {
+      const outcome = await runSystemTestEffectV1(Effect.scoped(runQuery(USERS_CACHE_REFERENCE,
+        { ...args, invertedBounds: mode }).pipe(
+          Effect.provide(layer), Effect.provideService(Tracer.Tracer, tracer),
+          Effect.provideService(ExecutionDiagnostics, diagnostics), Effect.result,
+        )));
+      // The Worker projects its boundary failure; the existing storage span
+      // retains the precise typed cause so unrelated failures cannot pass.
+      const refused = Result.match(outcome, {
+        onFailure: error => error._tag === "QueryInvocationError" &&
+          error.cause instanceof ApplicationExecutionHostError && error.cause.reason === "readBoundaryFailed",
+        onSuccess: () => false,
+      });
+      const invalidBoundsFailures = indexTransactionSpans.filter(span => span.status._tag === "Ended" &&
+        Exit.isFailure(span.status.exit) && span.status.exit.cause.reasons.some(reason =>
+          Cause.isFailReason(reason) && reason.error instanceof InvalidAppIndexEntryInputError &&
+          reason.error.issue === "invalidBounds")).length;
+      return Object.freeze({ refused, invalidBoundsFailures, workerLoads: loader.loads - before,
+        reads: Object.freeze(observations.map(item => Object.freeze({ ...item }))) });
+    } finally {
+      observing = false;
+      current = undefined;
+    }
+  };
+  const invokeCaughtMismatch = async () => {
+    const before = loader.loads;
+    const error = await runSystemTestEffectV1(Effect.scoped(runQuery(USERS_CACHE_MISMATCH_REFERENCE, args).pipe(
+      Effect.provide(layer), Effect.flip,
+    )));
+    return Object.freeze({ error, workerLoads: loader.loads - before });
+  };
+  try {
+    const coldInvertedBounds = await invokeInvertedBounds("cold");
+    const warmInvertedBounds = await invokeInvertedBounds("warm");
+    const first = await invoke();
+    const unchanged = await invoke();
+    const caughtMismatch = await invokeCaughtMismatch();
+    const afterCaughtMismatch = await invoke();
+    const { makeApplicationNativeMutationTestLayer } = await import("./applicationNativeMutationHarness");
+    const mutationLayer = await makeApplicationNativeMutationTestLayer(fixture, loader);
+    const touched = await runSystemTestEffectV1(Effect.scoped(invokeApplicationMutation(
+      TransactionFunctionPathV1Schema.make("users:renameCacheProbe"),
+      { id: args.repeatId, name: "Bea", padding: "same-key refreshed body" },
+      TransactionRequestKeyV1Schema.make("application-native-query-cache:body"),
+    ).pipe(Effect.provide(mutationLayer))));
+    if (touched.disposition !== "published") throw new Error("Application cache body patch did not publish.");
+    const sameKey = await invoke();
+    const renamed = await runSystemTestEffectV1(Effect.scoped(invokeApplicationMutation(
+      TransactionFunctionPathV1Schema.make("users:renameCacheProbe"),
+      { id: args.repeatId, name: "Cyra" },
+      TransactionRequestKeyV1Schema.make("application-native-query-cache:rename"),
+    ).pipe(Effect.provide(mutationLayer))));
+    if (renamed.disposition !== "published") throw new Error("Application cache probe patch did not publish.");
+    const next = await invoke();
+    return Object.freeze({ first, unchanged, caughtMismatch, afterCaughtMismatch, sameKey, next, coldInvertedBounds, warmInvertedBounds,
+      ids: Object.freeze({ first: documentId(CACHE_ROW_A), second: args.suffixId,
+      changed: args.repeatId, missing: args.missingId }), mutationCommitSeq: renamed.commitSeq });
+  } finally {
+    await loader.dispose();
+  }
+}
+
+type ApplicationWorkerRuntime = Pick<Miniflare, "dispose">;
+
 export class MiniflareApplicationWorkerLoader implements WorkerLoader {
   loads = 0;
   revalidations = 0;
@@ -263,9 +387,15 @@ export class MiniflareApplicationWorkerLoader implements WorkerLoader {
   incomingRelationReads = 0;
   readonly revisionIds: string[] = [];
   readonly documentIds: string[] = [];
-  readonly #runtimes = new Set<Miniflare>();
-  readonly #disposals: Array<Promise<void>> = [];
+  readonly #runtimes = new Set<ApplicationWorkerRuntime>();
+  readonly #disposals: Array<Promise<PromiseSettledResult<void>[]>> = [];
   #nextInvocationBlock: InvocationBlock | undefined;
+
+  constructor(
+    private readonly onCapability: (method: string, argumentsValue: readonly unknown[]) => void | Promise<void> = () => undefined,
+    private readonly onCapabilityResult: (method: string, argumentsValue: readonly unknown[], result: unknown) => void | Promise<void> = () => undefined,
+    readonly omitManagedQueryBridge = false,
+  ) {}
 
   blockNextInvocation(): Readonly<{
     readonly started: Promise<void>;
@@ -295,25 +425,33 @@ export class MiniflareApplicationWorkerLoader implements WorkerLoader {
     return new MiniflareApplicationWorkerStub(this, code);
   }
 
-  observeCapability(method: string, argumentsValue: readonly unknown[]): void {
+  async observeCapability(method: string, argumentsValue: readonly unknown[]): Promise<void> {
+    await this.onCapability(method, argumentsValue);
     if (method === "revalidate") this.revalidations += 1;
     if (method === "takeIncomingRelationSources") this.incomingRelationReads += 1;
     if (method !== "readPointDocument") return;
     this.pointDocumentReads += 1;
-    const documentId = argumentsValue[1];
+    // Fresh and legacy point-read ABIs both carry their document ID last.
+    const documentId = argumentsValue.at(-1);
     if (typeof documentId !== "string") {
       throw new Error("Application Worker supplied an invalid document ID.");
     }
     this.documentIds.push(documentId);
   }
 
-  attach(runtime: Miniflare): void {
+  async observeCapabilityResult(method: string, argumentsValue: readonly unknown[], result: unknown): Promise<void> {
+    await this.onCapabilityResult(method, argumentsValue, result);
+  }
+
+  attach(runtime: ApplicationWorkerRuntime): void {
     this.#runtimes.add(runtime);
   }
 
-  release(runtime: Miniflare): void {
+  release(runtime: ApplicationWorkerRuntime): void {
     if (!this.#runtimes.delete(runtime)) return;
-    this.#disposals.push(runtime.dispose());
+    // Host result release starts cleanup before its caller can join it. Capture
+    // rejection now, retain the failure, and let dispose drain every runtime.
+    this.#disposals.push(Promise.allSettled([runtime.dispose()]));
   }
 
   async waitForNextInvocationBlock(): Promise<void> {
@@ -325,12 +463,15 @@ export class MiniflareApplicationWorkerLoader implements WorkerLoader {
   }
 
   async dispose(): Promise<void> {
-    const live = [...this.#runtimes];
-    this.#runtimes.clear();
-    await Promise.all([
-      ...this.#disposals.splice(0),
-      ...live.map(runtime => runtime.dispose()),
-    ]);
+    for (const runtime of this.#runtimes) this.release(runtime);
+    const settlements = await Promise.all(this.#disposals.splice(0));
+    const failures: unknown[] = [];
+    for (const result of settlements.flat()) {
+      if (result.status === "rejected") failures.push(result.reason);
+    }
+    if (failures.length > 0) {
+      throw new AggregateError(failures, "Application Worker runtime disposal failed.");
+    }
   }
 }
 
@@ -375,7 +516,7 @@ class MiniflareApplicationWorkerStub implements WorkerStub {
     const runtime = new Miniflare({
       compatibilityDate: COMPATIBILITY_DATE,
       modules: true,
-      script: applicationWorkerBridgeSource(this.code, name),
+      script: applicationWorkerBridgeSource(this.code, name, this.owner.omitManagedQueryBridge),
       workerLoaders: { LOADER: {} },
       serviceBindings: {
         CAPABILITY: (input: Request) => invokeCapability(
@@ -383,6 +524,7 @@ class MiniflareApplicationWorkerStub implements WorkerStub {
           capability,
           (method, argumentsValue) =>
             this.owner.observeCapability(method, argumentsValue),
+          (method, argumentsValue, result) => this.owner.observeCapabilityResult(method, argumentsValue, result),
         ),
         ...(globalOutbound == null
           ? {}
@@ -400,7 +542,7 @@ class MiniflareApplicationWorkerStub implements WorkerStub {
       });
       const envelope = decodeBridgeValue(JSON.parse(await response.text()));
       if (!isRecord(envelope) || envelope.ok !== true) {
-        const error = new Error(errorMessage(envelope));
+        const error = new Error(errorMessage(envelope), { cause: isRecord(envelope) ? envelope.causes : undefined });
         Object.defineProperty(error, "name", { value: errorName(envelope) });
         this.owner.release(runtime);
         throw error;
@@ -441,7 +583,8 @@ function deferred<A>(): Deferred<A> {
 async function invokeCapability(
   input: Request,
   capability: object,
-  observe: (method: string, argumentsValue: readonly unknown[]) => void,
+  observe: (method: string, argumentsValue: readonly unknown[]) => void | Promise<void>,
+  observeResult: (method: string, argumentsValue: readonly unknown[], result: unknown) => void | Promise<void>,
 ): Promise<Response> {
   try {
     const request = decodeBridgeValue(JSON.parse(await input.text()));
@@ -449,12 +592,13 @@ async function invokeCapability(
       !isRecord(request) || typeof request.method !== "string" ||
       !Array.isArray(request.arguments)
     ) throw new Error("Application capability request is invalid.");
-    observe(request.method, request.arguments);
+    await observe(request.method, request.arguments);
     const method = Reflect.get(capability, request.method);
     if (typeof method !== "function") {
       throw new Error("Application capability method is unavailable.");
     }
     const result = await Reflect.apply(method, capability, request.arguments);
+    await observeResult(request.method, request.arguments, result);
     return bridgeResponse({ ok: true, result });
   } catch (cause) {
     return bridgeResponse({
@@ -472,6 +616,7 @@ function bridgeResponse(value: unknown): Response {
 function applicationWorkerBridgeSource(
   code: WorkerLoaderWorkerCode,
   entrypoint: string,
+  omitManagedQueryBridge: boolean,
 ): string {
   const workerCode = Object.freeze({ ...code, globalOutbound: null });
   const globalOutbound = code.globalOutbound == null
@@ -496,16 +641,20 @@ class Capability extends RpcTarget {
     return envelope.result;
   }
   revalidate() { return this.call("revalidate", []); }
-  readPointDocument(tableName, documentId) {
-    return this.call("readPointDocument", [tableName, documentId]);
+  readPointDocument(...argumentsValue) {
+    return this.call("readPointDocument", argumentsValue);
   }
   queryIndexRange(tableName, indexDescriptor, bounds, limit) {
     return this.call("queryIndexRange", [tableName, indexDescriptor, bounds, limit]);
   }
+  ${omitManagedQueryBridge ? "" : `queryStart(request, terminal) { return this.call("queryStart", [request, terminal]); }
+  queryNext(queryId, maxResults) { return this.call("queryNext", [queryId, maxResults]); }
+  queryCleanup(queryId) { return this.call("queryCleanup", [queryId]); }`}
   takeIncomingRelationSources(input) {
     return this.call("takeIncomingRelationSources", [input]);
   }
   invoke(request) { return this.call("invoke", [request]); }
+  runPrivateNativeOperation(request) { return this.call("runPrivateNativeOperation", [request]); }
   insertPointDocument(tableName, value) {
     return this.call("insertPointDocument", [tableName, value]);
   }
@@ -538,10 +687,18 @@ export default {
         result?.[Symbol.dispose]?.();
       }
     } catch (error) {
+      const causes = [];
+      let current = error;
+      for (let depth = 0; depth < 8 && current !== undefined && current !== null; depth++) {
+        causes.push({ name: typeof current?.name === "string" ? current.name : "Error",
+          message: typeof current?.message === "string" ? current.message : String(current) });
+        current = current?.cause;
+      }
       return new Response(JSON.stringify(encodeBridgeValue({
         ok: false,
         name: typeof error?.name === "string" ? error.name : "Error",
         message: typeof error?.message === "string" ? error.message : String(error),
+        causes,
       })), { status: 500 });
     }
   },

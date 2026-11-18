@@ -32,8 +32,7 @@ import type {
   ApplicationActivationRepository,
   ApplicationActiveSelection,
   ApplicationRelationActivationRepository,
-} from
-  "@flarex/persistence-postgres/internal/application-activation";
+} from "@flarex/persistence-postgres/internal/application-activation";
 import {
   selectApplicationMutationAdmission,
   selectApplicationMutationCallbackAdmission,
@@ -65,17 +64,21 @@ import {
   "@flarex/persistence-postgres/internal/stored-commit-authority-evidence-v1";
 import {
   RESOLVE_POINT_COMMIT_OUTCOME_V1,
+  type CommittedPointOutcomeResolutionV1,
+  type PointCommitOutcomeResolutionV1Error,
+} from "@flarex/persistence-postgres/point-commit-transaction";
+import {
   createPointCommitFinishingTransitionPortV1,
   createPointCommitPublisherPortV1,
   createPointMutationAttemptReplacementPortV1,
-  type CommittedPointOutcomeResolutionV1,
-  type PointCommitOutcomeResolutionV1Error,
   type PointCommitTransactionProofOptionsV1,
-} from "@flarex/persistence-postgres/point-commit-transaction";
+} from "@flarex/persistence-postgres/internal/point-commit-construction";
 import {
-  createSessionJournalStorePersistenceV1,
-  type AppDeveloperIndexQueryPortV1,
+  createSessionJournalStorePersistence,
 } from "@flarex/persistence-postgres/session-journal-store";
+import {
+  type AppDeveloperIndexQueryPortV1,
+} from "@flarex/persistence-postgres/internal/session-journal-construction";
 import { createStoredOccExecutionEvidenceLoaderV1 } from
   "@flarex/persistence-postgres/stored-occ-execution";
 import { createPointMutationExecutionClaimLivenessV1 } from
@@ -84,7 +87,7 @@ import {
   createApplicationMutationSessionActivationPersistenceV1,
   createPointMutationSessionAttemptLoadPersistenceV1,
   createPointMutationSessionAttemptTerminalizationPersistenceV1,
-} from "@flarex/persistence-postgres/transaction-session-activation";
+} from "@flarex/persistence-postgres/internal/session-construction";
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import {
   makeApplicationPointMutationRunner,
@@ -143,6 +146,17 @@ import {
   type ApplicationTaskQueryLaunchEvidence,
 } from "./ApplicationTaskQueryAuthority";
 
+import { type CoreDatabase, type CoreError } from "@flarex/persistence-postgres/internal/core";
+import { CoreApplicationMutationError, makeCoreApplicationMutationPort } from
+  "@flarex/persistence-postgres/internal/core-application-mutation";
+import { normalizeFlarexValueV1 } from "flarex-protocol/value";
+import { makeCoreApplicationMutationRunner } from "./CoreApplicationMutationRunner";
+import { type CoreApplicationAdmission, type CoreApplicationAdmissionError } from "./CoreApplicationAdmission";
+export { makeCoreApplicationAdmission, CoreApplicationAdmissionError,
+  CoreApplicationAdmissionConfigurationSchema, type CoreApplicationAdmission,
+  type CoreApplicationAdmissionConfiguration } from "./CoreApplicationAdmission";
+import type { QueryCursorBroker } from "flarex-protocol/query-cursor";
+
 type OccContextFactory = StoredPointMutationOccRerunExecutionConfigV1[
   "pointMutationOccRerun"
 ]["contextFactory"];
@@ -193,6 +207,24 @@ export interface ApplicationMutationSystemLive {
     PointCommitTransactionProofOptionsV1["afterTransactionStep"];
 }
 
+/** Trusted fresh-target composition; no legacy SQL capability is accepted. */
+export interface ApplicationCoreMutationSystemLive {
+  readonly admission: CoreApplicationAdmission;
+  readonly coreDatabase: CoreDatabase;
+  readonly deploymentId: TransactionGrantDeploymentIdV1;
+  readonly expectedProgramProfile?: import("@flarex/persistence-postgres/internal/core-application-program").CoreApplicationProgramProfile;
+  readonly grantIssuer: ApplicationMutationGrantIssuer;
+  readonly applicationRunner: ApplicationPointMutationRunnerConfig;
+  readonly executionContextFactory: OccContextFactory;
+  readonly maximumAttempts: number;
+  /** Stable trusted instance secret stays in the broker, outside Worker artifacts. */
+  readonly queryCursor: Readonly<{ scopeUuid: string; broker: QueryCursorBroker }>;
+}
+
+type InvokeCoreApplicationMutationError = CoreError | CoreApplicationMutationError | CoreApplicationAdmissionError |
+  Effect.Error<ReturnType<ApplicationMutationGrantIssuer["issue"]>> |
+  Effect.Error<ReturnType<ReturnType<typeof makeCoreApplicationMutationRunner>>>;
+
 export class ApplicationMutationInputError extends Data.TaggedError(
   "ApplicationMutationInputError",
 )<{
@@ -228,6 +260,7 @@ export class ApplicationTaskMutationLaunchError extends Data.TaggedError(
 )<{ readonly reason: "invalidLaunch" | "staleLaunch"; readonly cause?: unknown }> {}
 
 export type InvokeApplicationSelectionMutationError =
+  | InvokeCoreApplicationMutationError
   | SelectApplicationMutationAdmissionError
   | CurrentScopeAuthorizationEpochError
   | ApplicationMutationAuthorityChangedError
@@ -419,7 +452,7 @@ export const prepareApplicationMutationAuthenticatedIdentity = Effect.fn(
   return prepared;
 });
 
-const prepareApplicationMutationIdentityAccessPolicy = Effect.fn(
+export const prepareApplicationMutationIdentityAccessPolicy = Effect.fn(
   "ApplicationMutation.prepareIdentityAccessPolicy",
 )(function* (
   input: unknown,
@@ -483,8 +516,9 @@ export function inspectApplicationMutationAuthenticatedIdentity(
 }
 
 export function makeApplicationMutationSystemLayer(
-  live: ApplicationMutationSystemLive,
+  live: ApplicationMutationSystemLive | ApplicationCoreMutationSystemLive,
 ): Layer.Layer<ApplicationMutationSystem> {
+  if ("coreDatabase" in live) return makeCoreApplicationMutationSystemLayer(live);
   const captured = captureLive(live);
   preflightApplicationMutationSystemConfiguration(captured);
   const invokeRootSelection = makeSelectionInvoke(
@@ -593,6 +627,52 @@ export function makeApplicationMutationSystemLayer(
   );
 }
 
+/** Trusted callers retain the Core outcome and timestamp without a legacy result projection. */
+export function makeCoreApplicationMutationInvocationPort(live: ApplicationCoreMutationSystemLive) {
+  const port = makeCoreApplicationMutationPort({ database: live.coreDatabase, deploymentId: live.deploymentId,
+    ...(live.expectedProgramProfile === undefined ? {} : { expectedProgramProfile: live.expectedProgramProfile }),
+    maximumAttempts: live.maximumAttempts, issueGrant: live.grantIssuer.issue,
+    sha256: live.applicationRunner.sha256, execute: makeCoreApplicationMutationRunner(live) });
+  const makeInvocation = <A, E, R>(name: string,
+    operation: (...input: Parameters<typeof port.invoke>) => Effect.Effect<A, E, R>,
+  ) => Effect.fn(name)((
+    functionRef: TransactionFunctionPathV1, args: unknown, requestKey: TransactionRequestKeyV1,
+    policy?: CanonicalTransactionGrantIdentityAccessPolicyV1,
+  ) => live.admission.withPermit("mutation", Effect.gen(function* () {
+    const input = yield* prepareApplicationMutationInvocationInput(functionRef, requestKey);
+    const identity = policy ?? (yield* canonicalizeTransactionGrantIdentityAccessPolicyV1Effect({
+      policyVersion: TRANSACTION_GRANT_POINT_MUTATION_POLICY_VERSION_V1,
+      auth: { kind: "anonymous" }, capabilities: TRANSACTION_GRANT_POINT_MUTATION_CAPABILITIES_V1,
+    }));
+    return yield* operation(input.functionRef, args, input.requestKey, identity);
+  })));
+  const invoke = makeInvocation("ApplicationMutationSystem.invokeCore", port.invoke);
+  const infer = makeInvocation("ApplicationMutationSystem.inferCore", port.infer);
+  return Object.freeze({ invoke, infer });
+}
+
+function makeCoreApplicationMutationSystemLayer(live: ApplicationCoreMutationSystemLive): Layer.Layer<ApplicationMutationSystem> {
+  const port = makeCoreApplicationMutationInvocationPort(live);
+  const invoke = Effect.fn("ApplicationMutationSystem.projectCore")((
+    ...input: Parameters<typeof port.invoke>
+  ) => port.invoke(...input).pipe(Effect.map(outcome => Object.freeze({
+    status: "committed" as const, disposition: outcome.disposition,
+    scopeUuid: outcome.scopeUuid, epochUuid: outcome.epochUuid, commitSeq: outcome.timestamp,
+    value: normalizeFlarexValueV1(outcome.value).valueJson,
+  }))));
+  return Layer.succeed(ApplicationMutationSystem, ApplicationMutationSystem.of({
+    invoke,
+    invokeAuthenticated: Effect.fn("ApplicationMutationSystem.invokeCoreAuthenticated")(function* (functionRef, args, requestKey, identity) {
+      const prepared = yield* Effect.fromResult(claimApplicationMutationAuthenticatedIdentity(identity));
+      return yield* invoke(functionRef, args, requestKey, prepared.identityAccessPolicy);
+    }),
+    // Selected callbacks/Task launch require their actual translated authority
+    // contracts. An old selection cannot authorize a new-target invocation.
+    selectionMutation: { runMutation: () => Effect.fail(new CoreApplicationMutationError({ reason: "unsupportedSelection" })) },
+    invokeAuthenticatedAtTaskLaunch: () => Effect.fail(new CoreApplicationMutationError({ reason: "unsupportedSelection" })),
+  }));
+}
+
 export function preflightApplicationMutationSystemConfiguration(
   live: Pick<
     ApplicationMutationSystemLive,
@@ -681,7 +761,7 @@ function makeSelectionInvoke(
         }),
     },
   );
-  const store = createSessionJournalStorePersistenceV1(
+  const store = createSessionJournalStorePersistence(
     live.sessionAuthority,
     {
       grantRetentionPolicy: live.grantRetentionPolicy,
@@ -770,7 +850,8 @@ function makeSelectionInvoke(
         evidenceLoader: storedCommitAuthority,
         transactionGrantVerifier: live.legacyGrantVerifier,
         applicationMutationGrantVerifier: live.applicationGrantVerifier,
-        functionMetadata: live.legacyFunctionMetadata,
+        ...(live.legacyFunctionMetadata === undefined ? {} :
+          { functionMetadata: live.legacyFunctionMetadata }),
         pointCommit,
         pointCommitFinishing,
         pointMutationAttemptReplacement,
@@ -953,12 +1034,9 @@ function captureLive(
     // Derived persistence ports snapshot the fields they consume at creation.
     sessionAuthority: live.sessionAuthority,
     candidateSchemaWriteGuard: live.candidateSchemaWriteGuard,
-    intrinsicCreationTimeIndexes: Object.freeze({
-      locate: live.intrinsicCreationTimeIndexes.locate,
-    }),
-    developerIndexes: Object.freeze({
-      locate: live.developerIndexes.locate,
-    }),
+    // Issued catalog ports carry exact composition provenance by identity.
+    intrinsicCreationTimeIndexes: live.intrinsicCreationTimeIndexes,
+    developerIndexes: live.developerIndexes,
     ...(live.applicationRelations === undefined
       ? {}
       : { applicationRelations: live.applicationRelations }),

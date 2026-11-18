@@ -15,11 +15,87 @@ installation receipts and completed tests are baseline evidence. They do not
 override the replacement target or prove its implementation. Physical lifecycle
 work with retained system consumers must be inventoried before removal.
 
-Payload logical index compilation, indexed non-ID queries, and relation
-semantics must be proved through the shared core and native Local API. Current
-limited compiler/query support is baseline evidence, not complete indexing.
+Payload ordinary scalar/compound index compilation and bounded indexed non-ID
+queries now execute through shared core and native Local API under the
+[indexed-query contract](../shared-logical-storage/05-indexed-payload-queries.md).
+That contract supersedes earlier ID/unique-only query limits below. Complete
+framework indexing and cross-framework relation semantics remain open gates.
 
 ## Status And Scope
+
+The [unified developer-contract proposal](./preflight/unified-application-cms-commerce-developer-contract.md)
+connects CMS exposure and write ownership to explicit Application, Payload and
+Medusa operations inside supported mutations. It records current private proofs
+separately from pending cross-framework integrity and public authoring. CMS
+markers and `ctx.cms`/`ctx.commerce` syntax remain illustrative. This plan owns
+Payload behavior and conformance; the SDK roadmap owns eventual public surfaces.
+
+[Configured scalar mixed execution](../mixed-mutation-core/configured-payload-attempt-preflight.md)
+now borrows compiler-owned collections through native create/update/findByID in
+the existing Application root. Multi-collection pending state, constraint
+validation and outer-only settlement replace the fixed `posts` restriction.
+The [optional-one mixed relationship slice](../mixed-mutation-core/payload-relationships-attempt-preflight.md)
+adds compiler-owned cross-collection references and native depth-one population
+against that pending root. Shared publication enforces final target liveness
+and indexed restrict-on-delete. The [native mixed delete/preference slice](../mixed-mutation-core/payload-delete-preferences-preflight.md)
+now connects delete and exact cleanup to finite outer publication. Borrowed
+find/count, many/joins, cross-framework references and public syntax retain
+separate gates; the direct Local API profile remains distinct.
+
+The [private cross-framework reference preflight](../shared-logical-storage/cross-framework-reference-preflight.md)
+implements the first optional article-to-Product identity/integrity slice through
+native scalar fields and explicit private composition. Shared publication retains
+references across soft deletion and restricts hard deletion, while new assignments
+require active targets. General authorized traversal remains pending; native
+Payload population does not yet resolve commerce targets.
+It does not design public APIs or expand the other session's Medusa scope.
+
+The [private authorized point-read profile](../shared-logical-storage/cross-framework-reference-preflight.md#implemented-private-point-read-profile)
+adds bounded native source access and separately granted Product retrieval.
+The bounded private save-time assignment/retention profile is implemented; the
+[save authorization preflight](../shared-logical-storage/reference-save-authorization-preflight.md)
+records protected permission evidence, genuine V3 joint-source composition,
+native source access and effective pending-write decisions. The bounded backend
+concurrent freshness/recovery proof now uses the real publication and executor
+retry owners. The selected private Worker save consumer now uses protected
+construction, the actual journal/RPC boundary and fresh retry, with its displaced
+allow-all joint-save assembly removed. Neither profile establishes general CMS
+authorization, production dispatch or a public operation surface.
+
+The [private reference schema/binding lifecycle preflight](../shared-logical-storage/reference-schema-binding-lifecycle-preflight.md)
+owns the implemented selected backend proof after SA4: actual admission/refusal,
+fresh preparation and stale-use, concurrent activation/save and recovery. Its
+LB1 is implemented for its selected transition inventory: the shared owner now
+refuses removal/replacement of enforced references and proves unchanged-candidate
+rebinding and preference-profile withdrawal. LB2 now connects these transitions
+to actual private Worker/RPC serving: fresh construction, expired preparation,
+stale grants/capabilities/receipts, consumed metadata ABA and selective reuse
+are proven at their real refusal frontiers. LB3 now proves both real PostgreSQL
+activation/save orders for preference withdrawal and selected consumed-metadata
+repair after native/Application work is frozen, including genuine whole-root
+replacement. PGlite covers their serial outcomes. LB4 now reconstructs real
+binding/outcome owners after writer closure, separates historical receipts from
+current usability and resolves actual PostgreSQL COMMIT acknowledgement loss
+after independently observed durability and later withdrawal. Committed results
+replay without another native invocation or publication. Its control catalog
+remains available; database/control-plane restart and broader recovery profiles
+are not claimed.
+This does not enable populated-data conversion,
+write-owner transfer, Medusa changes or public API syntax.
+
+The selected private reverse-read profile is specified by the
+[private authorized reverse-read preflight](../shared-logical-storage/reference-reverse-read-preflight.md).
+RR1 implements protected read evidence and shared admission with a backend-only
+complete indexed-membership probe. RR2 adds private finite pages with native
+Product/Payload visibility, pending membership and attempt-local continuation.
+RR3 adds selected concurrent publication ordering, whole-root replacement,
+bounded cancellation and committed-consumption recovery without re-enumeration.
+RR4 connects protected preflight, native Product/Payload reads and exact page
+admission to private Worker/RPC consumption and committed recovery. Two genuine
+scopes and distinct signed principals remain confined even with equal Product keys.
+Existing point-ID grants and save permissions do
+not authorize reverse discovery; native Payload joins retain their separate
+profile. Public/hosted reverse-page entry points and public syntax remain disabled.
 
 The [early cross-framework proof](../shared-logical-storage/README.md#early-cross-framework-proof)
 is a required shared-storage integration gate: use real Payload Local API calls
@@ -194,9 +270,14 @@ separates capability contracts from concrete collection definitions and traces
 the required analysis, binding, and deletion-owner corrections. Its
 first new proof is two fresh Payload-owned scalar collections, not arbitrary
 configuration, relation expansion, migration, or serving support. Its uniqueness
-prerequisite authenticates single-text unique intent, prepares the definitions
+prerequisite authenticates unique intent, prepares the definitions
 in trusted schema publication, and refuses mismatched
 sets during readiness and activation revalidation. Existing scalar conformance
+now shares multiple required-text and compound scalar constraint lowering with
+configured collections; [shared uniqueness](../shared-logical-storage/07-payload-compound-uniqueness.md)
+owns the baseline and [nullable keys](../shared-logical-storage/09-payload-nullable-keys.md)
+adds fresh optional scalar configurations, null-distinct claims and null equality
+indexes. Conditional Payload declarations remain unadmitted. Scalar conformance
 no longer seeds its own unique definition. The private collection compiler now
 captures the admitted native definition set, sanitizes owned copies, and
 lowers through shared schema authoring into the existing loaded-source analysis

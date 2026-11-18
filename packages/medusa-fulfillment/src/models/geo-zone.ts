@@ -32,7 +32,7 @@ export const GeoZone = model
     province_code: model.text().nullable(),
     city: model.text().nullable(),
     postal_expression: model.json().nullable(),
-    service_zone: model.belongsTo<() => typeof ServiceZone>(() => ServiceZone, {
+    service_zone: model.belongsTo<() => typeof ServiceZone>((): typeof ServiceZone => ServiceZone, {
       mappedBy: "geo_zones",
     }),
     metadata: model.json().nullable(),

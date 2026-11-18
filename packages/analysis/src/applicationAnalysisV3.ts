@@ -5,6 +5,7 @@ import {
   APPLICATION_ANALYSIS_MAXIMUM_MANIFEST_BYTES_V1,
   APPLICATION_MANIFEST_FORMAT_V1,
   ApplicationAnalysisContractError,
+  applicationManifestWireV1,
   type ApplicationManifestV1,
 } from "./applicationAnalysisV1.ts";
 import {
@@ -19,6 +20,7 @@ import { verifyApplicationWritePolicies } from "./applicationWritePolicy/verific
 
 /** Encoded policy authority has a separate contract from the V1/V2 manifests. */
 export interface ApplicationManifestV3 {
+  readonly validatorIdentityEncoding?: 2;
   readonly format: typeof APPLICATION_MANIFEST_FORMAT_V1;
   readonly version: 3;
   readonly sourceArtifact: ApplicationManifestV1["sourceArtifact"];
@@ -41,7 +43,7 @@ export interface CanonicalApplicationManifestV3 {
 
 export const ApplicationManifestV3Schema = Schema.Unknown.pipe(Schema.decodeTo(
   Schema.declare<ApplicationManifestV3>((value): value is ApplicationManifestV3 =>
-    Result.isSuccess(decodeApplicationManifestV3(value))),
+    Result.isSuccess(captureApplicationManifestV3(value))),
   {
     decode: SchemaGetter.transformOrFail<ApplicationManifestV3, unknown>((value, options) =>
       Result.match(decodeApplicationManifestV3(value), {
@@ -52,25 +54,40 @@ export const ApplicationManifestV3Schema = Schema.Unknown.pipe(Schema.decodeTo(
           options,
         )),
       })),
-    encode: SchemaGetter.transform(value => structuredClone(value)),
+    encode: SchemaGetter.transform(applicationManifestWireV1),
   },
 ));
 
 export function decodeApplicationManifestV3(
   value: unknown,
 ): Result.Result<ApplicationManifestV3, ApplicationAnalysisContractError> {
+  return admitApplicationManifestV3(value, "wire");
+}
+
+export function captureApplicationManifestV3(
+  value: unknown,
+): Result.Result<ApplicationManifestV3, ApplicationAnalysisContractError> {
+  return admitApplicationManifestV3(value, "semantic");
+}
+
+function admitApplicationManifestV3(
+  value: unknown,
+  representation: "wire" | "semantic",
+): Result.Result<ApplicationManifestV3, ApplicationAnalysisContractError> {
   return Result.gen(function* () {
     const outer = yield* strictOwnDataProperties(value,
-      ["format", "version", "sourceArtifact", "schema", "functions"], "manifest", "decodeManifest");
+      ["format", "version", "validatorIdentityEncoding", "sourceArtifact", "schema", "functions"], "manifest", "decodeManifest",
+      representation === "semantic" ? ["validatorIdentityEncoding"] : []);
     const schema = yield* strictOwnDataProperties(outer.get("schema"),
       ["version", "tables", "indexes", "relations", "writePolicies", "writePolicySetSha256"], "schema", "decodeManifest");
     if (outer.get("format") !== APPLICATION_MANIFEST_FORMAT_V1 ||
-      outer.get("version") !== 3 || schema.get("version") !== 3) {
+      outer.get("version") !== 3 || schema.get("version") !== 3 ||
+      (outer.has("validatorIdentityEncoding") && outer.get("validatorIdentityEncoding") !== 2)) {
       return yield* Result.fail(new ApplicationAnalysisContractError({
         operation: "decodeManifest", reason: "invalidInput", path: "version",
       }));
     }
-    const { base, relations } = yield* decodeApplicationManifestRelationParts(outer, schema, "decodeManifest", true);
+    const { base, relations } = yield* decodeApplicationManifestRelationParts(outer, schema, "decodeManifest", true, representation);
     const writePolicySetSha256 = schema.get("writePolicySetSha256");
     if (typeof writePolicySetSha256 !== "string" || !/^[0-9a-f]{64}$/.test(writePolicySetSha256)) {
       return yield* Result.fail(new ApplicationAnalysisContractError({
@@ -80,10 +97,11 @@ export function decodeApplicationManifestV3(
     const writePolicies = yield* decodeApplicationWritePolicies(
       schema.get("writePolicies"), base.schema.tables.map(table => table.name),
     ).pipe(Result.mapError(policyContractError));
-    yield* validateApplicationWritePolicySchema(writePolicies, base.schema.tables, relations).pipe(Result.mapError(policyContractError));
+    yield* validateApplicationWritePolicySchema(writePolicies, base.schema.tables, relations, base.schema.indexes).pipe(Result.mapError(policyContractError));
     return Object.freeze({
       format: APPLICATION_MANIFEST_FORMAT_V1,
       version: 3,
+      validatorIdentityEncoding: 2,
       sourceArtifact: base.sourceArtifact,
       schema: Object.freeze({
         version: 3,
@@ -101,13 +119,14 @@ export function decodeApplicationManifestV3(
 export function canonicalizeApplicationManifestV3(
   value: unknown,
 ): Result.Result<CanonicalApplicationManifestV3, ApplicationAnalysisContractError> {
-  return decodeApplicationManifestV3(value).pipe(Result.flatMap(manifest => {
-    if (!isJson(manifest)) throw new Error("Decoded Application V3 lost JSON");
-    const size = measureCanonicalJsonUtf8Bytes(manifest, APPLICATION_ANALYSIS_MAXIMUM_MANIFEST_BYTES_V1);
+  return captureApplicationManifestV3(value).pipe(Result.flatMap(manifest => {
+    const wire = applicationManifestWireV1(manifest);
+    if (!isJson(wire)) throw new Error("Decoded Application V3 lost JSON");
+    const size = measureCanonicalJsonUtf8Bytes(wire, APPLICATION_ANALYSIS_MAXIMUM_MANIFEST_BYTES_V1);
     if (size.kind !== "success") return Result.fail(new ApplicationAnalysisContractError({
       operation: "encodeManifest", reason: "manifestBytesExceeded",
     }));
-    const canonicalText = encodeCanonicalJson(manifest, issue => {
+    const canonicalText = encodeCanonicalJson(wire, issue => {
       throw new Error(`Application V3 canonical invariant: ${issue.reason}`);
     });
     const bytes = new TextEncoder().encode(canonicalText);
@@ -116,6 +135,12 @@ export function canonicalizeApplicationManifestV3(
       get canonicalBytes(): Uint8Array { return bytes.slice(); },
     }));
   }));
+}
+
+export function canonicalizeApplicationManifestWireV3(
+  value: unknown,
+): Result.Result<CanonicalApplicationManifestV3, ApplicationAnalysisContractError> {
+  return decodeApplicationManifestV3(value).pipe(Result.flatMap(canonicalizeApplicationManifestV3));
 }
 
 /** The asynchronous admission boundary authenticates all configuration references. */
@@ -130,6 +155,13 @@ export const verifyApplicationManifestV3 = Effect.fn("ApplicationAnalysis.verify
       }));
     }
     return canonical;
+  },
+);
+
+export const verifyApplicationManifestWireV3 = Effect.fn("ApplicationAnalysis.verifyPolicyManifestWire")(
+  function* (value: unknown): Effect.fn.Return<CanonicalApplicationManifestV3, ApplicationAnalysisContractError> {
+    const decoded = yield* Effect.fromResult(decodeApplicationManifestV3(value));
+    return yield* verifyApplicationManifestV3(decoded);
   },
 );
 

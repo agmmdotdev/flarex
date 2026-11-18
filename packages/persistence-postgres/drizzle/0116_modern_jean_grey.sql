@@ -1,0 +1,2 @@
+ALTER TABLE "fx_control_scope" DROP CONSTRAINT "fx_control_scope_deployment_id_unique";--> statement-breakpoint
+CREATE INDEX "fx_control_scope_deployment_id_idx" ON "fx_control_scope" USING btree ("deployment_id");

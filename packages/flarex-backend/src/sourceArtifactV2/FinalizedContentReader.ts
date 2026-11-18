@@ -104,6 +104,7 @@ export interface SourceArtifactV2FinalizedModuleContent {
   readonly roles: number;
   readonly sourceSha256: Uint8Array;
   readonly sourceBytes: Uint8Array;
+  readonly sourceMapBytes?: Uint8Array;
 }
 
 export interface SourceArtifactV2FinalizedContent {
@@ -488,7 +489,7 @@ function projectFrameFailure(
 
 export function makeSourceArtifactV2FinalizedContentReader(options: {
   readonly r2: SourceArtifactV2R2Store;
-  readonly sourceMaps?: "reject" | "ignore";
+  readonly sourceMaps?: "reject" | "ignore" | "read";
 }): SourceArtifactV2FinalizedContentReader {
   const pathFactory = DECLARATIVE_V2_ARTIFACT_MODULE_PATHS_V1;
   const sourceMaps = options.sourceMaps ?? "reject";
@@ -643,6 +644,42 @@ export function makeSourceArtifactV2FinalizedContentReader(options: {
       return Object.freeze(leaves);
     });
 
+  const readStreamBytes = Effect.fn("SourceArtifactV2FinalizedContent.readStreamBytes")(function* (
+    kind: "source" | "sourceMap",
+    digest: Uint8Array,
+    blockCount: bigint,
+    byteLength: bigint,
+    budget: DeclarativeV2ContentReadBudgetTracker,
+  ): Effect.fn.Return<Uint8Array, SourceArtifactV2FinalizedContentReaderError> {
+    const blockObjects = yield* readLeafObjects(kind, kind === "source" ? "source-block" : "source-map-block",
+      digest, blockCount, budget);
+    const length = yield* safeNumber(byteLength, "byteLengthMismatch");
+    yield* charge(budget, "outputBytes", byteLength);
+    const bytes = new Uint8Array(length);
+    let offset = 0;
+    for (let blockIndex = 0; blockIndex < blockObjects.length; blockIndex += 1) {
+      const object = blockObjects[blockIndex]!;
+      const block = yield* Effect.fromResult(decodeSourceArtifactV2BlockFrame(kind, object.bytes, {
+        maximumInputBytesMaterialized: object.bytes.byteLength,
+        maximumCanonicalBytesMaterialized: object.bytes.byteLength,
+        maximumFrameBytesMaterialized: object.bytes.byteLength,
+      }).pipe(Result.mapError(failure => projectFrameFailure("invalidBlock", failure))));
+      if (block.value.blockIndex !== BigInt(blockIndex)) {
+        return yield* Effect.fail(corruption("rangeMismatch", BigInt(blockIndex)));
+      }
+      const chunk = block.value.bytes;
+      if (offset + chunk.byteLength > bytes.byteLength) {
+        return yield* Effect.fail(corruption("byteLengthMismatch"));
+      }
+      bytes.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    if (offset !== bytes.byteLength) {
+      return yield* Effect.fail(corruption("byteLengthMismatch"));
+    }
+    return bytes;
+  });
+
   const read = Effect.fn("SourceArtifactV2FinalizedContent.read")(
     function* (
       rootSha256: unknown,
@@ -678,6 +715,7 @@ export function makeSourceArtifactV2FinalizedContentReader(options: {
       }
       yield* charge(budget, "modules", root.moduleCount);
       yield* charge(budget, "sourceBytes", root.totalSourceBytes);
+      if (sourceMaps === "read") yield* charge(budget, "sourceMapBytes", root.totalSourceMapBytes);
       const moduleObjects = yield* readLeafObjects(
         "module",
         "module",
@@ -722,51 +760,12 @@ export function makeSourceArtifactV2FinalizedContentReader(options: {
             () => Effect.fail(corruption("pathInvalid", module.ordinal)),
           ),
         );
-        const blockObjects = yield* readLeafObjects(
-          "source",
-          "source-block",
-          module.sourceTreeDigest,
-          module.sourceBlockCount,
-          budget,
-        );
-        const sourceLength = yield* safeNumber(
-          module.sourceByteLength,
-          "byteLengthMismatch",
-        );
-        yield* charge(budget, "outputBytes", BigInt(sourceLength));
-        const sourceBytes = new Uint8Array(sourceLength);
-        let sourceOffset = 0;
-        for (let blockIndex = 0; blockIndex < blockObjects.length; blockIndex += 1) {
-          const blockObject = blockObjects[blockIndex]!;
-          const block = decodeSourceArtifactV2BlockFrame(
-            "source",
-            blockObject.bytes,
-            {
-              maximumInputBytesMaterialized: blockObject.bytes.byteLength,
-              maximumCanonicalBytesMaterialized: blockObject.bytes.byteLength,
-              maximumFrameBytesMaterialized: blockObject.bytes.byteLength,
-            },
-          );
-          if (Result.isFailure(block)) {
-            return yield* Effect.fail(
-              projectFrameFailure("invalidBlock", block.failure),
-            );
-          }
-          if (block.success.value.blockIndex !== BigInt(blockIndex)) {
-            return yield* Effect.fail(
-              corruption("rangeMismatch", BigInt(blockIndex)),
-            );
-          }
-          const bytes = block.success.value.bytes;
-          if (sourceOffset + bytes.byteLength > sourceBytes.byteLength) {
-            return yield* Effect.fail(corruption("byteLengthMismatch"));
-          }
-          sourceBytes.set(bytes, sourceOffset);
-          sourceOffset += bytes.byteLength;
-        }
-        if (sourceOffset !== sourceBytes.byteLength) {
-          return yield* Effect.fail(corruption("byteLengthMismatch"));
-        }
+        const sourceBytes = yield* readStreamBytes("source", module.sourceTreeDigest,
+          module.sourceBlockCount, module.sourceByteLength, budget);
+        const sourceMapBytes = sourceMaps === "read" && module.sourceMapTreeDigest !== null
+          ? yield* readStreamBytes("sourceMap", module.sourceMapTreeDigest,
+            module.sourceMapBlockCount, module.sourceMapByteLength, budget)
+          : undefined;
         totalSourceBytes += module.sourceByteLength;
         modules.push(Object.freeze({
           ordinal,
@@ -776,6 +775,7 @@ export function makeSourceArtifactV2FinalizedContentReader(options: {
           roles: module.roles,
           sourceSha256: copyBytes(module.sourceTreeDigest),
           sourceBytes,
+          ...(sourceMapBytes === undefined ? {} : { sourceMapBytes }),
         }));
       }
       if (totalSourceBytes !== root.totalSourceBytes) {

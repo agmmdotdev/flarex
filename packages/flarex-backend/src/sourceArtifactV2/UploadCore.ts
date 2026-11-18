@@ -5,7 +5,7 @@ import {
 } from "@flarex/utils/bytes";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { compareUtf16Strings, isLowercaseUuidText } from "@flarex/utils/strings";
-import { Data, Effect, Result, Semaphore } from "effect";
+import { Data, Effect, Result, Schema, Semaphore } from "effect";
 import {
   encodeCanonicalJson,
   type Json,
@@ -76,6 +76,27 @@ export interface SourceArtifactV2UploadReceipt {
   readonly completedRootDigest: string | null;
   readonly completedSelectorDigest: string | null;
 }
+
+/** The existing command owner projects the original fence needed to resume a
+ * reserved command; callers must not infer internal write counts themselves. */
+export interface SourceArtifactV2UploadProgress {
+  readonly receipt: SourceArtifactV2UploadReceipt;
+  readonly pendingCommand: Readonly<{ kind: SourceArtifactV2PendingCommand["kind"]; commandId: string;
+    expectedFence: number }> | null;
+  readonly completedCommandId: string;
+}
+
+const PositiveBudget = Schema.Int.check(Schema.makeFilter(value => Number.isSafeInteger(value) && value > 0
+  ? undefined : "Expected a positive safe resource budget"));
+const NonnegativeBudget = Schema.Int.check(Schema.makeFilter(value => Number.isSafeInteger(value) && value >= 0
+  ? undefined : "Expected a nonnegative safe resource budget"));
+const ResourceBudgetFields = { calls: PositiveBudget, blockBytes: PositiveBudget, modules: PositiveBudget,
+  sourceMaps: NonnegativeBudget, canonicalBytes: PositiveBudget, frameBytes: PositiveBudget,
+  hashBytes: PositiveBudget, timeMilliseconds: PositiveBudget };
+export const SourceArtifactV2ResourceBudgetSchema = Schema.Struct(ResourceBudgetFields);
+export const SourceArtifactV2AdmissionBudgetSchema = Schema.Struct({ ...ResourceBudgetFields, calls: Schema.Literal(1) });
+const decodeCeilings = Schema.decodeUnknownResult(SourceArtifactV2ResourceBudgetSchema);
+const decodeAdmission = Schema.decodeUnknownResult(SourceArtifactV2AdmissionBudgetSchema);
 
 export interface SourceArtifactV2BeginUploadInput {
   readonly uploadId: unknown;
@@ -166,6 +187,7 @@ export type SourceArtifactV2UploadError =
   | SourceArtifactV2R2Error;
 
 export interface SourceArtifactV2UploadCore {
+  readonly inspect: (uploadId: string) => Effect.Effect<SourceArtifactV2UploadProgress | null, SourceArtifactV2UploadError>;
   readonly beginUpload: (
     input: SourceArtifactV2BeginUploadInput,
   ) => Effect.Effect<SourceArtifactV2UploadReceipt, SourceArtifactV2UploadError>;
@@ -909,6 +931,27 @@ export function makeSourceArtifactV2UploadCore(
 
   const uploadGates = new Map<string, UploadOperationGate>();
   return Object.freeze({
+    inspect: Effect.fn("SourceArtifactV2Upload.inspect")(function* (uploadId: string) {
+      if (!isLowercaseUuidText(uploadId)) return yield* inputFailure("reopen", "uploadId", "invalidSelector");
+      const current = yield* options.attempts.read(uploadId);
+      if (current === null) return null;
+      const pending = current.pendingCommand;
+      let pendingCommand: SourceArtifactV2UploadProgress["pendingCommand"] = null;
+      if (pending !== null) {
+        const prepared = current.lastCommandId === `${pending.commandId}:prepared`
+          && current.lastReceipt.kind === "prepared" && current.lastReceipt.command === pending.kind
+          && pending.commandDigest !== null;
+        const reserved = current.lastCommandId === `${pending.commandId}:reserved`
+          && current.lastReceipt.kind === "reserved" && current.lastReceipt.command === pending.kind
+          && pending.commandDigest === null;
+        if (!prepared && !reserved) return yield* stateFailure(uploadId, "reopen", "conflictingReplay");
+        const expectedFence = current.mutationFence - (prepared ? 2 : 1);
+        if (expectedFence < 0 || expectedFence === 0 && pending.kind !== "beginUpload")
+          return yield* stateFailure(uploadId, "reopen", "conflictingReplay");
+        pendingCommand = Object.freeze({ kind: pending.kind, commandId: pending.commandId, expectedFence });
+      }
+      return Object.freeze({ receipt: receipt(current), pendingCommand, completedCommandId: current.lastCommandId });
+    }),
     beginUpload: serializeUploadOperation("beginUpload", uploadGates, beginUpload),
     beginModule: serializeUploadOperation("beginModule", uploadGates, beginModule),
     appendBlock: serializeUploadOperation("appendBlock", uploadGates, appendBlock),
@@ -1015,38 +1058,10 @@ function decodeResourceBudget(
   value: unknown,
   ceiling: boolean,
 ): Effect.Effect<SourceArtifactV2ResourceBudget, SourceArtifactV2UploadInputError> {
-  if (!isNonArrayRecord(value)) {
-    return Effect.fail(inputFailure(operation, field, "invalidBudget"));
-  }
-  if (
-    !nonNegativeSafe(value.calls) || !nonNegativeSafe(value.blockBytes) ||
-    !nonNegativeSafe(value.modules) || !nonNegativeSafe(value.sourceMaps) ||
-    !nonNegativeSafe(value.canonicalBytes) || !nonNegativeSafe(value.frameBytes) ||
-    !nonNegativeSafe(value.hashBytes) || !nonNegativeSafe(value.timeMilliseconds)
-  ) return Effect.fail(inputFailure(operation, field, "invalidBudget"));
-  const calls = value.calls;
-  const blockBytes = value.blockBytes;
-  const modules = value.modules;
-  const sourceMaps = value.sourceMaps;
-  const canonicalBytes = value.canonicalBytes;
-  const frameBytes = value.frameBytes;
-  const hashBytes = value.hashBytes;
-  const timeMilliseconds = value.timeMilliseconds;
-  if (
-    calls < 1 || blockBytes < 1 || modules < 1 ||
-    canonicalBytes < 1 || frameBytes < 1 || hashBytes < 1 ||
-    timeMilliseconds < 1 || (!ceiling && calls !== 1)
-  ) return Effect.fail(inputFailure(operation, field, "invalidBudget"));
-  return Effect.succeed(Object.freeze({
-    calls,
-    blockBytes,
-    modules,
-    sourceMaps,
-    canonicalBytes,
-    frameBytes,
-    hashBytes,
-    timeMilliseconds,
-  }));
+  return Effect.fromResult((ceiling ? decodeCeilings(value) : decodeAdmission(value)).pipe(
+    Result.mapError(() => inputFailure(operation, field, "invalidBudget")),
+    Result.map(budget => Object.freeze({ ...budget })),
+  ));
 }
 
 function budgetJson(value: SourceArtifactV2ResourceBudget): Json {

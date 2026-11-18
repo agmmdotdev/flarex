@@ -59,8 +59,8 @@ unbounded cleanup. Each future slice should:
 2. fix bounded touched-flow debt when behavior and validation are stable;
 3. avoid importing a neighboring exception-based pattern as new precedent;
 4. preserve public, persistence, transaction, and trust contracts unless the
-   preflight explicitly approves changing them; and
-5. rerun both standing reviewers after the final significant code diff.
+   requested work authorizes changing them; and
+5. review the final significant code diff and rerun affected checks.
 
 ## Completion Criteria For A Future Port
 

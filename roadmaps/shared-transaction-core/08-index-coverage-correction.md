@@ -3,6 +3,12 @@
 Status: approved prerequisite to the authorized membership/unique storage rewrite.
 The owner approved the coverage contract; implementation and validation are in progress.
 
+The [CE2 maintenance preflight](./18-ce2-continuous-index-maintenance.md) plans
+to replace per-commit active coverage updates after closing all writer and
+activation obligations. Its continuous-maintenance contract is not implemented.
+Candidate-only bounded coverage and the historical-snapshot protections below
+remain required by that replacement.
+
 ## Problem And Evidence
 
 The current writer prepares developer indexes only for its pinned schema. A
@@ -143,8 +149,11 @@ partial gap grants readiness. Regular reconciliation advances coverage across
 unchanged table suffixes so unrelated commits do not accumulate stale work.
 
 Active writers authenticate the selected physical workspaces and stored claim
-bytes before row publication, omit unchanged ownership writes, and advance only
-those workspaces atomically with the scope clock. Candidate-only constraints do
+bytes before row publication and omit unchanged ownership writes.
+[Activation-bound unique maintenance](./26-ce2-unique-maintenance-cutover.md)
+now preserves certified workspace progress during serving writes. Activation
+seals outgoing coverage and binds incoming obligations atomically with its head;
+uncertified inactive workspaces retain bounded catch-up. Candidate-only constraints do
 not impose candidate uniqueness on active writes. Build directory limits apply
 to new declarations, not a global scan or reset on every commit. Stable readiness
 binds the exact per-definition start/fence vector, excluding mutable coverage.

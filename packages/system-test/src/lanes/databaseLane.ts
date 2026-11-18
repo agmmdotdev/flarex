@@ -37,17 +37,17 @@ import {
   "@flarex/persistence-postgres/internal/system-test/postgres-task-external-effect-authority";
 import {
   createDefaultLocatedReadCommittedTransactionRunnerV1,
-} from
-  "@flarex/persistence-postgres/internal/system-test/transactionSessionActivation";
+} from "@flarex/persistence-postgres/internal/located-read-committed-runner";
 import {
   createPostgresLocatedReadCommittedTransactionRunnerV1,
 } from
   "@flarex/persistence-postgres/internal/system-test/postgresLocatedReadCommitted";
 import {
   LocatedReadCommittedTransactionFailureV1,
-  type RunLocatedReadCommittedTransactionV1,
-} from
-  "@flarex/persistence-postgres/internal/system-test/transactionSessionAttemptKernel";
+} from "@flarex/persistence-postgres/internal/read-committed-transaction-failure";
+import type {
+  RunLocatedReadCommittedTransactionV1,
+} from "@flarex/persistence-postgres/internal/system-test/session-kernel";
 import { Result } from "effect";
 
 import type {

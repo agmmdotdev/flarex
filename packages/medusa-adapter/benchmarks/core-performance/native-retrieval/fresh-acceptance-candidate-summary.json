@@ -1,0 +1,562 @@
+{
+  "status": "candidateFailsLatencyAcceptance",
+  "scope": "Protected standalone native Product scalar/collection retrieval; all request preparation and both attestations charged",
+  "methods": {
+    "quiet": "5 warmups/30 samples per demand/lane; median middle-pair mean, P95 nearest rank",
+    "component": "Per-sample interval union of initial readiness validation, full initial snapshot attestation, and final guard, excluding native/source callback; overlapping intervals merged before calculating distribution",
+    "trace": "Separate diagnostic sample; SQL ordinals/rows/result JSON bytes; awaited sum and region interval are not causal or quiet timing"
+  },
+  "gates": {
+    "sqlAndRepeatedApplicationCanonicalBodies": "passed",
+    "acceptanceComponentLatency": "failed",
+    "connectedMilestone": "pending",
+    "scaling": "passed bounded structural proof; no quiet/decoder-counter/server-CPU claim",
+    "serverAttribution": "measured; repeated catalog planning drives bounded predicate-equivalent SQL-composition correction",
+    "namedStatements": "research only; production decision pending"
+  },
+  "originalSourceInventoryLimitation": "Earlier baseline inventories did not include executing Application-native mutation fixture; original artifacts remain immutable. Later inventories add it; supplemental original fixture provenance must be labeled separately.",
+  "ledger": [
+    {
+      "ordinals": "38-42",
+      "operation": "Accepting transaction begin/isolation/timeouts/exact session clock"
+    },
+    {
+      "ordinals": "43-44",
+      "operation": "Fresh independent framework head and activation/candidate/lanes"
+    },
+    {
+      "ordinals": "45-46",
+      "operation": "Fresh Application head and uncaptured activation row"
+    },
+    {
+      "ordinals": "47",
+      "operation": "Complete nonlocking target snapshot epoch/role/catalog attestation"
+    },
+    {
+      "ordinals": "48-50",
+      "operation": "Fresh build/clock, revision-schema, complete physical lifecycle"
+    },
+    {
+      "ordinals": "51",
+      "operation": "Fresh revocation"
+    },
+    {
+      "ordinals": "52-58",
+      "operation": "Full logical-source definition/build/clock/physical proof; all breadth retained"
+    },
+    {
+      "ordinals": "59",
+      "operation": "Logical source initialization"
+    },
+    {
+      "ordinals": "60-61 scalar / 60-63 collection",
+      "operation": "Actual native retrieval"
+    },
+    {
+      "ordinals": "62 scalar / 64 collection",
+      "operation": "Complete NOWAIT epoch/role/catalog tail attestation"
+    },
+    {
+      "ordinals": "63 scalar / 65 collection",
+      "operation": "SQL COMMIT"
+    }
+  ],
+  "cases": {
+    "scalar": {
+      "acceptanceComponent": {
+        "baseline": {
+          "n": 30,
+          "medianMs": 8.032750000000002,
+          "p95Ms": 12.8889
+        },
+        "candidate": {
+          "n": 30,
+          "medianMs": 9.754849999999996,
+          "p95Ms": 13.789099999999994
+        },
+        "medianImproved": false,
+        "p95NoHigher": false
+      },
+      "quiet": {
+        "flarex": {
+          "baseline": {
+            "n": 30,
+            "medianMs": 56.208599999998114,
+            "p95Ms": 68.17479999999705
+          },
+          "candidate": {
+            "n": 30,
+            "medianMs": 58.51590000000215,
+            "p95Ms": 70.56389999999737
+          }
+        },
+        "native": {
+          "baseline": {
+            "n": 30,
+            "medianMs": 1.3710999999984779,
+            "p95Ms": 1.7307000000000698
+          },
+          "candidate": {
+            "n": 30,
+            "medianMs": 1.4145499999995081,
+            "p95Ms": 2.0486999999993714
+          }
+        }
+      },
+      "trace": {
+        "wholeSql": 63,
+        "wholeTransactions": 3,
+        "acceptanceSql": 15,
+        "acceptanceOrdinals": [
+          38,
+          39,
+          40,
+          41,
+          42,
+          43,
+          44,
+          45,
+          46,
+          47,
+          48,
+          49,
+          50,
+          51,
+          62
+        ],
+        "acceptanceRows": 12,
+        "acceptanceResultJsonBytes": 17004,
+        "repeatedApplicationCanonicalBodyQueries": 0,
+        "repeatedApplicationCanonicalBodyResultBytes": 0,
+        "afterGuard": [
+          "commit"
+        ],
+        "initialRegionElapsedMs": 11.373200000001816,
+        "acceptanceAwaitedSumMs": 10.909600000013597
+      }
+    },
+    "collection": {
+      "acceptanceComponent": {
+        "baseline": {
+          "n": 30,
+          "medianMs": 7.349050000000002,
+          "p95Ms": 11.748999999999999
+        },
+        "candidate": {
+          "n": 30,
+          "medianMs": 8.909150000000004,
+          "p95Ms": 9.782900000000001
+        },
+        "medianImproved": false,
+        "p95NoHigher": true
+      },
+      "quiet": {
+        "flarex": {
+          "baseline": {
+            "n": 30,
+            "medianMs": 54.91225000000122,
+            "p95Ms": 89.19929999999658
+          },
+          "candidate": {
+            "n": 30,
+            "medianMs": 55.550349999999526,
+            "p95Ms": 65.29290000000037
+          }
+        },
+        "native": {
+          "baseline": {
+            "n": 30,
+            "medianMs": 1.6000500000009197,
+            "p95Ms": 2.040099999998347
+          },
+          "candidate": {
+            "n": 30,
+            "medianMs": 1.8994000000002416,
+            "p95Ms": 5.199799999998504
+          }
+        }
+      },
+      "trace": {
+        "wholeSql": 65,
+        "wholeTransactions": 3,
+        "acceptanceSql": 15,
+        "acceptanceOrdinals": [
+          38,
+          39,
+          40,
+          41,
+          42,
+          43,
+          44,
+          45,
+          46,
+          47,
+          48,
+          49,
+          50,
+          51,
+          64
+        ],
+        "acceptanceRows": 12,
+        "acceptanceResultJsonBytes": 17004,
+        "repeatedApplicationCanonicalBodyQueries": 0,
+        "repeatedApplicationCanonicalBodyResultBytes": 0,
+        "afterGuard": [
+          "commit"
+        ],
+        "initialRegionElapsedMs": 10.517500000001746,
+        "acceptanceAwaitedSumMs": 10.583900000012363
+      }
+    }
+  },
+  "artifacts": [
+    {
+      "kind": "quietBaseline",
+      "path": "quiet-acceptance-baseline.json",
+      "sha256": "56a2a63f59c1a27cda27d02fe789c5fce0af5ed5101a245336e7f081297a6f99",
+      "measurementStatus": "measurementPassed",
+      "sourceStable": true,
+      "runtimeStable": true,
+      "parityPassed": true
+    },
+    {
+      "kind": "componentBaseline",
+      "path": "quiet-acceptance-component-baseline.json",
+      "sha256": "354a6ad1b39ea378920c1dd4cd4cb0b94329a31d1ffbefe0ebc859803e677fe6",
+      "measurementStatus": "measurementPassed",
+      "sourceStable": true,
+      "runtimeStable": true,
+      "parityPassed": true
+    },
+    {
+      "kind": "traceCandidate",
+      "path": "trace-fresh-acceptance-final.json",
+      "sha256": "22f74dd451cf91345a8d7ad92b8d5239ca1ff9e49a51b7b2cc6aa84853c9610d",
+      "measurementStatus": "measurementPassed",
+      "sourceStable": true,
+      "runtimeStable": true,
+      "parityPassed": true
+    },
+    {
+      "kind": "componentCandidate",
+      "path": "quiet-fresh-acceptance-component-final.json",
+      "sha256": "4d3276d5c6e2950ce6dc4ec8aa03513d6813acc9ac48673de6494c34104e3e9d",
+      "measurementStatus": "measurementPassed",
+      "sourceStable": true,
+      "runtimeStable": true,
+      "parityPassed": true
+    },
+    {
+      "kind": "quietCandidate",
+      "path": "quiet-fresh-acceptance-final.json",
+      "sha256": "4e90de23233e0d1fff57eec1cd6f939866c79cb16f30374cffa9d37fbb1a2f69",
+      "measurementStatus": "measurementPassed",
+      "sourceStable": true,
+      "runtimeStable": true,
+      "parityPassed": true
+    },
+    {
+      "kind": "serverCandidate",
+      "path": "server-fresh-acceptance-candidate.json.gz",
+      "sha256": "c669d74db3fc4ad5cbc29e8924951df14d43ba0449b98660b0c1e0e4b828bec6",
+      "measurementStatus": "measurementPassed",
+      "sourceStable": true,
+      "runtimeStable": true,
+      "parityPassed": true,
+      "artifactHygiene": {
+        "kind": "sanitizedDerivative",
+        "originalSha256": "3a9309de240a3fa1d782bcc7b82852f8bfdf141578daadc8c76c5565232a0754",
+        "credentialLiteralRedactions": 32,
+        "scope": "Only SQL PASSWORD string literals redacted; original exact bytes retained in ignored validation receipts."
+      },
+      "uncompressedSha256": "263348186ddb9988550dfab6291f0f5fcb55e5773f82b373e8ed964969f1b675"
+    },
+    {
+      "kind": "catalogCompositionQuiet",
+      "path": "quiet-catalog-acceptance-final.json",
+      "sha256": "b6cf780fc687a38cff1ccc363a182685e8896657da965f83ceb991640a2dbae0",
+      "measurementStatus": "measurementPassed",
+      "sourceStable": true,
+      "runtimeStable": true,
+      "parityPassed": true
+    },
+    {
+      "kind": "catalogCompositionServer",
+      "path": "server-catalog-acceptance-candidate.json.gz",
+      "sha256": "c82d68e6be691e51b65df9eedde27905a8941d58f99b7bb67e24e738155267cc",
+      "measurementStatus": "measurementPassed",
+      "sourceStable": true,
+      "runtimeStable": true,
+      "parityPassed": true,
+      "artifactHygiene": {
+        "kind": "sanitizedDerivative",
+        "originalSha256": "47c038270c14ba1a6f4e56d71f865f8e85ec7a2a407133e538df109a6f65e226",
+        "credentialLiteralRedactions": 40,
+        "scope": "Only SQL PASSWORD string literals redacted; original exact bytes retained in ignored validation receipts."
+      },
+      "uncompressedSha256": "dad42a78da74413d8a2bdef1c4909243490806146deed81443b2085aac2304b5"
+    }
+  ],
+  "cautions": [
+    "Artifact filenames ending final are retained candidate run labels and do not establish goal acceptance.",
+    "Fresh framework canonical bodies and live Application head/activation/schema remain included in the 17,004 accepting result JSON bytes. Only repeated already captured Application canonical bodies are absent.",
+    "Quiet collection native P95 changed materially; no parity or causal wall-time claim.",
+    "Canonical decoder invocation count and server CPU attribution are unavailable in these client reports."
+  ],
+  "server": {
+    "method": "Separate pg_stat_statements diagnostic; sum disjoint top-level statement contributions only. Nested internal calls remain separate, not added to their caller.",
+    "cases": {
+      "scalar": {
+        "wholeTopLevel": {
+          "calls": 63,
+          "planningMs": 14.683899999999998,
+          "executionMs": 3.128300000000017
+        },
+        "allRequestIdentityAttestations": {
+          "calls": 4,
+          "planningMs": 8.881699999999999,
+          "executionMs": 1.8775000000000004
+        },
+        "identityStatementGroups": [
+          {
+            "queryid": "-7613426781337725761",
+            "calls": 1,
+            "planningMs": 3.005399999999998,
+            "executionMs": 0.5667999999999997
+          },
+          {
+            "queryid": "-6480763741153771636",
+            "calls": 3,
+            "planningMs": 5.8763000000000005,
+            "executionMs": 1.3107000000000006
+          }
+        ]
+      },
+      "collection": {
+        "wholeTopLevel": {
+          "calls": 65,
+          "planningMs": 12.749299999999991,
+          "executionMs": 3.114699999999998
+        },
+        "allRequestIdentityAttestations": {
+          "calls": 4,
+          "planningMs": 8.105499999999992,
+          "executionMs": 1.7841000000000005
+        },
+        "identityStatementGroups": [
+          {
+            "queryid": "-7613426781337725761",
+            "calls": 1,
+            "planningMs": 2.108699999999999,
+            "executionMs": 0.44589999999999996
+          },
+          {
+            "queryid": "-6480763741153771636",
+            "calls": 3,
+            "planningMs": 5.996799999999993,
+            "executionMs": 1.3382000000000005
+          }
+        ]
+      }
+    }
+  },
+  "catalogCompositionCandidate": {
+    "status": "candidateFailsLatencyAcceptance",
+    "quietArtifact": "quiet-catalog-acceptance-final.json",
+    "serverArtifact": "server-catalog-acceptance-candidate.json.gz",
+    "cases": {
+      "scalar": {
+        "acceptanceComponent": {
+          "n": 30,
+          "medianMs": 10.210050000000003,
+          "p95Ms": 13.787200000000006
+        },
+        "identityServer": {
+          "calls": 4,
+          "planningMs": 6.8102999999999945,
+          "executionMs": 2.061799999999997
+        }
+      },
+      "collection": {
+        "acceptanceComponent": {
+          "n": 30,
+          "medianMs": 8.7513,
+          "p95Ms": 11.49819999999999
+        },
+        "identityServer": {
+          "calls": 4,
+          "planningMs": 6.867600000000003,
+          "executionMs": 2.0241000000000016
+        }
+      }
+    }
+  },
+  "scaling": {
+    "status": "structuralProofPassed",
+    "rawArtifact": "work/validation/fresh-application-acceptance/scaling-catalog-candidate.json",
+    "rawSha256": "e7161cfcfc8c35ab9dc6f5f4008177c23c4dc7adf404061144a847175f971b96",
+    "kind": "diagnosticStructuralScaling",
+    "sourceFiles": 15,
+    "unavailable": [
+      "quietLatencyDistribution",
+      "serverCpu",
+      "canonicalDecoderInvocationCounter"
+    ],
+    "cases": [
+      {
+        "name": "baseline",
+        "capturedBodyBytes": 10674,
+        "breadth": {
+          "sources": 3,
+          "ordered": 3,
+          "search": 1,
+          "unique": 2
+        },
+        "taskRows": 0,
+        "samples": [
+          {
+            "wholeSql": 63,
+            "canonicalAcceptingQueries": 0,
+            "canonicalAcceptingBodyBytes": 0,
+            "wholeHashCalls": 43,
+            "acceptingImmutableHashCalls": 0,
+            "guardCount": 1,
+            "fullRequestMs": 83.6831000000002
+          }
+        ]
+      },
+      {
+        "name": "functionCount",
+        "capturedBodyBytes": 59594,
+        "breadth": {
+          "sources": 3,
+          "ordered": 3,
+          "search": 1,
+          "unique": 2
+        },
+        "taskRows": 0,
+        "samples": [
+          {
+            "wholeSql": 63,
+            "canonicalAcceptingQueries": 0,
+            "canonicalAcceptingBodyBytes": 0,
+            "wholeHashCalls": 136,
+            "acceptingImmutableHashCalls": 0,
+            "guardCount": 1,
+            "fullRequestMs": 71.89370000000054
+          }
+        ]
+      },
+      {
+        "name": "functionBody",
+        "capturedBodyBytes": 108980,
+        "breadth": {
+          "sources": 3,
+          "ordered": 3,
+          "search": 1,
+          "unique": 2
+        },
+        "taskRows": 0,
+        "samples": [
+          {
+            "wholeSql": 63,
+            "canonicalAcceptingQueries": 0,
+            "canonicalAcceptingBodyBytes": 0,
+            "wholeHashCalls": 43,
+            "acceptingImmutableHashCalls": 0,
+            "guardCount": 1,
+            "fullRequestMs": 62.26589999999851
+          }
+        ]
+      },
+      {
+        "name": "coldBody",
+        "capturedBodyBytes": 14146,
+        "breadth": {
+          "sources": 3,
+          "ordered": 3,
+          "search": 1,
+          "unique": 2
+        },
+        "taskRows": 0,
+        "samples": [
+          {
+            "wholeSql": 63,
+            "canonicalAcceptingQueries": 0,
+            "canonicalAcceptingBodyBytes": 0,
+            "wholeHashCalls": 43,
+            "acceptingImmutableHashCalls": 0,
+            "guardCount": 1,
+            "fullRequestMs": 72.79680000000008
+          }
+        ]
+      },
+      {
+        "name": "taskMembership",
+        "capturedBodyBytes": 11202,
+        "breadth": {
+          "sources": 3,
+          "ordered": 3,
+          "search": 1,
+          "unique": 2
+        },
+        "taskRows": 1,
+        "samples": [
+          {
+            "wholeSql": 63,
+            "canonicalAcceptingQueries": 0,
+            "canonicalAcceptingBodyBytes": 0,
+            "wholeHashCalls": 45,
+            "acceptingImmutableHashCalls": 0,
+            "guardCount": 1,
+            "fullRequestMs": 57.211999999999534
+          }
+        ]
+      },
+      {
+        "name": "sourceWidth",
+        "capturedBodyBytes": 10674,
+        "breadth": {
+          "sources": 4,
+          "ordered": 63,
+          "search": 8,
+          "unique": 26
+        },
+        "taskRows": 0,
+        "samples": [
+          {
+            "wholeSql": 63,
+            "canonicalAcceptingQueries": 0,
+            "canonicalAcceptingBodyBytes": 0,
+            "wholeHashCalls": 43,
+            "acceptingImmutableHashCalls": 0,
+            "guardCount": 1,
+            "fullRequestMs": 58.673399999999674
+          }
+        ]
+      },
+      {
+        "name": "definitionCount",
+        "capturedBodyBytes": 10794,
+        "breadth": {
+          "sources": 3,
+          "ordered": 4,
+          "search": 1,
+          "unique": 2
+        },
+        "taskRows": 0,
+        "samples": [
+          {
+            "wholeSql": 63,
+            "canonicalAcceptingQueries": 0,
+            "canonicalAcceptingBodyBytes": 0,
+            "wholeHashCalls": 47,
+            "acceptingImmutableHashCalls": 0,
+            "guardCount": 1,
+            "fullRequestMs": 58.048299999994924
+          }
+        ]
+      }
+    ]
+  }
+}

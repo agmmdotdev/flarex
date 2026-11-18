@@ -1,0 +1,21 @@
+{
+  "name": "@flarex/trigger-run-engine",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "files": ["src", "README.md", "THIRD_PARTY_NOTICES.md", "trigger-source-map.json", "licenses"],
+  "exports": {
+    "./internal/run-attempt": "./src/runAttempt.ts"
+  },
+  "scripts": {
+    "typecheck": "tsrs -p tsconfig.json --fast --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "effect": "catalog:"
+  },
+  "devDependencies": {
+    "tsrs": "catalog:",
+    "vitest": "catalog:"
+  }
+}

@@ -9,6 +9,13 @@ Future implementation work should follow [AGENTS.md](./AGENTS.md). Domain
 decisions and implementation records live in [roadmaps/](./roadmaps/), split by
 feature area with Convex references and Cloudflare differences.
 
+To understand the current core, start with the
+[execution flow and ownership map](roadmaps/execution-architecture/architecture.md),
+then the [Postgres source/test guide](packages/persistence-postgres/README.md) and
+[Application executor guide](packages/executor/README.md). The
+[organization roadmap](roadmaps/execution-architecture/README.md) separates
+completed local capabilities from remaining construction and performance work.
+
 ## Prototype Workspace
 
 - `packages/flarex`: schema validators, Convex-style function authoring
@@ -114,6 +121,14 @@ archive, not as current design authority.
 - document every necessary Flarex divergence from Convex
 
 ### Next Work
+
+The private mixed-mutation graph delivered
+[aggregate request entry and prepared source construction](./roadmaps/mixed-mutation-core/19-aggregate-entry-preflight.md).
+Its atomic creation/source-entry and confirmed-fact contract is bounded to the
+existing private finite profile. Its stage cost gates passed with complete
+initial authentication and renewal; whole mixed latency goals remain unmet.
+Standard Application durable execution retains its existing obligations, and
+host lifecycle work remains conditional and unapproved.
 
 Do not infer the next implementation gate from this overview. Research and
 preflight the next unchecked gate in

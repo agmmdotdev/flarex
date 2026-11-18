@@ -38,8 +38,8 @@
         "DequeueSystem.dequeueFromWorkerQueue"
       ],
       "targetOwners": [
-        "packages/persistence-postgres/src/taskComputeDeliveryDiscovery.ts",
-        "packages/persistence-postgres/src/taskComputeDeliveryRepositoryV1.ts",
+        "packages/persistence-postgres/src/tasks/taskComputeDeliveryDiscovery.ts",
+        "packages/persistence-postgres/src/tasks/taskComputeDeliveryRepositoryV1.ts",
         "packages/flarex-backend/src/taskComputeDelivery/CandidateRunner.ts",
         "packages/flarex-backend/src/taskComputeDelivery/ConnectedRunner.ts"
       ],
@@ -118,7 +118,7 @@
       "targetOwners": [
         "packages/flarex-backend/src/taskComputeDelivery/DispatchRecoveryDecision.ts",
         "packages/flarex-backend/src/taskComputeDelivery/CandidateRunner.ts",
-        "packages/persistence-postgres/src/taskComputeDeliveryRepositoryV1.ts"
+        "packages/persistence-postgres/src/tasks/taskComputeDeliveryRepositoryV1.ts"
       ],
       "reuseClass": "S",
       "retainedControlFlow": [
@@ -216,7 +216,7 @@
         "POST workload heartbeat route"
       ],
       "targetOwners": [
-        "packages/persistence-postgres/src/taskAttemptLifecycleGateway.ts",
+        "packages/persistence-postgres/src/tasks/taskAttemptLifecycleGateway.ts",
         "packages/flarex-backend/src/taskComputeDelivery/TaskAttemptSupervisor.ts",
         "packages/flarex-backend/src/artifactRuntime/DurableTaskRuntimeHost.ts (planned)",
         "existing @flarex/durable-task RunAttemptLifecycle heartbeat operation"
@@ -257,7 +257,7 @@
         "packages/flarex-backend/src/artifactRuntime/TaskWorkerSessionHost.ts",
         "packages/flarex-backend/src/taskComputeDelivery/TaskWorkerTerminalCompletion.ts",
         "packages/flarex-backend/src/taskResult/TaskResultStore.ts",
-        "packages/persistence-postgres/src/taskAttemptLifecycleGateway.ts",
+        "packages/persistence-postgres/src/tasks/taskAttemptLifecycleGateway.ts",
         "packages/flarex-backend/src/taskComputeDelivery/TaskAttemptSupervisor.ts",
         "packages/flarex-backend/src/artifactRuntime/DurableTaskRuntimeHost.ts (planned)",
         "existing @flarex/durable-task RunAttemptLifecycle completion operation"
@@ -301,7 +301,7 @@
         "packages/flarex-backend/src/artifactRuntime/TaskWorkerSessionHost.ts",
         "packages/flarex-backend/src/taskComputeDelivery/WorkerLoaderTaskComputeProvider.ts",
         "packages/flarex-backend/src/taskComputeDelivery/TaskWorkerTerminalCompletion.ts",
-        "packages/persistence-postgres/src/taskAttemptLifecycleGateway.ts",
+        "packages/persistence-postgres/src/tasks/taskAttemptLifecycleGateway.ts",
         "packages/flarex-backend/src/taskComputeDelivery/TaskAttemptSupervisor.ts",
         "packages/flarex-backend/src/artifactRuntime/DurableTaskRuntimeHost.ts (planned)",
         "existing @flarex/durable-task RunAttemptLifecycle cancellation acknowledgement"

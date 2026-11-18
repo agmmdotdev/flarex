@@ -1,0 +1,8 @@
+
+ RUN  v5.0.3 C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor
+
+
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+   Start at  15:51:40
+   Duration  1.70s (tests 78%, import 18%, transform 4%)

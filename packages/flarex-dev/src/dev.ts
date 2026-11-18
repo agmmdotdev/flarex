@@ -2,6 +2,7 @@ import { mkdir, rm } from "node:fs/promises";
 import { join, parse, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Effect } from "effect";
+import { encodeDeploymentAnalysis } from "flarex-protocol/deployment";
 import { Miniflare } from "miniflare";
 import { build, type Plugin } from "vite";
 import type { R2BucketLike } from "flarex-backend/artifact-store";
@@ -386,7 +387,7 @@ async function activateExecutorPackage(
     deploymentId,
     projectId,
     sourcePackage,
-    ...(analysis === undefined ? {} : { analysisJson: analysis }),
+    ...(analysis === undefined ? {} : { analysisJson: encodeDeploymentAnalysis(analysis) }),
   });
   await executor.activateDeploymentPackage({
     deploymentId,

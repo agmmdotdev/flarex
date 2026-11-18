@@ -2,6 +2,14 @@
 
 ## Status And Authority
 
+For successor engine planning, the [portable core refactor direction](./flarex-db-accepted-design.md#portable-core-refactor-direction)
+and [current discussion](../experiments/core/engine/README.md) now control. Use the
+[open-question queue](../experiments/core/engine/OPEN-QUESTIONS.md) one concept at
+a time. The contracts/findings below describe prior core work and retained
+requirements; their unfinished steps do not select or authorize the DO engine.
+Preserve source evidence and implemented guarantees while replacing conflicting
+planning assumptions under the new refactor record.
+
 Status: owner-requested design and acceptance plan; runtime replacements,
 benchmarks and activation are not implemented by this document. Source findings
 identify costs and contention risks, not measured production bottlenecks.
@@ -40,14 +48,14 @@ advanced framework evolution retain their existing deferrals.
 
 | Existing owner | Source observation | Design consequence |
 | --- | --- | --- |
-| [Point OCC](../packages/persistence-postgres/src/appRowPointOcc.ts), `validateAppRowPointOccV1` | Pure, I/O-free comparison distinguishes conflicts from invalid evidence, including missing and tombstone observations. | Retain its correctness contract. A scope clock advance alone is not a same-row conflict. Measure state collection and retries separately from comparison CPU. |
-| [Materialization](../packages/persistence-postgres/src/applicationDocumentMaterialization/materialization.ts), `loadPointCommitHeads` | Uses a bounded VALUES query for current-pointer/latest-revision evidence. | Preserve batching and integrity; do not misdescribe this path as one query per dependency. |
-| Same owner, `materializeApplicationDocumentRows`, `writePointCommitDeveloperIndexActions`, `writePointCommitUniqueKeyActions` | Row, changed-index and unique actions still enter sequential per-action operations. | Make bounded set-based application an explicit core capability, not an adapter loop or concurrent promises on one connection. |
-| Same owner, `lockPointCommitDeveloperIndexBuilds`, `lockPointCommitIntrinsicIndexBuilds` | Relevant build rows acquire update locks; enabled maintained indexes advance `coveredThroughCommitSeq` during ordinary commits. | Scope-clock changes alone may expose index-state contention. Lifecycle readiness and enabled-index maintenance need a replacement proof. |
-| [Point commit owner](../packages/persistence-postgres/src/pointCommitTransaction.ts) and materialization | Authoritative validation and materialization use the locked clock; row/index revisions take a tentative commit sequence. | Sequence assignment constrains the critical-section design. Existing materialization cannot simply move before sequence allocation. |
-| [Publisher](../packages/persistence-postgres/src/commitPublication/publication.ts) | Shared owner writes complete publication families, outcome and wake, then advances the clock; Application and adjacency facts are batched. | Retain one atomic publisher and existing batching. Publication batching is not proof that all row/index/unique application is batched. |
-| [Physical session](../packages/persistence-postgres/src/physicalSession/postgres.ts) and [request recovery](../packages/persistence-postgres/src/relationalTransaction/requestRecovery.ts) | Acquisition, pending work, cancellation/quarantine and uncertain outcomes have explicit owners; framework uncertainty re-entry is recovery-only. | Preserve cleanup and decision provenance. Measure ordinary operation separately from exceptional cleanup/recovery. |
-| [Journal](../packages/persistence-postgres/src/sessionJournalStore.ts) and [storage redesign](../roadmaps/shared-transaction-core/07-transactional-storage-redesign.md) | Native syscalls retain dependencies, working values, receipts and seal evidence. Several storage/receipt reductions already exist; coalescing has separate proof obligations. | Attribute journal cost across the request. Do not add this native cost model to every framework command or remove evidence without a replacement contract. |
+| [Point OCC](../packages/persistence-postgres/src/storage/documents/appRowPointOcc.ts), `validateAppRowPointOccV1` | Pure, I/O-free comparison distinguishes conflicts from invalid evidence, including missing and tombstone observations. | Retain its correctness contract. A scope clock advance alone is not a same-row conflict. Measure state collection and retries separately from comparison CPU. |
+| [Materialization](../packages/persistence-postgres/src/storage/materialization/materialization.ts), `loadPointCommitHeads` | Uses a bounded VALUES query for current-pointer/latest-revision evidence. | Preserve batching and integrity; do not misdescribe this path as one query per dependency. |
+| Same owner, `materializeApplicationDocumentRows`, `writePointCommitUniqueKeyActions` | Prepared rows, combined intrinsic/developer memberships and unique ownership phases use bounded application at their shared storage owners. Unique releases precede claims within the same transaction. | Continue bounded set-based application at the existing owners, not an adapter loop or concurrent promises on one connection. |
+| Same owner, ordered and unique build coverage | Activated ordered indexes and unique constraints use shared build protection and activation-bound continuous maintenance without ordinary progress updates. | The [ordered cutover](../roadmaps/shared-transaction-core/23-ce2-activation-maintenance-cutover.md) and [unique cutover](../roadmaps/shared-transaction-core/26-ce2-unique-maintenance-cutover.md) retain their distinct history/current-ownership proofs. Measure remaining validation work and scope-clock exclusion. |
+| [Point commit owner](../packages/persistence-postgres/src/commit/point/README.md) and materialization | Authoritative validation and materialization use the locked clock; row/index revisions take a tentative commit sequence. | Sequence assignment constrains the critical-section design. Existing materialization cannot simply move before sequence allocation. |
+| [Publisher](../packages/persistence-postgres/src/commit/publication/publication.ts) | Shared owner writes complete publication families, outcome and wake, then advances the clock; Application and adjacency facts are batched. | Retain one atomic publisher and existing batching. Publication batching is not proof that all row/index/unique application is batched. |
+| [Physical session](../packages/persistence-postgres/src/database/physicalSession/postgres.ts) and [request recovery](../packages/persistence-postgres/src/database/relationalTransaction/requestRecovery.ts) | Acquisition, pending work, cancellation/quarantine and uncertain outcomes have explicit owners; framework uncertainty re-entry is recovery-only. | Preserve cleanup and decision provenance. Measure ordinary operation separately from exceptional cleanup/recovery. |
+| [Journal](../packages/persistence-postgres/src/execution/sessionJournalStore.ts) and [storage redesign](../roadmaps/shared-transaction-core/07-transactional-storage-redesign.md) | Native syscalls retain dependencies, working values, receipts and seal evidence. Several storage/receipt reductions already exist; coalescing has separate proof obligations. | Attribute journal cost across the request. Do not add this native cost model to every framework command or remove evidence without a replacement contract. |
 
 Current canonical-byte row bodies, membership-transition index history, stable
 unique ownership and commit-keyed wakes are assets, not work to repeat. Precise
@@ -102,12 +110,15 @@ candidates. Retain bounded fresh-attempt retries and an overall deadline.
 
 ### Current Risk
 
-Ordinary writes can lock the same index-build row and update its coverage even
-when they modify disjoint records. Those locks are currently nested inside a
-broader serialized commit path. Removing the scope lock alone may therefore
-move contention rather than remove it. PostgreSQL row locks normally last until
-the owning transaction ends; inspect every late waiter and shared metadata row,
-not just the first acquired lock.
+Activated ordinary writes now retain shared build protection without per-commit
+coverage updates. The broader scope-clock exclusion still serializes disjoint
+same-scope work: the [active request witness](../roadmaps/shared-transaction-core/29-ce3-active-request-concurrency.md)
+now observes a competing request completing preparation and waiting at its main
+exclusive clock acquisition. [Planning/acceptance separation](../roadmaps/shared-transaction-core/31-ce3-unlocked-planning.md)
+removed preliminary binding and candidate-guard exclusion while retaining fresh
+acceptance. Another active scope can complete publication through the same
+physical families during that wait. A concurrency replacement must still
+coordinate every late waiter and shared metadata row.
 
 ### Proposed Replacement Contract
 

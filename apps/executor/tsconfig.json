@@ -2,12 +2,14 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "noUncheckedIndexedAccess": true,
+    "customConditions": ["workerd"],
     "types": ["@cloudflare/workers-types"]
   },
   "include": [
     "h05",
     "src",
     "test",
+    "vitest.config.ts",
     "wrangler.jsonc",
     "wrangler.h05-probe.jsonc"
   ]

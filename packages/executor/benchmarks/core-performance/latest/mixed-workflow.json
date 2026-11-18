@@ -1,0 +1,124 @@
+{
+  "runId": "2041049d-e1c8-48db-a06e-b6d727626826",
+  "scenario": "mixed-workflow",
+  "full": false,
+  "plan": {
+    "warmups": 1,
+    "measured": 3
+  },
+  "status": "passed",
+  "failureStage": null,
+  "failureTokens": [],
+  "method": "Node direct execution; fresh requests; real settlement; separate single SQL diagnostic",
+  "environment": {
+    "node": "v24.16.0",
+    "postgres": {
+      "postgresVersion": "18.3",
+      "role": "flarex_runtime_1791018895883_wcqgtmc8i5",
+      "superuser": false,
+      "bypassRls": false,
+      "createDb": false,
+      "createRole": false,
+      "synchronousCommit": "on",
+      "fsync": "on",
+      "fullPageWrites": "on"
+    },
+    "revision": "92506db3b1730d0fb6a535d8dcc024e5fc188812",
+    "dirty": "true"
+  },
+  "latency": {
+    "samples": 3,
+    "medianMs": 718.2024000000092,
+    "minMs": 710.8150999999925,
+    "maxMs": 718.4602999999915
+  },
+  "sql": {
+    "outcome": "ok",
+    "dispatches": 800,
+    "statements": 800,
+    "transactions": 63,
+    "openTransactions": 0,
+    "queryErrors": 0,
+    "lostContextDispatches": 0,
+    "unknownStatementDispatches": 0,
+    "unobservedDispatches": 0,
+    "incompleteSpans": 0
+  },
+  "timings": {
+    "loadMs": 0.04050000000279397,
+    "prepareMs": 26876.834499999997,
+    "preparation": {
+      "provisionAndPrepareMs": 22702.957800000004,
+      "runtimeConstructionMs": 2678.465000000011,
+      "initialSeedMs": 1495.2943999999989,
+      "installation": {
+        "migrationMs": 16098.425399999993,
+        "managedSetupMs": 346.6012000000046,
+        "coLocatedSetupMs": 179.4667000000045,
+        "totalInstallationMs": 16624.493300000002
+      },
+      "fixturePreparation": {
+        "provisionAndMigrateMs": 8551.310199999993,
+        "applicationAndReadInstallationMs": 713.98109999999,
+        "compositionAndCompilationMs": 80.64719999999215,
+        "logicalAdmissionMs": 3227.1040000000066,
+        "indexAndUniqueBuildMs": 8748.895199999999,
+        "bindingAndInitializationMs": 1380.7841000000044
+      }
+    },
+    "cleanupMs": 1135.5316000000166,
+    "runnerTotalMs": 38957.697599999985
+  },
+  "samples": [
+    {
+      "id": "mixed-workflow-sql-0",
+      "kind": "sql",
+      "requestMs": 882.6300000000047,
+      "seedMs": 0.013699999995878898,
+      "verifyMs": 1145.7465999999986,
+      "cleanupMs": 0.0026999999972758815,
+      "failureStage": null,
+      "failureTokens": []
+    },
+    {
+      "id": "mixed-workflow-warmup-1",
+      "kind": "warmup",
+      "requestMs": 736.9043999999994,
+      "seedMs": 508.94950000000244,
+      "verifyMs": 1023.0714000000007,
+      "cleanupMs": 0.0038000000058673322,
+      "failureStage": null,
+      "failureTokens": []
+    },
+    {
+      "id": "mixed-workflow-measured-2",
+      "kind": "measured",
+      "requestMs": 718.2024000000092,
+      "seedMs": 489.54409999999916,
+      "verifyMs": 1016.580999999991,
+      "cleanupMs": 0.0029999999969732016,
+      "failureStage": null,
+      "failureTokens": []
+    },
+    {
+      "id": "mixed-workflow-measured-3",
+      "kind": "measured",
+      "requestMs": 718.4602999999915,
+      "seedMs": 484.08640000000014,
+      "verifyMs": 1000.249800000005,
+      "cleanupMs": 0.0024000000121304765,
+      "failureStage": null,
+      "failureTokens": []
+    },
+    {
+      "id": "mixed-workflow-measured-4",
+      "kind": "measured",
+      "requestMs": 710.8150999999925,
+      "seedMs": 491.2459999999992,
+      "verifyMs": 1018.0738999999885,
+      "cleanupMs": 0.0020000000076834112,
+      "failureStage": null,
+      "failureTokens": []
+    }
+  ]
+}

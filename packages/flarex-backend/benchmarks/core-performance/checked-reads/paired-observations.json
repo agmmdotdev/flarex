@@ -1,0 +1,66 @@
+{
+  "format": "flarex.checked-read-paired-observations",
+  "matchedGraph": "equal settings/cardinalities/rows/JSON bytes/dispatch fingerprints and outcomes/transaction outcomes including initial admission",
+  "hashedOwnerCount": 36,
+  "changedSourcePaths": [
+    "packages/persistence-postgres/src/logicalDocuments/sourceAdmission.ts"
+  ],
+  "sourceHashes": {
+    "baseline": "077a5436e327ccc410e307f56e808a2f3bae69ebcca3ff1182dc5f8c8fb762ef",
+    "candidate": "1dce90c3fd5ddaa1f466a8894d6cdb0acbf2a71605ba9f17be4d2fdd745e5fcf"
+  },
+  "candidateReceipt": {
+    "decodedBytes": 996739,
+    "decodedSha256": "3204cabac2c5de5ab95f3b135036c9dcfb7af4dd7f767a2d5078ef1b81437893",
+    "gzipBytes": 75046,
+    "gzipSha256": "39c12eeea4b7865107906f1db8ebc6c1d15847dc47517b3c6ba1cbe12071bd64"
+  },
+  "metrics": [
+    {
+      "case": "product-id-miss",
+      "baseline": {
+        "n": 5,
+        "minMs": 20.693499999993946,
+        "medianMs": 29.27039999999397,
+        "maxMs": 34.59619999999995
+      },
+      "candidate": {
+        "n": 5,
+        "minMs": 17.961800000004587,
+        "medianMs": 18.77150000000256,
+        "maxMs": 32.07209999999759
+      }
+    },
+    {
+      "case": "handle-index-miss",
+      "baseline": {
+        "n": 5,
+        "minMs": 22.57890000000043,
+        "medianMs": 28.532300000006217,
+        "maxMs": 31.679300000003423
+      },
+      "candidate": {
+        "n": 5,
+        "minMs": 17.872699999999895,
+        "medianMs": 18.722499999996217,
+        "maxMs": 22.336800000004587
+      }
+    },
+    {
+      "case": "pending-product-id-hit",
+      "baseline": {
+        "n": 5,
+        "minMs": 0.7681999999986147,
+        "medianMs": 0.9601000000038766,
+        "maxMs": 1.0794999999998254
+      },
+      "candidate": {
+        "n": 5,
+        "minMs": 0.5731999999989057,
+        "medianMs": 0.5970000000015716,
+        "maxMs": 0.7379000000000815
+      }
+    }
+  ],
+  "interpretation": "One sequential quiet pair, five successive observations per case; client duration only. This is no independent causal latency acceptance proof."
+}

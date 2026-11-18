@@ -1,5 +1,13 @@
 # DTE02-D: Application Revision And Durable Task Runtime Binding
 
+> **Legacy Task record - superseded direction.**
+> The [Task System design](../../../design-notes/task-system/README.md) and
+> [current roadmap](../../task-system/README.md) own replacement work.
+> This body is historical baseline/source evidence; its statuses, approvals and
+> next steps apply to the former initiative. Preserve applicable behavior and
+> tests until consumer cutover. Do not use this record to extend the custom
+> engine or retain Task-specific physical tables.
+
 ## Decision
 
 **Outcome: ADMIT one task-specific runtime publication bound into the existing
@@ -747,12 +755,12 @@ DTE02-D is complete with these conclusions:
 
 This decision is grounded in:
 
-- `packages/persistence-postgres/src/applicationRevisionRegistrationV1.ts`;
-- `packages/persistence-postgres/src/candidateRuntimeProjectionV1.ts`;
-- `packages/persistence-postgres/src/candidateRuntimePublicationRepositoryV1.ts`;
-- `packages/persistence-postgres/src/applicationRevisionReadinessV1.ts`;
-- `packages/persistence-postgres/src/applicationRevisionActivationV1.ts`;
-- `packages/persistence-postgres/src/applicationRevisionActiveSelectionStateV1.ts`;
+- `packages/persistence-postgres/src/application/revision/applicationRevisionRegistrationV1.ts`;
+- `packages/persistence-postgres/src/application/candidateRuntimeProjectionV1.ts`;
+- `packages/persistence-postgres/src/application/candidateRuntimePublicationRepositoryV1.ts`;
+- `packages/persistence-postgres/src/application/revision/applicationRevisionReadinessV1.ts`;
+- `packages/persistence-postgres/src/application/revision/applicationRevisionActivationV1.ts`;
+- `packages/persistence-postgres/src/application/revision/applicationRevisionActiveSelectionStateV1.ts`;
 - current mutation/query application-revision runtime-target adapters;
 - current candidate-bound runtime-target protocol and backend loaders;
 - [`../02-task-definition-identity-and-scope.md`](../02-task-definition-identity-and-scope.md);

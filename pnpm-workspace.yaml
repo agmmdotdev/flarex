@@ -2,6 +2,13 @@ packages:
   - packages/*
   - apps/*
 
+allowBuilds:
+  esbuild: set this to true or false
+  msgpackr-extract: set this to true or false
+  sharp: set this to true or false
+  tsc-rs: set this to true or false
+  workerd: set this to true or false
+
 catalog:
   "@cloudflare/workers-types": "^4.20260613.0"
   "@electric-sql/pglite": "^0.5.8"
@@ -10,7 +17,13 @@ catalog:
   "effect": "4.0.0-rc.112"
   "miniflare": "4.20260611.0"
   "tsx": "^4.21.0"
-  "typescript": "^7.0.2"
-  "vite": "^8.2.2"
-  "vitest": "^5.0.0"
+  "tsc-rs": "0.8.0"
+  "tsrs": "0.20.1-ts7.1.0-beta"
+  "typescript": "7.1.0-beta"
+  "vite": "^8.3.3"
+  "vitest": "^5.0.3"
   "wrangler": "^4.100.0"
+overrides:
+  workerd@1.20260611.1: 1.20260929.1
+patchedDependencies:
+  pg-cloudflare@1.4.0: patches/pg-cloudflare@1.4.0.patch

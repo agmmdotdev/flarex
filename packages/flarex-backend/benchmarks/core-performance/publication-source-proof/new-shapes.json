@@ -1,0 +1,3823 @@
+{
+  "format": "flarex.publication-source-proof-new-submitted-shapes",
+  "source": "candidate.json.gz compared with baseline.json.gz",
+  "completeServerAttribution": false,
+  "serverGap": "No new server lane; nested function/trigger/planning/lock/CPU work unavailable",
+  "interpretation": "New submitted fingerprint is a shape change, not proof of removed contained work",
+  "shapes": [
+    {
+      "fingerprint": "3c6d1b3ebf9213aa28062f637a401f40449673458938eebf8ea5fcce151caa62",
+      "pool": "target",
+      "submittedTemplate": "select \"scope_uuid\" , \"table_id\" , \"row_id\" , \"commit_seq\" , \"prev_commit_seq\" , \"write_epoch_uuid\" , \"schema_version_id\" , \"creation_time\" , \"value_codec_version\" , \"is_tombstone\" , \"value_sha256\" , case when coalesce ( sum ( coalesce ( octet_length ( \"snapshot_latest\" . \"value_bytes\" ) , ? ) ) over ( order by case \"snapshot_latest\" . \"row_id\" when $? then $? end rows between unbounded preceding and ? preceding ) , ? ) > ? and coalesce ( sum ( coalesce ( octet_length ( \"snapshot_latest\" . \"value_bytes\" ) , ? ) ) over ( order by case \"snapshot_latest\" . \"row_id\" when $? then $? end rows between unbounded preceding and ? preceding ) , ? ) + coalesce ( octet_length ( \"snapshot_latest\" . \"value_bytes\" ) , ? ) > $? then null else \"value_bytes\" end , coalesce ( sum ( coalesce ( octet_length ( \"snapshot_latest\" . \"value_bytes\" ) , ? ) ) over ( order by case \"snapshot_latest\" . \"row_id\" when $? then $? end rows between unbounded preceding and ? preceding ) , ? ) > ? and coalesce ( sum ( coalesce ( octet_length ( \"snapshot_latest\" . \"value_bytes\" ) , ? ) ) over ( order by case \"snapshot_latest\" . \"row_id\" when $? then $? end rows between unbounded preceding and ? preceding ) , ? ) + coalesce ( octet_length ( \"value_bytes\" ) , ? ) > $? from ( select distinct on ( \"fx_app_row_rev\" . \"table_id\" , \"fx_app_row_rev\" . \"row_id\" ) \"scope_uuid\" , \"table_id\" , \"row_id\" , \"commit_seq\" , \"prev_commit_seq\" , \"write_epoch_uuid\" , \"schema_version_id\" , \"creation_time\" , \"value_codec_version\" , \"is_tombstone\" , \"value_bytes\" , \"value_sha256\" from \"fx_app_row_rev\" where ( \"fx_app_row_rev\" . \"scope_uuid\" = $? and ( \"fx_app_row_rev\" . \"table_id\" = $? and \"fx_app_row_rev\" . \"row_id\" in ( $? ) ) and \"fx_app_row_rev\" . \"commit_seq\" < = $? ) order by \"fx_app_row_rev\" . \"table_id\" , \"fx_app_row_rev\" . \"row_id\" , \"fx_app_row_rev\" . \"commit_seq\" desc ) \"snapshot_latest\" order by case \"snapshot_latest\" . \"row_id\" when $? then $? end",
+      "observedOwners": [
+        {
+          "pool": "target",
+          "fingerprint": "3c6d1b3ebf9213aa28062f637a401f40449673458938eebf8ea5fcce151caa62",
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "status": "unattributed",
+          "owner": null,
+          "observedDispatches": 1,
+          "sourceSites": [
+            {
+              "siteId": "055ae538638873d05e39461654cc0bcfb67af960fea3e1f79af6c791c4a4474a",
+              "owner": null,
+              "sourceFrames": [
+                "at file:///C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/node_modules/.pnpm/drizzle-orm@0.45.2_@cloudfl_eb068ed2e871e66fe62f1ce4763351dc/node_modules/drizzle-orm/node-postgres/session.js:124:31",
+                "at NodePgPreparedQuery.queryWithCache (file:///C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/node_modules/.pnpm/drizzle-orm@0.45.2_@cloudfl_eb068ed2e871e66fe62f1ce4763351dc/node_modules/drizzle-orm/pg-core/session.js:39:22)",
+                "at file:///C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/node_modules/.pnpm/drizzle-orm@0.45.2_@cloudfl_eb068ed2e871e66fe62f1ce4763351dc/node_modules/drizzle-orm/node-postgres/session.js:123:21",
+                "at Object.startActiveSpan (file:///C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/node_modules/.pnpm/drizzle-orm@0.45.2_@cloudfl_eb068ed2e871e66fe62f1ce4763351dc/node_modules/drizzle-orm/tracing.js:8:14)",
+                "at file:///C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/node_modules/.pnpm/drizzle-orm@0.45.2_@cloudfl_eb068ed2e871e66fe62f1ce4763351dc/node_modules/drizzle-orm/node-postgres/session.js:117:35",
+                "at Object.startActiveSpan (file:///C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/node_modules/.pnpm/drizzle-orm@0.45.2_@cloudfl_eb068ed2e871e66fe62f1ce4763351dc/node_modules/drizzle-orm/tracing.js:8:14)",
+                "at NodePgPreparedQuery.execute (file:///C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/node_modules/.pnpm/drizzle-orm@0.45.2_@cloudfl_eb068ed2e871e66fe62f1ce4763351dc/node_modules/drizzle-orm/node-postgres/session.js:101:19)",
+                "at file:///C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/node_modules/.pnpm/drizzle-orm@0.45.2_@cloudfl_eb068ed2e871e66fe62f1ce4763351dc/node_modules/drizzle-orm/pg-core/query-builders/select.js:797:30"
+              ],
+              "dispatchCount": 1
+            }
+          ]
+        }
+      ],
+      "manualOwnerSemantics": {
+        "classification": "manual frozen-source interpretation; trace source-stack owner remains unattributed",
+        "owner": "packages/persistence-postgres/src/appRows.ts",
+        "line": 592,
+        "ctes": [],
+        "semantics": "Bounded genuine composite participant identities select DISTINCT ON(table,row) latest revision at snapshot. Single-table IN or multi-table disjunction and explicit requested-order CASE retain original ordinal. Window byte accounting withholds later settlement bodies; native bytea is decoded/authenticated in original order. Product has one historical dispatch already; other plans replace 2/8 historical dispatches with one.",
+        "retained": "Participant proof/correlation, revision/tombstone/fact validation, original prefix verdict/defect/interruption and transfer bound. Native evaluator reader retains its own named window semantics. No history write is removed.",
+        "serverMetrics": "unavailable: submitted text does not measure scans/plans/CPU/lock/function/trigger executions",
+        "measuredOwnerSha256": "adaa433b0767c872b3eb35459e03343f09fabffbe61edb80be8566293f84a476",
+        "sourceScope": "original failed candidate measured owner; later approved correction is unmeasured here"
+      },
+      "occurrences": [
+        {
+          "sample": "product-0-detailed",
+          "profile": "product",
+          "warmup": true,
+          "ordinal": 411,
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "overlaps": [
+            {
+              "phase": "authoritative publication",
+              "overlapMs": 0.5420000000012806,
+              "containing": true
+            },
+            {
+              "phase": "participantProof",
+              "overlapMs": 0.5420000000012806,
+              "containing": true
+            },
+            {
+              "phase": "transaction",
+              "overlapMs": 0.5420000000012806,
+              "containing": true
+            },
+            {
+              "phase": "publisher",
+              "overlapMs": 0.5420000000012806,
+              "containing": true
+            }
+          ],
+          "parameterCount": 16,
+          "scalarParameterBytes": 152,
+          "unknownEncodingParameters": 0,
+          "sqlUtf8Bytes": 1801,
+          "awaitedMs": 0.5420000000012806,
+          "outcome": "ok"
+        },
+        {
+          "sample": "product-1-detailed",
+          "profile": "product",
+          "warmup": false,
+          "ordinal": 411,
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "overlaps": [
+            {
+              "phase": "authoritative publication",
+              "overlapMs": 0.46279999999387655,
+              "containing": true
+            },
+            {
+              "phase": "participantProof",
+              "overlapMs": 0.46279999999387655,
+              "containing": true
+            },
+            {
+              "phase": "transaction",
+              "overlapMs": 0.46279999999387655,
+              "containing": true
+            },
+            {
+              "phase": "publisher",
+              "overlapMs": 0.46279999999387655,
+              "containing": true
+            }
+          ],
+          "parameterCount": 16,
+          "scalarParameterBytes": 152,
+          "unknownEncodingParameters": 0,
+          "sqlUtf8Bytes": 1801,
+          "awaitedMs": 0.46279999999387655,
+          "outcome": "ok"
+        },
+        {
+          "sample": "product-2-detailed",
+          "profile": "product",
+          "warmup": false,
+          "ordinal": 411,
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "overlaps": [
+            {
+              "phase": "authoritative publication",
+              "overlapMs": 0.44790000000648433,
+              "containing": true
+            },
+            {
+              "phase": "participantProof",
+              "overlapMs": 0.44790000000648433,
+              "containing": true
+            },
+            {
+              "phase": "transaction",
+              "overlapMs": 0.44790000000648433,
+              "containing": true
+            },
+            {
+              "phase": "publisher",
+              "overlapMs": 0.44790000000648433,
+              "containing": true
+            }
+          ],
+          "parameterCount": 16,
+          "scalarParameterBytes": 152,
+          "unknownEncodingParameters": 0,
+          "sqlUtf8Bytes": 1801,
+          "awaitedMs": 0.44790000000648433,
+          "outcome": "ok"
+        },
+        {
+          "sample": "product-3-detailed",
+          "profile": "product",
+          "warmup": false,
+          "ordinal": 411,
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "overlaps": [
+            {
+              "phase": "authoritative publication",
+              "overlapMs": 0.48320000000239816,
+              "containing": true
+            },
+            {
+              "phase": "participantProof",
+              "overlapMs": 0.48320000000239816,
+              "containing": true
+            },
+            {
+              "phase": "transaction",
+              "overlapMs": 0.48320000000239816,
+              "containing": true
+            },
+            {
+              "phase": "publisher",
+              "overlapMs": 0.48320000000239816,
+              "containing": true
+            }
+          ],
+          "parameterCount": 16,
+          "scalarParameterBytes": 152,
+          "unknownEncodingParameters": 0,
+          "sqlUtf8Bytes": 1801,
+          "awaitedMs": 0.48320000000239816,
+          "outcome": "ok"
+        },
+        {
+          "sample": "product-4-detailed",
+          "profile": "product",
+          "warmup": false,
+          "ordinal": 411,
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "overlaps": [
+            {
+              "phase": "authoritative publication",
+              "overlapMs": 0.47449999999662396,
+              "containing": true
+            },
+            {
+              "phase": "participantProof",
+              "overlapMs": 0.47449999999662396,
+              "containing": true
+            },
+            {
+              "phase": "transaction",
+              "overlapMs": 0.47449999999662396,
+              "containing": true
+            },
+            {
+              "phase": "publisher",
+              "overlapMs": 0.47449999999662396,
+              "containing": true
+            }
+          ],
+          "parameterCount": 16,
+          "scalarParameterBytes": 152,
+          "unknownEncodingParameters": 0,
+          "sqlUtf8Bytes": 1801,
+          "awaitedMs": 0.47449999999662396,
+          "outcome": "ok"
+        },
+        {
+          "sample": "product-5-detailed",
+          "profile": "product",
+          "warmup": false,
+          "ordinal": 411,
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "overlaps": [
+            {
+              "phase": "authoritative publication",
+              "overlapMs": 0.4429999999993015,
+              "containing": true
+            },
+            {
+              "phase": "participantProof",
+              "overlapMs": 0.4429999999993015,
+              "containing": true
+            },
+            {
+              "phase": "transaction",
+              "overlapMs": 0.4429999999993015,
+              "containing": true
+            },
+            {
+              "phase": "publisher",
+              "overlapMs": 0.4429999999993015,
+              "containing": true
+            }
+          ],
+          "parameterCount": 16,
+          "scalarParameterBytes": 152,
+          "unknownEncodingParameters": 0,
+          "sqlUtf8Bytes": 1801,
+          "awaitedMs": 0.4429999999993015,
+          "outcome": "ok"
+        }
+      ]
+    },
+    {
+      "fingerprint": "9cd45f0a04a8d7687da0ec4a4171f00feb3a68d90d84bf4267bc46cdd40954cd",
+      "pool": "target",
+      "submittedTemplate": "with \"application_bundle_capture_keys\" as ( ( select ? as \"family\" , ? : : text as \"function_path\" from ( select ? ) as bundle_parent_seed ) union all ( select ? as \"family\" , \"function_path\" from \"fx_system_application_function_v1\" where ( \"fx_system_application_function_v1\" . \"scope_id\" = $? and \"fx_system_application_function_v1\" . \"revision_id\" = $? ) limit $? ) ) select \"application_bundle_capture_keys\" . \"family\" , \"fx_system_application_candidate_v1\" . \"scope_id\" , \"fx_system_application_candidate_v1\" . \"candidate_id\" , \"fx_system_application_candidate_v1\" . \"request_key\" , \"fx_system_application_candidate_v1\" . \"source_artifact_root_sha256\" , \"fx_system_application_candidate_v1\" . \"storage_generation\" , \"fx_system_application_candidate_v1\" . \"storage_generation_fence\" , \"fx_system_application_candidate_v1\" . \"epoch\" , \"fx_system_application_candidate_v1\" . \"created_at\" , \"fx_system_application_analysis_v1\" . \"scope_id\" , \"fx_system_application_analysis_v1\" . \"analysis_id\" , \"fx_system_application_analysis_v1\" . \"candidate_id\" , \"fx_system_application_analysis_v1\" . \"source_artifact_root_sha256\" , \"fx_system_application_analysis_v1\" . \"analyzer_identity\" , \"fx_system_application_analysis_v1\" . \"analyzer_policy_identity\" , \"fx_system_application_analysis_v1\" . \"status\" , \"fx_system_application_analysis_v1\" . \"manifest_sha256\" , case when octet_length ( \"fx_system_application_analysis_v1\" . \"manifest_bytes\" ) between ? and $? then \"fx_system_application_analysis_v1\" . \"manifest_bytes\" else null end , \"fx_system_application_analysis_v1\" . \"receipt_sha256\" , \"fx_system_application_analysis_v1\" . \"receipt_bytes\" , \"fx_system_application_analysis_v1\" . \"failure_code\" , \"fx_system_application_analysis_v1\" . \"failure_detail\" , \"fx_system_application_analysis_v1\" . \"completed_at\" , \"fx_system_application_analysis_v1\" . \"created_at\" , \"fx_system_application_analysis_v1\" . \"updated_at\" , \"fx_system_application_publication_v1\" . \"scope_id\" , \"fx_system_application_publication_v1\" . \"revision_id\" , \"fx_system_application_publication_v1\" . \"candidate_id\" , \"fx_system_application_publication_v1\" . \"analysis_id\" , \"fx_system_application_publication_v1\" . \"revision_status\" , \"fx_system_application_publication_v1\" . \"source_artifact_root_sha256\" , \"fx_system_application_publication_v1\" . \"manifest_sha256\" , \"fx_system_application_publication_v1\" . \"schema_sha256\" , case when octet_length ( \"fx_system_application_publication_v1\" . \"schema_bytes\" ) between ? and $? then \"fx_system_application_publication_v1\" . \"schema_bytes\" else ? : : bytea end , \"fx_system_application_publication_v1\" . \"function_catalog_sha256\" , case when octet_length ( \"fx_system_application_publication_v1\" . \"function_catalog_bytes\" ) between ? and $? then \"fx_system_application_publication_v1\" . \"function_catalog_bytes\" else ? : : bytea end , \"fx_system_application_publication_v1\" . \"publication_sha256\" , \"fx_system_application_publication_v1\" . \"published_at\" , \"fx_system_application_function_v1\" . \"scope_id\" , \"fx_system_application_function_v1\" . \"revision_id\" , \"fx_system_application_function_v1\" . \"function_catalog_sha256\" , \"fx_system_application_function_v1\" . \"function_path\" , \"fx_system_application_function_v1\" . \"module_name\" , \"fx_system_application_function_v1\" . \"export_name\" , \"fx_system_application_function_v1\" . \"function_kind\" , \"fx_system_application_function_v1\" . \"visibility\" , \"fx_system_application_function_v1\" . \"entry_sha256\" , case when ( select coalesce ( sum ( octet_length ( \"fx_system_application_function_v1\" . \"entry_bytes\" ) ) , ? ) < = $? and count ( * ) < = $? from \"fx_system_application_function_v1\" where \"fx_system_application_function_v1\" . \"scope_id\" = $? and \"fx_system_application_function_v1\" . \"revision_id\" = $? ) and octet_length ( \"fx_system_application_function_v1\" . \"entry_bytes\" ) between ? and $? then \"fx_system_application_function_v1\" . \"entry_bytes\" else ? : : bytea end from \"application_bundle_capture_keys\" left join \"fx_system_application_candidate_v1\" on ( \"application_bundle_capture_keys\" . \"family\" = $? and \"fx_system_application_candidate_v1\" . \"scope_id\" = $? and \"fx_system_application_candidate_v1\" . \"candidate_id\" = $? ) left join \"fx_system_application_analysis_v1\" on ( \"application_bundle_capture_keys\" . \"family\" = $? and \"fx_system_application_analysis_v1\" . \"scope_id\" = $? and \"fx_system_application_analysis_v1\" . \"analysis_id\" = $? ) left join \"fx_system_application_publication_v1\" on ( \"application_bundle_capture_keys\" . \"family\" = $? and \"fx_system_application_publication_v1\" . \"scope_id\" = $? and \"fx_system_application_publication_v1\" . \"revision_id\" = $? ) left join \"fx_system_application_function_v1\" on ( \"application_bundle_capture_keys\" . \"family\" = $? and \"fx_system_application_function_v1\" . \"scope_id\" = $? and \"fx_system_application_function_v1\" . \"revision_id\" = $? and \"fx_system_application_function_v1\" . \"function_path\" = \"application_bundle_capture_keys\" . \"function_path\" )",
+      "observedOwners": [
+        {
+          "pool": "target",
+          "fingerprint": "9cd45f0a04a8d7687da0ec4a4171f00feb3a68d90d84bf4267bc46cdd40954cd",
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "status": "unattributed",
+          "owner": null,
+          "observedDispatches": 1,
+          "sourceSites": [
+            {
+              "siteId": "055ae538638873d05e39461654cc0bcfb67af960fea3e1f79af6c791c4a4474a",
+              "owner": null,
+              "sourceFrames": [
+                "at file:///C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/node_modules/.pnpm/drizzle-orm@0.45.2_@cloudfl_eb068ed2e871e66fe62f1ce4763351dc/node_modules/drizzle-orm/node-postgres/session.js:124:31",
+                "at NodePgPreparedQuery.queryWithCache (file:///C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/node_modules/.pnpm/drizzle-orm@0.45.2_@cloudfl_eb068ed2e871e66fe62f1ce4763351dc/node_modules/drizzle-orm/pg-core/session.js:39:22)",
+                "at file:///C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/node_modules/.pnpm/drizzle-orm@0.45.2_@cloudfl_eb068ed2e871e66fe62f1ce4763351dc/node_modules/drizzle-orm/node-postgres/session.js:123:21",
+                "at Object.startActiveSpan (file:///C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/node_modules/.pnpm/drizzle-orm@0.45.2_@cloudfl_eb068ed2e871e66fe62f1ce4763351dc/node_modules/drizzle-orm/tracing.js:8:14)",
+                "at file:///C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/node_modules/.pnpm/drizzle-orm@0.45.2_@cloudfl_eb068ed2e871e66fe62f1ce4763351dc/node_modules/drizzle-orm/node-postgres/session.js:117:35",
+                "at Object.startActiveSpan (file:///C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/node_modules/.pnpm/drizzle-orm@0.45.2_@cloudfl_eb068ed2e871e66fe62f1ce4763351dc/node_modules/drizzle-orm/tracing.js:8:14)",
+                "at NodePgPreparedQuery.execute (file:///C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/node_modules/.pnpm/drizzle-orm@0.45.2_@cloudfl_eb068ed2e871e66fe62f1ce4763351dc/node_modules/drizzle-orm/node-postgres/session.js:101:19)",
+                "at file:///C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/node_modules/.pnpm/drizzle-orm@0.45.2_@cloudfl_eb068ed2e871e66fe62f1ce4763351dc/node_modules/drizzle-orm/pg-core/query-builders/select.js:797:30"
+              ],
+              "dispatchCount": 1
+            }
+          ]
+        }
+      ],
+      "manualOwnerSemantics": {
+        "classification": "manual frozen-source interpretation; trace source-stack owner remains unattributed",
+        "owner": "packages/persistence-postgres/src/applicationReadiness.ts",
+        "line": 1344,
+        "ctes": [
+          "application_bundle_capture_keys"
+        ],
+        "semantics": "Tagged bounded parent seed plus selected function keys (4097 limit); family-specific parent joins and native bytea fields. Global function byte/count guards and per-cell masks retain bounds; aggregate work stays in SQL.",
+        "retained": "Separate revision SHARE, full canonical authentication and original verdict order. No proof certificate.",
+        "serverMetrics": "unavailable: submitted text does not measure scans/plans/CPU/lock/function/trigger executions",
+        "measuredOwnerSha256": "b2dcaefe1ade7641393f8cbd3a8e9308233a71e3c43447c7a213ebf232566b3c",
+        "sourceScope": "original failed candidate measured owner; later approved correction is unmeasured here"
+      },
+      "occurrences": [
+        {
+          "sample": "product-0-detailed",
+          "profile": "product",
+          "warmup": true,
+          "ordinal": 417,
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "overlaps": [
+            {
+              "phase": "authoritative publication",
+              "overlapMs": 1.0115000000005239,
+              "containing": true
+            },
+            {
+              "phase": "participantProof",
+              "overlapMs": 1.0115000000005239,
+              "containing": true
+            },
+            {
+              "phase": "transaction",
+              "overlapMs": 1.0115000000005239,
+              "containing": true
+            },
+            {
+              "phase": "publisher",
+              "overlapMs": 1.0115000000005239,
+              "containing": true
+            }
+          ],
+          "parameterCount": 23,
+          "scalarParameterBytes": 594,
+          "unknownEncodingParameters": 0,
+          "sqlUtf8Bytes": 4847,
+          "awaitedMs": 1.0115000000005239,
+          "outcome": "ok"
+        },
+        {
+          "sample": "product-1-detailed",
+          "profile": "product",
+          "warmup": false,
+          "ordinal": 417,
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "overlaps": [
+            {
+              "phase": "authoritative publication",
+              "overlapMs": 0.925600000002305,
+              "containing": true
+            },
+            {
+              "phase": "participantProof",
+              "overlapMs": 0.925600000002305,
+              "containing": true
+            },
+            {
+              "phase": "transaction",
+              "overlapMs": 0.925600000002305,
+              "containing": true
+            },
+            {
+              "phase": "publisher",
+              "overlapMs": 0.925600000002305,
+              "containing": true
+            }
+          ],
+          "parameterCount": 23,
+          "scalarParameterBytes": 594,
+          "unknownEncodingParameters": 0,
+          "sqlUtf8Bytes": 4847,
+          "awaitedMs": 0.925600000002305,
+          "outcome": "ok"
+        },
+        {
+          "sample": "product-2-detailed",
+          "profile": "product",
+          "warmup": false,
+          "ordinal": 417,
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "overlaps": [
+            {
+              "phase": "authoritative publication",
+              "overlapMs": 0.9064999999973224,
+              "containing": true
+            },
+            {
+              "phase": "participantProof",
+              "overlapMs": 0.9064999999973224,
+              "containing": true
+            },
+            {
+              "phase": "transaction",
+              "overlapMs": 0.9064999999973224,
+              "containing": true
+            },
+            {
+              "phase": "publisher",
+              "overlapMs": 0.9064999999973224,
+              "containing": true
+            }
+          ],
+          "parameterCount": 23,
+          "scalarParameterBytes": 594,
+          "unknownEncodingParameters": 0,
+          "sqlUtf8Bytes": 4847,
+          "awaitedMs": 0.9064999999973224,
+          "outcome": "ok"
+        },
+        {
+          "sample": "product-3-detailed",
+          "profile": "product",
+          "warmup": false,
+          "ordinal": 417,
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "overlaps": [
+            {
+              "phase": "authoritative publication",
+              "overlapMs": 0.8493999999991502,
+              "containing": true
+            },
+            {
+              "phase": "participantProof",
+              "overlapMs": 0.8493999999991502,
+              "containing": true
+            },
+            {
+              "phase": "transaction",
+              "overlapMs": 0.8493999999991502,
+              "containing": true
+            },
+            {
+              "phase": "publisher",
+              "overlapMs": 0.8493999999991502,
+              "containing": true
+            }
+          ],
+          "parameterCount": 23,
+          "scalarParameterBytes": 594,
+          "unknownEncodingParameters": 0,
+          "sqlUtf8Bytes": 4847,
+          "awaitedMs": 0.8493999999991502,
+          "outcome": "ok"
+        },
+        {
+          "sample": "product-4-detailed",
+          "profile": "product",
+          "warmup": false,
+          "ordinal": 417,
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "overlaps": [
+            {
+              "phase": "authoritative publication",
+              "overlapMs": 1.2802999999985332,
+              "containing": true
+            },
+            {
+              "phase": "participantProof",
+              "overlapMs": 1.2802999999985332,
+              "containing": true
+            },
+            {
+              "phase": "transaction",
+              "overlapMs": 1.2802999999985332,
+              "containing": true
+            },
+            {
+              "phase": "publisher",
+              "overlapMs": 1.2802999999985332,
+              "containing": true
+            }
+          ],
+          "parameterCount": 23,
+          "scalarParameterBytes": 594,
+          "unknownEncodingParameters": 0,
+          "sqlUtf8Bytes": 4847,
+          "awaitedMs": 1.2802999999985332,
+          "outcome": "ok"
+        },
+        {
+          "sample": "product-5-detailed",
+          "profile": "product",
+          "warmup": false,
+          "ordinal": 417,
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "overlaps": [
+            {
+              "phase": "authoritative publication",
+              "overlapMs": 0.8703999999997905,
+              "containing": true
+            },
+            {
+              "phase": "participantProof",
+              "overlapMs": 0.8703999999997905,
+              "containing": true
+            },
+            {
+              "phase": "transaction",
+              "overlapMs": 0.8703999999997905,
+              "containing": true
+            },
+            {
+              "phase": "publisher",
+              "overlapMs": 0.8703999999997905,
+              "containing": true
+            }
+          ],
+          "parameterCount": 23,
+          "scalarParameterBytes": 594,
+          "unknownEncodingParameters": 0,
+          "sqlUtf8Bytes": 4847,
+          "awaitedMs": 0.8703999999997905,
+          "outcome": "ok"
+        },
+        {
+          "sample": "productPayload-0-detailed",
+          "profile": "productPayload",
+          "warmup": true,
+          "ordinal": 435,
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "overlaps": [
+            {
+              "phase": "authoritative publication",
+              "overlapMs": 0.9630999999935739,
+              "containing": true
+            },
+            {
+              "phase": "participantProof",
+              "overlapMs": 0.9630999999935739,
+              "containing": true
+            },
+            {
+              "phase": "transaction",
+              "overlapMs": 0.9630999999935739,
+              "containing": true
+            },
+            {
+              "phase": "publisher",
+              "overlapMs": 0.9630999999935739,
+              "containing": true
+            }
+          ],
+          "parameterCount": 23,
+          "scalarParameterBytes": 594,
+          "unknownEncodingParameters": 0,
+          "sqlUtf8Bytes": 4847,
+          "awaitedMs": 0.9630999999935739,
+          "outcome": "ok"
+        },
+        {
+          "sample": "productPayload-1-detailed",
+          "profile": "productPayload",
+          "warmup": false,
+          "ordinal": 435,
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "overlaps": [
+            {
+              "phase": "authoritative publication",
+              "overlapMs": 0.9216000000014901,
+              "containing": true
+            },
+            {
+              "phase": "participantProof",
+              "overlapMs": 0.9216000000014901,
+              "containing": true
+            },
+            {
+              "phase": "transaction",
+              "overlapMs": 0.9216000000014901,
+              "containing": true
+            },
+            {
+              "phase": "publisher",
+              "overlapMs": 0.9216000000014901,
+              "containing": true
+            }
+          ],
+          "parameterCount": 23,
+          "scalarParameterBytes": 594,
+          "unknownEncodingParameters": 0,
+          "sqlUtf8Bytes": 4847,
+          "awaitedMs": 0.9216000000014901,
+          "outcome": "ok"
+        },
+        {
+          "sample": "productPayload-2-detailed",
+          "profile": "productPayload",
+          "warmup": false,
+          "ordinal": 435,
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "overlaps": [
+            {
+              "phase": "authoritative publication",
+              "overlapMs": 1.2866000000067288,
+              "containing": true
+            },
+            {
+              "phase": "participantProof",
+              "overlapMs": 1.2866000000067288,
+              "containing": true
+            },
+            {
+              "phase": "transaction",
+              "overlapMs": 1.2866000000067288,
+              "containing": true
+            },
+            {
+              "phase": "publisher",
+              "overlapMs": 1.2866000000067288,
+              "containing": true
+            }
+          ],
+          "parameterCount": 23,
+          "scalarParameterBytes": 594,
+          "unknownEncodingParameters": 0,
+          "sqlUtf8Bytes": 4847,
+          "awaitedMs": 1.2866000000067288,
+          "outcome": "ok"
+        },
+        {
+          "sample": "productPayload-3-detailed",
+          "profile": "productPayload",
+          "warmup": false,
+          "ordinal": 435,
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "overlaps": [
+            {
+              "phase": "authoritative publication",
+              "overlapMs": 0.955999999991036,
+              "containing": true
+            },
+            {
+              "phase": "participantProof",
+              "overlapMs": 0.955999999991036,
+              "containing": true
+            },
+            {
+              "phase": "transaction",
+              "overlapMs": 0.955999999991036,
+              "containing": true
+            },
+            {
+              "phase": "publisher",
+              "overlapMs": 0.955999999991036,
+              "containing": true
+            }
+          ],
+          "parameterCount": 23,
+          "scalarParameterBytes": 594,
+          "unknownEncodingParameters": 0,
+          "sqlUtf8Bytes": 4847,
+          "awaitedMs": 0.955999999991036,
+          "outcome": "ok"
+        },
+        {
+          "sample": "productPayload-4-detailed",
+          "profile": "productPayload",
+          "warmup": false,
+          "ordinal": 435,
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "overlaps": [
+            {
+              "phase": "authoritative publication",
+              "overlapMs": 0.9008999999932712,
+              "containing": true
+            },
+            {
+              "phase": "participantProof",
+              "overlapMs": 0.9008999999932712,
+              "containing": true
+            },
+            {
+              "phase": "transaction",
+              "overlapMs": 0.9008999999932712,
+              "containing": true
+            },
+            {
+              "phase": "publisher",
+              "overlapMs": 0.9008999999932712,
+              "containing": true
+            }
+          ],
+          "parameterCount": 23,
+          "scalarParameterBytes": 594,
+          "unknownEncodingParameters": 0,
+          "sqlUtf8Bytes": 4847,
+          "awaitedMs": 0.9008999999932712,
+          "outcome": "ok"
+        },
+        {
+          "sample": "productPayload-5-detailed",
+          "profile": "productPayload",
+          "warmup": false,
+          "ordinal": 435,
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "overlaps": [
+            {
+              "phase": "authoritative publication",
+              "overlapMs": 0.8694000000105007,
+              "containing": true
+            },
+            {
+              "phase": "participantProof",
+              "overlapMs": 0.8694000000105007,
+              "containing": true
+            },
+            {
+              "phase": "transaction",
+              "overlapMs": 0.8694000000105007,
+              "containing": true
+            },
+            {
+              "phase": "publisher",
+              "overlapMs": 0.8694000000105007,
+              "containing": true
+            }
+          ],
+          "parameterCount": 23,
+          "scalarParameterBytes": 594,
+          "unknownEncodingParameters": 0,
+          "sqlUtf8Bytes": 4847,
+          "awaitedMs": 0.8694000000105007,
+          "outcome": "ok"
+        },
+        {
+          "sample": "workflow-0-detailed",
+          "profile": "workflow",
+          "warmup": true,
+          "ordinal": 673,
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "overlaps": [
+            {
+              "phase": "authoritative publication",
+              "overlapMs": 0.8717999999935273,
+              "containing": true
+            },
+            {
+              "phase": "participantProof",
+              "overlapMs": 0.8717999999935273,
+              "containing": true
+            },
+            {
+              "phase": "transaction",
+              "overlapMs": 0.8717999999935273,
+              "containing": true
+            },
+            {
+              "phase": "publisher",
+              "overlapMs": 0.8717999999935273,
+              "containing": true
+            }
+          ],
+          "parameterCount": 23,
+          "scalarParameterBytes": 594,
+          "unknownEncodingParameters": 0,
+          "sqlUtf8Bytes": 4847,
+          "awaitedMs": 0.8717999999935273,
+          "outcome": "ok"
+        },
+        {
+          "sample": "workflow-1-detailed",
+          "profile": "workflow",
+          "warmup": false,
+          "ordinal": 673,
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "overlaps": [
+            {
+              "phase": "authoritative publication",
+              "overlapMs": 1.0474000000103842,
+              "containing": true
+            },
+            {
+              "phase": "participantProof",
+              "overlapMs": 1.0474000000103842,
+              "containing": true
+            },
+            {
+              "phase": "transaction",
+              "overlapMs": 1.0474000000103842,
+              "containing": true
+            },
+            {
+              "phase": "publisher",
+              "overlapMs": 1.0474000000103842,
+              "containing": true
+            }
+          ],
+          "parameterCount": 23,
+          "scalarParameterBytes": 594,
+          "unknownEncodingParameters": 0,
+          "sqlUtf8Bytes": 4847,
+          "awaitedMs": 1.0474000000103842,
+          "outcome": "ok"
+        },
+        {
+          "sample": "workflow-2-detailed",
+          "profile": "workflow",
+          "warmup": false,
+          "ordinal": 673,
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "overlaps": [
+            {
+              "phase": "authoritative publication",
+              "overlapMs": 0.8910000000032596,
+              "containing": true
+            },
+            {
+              "phase": "participantProof",
+              "overlapMs": 0.8910000000032596,
+              "containing": true
+            },
+            {
+              "phase": "transaction",
+              "overlapMs": 0.8910000000032596,
+              "containing": true
+            },
+            {
+              "phase": "publisher",
+              "overlapMs": 0.8910000000032596,
+              "containing": true
+            }
+          ],
+          "parameterCount": 23,
+          "scalarParameterBytes": 594,
+          "unknownEncodingParameters": 0,
+          "sqlUtf8Bytes": 4847,
+          "awaitedMs": 0.8910000000032596,
+          "outcome": "ok"
+        },
+        {
+          "sample": "workflow-3-detailed",
+          "profile": "workflow",
+          "warmup": false,
+          "ordinal": 673,
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "overlaps": [
+            {
+              "phase": "authoritative publication",
+              "overlapMs": 0.8614999999990687,
+              "containing": true
+            },
+            {
+              "phase": "participantProof",
+              "overlapMs": 0.8614999999990687,
+              "containing": true
+            },
+            {
+              "phase": "transaction",
+              "overlapMs": 0.8614999999990687,
+              "containing": true
+            },
+            {
+              "phase": "publisher",
+              "overlapMs": 0.8614999999990687,
+              "containing": true
+            }
+          ],
+          "parameterCount": 23,
+          "scalarParameterBytes": 594,
+          "unknownEncodingParameters": 0,
+          "sqlUtf8Bytes": 4847,
+          "awaitedMs": 0.8614999999990687,
+          "outcome": "ok"
+        },
+        {
+          "sample": "workflow-4-detailed",
+          "profile": "workflow",
+          "warmup": false,
+          "ordinal": 673,
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "overlaps": [
+            {
+              "phase": "authoritative publication",
+              "overlapMs": 0.8816999999980908,
+              "containing": true
+            },
+            {
+              "phase": "participantProof",
+              "overlapMs": 0.8816999999980908,
+              "containing": true
+            },
+            {
+              "phase": "transaction",
+              "overlapMs": 0.8816999999980908,
+              "containing": true
+            },
+            {
+              "phase": "publisher",
+              "overlapMs": 0.8816999999980908,
+              "containing": true
+            }
+          ],
+          "parameterCount": 23,
+          "scalarParameterBytes": 594,
+          "unknownEncodingParameters": 0,
+          "sqlUtf8Bytes": 4847,
+          "awaitedMs": 0.8816999999980908,
+          "outcome": "ok"
+        },
+        {
+          "sample": "workflow-5-detailed",
+          "profile": "workflow",
+          "warmup": false,
+          "ordinal": 673,
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "overlaps": [
+            {
+              "phase": "authoritative publication",
+              "overlapMs": 0.8558999999950174,
+              "containing": true
+            },
+            {
+              "phase": "participantProof",
+              "overlapMs": 0.8558999999950174,
+              "containing": true
+            },
+            {
+              "phase": "transaction",
+              "overlapMs": 0.8558999999950174,
+              "containing": true
+            },
+            {
+              "phase": "publisher",
+              "overlapMs": 0.8558999999950174,
+              "containing": true
+            }
+          ],
+          "parameterCount": 23,
+          "scalarParameterBytes": 594,
+          "unknownEncodingParameters": 0,
+          "sqlUtf8Bytes": 4847,
+          "awaitedMs": 0.8558999999950174,
+          "outcome": "ok"
+        }
+      ]
+    },
+    {
+      "fingerprint": "c3d3167afd6e298a156d5ea22c145ab08105ca579ee9eff0fa7ce8c60cc5374a",
+      "pool": "target",
+      "submittedTemplate": "with \"application_task_capture_parent\" as ( select \"scope_id\" , \"revision_id\" , \"candidate_id\" , \"analysis_id\" , \"source_artifact_root_sha256\" , \"publication_sha256\" , \"task_catalog_sha256\" , \"task_catalog_binding_sha256\" , \"task_count\" , \"runtime_host_identity\" , \"compatibility_date\" , case when octet_length ( \"binding_bytes\" ) between ? and $? then \"binding_bytes\" else ? : : bytea end as \"binding_bytes\" , \"registered_at\" from \"fx_system_application_task_catalog_v1\" where ( \"fx_system_application_task_catalog_v1\" . \"scope_id\" = $? and \"fx_system_application_task_catalog_v1\" . \"revision_id\" = $? ) limit $? for share ) , \"application_task_capture_child_keys\" as ( select \"fx_system_application_task_definition_v1\" . \"task_id\" from \"fx_system_application_task_definition_v1\" inner join \"application_task_capture_parent\" on ( \"fx_system_application_task_definition_v1\" . \"scope_id\" = \"application_task_capture_parent\" . \"scope_id\" and \"fx_system_application_task_definition_v1\" . \"revision_id\" = \"application_task_capture_parent\" . \"revision_id\" ) limit $? for share of \"fx_system_application_task_definition_v1\" ) , \"application_task_capture_keys\" as ( ( select ? as \"family\" , ? : : text as \"task_id\" from \"application_task_capture_parent\" ) union all ( select ? as \"family\" , \"task_id\" from \"application_task_capture_child_keys\" ) ) select \"application_task_capture_keys\" . \"family\" , \"application_task_capture_parent\" . \"scope_id\" , \"application_task_capture_parent\" . \"revision_id\" , \"application_task_capture_parent\" . \"candidate_id\" , \"application_task_capture_parent\" . \"analysis_id\" , \"application_task_capture_parent\" . \"source_artifact_root_sha256\" , \"application_task_capture_parent\" . \"publication_sha256\" , \"application_task_capture_parent\" . \"task_catalog_sha256\" , \"application_task_capture_parent\" . \"task_catalog_binding_sha256\" , \"application_task_capture_parent\" . \"task_count\" , \"application_task_capture_parent\" . \"runtime_host_identity\" , \"application_task_capture_parent\" . \"compatibility_date\" , \"application_task_capture_parent\" . \"binding_bytes\" , \"application_task_capture_parent\" . \"registered_at\" , \"fx_system_application_task_definition_v1\" . \"scope_id\" , \"fx_system_application_task_definition_v1\" . \"revision_id\" , \"fx_system_application_task_definition_v1\" . \"task_catalog_binding_sha256\" , \"fx_system_application_task_definition_v1\" . \"task_definition_binding_sha256\" , \"fx_system_application_task_definition_v1\" . \"task_id\" , \"fx_system_application_task_definition_v1\" . \"canonical_task_manifest_sha256\" , \"fx_system_application_task_definition_v1\" . \"logical_module_path\" , \"fx_system_application_task_definition_v1\" . \"source_module_path\" , \"fx_system_application_task_definition_v1\" . \"export_name\" , case when ( select coalesce ( sum ( octet_length ( \"fx_system_application_task_definition_v1\" . \"binding_bytes\" ) + octet_length ( \"fx_system_application_task_definition_v1\" . \"manifest_bytes\" ) ) , ? ) + ( select octet_length ( \"fx_system_application_task_catalog_v1\" . \"binding_bytes\" ) from \"fx_system_application_task_catalog_v1\" where \"fx_system_application_task_catalog_v1\" . \"scope_id\" = $? and \"fx_system_application_task_catalog_v1\" . \"revision_id\" = $? ) < = $? and count ( * ) < = ( select \"application_task_capture_parent\" . \"task_count\" from \"application_task_capture_parent\" ) from \"fx_system_application_task_definition_v1\" where \"fx_system_application_task_definition_v1\" . \"scope_id\" = $? and \"fx_system_application_task_definition_v1\" . \"revision_id\" = $? ) and octet_length ( \"fx_system_application_task_definition_v1\" . \"manifest_bytes\" ) between ? and $? then \"fx_system_application_task_definition_v1\" . \"manifest_bytes\" else ? : : bytea end , case when ( select coalesce ( sum ( octet_length ( \"fx_system_application_task_definition_v1\" . \"binding_bytes\" ) + octet_length ( \"fx_system_application_task_definition_v1\" . \"manifest_bytes\" ) ) , ? ) + ( select octet_length ( \"fx_system_application_task_catalog_v1\" . \"binding_bytes\" ) from \"fx_system_application_task_catalog_v1\" where \"fx_system_application_task_catalog_v1\" . \"scope_id\" = $? and \"fx_system_application_task_catalog_v1\" . \"revision_id\" = $? ) < = $? and count ( * ) < = ( select \"application_task_capture_parent\" . \"task_count\" from \"application_task_capture_parent\" ) from \"fx_system_application_task_definition_v1\" where \"fx_system_application_task_definition_v1\" . \"scope_id\" = $? and \"fx_system_application_task_definition_v1\" . \"revision_id\" = $? ) and octet_length ( \"fx_system_application_task_definition_v1\" . \"binding_bytes\" ) between ? and $? then \"fx_system_application_task_definition_v1\" . \"binding_bytes\" else ? : : bytea end from \"application_task_capture_keys\" left join \"application_task_capture_parent\" on \"application_task_capture_keys\" . \"family\" = $? left join \"fx_system_application_task_definition_v1\" on ( \"application_task_capture_keys\" . \"family\" = $? and \"fx_system_application_task_definition_v1\" . \"scope_id\" = $? and \"fx_system_application_task_definition_v1\" . \"revision_id\" = $? and \"fx_system_application_task_definition_v1\" . \"task_id\" = \"application_task_capture_keys\" . \"task_id\" )",
+      "observedOwners": [
+        {
+          "pool": "target",
+          "fingerprint": "c3d3167afd6e298a156d5ea22c145ab08105ca579ee9eff0fa7ce8c60cc5374a",
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "status": "unattributed",
+          "owner": null,
+          "observedDispatches": 1,
+          "sourceSites": [
+            {
+              "siteId": "055ae538638873d05e39461654cc0bcfb67af960fea3e1f79af6c791c4a4474a",
+              "owner": null,
+              "sourceFrames": [
+                "at file:///C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/node_modules/.pnpm/drizzle-orm@0.45.2_@cloudfl_eb068ed2e871e66fe62f1ce4763351dc/node_modules/drizzle-orm/node-postgres/session.js:124:31",
+                "at NodePgPreparedQuery.queryWithCache (file:///C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/node_modules/.pnpm/drizzle-orm@0.45.2_@cloudfl_eb068ed2e871e66fe62f1ce4763351dc/node_modules/drizzle-orm/pg-core/session.js:39:22)",
+                "at file:///C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/node_modules/.pnpm/drizzle-orm@0.45.2_@cloudfl_eb068ed2e871e66fe62f1ce4763351dc/node_modules/drizzle-orm/node-postgres/session.js:123:21",
+                "at Object.startActiveSpan (file:///C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/node_modules/.pnpm/drizzle-orm@0.45.2_@cloudfl_eb068ed2e871e66fe62f1ce4763351dc/node_modules/drizzle-orm/tracing.js:8:14)",
+                "at file:///C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/node_modules/.pnpm/drizzle-orm@0.45.2_@cloudfl_eb068ed2e871e66fe62f1ce4763351dc/node_modules/drizzle-orm/node-postgres/session.js:117:35",
+                "at Object.startActiveSpan (file:///C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/node_modules/.pnpm/drizzle-orm@0.45.2_@cloudfl_eb068ed2e871e66fe62f1ce4763351dc/node_modules/drizzle-orm/tracing.js:8:14)",
+                "at NodePgPreparedQuery.execute (file:///C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/node_modules/.pnpm/drizzle-orm@0.45.2_@cloudfl_eb068ed2e871e66fe62f1ce4763351dc/node_modules/drizzle-orm/node-postgres/session.js:101:19)",
+                "at file:///C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/node_modules/.pnpm/drizzle-orm@0.45.2_@cloudfl_eb068ed2e871e66fe62f1ce4763351dc/node_modules/drizzle-orm/pg-core/query-builders/select.js:797:30"
+              ],
+              "dispatchCount": 1
+            }
+          ]
+        }
+      ],
+      "manualOwnerSemantics": {
+        "classification": "manual frozen-source interpretation; trace source-stack owner remains unattributed",
+        "owner": "packages/persistence-postgres/src/applicationTaskBindings.ts",
+        "line": 146,
+        "ctes": [
+          "application_task_capture_parent",
+          "application_task_capture_child_keys",
+          "application_task_capture_keys"
+        ],
+        "semantics": "Parent SHARE locks the actual task catalog; dependent child-key CTE locks selected definitions under parent, bounded to 4097. Tagged native typed family mapping retains byte/count masks. Existing total-byte/count expression is interpolated twice for the two body CASE fields; duplicate aggregate text also existed in the old default capture. Current child keys rejoin the original child table. Actual repeated server execution is unmeasured.",
+        "retained": "Actual issuer-owned write-clock observation and full task catalog/definition authentication. No JSON/hex body encoding or cross-transaction reuse.",
+        "serverMetrics": "unavailable: submitted text does not measure scans/plans/CPU/lock/function/trigger executions",
+        "measuredOwnerSha256": "74ee3284eb1e4b5937ce525e77c76b439791fb841737d90df3e0a01dcca9750a",
+        "sourceScope": "original failed candidate measured owner; later approved correction is unmeasured here"
+      },
+      "occurrences": [
+        {
+          "sample": "product-0-detailed",
+          "profile": "product",
+          "warmup": true,
+          "ordinal": 418,
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "overlaps": [
+            {
+              "phase": "authoritative publication",
+              "overlapMs": 0.8899999999994179,
+              "containing": true
+            },
+            {
+              "phase": "participantProof",
+              "overlapMs": 0.8899999999994179,
+              "containing": true
+            },
+            {
+              "phase": "transaction",
+              "overlapMs": 0.8899999999994179,
+              "containing": true
+            },
+            {
+              "phase": "publisher",
+              "overlapMs": 0.8899999999994179,
+              "containing": true
+            }
+          ],
+          "parameterCount": 21,
+          "scalarParameterBytes": 593,
+          "unknownEncodingParameters": 0,
+          "sqlUtf8Bytes": 5039,
+          "awaitedMs": 0.8899999999994179,
+          "outcome": "ok"
+        },
+        {
+          "sample": "product-1-detailed",
+          "profile": "product",
+          "warmup": false,
+          "ordinal": 418,
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "overlaps": [
+            {
+              "phase": "authoritative publication",
+              "overlapMs": 0.8773000000001048,
+              "containing": true
+            },
+            {
+              "phase": "participantProof",
+              "overlapMs": 0.8773000000001048,
+              "containing": true
+            },
+            {
+              "phase": "transaction",
+              "overlapMs": 0.8773000000001048,
+              "containing": true
+            },
+            {
+              "phase": "publisher",
+              "overlapMs": 0.8773000000001048,
+              "containing": true
+            }
+          ],
+          "parameterCount": 21,
+          "scalarParameterBytes": 593,
+          "unknownEncodingParameters": 0,
+          "sqlUtf8Bytes": 5039,
+          "awaitedMs": 0.8773000000001048,
+          "outcome": "ok"
+        },
+        {
+          "sample": "product-2-detailed",
+          "profile": "product",
+          "warmup": false,
+          "ordinal": 418,
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "overlaps": [
+            {
+              "phase": "authoritative publication",
+              "overlapMs": 0.9288000000015018,
+              "containing": true
+            },
+            {
+              "phase": "participantProof",
+              "overlapMs": 0.9288000000015018,
+              "containing": true
+            },
+            {
+              "phase": "transaction",
+              "overlapMs": 0.9288000000015018,
+              "containing": true
+            },
+            {
+              "phase": "publisher",
+              "overlapMs": 0.9288000000015018,
+              "containing": true
+            }
+          ],
+          "parameterCount": 21,
+          "scalarParameterBytes": 593,
+          "unknownEncodingParameters": 0,
+          "sqlUtf8Bytes": 5039,
+          "awaitedMs": 0.9288000000015018,
+          "outcome": "ok"
+        },
+        {
+          "sample": "product-3-detailed",
+          "profile": "product",
+          "warmup": false,
+          "ordinal": 418,
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "overlaps": [
+            {
+              "phase": "authoritative publication",
+              "overlapMs": 0.7797999999966123,
+              "containing": true
+            },
+            {
+              "phase": "participantProof",
+              "overlapMs": 0.7797999999966123,
+              "containing": true
+            },
+            {
+              "phase": "transaction",
+              "overlapMs": 0.7797999999966123,
+              "containing": true
+            },
+            {
+              "phase": "publisher",
+              "overlapMs": 0.7797999999966123,
+              "containing": true
+            }
+          ],
+          "parameterCount": 21,
+          "scalarParameterBytes": 593,
+          "unknownEncodingParameters": 0,
+          "sqlUtf8Bytes": 5039,
+          "awaitedMs": 0.7797999999966123,
+          "outcome": "ok"
+        },
+        {
+          "sample": "product-4-detailed",
+          "profile": "product",
+          "warmup": false,
+          "ordinal": 418,
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "overlaps": [
+            {
+              "phase": "authoritative publication",
+              "overlapMs": 0.9118999999991502,
+              "containing": true
+            },
+            {
+              "phase": "participantProof",
+              "overlapMs": 0.9118999999991502,
+              "containing": true
+            },
+            {
+              "phase": "transaction",
+              "overlapMs": 0.9118999999991502,
+              "containing": true
+            },
+            {
+              "phase": "publisher",
+              "overlapMs": 0.9118999999991502,
+              "containing": true
+            }
+          ],
+          "parameterCount": 21,
+          "scalarParameterBytes": 593,
+          "unknownEncodingParameters": 0,
+          "sqlUtf8Bytes": 5039,
+          "awaitedMs": 0.9118999999991502,
+          "outcome": "ok"
+        },
+        {
+          "sample": "product-5-detailed",
+          "profile": "product",
+          "warmup": false,
+          "ordinal": 418,
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "overlaps": [
+            {
+              "phase": "authoritative publication",
+              "overlapMs": 0.8220999999975902,
+              "containing": true
+            },
+            {
+              "phase": "participantProof",
+              "overlapMs": 0.8220999999975902,
+              "containing": true
+            },
+            {
+              "phase": "transaction",
+              "overlapMs": 0.8220999999975902,
+              "containing": true
+            },
+            {
+              "phase": "publisher",
+              "overlapMs": 0.8220999999975902,
+              "containing": true
+            }
+          ],
+          "parameterCount": 21,
+          "scalarParameterBytes": 593,
+          "unknownEncodingParameters": 0,
+          "sqlUtf8Bytes": 5039,
+          "awaitedMs": 0.8220999999975902,
+          "outcome": "ok"
+        },
+        {
+          "sample": "productPayload-0-detailed",
+          "profile": "productPayload",
+          "warmup": true,
+          "ordinal": 436,
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "overlaps": [
+            {
+              "phase": "authoritative publication",
+              "overlapMs": 0.8951999999990221,
+              "containing": true
+            },
+            {
+              "phase": "participantProof",
+              "overlapMs": 0.8951999999990221,
+              "containing": true
+            },
+            {
+              "phase": "transaction",
+              "overlapMs": 0.8951999999990221,
+              "containing": true
+            },
+            {
+              "phase": "publisher",
+              "overlapMs": 0.8951999999990221,
+              "containing": true
+            }
+          ],
+          "parameterCount": 21,
+          "scalarParameterBytes": 593,
+          "unknownEncodingParameters": 0,
+          "sqlUtf8Bytes": 5039,
+          "awaitedMs": 0.8951999999990221,
+          "outcome": "ok"
+        },
+        {
+          "sample": "productPayload-1-detailed",
+          "profile": "productPayload",
+          "warmup": false,
+          "ordinal": 436,
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "overlaps": [
+            {
+              "phase": "authoritative publication",
+              "overlapMs": 0.8487000000022817,
+              "containing": true
+            },
+            {
+              "phase": "participantProof",
+              "overlapMs": 0.8487000000022817,
+              "containing": true
+            },
+            {
+              "phase": "transaction",
+              "overlapMs": 0.8487000000022817,
+              "containing": true
+            },
+            {
+              "phase": "publisher",
+              "overlapMs": 0.8487000000022817,
+              "containing": true
+            }
+          ],
+          "parameterCount": 21,
+          "scalarParameterBytes": 593,
+          "unknownEncodingParameters": 0,
+          "sqlUtf8Bytes": 5039,
+          "awaitedMs": 0.8487000000022817,
+          "outcome": "ok"
+        },
+        {
+          "sample": "productPayload-2-detailed",
+          "profile": "productPayload",
+          "warmup": false,
+          "ordinal": 436,
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "overlaps": [
+            {
+              "phase": "authoritative publication",
+              "overlapMs": 0.8061999999918044,
+              "containing": true
+            },
+            {
+              "phase": "participantProof",
+              "overlapMs": 0.8061999999918044,
+              "containing": true
+            },
+            {
+              "phase": "transaction",
+              "overlapMs": 0.8061999999918044,
+              "containing": true
+            },
+            {
+              "phase": "publisher",
+              "overlapMs": 0.8061999999918044,
+              "containing": true
+            }
+          ],
+          "parameterCount": 21,
+          "scalarParameterBytes": 593,
+          "unknownEncodingParameters": 0,
+          "sqlUtf8Bytes": 5039,
+          "awaitedMs": 0.8061999999918044,
+          "outcome": "ok"
+        },
+        {
+          "sample": "productPayload-3-detailed",
+          "profile": "productPayload",
+          "warmup": false,
+          "ordinal": 436,
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "overlaps": [
+            {
+              "phase": "authoritative publication",
+              "overlapMs": 0.8698000000003958,
+              "containing": true
+            },
+            {
+              "phase": "participantProof",
+              "overlapMs": 0.8698000000003958,
+              "containing": true
+            },
+            {
+              "phase": "transaction",
+              "overlapMs": 0.8698000000003958,
+              "containing": true
+            },
+            {
+              "phase": "publisher",
+              "overlapMs": 0.8698000000003958,
+              "containing": true
+            }
+          ],
+          "parameterCount": 21,
+          "scalarParameterBytes": 593,
+          "unknownEncodingParameters": 0,
+          "sqlUtf8Bytes": 5039,
+          "awaitedMs": 0.8698000000003958,
+          "outcome": "ok"
+        },
+        {
+          "sample": "productPayload-4-detailed",
+          "profile": "productPayload",
+          "warmup": false,
+          "ordinal": 436,
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "overlaps": [
+            {
+              "phase": "authoritative publication",
+              "overlapMs": 0.8558999999950174,
+              "containing": true
+            },
+            {
+              "phase": "participantProof",
+              "overlapMs": 0.8558999999950174,
+              "containing": true
+            },
+            {
+              "phase": "transaction",
+              "overlapMs": 0.8558999999950174,
+              "containing": true
+            },
+            {
+              "phase": "publisher",
+              "overlapMs": 0.8558999999950174,
+              "containing": true
+            }
+          ],
+          "parameterCount": 21,
+          "scalarParameterBytes": 593,
+          "unknownEncodingParameters": 0,
+          "sqlUtf8Bytes": 5039,
+          "awaitedMs": 0.8558999999950174,
+          "outcome": "ok"
+        },
+        {
+          "sample": "productPayload-5-detailed",
+          "profile": "productPayload",
+          "warmup": false,
+          "ordinal": 436,
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "overlaps": [
+            {
+              "phase": "authoritative publication",
+              "overlapMs": 0.821299999995972,
+              "containing": true
+            },
+            {
+              "phase": "participantProof",
+              "overlapMs": 0.821299999995972,
+              "containing": true
+            },
+            {
+              "phase": "transaction",
+              "overlapMs": 0.821299999995972,
+              "containing": true
+            },
+            {
+              "phase": "publisher",
+              "overlapMs": 0.821299999995972,
+              "containing": true
+            }
+          ],
+          "parameterCount": 21,
+          "scalarParameterBytes": 593,
+          "unknownEncodingParameters": 0,
+          "sqlUtf8Bytes": 5039,
+          "awaitedMs": 0.821299999995972,
+          "outcome": "ok"
+        },
+        {
+          "sample": "workflow-0-detailed",
+          "profile": "workflow",
+          "warmup": true,
+          "ordinal": 674,
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "overlaps": [
+            {
+              "phase": "authoritative publication",
+              "overlapMs": 0.83980000000156,
+              "containing": true
+            },
+            {
+              "phase": "participantProof",
+              "overlapMs": 0.83980000000156,
+              "containing": true
+            },
+            {
+              "phase": "transaction",
+              "overlapMs": 0.83980000000156,
+              "containing": true
+            },
+            {
+              "phase": "publisher",
+              "overlapMs": 0.83980000000156,
+              "containing": true
+            }
+          ],
+          "parameterCount": 21,
+          "scalarParameterBytes": 593,
+          "unknownEncodingParameters": 0,
+          "sqlUtf8Bytes": 5039,
+          "awaitedMs": 0.83980000000156,
+          "outcome": "ok"
+        },
+        {
+          "sample": "workflow-1-detailed",
+          "profile": "workflow",
+          "warmup": false,
+          "ordinal": 674,
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "overlaps": [
+            {
+              "phase": "authoritative publication",
+              "overlapMs": 0.9496000000071945,
+              "containing": true
+            },
+            {
+              "phase": "participantProof",
+              "overlapMs": 0.9496000000071945,
+              "containing": true
+            },
+            {
+              "phase": "transaction",
+              "overlapMs": 0.9496000000071945,
+              "containing": true
+            },
+            {
+              "phase": "publisher",
+              "overlapMs": 0.9496000000071945,
+              "containing": true
+            }
+          ],
+          "parameterCount": 21,
+          "scalarParameterBytes": 593,
+          "unknownEncodingParameters": 0,
+          "sqlUtf8Bytes": 5039,
+          "awaitedMs": 0.9496000000071945,
+          "outcome": "ok"
+        },
+        {
+          "sample": "workflow-2-detailed",
+          "profile": "workflow",
+          "warmup": false,
+          "ordinal": 674,
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "overlaps": [
+            {
+              "phase": "authoritative publication",
+              "overlapMs": 0.9391000000032363,
+              "containing": true
+            },
+            {
+              "phase": "participantProof",
+              "overlapMs": 0.9391000000032363,
+              "containing": true
+            },
+            {
+              "phase": "transaction",
+              "overlapMs": 0.9391000000032363,
+              "containing": true
+            },
+            {
+              "phase": "publisher",
+              "overlapMs": 0.9391000000032363,
+              "containing": true
+            }
+          ],
+          "parameterCount": 21,
+          "scalarParameterBytes": 593,
+          "unknownEncodingParameters": 0,
+          "sqlUtf8Bytes": 5039,
+          "awaitedMs": 0.9391000000032363,
+          "outcome": "ok"
+        },
+        {
+          "sample": "workflow-3-detailed",
+          "profile": "workflow",
+          "warmup": false,
+          "ordinal": 674,
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "overlaps": [
+            {
+              "phase": "authoritative publication",
+              "overlapMs": 0.8986999999906402,
+              "containing": true
+            },
+            {
+              "phase": "participantProof",
+              "overlapMs": 0.8986999999906402,
+              "containing": true
+            },
+            {
+              "phase": "transaction",
+              "overlapMs": 0.8986999999906402,
+              "containing": true
+            },
+            {
+              "phase": "publisher",
+              "overlapMs": 0.8986999999906402,
+              "containing": true
+            }
+          ],
+          "parameterCount": 21,
+          "scalarParameterBytes": 593,
+          "unknownEncodingParameters": 0,
+          "sqlUtf8Bytes": 5039,
+          "awaitedMs": 0.8986999999906402,
+          "outcome": "ok"
+        },
+        {
+          "sample": "workflow-4-detailed",
+          "profile": "workflow",
+          "warmup": false,
+          "ordinal": 674,
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "overlaps": [
+            {
+              "phase": "authoritative publication",
+              "overlapMs": 0.8184000000183005,
+              "containing": true
+            },
+            {
+              "phase": "participantProof",
+              "overlapMs": 0.8184000000183005,
+              "containing": true
+            },
+            {
+              "phase": "transaction",
+              "overlapMs": 0.8184000000183005,
+              "containing": true
+            },
+            {
+              "phase": "publisher",
+              "overlapMs": 0.8184000000183005,
+              "containing": true
+            }
+          ],
+          "parameterCount": 21,
+          "scalarParameterBytes": 593,
+          "unknownEncodingParameters": 0,
+          "sqlUtf8Bytes": 5039,
+          "awaitedMs": 0.8184000000183005,
+          "outcome": "ok"
+        },
+        {
+          "sample": "workflow-5-detailed",
+          "profile": "workflow",
+          "warmup": false,
+          "ordinal": 674,
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "overlaps": [
+            {
+              "phase": "authoritative publication",
+              "overlapMs": 0.8168000000005122,
+              "containing": true
+            },
+            {
+              "phase": "participantProof",
+              "overlapMs": 0.8168000000005122,
+              "containing": true
+            },
+            {
+              "phase": "transaction",
+              "overlapMs": 0.8168000000005122,
+              "containing": true
+            },
+            {
+              "phase": "publisher",
+              "overlapMs": 0.8168000000005122,
+              "containing": true
+            }
+          ],
+          "parameterCount": 21,
+          "scalarParameterBytes": 593,
+          "unknownEncodingParameters": 0,
+          "sqlUtf8Bytes": 5039,
+          "awaitedMs": 0.8168000000005122,
+          "outcome": "ok"
+        }
+      ]
+    },
+    {
+      "fingerprint": "91e9fb986c51961b1f47d26d1f6718cc21fee5670f90e7ea44242028a82d4c5d",
+      "pool": "target",
+      "submittedTemplate": "with \"application_cold_capture_parent\" as ( select \"scope_id\" , \"revision_id\" , \"deployment_id\" , \"candidate_id\" , \"analysis_id\" , \"source_artifact_root_sha256\" , \"manifest_sha256\" , \"publication_sha256\" , \"application_schema_sha256\" , \"function_catalog_sha256\" , \"storage_generation\" , \"storage_generation_fence\" , \"epoch\" , \"schema_version_id\" , \"schema_manifest_sha256\" , \"schema_binding_sha256\" , \"task_catalog_binding_sha256\" , \"runtime_host_identity\" , \"compatibility_date\" , \"cold_receipt_set_sha256\" , \"candidate_validation_receipt_sha256\" , \"unique_constraint_status\" , \"unique_constraint_eligibility_sha256\" , \"physical_readiness_sha256\" , \"readiness_sha256\" , case when octet_length ( \"readiness_bytes\" ) between ? and $? then \"readiness_bytes\" else ? : : bytea end as \"readiness_bytes\" , \"ready_at\" from \"fx_system_application_readiness_v1\" where ( \"fx_system_application_readiness_v1\" . \"scope_id\" = $? and \"fx_system_application_readiness_v1\" . \"revision_id\" = $? ) limit $? for share ) , \"application_cold_capture_child_keys\" as ( select \"fx_system_application_readiness_function_v1\" . \"function_path\" from \"fx_system_application_readiness_function_v1\" inner join \"application_cold_capture_parent\" on ( \"fx_system_application_readiness_function_v1\" . \"scope_id\" = \"application_cold_capture_parent\" . \"scope_id\" and \"fx_system_application_readiness_function_v1\" . \"revision_id\" = \"application_cold_capture_parent\" . \"revision_id\" ) limit $? for share of \"fx_system_application_readiness_function_v1\" ) , \"application_cold_capture_keys\" as ( ( select ? as \"family\" , ? : : text as \"function_path\" from \"application_cold_capture_parent\" ) union all ( select ? as \"family\" , \"function_path\" from \"application_cold_capture_child_keys\" ) ) select \"application_cold_capture_keys\" . \"family\" , \"application_cold_capture_parent\" . \"scope_id\" , \"application_cold_capture_parent\" . \"revision_id\" , \"application_cold_capture_parent\" . \"deployment_id\" , \"application_cold_capture_parent\" . \"candidate_id\" , \"application_cold_capture_parent\" . \"analysis_id\" , \"application_cold_capture_parent\" . \"source_artifact_root_sha256\" , \"application_cold_capture_parent\" . \"manifest_sha256\" , \"application_cold_capture_parent\" . \"publication_sha256\" , \"application_cold_capture_parent\" . \"application_schema_sha256\" , \"application_cold_capture_parent\" . \"function_catalog_sha256\" , \"application_cold_capture_parent\" . \"storage_generation\" , \"application_cold_capture_parent\" . \"storage_generation_fence\" , \"application_cold_capture_parent\" . \"epoch\" , \"application_cold_capture_parent\" . \"schema_version_id\" , \"application_cold_capture_parent\" . \"schema_manifest_sha256\" , \"application_cold_capture_parent\" . \"schema_binding_sha256\" , \"application_cold_capture_parent\" . \"task_catalog_binding_sha256\" , \"application_cold_capture_parent\" . \"runtime_host_identity\" , \"application_cold_capture_parent\" . \"compatibility_date\" , \"application_cold_capture_parent\" . \"cold_receipt_set_sha256\" , \"application_cold_capture_parent\" . \"candidate_validation_receipt_sha256\" , \"application_cold_capture_parent\" . \"unique_constraint_status\" , \"application_cold_capture_parent\" . \"unique_constraint_eligibility_sha256\" , \"application_cold_capture_parent\" . \"physical_readiness_sha256\" , \"application_cold_capture_parent\" . \"readiness_sha256\" , \"application_cold_capture_parent\" . \"readiness_bytes\" , \"application_cold_capture_parent\" . \"ready_at\" , \"fx_system_application_readiness_function_v1\" . \"scope_id\" , \"fx_system_application_readiness_function_v1\" . \"revision_id\" , \"fx_system_application_readiness_function_v1\" . \"readiness_sha256\" , \"fx_system_application_readiness_function_v1\" . \"function_path\" , \"fx_system_application_readiness_function_v1\" . \"runtime_target_sha256\" , \"fx_system_application_readiness_function_v1\" . \"cold_receipt_sha256\" , case when ( select coalesce ( sum ( octet_length ( \"fx_system_application_readiness_function_v1\" . \"cold_receipt_bytes\" ) ) , ? ) < = $? and count ( * ) < = $? from \"fx_system_application_readiness_function_v1\" where \"fx_system_application_readiness_function_v1\" . \"scope_id\" = $? and \"fx_system_application_readiness_function_v1\" . \"revision_id\" = $? ) and octet_length ( \"fx_system_application_readiness_function_v1\" . \"cold_receipt_bytes\" ) between ? and $? then \"fx_system_application_readiness_function_v1\" . \"cold_receipt_bytes\" else ? : : bytea end from \"application_cold_capture_keys\" left join \"application_cold_capture_parent\" on \"application_cold_capture_keys\" . \"family\" = $? left join \"fx_system_application_readiness_function_v1\" on ( \"application_cold_capture_keys\" . \"family\" = $? and \"fx_system_application_readiness_function_v1\" . \"scope_id\" = $? and \"fx_system_application_readiness_function_v1\" . \"revision_id\" = $? and \"fx_system_application_readiness_function_v1\" . \"function_path\" = \"application_cold_capture_keys\" . \"function_path\" )",
+      "observedOwners": [
+        {
+          "pool": "target",
+          "fingerprint": "91e9fb986c51961b1f47d26d1f6718cc21fee5670f90e7ea44242028a82d4c5d",
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "status": "unattributed",
+          "owner": null,
+          "observedDispatches": 1,
+          "sourceSites": [
+            {
+              "siteId": "055ae538638873d05e39461654cc0bcfb67af960fea3e1f79af6c791c4a4474a",
+              "owner": null,
+              "sourceFrames": [
+                "at file:///C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/node_modules/.pnpm/drizzle-orm@0.45.2_@cloudfl_eb068ed2e871e66fe62f1ce4763351dc/node_modules/drizzle-orm/node-postgres/session.js:124:31",
+                "at NodePgPreparedQuery.queryWithCache (file:///C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/node_modules/.pnpm/drizzle-orm@0.45.2_@cloudfl_eb068ed2e871e66fe62f1ce4763351dc/node_modules/drizzle-orm/pg-core/session.js:39:22)",
+                "at file:///C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/node_modules/.pnpm/drizzle-orm@0.45.2_@cloudfl_eb068ed2e871e66fe62f1ce4763351dc/node_modules/drizzle-orm/node-postgres/session.js:123:21",
+                "at Object.startActiveSpan (file:///C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/node_modules/.pnpm/drizzle-orm@0.45.2_@cloudfl_eb068ed2e871e66fe62f1ce4763351dc/node_modules/drizzle-orm/tracing.js:8:14)",
+                "at file:///C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/node_modules/.pnpm/drizzle-orm@0.45.2_@cloudfl_eb068ed2e871e66fe62f1ce4763351dc/node_modules/drizzle-orm/node-postgres/session.js:117:35",
+                "at Object.startActiveSpan (file:///C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/node_modules/.pnpm/drizzle-orm@0.45.2_@cloudfl_eb068ed2e871e66fe62f1ce4763351dc/node_modules/drizzle-orm/tracing.js:8:14)",
+                "at NodePgPreparedQuery.execute (file:///C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/node_modules/.pnpm/drizzle-orm@0.45.2_@cloudfl_eb068ed2e871e66fe62f1ce4763351dc/node_modules/drizzle-orm/node-postgres/session.js:101:19)",
+                "at file:///C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/node_modules/.pnpm/drizzle-orm@0.45.2_@cloudfl_eb068ed2e871e66fe62f1ce4763351dc/node_modules/drizzle-orm/pg-core/query-builders/select.js:797:30"
+              ],
+              "dispatchCount": 1
+            }
+          ]
+        }
+      ],
+      "manualOwnerSemantics": {
+        "classification": "manual frozen-source interpretation; trace source-stack owner remains unattributed",
+        "owner": "packages/persistence-postgres/src/applicationReadiness.ts",
+        "line": 1939,
+        "ctes": [
+          "application_cold_capture_parent",
+          "application_cold_capture_child_keys",
+          "application_cold_capture_keys"
+        ],
+        "semantics": "Parent SHARE and genuinely dependent cold-child SHARE keys, bounded to 4097; tagged parent/child native-byte mapping with aggregate and per-cell cold receipt bounds. One captured parent supplies both cold and readiness authentication.",
+        "retained": "Complete cold/readiness authentication, live physical cuts and original consumption order. SQL masks relocate bounded work, not its removal.",
+        "serverMetrics": "unavailable: submitted text does not measure scans/plans/CPU/lock/function/trigger executions",
+        "measuredOwnerSha256": "b2dcaefe1ade7641393f8cbd3a8e9308233a71e3c43447c7a213ebf232566b3c",
+        "sourceScope": "original failed candidate measured owner; later approved correction is unmeasured here"
+      },
+      "occurrences": [
+        {
+          "sample": "product-0-detailed",
+          "profile": "product",
+          "warmup": true,
+          "ordinal": 422,
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "overlaps": [
+            {
+              "phase": "authoritative publication",
+              "overlapMs": 0.934399999998277,
+              "containing": true
+            },
+            {
+              "phase": "participantProof",
+              "overlapMs": 0.934399999998277,
+              "containing": true
+            },
+            {
+              "phase": "transaction",
+              "overlapMs": 0.934399999998277,
+              "containing": true
+            },
+            {
+              "phase": "publisher",
+              "overlapMs": 0.934399999998277,
+              "containing": true
+            }
+          ],
+          "parameterCount": 14,
+          "scalarParameterBytes": 305,
+          "unknownEncodingParameters": 0,
+          "sqlUtf8Bytes": 4723,
+          "awaitedMs": 0.934399999998277,
+          "outcome": "ok"
+        },
+        {
+          "sample": "product-1-detailed",
+          "profile": "product",
+          "warmup": false,
+          "ordinal": 422,
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "overlaps": [
+            {
+              "phase": "authoritative publication",
+              "overlapMs": 1.0109000000011292,
+              "containing": true
+            },
+            {
+              "phase": "participantProof",
+              "overlapMs": 1.0109000000011292,
+              "containing": true
+            },
+            {
+              "phase": "transaction",
+              "overlapMs": 1.0109000000011292,
+              "containing": true
+            },
+            {
+              "phase": "publisher",
+              "overlapMs": 1.0109000000011292,
+              "containing": true
+            }
+          ],
+          "parameterCount": 14,
+          "scalarParameterBytes": 305,
+          "unknownEncodingParameters": 0,
+          "sqlUtf8Bytes": 4723,
+          "awaitedMs": 1.0109000000011292,
+          "outcome": "ok"
+        },
+        {
+          "sample": "product-2-detailed",
+          "profile": "product",
+          "warmup": false,
+          "ordinal": 422,
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "overlaps": [
+            {
+              "phase": "authoritative publication",
+              "overlapMs": 0.9330000000045402,
+              "containing": true
+            },
+            {
+              "phase": "participantProof",
+              "overlapMs": 0.9330000000045402,
+              "containing": true
+            },
+            {
+              "phase": "transaction",
+              "overlapMs": 0.9330000000045402,
+              "containing": true
+            },
+            {
+              "phase": "publisher",
+              "overlapMs": 0.9330000000045402,
+              "containing": true
+            }
+          ],
+          "parameterCount": 14,
+          "scalarParameterBytes": 305,
+          "unknownEncodingParameters": 0,
+          "sqlUtf8Bytes": 4723,
+          "awaitedMs": 0.9330000000045402,
+          "outcome": "ok"
+        },
+        {
+          "sample": "product-3-detailed",
+          "profile": "product",
+          "warmup": false,
+          "ordinal": 422,
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "overlaps": [
+            {
+              "phase": "authoritative publication",
+              "overlapMs": 0.8155000000042492,
+              "containing": true
+            },
+            {
+              "phase": "participantProof",
+              "overlapMs": 0.8155000000042492,
+              "containing": true
+            },
+            {
+              "phase": "transaction",
+              "overlapMs": 0.8155000000042492,
+              "containing": true
+            },
+            {
+              "phase": "publisher",
+              "overlapMs": 0.8155000000042492,
+              "containing": true
+            }
+          ],
+          "parameterCount": 14,
+          "scalarParameterBytes": 305,
+          "unknownEncodingParameters": 0,
+          "sqlUtf8Bytes": 4723,
+          "awaitedMs": 0.8155000000042492,
+          "outcome": "ok"
+        },
+        {
+          "sample": "product-4-detailed",
+          "profile": "product",
+          "warmup": false,
+          "ordinal": 422,
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "overlaps": [
+            {
+              "phase": "authoritative publication",
+              "overlapMs": 0.8010999999969499,
+              "containing": true
+            },
+            {
+              "phase": "participantProof",
+              "overlapMs": 0.8010999999969499,
+              "containing": true
+            },
+            {
+              "phase": "transaction",
+              "overlapMs": 0.8010999999969499,
+              "containing": true
+            },
+            {
+              "phase": "publisher",
+              "overlapMs": 0.8010999999969499,
+              "containing": true
+            }
+          ],
+          "parameterCount": 14,
+          "scalarParameterBytes": 305,
+          "unknownEncodingParameters": 0,
+          "sqlUtf8Bytes": 4723,
+          "awaitedMs": 0.8010999999969499,
+          "outcome": "ok"
+        },
+        {
+          "sample": "product-5-detailed",
+          "profile": "product",
+          "warmup": false,
+          "ordinal": 422,
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "overlaps": [
+            {
+              "phase": "authoritative publication",
+              "overlapMs": 1.0688000000009197,
+              "containing": true
+            },
+            {
+              "phase": "participantProof",
+              "overlapMs": 1.0688000000009197,
+              "containing": true
+            },
+            {
+              "phase": "transaction",
+              "overlapMs": 1.0688000000009197,
+              "containing": true
+            },
+            {
+              "phase": "publisher",
+              "overlapMs": 1.0688000000009197,
+              "containing": true
+            }
+          ],
+          "parameterCount": 14,
+          "scalarParameterBytes": 305,
+          "unknownEncodingParameters": 0,
+          "sqlUtf8Bytes": 4723,
+          "awaitedMs": 1.0688000000009197,
+          "outcome": "ok"
+        },
+        {
+          "sample": "productPayload-0-detailed",
+          "profile": "productPayload",
+          "warmup": true,
+          "ordinal": 440,
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "overlaps": [
+            {
+              "phase": "authoritative publication",
+              "overlapMs": 0.9472000000096159,
+              "containing": true
+            },
+            {
+              "phase": "participantProof",
+              "overlapMs": 0.9472000000096159,
+              "containing": true
+            },
+            {
+              "phase": "transaction",
+              "overlapMs": 0.9472000000096159,
+              "containing": true
+            },
+            {
+              "phase": "publisher",
+              "overlapMs": 0.9472000000096159,
+              "containing": true
+            }
+          ],
+          "parameterCount": 14,
+          "scalarParameterBytes": 305,
+          "unknownEncodingParameters": 0,
+          "sqlUtf8Bytes": 4723,
+          "awaitedMs": 0.9472000000096159,
+          "outcome": "ok"
+        },
+        {
+          "sample": "productPayload-1-detailed",
+          "profile": "productPayload",
+          "warmup": false,
+          "ordinal": 440,
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "overlaps": [
+            {
+              "phase": "authoritative publication",
+              "overlapMs": 0.8421999999991385,
+              "containing": true
+            },
+            {
+              "phase": "participantProof",
+              "overlapMs": 0.8421999999991385,
+              "containing": true
+            },
+            {
+              "phase": "transaction",
+              "overlapMs": 0.8421999999991385,
+              "containing": true
+            },
+            {
+              "phase": "publisher",
+              "overlapMs": 0.8421999999991385,
+              "containing": true
+            }
+          ],
+          "parameterCount": 14,
+          "scalarParameterBytes": 305,
+          "unknownEncodingParameters": 0,
+          "sqlUtf8Bytes": 4723,
+          "awaitedMs": 0.8421999999991385,
+          "outcome": "ok"
+        },
+        {
+          "sample": "productPayload-2-detailed",
+          "profile": "productPayload",
+          "warmup": false,
+          "ordinal": 440,
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "overlaps": [
+            {
+              "phase": "authoritative publication",
+              "overlapMs": 0.9251000000076601,
+              "containing": true
+            },
+            {
+              "phase": "participantProof",
+              "overlapMs": 0.9251000000076601,
+              "containing": true
+            },
+            {
+              "phase": "transaction",
+              "overlapMs": 0.9251000000076601,
+              "containing": true
+            },
+            {
+              "phase": "publisher",
+              "overlapMs": 0.9251000000076601,
+              "containing": true
+            }
+          ],
+          "parameterCount": 14,
+          "scalarParameterBytes": 305,
+          "unknownEncodingParameters": 0,
+          "sqlUtf8Bytes": 4723,
+          "awaitedMs": 0.9251000000076601,
+          "outcome": "ok"
+        },
+        {
+          "sample": "productPayload-3-detailed",
+          "profile": "productPayload",
+          "warmup": false,
+          "ordinal": 440,
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "overlaps": [
+            {
+              "phase": "authoritative publication",
+              "overlapMs": 0.7376000000076601,
+              "containing": true
+            },
+            {
+              "phase": "participantProof",
+              "overlapMs": 0.7376000000076601,
+              "containing": true
+            },
+            {
+              "phase": "transaction",
+              "overlapMs": 0.7376000000076601,
+              "containing": true
+            },
+            {
+              "phase": "publisher",
+              "overlapMs": 0.7376000000076601,
+              "containing": true
+            }
+          ],
+          "parameterCount": 14,
+          "scalarParameterBytes": 305,
+          "unknownEncodingParameters": 0,
+          "sqlUtf8Bytes": 4723,
+          "awaitedMs": 0.7376000000076601,
+          "outcome": "ok"
+        },
+        {
+          "sample": "productPayload-4-detailed",
+          "profile": "productPayload",
+          "warmup": false,
+          "ordinal": 440,
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "overlaps": [
+            {
+              "phase": "authoritative publication",
+              "overlapMs": 0.8269999999902211,
+              "containing": true
+            },
+            {
+              "phase": "participantProof",
+              "overlapMs": 0.8269999999902211,
+              "containing": true
+            },
+            {
+              "phase": "transaction",
+              "overlapMs": 0.8269999999902211,
+              "containing": true
+            },
+            {
+              "phase": "publisher",
+              "overlapMs": 0.8269999999902211,
+              "containing": true
+            }
+          ],
+          "parameterCount": 14,
+          "scalarParameterBytes": 305,
+          "unknownEncodingParameters": 0,
+          "sqlUtf8Bytes": 4723,
+          "awaitedMs": 0.8269999999902211,
+          "outcome": "ok"
+        },
+        {
+          "sample": "productPayload-5-detailed",
+          "profile": "productPayload",
+          "warmup": false,
+          "ordinal": 440,
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "overlaps": [
+            {
+              "phase": "authoritative publication",
+              "overlapMs": 0.8358000000007451,
+              "containing": true
+            },
+            {
+              "phase": "participantProof",
+              "overlapMs": 0.8358000000007451,
+              "containing": true
+            },
+            {
+              "phase": "transaction",
+              "overlapMs": 0.8358000000007451,
+              "containing": true
+            },
+            {
+              "phase": "publisher",
+              "overlapMs": 0.8358000000007451,
+              "containing": true
+            }
+          ],
+          "parameterCount": 14,
+          "scalarParameterBytes": 305,
+          "unknownEncodingParameters": 0,
+          "sqlUtf8Bytes": 4723,
+          "awaitedMs": 0.8358000000007451,
+          "outcome": "ok"
+        },
+        {
+          "sample": "workflow-0-detailed",
+          "profile": "workflow",
+          "warmup": true,
+          "ordinal": 678,
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "overlaps": [
+            {
+              "phase": "authoritative publication",
+              "overlapMs": 0.746899999998277,
+              "containing": true
+            },
+            {
+              "phase": "participantProof",
+              "overlapMs": 0.746899999998277,
+              "containing": true
+            },
+            {
+              "phase": "transaction",
+              "overlapMs": 0.746899999998277,
+              "containing": true
+            },
+            {
+              "phase": "publisher",
+              "overlapMs": 0.746899999998277,
+              "containing": true
+            }
+          ],
+          "parameterCount": 14,
+          "scalarParameterBytes": 305,
+          "unknownEncodingParameters": 0,
+          "sqlUtf8Bytes": 4723,
+          "awaitedMs": 0.746899999998277,
+          "outcome": "ok"
+        },
+        {
+          "sample": "workflow-1-detailed",
+          "profile": "workflow",
+          "warmup": false,
+          "ordinal": 678,
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "overlaps": [
+            {
+              "phase": "authoritative publication",
+              "overlapMs": 0.8880000000062864,
+              "containing": true
+            },
+            {
+              "phase": "participantProof",
+              "overlapMs": 0.8880000000062864,
+              "containing": true
+            },
+            {
+              "phase": "transaction",
+              "overlapMs": 0.8880000000062864,
+              "containing": true
+            },
+            {
+              "phase": "publisher",
+              "overlapMs": 0.8880000000062864,
+              "containing": true
+            }
+          ],
+          "parameterCount": 14,
+          "scalarParameterBytes": 305,
+          "unknownEncodingParameters": 0,
+          "sqlUtf8Bytes": 4723,
+          "awaitedMs": 0.8880000000062864,
+          "outcome": "ok"
+        },
+        {
+          "sample": "workflow-2-detailed",
+          "profile": "workflow",
+          "warmup": false,
+          "ordinal": 678,
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "overlaps": [
+            {
+              "phase": "authoritative publication",
+              "overlapMs": 0.7366000000038184,
+              "containing": true
+            },
+            {
+              "phase": "participantProof",
+              "overlapMs": 0.7366000000038184,
+              "containing": true
+            },
+            {
+              "phase": "transaction",
+              "overlapMs": 0.7366000000038184,
+              "containing": true
+            },
+            {
+              "phase": "publisher",
+              "overlapMs": 0.7366000000038184,
+              "containing": true
+            }
+          ],
+          "parameterCount": 14,
+          "scalarParameterBytes": 305,
+          "unknownEncodingParameters": 0,
+          "sqlUtf8Bytes": 4723,
+          "awaitedMs": 0.7366000000038184,
+          "outcome": "ok"
+        },
+        {
+          "sample": "workflow-3-detailed",
+          "profile": "workflow",
+          "warmup": false,
+          "ordinal": 678,
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "overlaps": [
+            {
+              "phase": "authoritative publication",
+              "overlapMs": 1.0205000000132713,
+              "containing": true
+            },
+            {
+              "phase": "participantProof",
+              "overlapMs": 1.0205000000132713,
+              "containing": true
+            },
+            {
+              "phase": "transaction",
+              "overlapMs": 1.0205000000132713,
+              "containing": true
+            },
+            {
+              "phase": "publisher",
+              "overlapMs": 1.0205000000132713,
+              "containing": true
+            }
+          ],
+          "parameterCount": 14,
+          "scalarParameterBytes": 305,
+          "unknownEncodingParameters": 0,
+          "sqlUtf8Bytes": 4723,
+          "awaitedMs": 1.0205000000132713,
+          "outcome": "ok"
+        },
+        {
+          "sample": "workflow-4-detailed",
+          "profile": "workflow",
+          "warmup": false,
+          "ordinal": 678,
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "overlaps": [
+            {
+              "phase": "authoritative publication",
+              "overlapMs": 3.053699999989476,
+              "containing": true
+            },
+            {
+              "phase": "participantProof",
+              "overlapMs": 3.053699999989476,
+              "containing": true
+            },
+            {
+              "phase": "transaction",
+              "overlapMs": 3.053699999989476,
+              "containing": true
+            },
+            {
+              "phase": "publisher",
+              "overlapMs": 3.053699999989476,
+              "containing": true
+            }
+          ],
+          "parameterCount": 14,
+          "scalarParameterBytes": 305,
+          "unknownEncodingParameters": 0,
+          "sqlUtf8Bytes": 4723,
+          "awaitedMs": 3.053699999989476,
+          "outcome": "ok"
+        },
+        {
+          "sample": "workflow-5-detailed",
+          "profile": "workflow",
+          "warmup": false,
+          "ordinal": 678,
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "overlaps": [
+            {
+              "phase": "authoritative publication",
+              "overlapMs": 2.6097000000008848,
+              "containing": true
+            },
+            {
+              "phase": "participantProof",
+              "overlapMs": 2.6097000000008848,
+              "containing": true
+            },
+            {
+              "phase": "transaction",
+              "overlapMs": 2.6097000000008848,
+              "containing": true
+            },
+            {
+              "phase": "publisher",
+              "overlapMs": 2.6097000000008848,
+              "containing": true
+            }
+          ],
+          "parameterCount": 14,
+          "scalarParameterBytes": 305,
+          "unknownEncodingParameters": 0,
+          "sqlUtf8Bytes": 4723,
+          "awaitedMs": 2.6097000000008848,
+          "outcome": "ok"
+        }
+      ]
+    },
+    {
+      "fingerprint": "9b64f5950fc7bd35ef59043a8a72a31fa47a54cc04157135d8a77a7e7ee22acb",
+      "pool": "target",
+      "submittedTemplate": "select \"table_id\" , \"logical_index_id\" , \"source_sha256\" , \"lifecycle\" , \"covered_through_commit_seq\" , true , exists ( select ? from pg_catalog . pg_index physical_index where physical_index . indexrelid = pg_catalog . to_regclass ( pg_catalog . quote_ident ( current_schema ( ) ) | | ? | | pg_catalog . quote_ident ( $? ) ) and physical_index . indrelid = pg_catalog . to_regclass ( pg_catalog . quote_ident ( current_schema ( ) ) | | ? | | pg_catalog . quote_ident ( $? ) ) and physical_index . indisvalid and physical_index . indisready and physical_index . indpred is null and physical_index . indnatts = ? and physical_index . indnkeyatts = ? and ( select access_method . amname from pg_catalog . pg_class index_class join pg_catalog . pg_am access_method on access_method . oid = index_class . relam where index_class . oid = physical_index . indexrelid ) = ? and ( select attribute . attname from pg_catalog . pg_attribute attribute where attribute . attrelid = physical_index . indrelid and attribute . attnum = physical_index . indkey [ ? ] ) = ? and ( select attribute . attname from pg_catalog . pg_attribute attribute where attribute . attrelid = physical_index . indrelid and attribute . attnum = physical_index . indkey [ ? ] ) = ? and ( select attribute . attname from pg_catalog . pg_attribute attribute where attribute . attrelid = physical_index . indrelid and attribute . attnum = physical_index . indkey [ ? ] ) = $? and ( select opclass . opcname from pg_catalog . pg_opclass opclass where opclass . oid = physical_index . indclass [ ? ] ) = ? and ( select opclass . opcname from pg_catalog . pg_opclass opclass where opclass . oid = physical_index . indclass [ ? ] ) = ? and ( select opclass . opcname from pg_catalog . pg_opclass opclass where opclass . oid = physical_index . indclass [ ? ] ) = $? ) from \"fx_system_search_build_state\" where ( \"fx_system_search_build_state\" . \"scope_uuid\" = $? and ( ( \"fx_system_search_build_state\" . \"table_id\" = $? and \"fx_system_search_build_state\" . \"logical_index_id\" = $? ) or ( \"fx_system_search_build_state\" . \"table_id\" = $? and \"fx_system_search_build_state\" . \"logical_index_id\" = $? ) or ( \"fx_system_search_build_state\" . \"table_id\" = $? and \"fx_system_search_build_state\" . \"logical_index_id\" = $? ) or ( \"fx_system_search_build_state\" . \"table_id\" = $? and \"fx_system_search_build_state\" . \"logical_index_id\" = $? ) or ( \"fx_system_search_build_state\" . \"table_id\" = $? and \"fx_system_search_build_state\" . \"logical_index_id\" = $? ) or ( \"fx_system_search_build_state\" . \"table_id\" = $? and \"fx_system_search_build_state\" . \"logical_index_id\" = $? ) or ( \"fx_system_search_build_state\" . \"table_id\" = $? and \"fx_system_search_build_state\" . \"logical_index_id\" = $? ) or ( \"fx_system_search_build_state\" . \"table_id\" = $? and \"fx_system_search_build_state\" . \"logical_index_id\" = $? ) ) )",
+      "observedOwners": [
+        {
+          "pool": "target",
+          "fingerprint": "9b64f5950fc7bd35ef59043a8a72a31fa47a54cc04157135d8a77a7e7ee22acb",
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "status": "unattributed",
+          "owner": null,
+          "observedDispatches": 1,
+          "sourceSites": [
+            {
+              "siteId": "055ae538638873d05e39461654cc0bcfb67af960fea3e1f79af6c791c4a4474a",
+              "owner": null,
+              "sourceFrames": [
+                "at file:///C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/node_modules/.pnpm/drizzle-orm@0.45.2_@cloudfl_eb068ed2e871e66fe62f1ce4763351dc/node_modules/drizzle-orm/node-postgres/session.js:124:31",
+                "at NodePgPreparedQuery.queryWithCache (file:///C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/node_modules/.pnpm/drizzle-orm@0.45.2_@cloudfl_eb068ed2e871e66fe62f1ce4763351dc/node_modules/drizzle-orm/pg-core/session.js:39:22)",
+                "at file:///C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/node_modules/.pnpm/drizzle-orm@0.45.2_@cloudfl_eb068ed2e871e66fe62f1ce4763351dc/node_modules/drizzle-orm/node-postgres/session.js:123:21",
+                "at Object.startActiveSpan (file:///C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/node_modules/.pnpm/drizzle-orm@0.45.2_@cloudfl_eb068ed2e871e66fe62f1ce4763351dc/node_modules/drizzle-orm/tracing.js:8:14)",
+                "at file:///C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/node_modules/.pnpm/drizzle-orm@0.45.2_@cloudfl_eb068ed2e871e66fe62f1ce4763351dc/node_modules/drizzle-orm/node-postgres/session.js:117:35",
+                "at Object.startActiveSpan (file:///C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/node_modules/.pnpm/drizzle-orm@0.45.2_@cloudfl_eb068ed2e871e66fe62f1ce4763351dc/node_modules/drizzle-orm/tracing.js:8:14)",
+                "at NodePgPreparedQuery.execute (file:///C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/node_modules/.pnpm/drizzle-orm@0.45.2_@cloudfl_eb068ed2e871e66fe62f1ce4763351dc/node_modules/drizzle-orm/node-postgres/session.js:101:19)",
+                "at file:///C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/node_modules/.pnpm/drizzle-orm@0.45.2_@cloudfl_eb068ed2e871e66fe62f1ce4763351dc/node_modules/drizzle-orm/pg-core/query-builders/select.js:797:30"
+              ],
+              "dispatchCount": 1
+            }
+          ]
+        }
+      ],
+      "manualOwnerSemantics": {
+        "classification": "manual frozen-source interpretation; trace source-stack owner remains unattributed",
+        "owner": "packages/persistence-postgres/src/logicalSearchBuild.ts",
+        "line": 89,
+        "ctes": [],
+        "semantics": "First accepting refresh chunk (up to 64 selected definitions) projects state plus original qualified JSON/text physical catalog EXISTS predicates. Later chunks read state only; refresh re-acquires catalog evidence. PostgreSQL index readiness/validity/AM/columns/opclasses predicates remain; booleans repeat in returned rows.",
+        "retained": "Selected full definition breadth, exact write clock, state/lifecycle/corruption/frontier decisions and at most 3 refreshes. Existing index/frontier/unique lock and post-lock snapshot cuts stay separate.",
+        "serverMetrics": "unavailable: submitted text does not measure scans/plans/CPU/lock/function/trigger executions",
+        "measuredOwnerSha256": "396636799b3de814ae47191eef33041ca4207f6aabddd746c39ff2feedd4579d",
+        "sourceScope": "original failed candidate measured owner; later approved correction is unmeasured here"
+      },
+      "occurrences": [
+        {
+          "sample": "product-0-detailed",
+          "profile": "product",
+          "warmup": true,
+          "ordinal": 426,
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "overlaps": [
+            {
+              "phase": "authoritative publication",
+              "overlapMs": 0.8362000000051921,
+              "containing": true
+            },
+            {
+              "phase": "participantProof",
+              "overlapMs": 0.8362000000051921,
+              "containing": true
+            },
+            {
+              "phase": "transaction",
+              "overlapMs": 0.8362000000051921,
+              "containing": true
+            },
+            {
+              "phase": "publisher",
+              "overlapMs": 0.8362000000051921,
+              "containing": true
+            }
+          ],
+          "parameterCount": 21,
+          "scalarParameterBytes": 151,
+          "unknownEncodingParameters": 0,
+          "sqlUtf8Bytes": 2846,
+          "awaitedMs": 0.8362000000051921,
+          "outcome": "ok"
+        },
+        {
+          "sample": "product-1-detailed",
+          "profile": "product",
+          "warmup": false,
+          "ordinal": 426,
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "overlaps": [
+            {
+              "phase": "authoritative publication",
+              "overlapMs": 1.1058000000048196,
+              "containing": true
+            },
+            {
+              "phase": "participantProof",
+              "overlapMs": 1.1058000000048196,
+              "containing": true
+            },
+            {
+              "phase": "transaction",
+              "overlapMs": 1.1058000000048196,
+              "containing": true
+            },
+            {
+              "phase": "publisher",
+              "overlapMs": 1.1058000000048196,
+              "containing": true
+            }
+          ],
+          "parameterCount": 21,
+          "scalarParameterBytes": 151,
+          "unknownEncodingParameters": 0,
+          "sqlUtf8Bytes": 2846,
+          "awaitedMs": 1.1058000000048196,
+          "outcome": "ok"
+        },
+        {
+          "sample": "product-2-detailed",
+          "profile": "product",
+          "warmup": false,
+          "ordinal": 426,
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "overlaps": [
+            {
+              "phase": "authoritative publication",
+              "overlapMs": 0.8404999999984284,
+              "containing": true
+            },
+            {
+              "phase": "participantProof",
+              "overlapMs": 0.8404999999984284,
+              "containing": true
+            },
+            {
+              "phase": "transaction",
+              "overlapMs": 0.8404999999984284,
+              "containing": true
+            },
+            {
+              "phase": "publisher",
+              "overlapMs": 0.8404999999984284,
+              "containing": true
+            }
+          ],
+          "parameterCount": 21,
+          "scalarParameterBytes": 151,
+          "unknownEncodingParameters": 0,
+          "sqlUtf8Bytes": 2846,
+          "awaitedMs": 0.8404999999984284,
+          "outcome": "ok"
+        },
+        {
+          "sample": "product-3-detailed",
+          "profile": "product",
+          "warmup": false,
+          "ordinal": 426,
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "overlaps": [
+            {
+              "phase": "authoritative publication",
+              "overlapMs": 0.8748000000050524,
+              "containing": true
+            },
+            {
+              "phase": "participantProof",
+              "overlapMs": 0.8748000000050524,
+              "containing": true
+            },
+            {
+              "phase": "transaction",
+              "overlapMs": 0.8748000000050524,
+              "containing": true
+            },
+            {
+              "phase": "publisher",
+              "overlapMs": 0.8748000000050524,
+              "containing": true
+            }
+          ],
+          "parameterCount": 21,
+          "scalarParameterBytes": 151,
+          "unknownEncodingParameters": 0,
+          "sqlUtf8Bytes": 2846,
+          "awaitedMs": 0.8748000000050524,
+          "outcome": "ok"
+        },
+        {
+          "sample": "product-4-detailed",
+          "profile": "product",
+          "warmup": false,
+          "ordinal": 426,
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "overlaps": [
+            {
+              "phase": "authoritative publication",
+              "overlapMs": 1.1210999999966589,
+              "containing": true
+            },
+            {
+              "phase": "participantProof",
+              "overlapMs": 1.1210999999966589,
+              "containing": true
+            },
+            {
+              "phase": "transaction",
+              "overlapMs": 1.1210999999966589,
+              "containing": true
+            },
+            {
+              "phase": "publisher",
+              "overlapMs": 1.1210999999966589,
+              "containing": true
+            }
+          ],
+          "parameterCount": 21,
+          "scalarParameterBytes": 151,
+          "unknownEncodingParameters": 0,
+          "sqlUtf8Bytes": 2846,
+          "awaitedMs": 1.1210999999966589,
+          "outcome": "ok"
+        },
+        {
+          "sample": "product-5-detailed",
+          "profile": "product",
+          "warmup": false,
+          "ordinal": 426,
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "overlaps": [
+            {
+              "phase": "authoritative publication",
+              "overlapMs": 0.9118000000016764,
+              "containing": true
+            },
+            {
+              "phase": "participantProof",
+              "overlapMs": 0.9118000000016764,
+              "containing": true
+            },
+            {
+              "phase": "transaction",
+              "overlapMs": 0.9118000000016764,
+              "containing": true
+            },
+            {
+              "phase": "publisher",
+              "overlapMs": 0.9118000000016764,
+              "containing": true
+            }
+          ],
+          "parameterCount": 21,
+          "scalarParameterBytes": 151,
+          "unknownEncodingParameters": 0,
+          "sqlUtf8Bytes": 2846,
+          "awaitedMs": 0.9118000000016764,
+          "outcome": "ok"
+        },
+        {
+          "sample": "productPayload-0-detailed",
+          "profile": "productPayload",
+          "warmup": true,
+          "ordinal": 444,
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "overlaps": [
+            {
+              "phase": "authoritative publication",
+              "overlapMs": 1.025999999998021,
+              "containing": true
+            },
+            {
+              "phase": "participantProof",
+              "overlapMs": 1.025999999998021,
+              "containing": true
+            },
+            {
+              "phase": "transaction",
+              "overlapMs": 1.025999999998021,
+              "containing": true
+            },
+            {
+              "phase": "publisher",
+              "overlapMs": 1.025999999998021,
+              "containing": true
+            }
+          ],
+          "parameterCount": 21,
+          "scalarParameterBytes": 151,
+          "unknownEncodingParameters": 0,
+          "sqlUtf8Bytes": 2846,
+          "awaitedMs": 1.025999999998021,
+          "outcome": "ok"
+        },
+        {
+          "sample": "productPayload-1-detailed",
+          "profile": "productPayload",
+          "warmup": false,
+          "ordinal": 444,
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "overlaps": [
+            {
+              "phase": "authoritative publication",
+              "overlapMs": 0.9632999999885214,
+              "containing": true
+            },
+            {
+              "phase": "participantProof",
+              "overlapMs": 0.9632999999885214,
+              "containing": true
+            },
+            {
+              "phase": "transaction",
+              "overlapMs": 0.9632999999885214,
+              "containing": true
+            },
+            {
+              "phase": "publisher",
+              "overlapMs": 0.9632999999885214,
+              "containing": true
+            }
+          ],
+          "parameterCount": 21,
+          "scalarParameterBytes": 151,
+          "unknownEncodingParameters": 0,
+          "sqlUtf8Bytes": 2846,
+          "awaitedMs": 0.9632999999885214,
+          "outcome": "ok"
+        },
+        {
+          "sample": "productPayload-2-detailed",
+          "profile": "productPayload",
+          "warmup": false,
+          "ordinal": 444,
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "overlaps": [
+            {
+              "phase": "authoritative publication",
+              "overlapMs": 0.8825999999971827,
+              "containing": true
+            },
+            {
+              "phase": "participantProof",
+              "overlapMs": 0.8825999999971827,
+              "containing": true
+            },
+            {
+              "phase": "transaction",
+              "overlapMs": 0.8825999999971827,
+              "containing": true
+            },
+            {
+              "phase": "publisher",
+              "overlapMs": 0.8825999999971827,
+              "containing": true
+            }
+          ],
+          "parameterCount": 21,
+          "scalarParameterBytes": 151,
+          "unknownEncodingParameters": 0,
+          "sqlUtf8Bytes": 2846,
+          "awaitedMs": 0.8825999999971827,
+          "outcome": "ok"
+        },
+        {
+          "sample": "productPayload-3-detailed",
+          "profile": "productPayload",
+          "warmup": false,
+          "ordinal": 444,
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "overlaps": [
+            {
+              "phase": "authoritative publication",
+              "overlapMs": 1.082299999994575,
+              "containing": true
+            },
+            {
+              "phase": "participantProof",
+              "overlapMs": 1.082299999994575,
+              "containing": true
+            },
+            {
+              "phase": "transaction",
+              "overlapMs": 1.082299999994575,
+              "containing": true
+            },
+            {
+              "phase": "publisher",
+              "overlapMs": 1.082299999994575,
+              "containing": true
+            }
+          ],
+          "parameterCount": 21,
+          "scalarParameterBytes": 151,
+          "unknownEncodingParameters": 0,
+          "sqlUtf8Bytes": 2846,
+          "awaitedMs": 1.082299999994575,
+          "outcome": "ok"
+        },
+        {
+          "sample": "productPayload-4-detailed",
+          "profile": "productPayload",
+          "warmup": false,
+          "ordinal": 444,
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "overlaps": [
+            {
+              "phase": "authoritative publication",
+              "overlapMs": 0.865300000004936,
+              "containing": true
+            },
+            {
+              "phase": "participantProof",
+              "overlapMs": 0.865300000004936,
+              "containing": true
+            },
+            {
+              "phase": "transaction",
+              "overlapMs": 0.865300000004936,
+              "containing": true
+            },
+            {
+              "phase": "publisher",
+              "overlapMs": 0.865300000004936,
+              "containing": true
+            }
+          ],
+          "parameterCount": 21,
+          "scalarParameterBytes": 151,
+          "unknownEncodingParameters": 0,
+          "sqlUtf8Bytes": 2846,
+          "awaitedMs": 0.865300000004936,
+          "outcome": "ok"
+        },
+        {
+          "sample": "productPayload-5-detailed",
+          "profile": "productPayload",
+          "warmup": false,
+          "ordinal": 444,
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "overlaps": [
+            {
+              "phase": "authoritative publication",
+              "overlapMs": 0.8246000000071945,
+              "containing": true
+            },
+            {
+              "phase": "participantProof",
+              "overlapMs": 0.8246000000071945,
+              "containing": true
+            },
+            {
+              "phase": "transaction",
+              "overlapMs": 0.8246000000071945,
+              "containing": true
+            },
+            {
+              "phase": "publisher",
+              "overlapMs": 0.8246000000071945,
+              "containing": true
+            }
+          ],
+          "parameterCount": 21,
+          "scalarParameterBytes": 151,
+          "unknownEncodingParameters": 0,
+          "sqlUtf8Bytes": 2846,
+          "awaitedMs": 0.8246000000071945,
+          "outcome": "ok"
+        }
+      ]
+    },
+    {
+      "fingerprint": "efd3380f22969a2138379bcaa1ff71b9532b7989b1d65279f6e307dbb8f1a218",
+      "pool": "target",
+      "submittedTemplate": "select \"scope_uuid\" , \"table_id\" , \"row_id\" , \"commit_seq\" , \"prev_commit_seq\" , \"write_epoch_uuid\" , \"schema_version_id\" , \"creation_time\" , \"value_codec_version\" , \"is_tombstone\" , \"value_sha256\" , case when coalesce ( sum ( coalesce ( octet_length ( \"snapshot_latest\" . \"value_bytes\" ) , ? ) ) over ( order by case when \"snapshot_latest\" . \"table_id\" = $? and \"snapshot_latest\" . \"row_id\" = $? then $? when \"snapshot_latest\" . \"table_id\" = $? and \"snapshot_latest\" . \"row_id\" = $? then $? end rows between unbounded preceding and ? preceding ) , ? ) > ? and coalesce ( sum ( coalesce ( octet_length ( \"snapshot_latest\" . \"value_bytes\" ) , ? ) ) over ( order by case when \"snapshot_latest\" . \"table_id\" = $? and \"snapshot_latest\" . \"row_id\" = $? then $? when \"snapshot_latest\" . \"table_id\" = $? and \"snapshot_latest\" . \"row_id\" = $? then $? end rows between unbounded preceding and ? preceding ) , ? ) + coalesce ( octet_length ( \"snapshot_latest\" . \"value_bytes\" ) , ? ) > $? then null else \"value_bytes\" end , coalesce ( sum ( coalesce ( octet_length ( \"snapshot_latest\" . \"value_bytes\" ) , ? ) ) over ( order by case when \"snapshot_latest\" . \"table_id\" = $? and \"snapshot_latest\" . \"row_id\" = $? then $? when \"snapshot_latest\" . \"table_id\" = $? and \"snapshot_latest\" . \"row_id\" = $? then $? end rows between unbounded preceding and ? preceding ) , ? ) > ? and coalesce ( sum ( coalesce ( octet_length ( \"snapshot_latest\" . \"value_bytes\" ) , ? ) ) over ( order by case when \"snapshot_latest\" . \"table_id\" = $? and \"snapshot_latest\" . \"row_id\" = $? then $? when \"snapshot_latest\" . \"table_id\" = $? and \"snapshot_latest\" . \"row_id\" = $? then $? end rows between unbounded preceding and ? preceding ) , ? ) + coalesce ( octet_length ( \"value_bytes\" ) , ? ) > $? from ( select distinct on ( \"fx_app_row_rev\" . \"table_id\" , \"fx_app_row_rev\" . \"row_id\" ) \"scope_uuid\" , \"table_id\" , \"row_id\" , \"commit_seq\" , \"prev_commit_seq\" , \"write_epoch_uuid\" , \"schema_version_id\" , \"creation_time\" , \"value_codec_version\" , \"is_tombstone\" , \"value_bytes\" , \"value_sha256\" from \"fx_app_row_rev\" where ( \"fx_app_row_rev\" . \"scope_uuid\" = $? and ( ( \"fx_app_row_rev\" . \"table_id\" = $? and \"fx_app_row_rev\" . \"row_id\" = $? ) or ( \"fx_app_row_rev\" . \"table_id\" = $? and \"fx_app_row_rev\" . \"row_id\" = $? ) ) and \"fx_app_row_rev\" . \"commit_seq\" < = $? ) order by \"fx_app_row_rev\" . \"table_id\" , \"fx_app_row_rev\" . \"row_id\" , \"fx_app_row_rev\" . \"commit_seq\" desc ) \"snapshot_latest\" order by case when \"snapshot_latest\" . \"table_id\" = $? and \"snapshot_latest\" . \"row_id\" = $? then $? when \"snapshot_latest\" . \"table_id\" = $? and \"snapshot_latest\" . \"row_id\" = $? then $? end",
+      "observedOwners": [
+        {
+          "pool": "target",
+          "fingerprint": "efd3380f22969a2138379bcaa1ff71b9532b7989b1d65279f6e307dbb8f1a218",
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "status": "unattributed",
+          "owner": null,
+          "observedDispatches": 1,
+          "sourceSites": [
+            {
+              "siteId": "055ae538638873d05e39461654cc0bcfb67af960fea3e1f79af6c791c4a4474a",
+              "owner": null,
+              "sourceFrames": [
+                "at file:///C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/node_modules/.pnpm/drizzle-orm@0.45.2_@cloudfl_eb068ed2e871e66fe62f1ce4763351dc/node_modules/drizzle-orm/node-postgres/session.js:124:31",
+                "at NodePgPreparedQuery.queryWithCache (file:///C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/node_modules/.pnpm/drizzle-orm@0.45.2_@cloudfl_eb068ed2e871e66fe62f1ce4763351dc/node_modules/drizzle-orm/pg-core/session.js:39:22)",
+                "at file:///C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/node_modules/.pnpm/drizzle-orm@0.45.2_@cloudfl_eb068ed2e871e66fe62f1ce4763351dc/node_modules/drizzle-orm/node-postgres/session.js:123:21",
+                "at Object.startActiveSpan (file:///C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/node_modules/.pnpm/drizzle-orm@0.45.2_@cloudfl_eb068ed2e871e66fe62f1ce4763351dc/node_modules/drizzle-orm/tracing.js:8:14)",
+                "at file:///C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/node_modules/.pnpm/drizzle-orm@0.45.2_@cloudfl_eb068ed2e871e66fe62f1ce4763351dc/node_modules/drizzle-orm/node-postgres/session.js:117:35",
+                "at Object.startActiveSpan (file:///C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/node_modules/.pnpm/drizzle-orm@0.45.2_@cloudfl_eb068ed2e871e66fe62f1ce4763351dc/node_modules/drizzle-orm/tracing.js:8:14)",
+                "at NodePgPreparedQuery.execute (file:///C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/node_modules/.pnpm/drizzle-orm@0.45.2_@cloudfl_eb068ed2e871e66fe62f1ce4763351dc/node_modules/drizzle-orm/node-postgres/session.js:101:19)",
+                "at file:///C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/node_modules/.pnpm/drizzle-orm@0.45.2_@cloudfl_eb068ed2e871e66fe62f1ce4763351dc/node_modules/drizzle-orm/pg-core/query-builders/select.js:797:30"
+              ],
+              "dispatchCount": 1
+            }
+          ]
+        }
+      ],
+      "manualOwnerSemantics": {
+        "classification": "manual frozen-source interpretation; trace source-stack owner remains unattributed",
+        "owner": "packages/persistence-postgres/src/appRows.ts",
+        "line": 592,
+        "ctes": [],
+        "semantics": "Bounded genuine composite participant identities select DISTINCT ON(table,row) latest revision at snapshot. Single-table IN or multi-table disjunction and explicit requested-order CASE retain original ordinal. Window byte accounting withholds later settlement bodies; native bytea is decoded/authenticated in original order. Product has one historical dispatch already; other plans replace 2/8 historical dispatches with one.",
+        "retained": "Participant proof/correlation, revision/tombstone/fact validation, original prefix verdict/defect/interruption and transfer bound. Native evaluator reader retains its own named window semantics. No history write is removed.",
+        "serverMetrics": "unavailable: submitted text does not measure scans/plans/CPU/lock/function/trigger executions",
+        "measuredOwnerSha256": "adaa433b0767c872b3eb35459e03343f09fabffbe61edb80be8566293f84a476",
+        "sourceScope": "original failed candidate measured owner; later approved correction is unmeasured here"
+      },
+      "occurrences": [
+        {
+          "sample": "productPayload-0-detailed",
+          "profile": "productPayload",
+          "warmup": true,
+          "ordinal": 429,
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "overlaps": [
+            {
+              "phase": "authoritative publication",
+              "overlapMs": 0.8127999999996973,
+              "containing": true
+            },
+            {
+              "phase": "participantProof",
+              "overlapMs": 0.8127999999996973,
+              "containing": true
+            },
+            {
+              "phase": "transaction",
+              "overlapMs": 0.8127999999996973,
+              "containing": true
+            },
+            {
+              "phase": "publisher",
+              "overlapMs": 0.8127999999996973,
+              "containing": true
+            }
+          ],
+          "parameterCount": 38,
+          "scalarParameterBytes": 264,
+          "unknownEncodingParameters": 0,
+          "sqlUtf8Bytes": 2510,
+          "awaitedMs": 0.8127999999996973,
+          "outcome": "ok"
+        },
+        {
+          "sample": "productPayload-1-detailed",
+          "profile": "productPayload",
+          "warmup": false,
+          "ordinal": 429,
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "overlaps": [
+            {
+              "phase": "authoritative publication",
+              "overlapMs": 0.6416000000026543,
+              "containing": true
+            },
+            {
+              "phase": "participantProof",
+              "overlapMs": 0.6416000000026543,
+              "containing": true
+            },
+            {
+              "phase": "transaction",
+              "overlapMs": 0.6416000000026543,
+              "containing": true
+            },
+            {
+              "phase": "publisher",
+              "overlapMs": 0.6416000000026543,
+              "containing": true
+            }
+          ],
+          "parameterCount": 38,
+          "scalarParameterBytes": 264,
+          "unknownEncodingParameters": 0,
+          "sqlUtf8Bytes": 2510,
+          "awaitedMs": 0.6416000000026543,
+          "outcome": "ok"
+        },
+        {
+          "sample": "productPayload-2-detailed",
+          "profile": "productPayload",
+          "warmup": false,
+          "ordinal": 429,
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "overlaps": [
+            {
+              "phase": "authoritative publication",
+              "overlapMs": 0.711699999999837,
+              "containing": true
+            },
+            {
+              "phase": "participantProof",
+              "overlapMs": 0.711699999999837,
+              "containing": true
+            },
+            {
+              "phase": "transaction",
+              "overlapMs": 0.711699999999837,
+              "containing": true
+            },
+            {
+              "phase": "publisher",
+              "overlapMs": 0.711699999999837,
+              "containing": true
+            }
+          ],
+          "parameterCount": 38,
+          "scalarParameterBytes": 264,
+          "unknownEncodingParameters": 0,
+          "sqlUtf8Bytes": 2510,
+          "awaitedMs": 0.711699999999837,
+          "outcome": "ok"
+        },
+        {
+          "sample": "productPayload-3-detailed",
+          "profile": "productPayload",
+          "warmup": false,
+          "ordinal": 429,
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "overlaps": [
+            {
+              "phase": "authoritative publication",
+              "overlapMs": 0.6233999999967637,
+              "containing": true
+            },
+            {
+              "phase": "participantProof",
+              "overlapMs": 0.6233999999967637,
+              "containing": true
+            },
+            {
+              "phase": "transaction",
+              "overlapMs": 0.6233999999967637,
+              "containing": true
+            },
+            {
+              "phase": "publisher",
+              "overlapMs": 0.6233999999967637,
+              "containing": true
+            }
+          ],
+          "parameterCount": 38,
+          "scalarParameterBytes": 264,
+          "unknownEncodingParameters": 0,
+          "sqlUtf8Bytes": 2510,
+          "awaitedMs": 0.6233999999967637,
+          "outcome": "ok"
+        },
+        {
+          "sample": "productPayload-4-detailed",
+          "profile": "productPayload",
+          "warmup": false,
+          "ordinal": 429,
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "overlaps": [
+            {
+              "phase": "authoritative publication",
+              "overlapMs": 0.8299000000115484,
+              "containing": true
+            },
+            {
+              "phase": "participantProof",
+              "overlapMs": 0.8299000000115484,
+              "containing": true
+            },
+            {
+              "phase": "transaction",
+              "overlapMs": 0.8299000000115484,
+              "containing": true
+            },
+            {
+              "phase": "publisher",
+              "overlapMs": 0.8299000000115484,
+              "containing": true
+            }
+          ],
+          "parameterCount": 38,
+          "scalarParameterBytes": 264,
+          "unknownEncodingParameters": 0,
+          "sqlUtf8Bytes": 2510,
+          "awaitedMs": 0.8299000000115484,
+          "outcome": "ok"
+        },
+        {
+          "sample": "productPayload-5-detailed",
+          "profile": "productPayload",
+          "warmup": false,
+          "ordinal": 429,
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "overlaps": [
+            {
+              "phase": "authoritative publication",
+              "overlapMs": 0.6029000000125961,
+              "containing": true
+            },
+            {
+              "phase": "participantProof",
+              "overlapMs": 0.6029000000125961,
+              "containing": true
+            },
+            {
+              "phase": "transaction",
+              "overlapMs": 0.6029000000125961,
+              "containing": true
+            },
+            {
+              "phase": "publisher",
+              "overlapMs": 0.6029000000125961,
+              "containing": true
+            }
+          ],
+          "parameterCount": 38,
+          "scalarParameterBytes": 264,
+          "unknownEncodingParameters": 0,
+          "sqlUtf8Bytes": 2510,
+          "awaitedMs": 0.6029000000125961,
+          "outcome": "ok"
+        }
+      ]
+    },
+    {
+      "fingerprint": "e0396575330ab7dd5dc0d2b5c319c68465ec5721ca2bd06fcdefc8688dba4bb8",
+      "pool": "target",
+      "submittedTemplate": "select \"scope_uuid\" , \"table_id\" , \"row_id\" , \"commit_seq\" , \"prev_commit_seq\" , \"write_epoch_uuid\" , \"schema_version_id\" , \"creation_time\" , \"value_codec_version\" , \"is_tombstone\" , \"value_sha256\" , case when coalesce ( sum ( coalesce ( octet_length ( \"snapshot_latest\" . \"value_bytes\" ) , ? ) ) over ( order by case when \"snapshot_latest\" . \"table_id\" = $? and \"snapshot_latest\" . \"row_id\" = $? then $? when \"snapshot_latest\" . \"table_id\" = $? and \"snapshot_latest\" . \"row_id\" = $? then $? when \"snapshot_latest\" . \"table_id\" = $? and \"snapshot_latest\" . \"row_id\" = $? then $? when \"snapshot_latest\" . \"table_id\" = $? and \"snapshot_latest\" . \"row_id\" = $? then $? when \"snapshot_latest\" . \"table_id\" = $? and \"snapshot_latest\" . \"row_id\" = $? then $? when \"snapshot_latest\" . \"table_id\" = $? and \"snapshot_latest\" . \"row_id\" = $? then $? when \"snapshot_latest\" . \"table_id\" = $? and \"snapshot_latest\" . \"row_id\" = $? then $? when \"snapshot_latest\" . \"table_id\" = $? and \"snapshot_latest\" . \"row_id\" = $? then $? end rows between unbounded preceding and ? preceding ) , ? ) > ? and coalesce ( sum ( coalesce ( octet_length ( \"snapshot_latest\" . \"value_bytes\" ) , ? ) ) over ( order by case when \"snapshot_latest\" . \"table_id\" = $? and \"snapshot_latest\" . \"row_id\" = $? then $? when \"snapshot_latest\" . \"table_id\" = $? and \"snapshot_latest\" . \"row_id\" = $? then $? when \"snapshot_latest\" . \"table_id\" = $? and \"snapshot_latest\" . \"row_id\" = $? then $? when \"snapshot_latest\" . \"table_id\" = $? and \"snapshot_latest\" . \"row_id\" = $? then $? when \"snapshot_latest\" . \"table_id\" = $? and \"snapshot_latest\" . \"row_id\" = $? then $? when \"snapshot_latest\" . \"table_id\" = $? and \"snapshot_latest\" . \"row_id\" = $? then $? when \"snapshot_latest\" . \"table_id\" = $? and \"snapshot_latest\" . \"row_id\" = $? then $? when \"snapshot_latest\" . \"table_id\" = $? and \"snapshot_latest\" . \"row_id\" = $? then $? end rows between unbounded preceding and ? preceding ) , ? ) + coalesce ( octet_length ( \"snapshot_latest\" . \"value_bytes\" ) , ? ) > $? then null else \"value_bytes\" end , coalesce ( sum ( coalesce ( octet_length ( \"snapshot_latest\" . \"value_bytes\" ) , ? ) ) over ( order by case when \"snapshot_latest\" . \"table_id\" = $? and \"snapshot_latest\" . \"row_id\" = $? then $? when \"snapshot_latest\" . \"table_id\" = $? and \"snapshot_latest\" . \"row_id\" = $? then $? when \"snapshot_latest\" . \"table_id\" = $? and \"snapshot_latest\" . \"row_id\" = $? then $? when \"snapshot_latest\" . \"table_id\" = $? and \"snapshot_latest\" . \"row_id\" = $? then $? when \"snapshot_latest\" . \"table_id\" = $? and \"snapshot_latest\" . \"row_id\" = $? then $? when \"snapshot_latest\" . \"table_id\" = $? and \"snapshot_latest\" . \"row_id\" = $? then $? when \"snapshot_latest\" . \"table_id\" = $? and \"snapshot_latest\" . \"row_id\" = $? then $? when \"snapshot_latest\" . \"table_id\" = $? and \"snapshot_latest\" . \"row_id\" = $? then $? end rows between unbounded preceding and ? preceding ) , ? ) > ? and coalesce ( sum ( coalesce ( octet_length ( \"snapshot_latest\" . \"value_bytes\" ) , ? ) ) over ( order by case when \"snapshot_latest\" . \"table_id\" = $? and \"snapshot_latest\" . \"row_id\" = $? then $? when \"snapshot_latest\" . \"table_id\" = $? and \"snapshot_latest\" . \"row_id\" = $? then $? when \"snapshot_latest\" . \"table_id\" = $? and \"snapshot_latest\" . \"row_id\" = $? then $? when \"snapshot_latest\" . \"table_id\" = $? and \"snapshot_latest\" . \"row_id\" = $? then $? when \"snapshot_latest\" . \"table_id\" = $? and \"snapshot_latest\" . \"row_id\" = $? then $? when \"snapshot_latest\" . \"table_id\" = $? and \"snapshot_latest\" . \"row_id\" = $? then $? when \"snapshot_latest\" . \"table_id\" = $? and \"snapshot_latest\" . \"row_id\" = $? then $? when \"snapshot_latest\" . \"table_id\" = $? and \"snapshot_latest\" . \"row_id\" = $? then $? end rows between unbounded preceding and ? preceding ) , ? ) + coalesce ( octet_length ( \"value_bytes\" ) , ? ) > $? from ( select distinct on ( \"fx_app_row_rev\" . \"table_id\" , \"fx_app_row_rev\" . \"row_id\" ) \"scope_uuid\" , \"table_id\" , \"row_id\" , \"commit_seq\" , \"prev_commit_seq\" , \"write_epoch_uuid\" , \"schema_version_id\" , \"creation_time\" , \"value_codec_version\" , \"is_tombstone\" , \"value_bytes\" , \"value_sha256\" from \"fx_app_row_rev\" where ( \"fx_app_row_rev\" . \"scope_uuid\" = $? and ( ( \"fx_app_row_rev\" . \"table_id\" = $? and \"fx_app_row_rev\" . \"row_id\" = $? ) or ( \"fx_app_row_rev\" . \"table_id\" = $? and \"fx_app_row_rev\" . \"row_id\" = $? ) or ( \"fx_app_row_rev\" . \"table_id\" = $? and \"fx_app_row_rev\" . \"row_id\" = $? ) or ( \"fx_app_row_rev\" . \"table_id\" = $? and \"fx_app_row_rev\" . \"row_id\" = $? ) or ( \"fx_app_row_rev\" . \"table_id\" = $? and \"fx_app_row_rev\" . \"row_id\" = $? ) or ( \"fx_app_row_rev\" . \"table_id\" = $? and \"fx_app_row_rev\" . \"row_id\" = $? ) or ( \"fx_app_row_rev\" . \"table_id\" = $? and \"fx_app_row_rev\" . \"row_id\" = $? ) or ( \"fx_app_row_rev\" . \"table_id\" = $? and \"fx_app_row_rev\" . \"row_id\" = $? ) ) and \"fx_app_row_rev\" . \"commit_seq\" < = $? ) order by \"fx_app_row_rev\" . \"table_id\" , \"fx_app_row_rev\" . \"row_id\" , \"fx_app_row_rev\" . \"commit_seq\" desc ) \"snapshot_latest\" order by case when \"snapshot_latest\" . \"table_id\" = $? and \"snapshot_latest\" . \"row_id\" = $? then $? when \"snapshot_latest\" . \"table_id\" = $? and \"snapshot_latest\" . \"row_id\" = $? then $? when \"snapshot_latest\" . \"table_id\" = $? and \"snapshot_latest\" . \"row_id\" = $? then $? when \"snapshot_latest\" . \"table_id\" = $? and \"snapshot_latest\" . \"row_id\" = $? then $? when \"snapshot_latest\" . \"table_id\" = $? and \"snapshot_latest\" . \"row_id\" = $? then $? when \"snapshot_latest\" . \"table_id\" = $? and \"snapshot_latest\" . \"row_id\" = $? then $? when \"snapshot_latest\" . \"table_id\" = $? and \"snapshot_latest\" . \"row_id\" = $? then $? when \"snapshot_latest\" . \"table_id\" = $? and \"snapshot_latest\" . \"row_id\" = $? then $? end",
+      "observedOwners": [
+        {
+          "pool": "target",
+          "fingerprint": "e0396575330ab7dd5dc0d2b5c319c68465ec5721ca2bd06fcdefc8688dba4bb8",
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "status": "unattributed",
+          "owner": null,
+          "observedDispatches": 1,
+          "sourceSites": [
+            {
+              "siteId": "055ae538638873d05e39461654cc0bcfb67af960fea3e1f79af6c791c4a4474a",
+              "owner": null,
+              "sourceFrames": [
+                "at file:///C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/node_modules/.pnpm/drizzle-orm@0.45.2_@cloudfl_eb068ed2e871e66fe62f1ce4763351dc/node_modules/drizzle-orm/node-postgres/session.js:124:31",
+                "at NodePgPreparedQuery.queryWithCache (file:///C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/node_modules/.pnpm/drizzle-orm@0.45.2_@cloudfl_eb068ed2e871e66fe62f1ce4763351dc/node_modules/drizzle-orm/pg-core/session.js:39:22)",
+                "at file:///C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/node_modules/.pnpm/drizzle-orm@0.45.2_@cloudfl_eb068ed2e871e66fe62f1ce4763351dc/node_modules/drizzle-orm/node-postgres/session.js:123:21",
+                "at Object.startActiveSpan (file:///C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/node_modules/.pnpm/drizzle-orm@0.45.2_@cloudfl_eb068ed2e871e66fe62f1ce4763351dc/node_modules/drizzle-orm/tracing.js:8:14)",
+                "at file:///C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/node_modules/.pnpm/drizzle-orm@0.45.2_@cloudfl_eb068ed2e871e66fe62f1ce4763351dc/node_modules/drizzle-orm/node-postgres/session.js:117:35",
+                "at Object.startActiveSpan (file:///C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/node_modules/.pnpm/drizzle-orm@0.45.2_@cloudfl_eb068ed2e871e66fe62f1ce4763351dc/node_modules/drizzle-orm/tracing.js:8:14)",
+                "at NodePgPreparedQuery.execute (file:///C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/node_modules/.pnpm/drizzle-orm@0.45.2_@cloudfl_eb068ed2e871e66fe62f1ce4763351dc/node_modules/drizzle-orm/node-postgres/session.js:101:19)",
+                "at file:///C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/node_modules/.pnpm/drizzle-orm@0.45.2_@cloudfl_eb068ed2e871e66fe62f1ce4763351dc/node_modules/drizzle-orm/pg-core/query-builders/select.js:797:30"
+              ],
+              "dispatchCount": 1
+            }
+          ]
+        }
+      ],
+      "manualOwnerSemantics": {
+        "classification": "manual frozen-source interpretation; trace source-stack owner remains unattributed",
+        "owner": "packages/persistence-postgres/src/appRows.ts",
+        "line": 592,
+        "ctes": [],
+        "semantics": "Bounded genuine composite participant identities select DISTINCT ON(table,row) latest revision at snapshot. Single-table IN or multi-table disjunction and explicit requested-order CASE retain original ordinal. Window byte accounting withholds later settlement bodies; native bytea is decoded/authenticated in original order. Product has one historical dispatch already; other plans replace 2/8 historical dispatches with one.",
+        "retained": "Participant proof/correlation, revision/tombstone/fact validation, original prefix verdict/defect/interruption and transfer bound. Native evaluator reader retains its own named window semantics. No history write is removed.",
+        "serverMetrics": "unavailable: submitted text does not measure scans/plans/CPU/lock/function/trigger executions",
+        "measuredOwnerSha256": "adaa433b0767c872b3eb35459e03343f09fabffbe61edb80be8566293f84a476",
+        "sourceScope": "original failed candidate measured owner; later approved correction is unmeasured here"
+      },
+      "occurrences": [
+        {
+          "sample": "workflow-0-detailed",
+          "profile": "workflow",
+          "warmup": true,
+          "ordinal": 667,
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "overlaps": [
+            {
+              "phase": "authoritative publication",
+              "overlapMs": 1.0190000000002328,
+              "containing": true
+            },
+            {
+              "phase": "participantProof",
+              "overlapMs": 1.0190000000002328,
+              "containing": true
+            },
+            {
+              "phase": "transaction",
+              "overlapMs": 1.0190000000002328,
+              "containing": true
+            },
+            {
+              "phase": "publisher",
+              "overlapMs": 1.0190000000002328,
+              "containing": true
+            }
+          ],
+          "parameterCount": 140,
+          "scalarParameterBytes": 936,
+          "unknownEncodingParameters": 0,
+          "sqlUtf8Bytes": 5581,
+          "awaitedMs": 1.0190000000002328,
+          "outcome": "ok"
+        },
+        {
+          "sample": "workflow-1-detailed",
+          "profile": "workflow",
+          "warmup": false,
+          "ordinal": 667,
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "overlaps": [
+            {
+              "phase": "authoritative publication",
+              "overlapMs": 3.0310000000026776,
+              "containing": true
+            },
+            {
+              "phase": "participantProof",
+              "overlapMs": 3.0310000000026776,
+              "containing": true
+            },
+            {
+              "phase": "transaction",
+              "overlapMs": 3.0310000000026776,
+              "containing": true
+            },
+            {
+              "phase": "publisher",
+              "overlapMs": 3.0310000000026776,
+              "containing": true
+            }
+          ],
+          "parameterCount": 140,
+          "scalarParameterBytes": 936,
+          "unknownEncodingParameters": 0,
+          "sqlUtf8Bytes": 5581,
+          "awaitedMs": 3.0310000000026776,
+          "outcome": "ok"
+        },
+        {
+          "sample": "workflow-2-detailed",
+          "profile": "workflow",
+          "warmup": false,
+          "ordinal": 667,
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "overlaps": [
+            {
+              "phase": "authoritative publication",
+              "overlapMs": 1.0098999999900116,
+              "containing": true
+            },
+            {
+              "phase": "participantProof",
+              "overlapMs": 1.0098999999900116,
+              "containing": true
+            },
+            {
+              "phase": "transaction",
+              "overlapMs": 1.0098999999900116,
+              "containing": true
+            },
+            {
+              "phase": "publisher",
+              "overlapMs": 1.0098999999900116,
+              "containing": true
+            }
+          ],
+          "parameterCount": 140,
+          "scalarParameterBytes": 936,
+          "unknownEncodingParameters": 0,
+          "sqlUtf8Bytes": 5581,
+          "awaitedMs": 1.0098999999900116,
+          "outcome": "ok"
+        },
+        {
+          "sample": "workflow-3-detailed",
+          "profile": "workflow",
+          "warmup": false,
+          "ordinal": 667,
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "overlaps": [
+            {
+              "phase": "authoritative publication",
+              "overlapMs": 0.9024000000208616,
+              "containing": true
+            },
+            {
+              "phase": "participantProof",
+              "overlapMs": 0.9024000000208616,
+              "containing": true
+            },
+            {
+              "phase": "transaction",
+              "overlapMs": 0.9024000000208616,
+              "containing": true
+            },
+            {
+              "phase": "publisher",
+              "overlapMs": 0.9024000000208616,
+              "containing": true
+            }
+          ],
+          "parameterCount": 140,
+          "scalarParameterBytes": 936,
+          "unknownEncodingParameters": 0,
+          "sqlUtf8Bytes": 5581,
+          "awaitedMs": 0.9024000000208616,
+          "outcome": "ok"
+        },
+        {
+          "sample": "workflow-4-detailed",
+          "profile": "workflow",
+          "warmup": false,
+          "ordinal": 667,
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "overlaps": [
+            {
+              "phase": "authoritative publication",
+              "overlapMs": 0.9464999999909196,
+              "containing": true
+            },
+            {
+              "phase": "participantProof",
+              "overlapMs": 0.9464999999909196,
+              "containing": true
+            },
+            {
+              "phase": "transaction",
+              "overlapMs": 0.9464999999909196,
+              "containing": true
+            },
+            {
+              "phase": "publisher",
+              "overlapMs": 0.9464999999909196,
+              "containing": true
+            }
+          ],
+          "parameterCount": 140,
+          "scalarParameterBytes": 936,
+          "unknownEncodingParameters": 0,
+          "sqlUtf8Bytes": 5581,
+          "awaitedMs": 0.9464999999909196,
+          "outcome": "ok"
+        },
+        {
+          "sample": "workflow-5-detailed",
+          "profile": "workflow",
+          "warmup": false,
+          "ordinal": 667,
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "overlaps": [
+            {
+              "phase": "authoritative publication",
+              "overlapMs": 1.1449999999895226,
+              "containing": true
+            },
+            {
+              "phase": "participantProof",
+              "overlapMs": 1.1449999999895226,
+              "containing": true
+            },
+            {
+              "phase": "transaction",
+              "overlapMs": 1.1449999999895226,
+              "containing": true
+            },
+            {
+              "phase": "publisher",
+              "overlapMs": 1.1449999999895226,
+              "containing": true
+            }
+          ],
+          "parameterCount": 140,
+          "scalarParameterBytes": 936,
+          "unknownEncodingParameters": 0,
+          "sqlUtf8Bytes": 5581,
+          "awaitedMs": 1.1449999999895226,
+          "outcome": "ok"
+        }
+      ]
+    },
+    {
+      "fingerprint": "17ad7f9c2307e5c986380a73462dc9db2cf2ca0c69c98f2368ee0f8ec2986ece",
+      "pool": "target",
+      "submittedTemplate": "select \"table_id\" , \"logical_index_id\" , \"source_sha256\" , \"lifecycle\" , \"covered_through_commit_seq\" , exists ( select ? from pg_catalog . pg_index physical_index where physical_index . indexrelid = pg_catalog . to_regclass ( pg_catalog . quote_ident ( current_schema ( ) ) | | ? | | pg_catalog . quote_ident ( $? ) ) and physical_index . indrelid = pg_catalog . to_regclass ( pg_catalog . quote_ident ( current_schema ( ) ) | | ? | | pg_catalog . quote_ident ( $? ) ) and physical_index . indisvalid and physical_index . indisready and physical_index . indpred is null and physical_index . indnatts = ? and physical_index . indnkeyatts = ? and ( select access_method . amname from pg_catalog . pg_class index_class join pg_catalog . pg_am access_method on access_method . oid = index_class . relam where index_class . oid = physical_index . indexrelid ) = ? and ( select attribute . attname from pg_catalog . pg_attribute attribute where attribute . attrelid = physical_index . indrelid and attribute . attnum = physical_index . indkey [ ? ] ) = ? and ( select attribute . attname from pg_catalog . pg_attribute attribute where attribute . attrelid = physical_index . indrelid and attribute . attnum = physical_index . indkey [ ? ] ) = ? and ( select attribute . attname from pg_catalog . pg_attribute attribute where attribute . attrelid = physical_index . indrelid and attribute . attnum = physical_index . indkey [ ? ] ) = $? and ( select opclass . opcname from pg_catalog . pg_opclass opclass where opclass . oid = physical_index . indclass [ ? ] ) = ? and ( select opclass . opcname from pg_catalog . pg_opclass opclass where opclass . oid = physical_index . indclass [ ? ] ) = ? and ( select opclass . opcname from pg_catalog . pg_opclass opclass where opclass . oid = physical_index . indclass [ ? ] ) = $? ) , exists ( select ? from pg_catalog . pg_index physical_index where physical_index . indexrelid = pg_catalog . to_regclass ( pg_catalog . quote_ident ( current_schema ( ) ) | | ? | | pg_catalog . quote_ident ( $? ) ) and physical_index . indrelid = pg_catalog . to_regclass ( pg_catalog . quote_ident ( current_schema ( ) ) | | ? | | pg_catalog . quote_ident ( $? ) ) and physical_index . indisvalid and physical_index . indisready and physical_index . indpred is null and physical_index . indnatts = ? and physical_index . indnkeyatts = ? and ( select access_method . amname from pg_catalog . pg_class index_class join pg_catalog . pg_am access_method on access_method . oid = index_class . relam where index_class . oid = physical_index . indexrelid ) = ? and ( select attribute . attname from pg_catalog . pg_attribute attribute where attribute . attrelid = physical_index . indrelid and attribute . attnum = physical_index . indkey [ ? ] ) = ? and ( select attribute . attname from pg_catalog . pg_attribute attribute where attribute . attrelid = physical_index . indrelid and attribute . attnum = physical_index . indkey [ ? ] ) = ? and ( select attribute . attname from pg_catalog . pg_attribute attribute where attribute . attrelid = physical_index . indrelid and attribute . attnum = physical_index . indkey [ ? ] ) = $? and ( select opclass . opcname from pg_catalog . pg_opclass opclass where opclass . oid = physical_index . indclass [ ? ] ) = ? and ( select opclass . opcname from pg_catalog . pg_opclass opclass where opclass . oid = physical_index . indclass [ ? ] ) = ? and ( select opclass . opcname from pg_catalog . pg_opclass opclass where opclass . oid = physical_index . indclass [ ? ] ) = $? ) from \"fx_system_search_build_state\" where ( \"fx_system_search_build_state\" . \"scope_uuid\" = $? and ( ( \"fx_system_search_build_state\" . \"table_id\" = $? and \"fx_system_search_build_state\" . \"logical_index_id\" = $? ) or ( \"fx_system_search_build_state\" . \"table_id\" = $? and \"fx_system_search_build_state\" . \"logical_index_id\" = $? ) or ( \"fx_system_search_build_state\" . \"table_id\" = $? and \"fx_system_search_build_state\" . \"logical_index_id\" = $? ) or ( \"fx_system_search_build_state\" . \"table_id\" = $? and \"fx_system_search_build_state\" . \"logical_index_id\" = $? ) or ( \"fx_system_search_build_state\" . \"table_id\" = $? and \"fx_system_search_build_state\" . \"logical_index_id\" = $? ) or ( \"fx_system_search_build_state\" . \"table_id\" = $? and \"fx_system_search_build_state\" . \"logical_index_id\" = $? ) or ( \"fx_system_search_build_state\" . \"table_id\" = $? and \"fx_system_search_build_state\" . \"logical_index_id\" = $? ) or ( \"fx_system_search_build_state\" . \"table_id\" = $? and \"fx_system_search_build_state\" . \"logical_index_id\" = $? ) or ( \"fx_system_search_build_state\" . \"table_id\" = $? and \"fx_system_search_build_state\" . \"logical_index_id\" = $? ) or ( \"fx_system_search_build_state\" . \"table_id\" = $? and \"fx_system_search_build_state\" . \"logical_index_id\" = $? ) ) )",
+      "observedOwners": [
+        {
+          "pool": "target",
+          "fingerprint": "17ad7f9c2307e5c986380a73462dc9db2cf2ca0c69c98f2368ee0f8ec2986ece",
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "status": "unattributed",
+          "owner": null,
+          "observedDispatches": 1,
+          "sourceSites": [
+            {
+              "siteId": "055ae538638873d05e39461654cc0bcfb67af960fea3e1f79af6c791c4a4474a",
+              "owner": null,
+              "sourceFrames": [
+                "at file:///C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/node_modules/.pnpm/drizzle-orm@0.45.2_@cloudfl_eb068ed2e871e66fe62f1ce4763351dc/node_modules/drizzle-orm/node-postgres/session.js:124:31",
+                "at NodePgPreparedQuery.queryWithCache (file:///C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/node_modules/.pnpm/drizzle-orm@0.45.2_@cloudfl_eb068ed2e871e66fe62f1ce4763351dc/node_modules/drizzle-orm/pg-core/session.js:39:22)",
+                "at file:///C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/node_modules/.pnpm/drizzle-orm@0.45.2_@cloudfl_eb068ed2e871e66fe62f1ce4763351dc/node_modules/drizzle-orm/node-postgres/session.js:123:21",
+                "at Object.startActiveSpan (file:///C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/node_modules/.pnpm/drizzle-orm@0.45.2_@cloudfl_eb068ed2e871e66fe62f1ce4763351dc/node_modules/drizzle-orm/tracing.js:8:14)",
+                "at file:///C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/node_modules/.pnpm/drizzle-orm@0.45.2_@cloudfl_eb068ed2e871e66fe62f1ce4763351dc/node_modules/drizzle-orm/node-postgres/session.js:117:35",
+                "at Object.startActiveSpan (file:///C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/node_modules/.pnpm/drizzle-orm@0.45.2_@cloudfl_eb068ed2e871e66fe62f1ce4763351dc/node_modules/drizzle-orm/tracing.js:8:14)",
+                "at NodePgPreparedQuery.execute (file:///C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/node_modules/.pnpm/drizzle-orm@0.45.2_@cloudfl_eb068ed2e871e66fe62f1ce4763351dc/node_modules/drizzle-orm/node-postgres/session.js:101:19)",
+                "at file:///C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/node_modules/.pnpm/drizzle-orm@0.45.2_@cloudfl_eb068ed2e871e66fe62f1ce4763351dc/node_modules/drizzle-orm/pg-core/query-builders/select.js:797:30"
+              ],
+              "dispatchCount": 1
+            }
+          ]
+        }
+      ],
+      "manualOwnerSemantics": {
+        "classification": "manual frozen-source interpretation; trace source-stack owner remains unattributed",
+        "owner": "packages/persistence-postgres/src/logicalSearchBuild.ts",
+        "line": 89,
+        "ctes": [],
+        "semantics": "First accepting refresh chunk (up to 64 selected definitions) projects state plus original qualified JSON/text physical catalog EXISTS predicates. Later chunks read state only; refresh re-acquires catalog evidence. PostgreSQL index readiness/validity/AM/columns/opclasses predicates remain; booleans repeat in returned rows.",
+        "retained": "Selected full definition breadth, exact write clock, state/lifecycle/corruption/frontier decisions and at most 3 refreshes. Existing index/frontier/unique lock and post-lock snapshot cuts stay separate.",
+        "serverMetrics": "unavailable: submitted text does not measure scans/plans/CPU/lock/function/trigger executions",
+        "measuredOwnerSha256": "396636799b3de814ae47191eef33041ca4207f6aabddd746c39ff2feedd4579d",
+        "sourceScope": "original failed candidate measured owner; later approved correction is unmeasured here"
+      },
+      "occurrences": [
+        {
+          "sample": "workflow-0-detailed",
+          "profile": "workflow",
+          "warmup": true,
+          "ordinal": 682,
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "overlaps": [
+            {
+              "phase": "authoritative publication",
+              "overlapMs": 1.5812999999907333,
+              "containing": true
+            },
+            {
+              "phase": "participantProof",
+              "overlapMs": 1.5812999999907333,
+              "containing": true
+            },
+            {
+              "phase": "transaction",
+              "overlapMs": 1.5812999999907333,
+              "containing": true
+            },
+            {
+              "phase": "publisher",
+              "overlapMs": 1.5812999999907333,
+              "containing": true
+            }
+          ],
+          "parameterCount": 29,
+          "scalarParameterBytes": 255,
+          "unknownEncodingParameters": 0,
+          "sqlUtf8Bytes": 4817,
+          "awaitedMs": 1.5812999999907333,
+          "outcome": "ok"
+        },
+        {
+          "sample": "workflow-1-detailed",
+          "profile": "workflow",
+          "warmup": false,
+          "ordinal": 682,
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "overlaps": [
+            {
+              "phase": "authoritative publication",
+              "overlapMs": 1.6592000000091502,
+              "containing": true
+            },
+            {
+              "phase": "participantProof",
+              "overlapMs": 1.6592000000091502,
+              "containing": true
+            },
+            {
+              "phase": "transaction",
+              "overlapMs": 1.6592000000091502,
+              "containing": true
+            },
+            {
+              "phase": "publisher",
+              "overlapMs": 1.6592000000091502,
+              "containing": true
+            }
+          ],
+          "parameterCount": 29,
+          "scalarParameterBytes": 255,
+          "unknownEncodingParameters": 0,
+          "sqlUtf8Bytes": 4817,
+          "awaitedMs": 1.6592000000091502,
+          "outcome": "ok"
+        },
+        {
+          "sample": "workflow-2-detailed",
+          "profile": "workflow",
+          "warmup": false,
+          "ordinal": 682,
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "overlaps": [
+            {
+              "phase": "authoritative publication",
+              "overlapMs": 1.459499999997206,
+              "containing": true
+            },
+            {
+              "phase": "participantProof",
+              "overlapMs": 1.459499999997206,
+              "containing": true
+            },
+            {
+              "phase": "transaction",
+              "overlapMs": 1.459499999997206,
+              "containing": true
+            },
+            {
+              "phase": "publisher",
+              "overlapMs": 1.459499999997206,
+              "containing": true
+            }
+          ],
+          "parameterCount": 29,
+          "scalarParameterBytes": 255,
+          "unknownEncodingParameters": 0,
+          "sqlUtf8Bytes": 4817,
+          "awaitedMs": 1.459499999997206,
+          "outcome": "ok"
+        },
+        {
+          "sample": "workflow-3-detailed",
+          "profile": "workflow",
+          "warmup": false,
+          "ordinal": 682,
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "overlaps": [
+            {
+              "phase": "authoritative publication",
+              "overlapMs": 1.5388999999850057,
+              "containing": true
+            },
+            {
+              "phase": "participantProof",
+              "overlapMs": 1.5388999999850057,
+              "containing": true
+            },
+            {
+              "phase": "transaction",
+              "overlapMs": 1.5388999999850057,
+              "containing": true
+            },
+            {
+              "phase": "publisher",
+              "overlapMs": 1.5388999999850057,
+              "containing": true
+            }
+          ],
+          "parameterCount": 29,
+          "scalarParameterBytes": 255,
+          "unknownEncodingParameters": 0,
+          "sqlUtf8Bytes": 4817,
+          "awaitedMs": 1.5388999999850057,
+          "outcome": "ok"
+        },
+        {
+          "sample": "workflow-4-detailed",
+          "profile": "workflow",
+          "warmup": false,
+          "ordinal": 682,
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "overlaps": [
+            {
+              "phase": "authoritative publication",
+              "overlapMs": 1.5045000000100117,
+              "containing": true
+            },
+            {
+              "phase": "participantProof",
+              "overlapMs": 1.5045000000100117,
+              "containing": true
+            },
+            {
+              "phase": "transaction",
+              "overlapMs": 1.5045000000100117,
+              "containing": true
+            },
+            {
+              "phase": "publisher",
+              "overlapMs": 1.5045000000100117,
+              "containing": true
+            }
+          ],
+          "parameterCount": 29,
+          "scalarParameterBytes": 255,
+          "unknownEncodingParameters": 0,
+          "sqlUtf8Bytes": 4817,
+          "awaitedMs": 1.5045000000100117,
+          "outcome": "ok"
+        },
+        {
+          "sample": "workflow-5-detailed",
+          "profile": "workflow",
+          "warmup": false,
+          "ordinal": 682,
+          "phasePath": [
+            "invocation",
+            "authoritative publication"
+          ],
+          "overlaps": [
+            {
+              "phase": "authoritative publication",
+              "overlapMs": 1.5837999999930616,
+              "containing": true
+            },
+            {
+              "phase": "participantProof",
+              "overlapMs": 1.5837999999930616,
+              "containing": true
+            },
+            {
+              "phase": "transaction",
+              "overlapMs": 1.5837999999930616,
+              "containing": true
+            },
+            {
+              "phase": "publisher",
+              "overlapMs": 1.5837999999930616,
+              "containing": true
+            }
+          ],
+          "parameterCount": 29,
+          "scalarParameterBytes": 255,
+          "unknownEncodingParameters": 0,
+          "sqlUtf8Bytes": 4817,
+          "awaitedMs": 1.5837999999930616,
+          "outcome": "ok"
+        }
+      ]
+    }
+  ]
+}

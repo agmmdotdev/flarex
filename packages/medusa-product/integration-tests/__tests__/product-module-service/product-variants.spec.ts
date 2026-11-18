@@ -5,8 +5,7 @@ type ProductDTO = ProductTypes.ProductDTO
 type ProductVariantDTO = ProductTypes.ProductVariantDTO
 type UpdateProductVariantDTO = ProductTypes.UpdateProductVariantDTO
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import {
-  } from "@medusajs/framework/types"
+
 import { Modules, ProductStatus } from "@medusajs/framework/utils"
 import { moduleIntegrationTestRunner } from "@medusajs/test-utils"
 moduleIntegrationTestRunner({

@@ -1,0 +1,12 @@
+{
+  "status": "bootstrapFailed",
+  "evidence": "quiet-parity-smoke.json",
+  "observedRetrievals": 0,
+  "parityPassed": false,
+  "measurementPassed": false,
+  "owner": "pinned native MikroORM schema bootstrap configuration",
+  "scenario": "The pinned generator creates native_retrieval.product_category but emits an unqualified index target product_category while the native role lacks native_retrieval in search_path.",
+  "disposition": "Root configures the native role in the owned native database with search_path=native_retrieval,public before the configured smoke. No pinned source or production/core changes.",
+  "secondaryFailure": "ORM not configured during cleanup after failed initialization",
+  "preservation": "The original failed quiet-parity-smoke.json remains unchanged. Its samples, parity results and native missing-error observations are empty."
+}

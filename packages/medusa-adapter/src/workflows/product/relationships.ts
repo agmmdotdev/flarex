@@ -1,0 +1,53 @@
+import { Effect } from "effect";
+import { createWorkflow, transform, WorkflowResponse, type WorkflowData, type WorkflowDefinition } from "@medusajs/workflows-sdk";
+import { useQueryGraphStep } from "@medusajs/core-flows/common/use-query-graph";
+import { batchLinkProductsToCollectionWorkflow } from "@medusajs/core-flows/product/batch-link-products-collection";
+import { batchLinkProductsToCategoryWorkflow } from "@medusajs/core-flows/product/batch-products-in-category";
+import type { AtomicCommerceEvents } from "@flarex/persistence-postgres/internal/commerce-adapter";
+import { commerceError, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
+import { ProductRelationshipsInput, ProductRelationshipsOutput, collectionReplacementResult } from "../../modules/product/relationship-workflow-input";
+import type { ProductWorkflowModule } from "../../modules/product/workflow";
+import { captureWorkflowRecord } from "../../workflow/configuration";
+import { prepareWorkflowResources } from "../../workflow/resources";
+import { productRelationshipsPolicy } from "../../workflow/policy";
+import { internalModuleWorkflowEvents } from "../../workflow/events";
+import { prepareAtomicWorkflowHost, type AtomicWorkflowExecution, type InstalledWorkflowModule, captureInstalledWorkflowModules } from "../../workflow/host";
+
+/** Category and its pending snapshot precede terminal Collection replacement.
+ * Both native children borrow the same root and retain their business logic. */
+export const productRelationshipsWorkflow: WorkflowDefinition<typeof ProductRelationshipsInput.Type, WorkflowData<{
+  productsAfterCategory: readonly JsonObject[]; collection: ReturnType<typeof collectionReplacementResult>;
+}>, readonly []> = createWorkflow("update-product-relationships", (input: WorkflowData<typeof ProductRelationshipsInput.Type>) => {
+  const collectionInput = transform(input.collection, change => ({ id: change.id, add: [...change.add ?? []], remove: [...change.remove ?? []] }));
+  const categoryInput = transform(input.category, change => ({ id: change.id, add: [...change.add ?? []], remove: [...change.remove ?? []] }));
+  batchLinkProductsToCategoryWorkflow.runAsStep({ input: categoryInput });
+  const ids = transform(input, ({ collection, category }) => [...new Set([
+    ...(collection.add ?? []), ...(collection.remove ?? []), ...(category.add ?? []), ...(category.remove ?? []),
+  ])]);
+  const products = useQueryGraphStep({ entity: "product", fields: ["id", "categories.id"],
+    filters: { id: ids }, pagination: { take: productRelationshipsPolicy.queryRows },
+  }).config({ name: "pending-product-relationships" });
+  const updated = batchLinkProductsToCollectionWorkflow.runAsStep({ input: collectionInput });
+  const collection = transform({ id: input.collection.id, updated }, value => collectionReplacementResult(value.id, value.updated));
+  return new WorkflowResponse(transform({ productsAfterCategory: products.data, collection }, value => value));
+});
+
+export const prepareProductRelationshipsWorkflow = Effect.fn("MedusaWorkflow.prepareProductRelationships")(function* (input: {
+  readonly execution: AtomicWorkflowExecution;
+  readonly modules: { readonly product: InstalledWorkflowModule<ProductWorkflowModule> };
+  readonly revision: string;
+  readonly subscribers: AtomicCommerceEvents["subscribers"];
+}) {
+  const options = yield* Effect.fromResult(captureWorkflowRecord(input));
+  const registrations = yield* Effect.fromResult(captureWorkflowRecord(options.modules));
+  const modules = yield* Effect.fromResult(captureInstalledWorkflowModules(registrations, ["product"]));
+  if (Object.keys(registrations).length !== 1) return yield* Effect.fail(commerceError("unsupportedProfile"));
+  const resources = yield* Effect.fromResult(prepareWorkflowResources({ product: { module: modules.product.module,
+    methods: ["listProducts", "retrieveProductCollection", "upsertProducts", "updateProductCollections"], graph: true,
+  } }, true));
+  const prepared = yield* Effect.fromResult(productRelationshipsWorkflow.prepare()).pipe(Effect.mapError(cause => commerceError("unsupportedProfile", cause)));
+  return yield* prepareAtomicWorkflowHost({ ...options, modules, requestCallLimit: productRelationshipsPolicy.calls,
+    workflow: { name: "productRelationships", resources, prepared,
+    input: ProductRelationshipsInput, output: ProductRelationshipsOutput, events: internalModuleWorkflowEvents,
+  } });
+});

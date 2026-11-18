@@ -23,6 +23,8 @@ export type Env = {
   FLAREX_EXECUTOR?: Fetcher;
   FLAREX_EXECUTOR_URL?: string;
   FLAREX_EXECUTOR_TOKEN?: string;
+  /** Unset and legacy_session identify retained session-based compatibility hosts. */
+  FLAREX_EXECUTOR_TRANSPORT?: "legacy_session" | "core_application";
   FLAREX_PROJECT_ID?: string;
   FLAREX_ARTIFACT_RUNTIME?: Fetcher;
   FLAREX_ARTIFACT_RUNTIME_TOKEN?: string;
@@ -55,6 +57,7 @@ export type SchemaIndex = {
   tableId: number;
   name: string;
   fields: string[];
+  decimalFields?: string[];
   state?: "enabled" | "staged" | "disabled";
 };
 
@@ -282,6 +285,7 @@ export type AnalyzeSourcePackageResponse =
     };
 
 export type PushStatus = {
+  storageProfile?: "core_application";
   pushId: string;
   state: PushState;
   sourcePackage: PushSourcePackage;
@@ -291,6 +295,7 @@ export type PushStatus = {
   diagnostics?: PushDiagnostic[];
   createdAt: number;
   updatedAt: number;
+  indexesReady?: boolean;
 };
 
 export type StartPushResponse = PushStatus;

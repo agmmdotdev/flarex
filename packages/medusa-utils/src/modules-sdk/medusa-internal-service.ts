@@ -11,6 +11,7 @@ import type {
   PerformedActions,
   PropertyType,
   UpsertWithReplaceConfig,
+  DAL,
 } from "@medusajs/types"
 import type { EntityClass, EntitySchema } from "@medusajs/deps/mikro-orm/core"
 import { isDefined } from "../common/is-defined"
@@ -19,7 +20,7 @@ import { isPresent } from "../common/is-present"
 import { isString } from "../common/is-string"
 import { lowerCaseFirst } from "../common/lower-case-first"
 import { MedusaError } from "../common/errors"
-import { mergeMetadata } from "../common/merge-metadata"
+import { prepareUpdateMetadata } from "./prepare-update-metadata"
 import { FreeTextSearchFilterKeyPrefix } from "../dal/filter-keys"
 import { DmlEntity } from "../dml/entity"
 import { buildQuery } from "./build-query"
@@ -280,25 +281,30 @@ export function MedusaInternalService<
 
     update(
       data: any[],
-      sharedContext?: Context
+      sharedContext?: Context,
+      options?: DAL.UpdateOptions
     ): Promise<InferEntityType<TEntity>[]>
     update(
       data: any,
-      sharedContext?: Context
+      sharedContext?: Context,
+      options?: DAL.UpdateOptions
     ): Promise<InferEntityType<TEntity>>
     update(
       selectorAndData: SelectorAndData,
-      sharedContext?: Context
+      sharedContext?: Context,
+      options?: DAL.UpdateOptions
     ): Promise<InferEntityType<TEntity>[]>
     update(
       selectorAndData: SelectorAndData[],
-      sharedContext?: Context
+      sharedContext?: Context,
+      options?: DAL.UpdateOptions
     ): Promise<InferEntityType<TEntity>[]>
 
     @InjectTransactionManager(propertyRepositoryName)
     async update(
       input: any | any[] | SelectorAndData | SelectorAndData[],
-      @MedusaContext() sharedContext: Context = {}
+      @MedusaContext() sharedContext: Context = {},
+      options?: DAL.UpdateOptions
     ): Promise<InferEntityType<TEntity> | InferEntityType<TEntity>[]> {
       if (!isDefined(input) || (Array.isArray(input) && input.length === 0)) {
         return (Array.isArray(input) ? [] : void 0) as
@@ -417,25 +423,14 @@ export function MedusaInternalService<
       }
 
       // Manage metadata if needed
-      toUpdateData.forEach(({ entity, update }) => {
-        const update_ = update as (typeof toUpdateData)[number]["update"] & {
-          metadata: Record<string, unknown>
-        }
-        const entity_ = entity as InferEntityType<TEntity> & {
-          metadata?: Record<string, unknown>
-        }
-
-        if (isPresent(update_.metadata)) {
-          entity_.metadata = update_.metadata = mergeMetadata(
-            entity_.metadata ?? {},
-            update_.metadata
-          )
-        }
-      })
+      if (options?.metadata !== "replace") {
+        prepareUpdateMetadata(toUpdateData)
+      }
 
       const entities = await this[propertyRepositoryName].update(
         toUpdateData,
-        sharedContext
+        sharedContext,
+        options
       )
 
       return shouldReturnArray ? entities : entities[0]

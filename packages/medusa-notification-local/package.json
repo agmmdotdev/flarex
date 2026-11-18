@@ -1,0 +1,22 @@
+{
+  "name": "@medusajs/notification-local",
+  "version": "2.13.4",
+  "private": true,
+  "exports": {
+    "./services": {
+      "types": "./dist/services/local.d.ts",
+      "source": "./src/services/local.ts",
+      "default": "./dist/services/local.js"
+    }
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@medusajs/framework": "workspace:*",
+    "@medusajs/types": "workspace:*",
+    "@medusajs/utils": "workspace:*"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  }
+}

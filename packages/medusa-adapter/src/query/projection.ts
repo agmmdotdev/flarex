@@ -1,6 +1,6 @@
 import { Option, Result } from "effect";
 import { projectRowFields, toPopulateTree } from "@medusajs/drizzle/relation-query";
-import { commerceError, isJsonObject, type CommerceTransactionError, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
+import { commerceError, useCapturedPrivateJsonData, isJsonObject, type CommerceTransactionError, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import type { ReadCatalog } from "./catalog";
 
 /** Response policy is separate from the keys required to read a relationship. */
@@ -11,6 +11,8 @@ export interface ProjectionPolicy {
   readonly joinKeys: "storage" | "retain" | "retainWhenNested";
   readonly incomingKeys?: boolean;
   readonly nullToOne?: boolean;
+  /** Explicit native scalar wildcard; relation traversal remains separately admitted. */
+  readonly allowWildcard?: boolean;
   readonly selectableRelations: readonly string[];
   readonly nested: ReadonlyMap<string, ProjectionPolicy>;
 }
@@ -19,12 +21,40 @@ export interface ProjectionNode {
   /** Native graph masks require every selected scalar; existing DAL projections
    * keep their established optional-field behavior unless explicitly selected. */
   readonly requireFields?: boolean;
+  readonly optionalFields?: readonly string[];
   readonly children: readonly { readonly name: string; readonly many: boolean; readonly optional?: boolean; readonly node: ProjectionNode }[];
   readonly nullRelations: readonly { readonly name: string; readonly keys: readonly string[] }[];
 }
 export interface ReadProjection {
   readonly storageFields: readonly string[];
   readonly node: ProjectionNode;
+}
+
+/** A prepared query plan may be shared across operations. Keep mutable Set
+ * storage private, including the third argument supplied to forEach, and own
+ * every nested array so an escaped plan cannot change a later query. */
+export function retainReadProjection(projection: ReadProjection): ReadProjection {
+  const retainNode = (node: ProjectionNode): ProjectionNode => {
+    const selected = new Set(node.fields);
+    const fields: ReadonlySet<string> = Object.freeze({
+      size: selected.size,
+      has: (field: string) => selected.has(field),
+      entries: () => selected.entries(),
+      keys: () => selected.keys(),
+      values: () => selected.values(),
+      [Symbol.iterator]: () => selected[Symbol.iterator](),
+      forEach: (callback: (value: string, key: string, set: ReadonlySet<string>) => void, thisArg?: unknown) =>
+        selected.forEach(value => callback.call(thisArg, value, value, fields)),
+    });
+    return Object.freeze({
+      fields,
+      ...(node.requireFields === undefined ? {} : { requireFields: node.requireFields }),
+      ...(node.optionalFields === undefined ? {} : { optionalFields: Object.freeze([...node.optionalFields]) }),
+      children: Object.freeze(node.children.map(child => Object.freeze({ ...child, node: retainNode(child.node) }))),
+      nullRelations: Object.freeze(node.nullRelations.map(relation => Object.freeze({ ...relation, keys: Object.freeze([...relation.keys]) }))),
+    });
+  };
+  return Object.freeze({ storageFields: Object.freeze([...projection.storageFields]), node: retainNode(projection.node) });
 }
 
 /** Bounded projection-tree planning from the pinned DAL's selection semantics.
@@ -42,7 +72,8 @@ export function compileProjection(
     const nestedFields = new Map<string, string[]>();
     const tree = toPopulateTree(paths);
     for (const field of selected) {
-      if (table.columns.includes(field)) scalar.push(field);
+      if (field === "*" && policy.allowWildcard === true) scalar.push(...table.columns);
+      else if (table.columns.includes(field)) scalar.push(field);
       else {
         const dot = field.indexOf(".");
         const name = field.slice(0, dot), child = field.slice(dot + 1);
@@ -65,8 +96,8 @@ export function compileProjection(
       if (childPolicy !== undefined) {
         const childPaths = paths.filter(path => path.startsWith(name + ".")).map(path => path.slice(name.length + 1));
         const projection = yield* compileProjection(catalog, relation.targetTable, nestedFields.get(name), childPaths, childPolicy,
-          relation.join.type === "hasMany" ? relation.join.foreignKeys : []);
-        children.push({ name, many: relation.join.type !== "belongsTo", node: projection.node });
+          relation.join.type === "hasMany" || relation.join.type === "hasOne" ? relation.join.foreignKeys : []);
+        children.push({ name, many: relation.join.type === "hasMany" || relation.join.type === "manyToMany", node: projection.node });
       }
     }
     const nested = nestedFields.size > 0;
@@ -92,7 +123,7 @@ export function projectRows(rows: readonly JsonObject[], node: ProjectionNode): 
   return Result.gen(function* () {
     const output: JsonObject[] = [];
     for (const row of rows) {
-      if (node.requireFields === true && [...node.fields].some(field => !Object.hasOwn(row, field))) return yield* Result.fail(commerceError("storedCorruption"));
+      if (node.requireFields === true && [...node.fields].some(field => !Object.hasOwn(row, field) && !node.optionalFields?.includes(field))) return yield* Result.fail(commerceError("storedCorruption"));
       const projected = projectRowFields(row, node.fields);
       for (const child of node.children) {
         const value = row[child.name];
@@ -114,7 +145,11 @@ export function projectRows(rows: readonly JsonObject[], node: ProjectionNode): 
       for (const relation of node.nullRelations) {
         if (projected[relation.name] === undefined && relation.keys.length > 0 && relation.keys.every(key => node.fields.has(key) && projected[key] === null)) projected[relation.name] = null;
       }
-      output.push(projected);
+      // The projection is a new wrapper over complete core-owned rows. Retain
+      // genuine immutable children; foreign values still capture every field.
+      const captured = yield* useCapturedPrivateJsonData(projected, Number.MAX_SAFE_INTEGER, commerceError);
+      if (!isJsonObject(captured.value)) return yield* Result.fail(commerceError("storedCorruption"));
+      output.push(captured.value);
     }
     return output;
   });

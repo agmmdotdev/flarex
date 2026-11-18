@@ -1,0 +1,16 @@
+{
+  "format": "flarex.mixed-mutation-performance-exclusions",
+  "observationMode": "untraced",
+  "excludedSamples": [],
+  "failedSamples": [],
+  "setupFailures": [],
+  "unavailable": [
+    "PostgreSQL server execution time (driver await includes transport and scheduling).",
+    "Exact native workflow child inclusive/exclusive spans; native steps are not instrumented, so SQL owner mapping is used instead.",
+    "Exact inner OCC/materialization phase duration where the existing owner has no test observation hook.",
+    "Exact scope-clock lock acquisition wait and lock-hold interval; transaction duration is only a BEGIN-to-settlement envelope.",
+    "Sealed attempt bytes for failed attempts and standalone workflow; settled journal rows are removed, so inventory separately records only remaining live journal bytes.",
+    "SQL dispatches, awaited time, phase spans, transaction intervals and trace coverage in untraced mode.",
+    "Hosted Cloudflare transport, native ORM parity, and production capacity."
+  ]
+}

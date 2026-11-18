@@ -3,7 +3,7 @@ import { isNonEmptyString } from "@flarex/utils/strings";
 import { Effect, Schema } from "effect";
 import { HttpApi, HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "effect/unstable/httpapi";
 import { AuthConfigSchema } from "./auth";
-import { ValidatorJson } from "./validator-json";
+import { encodeValidatorJsonV1, ValidatorJsonWireCodecV1, type ValidatorJsonV1 } from "./validator-json";
 
 export { ValidatorJson } from "./validator-json";
 
@@ -205,7 +205,7 @@ export class SchemaTable extends Schema.Class<SchemaTable>("SchemaTable")({
   tableId: Schema.Number,
   name: Schema.String,
   state: Schema.optional(TableState),
-  validator: Schema.optional(Schema.Union([ValidatorJson, Schema.Null])),
+  validator: Schema.optional(Schema.Union([ValidatorJsonWireCodecV1, Schema.Null])),
   placement: TablePlacement,
 }) {}
 
@@ -214,6 +214,7 @@ export class SchemaIndex extends Schema.Class<SchemaIndex>("SchemaIndex")({
   tableId: Schema.Number,
   name: Schema.String,
   fields: Schema.Array(Schema.String),
+  decimalFields: Schema.optionalKey(Schema.Array(Schema.String)),
   state: Schema.optional(IndexState),
 }) {}
 
@@ -267,8 +268,8 @@ export class DeploymentFunctionMetadata extends Schema.Class<DeploymentFunctionM
   path: Schema.String,
   kind: DeploymentFunctionKind,
   visibility: Schema.optional(FunctionVisibility),
-  args: Schema.optional(Schema.Union([ValidatorJson, Schema.Null])),
-  returns: Schema.optional(Schema.Union([ValidatorJson, Schema.Null])),
+  args: Schema.optional(Schema.Union([ValidatorJsonWireCodecV1, Schema.Null])),
+  returns: Schema.optional(Schema.Union([ValidatorJsonWireCodecV1, Schema.Null])),
   route: Schema.optional(Schema.Union([FunctionRoutePolicy, Schema.Null])),
   partition: Schema.optional(Schema.Union([FunctionPartitionMetadata, Schema.Null])),
   position: Schema.optional(AnalyzedSourcePosition),
@@ -294,8 +295,8 @@ export class DeploymentCodegenFunction extends Schema.Class<DeploymentCodegenFun
   exportName: Schema.String,
   kind: DeploymentFunctionKind,
   visibility: FunctionVisibility,
-  args: ValidatorJson,
-  returns: Schema.Union([ValidatorJson, Schema.Null]),
+  args: ValidatorJsonWireCodecV1,
+  returns: Schema.Union([ValidatorJsonWireCodecV1, Schema.Null]),
   partition: Schema.optional(Schema.Union([FunctionPartitionMetadata, Schema.Null])),
   position: Schema.optional(AnalyzedSourcePosition),
 }) {}
@@ -325,6 +326,7 @@ export class AnalyzedStartPushRequest extends Schema.Class<AnalyzedStartPushRequ
 }) {}
 
 export class PushStatus extends Schema.Class<PushStatus>("PushStatus")({
+  storageProfile: Schema.optionalKey(Schema.Literal("core_application")),
   pushId: Schema.String,
   state: PushState,
   sourcePackage: PushSourcePackage,
@@ -334,6 +336,7 @@ export class PushStatus extends Schema.Class<PushStatus>("PushStatus")({
   diagnostics: Schema.optional(Schema.Array(PushDiagnostic)),
   createdAt: Schema.Number,
   updatedAt: Schema.Number,
+  indexesReady: Schema.optionalKey(Schema.Boolean),
 }) {}
 
 export class ActivatedFinishPushResponse extends Schema.Class<ActivatedFinishPushResponse>(
@@ -376,6 +379,30 @@ export class ActiveDeploymentStatus extends Schema.Class<ActiveDeploymentStatus>
   analysis: DeploymentAnalysis,
   codegenAnalysis: DeploymentCodegenAnalysis,
 }) {}
+
+/** Public Core metadata names its actual serving profile instead of a legacy artifact. */
+export class CoreActiveDeploymentStatus extends Schema.Class<CoreActiveDeploymentStatus>(
+  "CoreActiveDeploymentStatus",
+)({
+  storageProfile: Schema.Literal("core_application"),
+  activePushId: Schema.String,
+  activatedAt: Schema.Number,
+  schemaVersion: Schema.Number,
+  sourceArtifactRootSha256: Schema.String.check(Schema.isPattern(/^[0-9a-f]{64}$/)),
+  sourcePackageHash: Schema.String.check(Schema.isPattern(/^[0-9a-f]{64}$/)),
+  sourcePackage: PushSourcePackage,
+  analysis: DeploymentAnalysis,
+  codegenAnalysis: DeploymentCodegenAnalysis,
+}) {}
+
+export class PublicDeploymentProfile extends Schema.Class<PublicDeploymentProfile>("PublicDeploymentProfile")({
+  storageProfile: Schema.Literals(["core_application", "legacy_session"]),
+}) {}
+const PublicActiveDeploymentStatus = Schema.Union([
+  CoreActiveDeploymentStatus,
+  Schema.Struct({ ...ActiveDeploymentStatus.fields, storageProfile: Schema.optionalKey(Schema.Never) }),
+]);
+export type PublicActiveDeploymentStatus = typeof PublicActiveDeploymentStatus.Type;
 
 export class DeploymentApiGroup extends HttpApiGroup.make("deployment", { topLevel: true }).add(
   HttpApiEndpoint.get("health", DeploymentRoute.health, {
@@ -434,6 +461,8 @@ export class DeploymentApi extends HttpApi.make("flarex-deployment").add(Deploym
 const decodeUnknownAbandonPushRequest = Schema.decodeUnknownEffect(AbandonPushRequest);
 const decodeUnknownAnalyzedStartPushRequest = Schema.decodeUnknownEffect(AnalyzedStartPushRequest);
 const decodeUnknownActiveDeploymentStatus = Schema.decodeUnknownEffect(ActiveDeploymentStatus);
+const decodeUnknownPublicActiveDeploymentStatus = Schema.decodeUnknownEffect(PublicActiveDeploymentStatus);
+const decodeUnknownPublicDeploymentProfile = Schema.decodeUnknownEffect(PublicDeploymentProfile, { onExcessProperty: "error" });
 const decodeUnknownDeploymentErrorResponse = Schema.decodeUnknownEffect(DeploymentErrorResponse);
 const decodeUnknownDeploymentHealthResponse = Schema.decodeUnknownEffect(DeploymentHealthResponse);
 const decodeUnknownDeploymentAnalysis = Schema.decodeUnknownEffect(DeploymentAnalysis);
@@ -504,10 +533,11 @@ export const decodeFinishPushRequestEffect = Effect.fn(
   );
 });
 
-export const decodeStartPushRequestEffect = Effect.fn(
-  "DeploymentProtocol.decodeStartPushRequest",
+const decodeStartPushRequestForProfile = Effect.fn(
+  "DeploymentProtocol.decodeStartPushRequestForProfile",
 )(function* (
   value: unknown,
+  profile: "legacy_session" | "core_application",
 ): Effect.fn.Return<StartPushRequest, DeploymentProtocolValidationError> {
   if (!isNonArrayRecord(value)) {
     return yield* deploymentProtocolValidationFailure(
@@ -532,17 +562,23 @@ export const decodeStartPushRequestEffect = Effect.fn(
       })
     ),
   );
-  const sourcePackage = yield* decodePushSourcePackageEffect(request.sourcePackage);
+  const sourcePackage = yield* decodeSourcePackageForProfile(request.sourcePackage, profile);
   return {
     ...request,
     sourcePackage,
   };
 });
 
-export const decodePushSourcePackageEffect = Effect.fn(
-  "DeploymentProtocol.decodePushSourcePackage",
+export const decodeStartPushRequestEffect = Effect.fn("DeploymentProtocol.decodeStartPushRequest")((value: unknown) =>
+  decodeStartPushRequestForProfile(value, "legacy_session"));
+export const decodeCoreApplicationStartPushRequestEffect = Effect.fn("DeploymentProtocol.decodeCoreApplicationStartPushRequest")((value: unknown) =>
+  decodeStartPushRequestForProfile(value, "core_application"));
+
+const decodeSourcePackageForProfile = Effect.fn(
+  "DeploymentProtocol.decodeSourcePackageForProfile",
 )(function* (
   value: unknown,
+  profile: "legacy_session" | "core_application",
 ): Effect.fn.Return<PushSourcePackage, DeploymentProtocolValidationError> {
   const sourcePackage = yield* decodeUnknownPushSourcePackage(value).pipe(
     Effect.mapError(cause =>
@@ -553,9 +589,14 @@ export const decodePushSourcePackageEffect = Effect.fn(
       })
     ),
   );
-  yield* validatePushSourcePackageAuthConfig(sourcePackage);
+  yield* validatePushSourcePackageAuthConfig(sourcePackage, profile);
   return sourcePackage;
 });
+
+export const decodePushSourcePackageEffect = Effect.fn("DeploymentProtocol.decodePushSourcePackage")((value: unknown) =>
+  decodeSourcePackageForProfile(value, "legacy_session"));
+export const decodeCoreApplicationSourcePackageEffect = Effect.fn("DeploymentProtocol.decodeCoreApplicationSourcePackage")((value: unknown) =>
+  decodeSourcePackageForProfile(value, "core_application"));
 
 export const decodeDeploymentAnalysisEffect = Effect.fn(
   "DeploymentProtocol.decodeDeploymentAnalysis",
@@ -702,6 +743,26 @@ export const decodeActiveDeploymentStatusEffect = Effect.fn(
   return status;
 });
 
+export const decodePublicDeploymentProfileEffect = Effect.fn("DeploymentProtocol.decodePublicDeploymentProfile")((value: unknown) =>
+  decodeUnknownPublicDeploymentProfile(value).pipe(Effect.mapError(cause => new DeploymentProtocolValidationError({
+    schema: "PublicDeploymentProfile", message: "Deployment profile response did not match the public contract.", cause,
+  }))));
+export const decodePublicActiveDeploymentStatusEffect = Effect.fn(
+  "DeploymentProtocol.decodePublicActiveDeploymentStatus",
+)(function* (
+  value: unknown,
+): Effect.fn.Return<PublicActiveDeploymentStatus, DeploymentProtocolValidationError> {
+  const status = yield* decodeUnknownPublicActiveDeploymentStatus(value).pipe(
+    Effect.mapError(cause => new DeploymentProtocolValidationError({
+      schema: "PublicActiveDeploymentStatus",
+      message: "Active deployment response did not match its storage profile.",
+      cause,
+    })),
+  );
+  yield* validatePushSourcePackageAuthConfig(status.sourcePackage, status.storageProfile === "core_application" ? "core_application" : "legacy_session");
+  return status;
+});
+
 export const decodePushStatusEffect = Effect.fn(
   "DeploymentProtocol.decodePushStatus",
 )(function* (
@@ -716,7 +777,7 @@ export const decodePushStatusEffect = Effect.fn(
       })
     ),
   );
-  yield* validatePushSourcePackageAuthConfig(status.sourcePackage);
+  yield* validatePushSourcePackageAuthConfig(status.sourcePackage, status.storageProfile === "core_application" ? "core_application" : "legacy_session");
   return status;
 });
 
@@ -737,13 +798,21 @@ export const decodeFinishPushResponseEffect = Effect.fn(
       })
     ),
   );
-  yield* validatePushSourcePackageAuthConfig(response.push.sourcePackage);
+  yield* validatePushSourcePackageAuthConfig(response.push.sourcePackage, response.push.storageProfile === "core_application" ? "core_application" : "legacy_session");
   return response;
 });
 
 function validatePushSourcePackageAuthConfig(
   sourcePackage: PushSourcePackage,
+  profile: "legacy_session" | "core_application" = "legacy_session",
 ): Effect.Effect<void, DeploymentProtocolValidationError> {
+  if (profile === "core_application") {
+    if (sourcePackage.sourceModuleDigestFormat !== SOURCE_MODULE_DIGEST_FORMAT_V1)
+      return deploymentProtocolValidationFailure("PushSourcePackage", "Core source packages require sha256-framed-v1 module digests.", sourcePackage);
+    if (sourcePackage.authConfigModule !== undefined)
+      return deploymentProtocolValidationFailure("PushSourcePackage", "Core source packages do not support executable auth config modules.", sourcePackage);
+    return Effect.void;
+  }
   if (
     sourcePackage.authConfig !== undefined &&
     !isNonEmptyString(sourcePackage.authConfigModule)
@@ -785,3 +854,74 @@ function deploymentProtocolValidationFailure(
     cause,
   }));
 }
+
+/** Metadata projection only: admitted semantic models may be plain values or protocol class instances. */
+export function encodeDeploymentSchema(schema: DeploymentSchema) {
+  return { ...schema, tables: schema.tables.map(table => ({ ...table, validator: optionalValidatorWire(table.validator) })) };
+}
+
+export function encodeDeploymentFunctionValidators<Input extends {
+  readonly args?: ValidatorJsonV1 | null | undefined;
+  readonly returns?: ValidatorJsonV1 | null | undefined;
+}>(fn: Input) {
+  return { ...fn, args: optionalValidatorWire(fn.args), returns: optionalValidatorWire(fn.returns) };
+}
+
+export function encodeDeploymentFunctions(functions: DeploymentFunctions) {
+  return { ...functions, functions: functions.functions.map(encodeDeploymentFunctionValidators) };
+}
+
+export function encodeDeploymentAnalysis(analysis: DeploymentAnalysis) {
+  return { ...analysis, schema: encodeDeploymentSchema(analysis.schema), functions: encodeDeploymentFunctions(analysis.functions) };
+}
+
+export function encodeDeploymentCodegenAnalysis(analysis: DeploymentCodegenAnalysis) {
+  return { ...analysis, schema: encodeDeploymentSchema(analysis.schema), functions: analysis.functions.map(module => ({ ...module,
+    functions: module.functions.map(fn => ({ ...fn, args: encodeValidatorJsonV1(fn.args),
+      returns: fn.returns === null ? null : encodeValidatorJsonV1(fn.returns),
+    })),
+  })) };
+}
+
+function optionalValidatorWire(value: ValidatorJsonV1 | null | undefined) {
+  return value === null || value === undefined ? value : encodeValidatorJsonV1(value);
+}
+
+const captureAnalysis = Schema.decodeUnknownEffect(Schema.toCodecIso(DeploymentAnalysis));
+const captureCodegenAnalysis = Schema.decodeUnknownEffect(Schema.toCodecIso(DeploymentCodegenAnalysis));
+const capturePushStatus = Schema.decodeUnknownEffect(Schema.toCodecIso(PushStatus));
+const captureActiveDeployment = Schema.decodeUnknownEffect(Schema.toCodecIso(ActiveDeploymentStatus));
+const captureFinishResponse = Schema.decodeUnknownEffect(Schema.toCodecIso(FinishPushResponse));
+
+/** Trusted semantic handoffs construct the protocol classes without decoding wire literals again. */
+export const captureDeploymentAnalysisEffect = Effect.fn("DeploymentProtocol.captureDeploymentAnalysis")(
+  (value: unknown) => captureAnalysis(value).pipe(Effect.mapError(cause => new DeploymentProtocolValidationError({
+    schema: "DeploymentAnalysis", message: "Deployment analysis did not match the deployment protocol.", cause,
+  }))),
+);
+export const captureDeploymentCodegenAnalysisEffect = Effect.fn("DeploymentProtocol.captureDeploymentCodegenAnalysis")(
+  (value: unknown) => captureCodegenAnalysis(value).pipe(Effect.mapError(cause => new DeploymentProtocolValidationError({
+    schema: "DeploymentCodegenAnalysis", message: "Deployment codegen analysis did not match the deployment protocol.", cause,
+  }))),
+);
+export const capturePushStatusEffect = Effect.fn("DeploymentProtocol.capturePushStatus")(function* (value: unknown) {
+  const status = yield* capturePushStatus(value).pipe(Effect.mapError(cause => new DeploymentProtocolValidationError({
+    schema: "PushStatus", message: "Deployment push response did not match the deployment protocol.", cause,
+  })));
+  yield* validatePushSourcePackageAuthConfig(status.sourcePackage, status.storageProfile === "core_application" ? "core_application" : "legacy_session");
+  return status;
+});
+export const captureActiveDeploymentStatusEffect = Effect.fn("DeploymentProtocol.captureActiveDeploymentStatus")(function* (value: unknown) {
+  const status = yield* captureActiveDeployment(value).pipe(Effect.mapError(cause => new DeploymentProtocolValidationError({
+    schema: "ActiveDeploymentStatus", message: "Active deployment response did not match the deployment protocol.", cause,
+  })));
+  yield* validatePushSourcePackageAuthConfig(status.sourcePackage);
+  return status;
+});
+export const captureFinishPushResponseEffect = Effect.fn("DeploymentProtocol.captureFinishPushResponse")(function* (value: unknown) {
+  const response = yield* captureFinishResponse(value).pipe(Effect.mapError(cause => new DeploymentProtocolValidationError({
+    schema: "FinishPushResponse", message: "Finish push response did not match the deployment protocol.", cause,
+  })));
+  yield* validatePushSourcePackageAuthConfig(response.push.sourcePackage, response.push.storageProfile === "core_application" ? "core_application" : "legacy_session");
+  return response;
+});

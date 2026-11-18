@@ -1,0 +1,146 @@
+{
+  "rows": [
+    {
+      "QUERY PLAN": [
+        {
+          "Plan": {
+            "Node Type": "Sort",
+            "Parallel Aware": false,
+            "Async Capable": false,
+            "Startup Cost": 20.13,
+            "Total Cost": 20.17,
+            "Plan Rows": 13,
+            "Plan Width": 124,
+            "Actual Startup Time": 0.19,
+            "Actual Total Time": 0.2,
+            "Actual Rows": 13,
+            "Actual Loops": 1,
+            "Disabled": false,
+            "Sort Key": [
+              "equality_candidates.hash",
+              "equality_candidates.id",
+              "equality_candidates.\"fromSeq\""
+            ],
+            "Sort Method": "quicksort",
+            "Sort Space Used": 18,
+            "Sort Space Type": "Memory",
+            "Shared Hit Blocks": 16,
+            "Shared Read Blocks": 0,
+            "Shared Dirtied Blocks": 0,
+            "Shared Written Blocks": 0,
+            "Local Hit Blocks": 0,
+            "Local Read Blocks": 0,
+            "Local Dirtied Blocks": 0,
+            "Local Written Blocks": 0,
+            "Temp Read Blocks": 0,
+            "Temp Written Blocks": 0,
+            "Plans": [
+              {
+                "Node Type": "Subquery Scan",
+                "Parent Relationship": "Outer",
+                "Parallel Aware": false,
+                "Async Capable": false,
+                "Alias": "equality_candidates",
+                "Startup Cost": 0.41,
+                "Total Cost": 19.89,
+                "Plan Rows": 13,
+                "Plan Width": 124,
+                "Actual Startup Time": 0.069,
+                "Actual Total Time": 0.123,
+                "Actual Rows": 13,
+                "Actual Loops": 1,
+                "Disabled": false,
+                "Shared Hit Blocks": 16,
+                "Shared Read Blocks": 0,
+                "Shared Dirtied Blocks": 0,
+                "Shared Written Blocks": 0,
+                "Local Hit Blocks": 0,
+                "Local Read Blocks": 0,
+                "Local Dirtied Blocks": 0,
+                "Local Written Blocks": 0,
+                "Temp Read Blocks": 0,
+                "Temp Written Blocks": 0,
+                "Plans": [
+                  {
+                    "Node Type": "Limit",
+                    "Parent Relationship": "Subquery",
+                    "Parallel Aware": false,
+                    "Async Capable": false,
+                    "Startup Cost": 0.41,
+                    "Total Cost": 19.63,
+                    "Plan Rows": 13,
+                    "Plan Width": 207,
+                    "Actual Startup Time": 0.06,
+                    "Actual Total Time": 0.095,
+                    "Actual Rows": 13,
+                    "Actual Loops": 1,
+                    "Disabled": false,
+                    "Shared Hit Blocks": 16,
+                    "Shared Read Blocks": 0,
+                    "Shared Dirtied Blocks": 0,
+                    "Shared Written Blocks": 0,
+                    "Local Hit Blocks": 0,
+                    "Local Read Blocks": 0,
+                    "Local Dirtied Blocks": 0,
+                    "Local Written Blocks": 0,
+                    "Temp Read Blocks": 0,
+                    "Temp Written Blocks": 0,
+                    "Plans": [
+                      {
+                        "Node Type": "Index Scan",
+                        "Parent Relationship": "Outer",
+                        "Parallel Aware": false,
+                        "Async Capable": false,
+                        "Scan Direction": "Forward",
+                        "Index Name": "equality_selection",
+                        "Relation Name": "equality_versions",
+                        "Alias": "equality_versions",
+                        "Startup Cost": 0.41,
+                        "Total Cost": 95.07,
+                        "Plan Rows": 64,
+                        "Plan Width": 207,
+                        "Actual Startup Time": 0.049,
+                        "Actual Total Time": 0.071,
+                        "Actual Rows": 13,
+                        "Actual Loops": 1,
+                        "Disabled": false,
+                        "Index Cond": "((scope = 'shop-a'::text) AND (\"table\" = 'equality-records'::text) AND (index = 'by_key'::text) AND (hash = 'ca9066873bf335f3c1d9f0f6986266ee50689a816763851d82791d3dbc31cbf5'::text))",
+                        "Rows Removed by Index Recheck": 0,
+                        "Index Searches": 1,
+                        "Shared Hit Blocks": 16,
+                        "Shared Read Blocks": 0,
+                        "Shared Dirtied Blocks": 0,
+                        "Shared Written Blocks": 0,
+                        "Local Hit Blocks": 0,
+                        "Local Read Blocks": 0,
+                        "Local Dirtied Blocks": 0,
+                        "Local Written Blocks": 0,
+                        "Temp Read Blocks": 0,
+                        "Temp Written Blocks": 0
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          "Planning": {
+            "Shared Hit Blocks": 52,
+            "Shared Read Blocks": 0,
+            "Shared Dirtied Blocks": 0,
+            "Shared Written Blocks": 0,
+            "Local Hit Blocks": 0,
+            "Local Read Blocks": 0,
+            "Local Dirtied Blocks": 0,
+            "Local Written Blocks": 0,
+            "Temp Read Blocks": 0,
+            "Temp Written Blocks": 0
+          },
+          "Planning Time": 0.407,
+          "Triggers": [],
+          "Execution Time": 0.298
+        }
+      ]
+    }
+  ]
+}

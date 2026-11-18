@@ -129,12 +129,11 @@ definition-lowering file, while O09-B remains the narrower contention proof.
 No command was split into multiple runner steps, and no fixture or process-
 lifetime equivalence is inferred from file overlap.
 
-The real expanded O09-B PGlite run selected the exact two former files and
-reported 95 passes plus three failures in `storedAttemptEvidence.test.ts`. A
-focused former direct Vitest invocation reproduces the primary
-`Expected bigint, got "1"` journal-decoder failure. This is tracked as open
-shared-owner issue `C04A-VAL-001` in the commit-compiler roadmap; TQ-A2 does not
-repair it or treat the failing lane as successful orchestration evidence.
+The expanded O09-B PGlite lane passes while retaining the exact two original
+files in one invocation. The [commit-compiler owner](./flarexdb-foundation/03-commit-compiler.md)
+reconciles the former `C04A-VAL-001` blocker, including runtime sequence and
+current-authority classification. TQ-A2 continues to own orchestration only;
+it must not weaken or duplicate core contracts to make a lane pass.
 
 The root `test` command remains a recursive package sweep, not an aggregate
 correctness gate. Root integration, H04, H05, and explicitly required
@@ -263,10 +262,9 @@ suffixes produces 126 multi-lane filename groups:
    timestamp reads, and construction of the failing loader. The registrar
    preserves both test names and their position inside the existing `describe`;
    no second discovered test file, lane, package export, or production helper is
-   introduced. Both extracted invariants pass independently. The full file
-   remains 89/92 on recorded shared-owner issue `C04A-VAL-001`, so the pilot
-   establishes a decomposition seam without claiming a green aggregate or
-   authorizing journal-decoder repair.
+   introduced. The full stored-attempt file now passes, with the former
+   `C04A-VAL-001` blocker reconciled by its core owner above. The decomposition
+   seam does not confer authority to repair the journal decoder.
    The second slice moves the adjacent invalid Application-authority matrix,
    exact canonical-authority load, and exact finishing-transition authority
    proof into that registrar. Exact fixture callbacks retain SQL mutation and
@@ -280,8 +278,7 @@ suffixes produces 126 multi-lane filename groups:
    lifecycle, execution-claim, journal, lease/root, and database-time SQL
    mutations through exact callbacks. The combined registrar surface now owns
    12 passing runtime cases without gaining a persistence handle or moving the
-   interruption proof. The original 92-test file remains at the recorded
-   89-pass/three-failure `C04A-VAL-001` baseline.
+   interruption proof.
    The fourth slice moves the adjacent stale authority-pin matrix and malformed
    lease/Legacy-authority corruption proofs into an integrity registrar. The
    registrar owns the branded stale inputs and typed result assertions; the
@@ -290,7 +287,7 @@ suffixes produces 126 multi-lane filename groups:
    The combined registrar surface now owns 15 passing runtime cases without a
    persistence handle. Point overflow, byte detachment, commit-authority
    payload/interruption, publication, OCC, and redelivery remain outside this
-   slice, and the aggregate remains at the recorded `C04A-VAL-001` baseline.
+   slice.
 
 ### Non-Candidates Without Further Proof
 
@@ -310,14 +307,14 @@ suffixes produces 126 multi-lane filename groups:
 
 | Surface | Lines | Initial action |
 | --- | ---: | --- |
-| [`storedAttemptEvidence.test.ts`](../packages/persistence-postgres/test/storedAttemptEvidence.test.ts) | 9,316 | Boundary, Application-authority, lease/lifecycle, and authority-integrity registrar slices implemented; continue by exact loader invariant boundary and do not infer duplicate coverage from its PostgreSQL peer |
+| [`storedAttemptEvidence.test.ts`](../packages/persistence-postgres/test/execution/storedAttemptEvidence.test.ts) | 9,316 | Boundary, Application-authority, lease/lifecycle, and authority-integrity registrar slices implemented; continue by exact loader invariant boundary and do not infer duplicate coverage from its PostgreSQL peer |
 | [`sync.test.ts`](../packages/flarex-backend/test/sync.test.ts) | 7,883 | First separate retained Legacy, forward sync, projection, and delivery invariants |
-| [`storedAttemptAuthentication.test.ts`](../packages/executor/test/storedAttemptAuthentication.test.ts) | 6,550 | Compare executor authentication/recovery ownership with persistence stored-evidence coverage before moving fixtures |
-| [`storedAttemptEvidence.postgres.test.ts`](../packages/persistence-postgres/test/storedAttemptEvidence.postgres.test.ts) | 5,041 | Preserve genuine PostgreSQL authority and transaction evidence; coordinate with the PGlite decomposition only at exact fixture seams |
-| [`pointCommitTransaction.postgres.test.ts`](../packages/persistence-postgres/test/pointCommitTransaction.postgres.test.ts) | 4,830 | Database correctness concentration; size alone does not justify splitting transaction histories |
-| [`applicationReadiness.test.ts`](../packages/persistence-postgres/test/applicationReadiness.test.ts) | 4,462 | Classify repository contract, migration, and lifecycle assertions before decomposition |
-| [`sessionJournalStore.test.ts`](../packages/persistence-postgres/test/sessionJournalStore.test.ts) | 4,439 | Preserve suspendable/fiber and fixture-lifetime isolation while separating portable repository behavior |
-| [`pglite.runtime.test.ts`](../packages/persistence-postgres/test/pglite.runtime.test.ts) | 4,298 | Inventory facade, retry, migration, and driver-compatibility invariants before parameterization |
+| [`storedAttemptAuthentication.test.ts`](../packages/executor/test/mutation/authentication/storedAttemptAuthentication.test.ts) | 6,550 | Compare executor authentication/recovery ownership with persistence stored-evidence coverage before moving fixtures |
+| [`storedAttemptEvidence.postgres.test.ts`](../packages/persistence-postgres/test/execution/storedAttemptEvidence.postgres.test.ts) | 5,041 | Preserve genuine PostgreSQL authority and transaction evidence; coordinate with the PGlite decomposition only at exact fixture seams |
+| [`pointCommitTransaction.postgres.test.ts`](../packages/persistence-postgres/test/commit/pointCommitTransaction.postgres.test.ts) | 4,830 | Database correctness concentration; size alone does not justify splitting transaction histories |
+| [`applicationReadiness.test.ts`](../packages/persistence-postgres/test/application/applicationReadiness.test.ts) | 4,462 | Classify repository contract, migration, and lifecycle assertions before decomposition |
+| [Journal suites](../packages/persistence-postgres/test/execution/journal/) | Six owner suites | Point/index execution, receipt evidence, limits, sealing and attempt lifecycle are separated; each suite owns and closes its authentic fixture. Keep the distinct PostgreSQL transaction/concurrency witnesses. |
+| [`pglite.runtime.test.ts`](../packages/persistence-postgres/test/database/pglite.runtime.test.ts) | 4,298 | Inventory facade, retry, migration, and driver-compatibility invariants before parameterization |
 | [`http.test.ts`](../packages/executor-http/test/http.test.ts) | 4,182 | Candidate for domain-named route/codec matrices, not a generic HTTP harness |
 | [`managedSchemaCookingHarness.ts`](../packages/system-test/support/managedSchemaCookingHarness.ts) | 2,999 | Prevent new schema gates from adding more aggregate proof flags; reuse exact environment mechanics only |
 
@@ -360,8 +357,8 @@ exists, runtime-based pruning or fixture sharing is not authorized.
    repeatable-read interruption test unchanged between the lease and lifecycle
    registrars. Continue only through separately bounded loader invariant groups,
    and review every transaction, interruption, constraint-restoration, and
-   fixture-lifetime boundary. The recorded `C04A-VAL-001` aggregate failures
-   remain shared-owner blockers, not test-decomposition authority.
+   fixture-lifetime boundary. Any new shared-owner failure remains outside
+   test-decomposition authority; the former `C04A-VAL-001` blocker is retired.
 5. **Public Test SDK local contract coverage.** Add package-local lifecycle,
    reset/dispose, invocation-error, and resource-ownership tests before relying
    further on example/root integration as the sole decisive surface.

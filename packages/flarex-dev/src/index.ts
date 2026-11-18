@@ -40,6 +40,7 @@ export type {
   FlarexDeployResult,
   FlarexGenerateOptions,
   FlarexGenerationContext,
+  FlarexGenerationAnalysis,
   GeneratedFile,
   GeneratedFileWrite,
   StaleGeneratedEntry,
@@ -99,5 +100,5 @@ export type {
   RuntimeBackendDispatcher,
 } from "./runtimeMaterializer.ts";
 export { bundleSourcePackage, sourceModule } from "./sourcePackage.ts";
-export type { SourceModule, SourcePackage } from "./sourcePackage.ts";
+export type { FlarexStorageProfile, SourceModule, SourcePackage } from "./sourcePackage.ts";
 export { flarex } from "./vite.ts";

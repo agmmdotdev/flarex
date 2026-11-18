@@ -9,11 +9,105 @@ import {
   analyzeDurableTaskSourceMap,
   hasValidTriggerAttributionHeader,
   inspectDurableTaskSourceMapRepository,
+  inspectTriggerRunEngineSourceMapRepository,
 } from "./check-durable-task-source-map.mjs";
 
 const commit = "f10bc23785e569e5d917318cf2033aabdbe96a0b";
 const sourceText = "export const retry = true;\n";
 const sourceHash = createHash("sha256").update(sourceText).digest("hex");
+
+describe("independent Trigger fork provenance", () => {
+  const upstreamPath = "internal-packages/run-engine/src/start.ts";
+  const license = "Apache License 2.0\n";
+
+  /** @param {(root: string, map: ReturnType<typeof forkMap>, write: (file: string, text: string) => void) => void} [mutate] */
+  function inspectFixture(mutate) {
+    const root = mkdtempSync(path.join(tmpdir(), "flarex-trigger-fork-provenance-"));
+    const sourceMap = forkMap();
+    /** @param {string} file @param {string} text */
+    function write(file, text) {
+      const absolutePath = path.join(root, file);
+      mkdirSync(path.dirname(absolutePath), { recursive: true });
+      writeFileSync(absolutePath, text);
+    }
+    try {
+      write("third_party/trigger.dev/SOURCE.json", JSON.stringify({ commit }));
+      write(`third_party/trigger.dev/upstream/${upstreamPath}`, sourceText);
+      write("third_party/trigger.dev/upstream/LICENSE", license);
+      write("packages/trigger-run-engine/licenses/Apache-2.0.txt", license);
+      write("packages/trigger-run-engine/src/start.ts", [
+        `// Adapted from Trigger.dev commit ${commit},`,
+        `// upstream/${upstreamPath}. See trigger-source-map.json and THIRD_PARTY_NOTICES.md.`,
+        sourceText,
+      ].join("\n"));
+      write("packages/trigger-run-engine/src/port.ts", "export interface BorrowedPort {}\n");
+      write("packages/trigger-run-engine/THIRD_PARTY_NOTICES.md",
+        `Trigger.dev https://github.com/triggerdotdev/trigger.dev ${commit}\nApache License 2.0\nCopyright (c) 2023 Trigger.dev\nAdapted; see trigger-source-map.json.\n`);
+      mutate?.(root, sourceMap, write);
+      write("packages/trigger-run-engine/trigger-source-map.json", JSON.stringify(sourceMap));
+      return inspectTriggerRunEngineSourceMapRepository(root);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+
+  function forkMap() {
+    return {
+      format: "flarex.trigger-source-map", version: 1,
+      repository: "https://github.com/triggerdotdev/trigger.dev", commit,
+      sourceRoot: "../../third_party/trigger.dev/upstream",
+      originalPaths: ["src/port.ts"],
+      sources: [{ path: upstreamPath, sha256: sourceHash,
+        ranges: [{ start: 1, end: 1, symbol: "retry" }],
+        promotedPaths: ["src/start.ts"], adaptations: ["Inject borrowed persistence primitives"],
+      }],
+      licenses: [{ sourcePath: "LICENSE", path: "licenses/Apache-2.0.txt",
+        sha256: createHash("sha256").update(license).digest("hex"),
+      }],
+    };
+  }
+
+  it("checks source bytes, mapped attribution and copied license independently of legacy maps", () => {
+    expect(inspectFixture()).toEqual({ errors: [], entryCount: 1 });
+  });
+
+  it("rejects a changed pin, out-of-bounds range and upstream byte drift", () => {
+    const report = inspectFixture((_root, map, write) => {
+      map.commit = "0".repeat(40);
+      map.sources[0].ranges[0].end = 900;
+      write(`third_party/trigger.dev/upstream/${upstreamPath}`, "changed\n");
+    });
+    expect(report.errors).toEqual(expect.arrayContaining([
+      expect.stringContaining("frozen Trigger source pin"),
+      expect.stringContaining("frozen source file"),
+      expect.stringContaining("in-bounds source ranges"),
+    ]));
+  });
+
+  it("rejects unsafe paths without resolving them outside the source/package roots", () => {
+    const report = inspectFixture((_root, map) => {
+      map.sources[0].path = "internal-packages/../../outside.ts";
+      map.licenses[0].path = "licenses/../../outside.txt";
+    });
+    expect(report.errors).toEqual(expect.arrayContaining([
+      expect.stringContaining("normalized upstream source path"),
+      expect.stringContaining("unsafe license path"),
+    ]));
+  });
+
+  it("rejects missing coverage, erased attribution and changed license copies", () => {
+    const report = inspectFixture((_root, map, write) => {
+      map.originalPaths = [];
+      write("packages/trigger-run-engine/src/start.ts", sourceText);
+      write("packages/trigger-run-engine/licenses/Apache-2.0.txt", "different license");
+    });
+    expect(report.errors).toEqual(expect.arrayContaining([
+      expect.stringContaining("mapped or explicitly Flarex-authored"),
+      expect.stringContaining("pinned Trigger attribution header"),
+      expect.stringContaining("license copy/hash"),
+    ]));
+  });
+});
 
 function validInput() {
   return {

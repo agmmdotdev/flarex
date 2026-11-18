@@ -1,0 +1,39 @@
+{
+  "runId": "1b3f0e46-810c-4762-b336-4b3852e4446b",
+  "revision": "5c9152621a6d4c177be8c314fa336d525e92c585",
+  "dirty": true,
+  "selection": "daily",
+  "size": "small",
+  "measurementMode": "quiet",
+  "quietAcceptance": true,
+  "totalMs": 314422.4485,
+  "exitCode": 0,
+  "signal": null,
+  "reports": [
+    {
+      "name": "payload-create",
+      "path": "./payload-create.json",
+      "available": true
+    },
+    {
+      "name": "medusa-workflow",
+      "path": "./medusa-workflow.json",
+      "available": true
+    },
+    {
+      "name": "mixed-product",
+      "path": "./mixed-product.json",
+      "available": true
+    },
+    {
+      "name": "mixed-payload",
+      "path": "./mixed-payload.json",
+      "available": true
+    },
+    {
+      "name": "mixed-workflow",
+      "path": "./mixed-workflow.json",
+      "available": true
+    }
+  ]
+}

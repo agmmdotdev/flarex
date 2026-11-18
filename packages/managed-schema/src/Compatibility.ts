@@ -4,6 +4,7 @@ import type {
   SchemaManifestAppTableDefinitionV1,
 } from "flarex-protocol/schema-manifest";
 import type { ValidatorJsonV1 } from "flarex-protocol/validator-json";
+import { validatorLiteralEqualV1 } from "flarex-protocol/internal/validator-json-core";
 
 import type {
   AppSchemaEvolutionChange,
@@ -258,7 +259,7 @@ function compareValidator(
 
   if (active.type === "literal") {
     if (candidate.type === "literal") {
-      return literalValuesEqual(active.value, candidate.value)
+      return validatorLiteralEqualV1(active.value, candidate.value)
         ? UNIVERSALLY_COMPATIBLE
         : validationRequired("narrowingOrUnknown", path);
     }
@@ -267,9 +268,11 @@ function compareValidator(
       : validationRequired("narrowingOrUnknown", path);
   }
 
-  if (active.type === "id" && candidate.type === "string") {
+  if ((active.type === "id" || active.type === "function") && candidate.type === "string") {
     return UNIVERSALLY_COMPATIBLE;
   }
+  if ((active.type === "bigint" && candidate.type === "commitTs")
+    || (active.type === "commitTs" && candidate.type === "bigint")) return UNIVERSALLY_COMPATIBLE;
   if (active.type !== candidate.type) {
     return validationRequired("narrowingOrUnknown", path);
   }
@@ -278,9 +281,11 @@ function compareValidator(
     case "null":
     case "number":
     case "bigint":
+    case "commitTs":
     case "boolean":
     case "string":
     case "bytes":
+    case "function":
       return UNIVERSALLY_COMPATIBLE;
     case "id":
       return candidate.type === "id" && active.tableName === candidate.tableName
@@ -375,6 +380,7 @@ function validatorJsonStructuralEquality(
     case "null":
     case "number":
     case "bigint":
+    case "commitTs":
     case "boolean":
     case "string":
     case "bytes":
@@ -384,9 +390,14 @@ function validatorJsonStructuralEquality(
       return right.type === "id" && left.tableName === right.tableName
         ? "equal"
         : "different";
+    case "function": {
+      if (right.type !== "function" || left.fnType !== right.fnType) return "different";
+      const args = optionalValidatorStructuralEquality(left.args, right.args, budget);
+      return args === "equal" ? optionalValidatorStructuralEquality(left.returns, right.returns, budget) : args;
+    }
     case "literal":
       return right.type === "literal"
-        && literalValuesEqual(left.value, right.value)
+        && validatorLiteralEqualV1(left.value, right.value)
         ? "equal"
         : "different";
     case "array":
@@ -442,6 +453,12 @@ function validatorJsonStructuralEquality(
   }
 }
 
+function optionalValidatorStructuralEquality(left: ValidatorJsonV1 | undefined, right: ValidatorJsonV1 | undefined,
+  budget: CompatibilityBudget): StructuralEquality {
+  return left === undefined ? right === undefined ? "equal" : "different"
+    : right === undefined ? "different" : validatorJsonStructuralEquality(left, right, budget);
+}
+
 function indexBindingsEqual(
   left: SchemaManifestAppIndexBindingV1,
   right: SchemaManifestAppIndexBindingV1,
@@ -453,7 +470,8 @@ function indexBindingsEqual(
     && left.spec.kind === right.spec.kind
     && left.spec.specVersion === right.spec.specVersion
     && left.spec.fields.length === right.spec.fields.length
-    && left.spec.fields.every((field, index) => field === right.spec.fields[index]);
+    && left.spec.fields.every((field, index) => field === right.spec.fields[index])
+    && JSON.stringify(left.spec.decimalFields ?? []) === JSON.stringify(right.spec.decimalFields ?? []);
 }
 
 function indexPresenceChange(
@@ -473,23 +491,16 @@ function indexDescriptorKey(index: SchemaManifestAppIndexBindingV1): string {
 }
 
 function literalMatchesPrimitive(
-  value: string | number | boolean,
+  value: Extract<ValidatorJsonV1, { readonly type: "literal" }>["value"],
   candidateType: ValidatorJsonV1["type"],
 ): boolean {
   return candidateType === "string"
     ? typeof value === "string"
     : candidateType === "number"
     ? typeof value === "number"
+    : candidateType === "bigint" || candidateType === "commitTs"
+    ? typeof value === "bigint"
     : candidateType === "boolean" && typeof value === "boolean";
-}
-
-function literalValuesEqual(
-  left: string | number | boolean,
-  right: string | number | boolean,
-): boolean {
-  return typeof left === "number" && typeof right === "number"
-    ? Object.is(left, right)
-    : left === right;
 }
 
 function validationRequired(

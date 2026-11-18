@@ -62,9 +62,11 @@ retains fork behavior; no global `MedusaModule` registry is activated.
 
 `translateCurrencySchema` consumes every actual property parser and rejects
 unadmitted model, property, key, default, index, cascade and capability shapes.
-`captureCurrencySchema` reproduces the existing Currency value fixture's canonical
-artifact and pinned source provenance. The private persistence value export grants
-no live installation, binding, storage or publication authority.
+The selected logical-storage cutover retired the physical Currency artifact
+capture and profile. `compileCurrencyDefinition` retains the native schema and
+pinned source provenance without a deployment-specific layout. The private
+persistence value export grants no live installation, binding, storage or
+publication authority.
 
 Persistence translation and Currency value decoding share one checked DML
 metadata reader. The value profile derives DTO text fields and writable/stored

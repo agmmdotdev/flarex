@@ -1,0 +1,1106 @@
+{
+  "format": "flarex.prepared-admission-analysis",
+  "baseline": "../bundled-dependency-validation",
+  "definitions": {
+    "applicationActivation": "t=>t.startsWith('select \"scope_id\" , \"activation_sequence\"')&&t.includes('from \"fx_system_application_activation\"')",
+    "legacySchema": "t=>t.startsWith('select \"scope_id\" , \"revision_id\"')&&t.includes('from \"fx_system_application_revision_schema_v1\"')",
+    "selectedBindingBody": "t=>t.startsWith('select \"fx_system_data_binding_activation\"')&&t.includes('join \"fx_system_data_binding_candidate\"')",
+    "fullClockKeyShare": "t=>t.startsWith('select \"scope_id\" , \"scope_uuid\"')&&t.includes('from \"fx_system_scope_clock\"')&&t.endsWith('for key share')",
+    "revocationKeyShare": "t=>t.startsWith('select \"scope_id\" , \"authorization_revocation_epoch\"')&&t.endsWith('for key share')",
+    "epochCapture": "t=>t.includes('from \"fx_system_prepared_metadata_epoch\" as epoch')&&!t.includes('nowait')",
+    "epochTail": "t=>t.includes('from fx_lock_prepared_metadata_epoch ( ) as epoch')",
+    "strongClock": "t=>t.startsWith('select \"scope_id\" , \"scope_uuid\"')&&t.includes('from \"fx_system_scope_clock\"')&&(/for (share|no key update)$/.test(t))",
+    "physicalCatalog": "t=>t.includes('pg_index')&&t.includes('pg_am')"
+  },
+  "interpretation": "SQL-family diagnostic counts come from exact normalized template patterns. Await and transaction/phase time includes driver/server/application/wait work; overlapping sums are non-additive and no server/CPU causal attribution follows.",
+  "workloads": {
+    "product": {
+      "baseline": {
+        "warmP50": 940.6901499999949,
+        "warmP95": 1166.3606,
+        "warmMaximum": 3355.8877000000066,
+        "coldP50": 889.2862000000023,
+        "dispatches": [
+          988,
+          988
+        ],
+        "transactions": [
+          41,
+          41
+        ],
+        "families": {
+          "applicationActivation": {
+            "dispatches": 27,
+            "meanAwaitedMs": 6.983299999996234
+          },
+          "legacySchema": {
+            "dispatches": 26,
+            "meanAwaitedMs": 5.792349999996077
+          },
+          "selectedBindingBody": {
+            "dispatches": 23,
+            "meanAwaitedMs": 13.581249999999272
+          },
+          "fullClockKeyShare": {
+            "dispatches": 50,
+            "meanAwaitedMs": 10.782049999988885
+          },
+          "revocationKeyShare": {
+            "dispatches": 23,
+            "meanAwaitedMs": 4.217799999996714
+          },
+          "epochCapture": {
+            "dispatches": 2,
+            "meanAwaitedMs": 5.2114999999994325
+          },
+          "epochTail": {
+            "dispatches": 22,
+            "meanAwaitedMs": 60.01304999998865
+          },
+          "strongClock": {
+            "dispatches": 34,
+            "meanAwaitedMs": 7.7863499999857595
+          },
+          "physicalCatalog": {
+            "dispatches": 23,
+            "meanAwaitedMs": 20.95974999999089
+          }
+        },
+        "phases": {
+          "invocation": {
+            "meanInclusiveMs": 883.6912999999986,
+            "meanExclusiveMs": 0.7179000000069209
+          },
+          "invocation / request admission": {
+            "meanInclusiveMs": 93.14714999999887,
+            "meanExclusiveMs": 93.14714999999887
+          },
+          "invocation / Worker execution": {
+            "meanInclusiveMs": 603.7413499999966,
+            "meanExclusiveMs": 1.122849999990649
+          },
+          "invocation / Worker execution / Worker construction and ready": {
+            "meanInclusiveMs": 82.75235000000248,
+            "meanExclusiveMs": 82.75235000000248
+          },
+          "invocation / Worker execution / Worker dispatch": {
+            "meanInclusiveMs": 506.28420000000006,
+            "meanExclusiveMs": 25.054250000002867
+          },
+          "invocation / Worker execution / Worker dispatch / Application point": {
+            "meanInclusiveMs": 5.683124999998654,
+            "meanExclusiveMs": 5.683124999998654
+          },
+          "invocation / Worker execution / Worker dispatch / medusa.product:update": {
+            "meanInclusiveMs": 371.50220000000263,
+            "meanExclusiveMs": 371.50220000000263
+          },
+          "invocation / Worker execution / Worker dispatch / medusa.product:retrieve": {
+            "meanInclusiveMs": 51.20269999999982,
+            "meanExclusiveMs": 51.20269999999982
+          },
+          "invocation / Worker execution / Worker dispatch / medusa.product:listByHandle": {
+            "meanInclusiveMs": 47.15879999999743,
+            "meanExclusiveMs": 47.15879999999743
+          },
+          "invocation / Worker execution / Worker disposal": {
+            "meanInclusiveMs": 13.581950000003417,
+            "meanExclusiveMs": 13.581950000003417
+          },
+          "invocation / journal seal and OCC verification": {
+            "meanInclusiveMs": 89.46054999999797,
+            "meanExclusiveMs": 89.46054999999797
+          },
+          "invocation / authoritative publication": {
+            "meanInclusiveMs": 96.62434999999823,
+            "meanExclusiveMs": 96.62434999999823
+          }
+        },
+        "transactionGroups": {
+          "[\"target\",\"invocation / request admission\",\"commit\"]": {
+            "meanCount": 10,
+            "meanDurationMs": 66.52895000000171
+          },
+          "[\"control\",\"invocation / request admission\",\"commit\"]": {
+            "meanCount": 1,
+            "meanDurationMs": 0.847250000000713
+          },
+          "[\"target\",\"invocation / Worker execution / Worker dispatch\",\"commit\"]": {
+            "meanCount": 1,
+            "meanDurationMs": 2.844600000000355
+          },
+          "[\"target\",\"invocation / Worker execution / Worker dispatch / Application point\",\"commit\"]": {
+            "meanCount": 2,
+            "meanDurationMs": 7.6784500000012486
+          },
+          "[\"target\",\"invocation / Worker execution / Worker dispatch / medusa.product:update\",\"commit\"]": {
+            "meanCount": 16,
+            "meanDurationMs": 342.2274499999912
+          },
+          "[\"target\",\"invocation / Worker execution / Worker dispatch / medusa.product:retrieve\",\"commit\"]": {
+            "meanCount": 2,
+            "meanDurationMs": 43.08914999999979
+          },
+          "[\"target\",\"invocation / Worker execution / Worker dispatch / medusa.product:listByHandle\",\"commit\"]": {
+            "meanCount": 2,
+            "meanDurationMs": 40.1523500000003
+          },
+          "[\"target\",\"invocation / journal seal and OCC verification\",\"commit\"]": {
+            "meanCount": 5,
+            "meanDurationMs": 64.47315000000344
+          },
+          "[\"target\",\"invocation / authoritative publication\",\"commit\"]": {
+            "meanCount": 2,
+            "meanDurationMs": 77.56224999999722
+          }
+        }
+      },
+      "prepared": {
+        "warmP50": 783.6856000000043,
+        "warmP95": 1011.5555000000022,
+        "warmMaximum": 1193.6812999999966,
+        "coldP50": 837.4389999999839,
+        "dispatches": [
+          862,
+          862
+        ],
+        "transactions": [
+          41,
+          41
+        ],
+        "families": {
+          "applicationActivation": {
+            "dispatches": 6,
+            "meanAwaitedMs": 1.382000000001426
+          },
+          "legacySchema": {
+            "dispatches": 5,
+            "meanAwaitedMs": 1.0450500000006286
+          },
+          "selectedBindingBody": {
+            "dispatches": 2,
+            "meanAwaitedMs": 1.0644999999967695
+          },
+          "fullClockKeyShare": {
+            "dispatches": 6,
+            "meanAwaitedMs": 1.5393499999954656
+          },
+          "revocationKeyShare": {
+            "dispatches": 1,
+            "meanAwaitedMs": 0.21365000000150758
+          },
+          "epochCapture": {
+            "dispatches": 5,
+            "meanAwaitedMs": 13.712649999994028
+          },
+          "epochTail": {
+            "dispatches": 22,
+            "meanAwaitedMs": 61.19790000001376
+          },
+          "strongClock": {
+            "dispatches": 34,
+            "meanAwaitedMs": 7.933200000003126
+          },
+          "physicalCatalog": {
+            "dispatches": 23,
+            "meanAwaitedMs": 21.373199999998178
+          }
+        },
+        "phases": {
+          "invocation": {
+            "meanInclusiveMs": 845.2893500000027,
+            "meanExclusiveMs": 0.6004500000017288
+          },
+          "invocation / request admission": {
+            "meanInclusiveMs": 107.08480000000054,
+            "meanExclusiveMs": 107.08480000000054
+          },
+          "invocation / Worker execution": {
+            "meanInclusiveMs": 552.5522000000019,
+            "meanExclusiveMs": 0.8981500000081724
+          },
+          "invocation / Worker execution / Worker construction and ready": {
+            "meanInclusiveMs": 84.5461499999983,
+            "meanExclusiveMs": 84.5461499999983
+          },
+          "invocation / Worker execution / Worker dispatch": {
+            "meanInclusiveMs": 453.32764999999563,
+            "meanExclusiveMs": 25.365899999993417
+          },
+          "invocation / Worker execution / Worker dispatch / Application point": {
+            "meanInclusiveMs": 6.547099999999773,
+            "meanExclusiveMs": 6.547099999999773
+          },
+          "invocation / Worker execution / Worker dispatch / medusa.product:update": {
+            "meanInclusiveMs": 327.59465000000273,
+            "meanExclusiveMs": 327.59465000000273
+          },
+          "invocation / Worker execution / Worker dispatch / medusa.product:retrieve": {
+            "meanInclusiveMs": 43.955299999997806,
+            "meanExclusiveMs": 43.955299999997806
+          },
+          "invocation / Worker execution / Worker dispatch / medusa.product:listByHandle": {
+            "meanInclusiveMs": 43.31760000000213,
+            "meanExclusiveMs": 43.31760000000213
+          },
+          "invocation / Worker execution / Worker disposal": {
+            "meanInclusiveMs": 13.780249999999796,
+            "meanExclusiveMs": 13.780249999999796
+          },
+          "invocation / journal seal and OCC verification": {
+            "meanInclusiveMs": 89.13385000000198,
+            "meanExclusiveMs": 89.13385000000198
+          },
+          "invocation / authoritative publication": {
+            "meanInclusiveMs": 95.91804999999658,
+            "meanExclusiveMs": 95.91804999999658
+          }
+        },
+        "transactionGroups": {
+          "[\"target\",\"invocation / request admission\",\"commit\"]": {
+            "meanCount": 10,
+            "meanDurationMs": 80.68620000000737
+          },
+          "[\"control\",\"invocation / request admission\",\"commit\"]": {
+            "meanCount": 1,
+            "meanDurationMs": 1.5987999999997555
+          },
+          "[\"target\",\"invocation / Worker execution / Worker dispatch\",\"commit\"]": {
+            "meanCount": 1,
+            "meanDurationMs": 3.3034499999994296
+          },
+          "[\"target\",\"invocation / Worker execution / Worker dispatch / Application point\",\"commit\"]": {
+            "meanCount": 2,
+            "meanDurationMs": 9.404899999997724
+          },
+          "[\"target\",\"invocation / Worker execution / Worker dispatch / medusa.product:update\",\"commit\"]": {
+            "meanCount": 16,
+            "meanDurationMs": 297.39310000000114
+          },
+          "[\"target\",\"invocation / Worker execution / Worker dispatch / medusa.product:retrieve\",\"commit\"]": {
+            "meanCount": 2,
+            "meanDurationMs": 37.223549999998795
+          },
+          "[\"target\",\"invocation / Worker execution / Worker dispatch / medusa.product:listByHandle\",\"commit\"]": {
+            "meanCount": 2,
+            "meanDurationMs": 36.65505000000485
+          },
+          "[\"target\",\"invocation / journal seal and OCC verification\",\"commit\"]": {
+            "meanCount": 5,
+            "meanDurationMs": 64.89594999999463
+          },
+          "[\"target\",\"invocation / authoritative publication\",\"commit\"]": {
+            "meanCount": 2,
+            "meanDurationMs": 78.57734999999957
+          }
+        }
+      }
+    },
+    "productPayload": {
+      "baseline": {
+        "warmP50": 1087.140750000006,
+        "warmP95": 1176.2699000000139,
+        "warmMaximum": 1177.1171000000031,
+        "coldP50": 1134.25,
+        "dispatches": [
+          1252,
+          1252
+        ],
+        "transactions": [
+          52,
+          52
+        ],
+        "families": {
+          "applicationActivation": {
+            "dispatches": 37,
+            "meanAwaitedMs": 9.14294999998674
+          },
+          "legacySchema": {
+            "dispatches": 36,
+            "meanAwaitedMs": 7.756250000020373
+          },
+          "selectedBindingBody": {
+            "dispatches": 33,
+            "meanAwaitedMs": 18.997000000010303
+          },
+          "fullClockKeyShare": {
+            "dispatches": 70,
+            "meanAwaitedMs": 16.1961000000083
+          },
+          "revocationKeyShare": {
+            "dispatches": 33,
+            "meanAwaitedMs": 6.75260000002163
+          },
+          "epochCapture": {
+            "dispatches": 2,
+            "meanAwaitedMs": 5.877549999990151
+          },
+          "epochTail": {
+            "dispatches": 32,
+            "meanAwaitedMs": 95.72335000001476
+          },
+          "strongClock": {
+            "dispatches": 45,
+            "meanAwaitedMs": 10.700649999977031
+          },
+          "physicalCatalog": {
+            "dispatches": 28,
+            "meanAwaitedMs": 25.34539999999106
+          }
+        },
+        "phases": {
+          "invocation": {
+            "meanInclusiveMs": 1121.2581500000015,
+            "meanExclusiveMs": 0.7352000000028056
+          },
+          "invocation / request admission": {
+            "meanInclusiveMs": 113.6224000000002,
+            "meanExclusiveMs": 113.6224000000002
+          },
+          "invocation / Worker execution": {
+            "meanInclusiveMs": 796.1352499999921,
+            "meanExclusiveMs": 0.9853999999904772
+          },
+          "invocation / Worker execution / Worker construction and ready": {
+            "meanInclusiveMs": 84.58599999999569,
+            "meanExclusiveMs": 84.58599999999569
+          },
+          "invocation / Worker execution / Worker dispatch": {
+            "meanInclusiveMs": 697.064750000005,
+            "meanExclusiveMs": 30.3978000000061
+          },
+          "invocation / Worker execution / Worker dispatch / Application point": {
+            "meanInclusiveMs": 5.565875000003871,
+            "meanExclusiveMs": 5.565875000003871
+          },
+          "invocation / Worker execution / Worker dispatch / medusa.product:update": {
+            "meanInclusiveMs": 374.1537000000026,
+            "meanExclusiveMs": 374.1537000000026
+          },
+          "invocation / Worker execution / Worker dispatch / medusa.product:retrieve": {
+            "meanInclusiveMs": 53.1275999999998,
+            "meanExclusiveMs": 53.1275999999998
+          },
+          "invocation / Worker execution / Worker dispatch / medusa.product:listByHandle": {
+            "meanInclusiveMs": 48.60634999999456,
+            "meanExclusiveMs": 48.60634999999456
+          },
+          "invocation / Worker execution / Worker dispatch / payload.posts.0b4edceefb42629ee482a9c2b07fac8215b5259781761b11d0d2370e56ab1d3b:payload-create": {
+            "meanInclusiveMs": 59.19284999999945,
+            "meanExclusiveMs": 59.19284999999945
+          },
+          "invocation / Worker execution / Worker dispatch / payload.posts.0b4edceefb42629ee482a9c2b07fac8215b5259781761b11d0d2370e56ab1d3b:payload-findByID": {
+            "meanInclusiveMs": 39.39797499999622,
+            "meanExclusiveMs": 39.39797499999622
+          },
+          "invocation / Worker execution / Worker dispatch / payload.posts.0b4edceefb42629ee482a9c2b07fac8215b5259781761b11d0d2370e56ab1d3b:payload-update": {
+            "meanInclusiveMs": 41.65875000000233,
+            "meanExclusiveMs": 41.65875000000233
+          },
+          "invocation / Worker execution / Worker disposal": {
+            "meanInclusiveMs": 13.499100000000908,
+            "meanExclusiveMs": 13.499100000000908
+          },
+          "invocation / journal seal and OCC verification": {
+            "meanInclusiveMs": 97.44755000000441,
+            "meanExclusiveMs": 97.44755000000441
+          },
+          "invocation / authoritative publication": {
+            "meanInclusiveMs": 113.31775000000198,
+            "meanExclusiveMs": 113.31775000000198
+          }
+        },
+        "transactionGroups": {
+          "[\"target\",\"invocation / request admission\",\"commit\"]": {
+            "meanCount": 12,
+            "meanDurationMs": 86.57645000000775
+          },
+          "[\"control\",\"invocation / request admission\",\"commit\"]": {
+            "meanCount": 1,
+            "meanDurationMs": 0.9055500000031316
+          },
+          "[\"target\",\"invocation / Worker execution / Worker dispatch\",\"commit\"]": {
+            "meanCount": 1,
+            "meanDurationMs": 2.803799999994226
+          },
+          "[\"target\",\"invocation / Worker execution / Worker dispatch / Application point\",\"commit\"]": {
+            "meanCount": 2,
+            "meanDurationMs": 7.480899999995017
+          },
+          "[\"target\",\"invocation / Worker execution / Worker dispatch / medusa.product:update\",\"commit\"]": {
+            "meanCount": 16,
+            "meanDurationMs": 344.2205000000249
+          },
+          "[\"target\",\"invocation / Worker execution / Worker dispatch / medusa.product:retrieve\",\"commit\"]": {
+            "meanCount": 2,
+            "meanDurationMs": 46.137199999990116
+          },
+          "[\"target\",\"invocation / Worker execution / Worker dispatch / medusa.product:listByHandle\",\"commit\"]": {
+            "meanCount": 2,
+            "meanDurationMs": 41.31000000000495
+          },
+          "[\"target\",\"invocation / Worker execution / Worker dispatch / payload.posts.0b4edceefb42629ee482a9c2b07fac8215b5259781761b11d0d2370e56ab1d3b:payload-create\",\"commit\"]": {
+            "meanCount": 3,
+            "meanDurationMs": 49.325250000008964
+          },
+          "[\"target\",\"invocation / Worker execution / Worker dispatch / payload.posts.0b4edceefb42629ee482a9c2b07fac8215b5259781761b11d0d2370e56ab1d3b:payload-findByID\",\"commit\"]": {
+            "meanCount": 4,
+            "meanDurationMs": 69.9172499999986
+          },
+          "[\"target\",\"invocation / Worker execution / Worker dispatch / payload.posts.0b4edceefb42629ee482a9c2b07fac8215b5259781761b11d0d2370e56ab1d3b:payload-update\",\"commit\"]": {
+            "meanCount": 2,
+            "meanDurationMs": 34.3778500000044
+          },
+          "[\"target\",\"invocation / journal seal and OCC verification\",\"commit\"]": {
+            "meanCount": 5,
+            "meanDurationMs": 68.89420000000973
+          },
+          "[\"target\",\"invocation / authoritative publication\",\"commit\"]": {
+            "meanCount": 2,
+            "meanDurationMs": 93.16900000000169
+          }
+        }
+      },
+      "prepared": {
+        "warmP50": 973.7567499999859,
+        "warmP95": 1005.9776999999885,
+        "warmMaximum": 1014.0346999999892,
+        "coldP50": 1459.282200000016,
+        "dispatches": [
+          1068,
+          1068
+        ],
+        "transactions": [
+          52,
+          52
+        ],
+        "families": {
+          "applicationActivation": {
+            "dispatches": 6,
+            "meanAwaitedMs": 1.3510999999998603
+          },
+          "legacySchema": {
+            "dispatches": 5,
+            "meanAwaitedMs": 1.0705000000089058
+          },
+          "selectedBindingBody": {
+            "dispatches": 3,
+            "meanAwaitedMs": 1.4091500000140513
+          },
+          "fullClockKeyShare": {
+            "dispatches": 6,
+            "meanAwaitedMs": 1.4100500000131433
+          },
+          "revocationKeyShare": {
+            "dispatches": 1,
+            "meanAwaitedMs": 0.2243499999967753
+          },
+          "epochCapture": {
+            "dispatches": 6,
+            "meanAwaitedMs": 16.736150000018824
+          },
+          "epochTail": {
+            "dispatches": 32,
+            "meanAwaitedMs": 92.93915000002016
+          },
+          "strongClock": {
+            "dispatches": 45,
+            "meanAwaitedMs": 10.802599999922677
+          },
+          "physicalCatalog": {
+            "dispatches": 28,
+            "meanAwaitedMs": 26.33060000000114
+          }
+        },
+        "phases": {
+          "invocation": {
+            "meanInclusiveMs": 1054.0267000000022,
+            "meanExclusiveMs": 0.7084499999909895
+          },
+          "invocation / request admission": {
+            "meanInclusiveMs": 132.5923000000039,
+            "meanExclusiveMs": 132.5923000000039
+          },
+          "invocation / Worker execution": {
+            "meanInclusiveMs": 711.428350000002,
+            "meanExclusiveMs": 0.8712499999965075
+          },
+          "invocation / Worker execution / Worker construction and ready": {
+            "meanInclusiveMs": 86.51575000000594,
+            "meanExclusiveMs": 86.51575000000594
+          },
+          "invocation / Worker execution / Worker dispatch": {
+            "meanInclusiveMs": 606.482799999998,
+            "meanExclusiveMs": 29.88430000000517
+          },
+          "invocation / Worker execution / Worker dispatch / Application point": {
+            "meanInclusiveMs": 6.3336249999956635,
+            "meanExclusiveMs": 6.3336249999956635
+          },
+          "invocation / Worker execution / Worker dispatch / medusa.product:update": {
+            "meanInclusiveMs": 326.9334999999992,
+            "meanExclusiveMs": 326.9334999999992
+          },
+          "invocation / Worker execution / Worker dispatch / medusa.product:retrieve": {
+            "meanInclusiveMs": 44.281300000002375,
+            "meanExclusiveMs": 44.281300000002375
+          },
+          "invocation / Worker execution / Worker dispatch / medusa.product:listByHandle": {
+            "meanInclusiveMs": 43.93100000000413,
+            "meanExclusiveMs": 43.93100000000413
+          },
+          "invocation / Worker execution / Worker dispatch / payload.posts.0b4edceefb42629ee482a9c2b07fac8215b5259781761b11d0d2370e56ab1d3b:payload-create": {
+            "meanInclusiveMs": 48.867099999995844,
+            "meanExclusiveMs": 48.867099999995844
+          },
+          "invocation / Worker execution / Worker dispatch / payload.posts.0b4edceefb42629ee482a9c2b07fac8215b5259781761b11d0d2370e56ab1d3b:payload-findByID": {
+            "meanInclusiveMs": 33.623099999997066,
+            "meanExclusiveMs": 33.623099999997066
+          },
+          "invocation / Worker execution / Worker dispatch / payload.posts.0b4edceefb42629ee482a9c2b07fac8215b5259781761b11d0d2370e56ab1d3b:payload-update": {
+            "meanInclusiveMs": 32.672150000005786,
+            "meanExclusiveMs": 32.672150000005786
+          },
+          "invocation / Worker execution / Worker disposal": {
+            "meanInclusiveMs": 17.55855000000156,
+            "meanExclusiveMs": 17.55855000000156
+          },
+          "invocation / journal seal and OCC verification": {
+            "meanInclusiveMs": 104.92180000000371,
+            "meanExclusiveMs": 104.92180000000371
+          },
+          "invocation / authoritative publication": {
+            "meanInclusiveMs": 104.37580000000162,
+            "meanExclusiveMs": 104.37580000000162
+          }
+        },
+        "transactionGroups": {
+          "[\"target\",\"invocation / request admission\",\"commit\"]": {
+            "meanCount": 12,
+            "meanDurationMs": 105.7105500000107
+          },
+          "[\"control\",\"invocation / request admission\",\"commit\"]": {
+            "meanCount": 1,
+            "meanDurationMs": 1.6048500000033528
+          },
+          "[\"target\",\"invocation / Worker execution / Worker dispatch\",\"commit\"]": {
+            "meanCount": 1,
+            "meanDurationMs": 3.621450000006007
+          },
+          "[\"target\",\"invocation / Worker execution / Worker dispatch / Application point\",\"commit\"]": {
+            "meanCount": 2,
+            "meanDurationMs": 9.299500000008265
+          },
+          "[\"target\",\"invocation / Worker execution / Worker dispatch / medusa.product:update\",\"commit\"]": {
+            "meanCount": 16,
+            "meanDurationMs": 299.7616999999518
+          },
+          "[\"target\",\"invocation / Worker execution / Worker dispatch / medusa.product:retrieve\",\"commit\"]": {
+            "meanCount": 2,
+            "meanDurationMs": 37.819400000000314
+          },
+          "[\"target\",\"invocation / Worker execution / Worker dispatch / medusa.product:listByHandle\",\"commit\"]": {
+            "meanCount": 2,
+            "meanDurationMs": 37.35894999998709
+          },
+          "[\"target\",\"invocation / Worker execution / Worker dispatch / payload.posts.0b4edceefb42629ee482a9c2b07fac8215b5259781761b11d0d2370e56ab1d3b:payload-create\",\"commit\"]": {
+            "meanCount": 3,
+            "meanDurationMs": 40.20780000000377
+          },
+          "[\"target\",\"invocation / Worker execution / Worker dispatch / payload.posts.0b4edceefb42629ee482a9c2b07fac8215b5259781761b11d0d2370e56ab1d3b:payload-findByID\",\"commit\"]": {
+            "meanCount": 4,
+            "meanDurationMs": 59.18835000000399
+          },
+          "[\"target\",\"invocation / Worker execution / Worker dispatch / payload.posts.0b4edceefb42629ee482a9c2b07fac8215b5259781761b11d0d2370e56ab1d3b:payload-update\",\"commit\"]": {
+            "meanCount": 2,
+            "meanDurationMs": 27.46904999999242
+          },
+          "[\"target\",\"invocation / journal seal and OCC verification\",\"commit\"]": {
+            "meanCount": 5,
+            "meanDurationMs": 77.14479999999458
+          },
+          "[\"target\",\"invocation / authoritative publication\",\"commit\"]": {
+            "meanCount": 2,
+            "meanDurationMs": 85.47129999999015
+          }
+        }
+      }
+    },
+    "mixedWorkflow": {
+      "baseline": {
+        "warmP50": 1787.710299999977,
+        "warmP95": 1959.9602000000305,
+        "warmMaximum": 2063.5785000000033,
+        "coldP50": 1780.7037000000128,
+        "dispatches": [
+          1979,
+          1979
+        ],
+        "transactions": [
+          78,
+          78
+        ],
+        "families": {
+          "applicationActivation": {
+            "dispatches": 60,
+            "meanAwaitedMs": 15.277099999977509
+          },
+          "legacySchema": {
+            "dispatches": 59,
+            "meanAwaitedMs": 14.51084999993327
+          },
+          "selectedBindingBody": {
+            "dispatches": 56,
+            "meanAwaitedMs": 34.460849999974016
+          },
+          "fullClockKeyShare": {
+            "dispatches": 116,
+            "meanAwaitedMs": 29.807599999920058
+          },
+          "revocationKeyShare": {
+            "dispatches": 56,
+            "meanAwaitedMs": 10.253350000013597
+          },
+          "epochCapture": {
+            "dispatches": 2,
+            "meanAwaitedMs": 5.705749999986438
+          },
+          "epochTail": {
+            "dispatches": 55,
+            "meanAwaitedMs": 160.47055000007094
+          },
+          "strongClock": {
+            "dispatches": 71,
+            "meanAwaitedMs": 18.93674999990617
+          },
+          "physicalCatalog": {
+            "dispatches": 50,
+            "meanAwaitedMs": 64.57535000006465
+          }
+        },
+        "phases": {
+          "invocation": {
+            "meanInclusiveMs": 1963.684349999996,
+            "meanExclusiveMs": 0.6838000000279862
+          },
+          "invocation / request admission": {
+            "meanInclusiveMs": 208.53894999998738,
+            "meanExclusiveMs": 208.53894999998738
+          },
+          "invocation / Worker execution": {
+            "meanInclusiveMs": 1442.8819000000003,
+            "meanExclusiveMs": 1.1934499999915715
+          },
+          "invocation / Worker execution / Worker construction and ready": {
+            "meanInclusiveMs": 85.4855999999927,
+            "meanExclusiveMs": 85.4855999999927
+          },
+          "invocation / Worker execution / Worker dispatch": {
+            "meanInclusiveMs": 1342.3714000000036,
+            "meanExclusiveMs": 33.59029999998893
+          },
+          "invocation / Worker execution / Worker dispatch / Application point": {
+            "meanInclusiveMs": 6.028300000005402,
+            "meanExclusiveMs": 6.028300000005402
+          },
+          "invocation / Worker execution / Worker dispatch / medusa.product:update": {
+            "meanInclusiveMs": 389.0096999999878,
+            "meanExclusiveMs": 389.0096999999878
+          },
+          "invocation / Worker execution / Worker dispatch / medusa.product:retrieve": {
+            "meanInclusiveMs": 53.80750000000262,
+            "meanExclusiveMs": 53.80750000000262
+          },
+          "invocation / Worker execution / Worker dispatch / medusa.workflow:run": {
+            "meanInclusiveMs": 636.6829500000022,
+            "meanExclusiveMs": 636.6829500000022
+          },
+          "invocation / Worker execution / Worker dispatch / payload.posts.0b4edceefb42629ee482a9c2b07fac8215b5259781761b11d0d2370e56ab1d3b:payload-create": {
+            "meanInclusiveMs": 68.90975000000617,
+            "meanExclusiveMs": 68.90975000000617
+          },
+          "invocation / Worker execution / Worker dispatch / payload.posts.0b4edceefb42629ee482a9c2b07fac8215b5259781761b11d0d2370e56ab1d3b:payload-findByID": {
+            "meanInclusiveMs": 47.51002499999959,
+            "meanExclusiveMs": 47.51002499999959
+          },
+          "invocation / Worker execution / Worker dispatch / payload.posts.0b4edceefb42629ee482a9c2b07fac8215b5259781761b11d0d2370e56ab1d3b:payload-update": {
+            "meanInclusiveMs": 53.294550000005984,
+            "meanExclusiveMs": 53.294550000005984
+          },
+          "invocation / Worker execution / Worker disposal": {
+            "meanInclusiveMs": 13.83145000001241,
+            "meanExclusiveMs": 13.83145000001241
+          },
+          "invocation / journal seal and OCC verification": {
+            "meanInclusiveMs": 116.9859499999875,
+            "meanExclusiveMs": 116.9859499999875
+          },
+          "invocation / authoritative publication": {
+            "meanInclusiveMs": 194.59374999999272,
+            "meanExclusiveMs": 194.59374999999272
+          }
+        },
+        "transactionGroups": {
+          "[\"target\",\"invocation / request admission\",\"commit\"]": {
+            "meanCount": 18,
+            "meanDurationMs": 173.7511500000037
+          },
+          "[\"control\",\"invocation / request admission\",\"commit\"]": {
+            "meanCount": 1,
+            "meanDurationMs": 0.7835499999928288
+          },
+          "[\"target\",\"invocation / Worker execution / Worker dispatch\",\"commit\"]": {
+            "meanCount": 1,
+            "meanDurationMs": 2.9653500000058557
+          },
+          "[\"target\",\"invocation / Worker execution / Worker dispatch / Application point\",\"commit\"]": {
+            "meanCount": 2,
+            "meanDurationMs": 8.045099999988452
+          },
+          "[\"target\",\"invocation / Worker execution / Worker dispatch / medusa.product:update\",\"commit\"]": {
+            "meanCount": 16,
+            "meanDurationMs": 355.81584999999905
+          },
+          "[\"target\",\"invocation / Worker execution / Worker dispatch / medusa.product:retrieve\",\"commit\"]": {
+            "meanCount": 2,
+            "meanDurationMs": 47.09160000000702
+          },
+          "[\"target\",\"invocation / Worker execution / Worker dispatch / medusa.workflow:run\",\"commit\"]": {
+            "meanCount": 22,
+            "meanDurationMs": 528.3585999999777
+          },
+          "[\"target\",\"invocation / Worker execution / Worker dispatch / payload.posts.0b4edceefb42629ee482a9c2b07fac8215b5259781761b11d0d2370e56ab1d3b:payload-create\",\"commit\"]": {
+            "meanCount": 3,
+            "meanDurationMs": 58.40359999999055
+          },
+          "[\"target\",\"invocation / Worker execution / Worker dispatch / payload.posts.0b4edceefb42629ee482a9c2b07fac8215b5259781761b11d0d2370e56ab1d3b:payload-findByID\",\"commit\"]": {
+            "meanCount": 4,
+            "meanDurationMs": 86.44660000000295
+          },
+          "[\"target\",\"invocation / Worker execution / Worker dispatch / payload.posts.0b4edceefb42629ee482a9c2b07fac8215b5259781761b11d0d2370e56ab1d3b:payload-update\",\"commit\"]": {
+            "meanCount": 2,
+            "meanDurationMs": 47.34764999998151
+          },
+          "[\"target\",\"invocation / journal seal and OCC verification\",\"commit\"]": {
+            "meanCount": 5,
+            "meanDurationMs": 79.3473500000182
+          },
+          "[\"target\",\"invocation / authoritative publication\",\"commit\"]": {
+            "meanCount": 2,
+            "meanDurationMs": 165.71590000001015
+          }
+        }
+      },
+      "prepared": {
+        "warmP50": 1676.6410500000056,
+        "warmP95": 1714.8294999999925,
+        "warmMaximum": 2800.8542000000016,
+        "coldP50": 1732.8456000000006,
+        "dispatches": [
+          1663,
+          1663
+        ],
+        "transactions": [
+          78,
+          78
+        ],
+        "families": {
+          "applicationActivation": {
+            "dispatches": 6,
+            "meanAwaitedMs": 1.5108000000036554
+          },
+          "legacySchema": {
+            "dispatches": 5,
+            "meanAwaitedMs": 1.1384499999840045
+          },
+          "selectedBindingBody": {
+            "dispatches": 6,
+            "meanAwaitedMs": 3.282500000015716
+          },
+          "fullClockKeyShare": {
+            "dispatches": 6,
+            "meanAwaitedMs": 1.365750000011758
+          },
+          "revocationKeyShare": {
+            "dispatches": 1,
+            "meanAwaitedMs": 0.15679999999701977
+          },
+          "epochCapture": {
+            "dispatches": 9,
+            "meanAwaitedMs": 25.784649999994144
+          },
+          "epochTail": {
+            "dispatches": 55,
+            "meanAwaitedMs": 145.38490000001184
+          },
+          "strongClock": {
+            "dispatches": 71,
+            "meanAwaitedMs": 16.35750000004191
+          },
+          "physicalCatalog": {
+            "dispatches": 50,
+            "meanAwaitedMs": 61.071349999983795
+          }
+        },
+        "phases": {
+          "invocation": {
+            "meanInclusiveMs": 1734.364499999996,
+            "meanExclusiveMs": 0.6152000000074622
+          },
+          "invocation / request admission": {
+            "meanInclusiveMs": 231.70334999999614,
+            "meanExclusiveMs": 231.70334999999614
+          },
+          "invocation / Worker execution": {
+            "meanInclusiveMs": 1201.465299999989,
+            "meanExclusiveMs": 1.6572999999916647
+          },
+          "invocation / Worker execution / Worker construction and ready": {
+            "meanInclusiveMs": 87.52724999999919,
+            "meanExclusiveMs": 87.52724999999919
+          },
+          "invocation / Worker execution / Worker dispatch": {
+            "meanInclusiveMs": 1096.9228499999954,
+            "meanExclusiveMs": 31.79505000001518
+          },
+          "invocation / Worker execution / Worker dispatch / Application point": {
+            "meanInclusiveMs": 6.4363999999986845,
+            "meanExclusiveMs": 6.4363999999986845
+          },
+          "invocation / Worker execution / Worker dispatch / medusa.product:update": {
+            "meanInclusiveMs": 315.05919999999605,
+            "meanExclusiveMs": 315.05919999999605
+          },
+          "invocation / Worker execution / Worker dispatch / medusa.product:retrieve": {
+            "meanInclusiveMs": 47.85634999999456,
+            "meanExclusiveMs": 47.85634999999456
+          },
+          "invocation / Worker execution / Worker dispatch / medusa.workflow:run": {
+            "meanInclusiveMs": 529.4715000000069,
+            "meanExclusiveMs": 529.4715000000069
+          },
+          "invocation / Worker execution / Worker dispatch / payload.posts.0b4edceefb42629ee482a9c2b07fac8215b5259781761b11d0d2370e56ab1d3b:payload-create": {
+            "meanInclusiveMs": 51.96800000000076,
+            "meanExclusiveMs": 51.96800000000076
+          },
+          "invocation / Worker execution / Worker dispatch / payload.posts.0b4edceefb42629ee482a9c2b07fac8215b5259781761b11d0d2370e56ab1d3b:payload-findByID": {
+            "meanInclusiveMs": 35.43567499999699,
+            "meanExclusiveMs": 35.43567499999699
+          },
+          "invocation / Worker execution / Worker dispatch / payload.posts.0b4edceefb42629ee482a9c2b07fac8215b5259781761b11d0d2370e56ab1d3b:payload-update": {
+            "meanInclusiveMs": 37.02859999999055,
+            "meanExclusiveMs": 37.02859999999055
+          },
+          "invocation / Worker execution / Worker disposal": {
+            "meanInclusiveMs": 15.3579000000027,
+            "meanExclusiveMs": 15.3579000000027
+          },
+          "invocation / journal seal and OCC verification": {
+            "meanInclusiveMs": 112.71435000000929,
+            "meanExclusiveMs": 112.71435000000929
+          },
+          "invocation / authoritative publication": {
+            "meanInclusiveMs": 187.86629999999423,
+            "meanExclusiveMs": 187.86629999999423
+          }
+        },
+        "transactionGroups": {
+          "[\"target\",\"invocation / request admission\",\"commit\"]": {
+            "meanCount": 18,
+            "meanDurationMs": 200.5534000000407
+          },
+          "[\"control\",\"invocation / request admission\",\"commit\"]": {
+            "meanCount": 1,
+            "meanDurationMs": 1.3650500000003376
+          },
+          "[\"target\",\"invocation / Worker execution / Worker dispatch\",\"commit\"]": {
+            "meanCount": 1,
+            "meanDurationMs": 3.3299500000139233
+          },
+          "[\"target\",\"invocation / Worker execution / Worker dispatch / Application point\",\"commit\"]": {
+            "meanCount": 2,
+            "meanDurationMs": 9.005750000018452
+          },
+          "[\"target\",\"invocation / Worker execution / Worker dispatch / medusa.product:update\",\"commit\"]": {
+            "meanCount": 16,
+            "meanDurationMs": 288.57985000005283
+          },
+          "[\"target\",\"invocation / Worker execution / Worker dispatch / medusa.product:retrieve\",\"commit\"]": {
+            "meanCount": 2,
+            "meanDurationMs": 41.02085000000079
+          },
+          "[\"target\",\"invocation / Worker execution / Worker dispatch / medusa.workflow:run\",\"commit\"]": {
+            "meanCount": 22,
+            "meanDurationMs": 431.82079999995767
+          },
+          "[\"target\",\"invocation / Worker execution / Worker dispatch / payload.posts.0b4edceefb42629ee482a9c2b07fac8215b5259781761b11d0d2370e56ab1d3b:payload-create\",\"commit\"]": {
+            "meanCount": 3,
+            "meanDurationMs": 43.63425000001007
+          },
+          "[\"target\",\"invocation / Worker execution / Worker dispatch / payload.posts.0b4edceefb42629ee482a9c2b07fac8215b5259781761b11d0d2370e56ab1d3b:payload-findByID\",\"commit\"]": {
+            "meanCount": 4,
+            "meanDurationMs": 62.44229999998788
+          },
+          "[\"target\",\"invocation / Worker execution / Worker dispatch / payload.posts.0b4edceefb42629ee482a9c2b07fac8215b5259781761b11d0d2370e56ab1d3b:payload-update\",\"commit\"]": {
+            "meanCount": 2,
+            "meanDurationMs": 31.951150000008056
+          },
+          "[\"target\",\"invocation / journal seal and OCC verification\",\"commit\"]": {
+            "meanCount": 5,
+            "meanDurationMs": 77.63424999995914
+          },
+          "[\"target\",\"invocation / authoritative publication\",\"commit\"]": {
+            "meanCount": 2,
+            "meanDurationMs": 161.76560000001336
+          }
+        }
+      }
+    },
+    "standaloneWorkflow": {
+      "baseline": {
+        "warmP50": 319.811699999962,
+        "warmP95": 403.43009999999776,
+        "warmMaximum": 442.23219999996945,
+        "coldP50": 309.79019999993034,
+        "dispatches": [
+          354,
+          354
+        ],
+        "transactions": [
+          6,
+          6
+        ],
+        "families": {
+          "applicationActivation": {
+            "dispatches": 9,
+            "meanAwaitedMs": 2.29830000003858
+          },
+          "legacySchema": {
+            "dispatches": 8,
+            "meanAwaitedMs": 1.7956500000145752
+          },
+          "selectedBindingBody": {
+            "dispatches": 3,
+            "meanAwaitedMs": 1.586250000007567
+          },
+          "fullClockKeyShare": {
+            "dispatches": 10,
+            "meanAwaitedMs": 2.0490999999892665
+          },
+          "revocationKeyShare": {
+            "dispatches": 3,
+            "meanAwaitedMs": 0.5345499999966705
+          },
+          "epochCapture": {
+            "dispatches": 0,
+            "meanAwaitedMs": 0
+          },
+          "epochTail": {
+            "dispatches": 0,
+            "meanAwaitedMs": 0
+          },
+          "strongClock": {
+            "dispatches": 1,
+            "meanAwaitedMs": 0.47719999999389984
+          },
+          "physicalCatalog": {
+            "dispatches": 3,
+            "meanAwaitedMs": 4.243849999984377
+          }
+        },
+        "phases": {
+          "invocation": {
+            "meanInclusiveMs": 332.1826999999903,
+            "meanExclusiveMs": 0.01679999998304993
+          },
+          "invocation / standalone native workflow": {
+            "meanInclusiveMs": 332.16590000000724,
+            "meanExclusiveMs": 332.16590000000724
+          }
+        },
+        "transactionGroups": {
+          "[\"target\",\"invocation / standalone native workflow\",\"commit\"]": {
+            "meanCount": 5,
+            "meanDurationMs": 318.68914999999106
+          },
+          "[\"control\",\"invocation / standalone native workflow\",\"commit\"]": {
+            "meanCount": 1,
+            "meanDurationMs": 0.8334500000055414
+          }
+        }
+      },
+      "prepared": {
+        "warmP50": 309.35664999997243,
+        "warmP95": 395.3098999999929,
+        "warmMaximum": 406.9230999998981,
+        "coldP50": 293.35919999994803,
+        "dispatches": [
+          354,
+          354
+        ],
+        "transactions": [
+          6,
+          6
+        ],
+        "families": {
+          "applicationActivation": {
+            "dispatches": 9,
+            "meanAwaitedMs": 2.0394999999989523
+          },
+          "legacySchema": {
+            "dispatches": 8,
+            "meanAwaitedMs": 1.618350000033388
+          },
+          "selectedBindingBody": {
+            "dispatches": 3,
+            "meanAwaitedMs": 1.5058999999891967
+          },
+          "fullClockKeyShare": {
+            "dispatches": 10,
+            "meanAwaitedMs": 1.8668500000203494
+          },
+          "revocationKeyShare": {
+            "dispatches": 3,
+            "meanAwaitedMs": 0.5243000000045868
+          },
+          "epochCapture": {
+            "dispatches": 0,
+            "meanAwaitedMs": 0
+          },
+          "epochTail": {
+            "dispatches": 0,
+            "meanAwaitedMs": 0
+          },
+          "strongClock": {
+            "dispatches": 1,
+            "meanAwaitedMs": 0.4564999999856809
+          },
+          "physicalCatalog": {
+            "dispatches": 3,
+            "meanAwaitedMs": 4.31195000000298
+          }
+        },
+        "phases": {
+          "invocation": {
+            "meanInclusiveMs": 303.8226500000019,
+            "meanExclusiveMs": 0.015249999996740371
+          },
+          "invocation / standalone native workflow": {
+            "meanInclusiveMs": 303.80740000000515,
+            "meanExclusiveMs": 303.80740000000515
+          }
+        },
+        "transactionGroups": {
+          "[\"target\",\"invocation / standalone native workflow\",\"commit\"]": {
+            "meanCount": 5,
+            "meanDurationMs": 290.76294999998936
+          },
+          "[\"control\",\"invocation / standalone native workflow\",\"commit\"]": {
+            "meanCount": 1,
+            "meanDurationMs": 1.4685500000050524
+          }
+        }
+      }
+    }
+  }
+}

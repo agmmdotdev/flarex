@@ -6,7 +6,7 @@ const ProductType = model
     id: model.id({ prefix: "ptyp" }).primaryKey(),
     value: model.text().searchable().translatable(),
     metadata: model.json().nullable(),
-    products: model.hasMany(() => Product, {
+    products: model.hasMany((): typeof Product => Product, {
       mappedBy: "type",
     }),
   })

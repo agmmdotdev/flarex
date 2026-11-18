@@ -27,7 +27,7 @@ continues to use Application schema authority.
 
 The first consumer-informed shared-core behavior slice is complete as a private
 module under
-[`packages/persistence-postgres/src/relationalSchema`](../../../packages/persistence-postgres/src/relationalSchema).
+[`packages/persistence-postgres/src/storage/relationalSchema`](../../../packages/persistence-postgres/src/storage/relationalSchema).
 It admits and normalizes immutable relational schema values for trusted
 planning without becoming a public developer schema API or a second semantic
 grammar for Medusa.
@@ -67,7 +67,7 @@ pinned source snapshot or a synthetic fixture.
 
 ## Admission And Normalization
 
-[`policy.ts`](../../../packages/persistence-postgres/src/relationalSchema/policy.ts)
+[`policy.ts`](../../../packages/flarex-protocol/src/relational-schema/policy.ts)
 owns the pure `Result` normalizer. It:
 
 - rejects non-plain, accessor-backed, sparse, oversized, malformed, duplicate,
@@ -87,7 +87,7 @@ owns the pure `Result` normalizer. It:
   persistence capability; and
 - returns detached, recursively frozen runtime-owned values.
 
-[`artifact.ts`](../../../packages/persistence-postgres/src/relationalSchema/artifact.ts)
+[`artifact.ts`](../../../packages/persistence-postgres/src/storage/relationalSchema/artifact.ts)
 owns the single named Effect boundary. It validates exact source or synthetic
 provenance, normalizes path order, derives the admitted outer capability IDs,
 and delegates capture to the existing framework artifact owner. Typed

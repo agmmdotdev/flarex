@@ -1,3 +1,5 @@
+import { defineApplicationNestedMutationContract } from "../contracts/applicationNativeMutationContract";
+import { defineApplicationCoreQueryContract } from "../contracts/applicationCoreQueryContract";
 import {
   createApplicationNativeMutationPostgresFixture,
 } from
@@ -5,9 +7,12 @@ import {
 import { APPLICATION_RUNTIME_HOST_IDENTITY } from
   "flarex-backend/artifact-runtime";
 import { describe, expect, it } from "vitest";
+import { createCorePostgresFixture } from "@flarex/persistence-postgres/internal/system-test/core-persistence-fixture";
+import { withApplicationCoreFixture } from "@flarex/persistence-postgres/internal/system-test/core-application-fixture";
 
-import { proveApplicationNativeMutation } from
+import { APPLICATION_NESTED_MUTATION_FIXTURE_OPTIONS, proveApplicationNativeMutation } from
   "../../support/applicationNativeMutationHarness";
+import { createCoreApplicationDefinition, createCoreLiteralApplicationDefinition } from "../../support/applicationCoreDefinition";
 import {
   postgresUrl,
   withTemporarySplitPostgresPersistence,
@@ -26,6 +31,33 @@ describe("Application-native mutation PostgreSQL acceptance environment", () => 
 });
 
 describePostgres("Application-native Standard mutation - PostgreSQL", () => {
+  defineApplicationCoreQueryContract({
+    runScenario: async scenario => {
+      const provisioning = process.env.FLAREX_POSTGRES_PROVISIONING_DATABASE_URL;
+      if (postgresUrl === null || provisioning === undefined) throw new Error("Core PostgreSQL proof requires explicit serving and provisioning endpoints.");
+      const definition = await createCoreApplicationDefinition();
+      return withApplicationCoreFixture(await createCorePostgresFixture({
+        connectionString: postgresUrl, provisioningConnectionString: provisioning,
+      }), definition, scenario);
+    },
+  });
+  defineApplicationNestedMutationContract({
+    runLiteralScenario: async scenario => {
+      const provisioning = process.env.FLAREX_POSTGRES_PROVISIONING_DATABASE_URL;
+      if (postgresUrl === null || provisioning === undefined) throw new Error("Core PostgreSQL literal proof requires explicit endpoints.");
+      return withApplicationCoreFixture(await createCorePostgresFixture({
+        connectionString: postgresUrl, provisioningConnectionString: provisioning,
+      }), await createCoreLiteralApplicationDefinition(), scenario);
+    },
+    runScenario: async scenario => {
+      const provisioning = process.env.FLAREX_POSTGRES_PROVISIONING_DATABASE_URL;
+      if (postgresUrl === null || provisioning === undefined) throw new Error("Core PostgreSQL proof requires explicit serving and provisioning endpoints.");
+      const definition = await createCoreApplicationDefinition();
+      return withApplicationCoreFixture(await createCorePostgresFixture({
+        connectionString: postgresUrl, provisioningConnectionString: provisioning,
+      }), definition, scenario);
+    },
+  });
   it("composes active Application authority through the shared commit tail", async () => {
     await withTemporarySplitPostgresPersistence(async persistence => {
       const proof = await proveApplicationNativeMutation(() =>

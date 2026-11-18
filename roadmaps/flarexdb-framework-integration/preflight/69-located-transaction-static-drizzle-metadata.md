@@ -18,7 +18,7 @@ removal target.
 An isolated warmed diagnostic of actual `host.read(commands.findByID, ...)`
 shows both substantial query completion time and work outside those queries.
 The CPU stack identifies `createConnectedDatabase` in
-`packages/persistence-postgres/src/postgresLocatedReadCommitted.ts`, through
+`packages/persistence-postgres/src/database/postgresLocatedReadCommitted.ts`, through
 Drizzle's `construct` and `extractTablesRelationalConfig`. Installed Drizzle
 0.45.2 recompiles the supplied full schema on every `drizzle(client, { schema })`
 call. Its native transaction constructor already reuses the extracted schema.

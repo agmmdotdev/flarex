@@ -44,6 +44,8 @@ describe("runFlarexDevCli", () => {
           "flarex=packages/flarex/src/index.ts",
           "--path",
           "flarex/*=packages/flarex/src/*",
+          "--path",
+          "flarex/validator-json=packages/flarex/src/validatorJson.ts",
         ],
       })).resolves.toBe(0);
 
@@ -275,6 +277,7 @@ describe("runFlarexDevCli", () => {
         headers: Object.fromEntries(new Headers(init?.headers).entries()),
         body,
       });
+      if (url.pathname === "/api/deployments/deployment1/profile") return Response.json({ storageProfile: "legacy_session" });
       if (url.pathname === "/api/deployments/deployment1/push/start") {
         events.push("start");
         return Response.json({
@@ -320,6 +323,11 @@ describe("runFlarexDevCli", () => {
       expect(typecheckOptions).toEqual({ root });
       expect(requests).toEqual([
         {
+          path: "/api/deployments/deployment1/profile",
+          headers: { authorization: "Bearer token" },
+          body: null,
+        },
+        {
           path: "/api/deployments/deployment1/push/start",
           headers: {
             authorization: "Bearer token",
@@ -350,6 +358,7 @@ describe("runFlarexDevCli", () => {
     const analysis = cliAnalysis();
     vi.stubGlobal("fetch", async (input: RequestInfo | URL) => {
       const url = new URL(String(input));
+      if (url.pathname.endsWith("/profile")) return Response.json({ storageProfile: "legacy_session" });
       if (url.pathname.endsWith("/push/start")) {
         return Response.json({
           pushId: "push1",
@@ -410,6 +419,7 @@ describe("runFlarexDevCli", () => {
     vi.stubGlobal("fetch", async (input: RequestInfo | URL) => {
       const url = new URL(String(input));
       paths.push(url.pathname);
+      if (url.pathname.endsWith("/profile")) return Response.json({ storageProfile: "legacy_session" });
       if (url.pathname.endsWith("/push/start")) {
         return Response.json({
           pushId: "push1",
@@ -452,6 +462,7 @@ describe("runFlarexDevCli", () => {
 
       expect(stderr.value).toContain("tsc failed");
       expect(paths).toEqual([
+        "/deployments/deployment1/profile",
         "/deployments/deployment1/push/start",
         "/deployments/deployment1/push/push1/abandon",
       ]);
@@ -469,6 +480,7 @@ describe("runFlarexDevCli", () => {
     vi.stubGlobal("fetch", async (input: RequestInfo | URL) => {
       const url = new URL(String(input));
       paths.push(url.pathname);
+      if (url.pathname.endsWith("/profile")) return Response.json({ storageProfile: "legacy_session" });
       if (url.pathname.endsWith("/push/start")) {
         return Response.json({
           pushId: "push1",
@@ -505,6 +517,7 @@ describe("runFlarexDevCli", () => {
       expect(stderr.value).toContain("--typecheck try");
       expect(stderr.value).toContain("tsc failed");
       expect(paths).toEqual([
+        "/deployments/deployment1/profile",
         "/deployments/deployment1/push/start",
         "/deployments/deployment1/push/push1/finish",
       ]);
@@ -520,6 +533,7 @@ describe("runFlarexDevCli", () => {
     const analysis = cliAnalysis();
     vi.stubGlobal("fetch", async (input: RequestInfo | URL) => {
       const url = new URL(String(input));
+      if (url.pathname.endsWith("/profile")) return Response.json({ storageProfile: "legacy_session" });
       if (url.pathname.endsWith("/push/start")) {
         return Response.json({
           pushId: "push1",
@@ -579,6 +593,7 @@ describe("runFlarexDevCli", () => {
     const analysis = cliAnalysis();
     vi.stubGlobal("fetch", async (input: RequestInfo | URL) => {
       const url = new URL(String(input));
+      if (url.pathname.endsWith("/profile")) return Response.json({ storageProfile: "legacy_session" });
       if (url.pathname.endsWith("/push/start")) {
         return Response.json({
           pushId: "push1",

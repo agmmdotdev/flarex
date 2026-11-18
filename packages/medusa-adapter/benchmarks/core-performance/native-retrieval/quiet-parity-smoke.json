@@ -1,0 +1,293 @@
+{
+  "sourcesAfter": {
+    "files": [
+      {
+        "path": "third_party/medusa/SOURCE.json",
+        "sha256": "9f97efb20da45f0995866e325c6372dc0d9aa4be835437d28b164325e703b5b1"
+      },
+      {
+        "path": "pnpm-lock.yaml",
+        "sha256": "41355e0a9754a32aad4bcf4fd9eeff2e294c2614f60dd0e292be3cb823b36893"
+      },
+      {
+        "path": "packages/medusa-adapter/package.json",
+        "sha256": "935e549248f1cc50a559c0980c0d0cebccbdd1327d7399febb74ba997234ce24"
+      },
+      {
+        "path": "third_party/medusa/upstream/pnpm-lock.yaml",
+        "sha256": "2c9390dce87526e7f8ecef2c808f57ec2659befa0387bf88fb772c877c5204fe"
+      },
+      {
+        "path": "packages/medusa-product/src/services/product-module-service.ts",
+        "sha256": "0baea69c2a481b5f3467bf4c630a433dd82065d62a84e5463ecc4a59a24754dd"
+      },
+      {
+        "path": "third_party/medusa/upstream/packages/modules/product/src/services/product-module-service.ts",
+        "sha256": "eec1a1e378ad1bfc845bceb1fdcf2741d570f353d795ecb000c934ed330773ea"
+      },
+      {
+        "path": "third_party/medusa/upstream/packages/core/utils/src/modules-sdk/medusa-internal-service.ts",
+        "sha256": "d6bff4df9e3adc56ef8317dface9206710a81523bcbd1536186c291c18662e47"
+      },
+      {
+        "path": "third_party/medusa/upstream/packages/core/utils/src/dal/mikro-orm/mikro-orm-repository.ts",
+        "sha256": "7efb5c40aac138afa15c9f55b09e85ea307fe4bf1130b826a6d4a6df0b73906a"
+      },
+      {
+        "path": "packages/medusa-adapter/src/product-commands/reads.ts",
+        "sha256": "4cb78d3ddc810e433844db76d6b2fde209a572ccf7a7446877753a2a0de0bd3b"
+      },
+      {
+        "path": "packages/medusa-adapter/src/product-module.ts",
+        "sha256": "e89a73224a54a1617f38eba6f6d71737fe0654afb991297c862c7337c8545afc"
+      },
+      {
+        "path": "packages/medusa-adapter/test/support/logical-product-runner.ts",
+        "sha256": "be6215397eb77fc61b060ab350290b4c6ad406b8e40ee315341dce7375405f27"
+      },
+      {
+        "path": "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/scenario.ts",
+        "sha256": "3b33f5cb31011608e0f8fb6a4506610a93a03f01cc9a8f792f8b906c0c0051d9"
+      },
+      {
+        "path": "packages/medusa-adapter/vitest.native-retrieval.config.ts",
+        "sha256": "7cb0ee16c0c60816367e0bf299932d48acbd4a3f4c320627ca3d9df36c6f4b3c"
+      },
+      {
+        "path": "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/observation.ts",
+        "sha256": "1acb99c137d55325a11d37f1793d560cdc9baa91002704aec68e17156dcd0c7f"
+      },
+      {
+        "path": "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/server.ts",
+        "sha256": "7fb67504e1ecfe2bae67ea679479bf884efb58bb11914cc20b67f33ec308e788"
+      },
+      {
+        "path": "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/tsconfig.json",
+        "sha256": "c03d287f2c399905a521a2a7c5b331c163e5da761fddd31b46a7ec5169b7279a"
+      },
+      {
+        "path": "third_party/medusa/upstream/packages/modules/product/dist/index.js",
+        "sha256": "704e5b9b69125fcab452aedf687c2648c2bd924365a3dcdd78afa4a873dcbe69"
+      },
+      {
+        "path": "third_party/medusa/upstream/packages/modules/product/dist/services/product-module-service.js",
+        "sha256": "b5ef8a9648016f4ffec9bc3c783591e050aedcbacb65ac888a42a505093af2e7"
+      },
+      {
+        "path": "third_party/medusa/upstream/packages/modules/product/dist/repositories/product.js",
+        "sha256": "84d74f3fe2b3e29ad3d26512f5b01374e1eed7f4e18f8cd179d786350f9e002b"
+      },
+      {
+        "path": "third_party/medusa/upstream/packages/medusa-test-utils/dist/module-test-runner.js",
+        "sha256": "40c6fe7385b325e157bb543ee63d1611a4dbd629d24615ec28719b9a88e9a6f4"
+      },
+      {
+        "path": "third_party/medusa/upstream/packages/medusa-test-utils/dist/module-test-persistence-adapter.js",
+        "sha256": "c7c2090ec7c64366528b54aad2b43c80b41291e06245c58bf9a6f00b68f34166"
+      },
+      {
+        "path": "third_party/medusa/upstream/packages/medusa-test-utils/dist/init-modules.js",
+        "sha256": "0f8adeed3439ccddbba73c0209ddc538d952eb04a0bb9d30ad1bd23391ad25f0"
+      },
+      {
+        "path": "third_party/medusa/upstream/packages/medusa-test-utils/dist/database.js",
+        "sha256": "7d79f52ab3b4437d408f1231917087a9850607a0b5d8b1b10e04442193121b54"
+      },
+      {
+        "path": "packages/medusa-product/dist/services/product-module-service.js",
+        "sha256": "f71240360c0c0279090e752f8d83d411bfd31510f87dad39306de9b33eadaf40"
+      },
+      {
+        "path": "packages/persistence-postgres/src/logicalDocuments/participantAdmission.ts",
+        "sha256": "6e28fab0436728864e115788e8671d9b74ee5817d146dbd05c69676cc3683625"
+      },
+      {
+        "path": "packages/persistence-postgres/src/logicalDocuments/relationalAdmission.ts",
+        "sha256": "06619934ee043446926819905fa71b93d948ee1ba89c85d2ceae2c5c65904f1c"
+      },
+      {
+        "path": "packages/persistence-postgres/src/logicalDocuments/sourceAdmission.ts",
+        "sha256": "1dce90c3fd5ddaa1f466a8894d6cdb0acbf2a71605ba9f17be4d2fdd745e5fcf"
+      },
+      {
+        "path": "packages/persistence-postgres/src/logicalDocuments/workingSet.ts",
+        "sha256": "7ca6a353ce4ec1944b64527cd21f29f3e38483914ca507e7beb815abc2b22573"
+      },
+      {
+        "path": "packages/persistence-postgres/src/logicalDocuments/relationalQuery.ts",
+        "sha256": "03ad76f6132899e7eff5adb4dd84b1fa3e67d646fb364cc9cda9160a4b3054a4"
+      },
+      {
+        "path": "packages/persistence-postgres/src/logicalDocuments/indexReads.ts",
+        "sha256": "fd6dbee36ad878edf096fd9cd42c5df3b3d975b38c92ba22d613d3150686002b"
+      },
+      {
+        "path": "packages/persistence-postgres/src/logicalStorageReadiness.ts",
+        "sha256": "b0378f42e9dddf9387ac3eeb6dac875f7dd81b6d37ea02a9a0dee71bdf61a92c"
+      },
+      {
+        "path": "packages/persistence-postgres/src/preparedMetadataEpoch.ts",
+        "sha256": "5b95615efae1eecbde114c4af01a6ba0ab9c2367f20013638760af31472683cc"
+      },
+      {
+        "path": "packages/persistence-postgres/src/commerceTransaction/host.ts",
+        "sha256": "c5662613fcf5e4d871c7cb8401c9af450a07e8d73bb8610b1778202c19f4e0ad"
+      },
+      {
+        "path": "packages/persistence-postgres/src/commerceTransaction/borrowedLogicalAttempt.ts",
+        "sha256": "b90961ab1411be55673115d3e9c678c8c8d7a3c32e5ac24b4c482be7a6714c23"
+      },
+      {
+        "path": "packages/medusa-adapter/src/query/read.ts",
+        "sha256": "6233ea1d62ebea8a388ba80d043aca8bb1f4548aabb8c4563bb81a158740564a"
+      },
+      {
+        "path": "packages/medusa-adapter/src/commerce-relations.ts",
+        "sha256": "5bf35f142597d0cc77bded7ba9e3588ac80a06ded314998ebd35d42d1a8c1efd"
+      },
+      {
+        "path": "packages/persistence-postgres/src/appRows.ts",
+        "sha256": "a13b09122311ae7d7d8e56ca124b35a9cdcc66db9e56b219a0ddd18c83899a61"
+      },
+      {
+        "path": "packages/persistence-postgres/src/postgres.ts",
+        "sha256": "ef60f726bdb0569d5773d6fc22dbe2bb344494939931b250322873ddcc2941f0"
+      },
+      {
+        "path": "packages/persistence-postgres/src/transactionSessionAttemptKernel.ts",
+        "sha256": "dde413833778386bc5f2dbd1d8c896f7955a5df9b76e441027a4b2f342ad51ad"
+      },
+      {
+        "path": "packages/persistence-postgres/drizzle/meta/_journal.json",
+        "sha256": "a0c7e9b94d0889d4accc4b9df7cf11e6fe0530d59ea3c01ea24092641228800b"
+      }
+    ],
+    "drivers": [
+      {
+        "path": "C:\\Users\\Admin\\Documents\\github\\convex-backend\\custom\\cloudflare-executor\\third_party\\medusa\\upstream\\packages\\core\\framework\\dist\\deps\\pg.js",
+        "sha256": "6caf9bfd771731a2725bd663246207baefe1c243adb44bdab7b3b8f2a017bd14"
+      },
+      {
+        "path": "C:\\Users\\Admin\\Documents\\github\\convex-backend\\custom\\cloudflare-executor\\third_party\\medusa\\upstream\\packages\\deps\\dist\\pg.js",
+        "sha256": "f6c20a70f5180a5178b315fb3ee63a105c1e0cac6a00c31693229059643cb2cf"
+      },
+      {
+        "path": "C:\\Users\\Admin\\Documents\\github\\convex-backend\\custom\\cloudflare-executor\\third_party\\medusa\\upstream\\node_modules\\pg\\lib\\index.js",
+        "sha256": "a012ecbe7fdefed8d2b36c3658e33dc4c291d0bb60df18d382300061211052b7"
+      },
+      {
+        "path": "C:\\Users\\Admin\\Documents\\github\\convex-backend\\custom\\cloudflare-executor\\node_modules\\.pnpm\\pg@8.22.0\\node_modules\\pg\\lib\\index.js",
+        "sha256": "3fad6e6d3d976edbabe0cbc9e1d39f4340bcb719bbbb186a0d3a24f3dbd4a94c"
+      }
+    ],
+    "methodHashes": [
+      {
+        "path": "packages/medusa-product/src/services/product-module-service.ts",
+        "methods": {
+          "retrieveProduct": "eae1c7fa8372bbee2f2588c66a92e65ebae81b8485c24a05109ee92aaaddd87e",
+          "getProductFindConfig_": "18a10c8a4092c495b70ad12b534d3ec58f513fd743f0fb509bc22292deabe745",
+          "buildVariantImagesFromProduct": "38e6c2b9aeeae20a9f53bc9f7820162c5098051891a59db82215d170d5b00ed4"
+        }
+      },
+      {
+        "path": "third_party/medusa/upstream/packages/modules/product/src/services/product-module-service.ts",
+        "methods": {
+          "retrieveProduct": "eae1c7fa8372bbee2f2588c66a92e65ebae81b8485c24a05109ee92aaaddd87e",
+          "getProductFindConfig_": "18a10c8a4092c495b70ad12b534d3ec58f513fd743f0fb509bc22292deabe745",
+          "buildVariantImagesFromProduct": "38e6c2b9aeeae20a9f53bc9f7820162c5098051891a59db82215d170d5b00ed4"
+        }
+      }
+    ],
+    "construction": "pinned native MikroORM constructor versus promoted Flarex constructor; selected method-body parity"
+  },
+  "checkpoint": "f3258681a",
+  "settings": {
+    "mode": "quiet",
+    "warmups": 0,
+    "sampleCount": 1,
+    "concurrency": 1,
+    "nativeDatabase": "flarex_orchestration_native_20261001",
+    "logicalDatabase": "flarex_orchestration_logical_20261001",
+    "node": "v24.16.0",
+    "platform": "win32",
+    "architecture": "x64",
+    "nativeLifetime": "existing MikroORM module and per-call injected manager; no benchmark-owned context",
+    "flarexLifetime": "existing standalone CommerceHost.read with actual fresh request lifetime",
+    "diagnosticConnectionSettings": "unavailable in this mode",
+    "runtimeSettings": {},
+    "nestedServerCoverage": "unavailable",
+    "functionTriggerCoverage": "unavailable unless separate server logs observe it"
+  },
+  "settingsSha256": "f3d4dd66488bf0e200c78d011d72ff98d9f4e4157bee2c272d4bbbf519243613",
+  "seed": {
+    "id": "prod_native_compare",
+    "title": "Native retrieval",
+    "handle": "native-retrieval",
+    "status": "published",
+    "discountable": true,
+    "is_giftcard": false
+  },
+  "collection": {
+    "id": "pcol_native_compare",
+    "title": "Native collection",
+    "handle": "native-collection"
+  },
+  "cases": [
+    {
+      "name": "scalar",
+      "config": {
+        "select": [
+          "id",
+          "title",
+          "handle",
+          "status",
+          "discountable",
+          "is_giftcard"
+        ],
+        "relations": []
+      },
+      "expected": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "status": "published",
+        "discountable": true,
+        "is_giftcard": false
+      }
+    },
+    {
+      "name": "collection",
+      "config": {
+        "select": [
+          "id",
+          "title",
+          "handle",
+          "collection.id",
+          "collection.title"
+        ],
+        "relations": [
+          "collection"
+        ]
+      },
+      "expected": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "collection": {
+          "id": "pcol_native_compare",
+          "title": "Native collection"
+        }
+      }
+    }
+  ],
+  "setup": {
+    "flarexFixtureAndHostConstructionMs": 12059.5389
+  },
+  "parityResults": [],
+  "missingErrors": {},
+  "samples": [],
+  "notes": [
+    "All raw samples retained; assertions and diagnostic encoding are outside quiet intervals.",
+    "Query JSON bytes are not network wire bytes. Inclusive call or parent/nested server times are not additive."
+  ]
+}

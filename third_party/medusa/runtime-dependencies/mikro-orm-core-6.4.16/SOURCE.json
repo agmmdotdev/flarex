@@ -1,0 +1,50 @@
+{
+  "package": "@mikro-orm/core",
+  "version": "6.4.16",
+  "license": "MIT",
+  "copyright": "Copyright (c) 2018 Martin Adámek",
+  "role": "Non-executable selected source capsule for private Medusa DAL JSON assignment provenance and differential validation",
+  "medusaCommit": "48d5cc675e4e8bc821e22c20c88a751acc66fb5f",
+  "medusaLockfile": "third_party/medusa/upstream/pnpm-lock.yaml",
+  "medusaLockfileSha256": "2c9390dce87526e7f8ecef2c808f57ec2659befa0387bf88fb772c877c5204fe",
+  "packageIntegrity": "sha512-BW/My1VlI0R25Eojdh0UiET8J+mEruThksGVfllEnjJQ0uwGs3mm/TbMclv0g+d7Qp4+mpzDQU4+lIo8okHYsw==",
+  "provenanceBoundary": "Exact installed original6.4.16 files used by preserved native147 witnesses, frozen with SHA256/bytes and pinned-lock identity; no separately downloaded tarball verification is claimed",
+  "files": [
+    {
+      "installedSource": "package.json",
+      "path": "package.json",
+      "sha256": "54f22c6c0376f9a644f5880e112949aa8d483aa5e652fb0c49ac939a86360305",
+      "bytes": 1716
+    },
+    {
+      "installedSource": "LICENSE",
+      "path": "LICENSE",
+      "sha256": "c14ff5e5851d30b20fa7af2ba478af713587917ad1c1c92edde1fa84a82fd532",
+      "bytes": 1071
+    },
+    {
+      "installedSource": "entity/EntityAssigner.js",
+      "path": "EntityAssigner.js",
+      "sha256": "0dd39b1ac1af976edd1b88f2e916fbedef61664c6bac8a5070b82aa4b37578bd",
+      "bytes": 12166
+    },
+    {
+      "installedSource": "utils/Utils.js",
+      "path": "Utils.js",
+      "sha256": "6b777130a6caf302251e3cedbcf972ef43ea6b3e4aa5e0118dec09c61f68d216",
+      "bytes": 40556
+    },
+    {
+      "installedSource": "utils/clone.js",
+      "path": "clone.js",
+      "sha256": "e2577d68e738d4c9dfdd2872d290c60b9369d0910226828e973aababe019b7bb",
+      "bytes": 4883
+    },
+    {
+      "installedSource": "enums.js",
+      "path": "enums.js",
+      "sha256": "e0c3c47ca06a757c631286e15871f58315276ad58c17533ac27250e17c84b615",
+      "bytes": 8245
+    }
+  ]
+}

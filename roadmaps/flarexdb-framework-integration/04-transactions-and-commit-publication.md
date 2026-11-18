@@ -308,7 +308,7 @@ its current order. Moving publication locking later remains unaccepted; the
 target finalization sequence above must not be read as authority to move it.
 
 The current
-`packages/persistence-postgres/src/scopeExecution/ScopeExecution.ts`
+`packages/persistence-postgres/src/scope/execution/ScopeExecution.ts`
 locks the scope clock before invoking the registered operation, while
 `ScopedTransaction.ts` retains an Application-shaped `AppRowTransaction`.
 The target sequence above performs lane work before the final-publication

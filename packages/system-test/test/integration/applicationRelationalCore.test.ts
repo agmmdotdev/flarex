@@ -10,6 +10,7 @@ describe("SV-R Core relational Application - PGlite", () => {
   it("crosses analysis, activation, runtime commit, R03-A, and RQ01", async () => {
     const proof = await proveApplicationRelationalCore();
 
+    expect(proof.exactQueryScopeUnderSharedDeployment).toBe(true);
     expect(proof.analysisWorkerLoads).toBe(2);
     expect(proof.missingRelationPortWorkerLoads).toBe(1);
     expect(proof.missingRelationPortFailedClosed).toBe(true);

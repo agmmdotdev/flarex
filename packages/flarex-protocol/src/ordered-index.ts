@@ -4,6 +4,8 @@ import {
 } from "@flarex/utils/bytes";
 import { compareUtf16Strings } from "@flarex/utils/strings";
 import { Data, Result, Schema } from "effect";
+import { sha256 } from "@noble/hashes/sha2.js";
+import { decodeExactDecimalOrderBytes, encodeExactDecimalOrderBytes, ExactDecimalError } from "./exact-decimal";
 
 import {
   APP_ROW_ID_BYTES_V1,
@@ -63,6 +65,7 @@ export const ORDERED_INDEX_KEY_CODEC_VERSION_V1 =
 export const AppOrderedIndexDocumentPathV1Schema = Schema.Struct({
   kind: Schema.Literal("documentPath"),
   path: SchemaManifestAppIndexFieldPathSchema,
+  valueFormat: Schema.optionalKey(Schema.Literals(["exactDecimal", "sha256TextV1"])),
 }).annotate(StrictStructOptions);
 export type AppOrderedIndexDocumentPathV1 =
   typeof AppOrderedIndexDocumentPathV1Schema.Type;
@@ -86,6 +89,29 @@ const AppOrderedIndexPhysicalFieldsV1Schema = Schema.Array(
   Schema.isMaxLength(MAX_APP_ORDERED_INDEX_ENCODED_FIELDS_V1),
 );
 
+/** Shared physical membership shape; document producer declarations retain
+ * their own admitted predicate vocabulary. */
+export const AppIndexAllNullPredicateV1Schema = Schema.Struct({
+  kind: Schema.Literal("fieldsAreNull"),
+  fields: Schema.Tuple([SchemaManifestAppIndexFieldPathSchema, SchemaManifestAppIndexFieldPathSchema]),
+}).check(Schema.makeFilter(predicate => compareUtf16Strings(predicate.fields[0], predicate.fields[1]) < 0
+  ? undefined : "Expected two distinct predicate fields in canonical order")).annotate(StrictStructOptions);
+
+export const AppIndexNullAndBooleanEqualsPredicateV1Schema = Schema.Struct({
+  kind: Schema.Literal("fieldIsNullAndBooleanEquals"),
+  nullField: SchemaManifestAppIndexFieldPathSchema,
+  booleanField: SchemaManifestAppIndexFieldPathSchema,
+  value: Schema.Boolean,
+}).check(Schema.makeFilter(predicate => predicate.nullField !== predicate.booleanField
+  ? undefined : "Expected distinct predicate fields")).annotate(StrictStructOptions);
+
+export const AppIndexNullAndNotNullPredicateV1Schema = Schema.Struct({
+  kind: Schema.Literal("fieldIsNullAndNotNull"),
+  nullField: SchemaManifestAppIndexFieldPathSchema,
+  notNullField: SchemaManifestAppIndexFieldPathSchema,
+}).check(Schema.makeFilter(predicate => predicate.nullField !== predicate.notNullField
+  ? undefined : "Expected distinct predicate fields")).annotate(StrictStructOptions);
+
 export const AppOrderedIndexPhysicalSpecV1Schema = Schema.Struct({
   kind: Schema.Literal("appOrdered"),
   specVersion: Schema.Literal(1),
@@ -95,6 +121,17 @@ export const AppOrderedIndexPhysicalSpecV1Schema = Schema.Struct({
     "by_id",
   ]),
   orderedFields: AppOrderedIndexPhysicalFieldsV1Schema,
+  predicate: Schema.optionalKey(Schema.Union([
+    AppIndexAllNullPredicateV1Schema,
+    Schema.Struct({ kind: Schema.Literal("fieldIsNull"), field: SchemaManifestAppIndexFieldPathSchema }),
+    Schema.Struct({ kind: Schema.Literal("fieldIsNotNull"), field: SchemaManifestAppIndexFieldPathSchema }),
+    AppIndexNullAndNotNullPredicateV1Schema,
+    AppIndexNullAndBooleanEqualsPredicateV1Schema,
+    Schema.Struct({ kind: Schema.Literal("fieldIsNullAndTextEquals"),
+      nullField: SchemaManifestAppIndexFieldPathSchema,
+      textField: SchemaManifestAppIndexFieldPathSchema,
+      value: Schema.String.check(Schema.isLengthBetween(1, 256)) }),
+  ]).annotate(StrictStructOptions)),
   tieBreaker: Schema.Struct({
     kind: Schema.Literal("separateRowIdentity"),
     byteLength: Schema.Literal(ORDERED_INDEX_ROW_ID_BYTES_V1),
@@ -361,6 +398,10 @@ const SEPARATE_ROW_ID_TIE_BREAKER = Object.freeze({
   byteLength: ORDERED_INDEX_ROW_ID_BYTES_V1,
 } as const);
 
+// Only this decoder's detached, deeply frozen outputs may skip preparation.
+// Identity carries immutable protocol data provenance, never storage authority.
+const issuedPhysicalSpecs = new WeakSet<object>();
+
 export function decodeAppOrderedIndexPhysicalSpecV1(
   value: unknown,
 ): AppOrderedIndexPhysicalSpecV1 {
@@ -373,8 +414,18 @@ export function decodeAppOrderedIndexPhysicalSpecV1Result(
   value: unknown,
 ): Result.Result<AppOrderedIndexPhysicalSpecV1, Schema.SchemaError> {
   return decodeAppOrderedIndexPhysicalSpecV1ShapeResult(value).pipe(
-    Result.map(snapshotDecodedProtocolPlainData),
+    Result.map(decoded => {
+      const snapshot = snapshotDecodedProtocolPlainData(decoded);
+      issuedPhysicalSpecs.add(snapshot);
+      return snapshot;
+    }),
   );
+}
+
+function consumeAppOrderedIndexPhysicalSpecV1(
+  spec: AppOrderedIndexPhysicalSpecV1,
+): AppOrderedIndexPhysicalSpecV1 {
+  return issuedPhysicalSpecs.has(spec) ? spec : decodeAppOrderedIndexPhysicalSpecV1(spec);
 }
 
 export function lowerAppDeveloperOrderedIndexPhysicalSpecV1(
@@ -390,6 +441,7 @@ export function lowerAppDeveloperOrderedIndexPhysicalSpecV1(
       ...decodedLogicalSpec.fields.map((path) => ({
         kind: "documentPath" as const,
         path,
+        ...(decodedLogicalSpec.decimalFields?.includes(path) ? { valueFormat: "exactDecimal" as const } : {}),
       })),
       APP_ORDERED_INDEX_SYSTEM_CREATION_TIME_V1,
     ],
@@ -481,6 +533,51 @@ export function orderedIndexValueFromFlarexValueV1(
   // Keep S05-A as the sole size, canonical-shape, and byte authority.
   encodeOrderedIndexComponentsV1([ordered]);
   return ordered;
+}
+
+/** Equality-only projection admits complete canonical text beyond ordered-key
+ * limits. The physical field format commits this digest algorithm. */
+export function orderedIndexValueForAppFieldV1(
+  field: AppOrderedIndexPhysicalFieldV1, value: unknown,
+): OrderedIndexValueV1 {
+  if (field.kind !== "documentPath" || field.valueFormat !== "sha256TextV1" || value === null)
+    return orderedIndexValueFromFlarexValueV1(value);
+  const normalized = normalizeFlarexValueV1(value).value;
+  if (typeof normalized !== "string") throw invalidValue("$value", "text equality field requires text");
+  return Object.freeze({ kind: "string", value: normalized });
+}
+
+const TEXT_EQUALITY_DIGEST_DOMAIN_V1 = new TextEncoder().encode("Flarex/text-equality/sha256/v1\0");
+
+function textEqualityDigestV1(value: string): Uint8Array {
+  const text = new TextEncoder().encode(value);
+  const input = new Uint8Array(TEXT_EQUALITY_DIGEST_DOMAIN_V1.length + text.length);
+  input.set(TEXT_EQUALITY_DIGEST_DOMAIN_V1);
+  input.set(text, TEXT_EQUALITY_DIGEST_DOMAIN_V1.length);
+  return sha256(input);
+}
+
+/** The authenticated field owns projection; a query operand supplies only a value. */
+function projectOrderedIndexFieldValue(field: AppOrderedIndexPhysicalFieldV1, value: OrderedIndexComponentV1): OrderedIndexComponentV1 {
+  if (field.kind !== "documentPath" || field.valueFormat === undefined) return value;
+  if (field.valueFormat === "sha256TextV1") {
+    validateVariantDataObject(value, "$value");
+    if (value.kind === "null" || value.kind === "missing") return value;
+    if (value.kind === "bytes" && orderedIndexBytesV1ToBytes(value).length === 32) return value;
+    if (value.kind !== "string") throw invalidValue("$value", "text equality field requires text");
+    if (typeof value.value !== "string" || !isWellFormedUnicode(value.value))
+      throw invalidValue("$value", "text equality field requires well-formed Unicode");
+    return orderedIndexBytesV1FromBytes(textEqualityDigestV1(value.value));
+  }
+  // Validate the tagged input before inspecting its properties.
+  encodeOrderedIndexComponentsV1([value]);
+  if (value.kind === "null" || value.kind === "missing") return value;
+  if (value.kind !== "string") throw new ExactDecimalError({ reason: "invalidInput" });
+  // This existing codec API is throwing; retain its exact typed input failure.
+  return Result.match(encodeExactDecimalOrderBytes(value.value), {
+    onFailure: cause => { throw cause; },
+    onSuccess: bytes => orderedIndexBytesV1FromBytes(bytes),
+  });
 }
 
 export function orderedIndexRowIdHexV1FromBytesResult(
@@ -618,7 +715,7 @@ export function encodeAppOrderedIndexKeyV1(input: {
   readonly spec: AppOrderedIndexPhysicalSpecV1;
   readonly values: ReadonlyArray<OrderedIndexComponentV1>;
 }): OrderedIndexKeyHexV1 {
-  const spec = decodeAppOrderedIndexPhysicalSpecV1(input.spec);
+  const spec = consumeAppOrderedIndexPhysicalSpecV1(input.spec);
   validateCanonicalArrayShape(
     input.values,
     "$values",
@@ -635,7 +732,8 @@ export function encodeAppOrderedIndexKeyV1(input: {
     });
   }
   validateCreationTimeComponents(spec, input.values);
-  return encodeOrderedIndexComponentsV1(input.values);
+  return encodeOrderedIndexComponentsV1(input.values.map((value, index) =>
+    projectOrderedIndexFieldValue(spec.orderedFields[index]!, value)));
 }
 
 export function decodeOrderedIndexComponentsV1(
@@ -696,13 +794,25 @@ export function decodeAppOrderedIndexKeyV1(input: {
   readonly spec: AppOrderedIndexPhysicalSpecV1;
   readonly encodedKey: OrderedIndexKeyBytesHexV1;
 }): ReadonlyArray<OrderedIndexComponentV1> {
-  const spec = decodeAppOrderedIndexPhysicalSpecV1(input.spec);
+  const spec = consumeAppOrderedIndexPhysicalSpecV1(input.spec);
   const values = decodeOrderedIndexComponentsV1(
     input.encodedKey,
     spec.orderedFields.length,
   );
   validateCreationTimeComponents(spec, values);
-  return values;
+  return Object.freeze(values.map((value, index) => {
+    const field = spec.orderedFields[index]!;
+    if (field.kind === "documentPath" && field.valueFormat === "sha256TextV1" &&
+      value.kind !== "null" && value.kind !== "missing" &&
+      (value.kind !== "bytes" || orderedIndexBytesV1ToBytes(value).length !== 32))
+      throw invalidValue("$key", "text equality index component must contain a SHA-256 digest");
+    if (field.kind !== "documentPath" || field.valueFormat !== "exactDecimal" || value.kind === "null" || value.kind === "missing") return value;
+    if (value.kind !== "bytes") throw invalidValue("$key", "decimal index component must contain projected bytes");
+    return Result.match(decodeExactDecimalOrderBytes(orderedIndexBytesV1ToBytes(value)), {
+      onFailure: cause => { throw cause; },
+      onSuccess: canonical => Object.freeze({ kind: "string" as const, value: canonical }),
+    });
+  }));
 }
 
 export function compareOrderedIndexKeysV1(
@@ -727,7 +837,7 @@ export function compileAppOrderedIndexBoundsV1(input: {
   readonly spec: AppOrderedIndexPhysicalSpecV1;
   readonly expressions: ReadonlyArray<OrderedIndexRangeExpressionV1>;
 }): OrderedIndexBoundsV1 {
-  const spec = decodeAppOrderedIndexPhysicalSpecV1(input.spec);
+  const spec = consumeAppOrderedIndexPhysicalSpecV1(input.spec);
   validateCanonicalArrayShape(
     input.expressions,
     "$expressions",
@@ -772,19 +882,23 @@ export function compileAppOrderedIndexBoundsV1(input: {
         issue: { reason: "unsupportedByIdExpression", expressionIndex: index },
       });
     }
-    if (!samePhysicalField(expressionField, expectedField)) {
+    if (expectedField === undefined || !samePhysicalField(expressionField, expectedField)) {
       throw new InvalidOrderedIndexRangeV1Error({
         issue: { reason: "fieldOrder", expressionIndex: index },
       });
     }
     validateRangeValue(expectedField, expression.value, equalities.length);
+    if (expectedField.kind === "documentPath" && expectedField.valueFormat === "sha256TextV1" && expression.op !== "eq") {
+      throw invalidValue(`$expressions[${index}].op`, "text equality field only supports equality");
+    }
+    const projectedValue = projectOrderedIndexFieldValue(expectedField, expression.value);
     if (expression.op === "eq") {
       if (lower !== undefined || upper !== undefined) {
         throw new InvalidOrderedIndexRangeV1Error({
           issue: { reason: "equalityAfterInequality", expressionIndex: index },
         });
       }
-      equalities.push(expression.value);
+      equalities.push(projectedValue);
       continue;
     }
     if (expression.op === "gt" || expression.op === "gte") {
@@ -793,14 +907,14 @@ export function compileAppOrderedIndexBoundsV1(input: {
           issue: { reason: "duplicateLowerBound", expressionIndex: index },
         });
       }
-      lower = expression;
+      lower = { ...expression, value: projectedValue };
     } else {
       if (upper !== undefined) {
         throw new InvalidOrderedIndexRangeV1Error({
           issue: { reason: "duplicateUpperBound", expressionIndex: index },
         });
       }
-      upper = expression;
+      upper = { ...expression, value: projectedValue };
     }
   }
 
@@ -864,8 +978,15 @@ function validateAppOrderedIndexPhysicalSpecV1(
   spec: {
     readonly accessPath: "developer" | "by_creation_time" | "by_id";
     readonly orderedFields: ReadonlyArray<AppOrderedIndexPhysicalFieldV1>;
+    readonly predicate?: Readonly<{ kind: "fieldIsNull"; field: string } |
+      { kind: "fieldIsNotNull"; field: string } |
+      { kind: "fieldIsNullAndNotNull"; nullField: string; notNullField: string } |
+      { kind: "fieldsAreNull"; fields: readonly [string, string] } |
+      { kind: "fieldIsNullAndBooleanEquals"; nullField: string; booleanField: string; value: boolean } |
+      { kind: "fieldIsNullAndTextEquals"; nullField: string; textField: string; value: string }>;
   },
 ): string | undefined {
+  if (spec.accessPath !== "developer" && spec.predicate !== undefined) return "Intrinsic indexes cannot have a predicate";
   switch (spec.accessPath) {
     case "developer": {
       if (spec.orderedFields.length < 2) {
@@ -961,7 +1082,8 @@ function samePhysicalField(
 ): boolean {
   if (right === undefined || left.kind !== right.kind) return false;
   return left.kind === "systemCreationTime" ||
-    (right.kind === "documentPath" && left.path === right.path);
+    (right.kind === "documentPath" && left.path === right.path &&
+      (left.valueFormat === undefined || left.valueFormat === right.valueFormat));
 }
 
 function decodeOrderedIndexRangeFieldV1(
@@ -984,7 +1106,7 @@ function decodeOrderedIndexRangeFieldV1(
       value,
       "$field",
       kindDescriptor.value === "documentPath"
-        ? ["kind", "path"]
+        ? Object.hasOwn(value, "valueFormat") ? ["kind", "path", "valueFormat"] : ["kind", "path"]
         : ["kind"],
     );
     return decodeAppOrderedIndexPhysicalFieldV1Shape(value);

@@ -133,7 +133,7 @@ Evidence owners are the [query-sync status matrix](../../query-sync-engine/READM
 [query-result publisher port](../../../packages/query-sync/src/orchestration/publication/Ports.ts),
 [current DO](../../../packages/flarex-backend/src/deploymentSyncDO.ts),
 [existing client delivery routes](../../../packages/flarex-backend/src/worker.ts),
-and [fixed-kind repository](../../../packages/persistence-postgres/src/commitWakeOutbox.ts).
+and [fixed-kind repository](../../../packages/persistence-postgres/src/commit/commitWakeOutbox.ts).
 The audit checked source and callers, not deployed traffic. Merely sharing a
 scope commit does not make Product rows query-sync-compatible: the current
 Flarex source projection covers Application rows and document adjacency;

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Result, Schema } from "effect";
-import { commerceDecoder } from "../src/commerce-decoder";
+import { commerceDecoder } from "../src/value/decoder";
 import { compileWhere, type WherePolicy } from "../src/query/predicate";
 import { commerceLimits } from "@flarex/persistence-postgres/internal/commerce-values";
 

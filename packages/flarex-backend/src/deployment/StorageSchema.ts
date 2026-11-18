@@ -4,7 +4,42 @@ export interface DeploymentSchemaSql {
   exec(statement: string, ...bindings: DeploymentSqlBinding[]): unknown;
 }
 
+export function initializeSourceArtifactV2UploadStorage(sql: DeploymentSchemaSql): void {
+  sql.exec(`
+      CREATE TABLE IF NOT EXISTS source_artifact_upload_attempts_v2 (
+        upload_id TEXT PRIMARY KEY,
+        generation INTEGER NOT NULL CHECK (generation > 0),
+        mutation_fence INTEGER NOT NULL CHECK (mutation_fence >= 0),
+        state TEXT NOT NULL CHECK (state IN ('open', 'closing', 'finalized', 'abandoned')),
+        next_module_ordinal INTEGER NOT NULL CHECK (next_module_ordinal >= 0),
+        last_module_path TEXT,
+        current_module_json TEXT,
+        module_frontier_json TEXT NOT NULL,
+        counters_json TEXT NOT NULL,
+        ceilings_json TEXT NOT NULL,
+        usage_json TEXT NOT NULL,
+        pending_command_json TEXT,
+        last_command_id TEXT NOT NULL,
+        last_command_digest TEXT NOT NULL CHECK (length(last_command_digest) = 64),
+        last_receipt_json TEXT NOT NULL,
+        completed_root_digest TEXT CHECK (
+          completed_root_digest IS NULL OR length(completed_root_digest) = 64
+        ),
+        completed_selector_digest TEXT CHECK (
+          completed_selector_digest IS NULL OR length(completed_selector_digest) = 64
+        ),
+        CHECK (last_module_path IS NULL OR length(last_module_path) > 0),
+        CHECK (
+          (state = 'finalized' AND completed_root_digest IS NOT NULL AND completed_selector_digest IS NOT NULL)
+          OR
+          (state <> 'finalized' AND completed_selector_digest IS NULL)
+        )
+      );
+  `);
+}
+
 export function initializeDeploymentStorage(sql: DeploymentSchemaSql): void {
+  initializeSourceArtifactV2UploadStorage(sql);
   sql.exec(`
       CREATE TABLE IF NOT EXISTS meta (
         key TEXT PRIMARY KEY,
@@ -46,35 +81,6 @@ export function initializeDeploymentStorage(sql: DeploymentSchemaSql): void {
         diagnostics_json TEXT,
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL
-      );
-      CREATE TABLE IF NOT EXISTS source_artifact_upload_attempts_v2 (
-        upload_id TEXT PRIMARY KEY,
-        generation INTEGER NOT NULL CHECK (generation > 0),
-        mutation_fence INTEGER NOT NULL CHECK (mutation_fence >= 0),
-        state TEXT NOT NULL CHECK (state IN ('open', 'closing', 'finalized', 'abandoned')),
-        next_module_ordinal INTEGER NOT NULL CHECK (next_module_ordinal >= 0),
-        last_module_path TEXT,
-        current_module_json TEXT,
-        module_frontier_json TEXT NOT NULL,
-        counters_json TEXT NOT NULL,
-        ceilings_json TEXT NOT NULL,
-        usage_json TEXT NOT NULL,
-        pending_command_json TEXT,
-        last_command_id TEXT NOT NULL,
-        last_command_digest TEXT NOT NULL CHECK (length(last_command_digest) = 64),
-        last_receipt_json TEXT NOT NULL,
-        completed_root_digest TEXT CHECK (
-          completed_root_digest IS NULL OR length(completed_root_digest) = 64
-        ),
-        completed_selector_digest TEXT CHECK (
-          completed_selector_digest IS NULL OR length(completed_selector_digest) = 64
-        ),
-        CHECK (last_module_path IS NULL OR length(last_module_path) > 0),
-        CHECK (
-          (state = 'finalized' AND completed_root_digest IS NOT NULL AND completed_selector_digest IS NOT NULL)
-          OR
-          (state <> 'finalized' AND completed_selector_digest IS NULL)
-        )
       );
       CREATE TABLE IF NOT EXISTS semantic_artifact_upload_attempts_v1 (
         semantic_upload_id TEXT PRIMARY KEY,

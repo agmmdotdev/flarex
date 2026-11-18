@@ -6,6 +6,11 @@ import type {
   IEventBusModuleService,
   ILinkModule,
   InternalModuleDeclaration,
+  LinkOperationCompensation,
+  LinkOperationHandle,
+  LinkOperationRequest,
+  LinkOperationResult,
+  Message,
   ModuleJoinerConfig,
   RestoreReturn,
   SoftDeleteReturn,
@@ -24,6 +29,11 @@ import {
   Modules,
 } from "@medusajs/framework/utils/portable"
 import LinkService from "./link"
+import { LinkOperationService } from "../operations/service"
+import { decodeLinkOperationRows, type LinkOperationEventIntent } from "../operations/contracts"
+import type { LinkPreimageOperationHandle, LinkPreimageOperationRequest } from "@medusajs/types"
+import { LinkPreimageOperationService } from "../operations/preimage-service"
+import type { LinkPreimageRow } from "../operations/preimage-contracts"
 
 type InjectedDependencies = {
   baseRepository: DAL.RepositoryService
@@ -45,6 +55,8 @@ export default class LinkModuleService implements ILinkModule {
   protected primaryKey_: string[]
   protected foreignKey_: string
   protected extraFields_: string[]
+  protected readonly linkOperationService_?: LinkOperationService
+  protected readonly linkPreimageOperationService_?: LinkPreimageOperationService
 
   constructor(
     {
@@ -67,6 +79,77 @@ export default class LinkModuleService implements ILinkModule {
     this.extraFields_ = extraFields
     this.entityName_ = entityName
     this.serviceName_ = serviceName
+    const store = linkService.linkOperationStore
+    if (store !== undefined) {
+      const serialize = async (rows: unknown) => decodeLinkOperationRows(await baseRepository.serialize(rows))
+      this.linkOperationService_ = new LinkOperationService(store, {
+        active: async (pairs, context) => {
+          const rows = await baseRepository.serialize<object[]>(await linkService.list(
+            { $or: pairs.map(pair => this.buildData(pair.primary, pair.foreign)) }, { take: pairs.length + 1 }, context))
+          decodeLinkOperationRows(rows)
+          return store.pairs(rows)
+        },
+        create: async (pairs, context) => serialize(await linkService.create(pairs.map(pair => this.buildData(pair.primary, pair.foreign)), context)),
+        dismiss: async (pairs, context) => serialize(await linkService.dismiss(pairs.map(pair => this.buildData(pair.primary, pair.foreign)), context)),
+        restore: async (pairs, context) => {
+          const [rows] = await linkService.restore(pairs.map(pair => this.buildData(pair.primary, pair.foreign)), context)
+          return await serialize(rows)
+        },
+      })
+      if (store.supportsPreimages) this.linkPreimageOperationService_ = new LinkPreimageOperationService(store, {
+        create: (pairs, context) => this.create(pairs.map((pair): [string, string, Record<string, unknown>] =>
+          [pair.primary, pair.foreign, {}]), undefined, undefined, context),
+        dismiss: (pairs, context) => this.dismiss(pairs.map((pair): [string, string] => [pair.primary, pair.foreign]), undefined, context),
+        restore: (rows, context) => this.restoreLinkPreimages_(rows, context),
+      })
+    }
+  }
+
+  private operationEvents(events: readonly (typeof LinkOperationEventIntent.Type)[], context: Context): void {
+    if (events.length === 0) return
+    if (context.messageAggregator === undefined) throw new MedusaError(MedusaError.Types.UNEXPECTED_STATE, "Missing native Link event owner")
+    for (const event of events) context.messageAggregator.saveRawMessageData({
+      source: this.serviceName_, object: this.entityName_, action: event.action,
+      eventName: this.entityName_ + "." + event.action, data: { id: event.id }, context,
+    }, { options: { event_id: event.event_id } })
+  }
+
+  @EmitEvents()
+  async applyOperation(request: LinkOperationRequest, @MedusaContext() sharedContext: Context = {}): Promise<LinkOperationResult> {
+    if (this.linkOperationService_ === undefined) throw new MedusaError(MedusaError.Types.NOT_ALLOWED, "Native durable Link operations are not enabled")
+    const outcome = await this.linkOperationService_.apply(request, sharedContext)
+    this.operationEvents(outcome.events, sharedContext)
+    return outcome.result
+  }
+
+  @EmitEvents()
+  async compensateOperation(handle: LinkOperationHandle, @MedusaContext() sharedContext: Context = {}): Promise<LinkOperationCompensation> {
+    if (this.linkOperationService_ === undefined) throw new MedusaError(MedusaError.Types.NOT_ALLOWED, "Native durable Link operations are not enabled")
+    const outcome = await this.linkOperationService_.compensate(handle, sharedContext)
+    this.operationEvents(outcome.events, sharedContext)
+    return outcome.result
+  }
+
+  async applyPreimageOperation(request: LinkPreimageOperationRequest, @MedusaContext() sharedContext: Context = {}): Promise<LinkOperationResult> {
+    if (this.linkPreimageOperationService_ === undefined) throw new MedusaError(MedusaError.Types.NOT_ALLOWED, "Native Link preimages are not enabled")
+    return this.linkPreimageOperationService_.apply(request, sharedContext)
+  }
+
+  async compensatePreimageOperation(handle: LinkPreimageOperationHandle, @MedusaContext() sharedContext: Context = {}): Promise<LinkOperationCompensation> {
+    if (this.linkPreimageOperationService_ === undefined) throw new MedusaError(MedusaError.Types.NOT_ALLOWED, "Native Link preimages are not enabled")
+    return this.linkPreimageOperationService_.compensate(handle, sharedContext)
+  }
+
+  @EmitEvents()
+  protected async restoreLinkPreimages_(rows: readonly (typeof LinkPreimageRow.Type)[], @MedusaContext() sharedContext: Context = {}) {
+    const store = this.linkService_.linkOperationStore
+    if (store === undefined) throw new MedusaError(MedusaError.Types.NOT_ALLOWED, "Native Link preimages are not enabled")
+    const restored = await store.restorePreimages(rows, sharedContext)
+    moduleEventBuilderFactory({ action: CommonEvents.ATTACHED, object: this.entityName_, source: this.serviceName_,
+      eventName: this.entityName_ + "." + CommonEvents.ATTACHED })({
+      data: restored.filter(row => row.deleted_at === null).map(row => ({ id: row.id })), sharedContext,
+    })
+    return restored
   }
 
   __joinerConfig(): ModuleJoinerConfig {
@@ -402,10 +485,19 @@ export default class LinkModuleService implements ILinkModule {
     return await this.linkService_.restore(data, sharedContext)
   }
 
-  protected async emitEvents_(groupedEvents) {
+  protected async emitEvents_(groupedEvents: Record<string, Message[]> | undefined, context?: Context): Promise<void> {
     if (!this.eventBusModuleService_ || !groupedEvents) {
       return
     }
+
+    const store = this.linkService_.linkOperationStore
+    if (store !== undefined && context !== undefined &&
+      store.deferPublication(context, () => this.publishEvents_(groupedEvents))) return
+    await this.publishEvents_(groupedEvents)
+  }
+
+  private async publishEvents_(groupedEvents: Record<string, Message[]>): Promise<void> {
+    if (!this.eventBusModuleService_) return
 
     const promises: Promise<void>[] = []
     for (const group of Object.keys(groupedEvents)) {

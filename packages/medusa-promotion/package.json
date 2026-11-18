@@ -1,0 +1,53 @@
+{
+  "name": "@medusajs/promotion",
+  "version": "2.13.4",
+  "private": true,
+  "license": "MIT",
+  "exports": {
+    "./models": {
+      "types": "./dist/models/index.d.ts",
+      "source": "./src/models/index.ts",
+      "default": "./dist/models/index.js"
+    },
+    "./types": {
+      "types": "./dist/types/index.d.ts",
+      "source": "./src/types/index.ts",
+      "default": "./dist/types/index.js"
+    },
+    "./compute-actions": {
+      "types": "./dist/utils/compute-actions/index.d.ts",
+      "source": "./src/utils/compute-actions/index.ts",
+      "default": "./dist/utils/compute-actions/index.js"
+    },
+    "./validations": {
+      "types": "./dist/utils/validations/index.d.ts",
+      "source": "./src/utils/validations/index.ts",
+      "default": "./dist/utils/validations/index.js"
+    },
+    "./services": {
+      "types": "./dist/services/index.d.ts",
+      "source": "./src/services/index.ts",
+      "default": "./dist/services/index.js"
+    },
+    "./static-manifest": {
+      "types": "./dist/static-manifest.d.ts",
+      "source": "./src/static-manifest.ts",
+      "default": "./dist/static-manifest.js"
+    },
+    "./prefilter": {
+      "types": "./dist/utils/compute-actions/prefilter.d.ts",
+      "source": "./src/utils/compute-actions/prefilter.ts",
+      "default": "./dist/utils/compute-actions/prefilter.js"
+    }
+  },
+  "dependencies": {
+    "@medusajs/framework": "workspace:*",
+    "@medusajs/types": "workspace:*",
+    "@medusajs/utils": "workspace:*",
+    "@medusajs/modules-sdk": "workspace:*"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  }
+}

@@ -2,7 +2,6 @@ import type {
   AddPricesDTO,
   Context,
   CreatePricePreferenceDTO,
-  CreatePriceRuleDTO,
   CreatePricesDTO,
   CreatePriceSetDTO,
   DAL,
@@ -17,7 +16,10 @@ import type {
   PricingContext,
   PricingFilters,
   PricingRepositoryService,
-  PricingRuleOperatorValues,
+  PriceListPriceSnapshotPrice,
+  PriceListPriceSnapshotRule,
+  PriceListPriceUpdateCompensation,
+  PriceListPriceUpdateSnapshot,
   PricingTypes,
   UpsertPricePreferenceDTO,
   UpsertPriceSetDTO,
@@ -38,7 +40,6 @@ import {
   MedusaError,
   ModulesSdkUtils,
   PriceListType,
-  PricingRuleOperator,
   promiseAll,
   removeNullish,
 } from "@medusajs/framework/utils/portable"
@@ -55,6 +56,7 @@ import {
 import { ServiceTypes } from "../types"
 import { validatePriceListDates } from "../utils"
 import { joinerConfig } from "../joiner-config"
+import { normalizePrices as normalizePricingPrices } from "../normalization"
 
 type InjectedDependencies = {
   baseRepository: DAL.RepositoryService
@@ -85,6 +87,11 @@ type NormalizedPriceListMutationInput = Omit<PriceListDateInput, "rules"> & {
 }
 
 type RelationList<T> = T[] | { toArray(): T[] }
+
+type PriceListUpdateResult = Omit<InferEntityType<typeof PriceList>, "starts_at" | "ends_at"> & {
+  starts_at: InferEntityType<typeof PriceList>["starts_at"] | string
+  ends_at: InferEntityType<typeof PriceList>["ends_at"] | string
+}
 
 const generateMethodForModels = {
   PriceSet,
@@ -918,82 +925,7 @@ export default class PricingModuleService
     existingPrices: PricingTypes.PriceDTO[],
     priceListId?: string | undefined
   ) {
-    const pricesToUpsert = new Map<
-      string,
-      CreatePricesDTO & { price_rules?: CreatePriceRuleDTO[] }
-    >()
-    const existingPricesMap = new Map<string, PricingTypes.PriceDTO>()
-    Array.from(existingPrices ?? []).forEach((price) => {
-      existingPricesMap.set(hashPrice(price), price)
-    })
-
-    const ruleOperatorsSet = new Set<PricingRuleOperatorValues>(
-      Object.values(PricingRuleOperator)
-    )
-    const validOperatorsList = Array.from(ruleOperatorsSet).join(", ")
-    const invalidOperatorError = `operator should be one of ${validOperatorsList}`
-
-    data?.forEach((price) => {
-      const cleanRules = price.rules ? removeNullish(price.rules) : {}
-
-      const rules = Object.entries(cleanRules)
-        .flatMap(([attribute, value]) => {
-          if (Array.isArray(value)) {
-            return value.map((customRule) => {
-              if (!ruleOperatorsSet.has(customRule.operator)) {
-                throw new MedusaError(
-                  MedusaError.Types.INVALID_DATA,
-                  invalidOperatorError
-                )
-              }
-
-              if (typeof customRule.value !== "number") {
-                throw new MedusaError(
-                  MedusaError.Types.INVALID_DATA,
-                  `value should be a number`
-                )
-              }
-
-              return {
-                attribute,
-                operator: customRule.operator,
-                // TODO: we throw above if value is not a number, but the model expect the value to be a string
-                value: customRule.value.toString(),
-              }
-            })
-          }
-
-          return {
-            attribute,
-            value,
-          }
-        })
-        .map((rule, priority) => ({ ...rule, priority }))
-
-      const entry = price as ServiceTypes.UpsertPriceDTO
-
-      const hasRulesInput = isPresent(price.rules)
-      entry.price_list_id = priceListId
-      if (hasRulesInput) {
-        entry.price_rules = rules
-        entry.rules_count = rules.length
-        delete (entry as CreatePricesDTO).rules
-      }
-
-      const entryHash = hashPrice(entry)
-
-      // We want to keep the existing rules as they might already have ids, but any other data should come from the updated input
-      const existing = existingPricesMap.get(entryHash)
-
-      if (existing) {
-        entry.id = existing.id ?? entry.id
-        entry.price_rules = existing.price_rules ?? entry.price_rules
-      }
-
-      pricesToUpsert.set(entryHash, entry)
-    })
-
-    return Array.from(pricesToUpsert.values())
+    return normalizePricingPrices(data, existingPrices, priceListId)
   }
 
   async addPrices(
@@ -1085,6 +1017,75 @@ export default class PricingModuleService
       return await this.baseRepository_.serialize<PricingTypes.PriceDTO[]>(
         prices
       )
+    } finally {
+      this.pricingRepository_.clearAvailableAttributes?.()
+    }
+  }
+
+  /** Private-fork preimages for the named Price List Price update workflow.
+   * Forward matching remains in updatePriceListPrices_ and normalizePrices. */
+  @InjectManager()
+  async snapshotPriceListPricesForUpdate(
+    data: PricingTypes.UpdatePriceListPricesDTO[],
+    @MedusaContext() sharedContext: Context = {}
+  ): Promise<PriceListPriceUpdateSnapshot> {
+    const prices = data.flatMap(entry => entry.prices)
+    if (!prices.length) return { prices: [] }
+
+    const candidates = buildPreNormalizationPriceConstraintsFromData(
+      prices,
+      data.map(entry => entry.price_list_id)
+    )
+    const suppliedIds = prices.flatMap(price => price.id ? [price.id] : [])
+    const where = suppliedIds.length
+      ? { $or: [candidates, { id: suppliedIds }] }
+      : candidates
+    const entities = await this.priceService_.list(
+      where,
+      { withDeleted: true },
+      sharedContext
+    )
+    const roots = await this.baseRepository_.serialize<
+      Omit<PriceListPriceSnapshotPrice, "price_rules">[]
+    >(entities)
+    const rules = roots.length
+      ? await this.priceRuleService_.list(
+          { price_id: roots.map(price => price.id) },
+          { withDeleted: true },
+          sharedContext
+        )
+      : []
+    const serializedRules = await this.baseRepository_.serialize<
+      PriceListPriceSnapshotRule[]
+    >(rules)
+    // Keep only the model's persisted fields. Relation aliases must not survive
+    // as live ORM objects or override their scalar foreign keys on replay.
+    return structuredClone({ prices: roots.map(price => ({
+      id: price.id, title: price.title, currency_code: price.currency_code,
+      amount: price.amount, raw_amount: price.raw_amount,
+      min_quantity: price.min_quantity, raw_min_quantity: price.raw_min_quantity,
+      max_quantity: price.max_quantity, raw_max_quantity: price.raw_max_quantity,
+      rules_count: price.rules_count, price_set_id: price.price_set_id,
+      price_list_id: price.price_list_id, created_at: price.created_at,
+      updated_at: price.updated_at, deleted_at: price.deleted_at,
+      price_rules: serializedRules.filter(rule => rule.price_id === price.id).map(rule => ({
+        id: rule.id, price_id: rule.price_id, attribute: rule.attribute,
+        value: rule.value, operator: rule.operator, priority: rule.priority,
+        created_at: rule.created_at, updated_at: rule.updated_at,
+        deleted_at: rule.deleted_at,
+      })),
+    })) })
+  }
+
+  /** Private-fork inverse: never re-normalize the retained identities/rules. */
+  @InjectManager()
+  @EmitEvents()
+  async restorePriceListPrices(
+    data: PriceListPriceUpdateCompensation,
+    @MedusaContext() sharedContext: Context = {}
+  ): Promise<void> {
+    try {
+      await this.restorePriceListPrices_(data, sharedContext)
     } finally {
       this.pricingRepository_.clearAvailableAttributes?.()
     }
@@ -1321,7 +1322,7 @@ export default class PricingModuleService
   protected async createPriceSets_(
     data: PricingTypes.CreatePriceSetDTO[],
     @MedusaContext() sharedContext: Context = {}
-  ) {
+  ): Promise<InferEntityType<typeof PriceSet>[]> {
     const input = Array.isArray(data) ? data : [data]
 
     const toCreate = input.map((inputData) => {
@@ -1345,7 +1346,7 @@ export default class PricingModuleService
   protected async addPrices_(
     input: AddPricesDTO[],
     @MedusaContext() sharedContext: Context = {}
-  ) {
+  ): Promise<InferEntityType<typeof Price>[]> {
     const prices = input.flatMap((data) => {
       return data.prices.map((price) => {
         ;(price as PricingTypes.PriceDTO).price_set_id = data.priceSetId
@@ -1404,7 +1405,7 @@ export default class PricingModuleService
   protected async createPriceLists_(
     data: PricingTypes.CreatePriceListDTO[],
     @MedusaContext() sharedContext: Context = {}
-  ) {
+  ): Promise<InferEntityType<typeof PriceList>[]> {
     const normalized = this.normalizePriceListDate(data)
 
     const priceListsToCreate: ServiceTypes.CreatePriceListDTO[] =
@@ -1456,7 +1457,7 @@ export default class PricingModuleService
   protected async updatePriceLists_(
     data: PricingTypes.UpdatePriceListDTO[],
     @MedusaContext() sharedContext: Context = {}
-  ) {
+  ): Promise<PriceListUpdateResult[]> {
     const existingPriceLists = await this.priceListService_.list(
       { id: data.map((d) => d.id) },
       {},
@@ -1603,6 +1604,30 @@ export default class PricingModuleService
     @MedusaContext() sharedContext: Context = {}
   ): Promise<void> {
     await this.priceService_.delete(ids, sharedContext)
+  }
+
+  @InjectTransactionManager()
+  protected async restorePriceListPrices_(
+    data: PriceListPriceUpdateCompensation,
+    @MedusaContext() sharedContext: Context = {}
+  ): Promise<void> {
+    if (data.createdPriceIds.length) {
+      await this.priceService_.delete(data.createdPriceIds, sharedContext)
+    }
+    if (data.before.length) {
+      // Native BigNumber accepts its own raw representation, retaining precision
+      // rather than rounding through the public numeric getter on compensation.
+      const before = data.before.map(price => ({ ...price,
+        amount: price.raw_amount,
+        min_quantity: price.raw_min_quantity,
+        max_quantity: price.raw_max_quantity,
+      }))
+      await this.priceService_.upsertWithReplace(
+        before,
+        { relations: ["price_rules"] },
+        sharedContext
+      )
+    }
   }
 
   @InjectTransactionManager()
@@ -1854,47 +1879,11 @@ const isTaxInclusive = (
   return false
 }
 
-const hashPrice = (
-  price: PricingTypes.PriceDTO | PricingTypes.CreatePricesDTO
-): string => {
-  // Build hash using deterministic property order to avoid expensive sort operation
-  // Using a direct string concatenation approach for better performance
-  const parts: string[] = []
-
-  if ("currency_code" in price) {
-    parts.push(`cc:${price.currency_code ?? ""}`)
-  }
-  if ("price_set_id" in price) {
-    parts.push(`ps:${price.price_set_id ?? ""}`)
-  }
-  if ("price_list_id" in price) {
-    parts.push(`pl:${price.price_list_id ?? ""}`)
-  }
-  if ("min_quantity" in price) {
-    parts.push(`min:${price.min_quantity ?? ""}`)
-  }
-  if ("max_quantity" in price) {
-    parts.push(`max:${price.max_quantity ?? ""}`)
-  }
-
-  // Add price rules in a deterministic way if present
-  if ("price_rules" in price && price.price_rules) {
-    const sortedRules = price.price_rules.map(
-      (pr) => `${pr.attribute}=${pr.value}`
-    )
-    if (sortedRules.length) {
-      parts.push(`rules:${sortedRules.join(",")}`)
-    }
-  }
-
-  return parts.sort().join("|")
-}
-
 /**
  * Build targeted database constraints to fetch only prices that could match the incoming data.
  * Uses the same properties as hashPrice to ensure consistency.
  */
-const buildPreNormalizationPriceConstraintsFromData = (
+export const buildPreNormalizationPriceConstraintsFromData = (
   prices: (
     | PricingTypes.CreatePricesDTO
     | ServiceTypes.UpsertPriceDTO

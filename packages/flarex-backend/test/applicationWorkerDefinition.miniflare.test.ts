@@ -20,6 +20,7 @@ import {
   APPLICATION_TRANSACTION_WORKER_REQUEST_VERSION_V1,
 } from "flarex-protocol/internal/application-worker-v1";
 import { normalizeFlarexValueV1 } from "flarex-protocol/value";
+import { encodeDocumentId } from "flarex-protocol/document-id";
 import { Result } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 import {
@@ -47,6 +48,179 @@ afterEach(async () => {
 });
 
 describe("Application Worker definition", () => {
+  it("normalizes source developer IDs synchronously through the actual fresh Worker SDK", async () => {
+    const fixture = applicationFixture("query", "normalize");
+    const definition = makeApplicationWorkerDefinition({ ...fixture, hostPolicy: hostPolicy(),
+      hostPolicySha256: digestBytes(), documentIdFormat: "convex" });
+    const current = Result.getOrThrow(encodeDocumentId(1, Uint8Array.from({ length: 16 }, (_, index) => index)));
+    const wrong = Result.getOrThrow(encodeDocumentId(2, new Uint8Array(16)));
+    const response = await executeDefinition(definition, definition.transactionEntrypoint,
+      transactionRequest(fixture.target, { current, wrong }, "query", 7), "query", { capabilityMembers: sdkCapabilityMembers() });
+    expect(response).toMatchObject({ value: { current, old: current, wrong: null, absent: null, system: null,
+      invalidTable: true, invalidId: true, oldBase62: expect.any(String) } });
+  });
+
+  it("lets a fresh UDF catch the source table-limit refusal and continue with an existing table", async () => {
+    const fixture = applicationFixture("mutation", "catchTableLimit");
+    const definition = makeApplicationWorkerDefinition({ ...fixture, hostPolicy: hostPolicy(),
+      hostPolicySha256: digestBytes(), documentIdFormat: "convex" });
+    const id = Result.getOrThrow(encodeDocumentId(1, new Uint8Array(16)));
+    const response = await executeDefinition(definition, definition.transactionEntrypoint,
+      transactionRequest(fixture.target, {}, "write", 7), "mutation", { capabilityMembers: sdkCapabilityMembers() + `
+        insertPointDocument(tableName) {
+          if (tableName === "excess") return { kind: "tooManyTables" };
+          return { kind: "inserted", id: ${JSON.stringify(id)}, table: { tableId: 1, logicalName: "users" } };
+        }
+      ` });
+    expect(response).toMatchObject({ value: { id,
+      failure: { name: "TooManyTables", message: "Number of tables cannot exceed 10000." } } });
+  });
+
+  it("lets a fresh UDF catch the source document-validation frame and continue writing", async () => {
+    const fixture = applicationFixture("mutation", "catchValidation");
+    const definition = makeApplicationWorkerDefinition({ ...fixture, hostPolicy: hostPolicy(),
+      hostPolicySha256: digestBytes(), documentIdFormat: "convex" });
+    const id = Result.getOrThrow(encodeDocumentId(1, new Uint8Array(16)));
+    const response = await executeDefinition(definition, definition.transactionEntrypoint,
+      transactionRequest(fixture.target, {}, "write", 8), "mutation", { capabilityMembers: sdkCapabilityMembers() + `
+        insertPointDocument(_tableName, value) {
+          const table = { tableId: 1, logicalName: "users" };
+          if (value.invalid === true) return { kind: "documentValidation", table };
+          return { kind: "inserted", id: ${JSON.stringify(id)}, table };
+        }
+      ` });
+    expect(response).toMatchObject({ value: id });
+  });
+
+  it("keeps a malformed insert frame terminal when application code catches its rejection", async () => {
+    const fixture = applicationFixture("mutation", "catchTableLimit");
+    const definition = makeApplicationWorkerDefinition({ ...fixture, hostPolicy: hostPolicy(),
+      hostPolicySha256: digestBytes(), documentIdFormat: "convex" });
+    const id = Result.getOrThrow(encodeDocumentId(1, new Uint8Array(16)));
+    await expect(executeDefinition(definition, definition.transactionEntrypoint,
+      transactionRequest(fixture.target, {}, "write", 7), "mutation", { capabilityMembers: sdkCapabilityMembers() + `
+        insertPointDocument(tableName) {
+          if (tableName === "excess") return { kind: "tooManyTables", unexpected: true };
+          return { kind: "inserted", id: ${JSON.stringify(id)}, table: { tableId: 1, logicalName: "users" } };
+        }
+      ` })).rejects.toThrow("ApplicationWorkerJournalBoundaryV1Error");
+  });
+  it("preserves native u64 JSON lexemes on the actual Worker compatibility date", async () => {
+    const fixture = applicationFixture("query");
+    const definition = makeApplicationWorkerDefinition({ ...fixture, hostPolicy: hostPolicy(), hostPolicySha256: digestBytes() });
+    const runtime = new Miniflare({ compatibilityDate: definition.compatibilityDate, modules: true, script: `
+      export default { fetch() {
+        const parsed = JSON.parse('{"numValues":18446744073709551615}', (key, value, context) =>
+          key === "numValues" ? BigInt(context.source) : value);
+        const serialized = JSON.stringify({ numValues: JSON.rawJSON(String(parsed.numValues)) });
+        return Response.json({ count: String(parsed.numValues), serialized });
+      } };
+    ` });
+    instances.push(runtime);
+    expect(await (await runtime.dispatchFetch("https://application.test/")).json()).toEqual({
+      count: "18446744073709551615", serialized: '{"numValues":18446744073709551615}',
+    });
+  });
+  it.each(["asc", "desc"] as const)("runs all SDK terminals through finite chunks in %s order", async order => {
+    const fixture = applicationFixture("query", "sdk");
+    const definition = makeApplicationWorkerDefinition({
+      ...fixture, hostPolicy: hostPolicy(), hostPolicySha256: digestBytes(), documentIdFormat: "convex",
+    });
+    const execute = (args: Record<string, unknown>) => executeDefinition(
+      definition, definition.transactionEntrypoint,
+      transactionRequest(fixture.target, { ...args, order }, "query", 7), "query",
+      { capabilityMembers: sdkCapabilityMembers() },
+    );
+    const collect = await execute({ method: "collect" });
+    expect(collect).toMatchObject({ value: expect.arrayContaining([{ ordinal: order === "asc" ? 0 : 279, requested: 128, captured: "original" }]) });
+    expect((collect as { value: unknown[] }).value).toHaveLength(280);
+    const take = await execute({ method: "take", count: 260 });
+    expect((take as { value: unknown[] }).value).toHaveLength(260);
+    expect((take as { value: { requested: number }[] }).value.at(-1)?.requested).toBe(4);
+    await expect(execute({ method: "take", count: 0 })).resolves.toMatchObject({ value: [] });
+    await expect(execute({ method: "first" })).resolves.toMatchObject({ value: { ordinal: order === "asc" ? 0 : 279, requested: 1 } });
+    const paginated = await execute({ method: "paginate", count: 260 });
+    expect(paginated).toMatchObject({ value: { isDone: false, continueCursor: "cursor:260" } });
+    expect((paginated as { value: { page: unknown[] } }).value.page).toHaveLength(260);
+    await expect(execute({ method: "uniqueCaught" })).resolves.toMatchObject({ value: "caught" });
+    await expect(execute({ method: "capture" })).resolves.toMatchObject({ value: "original" });
+  }, 120_000);
+
+
+
+  it("consumes derived SDK queries and range builders while keeping initializers reusable", async () => {
+    const fixture = applicationFixture("query", "sdk");
+    const definition = makeApplicationWorkerDefinition({
+      ...fixture, hostPolicy: hostPolicy(), hostPolicySha256: digestBytes(), documentIdFormat: "convex",
+    });
+    await expect(executeDefinition(definition, definition.transactionEntrypoint,
+      transactionRequest(fixture.target, { method: "consumption" }, "query", 7), "query",
+      { capabilityMembers: sdkCapabilityMembers() },
+    )).resolves.toMatchObject({ value: {
+      sameTerminal: true, zeroConsumed: true, repeatedOrder: true,
+      consumedAfterOrderError: true, discarded: true, reusable: true,
+    } });
+  });
+
+  it("hides query capabilities from reflection and drains despite forged public slots", async () => {
+    const fixture = applicationFixture("query", "sdk");
+    const definition = makeApplicationWorkerDefinition({
+      ...fixture, hostPolicy: hostPolicy(), hostPolicySha256: digestBytes(), documentIdFormat: "convex",
+    });
+    await expect(executeDefinition(definition, definition.transactionEntrypoint,
+      transactionRequest(fixture.target, { method: "reflection" }, "query", 7), "query",
+      { capabilityMembers: sdkCapabilityMembers() },
+    )).resolves.toMatchObject({ value: { visible: [], forgedRefused: true, bypassed: false } });
+  });
+
+  it("drains a dropped multi-chunk collection after closure", async () => {
+    const fixture = applicationFixture("query", "sdk");
+    const definition = makeApplicationWorkerDefinition({
+      ...fixture, hostPolicy: hostPolicy(), hostPolicySha256: digestBytes(), documentIdFormat: "convex",
+    });
+    await expect(executeDefinition(definition, definition.transactionEntrypoint,
+      transactionRequest(fixture.target, { method: "dropped" }, "query", 7), "query",
+      { capabilityMembers: sdkCapabilityMembers() },
+    )).resolves.toMatchObject({ value: null });
+  });
+
+  it.each(["uniqueDropped", "late"])("rejects the complete %s terminal after boundary closure", async method => {
+    const fixture = applicationFixture("query", "sdk");
+    const definition = makeApplicationWorkerDefinition({
+      ...fixture, hostPolicy: hostPolicy(), hostPolicySha256: digestBytes(), documentIdFormat: "convex",
+    });
+    await expect(executeDefinition(definition, definition.transactionEntrypoint,
+      transactionRequest(fixture.target, { method }, "query", 7), "query",
+      { capabilityMembers: sdkCapabilityMembers() },
+    )).rejects.toThrow("ApplicationWorkerReadBoundaryV1Error");
+  });
+
+
+  it("keeps owned query refusals catchable while host failures stay sticky", async () => {
+    const fixture = applicationFixture("query", "sdk");
+    const definition = makeApplicationWorkerDefinition({
+      ...fixture, hostPolicy: hostPolicy(), hostPolicySha256: digestBytes(), documentIdFormat: "convex",
+    });
+    await expect(executeDefinition(definition, definition.transactionEntrypoint,
+      transactionRequest(fixture.target, { method: "inputCaught" }, "query", 7), "query",
+      { capabilityMembers: sdkCapabilityMembers() + '\nqueryStart() { return { kind: "queryError", message: "Invalid cursor." }; }' },
+    )).resolves.toMatchObject({ value: "caught" });
+    await expect(executeDefinition(definition, definition.transactionEntrypoint,
+      transactionRequest(fixture.target, { method: "inputCaught" }, "query", 7), "query",
+      { capabilityMembers: sdkCapabilityMembers() + '\nqueryStart() { throw new Error("host failed"); }' },
+    )).rejects.toThrow("ApplicationWorkerReadBoundaryV1Error");
+  });
+
+  it("requires the logical capability on a trusted core definition", async () => {
+    const fixture = applicationFixture("query", "sdk");
+    const definition = makeApplicationWorkerDefinition({
+      ...fixture, hostPolicy: hostPolicy(), hostPolicySha256: digestBytes(), documentIdFormat: "convex",
+    });
+    await expect(executeDefinition(definition, definition.transactionEntrypoint,
+      transactionRequest(fixture.target, { method: "take", count: 1 }, "query", 7), "query",
+    )).rejects.toThrow("ApplicationWorkerReadBoundaryV1Error");
+  });
+
   it("executes a relation-bearing Manifest V2 through the real Worker loader", async () => {
     const fixture = relationApplicationFixture();
     const definition = makeApplicationWorkerDefinition({
@@ -724,10 +898,53 @@ describe("Application Worker definition", () => {
       value: "denied:users:lookup:Ada",
     });
   });
+
+  it("allows a 12 KiB action result within the configured host byte limit", async () => {
+    const fixture = applicationFixture("action");
+    const definition = makeApplicationWorkerDefinition({
+      ...fixture,
+      hostPolicy: hostPolicy(),
+      hostPolicySha256: digestBytes(),
+    });
+    const prefix = "denied:users:lookup:";
+    const expected = prefix + "x".repeat(12 * 1_024 - prefix.length);
+    const argumentsValue = { value: expected.slice(prefix.length) };
+    const response = await executeDefinition(
+      definition,
+      definition.actionEntrypoint,
+      {
+        format: APPLICATION_ACTION_WORKER_REQUEST_FORMAT_V1,
+        version: APPLICATION_ACTION_WORKER_REQUEST_VERSION_V1,
+        target: fixture.target,
+        auth: { kind: "anonymous" },
+        arguments: argumentsValue,
+        argumentSemanticBytes: normalizeFlarexValueV1(argumentsValue)
+          .semanticSizeBytes,
+        context: {
+          executionId: "large-action-execution",
+          invocationId: "large-action-invocation",
+          executionGeneration: 1n,
+          executionTime: 1_800_000_000_000,
+          executionDeadline: 1_800_000_030_000,
+          randomSeed: new Uint8Array(32).fill(9),
+          hostPolicySha256: digestBytes(),
+        },
+      },
+      "action",
+    );
+
+    expect(response).toEqual({
+      format: "flarex.application-worker-result",
+      version: 1,
+      value: expected,
+    });
+  });
 });
 
 type FunctionKind = "query" | "mutation" | "action";
 type ApplicationSourceScenario =
+  | "sdk"
+  | "normalize"
   | "normal"
   | "tamper"
   | "caughtTamper"
@@ -737,6 +954,7 @@ type ApplicationSourceScenario =
   | "closedRead"
   | "applicationError"
   | "catchValidation"
+  | "catchTableLimit"
   | "iteratorTamper";
 
 function applicationFixture(
@@ -957,7 +1175,66 @@ function applicationSources(
       "} };",
       "",
     ].join("\n"),
-    handlers: scenario === "relationRead"
+    handlers: scenario === "normalize"
+      ? [
+          "export function get(context, args) {",
+          "  let invalidTable = false, invalidId = false;",
+          "  try { context.db.normalizeId('___', args.current); } catch { invalidTable = true; }",
+          "  try { context.db.normalizeId('users', 1); } catch { invalidId = true; }",
+          "  return { current: context.db.normalizeId('users', args.current), old: context.db.normalizeId('users', 'AAECAwQFBgcICQoLDA0ODw'),",
+          "    oldBase62: context.db.normalizeId('users', 'sJ4KfQiVw3VptW3x9I3ZcAW'), wrong: context.db.normalizeId('users', args.wrong),",
+          "    absent: context.db.normalizeId('absent', args.current), system: context.db.normalizeId('_tables', args.current), invalidTable, invalidId };",
+          "}",
+          "export function lookup() { return null; }",
+        ].join("\n")
+      : scenario === "sdk"
+      ? [
+          "export async function get(context, args) {",
+          '  if ("queryIndexRange" in context.db) throw new Error("raw range leaked");',
+          '  const operand = { token: "original" };',
+          '  const query = context.db.query("users").withIndex("by_name", q => q.eq("name", operand)).order(args.order ?? "asc");',
+          '  if (args.method === "capture") { operand.token = "changed before terminal"; const p = query.take(1); operand.token = "changed after terminal"; return (await p)[0].captured; }',
+          '  if (args.method === "consumption") {',
+          '    const initializer = context.db.query("users");',
+          '    const build = () => initializer.withIndex("by_name", q => q.eq("name", { token: "original" }));',
+          '    const consumed = build(); await consumed.take(1);',
+          '    let sameTerminal = false; try { await consumed.take(1); } catch { sameTerminal = true; }',
+          '    const zero = build(); await zero.take(0);',
+          '    let zeroConsumed = false; try { await zero.take(0); } catch { zeroConsumed = true; }',
+          '    const ordered = build().order("asc");',
+          '    let repeatedOrder = false; try { ordered.order("desc"); } catch { repeatedOrder = true; }',
+          '    let consumedAfterOrderError = false; try { await ordered.take(1); } catch { consumedAfterOrderError = true; }',
+          '    let discarded = false; try { initializer.withIndex("by_name", q => { q.eq("name", "Ada"); return q; }); } catch { discarded = true; }',
+          '    await build().take(1); await build().take(1);',
+          '    return { sameTerminal, zeroConsumed, repeatedOrder, consumedAfterOrderError, discarded, reusable: true };',
+          '  }',
+          '  if (args.method === "reflection") {',
+          '    const visible = Reflect.ownKeys(query);',
+          '    if (["executor", "request", "terminalExecution", "execute"].some(key => Reflect.get(query, key) !== undefined)) throw new Error("query capability exposed");',
+          '    let forgedRefused = false;',
+          '    try { Reflect.apply(query.collect, Object.create(Object.getPrototypeOf(query)), []); } catch { forgedRefused = true; }',
+          '    let bypassed = false;',
+          '    query.executor = () => { bypassed = true; throw new Error("executor bypass"); };',
+          '    query.terminalExecution = operation => { bypassed = true; return operation(); };',
+          '    query.execute = () => { bypassed = true; throw new Error("helper bypass"); };',
+          '    query.request = { table: "other" };',
+          '    void query.collect();',
+          '    return { visible, forgedRefused, bypassed };',
+          '  }',
+          '  if (args.method === "dropped") { void query.collect(); return null; }',
+          '  if (args.method === "uniqueDropped") { void query.unique(); return null; }',
+          '  if (args.method === "uniqueCaught") { try { await query.unique(); } catch { return "caught"; } }',
+          '  if (args.method === "inputCaught") { try { await query.collect(); } catch { return "caught"; } }',
+          '  if (args.method === "late") { void query.collect().then(() => query.take(1)).catch(() => undefined); return null; }',
+          '  if (args.method === "take") return query.take(args.count);',
+          '  if (args.method === "first") return query.first();',
+          '  if (args.method === "paginate") return query.paginate({ numItems: args.count, cursor: args.cursor ?? null });',
+          "  return query.collect();",
+          "}",
+          "export function lookup() { return null; }",
+          "",
+        ].join("\n")
+      : scenario === "relationRead"
       ? [
           "export function get(context, args) {",
           "  return context.db.takeIncomingRelationSources({",
@@ -1043,7 +1320,16 @@ function applicationSources(
       "} };",
       "",
     ].join("\n"),
-    handlers: scenario === "catchValidation"
+    handlers: scenario === "catchTableLimit"
+      ? [
+          "export async function create(context) {",
+          "  let failure = null;",
+          "  try { await context.db.insert('excess', {}); } catch (error) { failure = { name: error.name, message: error.message }; }",
+          "  const id = await context.db.insert('users', { name: 'valid after table limit' });",
+          "  return { failure, id };",
+          "}",
+        ].join("\n")
+      : scenario === "catchValidation"
       ? [
           "export async function create(context) {",
           "  try { await context.db.insert(\"users\", { invalid: true }); } catch {}",
@@ -1101,6 +1387,43 @@ function applicationSources(
       "",
     ].join("\n"),
   });
+}
+
+
+function sdkCapabilityMembers(): string {
+  return `
+    position = 0;
+    expected = 0;
+    descending = false;
+    captured = "";
+    queryStart(request, terminal) {
+      if ("limit" in request) throw new Error("legacy limit leaked");
+      if (request.table !== "users" || request.index !== "by_name") throw new Error("query request replaced");
+      this.position = 0;
+      this.descending = request.order === "desc";
+      this.captured = request.range.expressions[0].value.token;
+      this.expected = terminal.kind === "take" ? Math.min(280, terminal.count)
+        : terminal.kind === "paginate" ? Math.min(280, terminal.numItems) : 280;
+      this.total = terminal.kind === "take" ? this.expected : 280;
+      return { kind: "ok", value: { queryId: "query-1" } };
+    }
+    async queryNext(id, maxResults) {
+      await Promise.resolve();
+      if (id !== "query-1" || maxResults < 1 || maxResults > 128) throw new Error("invalid query next");
+      const count = Math.min(maxResults, this.total - this.position);
+      const page = Array.from({ length: count }, () => {
+        const ordinal = this.descending ? 279 - this.position : this.position;
+        this.position++;
+        return { ordinal, requested: maxResults, captured: this.captured };
+      });
+      return { kind: "ok", value: { page, isDone: count < maxResults,
+        continueCursor: "cursor:" + this.position } };
+    }
+    queryCleanup(id) {
+      if (id !== "query-1" || this.position !== this.expected) throw new Error("query did not drain");
+      return { kind: "ok", value: null };
+    }
+  `;
 }
 
 async function executeDefinition(

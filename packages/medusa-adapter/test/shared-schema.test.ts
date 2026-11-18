@@ -1,8 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { Result } from "effect";
-import { normalizeRelationalSchema } from "@flarex/persistence-postgres/internal/relational-schema-values";
+import { Effect, Result } from "effect";
+import {
+  normalizeRelationalSchema,
+} from "flarex-protocol/internal/relational-schema";
+import { compileLogicalSourceSearches } from "flarex-protocol/internal/logical-storage-requirements";
 import { dmlSchemaOrigins, lowerDmlSchema } from "../src/schema/lower";
 import type { SchemaColumn, SchemaTable } from "../src/schema/model";
+import { decodeCompiledDml } from "../src/schema/compiled";
+import { model } from "@medusajs/framework/utils/portable";
+import { compileDmlSchema } from "@medusajs/drizzle/schema";
 
 const timestamps: readonly SchemaColumn[] = [
   { name: "created_at", type: "dateTime", nullable: false, primaryKey: false },
@@ -53,6 +59,63 @@ const pivot = {
 } as const satisfies SchemaTable;
 
 describe("shared checked DML lowering", () => {
+  it("preserves only empty ordinary JSON object defaults without weakening numeric raw companions", async () => {
+    const native = compileDmlSchema([model.define("object_default", { id: model.id().primaryKey(), data: model.json().default({}) })]);
+    const checked = await Effect.runPromise(decodeCompiledDml(JSON.parse(JSON.stringify(native))));
+    const schema = Result.getOrThrow(normalizeRelationalSchema(lowerDmlSchema(checked.tables, "object-default")));
+    expect(schema.tables[0]?.columns.find(column => column.identity.columnId === "data"))
+      .toMatchObject({ type: "jsonb", nullable: false, default: { kind: "emptyJsonObject" } });
+    for (const defaultValue of [{ nonempty: true }, ["value"], []]) {
+      const altered = structuredClone(native), column = altered.tables[0]?.columns.find(column => column.name === "data");
+      if (column === undefined) throw new Error("Missing native JSON column");
+      column.defaultValue = defaultValue;
+      expect(await Effect.runPromise(Effect.result(decodeCompiledDml(JSON.parse(JSON.stringify(altered)))))).toMatchObject({ _tag: "Failure" });
+    }
+    const numeric = compileDmlSchema([model.define("numeric_default", { id: model.id().primaryKey(), amount: model.bigNumber().default(0) })]);
+    const raw = numeric.tables[0]?.columns.find(column => column.name === "raw_amount");
+    if (raw === undefined) throw new Error("Missing native numeric companion");
+    raw.defaultValue = {};
+    expect(await Effect.runPromise(Effect.result(decodeCompiledDml(JSON.parse(JSON.stringify(numeric)))))).toMatchObject({ _tag: "Failure" });
+  });
+  it("retains the native owning hasOne variant and its lowered reference", async () => {
+    const target = model.define("owned_reference_target", { id: model.id().primaryKey() });
+    const owner = model.define("owned_reference_owner", { id: model.id().primaryKey(),
+      target: model.hasOne(() => target, { foreignKey: true }).nullable(),
+    });
+    const native = compileDmlSchema([target, owner]);
+    const checked = await Effect.runPromise(decodeCompiledDml(JSON.parse(JSON.stringify(native))));
+    const table = checked.tables.find(table => table.name === "owned_reference_owner");
+    expect(table?.relationships).toContainEqual(expect.objectContaining({ name: "target", type: "hasOneWithFK" }));
+    const lowered = Result.getOrThrow(normalizeRelationalSchema(lowerDmlSchema(checked.tables, "owning-reference")));
+    expect(lowered.tables.find(table => table.identity.tableId === "owned_reference_owner")?.constraints)
+      .toContainEqual(expect.objectContaining({ kind: "foreignKey",
+        sourceColumns: [{ owner: "medusa", lineageId: "owning-reference", tableId: "owned_reference_owner", columnId: "target_id" }],
+        targetColumns: [{ owner: "medusa", lineageId: "owning-reference", tableId: "owned_reference_target", columnId: "id" }] }));
+  });
+
+  it("preserves empty native array defaults through neutral lowering", () => {
+    const input: SchemaTable = { ...labels, columns: [...labels.columns,
+      { name: "channels", type: "array", nullable: false, primaryKey: false, defaultValue: [] },
+      { name: "attachments", type: "array", nullable: true, primaryKey: false },
+    ] };
+    const before = structuredClone(input);
+    const schema = Result.getOrThrow(normalizeRelationalSchema(lowerDmlSchema([input], "array-default")));
+    expect(schema.tables[0]?.columns.find(column => column.identity.columnId === "channels"))
+      .toMatchObject({ type: "jsonb", default: { kind: "emptyJsonArray" } });
+    expect(schema.tables[0]?.columns.find(column => column.identity.columnId === "attachments"))
+      .toMatchObject({ type: "jsonb", nullable: true, default: { kind: "none" } });
+    expect(input).toEqual(before);
+  });
+
+  it("refuses unsupported array defaults in the shared compiled grammar", async () => {
+    const input = (defaultValue: unknown) => ({ tables: [{ name: "messages", columns: [
+      { name: "channels", type: "array", nullable: false, primaryKey: false, defaultValue },
+    ], indexes: [], checks: [], foreignKeys: [], relationships: [], cascades: { delete: [], detach: [] } }] });
+    expect(Result.isSuccess(await Effect.runPromise(Effect.result(decodeCompiledDml(input([])))))).toBe(true);
+    for (const value of [null, {}, ["feed"], "[]", false])
+      expect(Result.isFailure(await Effect.runPromise(Effect.result(decodeCompiledDml(input(value)))))).toBe(true);
+  });
+
   it("lowers renamed natural keys, exact numeric companions and scalar defaults without module names", () => {
     const input = [ledger, labels, pivot];
     const before = structuredClone(input);
@@ -66,7 +129,7 @@ describe("shared checked DML lowering", () => {
       type: "jsonb", default: { kind: "exactNumericRawLiteral", value: "9007199254740993.125", precision: 20 },
       origin: { kind: "derived", sourceId: "ledger.amount_data" },
     });
-    expect(table?.columns.find(column => column.identity.columnId === "quantity")).toMatchObject({ type: "integer", default: { kind: "integerLiteral", value: 0 } });
+    expect(table?.columns.find(column => column.identity.columnId === "quantity")).toMatchObject({ type: "doublePrecision", default: { kind: "doublePrecisionLiteral", value: 0 } });
     expect(table?.columns.find(column => column.identity.columnId === "enabled")).toMatchObject({ type: "boolean", default: { kind: "booleanLiteral", value: false } });
     expect(table?.columns.find(column => column.identity.columnId === "state")).toMatchObject({ type: "text", default: { kind: "textLiteral", value: "open" } });
     expect(table?.columns.find(column => column.identity.columnId === "created_at")).toMatchObject({ type: "timestamptz", default: { kind: "currentTimestamp" }, origin: { kind: "implicit" } });
@@ -86,6 +149,10 @@ describe("shared checked DML lowering", () => {
     expect(lowered.capabilities.find(capability => capability.kind === "searchableText")).toMatchObject({
       columns: [{ tableId: "ledger", columnId: "lookup_key" }],
     });
+    expect(Result.getOrThrow(compileLogicalSourceSearches({
+      key: "ledger", owner: "medusa", evidence: null, sourceSha256: "0".repeat(64), writeProfile: "ledger",
+      definition: { kind: "relational", schema }, bindings: [],
+    }))).toMatchObject([{ localName: "ledger", descriptor: "search/ledger.searchable", columns: ["lookup_key"] }]);
     expect(input).toEqual(before);
   });
 
@@ -114,10 +181,33 @@ describe("shared checked DML lowering", () => {
 
   it("leaves missing endpoints and invalid defaults to relational normalization", () => {
     expect(Result.isFailure(normalizeRelationalSchema(lowerDmlSchema([pivot], "ledger")))).toBe(true);
-    const invalid = { ...ledger, columns: ledger.columns.map(column => column.name === "state" ? { ...column, defaultValue: "missing" } : column) };
+    const invalid = { ...ledger, columns: ledger.columns.map(column => column.type === "enum" && column.name === "state" ? { ...column, defaultValue: "missing" } : column) };
     expect(Result.isFailure(normalizeRelationalSchema(lowerDmlSchema([invalid], "ledger")))).toBe(true);
     const missingRaw = { ...ledger, exactNumbers: [{ capabilityId: "ledger.amount", numericColumn: "amount", rawColumn: "absent" }] };
     expect(Result.isFailure(normalizeRelationalSchema(lowerDmlSchema([missingRaw], "ledger")))).toBe(true);
+  });
+
+  it("refuses an unsupported native index method instead of admitting it as B-tree", () => {
+    for (const unique of [false, true]) {
+      const withGin = { ...ledger, indexes: [...ledger.indexes,
+        { name: "ledger_key_gin", columns: ["lookup_key"], unique, type: "gin" }] };
+      const lowered = lowerDmlSchema([withGin], "ledger");
+      expect(lowered.tables[0]?.indexes.find(index => index.indexId === "ledger_key_gin"))
+        .toMatchObject({ kind: "gin", columns: ["lookup_key"] });
+      expect(lowered.tables[0]?.keys.some(key => key.keyId === "ledger_key_gin")).toBe(false);
+      expect(Result.isFailure(normalizeRelationalSchema(lowered))).toBe(true);
+    }
+  });
+
+  it("admits the supported nonunique JSON GIN declaration while refusing unique GIN", () => {
+    for (const unique of [false, true]) {
+      const withGin = { ...ledger, indexes: [...ledger.indexes,
+        { name: "ledger_amount_data_gin", columns: ["amount_data"], unique, type: "gin" }] };
+      const lowered = lowerDmlSchema([withGin], "ledger");
+      expect(lowered.tables[0]?.indexes.find(index => index.indexId === "ledger_amount_data_gin"))
+        .toMatchObject({ kind: unique ? "gin" : "jsonContainment", columns: ["amount_data"] });
+      expect(Result.isSuccess(normalizeRelationalSchema(lowered))).toBe(!unique);
+    }
   });
 
   it("keeps provenance instance-local and canonical output independent of enumeration order", () => {

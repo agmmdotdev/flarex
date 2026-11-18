@@ -1,0 +1,28 @@
+{
+  "format": "flarex.mixed-mutation-cpu-diagnostic-package",
+  "revision": "33a6056ebf82bf1006bb7df81ff732de1dd87c20",
+  "latencyAcceptance": false,
+  "samples": 8,
+  "files": {
+    "README.md": {
+      "bytes": 3998,
+      "sha256": "7813bdfaf8c728c53815d1e4ebc8bda83cf8847ec3bb06ad1d5238fb624609ee"
+    },
+    "summarize.mjs": {
+      "bytes": 4118,
+      "sha256": "c09f484841d1a628825e42b482385ed8153c39de33e7de67086610ae0f083deb"
+    },
+    "measurement-source/manifest.json": {
+      "bytes": 1344,
+      "sha256": "fd6d0b23194dee0eeaca47c870e4a777ba2e32913a8ea357e0ce3b747dd72b52"
+    },
+    "mixed/manifest.json": {
+      "bytes": 4998,
+      "sha256": "48f0324cc6c802d840650647afccab6a72e0ecddaae7553451c4b25f190f9268"
+    },
+    "standalone/manifest.json": {
+      "bytes": 5040,
+      "sha256": "ff8ebcf73e2ab39fadc7f3c16a67584f4ee56c2960e09992fe1abaeb5e3d9686"
+    }
+  }
+}

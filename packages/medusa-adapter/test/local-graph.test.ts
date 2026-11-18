@@ -1,21 +1,24 @@
+import { promiseFailureObserver } from "./support/promise-failure-observer";
 import { beforeAll, describe, expect, it } from "vitest";
 import { Effect, Result } from "effect";
 import { defineAtomicCommerceParticipant, defineCommerceCommand, type AtomicCommerceContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
-import { makeLocalProductCommands } from "../src/product-service";
-import { currencyGraph } from "../src/currency-service";
+import { makeLocalProductCommands } from "../src/modules/product/service";
+import { currencyGraph } from "../src/modules/currency/service";
 import { defineGraphReadCommand } from "../src/local-graph/commands";
-import { prepareLocalGraph, decodeGraphCount } from "../src/local-graph/query";
+import { prepareLocalGraph, decodeGraphCount, decodeGraphList } from "../src/local-graph/query";
+import { scalarGraphDefinition } from "../src/local-graph/module";
 import type { GraphModuleDefinition, PreparedLocalGraph } from "../src/local-graph/model";
-import { runEffect, runEffectFailure } from "../../persistence-postgres/test/effectTestRuntime";
+import { runEffect, runEffectFailure } from "../../persistence-postgres/test/support/effectTestRuntime";
 
 const participant = defineAtomicCommerceParticipant("graph-unit");
 const query = (entity: string, fields: string[] = ["id"]) => ({ entity, fields, pagination: { take: 2 } });
 const context = (result: Json = [[], 0], calls: Json[] = []): AtomicCommerceContext => ({
   eventGroupId: "unit-graph",
-  checkpoint: Effect.void,
+  checkpoint: Effect.void, recordFailure: promiseFailureObserver(),
   capture: () => Effect.fail(commerceError("unsupportedProfile")),
   emit: () => Effect.fail(commerceError("unadmittedEvent")),
+  clearPendingEvents: () => Effect.fail(commerceError("unadmittedEvent")),
   call: (_participant, _command, args) => { calls.push(args); return Effect.succeed(result); },
   refuse: Effect.fail,
 });
@@ -29,6 +32,47 @@ beforeAll(async () => {
 });
 
 describe("native local Graph Query contract", () => {
+  it("omits only selected native presentation fields while retaining stored-field completeness", async () => {
+    const command = defineGraphReadCommand("nativePresentationRead", () => Effect.succeed([[], 0]));
+    const optionalFields = ["requires_shipping", "is_discountable", "variant_option_values"];
+    const read = { model: "Variant", command,
+      table: { name: "variant", columns: ["id", "title"], primaryKeys: ["id"], foreignKeys: [], companions: {} },
+      paths: [], orderable: ["id"], uniqueOrder: ["id"], multipleOrder: false,
+      nativeFields: true as const, optionalFields, decode: decodeGraphCount };
+    const module = { aliases: [{ name: "variant", model: "Variant" }], reads: [read] };
+    const graph = Result.getOrThrow(prepareLocalGraph([{ participant, module }]));
+    optionalFields.push("secret");
+    const calls: Json[] = [];
+    const request = query("variant", ["id", "title", "requires_shipping", "is_discountable", "variant_option_values"]);
+    expect((await runEffect(graph.bind(context([[{ id: "v", title: "Variant", is_discountable: null, secret: "hidden" }], 1], calls)).graph(request))).data)
+      .toEqual([{ id: "v", title: "Variant", is_discountable: null }]);
+    expect(calls[0]).toMatchObject({ config: { select: ["id", "title"] } });
+    expect(await runEffectFailure(graph.bind(context([[{ id: "v" }], 1])).graph(request)))
+      .toMatchObject({ reason: "storedCorruption" });
+    const refused: Json[] = [];
+    expect(await runEffectFailure(graph.bind(context([[], 0], refused)).graph(query("variant", ["secret"]))))
+      .toMatchObject({ reason: "unsupportedProfile" });
+    expect(refused).toEqual([]);
+    const { nativeFields: _nativeFields, ...withoutNativeFields } = read;
+    for (const changed of [withoutNativeFields, { ...read, optionalFields: ["id"] },
+      { ...read, optionalFields: ["nested.value"] }, { ...read, optionalFields: ["display", "display"] }]) {
+      expect(Result.isFailure(prepareLocalGraph([{ participant, module: { ...module, reads: [changed] } }]))).toBe(true);
+    }
+  });
+
+  it("derives scalar ordering from a checked natural key and refuses composite scalar admission", () => {
+    const aliases = [{ name: "measurements", model: "Measurement" }];
+    const command = defineGraphReadCommand("measurementCount", () => Effect.succeed([[], 0]));
+    const table = { name: "measurement", columns: ["code", "value"], primaryKeys: ["code"], foreignKeys: [], companions: {} };
+    const graph = Result.getOrThrow(scalarGraphDefinition(aliases, "Measurement", command, table));
+    expect(graph.aliases).toBe(aliases);
+    expect(graph.reads[0]).toMatchObject({ model: "Measurement", command, table,
+      paths: [], orderable: ["code"], uniqueOrder: ["code"], multipleOrder: false,
+    });
+    expect(scalarGraphDefinition(aliases, "Measurement", command, { ...table, primaryKeys: ["code", "value"] })
+      .pipe(Result.match({ onFailure: error => error.reason, onSuccess: () => "accepted" }))).toBe("unsupportedProfile");
+  });
+
   it("derives admitted root aliases, including the pinned variant aliases", () => {
     expect(prepared.entities).toEqual(expect.arrayContaining([
       "product", "products", "product_category", "product_categories", "product_collection", "product_type", "product_tag",
@@ -64,6 +108,25 @@ describe("native local Graph Query contract", () => {
     const category = await runEffect(prepared.bind(context([{ payload: [{ id: "c", name: "root", category_children: [] }], omitted: [["0", "parent_category"]] }, 1]))
       .graph(query("product_category", ["name", "parent_category.id", "category_children.id"])));
     expect(category.data).toStrictEqual([{ name: "root", category_children: [] }]);
+  });
+
+  it.each(["variant", "variants"])("plans %s parent Type and Collection using Product's checked read capabilities", async entity => {
+    const calls: Json[] = [];
+    const rows: Json = [[{ id: "v", title: "Small", product_id: "p", product: {
+      id: "p", title: "Shirt", type: { id: "t", value: "Apparel" }, collection: { id: "c", title: "Summer" },
+    } }], 1];
+    expect(await runEffect(prepared.bind(context(rows, calls)).graph(query(entity, [
+      "title", "product.title", "product.type.id", "product.type.value", "product.collection.title",
+    ])))).toEqual({ data: [{ title: "Small", product: {
+      title: "Shirt", type: { id: "t", value: "Apparel" }, collection: { title: "Summer" },
+    } }], metadata: { count: 1, skip: 0, take: 2 } });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({ config: { relations: ["product", "product.type", "product.collection"] } });
+    const refusedCalls: Json[] = [];
+    for (const field of ["product.tags.id", "product.shipping_profile.id", "product.type.products.id"])
+      expect(await runEffectFailure(prepared.bind(context([[], 0], refusedCalls)).graph(query(entity, [field]))))
+        .toMatchObject({ reason: "unsupportedProfile" });
+    expect(refusedCalls).toEqual([]);
   });
 
   it("uses admitted stable ordering and bounded zero-sized pages", async () => {
@@ -134,6 +197,56 @@ describe("graph registration and metadata ownership", () => {
     paths: [], orderable: ["key"], uniqueOrder: ["key"], multipleOrder: false, decode: decodeGraphCount,
   }] });
 
+  it("keeps native list results count-free and refuses counted APIs before dispatch", async () => {
+    const source = definition(), read = source.reads[0];
+    if (read === undefined) throw new Error("Missing fixture read");
+    const selected: GraphModuleDefinition = { ...source, services: [{ name: "ItemService", model: "Item" }],
+      reads: [{ ...read, result: "list", decode: decodeGraphList }] };
+    const graph = Result.getOrThrow(prepareLocalGraph([{ participant, module: selected }]));
+    expect(prepareLocalGraph([{ participant, module: { ...selected, linkEndpoints: [{ root: "Item", path: "related", sourceKey: "key",
+      targetModel: "Item", targetKey: "key", maximumSources: 1, maximumTargets: 1 }] } }]))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedProfile" } });
+    const calls: Json[] = [], bound = graph.bind(context([{ key: "i", name: "visible", hidden: true }], calls));
+    expect(await runEffect(bound.list({ entity: "item", fields: ["key", "name"], filters: { key: ["i"] } })))
+      .toEqual([{ key: "i", name: "visible" }]);
+    expect(calls).toEqual([{ filters: { key: ["i"] }, config: { select: ["key", "name"], relations: [], order: { key: "ASC" } } }]);
+    for (const effect of [bound.graph(query("item", ["key"])), bound.native(query("item", ["key"])),
+      bound.service({ service: "ItemService", fields: ["key"], pagination: { take: 1 } })])
+      expect(await runEffectFailure(effect)).toMatchObject({ reason: "unsupportedProfile" });
+    expect(calls).toHaveLength(1);
+    expect(await runEffectFailure(prepared.bind(context()).list({ entity: "currency", fields: ["code"], filters: {} })))
+      .toMatchObject({ reason: "unsupportedProfile" });
+    for (const value of [null, [[], 0], [{}], Array.from({ length: 257 }, () => ({ key: "x" }))])
+      expect(await runEffectFailure(graph.bind(context(value)).list({ entity: "item", fields: ["key"], filters: {} })))
+        .toMatchObject({ reason: "storedCorruption" });
+    for (const input of [{ entity: "item", fields: ["key"], filters: {}, pagination: { take: 1 } },
+      { entity: "item", fields: ["key"], filters: { key: { $in: ["i"] } } }, { entity: "item", fields: ["missing"], filters: {} }])
+      expect(await runEffectFailure(bound.list(input))).toMatchObject({ reason: "unsupportedProfile" });
+    expect(calls).toHaveLength(1);
+  });
+
+  it("admits OR grammar only for an explicitly captured read and preserves selectors for its command owner", async () => {
+    const source = definition(), read = source.reads[0];
+    if (read === undefined) throw new Error("Missing fixture read");
+    const filters = { $or: [{ key: "first" }, { key: "second" }] }, calls: Json[] = [];
+    const input = { ...query("item", ["key"]), filters };
+    const ordinary = Result.getOrThrow(prepareLocalGraph([{ participant, module: source }]));
+    expect(await runEffectFailure(ordinary.bind(context([[], 0], calls)).graph(input))).toMatchObject({ reason: "unsupportedProfile" });
+    expect(calls).toEqual([]);
+    const selected = { ...read, allowOrFilters: true } satisfies typeof read;
+    const graph = Result.getOrThrow(prepareLocalGraph([{ participant, module: { ...source, reads: [selected] } }]));
+    Reflect.set(selected, "allowOrFilters", false);
+    expect(prepareLocalGraph([{ participant, module: { ...source, reads: [selected] } }])).toMatchObject({ _tag: "Failure" });
+    expect(await runEffect(graph.bind(context([[], 0], calls)).graph(input))).toEqual({ data: [], metadata: { count: 0, skip: 0, take: 2 } });
+    expect(calls).toEqual([{ filters, config: { select: ["key"], relations: [], order: { key: "ASC" }, skip: 0, take: 2 } }]);
+    for (const unsupported of [{ $or: { key: "first" } }, { $or: ["first"] }, { $or: [{ key: { $in: ["first"] } }] },
+      { $and: [{ key: "first" }] }, { $or: [{ $not: { key: "first" } }] }]) {
+      expect(await runEffectFailure(graph.bind(context([[], 0], calls)).graph({ ...input, filters: unsupported })))
+        .toMatchObject({ reason: "unsupportedProfile" });
+    }
+    expect(calls).toHaveLength(1);
+  });
+
   it("binds unsuffixed neutral composite aliases without treating a key component or non-key ID as unique", async () => {
     const module: GraphModuleDefinition = {
       aliases: [{ name: "shelf_copy", model: "ShelfCopy" }, { name: "shelf_copies", model: "ShelfCopy" }],
@@ -157,6 +270,28 @@ describe("graph registration and metadata ownership", () => {
       expect(prepareLocalGraph([{ participant, module: { ...module, reads: [{ ...read, table: { ...read.table, primaryKeys } }] } }]))
         .toMatchObject({ _tag: "Failure" });
     }
+  });
+
+  it("fetches numeric companions but masks them only for a captured selected-fields read", async () => {
+    const source = definition(), read = source.reads[0];
+    if (read === undefined) throw new Error("Missing fixture read");
+    const table = { ...read.table, columns: ["key", "amount", "raw_amount"], companions: { amount: "raw_amount" } };
+    const rows: Json = [[{ key: "a", amount: 1.25, raw_amount: { value: "1.2500000000000000000", precision: 20 } }], 1];
+    const withProjection = (selectedFieldsOnly?: true) => ({ ...source, reads: [{ ...read, table,
+      ...(selectedFieldsOnly === undefined ? {} : { selectedFieldsOnly }) }] });
+    const ordinary = Result.getOrThrow(prepareLocalGraph([{ participant, module: withProjection() }]));
+    expect((await runEffect(ordinary.bind(context(rows)).graph(query("item", ["amount"])))).data)
+      .toEqual([{ amount: 1.25, raw_amount: { value: "1.2500000000000000000", precision: 20 } }]);
+    const selected = withProjection(true), calls: Json[] = [];
+    const graph = Result.getOrThrow(prepareLocalGraph([{ participant, module: selected }]));
+    const captured = selected.reads[0];
+    if (captured === undefined) throw new Error("Missing selected read");
+    Reflect.set(captured, "selectedFieldsOnly", false);
+    expect(prepareLocalGraph([{ participant, module: selected }])).toMatchObject({ _tag: "Failure" });
+    expect((await runEffect(graph.bind(context(rows, calls)).graph(query("item", ["amount"])))).data).toEqual([{ amount: 1.25 }]);
+    expect(calls[0]).toMatchObject({ config: { select: ["amount", "raw_amount"] } });
+    expect((await runEffect(graph.bind(context(rows)).graph(query("item", ["amount", "raw_amount"])))).data)
+      .toEqual([{ amount: 1.25, raw_amount: { value: "1.2500000000000000000", precision: 20 } }]);
   });
 
   it("expands scalar wildcards against detached metadata", async () => {

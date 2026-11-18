@@ -1,17 +1,24 @@
 import type { Schema } from "effect";
-import { definitionError, type Reference, type WorkflowNode } from "./model";
+import { definitionError, type ParallelGroup, type Reference, type WorkflowNode } from "./model";
 import { referenceOf } from "./references";
 
 export type WorkflowIdentity = {
   readonly name: string;
+  readonly idempotent?: false;
+  /** Native declaration retained under the explicitly selected atomic profile.
+   * The outer outcome owner supplies persistence and its own retention policy. */
+  readonly store?: true;
+  readonly retentionTime?: 259200;
+  readonly constructionProfile?: { readonly profile: "nativeCartCreation"; readonly maximumNodes: 73 };
   readonly nodes: readonly Schema.Json[];
   readonly references: readonly Schema.Json[];
   readonly result: Schema.Json;
+  readonly parallel?: readonly Schema.Json[];
 };
 
 /** Deterministic preparation data, not code identity. The trusted bundle
  * revision still covers callback implementations and their captured behavior. */
-export function workflowIdentity(name: string, nodes: readonly WorkflowNode[], result: unknown): WorkflowIdentity {
+export function workflowIdentity(name: string, nodes: readonly WorkflowNode[], result: unknown, parallel?: readonly ParallelGroup[]): WorkflowIdentity {
   const positions = new Map(nodes.map((node, index) => [node.id, index]));
   const references: Schema.Json[] = [];
   const seen = new Map<Reference, number>();
@@ -45,8 +52,15 @@ export function workflowIdentity(name: string, nodes: readonly WorkflowNode[], r
   }
   const entries = nodes.map(node => Object.freeze({ name: node.name, kind: node.kind,
     guards: Object.freeze(node.guards.map(position)), input: encode(node.input),
-    ...(node.kind === "workflow" ? { workflow: node.workflow.identity } : { hook: node.hook, bound: node.boundHook === true }),
+    ...(node.kind === "workflow" ? { workflow: node.workflow.identity } : { hook: node.hook, bound: node.boundHook === true,
+      ...(node.hookValidator === undefined ? {} : { hookValidator: node.hookValidator }),
+      ...(node.hookResult === undefined ? {} : { hookResult: Object.freeze({ handler: position(node.hookResult.handler), validator: node.hookResult.validator }) }),
+      ...(node.invokedWorkflows === undefined ? {} : { invokedWorkflows: Object.freeze(node.invokedWorkflows.map(child => child.workflow.identity)) }) }),
   }));
   const output = encode(result);
-  return Object.freeze({ name, nodes: Object.freeze(entries), references: Object.freeze(references), result: output });
+  return Object.freeze({ name, nodes: Object.freeze(entries), references: Object.freeze(references), result: output,
+    ...(parallel === undefined ? {} : { parallel: Object.freeze(parallel.map(group => Object.freeze({
+      branches: Object.freeze(group.branches.map(branch => Object.freeze([branch.start, branch.end]))),
+    }))) }),
+  });
 }

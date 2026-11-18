@@ -2,29 +2,29 @@ import {
   createLegacyV1AppDataEngine,
 } from "@flarex/persistence-postgres/legacy-v1-app-data-engine";
 
-import { createLegacyOnlyAppDataEngineRegistry } from "./appDataEngines";
-import { activateDeploymentPackage, ensureDeployment } from "./deployments";
+import { createLegacyOnlyAppDataEngineRegistry } from "./invocation/appDataEngines";
+import { activateDeploymentPackage, ensureDeployment } from "./deployment/deployments";
 export {
   withReadyDeploymentAuthority,
   type FlarexExecutorPersistenceCompositionInput,
   type FlarexExecutorPersistenceWithoutDeploymentAuthority,
-} from "./deploymentAuthority";
-import { getActiveDeploymentAuthConfig } from "./authConfig";
+} from "./deployment/deploymentAuthority";
+import { getActiveDeploymentAuthConfig } from "./deployment/authConfig";
 import {
   deploymentPackageSourcePackageJson,
   getActiveDeploymentPackage,
   registerDeploymentPackage,
-} from "./deploymentPackages";
-import { getActiveFunction } from "./functions";
-import { getExecutorHealth } from "./health";
-import { prepareInvoke } from "./invoke";
+} from "./deployment/deploymentPackages";
+import { getActiveFunction } from "./deployment/functions";
+import { getExecutorHealth } from "./runtime/health";
+import { prepareInvoke } from "./invocation/invoke";
 import {
   listUndeliveredOutboxEventsEffect,
   makeOutboxTimeEffect,
   markOutboxEventsDeliveredEffect,
   runOutboxDeliveryBatchEffect,
   runOutboxPromise,
-} from "./outbox";
+} from "./sync/outbox";
 import {
   ackLiveQueryDeliveriesEffect,
   claimLiveQueryDeliveryBatchEffect,
@@ -38,7 +38,7 @@ import {
   makeLiveQueryDeliveryTimeEffect,
   runLiveQueryDeliveryBatchEffect,
   runLiveQueryDeliveryPromise,
-} from "./liveQueryDeliveries";
+} from "./sync/liveQueryDeliveries";
 import {
   findStaleLiveQuerySubscriptionsEffect,
   listExpiredLiveQueryConnectionDeploymentsEffect,
@@ -52,24 +52,24 @@ import {
   rerunLiveQuerySubscription,
   rerunStaleLiveQuerySubscriptionsEffect,
   touchLiveQueryConnectionEffect,
-} from "./liveQueries";
+} from "./sync/liveQueries";
 import {
   listMaintenanceDeploymentsEffect,
   runInvokeSessionMaintenanceEffect,
   runMaintenancePromise,
   runMaintenanceSweepEffect,
-} from "./maintenance";
+} from "./maintenance/maintenance";
 import {
   runInvokeWithRetriesEffect,
   runInvokeWithRetriesPromise,
-} from "./retry";
+} from "./invocation/retry";
 import {
   defaultIds,
   invokeSyscall,
   makeInvokeSessionOperations,
   makeSessionTimeEffect,
   runInvokeSessionPromise,
-} from "./sessions";
+} from "./invocation/sessions";
 import type {
   FlarexExecutor,
   FlarexExecutorConfig,
@@ -79,7 +79,7 @@ import type {
   RunMutationInvokeWithRetriesResult,
   RunQueryInvokeWithRetriesInput,
   RunQueryInvokeWithRetriesResult,
-} from "./types";
+} from "./invocation/types";
 
 export {
   InvokeDeleteDocumentNotFoundError,
@@ -114,7 +114,7 @@ export {
   MaintenancePolicyError,
   OutboxDeliveryPolicyError,
   PartitionValidationError,
-} from "./errors";
+} from "./invocation/errors";
 export { FlarexDocumentIdFormatError } from "@flarex/persistence-postgres";
 export { deploymentPackageSourcePackageJson };
 export {
@@ -248,8 +248,8 @@ export type {
   LiveQueryInvalidationConfig,
   LiveQueryInvalidationTriggerInput,
   LiveQueryInvalidationErrorInput,
-} from "./types";
-export { fingerprintJson } from "./liveQueries";
+} from "./invocation/types";
+export { fingerprintJson } from "./sync/liveQueries";
 
 export function createFlarexExecutor(config: FlarexExecutorConfig): FlarexExecutor {
   const configuredClock = config.clock;

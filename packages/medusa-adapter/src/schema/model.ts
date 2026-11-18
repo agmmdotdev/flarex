@@ -1,5 +1,9 @@
 import type { DatabaseColumn, DatabaseForeignKey, DatabaseIndex, DatabaseTable } from "@medusajs/drizzle/schema";
-import type { RelationalSchema } from "@flarex/persistence-postgres/internal/relational-schema-values";
+import type { CompiledIndexWhere } from "./index-predicate";
+import type { CompiledCheckConstraint } from "./check-constraint";
+import type {
+  RelationalSchema,
+} from "flarex-protocol/internal/relational-schema";
 
 type ColumnBase = Readonly<Pick<DatabaseColumn, "name" | "nullable" | "primaryKey" | "generated">> & {
   readonly options?: {
@@ -13,18 +17,24 @@ type ColumnBase = Readonly<Pick<DatabaseColumn, "name" | "nullable" | "primaryKe
 /** Checked adapter subset of the pinned DML compiler. This is a lowering input,
  * not a decoder or authority to admit another module or compiler feature. */
 export type SchemaColumn = ColumnBase & (
+  | { readonly type: "array"; readonly defaultValue?: readonly [] }
+  | { readonly type: "float"; readonly defaultValue?: never }
+  /** Signed native serial identity; lowering explicitly selects preservation
+   * or trusted logical max-plus-one defaults for a fresh installation. */
+  | { readonly type: "serial"; readonly defaultValue?: never; readonly generated?: false }
   | { readonly type: "id" | "text" | "number" | "boolean" | "dateTime" | "json" | "enum";
       readonly defaultValue?: string | number | boolean }
   | { readonly type: "bigNumber"; readonly defaultValue?: string | number | null }
-  | { readonly type: "json"; readonly defaultValue?: string | number | boolean | null | { readonly value: string; readonly precision: number } }
+  | { readonly type: "json"; readonly defaultValue?: string | number | boolean | null | Readonly<Record<string, never>> | { readonly value: string; readonly precision: number } }
 );
 
 export type SchemaTable = Readonly<Pick<DatabaseTable, "name">> & {
   readonly columns: readonly SchemaColumn[];
-  readonly indexes: readonly (Readonly<Pick<DatabaseIndex, "name" | "unique">> & {
+  readonly indexes: readonly (Readonly<Pick<DatabaseIndex, "name" | "unique" | "type">> & {
     readonly columns: readonly string[];
-    readonly where?: "deleted_at IS NULL" | "deleted_at IS NULL AND status = 'active'";
+    readonly where?: typeof CompiledIndexWhere.Type;
   })[];
+  readonly checks?: readonly (typeof CompiledCheckConstraint.Type)[];
   readonly foreignKeys: readonly (Readonly<Pick<DatabaseForeignKey, "name" | "referencedTable" | "onDelete">> & {
     readonly columns: readonly string[];
     readonly referencedColumns: readonly string[];

@@ -1,30 +1,27 @@
-import { productIntegrationTestRunner } from "./product-runner";
-import type { CurrencyRunnerOptions, ProductRunnerOptions } from "./runner-contract";
+import type { CurrencyRunnerOptions } from "./runner-contract";
 export { default as MockEventBusService } from "@medusajs/test-utils/mock-event-bus-service";
 import { afterAll, beforeAll } from "vitest";
 import { Effect, Exit, Option, Scope } from "effect";
 import type { ICurrencyModuleService } from "@medusajs/framework/types";
 import { currencyFixture } from "./fixture";
-import { liveCurrencyFixture, type LiveCurrencyFixture } from "./live-fixture";
+import { logicalCurrencyFixture, type LogicalCurrencyFixture } from "./logical-currency-fixture";
 import { registerLiveCurrencyChecks } from "./live-checks";
 
 type CurrencyReads = Pick<ICurrencyModuleService, "listCurrencies" | "listAndCountCurrencies" | "retrieveCurrency">;
 
-// The original suite supplies its service type parameter. This runner admits
-// Currency reads or the explicit Product test profile; no module registry.
-export const moduleIntegrationTestRunner: typeof import("./runner-contract").moduleIntegrationTestRunner = (options: CurrencyRunnerOptions | ProductRunnerOptions) => {
-  if (options.moduleName === "product") return productIntegrationTestRunner(options);
+// The original Currency suite supplies its service type parameter.
+export const moduleIntegrationTestRunner = (options: CurrencyRunnerOptions): void => {
   if (options.moduleName !== "currency") throw new Error("Only Currency is admitted");
   const scope = Effect.runSync(Scope.make());
   let current = Option.none<CurrencyReads>();
   const get = () => Option.getOrThrow(current);
   const cleanup: (() => Promise<void>)[] = [];
-  let live: LiveCurrencyFixture | undefined;
+  let live: LogicalCurrencyFixture | undefined;
   beforeAll(async () => {
     const driver = process.env.MEDUSA_COMPARISON_DRIVER ?? "pglite";
     if (driver !== "pglite" && driver !== "postgres") throw new Error("Invalid comparison driver");
     const fixture = process.env.MEDUSA_CURRENCY_LANE === "flarex"
-      ? (live = await liveCurrencyFixture(driver, work => cleanup.push(work)))
+      ? (live = await logicalCurrencyFixture(driver, work => cleanup.push(work)))
       : await Effect.runPromise(Effect.provideService(currencyFixture(driver), Scope.Scope, scope));
     current = Option.some(fixture.service);
   });

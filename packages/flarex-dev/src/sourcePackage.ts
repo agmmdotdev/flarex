@@ -13,6 +13,16 @@ import {
 } from "flarex-protocol/auth";
 import { build, type Plugin } from "vite";
 import type { FunctionModule } from "./analyze.ts";
+import { PublicDeploymentProfile } from "flarex-protocol/deployment";
+import { Schema } from "effect";
+
+export type FlarexStorageProfile = PublicDeploymentProfile["storageProfile"];
+const decodeStorageProfile = Schema.decodeUnknownSync(PublicDeploymentProfile);
+
+/** Trusted synchronous generation configuration, before files or bundles exist. */
+export function sourcePackageStorageProfile(value: FlarexStorageProfile | undefined): FlarexStorageProfile {
+  return decodeStorageProfile({ storageProfile: value === undefined ? "legacy_session" : value }).storageProfile;
+}
 
 export type SourceModule = {
   path: string;
@@ -35,19 +45,21 @@ export type SourcePackage = {
 export type BundleSourcePackageOptions = {
   appDir: string;
   functionModules: FunctionModule[];
+  storageProfile?: FlarexStorageProfile;
 };
 
 export async function bundleSourcePackage(
   options: BundleSourcePackageOptions,
 ): Promise<SourcePackage> {
+  const storageProfile = sourcePackageStorageProfile(options.storageProfile);
   const functions = await Promise.all(
     options.functionModules.map(module =>
-      bundleEntry(module.absolutePath, `${module.moduleName}.js`, options.appDir),
+      bundleEntry(module.absolutePath, `${module.moduleName}.js`, options.appDir, storageProfile),
     ),
   );
   const schemaPath = await findSchema(options.appDir);
   const schema = schemaPath
-    ? await bundleEntry(schemaPath, "_flarex/schema.js", options.appDir)
+    ? await bundleEntry(schemaPath, "_flarex/schema.js", options.appDir, storageProfile)
     : undefined;
   const authConfigPath = await findAuthConfig(options.appDir);
   const authConfigModule = authConfigPath
@@ -56,11 +68,11 @@ export async function bundleSourcePackage(
   const authConfig = authConfigModule === undefined
     ? undefined
     : await loadAuthConfig(authConfigModule);
-  const execution = await bundleExecutionEntry(options.functionModules, options.appDir);
+  const execution = await bundleExecutionEntry(options.functionModules, options.appDir, storageProfile);
   const modules = [
     ...functions,
     ...(schema ? [schema] : []),
-    ...(authConfigModule ? [authConfigModule] : []),
+    ...(authConfigModule && storageProfile === "legacy_session" ? [authConfigModule] : []),
     execution,
   ]
     .sort((left, right) => compareUtf16Strings(left.path, right.path));
@@ -70,7 +82,7 @@ export async function bundleSourcePackage(
     sourceModuleDigestFormat: SOURCE_MODULE_DIGEST_FORMAT_V1,
     ...(schema ? { schema: schema.path } : {}),
     ...(authConfig === undefined ? {} : { authConfig }),
-    ...(authConfigModule === undefined ? {} : { authConfigModule: authConfigModule.path }),
+    ...(authConfigModule === undefined || storageProfile === "core_application" ? {} : { authConfigModule: authConfigModule.path }),
     execution: execution.path,
   };
 }
@@ -84,7 +96,17 @@ export function sourceModule(package_: SourcePackage, modulePath: string): Sourc
 async function bundleExecutionEntry(
   modules: FunctionModule[],
   appDir: string,
+  storageProfile: FlarexStorageProfile,
 ): Promise<SourceModule> {
+  if (storageProfile === "core_application") {
+    // The managed entry borrows the exact packaged modules and canonical SDK.
+    // Bundling them again would duplicate code and replace native namespaces.
+    const imports = modules.map((module, index) =>
+      `import * as module${index} from ${JSON.stringify(`../${module.moduleName}.js`)};`).join("\n");
+    const entries = modules.map((module, index) => `${JSON.stringify(module.moduleName)}: module${index}`).join(",\n");
+    const source = `${imports}\nexport default {\n${entries}\n};\n`;
+    return { path: "_flarex/execution.js", source, environment: "isolate", sha256: sourceHash(source) };
+  }
   const entryId = "virtual:flarex-execution-entry";
   const resolvedEntryId = "\0flarex-execution-entry";
   const plugin: Plugin = {
@@ -107,15 +129,16 @@ async function bundleExecutionEntry(
       return `${imports}\nexport default {\n${entries}\n};\n`;
     },
   };
-  return bundleWithVite(entryId, "_flarex/execution.js", appDir, [plugin]);
+  return bundleWithVite(entryId, "_flarex/execution.js", appDir, [plugin], storageProfile);
 }
 
-function bundleEntry(entry: string, outputPath: string, appDir: string): Promise<SourceModule> {
+function bundleEntry(entry: string, outputPath: string, appDir: string,
+  storageProfile: FlarexStorageProfile = "legacy_session"): Promise<SourceModule> {
   const plugin: Plugin = {
     name: "flarex-source-package-resolution",
     resolveId: resolveFlarex,
   };
-  return bundleWithVite(entry, outputPath, appDir, [plugin]);
+  return bundleWithVite(entry, outputPath, appDir, [plugin], storageProfile);
 }
 
 async function bundleWithVite(
@@ -123,6 +146,7 @@ async function bundleWithVite(
   outputPath: string,
   appDir: string,
   plugins: Plugin[],
+  storageProfile: FlarexStorageProfile,
 ): Promise<SourceModule> {
   const output = await build({
     configFile: false,
@@ -135,7 +159,8 @@ async function bundleWithVite(
       sourcemap: "hidden",
       rolldownOptions: {
         input: entry,
-        external: ["cloudflare:workers"],
+        external: id => id === "cloudflare:workers" || storageProfile === "core_application"
+          && (id === "flarex" || id.startsWith("flarex/")),
         preserveEntrySignatures: "strict",
         output: {
           format: "es",

@@ -83,4 +83,5 @@ export interface PortableEntityIndex {
   unique?: boolean
   on: string[]
   where?: string | Record<string, unknown>
+  type?: string
 }

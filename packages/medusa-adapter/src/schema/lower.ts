@@ -1,4 +1,6 @@
 import type { ColumnDefault, LoweredColumn, SchemaColumn, SchemaOrigins, SchemaTable } from "./model";
+import { lowerCompiledIndexWhere } from "./index-predicate";
+import { lowerCompiledCheckConstraint } from "./check-constraint";
 
 const authored = (sourceId: string) => ({ kind: "authored" as const, sourceId });
 const implicit = (sourceId: string) => ({ kind: "implicit" as const, sourceId });
@@ -19,29 +21,37 @@ export const dmlSchemaOrigins: SchemaOrigins = {
 function columnType(column: SchemaColumn): LoweredColumn["type"] {
   switch (column.type) {
     case "id": case "enum": return "text";
-    case "number": return "integer";
+    case "serial": return "integer";
+    case "number": return "doublePrecision";
+    case "float": return "real";
     case "dateTime": return "timestamptz";
-    case "json": return "jsonb";
+    case "json": case "array": return "jsonb";
     case "bigNumber": return "numeric";
     default: return column.type;
   }
 }
 
-function columnDefault(column: SchemaColumn): ColumnDefault {
+function columnDefault(column: SchemaColumn, serialDefaults: "preserve" | "generate"): ColumnDefault {
+  if (column.type === "serial" && serialDefaults === "generate") return { kind: "serialNext" };
+  if (column.type === "array") return { kind: column.defaultValue === undefined ? "none" : "emptyJsonArray" };
   const value = column.defaultValue;
   if (value === undefined) return { kind: ["created_at", "updated_at"].includes(column.name) ? "currentTimestamp" : "none" };
   if (value === null) return { kind: "none" };
   if (column.type === "bigNumber") return { kind: "exactNumericLiteral", value: String(value) };
-  if (typeof value === "object") return { kind: "exactNumericRawLiteral", ...value };
+  if (typeof value === "object") {
+    if ("value" in value && "precision" in value) return { kind: "exactNumericRawLiteral", value: value.value, precision: value.precision };
+    return { kind: "emptyJsonObject" };
+  }
   if (typeof value === "boolean") return { kind: "booleanLiteral", value };
-  if (typeof value === "number") return { kind: "integerLiteral", value };
+  if (typeof value === "number") return { kind: "doublePrecisionLiteral", value };
   return { kind: "textLiteral", value };
 }
 
 /** Pure lowering of already-checked DML. The module still owns source admission;
  * Flarex normalization owns relational validity and artifact authority. No
  * metadata is retained, mutated, or used to acquire a persistence capability. */
-export function lowerDmlSchema(input: readonly SchemaTable[], lineageId: string, origins: SchemaOrigins = dmlSchemaOrigins) {
+export function lowerDmlSchema(input: readonly SchemaTable[], lineageId: string, origins: SchemaOrigins = dmlSchemaOrigins,
+  serialDefaults: "preserve" | "generate" = "preserve") {
   const tables = input.map((table) => {
     const primary = table.columns.filter((column) => column.primaryKey);
     const origin = primary.length === 0 ? implicit : authored;
@@ -53,7 +63,7 @@ export function lowerDmlSchema(input: readonly SchemaTable[], lineageId: string,
       columnId: column.name,
       type: columnType(column),
       nullable: column.nullable,
-      default: columnDefault(column),
+      default: columnDefault(column, serialDefaults),
       origin: origins.column(table, column),
     }));
     const keys = [
@@ -68,7 +78,8 @@ export function lowerDmlSchema(input: readonly SchemaTable[], lineageId: string,
             },
           ]),
       ...table.indexes
-        .filter((index) => index.unique && index.where === undefined)
+        .filter((index) => index.unique && index.where === undefined &&
+          (index.type === undefined || index.type === "btree"))
         .map((index) => ({
           keyId: index.name,
           kind: "unique",
@@ -77,17 +88,19 @@ export function lowerDmlSchema(input: readonly SchemaTable[], lineageId: string,
         })),
     ];
     const indexes = table.indexes
-      .filter((index) => !index.unique || index.where !== undefined)
+      .filter((index) => !index.unique || index.where !== undefined ||
+        (index.type !== undefined && index.type !== "btree"))
       .map((index) => ({
         indexId: index.name,
-        kind: index.unique ? "uniqueBtree" : "btree",
+        // Preserve unsupported native access methods for validation to refuse.
+        // Treating a GIN declaration as B-tree would admit a false query contract.
+        kind: index.type === undefined || index.type === "btree"
+          ? index.unique ? "uniqueBtree" : "btree"
+          : index.type === "gin" && !index.unique && index.columns.length === 1 &&
+            table.columns.find(column => column.name === index.columns[0])?.type === "json"
+            ? "jsonContainment" : index.type,
         columns: index.columns,
-        predicate:
-          index.where === undefined
-            ? null
-            : index.where === "deleted_at IS NULL"
-              ? { kind: "isNull", columnId: "deleted_at" }
-              : { kind: "isNullAndTextEquals", nullColumnId: "deleted_at", textColumnId: "status", value: "active" },
+        predicate: lowerCompiledIndexWhere(index.where),
         origin: origin(index.name),
       }));
     if (primary.length !== 0)
@@ -99,6 +112,10 @@ export function lowerDmlSchema(input: readonly SchemaTable[], lineageId: string,
         origin: implicit("dml.deleted_at.active-index"),
       });
     const constraints = [
+      ...(table.checks ?? []).map(check => ({
+        ...lowerCompiledCheckConstraint(check),
+        origin: authored(check.name),
+      })),
       ...table.foreignKeys.map((fk) => ({
         constraintId: fk.name,
         kind: "foreignKey",

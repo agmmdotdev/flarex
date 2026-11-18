@@ -1,0 +1,608 @@
+{
+  "method": "Actual matched Flarex-minus-native root CPU deltas; ABBA/BAAB four-pair blocks; stratified 20000-draw block bootstrap, seed 137. Positive reduction means lower CPU.",
+  "stages": {
+    "composition": {
+      "processes": [
+        {
+          "lane": "a",
+          "runId": "56891b95-ffcb-4bb5-b996-c07bda48a692",
+          "loaded": [
+            {
+              "id": "C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/packages/persistence-postgres/src/storage/indexes/appIndexEntries.ts",
+              "stage": "composition",
+              "fixed": "before-envelope",
+              "originalHash": "badc4aec043f269041fdf729461bcaaeef3403792cbf6968fd3756de6918735d",
+              "baselineHash": "e4de65508dbf9013b7ed76bac01aad005ce007c23b6d2703f06f942fb5a720d3",
+              "transformedHash": "e4de65508dbf9013b7ed76bac01aad005ce007c23b6d2703f06f942fb5a720d3"
+            },
+            {
+              "id": "C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts",
+              "stage": "composition",
+              "originalHash": "387443eac9bfa2f37a86058b897b5f7cf2d90d2bb56b0ae06c483016ea1485e9",
+              "baselineHash": "b0a82f46982683bf745cf6cd54156b5dcfd5ef6e501d06c6bf375b402d19d949",
+              "transformedHash": "c75ddeb0506cb010f9e99efb16b493d979db6e89c83db7b1d56afc6d0a11245b",
+              "names": [
+                "readRelationalSelection",
+                "relationalChange"
+              ]
+            }
+          ],
+          "gates": [
+            {
+              "name": "sourceStability",
+              "passed": true,
+              "detail": "Authored package code, locks and loaded native sources remain stable"
+            },
+            {
+              "name": "settingsStability",
+              "passed": true,
+              "detail": "Ordinary-role durable settings are retained before and after"
+            },
+            {
+              "name": "cleanup",
+              "passed": true,
+              "detail": "Owned command resources drained"
+            }
+          ],
+          "sources": {
+            "before": "6cd1be23ec5f03acc550dba61d79b1f4e57e9d1680c5f5eba93fa10363d2cb76",
+            "after": "6cd1be23ec5f03acc550dba61d79b1f4e57e9d1680c5f5eba93fa10363d2cb76",
+            "files": 6962
+          }
+        },
+        {
+          "lane": "b",
+          "runId": "fd8a20f2-9dfd-4de2-9d1c-9348fd057ff2",
+          "loaded": [
+            {
+              "id": "C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/packages/persistence-postgres/src/storage/indexes/appIndexEntries.ts",
+              "stage": "composition",
+              "fixed": "before-envelope",
+              "originalHash": "badc4aec043f269041fdf729461bcaaeef3403792cbf6968fd3756de6918735d",
+              "baselineHash": "e4de65508dbf9013b7ed76bac01aad005ce007c23b6d2703f06f942fb5a720d3",
+              "transformedHash": "e4de65508dbf9013b7ed76bac01aad005ce007c23b6d2703f06f942fb5a720d3"
+            },
+            {
+              "id": "C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts",
+              "stage": "composition",
+              "originalHash": "387443eac9bfa2f37a86058b897b5f7cf2d90d2bb56b0ae06c483016ea1485e9",
+              "baselineHash": "b0a82f46982683bf745cf6cd54156b5dcfd5ef6e501d06c6bf375b402d19d949",
+              "transformedHash": "c75ddeb0506cb010f9e99efb16b493d979db6e89c83db7b1d56afc6d0a11245b",
+              "names": [
+                "readRelationalSelection",
+                "relationalChange"
+              ]
+            }
+          ],
+          "gates": [
+            {
+              "name": "sourceStability",
+              "passed": true,
+              "detail": "Authored package code, locks and loaded native sources remain stable"
+            },
+            {
+              "name": "settingsStability",
+              "passed": true,
+              "detail": "Ordinary-role durable settings are retained before and after"
+            },
+            {
+              "name": "cleanup",
+              "passed": true,
+              "detail": "Owned command resources drained"
+            }
+          ],
+          "sources": {
+            "before": "6cd1be23ec5f03acc550dba61d79b1f4e57e9d1680c5f5eba93fa10363d2cb76",
+            "after": "6cd1be23ec5f03acc550dba61d79b1f4e57e9d1680c5f5eba93fa10363d2cb76",
+            "files": 6962
+          }
+        }
+      ],
+      "counters": {
+        "thread": {
+          "before": {
+            "addedMs": {
+              "count": 40,
+              "mean": 113.325,
+              "median": 110,
+              "min": 47,
+              "max": 157
+            },
+            "flarexMs": {
+              "count": 40,
+              "mean": 140.275,
+              "median": 141,
+              "min": 62,
+              "max": 188
+            },
+            "nativeMs": {
+              "count": 40,
+              "mean": 26.95,
+              "median": 31,
+              "min": 15,
+              "max": 48
+            }
+          },
+          "after": {
+            "addedMs": {
+              "count": 40,
+              "mean": 118,
+              "median": 110,
+              "min": 63,
+              "max": 173
+            },
+            "flarexMs": {
+              "count": 40,
+              "mean": 143.8,
+              "median": 141,
+              "min": 94,
+              "max": 189
+            },
+            "nativeMs": {
+              "count": 40,
+              "mean": 25.8,
+              "median": 31,
+              "min": 0,
+              "max": 47
+            }
+          },
+          "meanReductionMs": -4.675,
+          "reduction95IntervalMs": [
+            -16.35,
+            7.525624999999946
+          ],
+          "blocks": [
+            [
+              24.5,
+              31,
+              -39.5,
+              -23,
+              -32,
+              1,
+              -15.5,
+              47,
+              -46.5,
+              -31.5
+            ],
+            [
+              -9,
+              7.5,
+              -46.5,
+              -8.5,
+              -15,
+              15,
+              23.5,
+              -23.5,
+              31.5,
+              16
+            ]
+          ],
+          "warmSensitivity": {
+            "pairs": 72,
+            "meanReductionMs": -6.055555555555555,
+            "reduction95IntervalMs": [
+              -18.584027777777777,
+              6.805555555555555
+            ]
+          }
+        },
+        "process": {
+          "before": {
+            "addedMs": {
+              "count": 40,
+              "mean": 126.45,
+              "median": 125,
+              "min": 47,
+              "max": 219
+            },
+            "flarexMs": {
+              "count": 40,
+              "mean": 158.8,
+              "median": 157,
+              "min": 63,
+              "max": 266
+            },
+            "nativeMs": {
+              "count": 40,
+              "mean": 32.35,
+              "median": 31,
+              "min": 15,
+              "max": 63
+            }
+          },
+          "after": {
+            "addedMs": {
+              "count": 40,
+              "mean": 132.225,
+              "median": 125.5,
+              "min": 62,
+              "max": 218
+            },
+            "flarexMs": {
+              "count": 40,
+              "mean": 162.625,
+              "median": 156.5,
+              "min": 93,
+              "max": 235
+            },
+            "nativeMs": {
+              "count": 40,
+              "mean": 30.4,
+              "median": 31,
+              "min": 0,
+              "max": 93
+            }
+          },
+          "meanReductionMs": -5.775,
+          "reduction95IntervalMs": [
+            -24,
+            10.550624999999947
+          ],
+          "blocks": [
+            [
+              30.5,
+              24.5,
+              -46,
+              -7.5,
+              -39.5,
+              -40,
+              -31.5,
+              8,
+              -30.5,
+              -38.5
+            ],
+            [
+              8,
+              7.5,
+              -63.5,
+              23,
+              8.5,
+              23.5,
+              39.5,
+              -101.5,
+              79,
+              31
+            ]
+          ],
+          "warmSensitivity": {
+            "pairs": 72,
+            "meanReductionMs": -8.555555555555555,
+            "reduction95IntervalMs": [
+              -27.917361111111113,
+              8.584027777777719
+            ]
+          }
+        }
+      }
+    },
+    "envelope": {
+      "processes": [
+        {
+          "lane": "a",
+          "runId": "d41abb4d-dc52-4d60-9f67-978eeeb850e9",
+          "loaded": [
+            {
+              "id": "C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/packages/persistence-postgres/src/storage/indexes/appIndexEntries.ts",
+              "stage": "envelope",
+              "originalHash": "badc4aec043f269041fdf729461bcaaeef3403792cbf6968fd3756de6918735d",
+              "baselineHash": "e4de65508dbf9013b7ed76bac01aad005ce007c23b6d2703f06f942fb5a720d3",
+              "transformedHash": "22a47fa1b60ba755d347470932844ddd060cfe2f142e5d91486b2ea351d1f6e3",
+              "names": [
+                "consumeCurrentAppIndexPagesInTransactionEffect"
+              ]
+            }
+          ],
+          "gates": [
+            {
+              "name": "sourceStability",
+              "passed": true,
+              "detail": "Authored package code, locks and loaded native sources remain stable"
+            },
+            {
+              "name": "settingsStability",
+              "passed": true,
+              "detail": "Ordinary-role durable settings are retained before and after"
+            },
+            {
+              "name": "cleanup",
+              "passed": true,
+              "detail": "Owned command resources drained"
+            }
+          ],
+          "sources": {
+            "before": "6cd1be23ec5f03acc550dba61d79b1f4e57e9d1680c5f5eba93fa10363d2cb76",
+            "after": "6cd1be23ec5f03acc550dba61d79b1f4e57e9d1680c5f5eba93fa10363d2cb76",
+            "files": 6962
+          }
+        },
+        {
+          "lane": "b",
+          "runId": "9fcb759b-25e4-4b5c-8ef1-9bc4556d5b57",
+          "loaded": [
+            {
+              "id": "C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/packages/persistence-postgres/src/storage/indexes/appIndexEntries.ts",
+              "stage": "envelope",
+              "originalHash": "badc4aec043f269041fdf729461bcaaeef3403792cbf6968fd3756de6918735d",
+              "baselineHash": "e4de65508dbf9013b7ed76bac01aad005ce007c23b6d2703f06f942fb5a720d3",
+              "transformedHash": "22a47fa1b60ba755d347470932844ddd060cfe2f142e5d91486b2ea351d1f6e3",
+              "names": [
+                "consumeCurrentAppIndexPagesInTransactionEffect"
+              ]
+            }
+          ],
+          "gates": [
+            {
+              "name": "sourceStability",
+              "passed": true,
+              "detail": "Authored package code, locks and loaded native sources remain stable"
+            },
+            {
+              "name": "settingsStability",
+              "passed": true,
+              "detail": "Ordinary-role durable settings are retained before and after"
+            },
+            {
+              "name": "cleanup",
+              "passed": true,
+              "detail": "Owned command resources drained"
+            }
+          ],
+          "sources": {
+            "before": "6cd1be23ec5f03acc550dba61d79b1f4e57e9d1680c5f5eba93fa10363d2cb76",
+            "after": "6cd1be23ec5f03acc550dba61d79b1f4e57e9d1680c5f5eba93fa10363d2cb76",
+            "files": 6962
+          }
+        }
+      ],
+      "counters": {
+        "thread": {
+          "before": {
+            "addedMs": {
+              "count": 40,
+              "mean": 103.425,
+              "median": 109,
+              "min": 31,
+              "max": 235
+            },
+            "flarexMs": {
+              "count": 40,
+              "mean": 130.85,
+              "median": 125.5,
+              "min": 62,
+              "max": 235
+            },
+            "nativeMs": {
+              "count": 40,
+              "mean": 27.425,
+              "median": 31,
+              "min": 0,
+              "max": 47
+            }
+          },
+          "after": {
+            "addedMs": {
+              "count": 40,
+              "mean": 109.35,
+              "median": 109.5,
+              "min": 62,
+              "max": 157
+            },
+            "flarexMs": {
+              "count": 40,
+              "mean": 137.05,
+              "median": 140.5,
+              "min": 94,
+              "max": 188
+            },
+            "nativeMs": {
+              "count": 40,
+              "mean": 27.7,
+              "median": 31,
+              "min": 0,
+              "max": 47
+            }
+          },
+          "meanReductionMs": -5.925,
+          "reduction95IntervalMs": [
+            -17.15,
+            7.275
+          ],
+          "blocks": [
+            [
+              0,
+              -7.5,
+              32,
+              -24,
+              -0.5,
+              93.5,
+              -0.5,
+              -24.5,
+              -16.5,
+              -7
+            ],
+            [
+              -7,
+              15,
+              -31.5,
+              -31,
+              -32.5,
+              -15.5,
+              15.5,
+              -37.5,
+              -46.5,
+              7.5
+            ]
+          ],
+          "warmSensitivity": {
+            "pairs": 72,
+            "meanReductionMs": -6.194444444444445,
+            "reduction95IntervalMs": [
+              -18.444444444444443,
+              8.36111111111111
+            ]
+          }
+        },
+        "process": {
+          "before": {
+            "addedMs": {
+              "count": 40,
+              "mean": 124.975,
+              "median": 109,
+              "min": 32,
+              "max": 484
+            },
+            "flarexMs": {
+              "count": 40,
+              "mean": 158.95,
+              "median": 141,
+              "min": 63,
+              "max": 484
+            },
+            "nativeMs": {
+              "count": 40,
+              "mean": 33.975,
+              "median": 31,
+              "min": 0,
+              "max": 94
+            }
+          },
+          "after": {
+            "addedMs": {
+              "count": 40,
+              "mean": 122.3,
+              "median": 110,
+              "min": 32,
+              "max": 203
+            },
+            "flarexMs": {
+              "count": 40,
+              "mean": 155.85,
+              "median": 156,
+              "min": 94,
+              "max": 234
+            },
+            "nativeMs": {
+              "count": 40,
+              "mean": 33.55,
+              "median": 31,
+              "min": 0,
+              "max": 63
+            }
+          },
+          "meanReductionMs": 2.675,
+          "reduction95IntervalMs": [
+            -17.2,
+            29.550624999999947
+          ],
+          "blocks": [
+            [
+              -31,
+              7.5,
+              31,
+              -30.5,
+              -24.5,
+              211,
+              -15.5,
+              -0.5,
+              -40.5,
+              -7.5
+            ],
+            [
+              -24,
+              24,
+              8,
+              -55,
+              -9,
+              8.5,
+              23,
+              -22.5,
+              -46,
+              47
+            ]
+          ],
+          "warmSensitivity": {
+            "pairs": 72,
+            "meanReductionMs": 6.027777777777778,
+            "reduction95IntervalMs": [
+              -15.5,
+              35.22222222222222
+            ]
+          }
+        }
+      }
+    }
+  },
+  "finalControl": {
+    "runId": "28484641-671b-4fdd-9a99-2692fd376ae3",
+    "gates": [
+      {
+        "name": "sourceStability",
+        "passed": true,
+        "detail": "Authored package code, locks and loaded native sources remain stable"
+      },
+      {
+        "name": "settingsStability",
+        "passed": true,
+        "detail": "Ordinary-role durable settings are retained before and after"
+      },
+      {
+        "name": "cleanup",
+        "passed": true,
+        "detail": "Owned command resources drained"
+      }
+    ],
+    "sources": {
+      "before": "6cd1be23ec5f03acc550dba61d79b1f4e57e9d1680c5f5eba93fa10363d2cb76",
+      "after": "6cd1be23ec5f03acc550dba61d79b1f4e57e9d1680c5f5eba93fa10363d2cb76",
+      "files": 6962
+    },
+    "counters": {
+      "thread": {
+        "addedMs": {
+          "count": 40,
+          "mean": 107.325,
+          "median": 109,
+          "min": 63,
+          "max": 172
+        },
+        "flarexMs": {
+          "count": 40,
+          "mean": 132.35,
+          "median": 125,
+          "min": 78,
+          "max": 202
+        },
+        "nativeMs": {
+          "count": 40,
+          "mean": 25.025,
+          "median": 31,
+          "min": 0,
+          "max": 47
+        }
+      },
+      "process": {
+        "addedMs": {
+          "count": 40,
+          "mean": 129.8,
+          "median": 109.5,
+          "min": 63,
+          "max": 422
+        },
+        "flarexMs": {
+          "count": 40,
+          "mean": 159.825,
+          "median": 141,
+          "min": 94,
+          "max": 469
+        },
+        "nativeMs": {
+          "count": 40,
+          "mean": 30.025,
+          "median": 31,
+          "min": 0,
+          "max": 63
+        }
+      }
+    }
+  }
+}

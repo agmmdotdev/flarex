@@ -1,3 +1,4 @@
+import { snapshotApplicationValidatorJson } from "@flarex/application-schema-definition/validator-json";
 import {
   RunAttemptPolicyV1Schema,
   TaskComputeProfileRefV1Schema,
@@ -13,7 +14,10 @@ import {
 import { Result, Schema } from "effect";
 import {
   ValidatorJsonV1,
+  ValidatorJsonWireCodecV1,
+  validatorJsonHasNonfiniteLiteralV1,
   validatorJsonAdmissionIssueV1,
+  validatorJsonWireAdmissionIssueV1,
   type ValidatorJsonV1 as ValidatorJsonV1Type,
 } from "flarex-protocol/validator-json";
 
@@ -89,6 +93,7 @@ const decodeValidator = Schema.decodeUnknownResult(
   ValidatorJsonV1,
   STRICT_PARSE_OPTIONS,
 );
+const decodeValidatorWire = Schema.decodeUnknownResult(ValidatorJsonWireCodecV1, STRICT_PARSE_OPTIONS);
 
 export function decodeTaskIdV1(
   input: unknown,
@@ -105,6 +110,13 @@ export function decodeCanonicalTaskManifestV1(
   InvalidStandardApplicationTaskDefinitionV1Error
 > {
   return decodeManifestForOperation(input, "decode_manifest");
+}
+
+/** Serialized manifest admission is distinct from semantic definition capture. */
+export function decodeCanonicalTaskManifestWireV1(
+  input: unknown,
+): Result.Result<CanonicalTaskManifestV1, InvalidStandardApplicationTaskDefinitionV1Error> {
+  return decodeManifestForOperation(input, "decode_manifest", undefined, "wire");
 }
 
 export function decodeCanonicalTaskCatalogV1(
@@ -135,9 +147,15 @@ export function decodeCanonicalTaskCatalogV1(
         "decode_catalog",
         `tasks[${index}]`,
       );
-      validatorNodes += countValidatorNodes(manifest.payloadValidator);
-      if (manifest.outputValidator !== null) {
-        validatorNodes += countValidatorNodes(manifest.outputValidator);
+      validatorNodes += countValidatorNodes(
+        manifest.payloadValidator,
+        MAX_TASK_CATALOG_VALIDATOR_NODES_V1 - validatorNodes,
+      );
+      if (manifest.outputValidator !== null && validatorNodes <= MAX_TASK_CATALOG_VALIDATOR_NODES_V1) {
+        validatorNodes += countValidatorNodes(
+          manifest.outputValidator,
+          MAX_TASK_CATALOG_VALIDATOR_NODES_V1 - validatorNodes,
+        );
       }
       if (validatorNodes > MAX_TASK_CATALOG_VALIDATOR_NODES_V1) {
         return yield* Result.fail(invalid(
@@ -652,6 +670,7 @@ function decodeManifestForOperation(
   input: unknown,
   operation: StandardApplicationTaskDefinitionOperationV1,
   pathPrefix?: string,
+  representation: "semantic" | "wire" = "semantic",
 ): Result.Result<
   CanonicalTaskManifestV1,
   InvalidStandardApplicationTaskDefinitionV1Error
@@ -686,6 +705,7 @@ function decodeManifestForOperation(
       outer.payloadValidator,
       operation,
       path("payloadValidator"),
+      representation,
     );
     const outputValidator = outer.outputValidator === null
       ? null
@@ -693,6 +713,7 @@ function decodeManifestForOperation(
         outer.outputValidator,
         operation,
         path("outputValidator"),
+        representation,
       );
     const capturedPolicy = captureRunAttemptPolicy(outer.runAttemptPolicy);
     if (capturedPolicy === undefined) {
@@ -802,15 +823,20 @@ function decodeValidatorSnapshot(
   input: unknown,
   operation: StandardApplicationTaskDefinitionOperationV1,
   path: string,
+  representation: "semantic" | "wire",
 ): Result.Result<
   ValidatorJsonV1Type,
   InvalidStandardApplicationTaskDefinitionV1Error
 > {
-  if (validatorJsonAdmissionIssueV1(input) !== undefined) {
+  const issue = representation === "semantic" ? validatorJsonAdmissionIssueV1(input) : validatorJsonWireAdmissionIssueV1(input);
+  if (issue !== undefined) {
     return Result.fail(invalid(operation, "invalid_validator", path));
   }
-  return decodeValidator(input).pipe(
-    Result.map((value) => freezeValidator(structuredClone(value))),
+  const decode = representation === "semantic" ? decodeValidator : decodeValidatorWire;
+  return decode(input).pipe(
+    Result.flatMap(value => validatorJsonHasNonfiniteLiteralV1(value)
+      ? Result.fail(invalid(operation, "invalid_validator", path))
+      : Result.succeed(snapshotApplicationValidatorJson(value))),
     Result.mapError(() => invalid(operation, "invalid_validator", path)),
   );
 }
@@ -967,70 +993,57 @@ function snapshotPolicy(policy: RunAttemptPolicyV1): RunAttemptPolicyV1 {
   });
 }
 
-function freezeValidator(value: ValidatorJsonV1Type): ValidatorJsonV1Type {
-  switch (value.type) {
-    case "array":
-      return Object.freeze({ type: "array", value: freezeValidator(value.value) });
-    case "object": {
-      const fields: Record<string, {
-        readonly fieldType: ValidatorJsonV1Type;
-        readonly optional: boolean;
-      }> = {};
-      for (const key of Object.keys(value.value)) {
-        const field = value.value[key];
-        if (field !== undefined) {
-          fields[key] = Object.freeze({
-            fieldType: freezeValidator(field.fieldType),
-            optional: field.optional,
-          });
-        }
-      }
-      return Object.freeze({ type: "object", value: Object.freeze(fields) });
-    }
-    case "record":
-      return Object.freeze({
-        type: "record",
-        keys: freezeValidator(value.keys),
-        values: freezeValidator(value.values),
-      });
-    case "union":
-      return Object.freeze({
-        type: "union",
-        value: Object.freeze(value.value.map(freezeValidator)),
-      });
-    default:
-      return Object.freeze({ ...value });
-  }
-}
-
-function countValidatorNodes(root: ValidatorJsonV1Type): number {
-  let nodes = 0;
-  const pending: ValidatorJsonV1Type[] = [root];
+/** Counts logical occurrences, saturating once this catalog's remaining budget is exceeded. */
+function countValidatorNodes(root: ValidatorJsonV1Type, maximum: number): number {
+  const limit = maximum + 1;
+  const counts = new WeakMap<ValidatorJsonV1Type, number>();
+  const pending: Array<Readonly<{ value: ValidatorJsonV1Type; children?: readonly ValidatorJsonV1Type[] }>> = [{ value: root }];
   while (pending.length > 0) {
-    const value = pending.pop();
-    if (value === undefined) break;
-    nodes += 1;
+    const frame = pending.pop();
+    if (frame === undefined) throw new Error("Task validator count lost a frame.");
+    const { value } = frame;
+    if (counts.has(value)) continue;
+    if (frame.children !== undefined) {
+      let nodes = 1;
+      for (const child of frame.children) {
+        const count = counts.get(child);
+        if (count === undefined) throw new Error("Task validator count lost a child.");
+        nodes = Math.min(limit, nodes + count);
+        if (nodes === limit) break;
+      }
+      counts.set(value, nodes);
+      continue;
+    }
+    const children: ValidatorJsonV1Type[] = [];
     switch (value.type) {
+      case "function":
+        if (value.args !== undefined) children.push(value.args);
+        if (value.returns !== undefined) children.push(value.returns);
+        break;
       case "array":
-        pending.push(value.value);
+        children.push(value.value);
         break;
       case "object":
         for (const field of Object.values(value.value)) {
-          pending.push(field.fieldType);
+          children.push(field.fieldType);
         }
         break;
       case "record":
-        pending.push(value.values, value.keys);
+        children.push(value.keys, value.values);
         break;
       case "union":
-        for (let index = value.value.length - 1; index >= 0; index -= 1) {
-          const member = value.value[index];
-          if (member !== undefined) pending.push(member);
-        }
+        for (const member of value.value) children.push(member);
         break;
     }
+    pending.push({ value, children });
+    for (let index = children.length - 1; index >= 0; index -= 1) {
+      const child = children[index];
+      if (child !== undefined && !counts.has(child)) pending.push({ value: child });
+    }
   }
-  return nodes;
+  const total = counts.get(root);
+  if (total === undefined) throw new Error("Task validator count lost its root.");
+  return total;
 }
 
 function validTaskId(value: string): boolean {

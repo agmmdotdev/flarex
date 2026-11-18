@@ -29,7 +29,7 @@ both complete ordinary lanes pass; this is bounded functional acceptance, not
 a claim that all timing variability or the historical root cause is established.
 
 The deadline owner is
-`packages/persistence-postgres/test/commerceHostFixture.ts`; installation and
+`packages/persistence-postgres/test/frameworks/commerceTransaction/commerceHostFixture.ts`; installation and
 verification execute through the shared fresh migration coordinator and its
 verification scope. This evidence does not yet distinguish a shared runtime
 performance defect, test-budget insufficiency or environmental sensitivity.

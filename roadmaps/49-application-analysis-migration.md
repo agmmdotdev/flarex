@@ -9,6 +9,13 @@ preflight, is complete with a **no-go** decision. Production cutover remains
 blocked on separately owned hosted, routing, identity, request, response, auth,
 and recovery gates.
 
+The [ordinary Core public continuation](../experiments/core/engine/slices/19-registered-source-upgrades.md)
+connects the actual analyzer to public source-only push, registered-source
+upgrades and a single Core deployment/activation authority in the local graph.
+It binds independent deployment attempts to shared schema proposals, preserves
+existing data and migrates prior public candidate metadata without recasting
+retained analysis-migration receipts. Managed production cutover remains gated.
+
 This plan owns the ordered replacement of the private Declarative V2 static
 verifier with Application Analysis. It coordinates the existing analysis,
 artifact, Standard Application, persistence, readiness, activation, runtime,
@@ -34,10 +41,10 @@ inventory, accepted contract cut, migration sequence, and exit criteria.
 - [`../packages/standard-application-analysis/src/v1.ts`](../packages/standard-application-analysis/src/v1.ts)
   exposes the current historical static-verifier result. It must not be
   reinterpreted as the replacement result.
-- [`../packages/persistence-postgres/src/applicationRevisionRegistrationV1.ts`](../packages/persistence-postgres/src/applicationRevisionRegistrationV1.ts),
-  [`../packages/persistence-postgres/src/applicationRevisionReadinessV1.ts`](../packages/persistence-postgres/src/applicationRevisionReadinessV1.ts),
+- [`../packages/persistence-postgres/src/application/revision/applicationRevisionRegistrationV1.ts`](../packages/persistence-postgres/src/application/revision/applicationRevisionRegistrationV1.ts),
+  [`../packages/persistence-postgres/src/application/revision/applicationRevisionReadinessV1.ts`](../packages/persistence-postgres/src/application/revision/applicationRevisionReadinessV1.ts),
   and
-  [`../packages/persistence-postgres/src/applicationRevisionActivationV1.ts`](../packages/persistence-postgres/src/applicationRevisionActivationV1.ts)
+  [`../packages/persistence-postgres/src/application/revision/applicationRevisionActivationV1.ts`](../packages/persistence-postgres/src/application/revision/applicationRevisionActivationV1.ts)
   own the current persisted registration, readiness, and activation contracts.
 - [`43-first-flarexdb-system-api-vertical.md`](./43-first-flarexdb-system-api-vertical.md)
   and roadmaps 44 through 48 own the private runtime consumers that must be
@@ -410,7 +417,7 @@ is:
 - 24 focused analyzer tests and 10 finalized-source-reader tests passing;
 - `flarex-backend` typecheck and the workspace Effect-boundary check passing;
   analyzer-app typecheck blocked only by the separately owned concurrent error
-  at `packages/persistence-postgres/src/appRows.ts:434`;
+  at `packages/persistence-postgres/src/storage/documents/appRows.ts:434`;
 - the complete analyzer suite at 61 of 62 tests, with the unchanged legacy
   Declarative V2 long-path nested-cause assertion failing; and
 - both required final staged-diff reviewers approving with no findings.
@@ -543,7 +550,7 @@ The final proof receipt is:
   `9fd549d245a42ef119e0dbf7c56c11449a9f5faed86323fd45fed5458d2c92c2`;
 - the workspace Effect-boundary check passes; analyzer typecheck still reaches
   only the separately owned concurrent error at
-  `packages/persistence-postgres/src/appRows.ts:434`; and
+  `packages/persistence-postgres/src/storage/documents/appRows.ts:434`; and
 - the complete analyzer suite is 62 of 63 tests, with the unchanged legacy
   Declarative V2 long-path nested-cause assertion failing. Both required final
   reviewers approved the exact corrected five-file diff after the Miniflare
@@ -793,7 +800,7 @@ check, and two clean reproductions of private analyzer identity
 The broad analysis test command did not finish within the five-minute validation
 ceiling and reported no assertion failure; the directly affected owner test and
 typecheck passed. Analyzer package typecheck remains blocked only by the
-pre-existing untouched `packages/persistence-postgres/src/appRows.ts:434`
+pre-existing untouched `packages/persistence-postgres/src/storage/documents/appRows.ts:434`
 `noUncheckedIndexedAccess` error.
 
 This checkpoint is still private and inactive. Its database evidence is PGlite
@@ -3780,9 +3787,9 @@ Migration `0064_application_analysis_retirement.sql` is the new journal head.
 The live Drizzle schema excludes all 14 displaced analyzer, revision, verdict,
 projection and activation tables. The migration takes exclusive locks, refuses
 when any retired table is nonempty, drops the two remaining external foreign
-keys explicitly, and drops the graph without `CASCADE`. Historical FSV04/FSV05
-proofs use copied migration journals capped before 0064; current Application
-query, mutation, action and Task proofs use the latest retired schema.
+keys explicitly, and drops the graph without `CASCADE`. Retained historical
+repository and migration proofs use explicitly bounded journals; current
+Application query, mutation, action and Task proofs use the latest retired schema.
 
 The connected composition proof uses the real post-retirement repository,
 replays retained terminal evidence without a second host call, and publishes
@@ -3790,6 +3797,80 @@ the retained inactive revision into a canonical runtime target. Current
 consumer proofs run on the retired schema. Historical compatibility proofs use
 an explicit copied migration journal capped before retirement and reach the
 displaced targets only through `internal/system-test` package subpaths.
+
+The obsolete FSV04/FSV05 runtime entry suites, report-only frame/hash assertions
+and proof-only backend coordinators are retired. Current Application lifecycle,
+readiness and activation suites own nonactivating readiness, cold evidence,
+physical coverage, capability confinement, atomic publication, CAS, uncertainty
+and durable recovery. The shared finite document-validation scenario uses the
+current scoped, session-pinned validator and retains document rejection, copied
+or forged capability refusal, foreign pins and scope revocation. Superseding an
+active head does not invalidate an already admitted immutable session schema.
+The two genuine 0043 ownership migration regressions remain with persistence,
+share assertions across PGlite and PostgreSQL, and stop at the 0043 boundary.
+
+The displaced FSV06/PQV/SAP runtime suites and FSV04/FSV05 preparation chain
+are retired. Their current consumer coverage belongs to native Application
+query, mutation and action suites. The action authority failure matrix uses
+current canonical execution authority and split Application fixtures; it retains
+admission races, effect ordering, rollback, conservative recovery, lost responses,
+digest capture and interrupted-transaction joins. Native query coverage retains
+snapshot/writer locking, retained-floor refusal and client cleanup. A current
+Worker mutation composes internal mutation and queries on one staged journal,
+then publishes and replays only the parent outcome. The historical SAP06-A3
+expectation that catching a child result-validation failure permits publication
+is obsolete: current runtime failures remain sticky across that catch.
+
+The remaining FSV03 analyzer/C07 entries and their preparation harness are
+retired. Their cloned-selection and digest checks belonged to a test-owned
+inactive selector; current activation/publication/query owners retain genuine
+capability and corruption refusal. Current Application Analysis and lifecycle
+composition own real analysis, cold replay and publication, while native mutation
+and the independent C07 proof retain execution and durable agreement. The unused
+analyzer bridge exports and sources, harness-only finalizer and registration
+fixture are removed. Legacy production invocation/query adapters still have
+separate source consumers and are not retired by this test cleanup.
+
+The retained granular verifier repository proofs use the pre-0064 journal and
+historical scope seed with the shared READ COMMITTED transaction/settlement
+mechanics. They do not construct current installation or execution authority.
+PGlite cases restore independent databases from one historical image; native
+cases retain real PostgreSQL contention, rollback and fencing. The displaced
+backend lineage composition case is removed in favor of current Application
+Analysis composition proofs. The unused connected-Client verifier adapter and
+its package route are retired; its real Client transaction-serialization witness
+remains with the current connected-Client persistence tests. This repository-only
+fixture disposition is distinct from the current Task owner fixtures below.
+The earlier verifier V1-retirement proof is bounded at migration 0044, where V2
+progress remains present; migration 0064 owns its subsequent retirement.
+
+Native Task owner suites use the current scope clock/execution-authority pair
+and the existing legacy-definition Task fixtures. Their retired registration
+runtime, test-suite import and pre-0064 runtime journal caps are removed. They
+retain native lock ordering, post-lock database time, concurrency, rollback,
+uncertain outcomes, cancellation, query plans and pool cleanup. These low-level
+legacy-definition proofs remain distinct from current Application Task admission
+and execution-principal coverage.
+
+The genuine 0046 Task schema and 0053 pending-compute migration tests remain
+bounded to those historical schemas. Both drivers share the historical parent
+fixture with its candidate, verifier-attempt and schema foreign keys enabled;
+no current runtime or privileged replication bypass is involved. Other retained
+historical registration/repository consumers still own their separate retirement
+gates. Do not restore retired columns or combine historical registration rows
+with current execution authority.
+
+The retained pre-0064 registration owner reads and locks the genuine inline
+historical clock, including its generation, fence, epoch and retained range.
+It issues no current execution observation or metadata watermark. Historical
+metadata reads reuse the raw scope metadata owner; registration transactions
+reuse READ COMMITTED settlement mechanics without current installation admission.
+Native registration retains the same physical client observation, uncertain
+settlement, quarantine and release owner as installed transactions. The authority
+resolver requires only its actual five clock fields and retains its placement
+and receipt checks. Current installation admission and clock/execution-authority
+pair remain with their current owners; historical fixtures do not synthesize
+their schema or weaken their admission.
 
 Stop here. `AA-R9` routing, bindings, deployment, caller selection, auth and
 production cutover remain unauthorized.

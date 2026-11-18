@@ -22,7 +22,8 @@
     "@flarex/declarative-program": "workspace:*",
     "@flarex/standard-application-definition": "workspace:*",
     "@flarex/utils": "workspace:*",
-    "effect": "catalog:"
+    "effect": "catalog:",
+    "flarex-protocol": "workspace:*"
   },
   "devDependencies": {
     "typescript": "catalog:",

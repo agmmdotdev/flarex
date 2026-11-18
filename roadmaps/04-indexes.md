@@ -1,5 +1,26 @@
 # Indexes
 
+## Bound Complete Physical Catalog Preparation
+
+Published physical-requirement loading and index-build reconciliation admit at
+most 1024 definitions across the complete selected schema. Definition 1025 fails
+closed before partial catalog preparation or reconciliation. This includes each
+table's intrinsic index and every declared ordered index; genuine framework
+sources retain their complete index requirements.
+
+The prepared-host owner charges the complete manifest and definition DTO before
+issuing a usable catalog, retaining byte-limit refusal and lifetime disposal.
+Exact source/binding verification, index readiness, scope fencing and settlement
+remain with their existing owners. This capacity does not change the native
+Application publisher's separate operational work limit or authorize partial
+catalogs.
+
+The selected build directory and ordered Application/binding maintenance
+publishers share that same bound. A fenced forward migration replaces only the
+two ordered publisher bodies, retaining existing function ownership and explicit
+role grants. Unique-maintenance capacity remains separate. Historical migration
+files and committed rows are preserved.
+
 ## Close The Unique Definition Set Before Building It
 
 The first `C08-B1` foundation is implemented privately and remains

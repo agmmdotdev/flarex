@@ -37,6 +37,7 @@ describePostgres("SV-R Core relational Application - PostgreSQL", () => {
         )
       );
 
+      expect(proof.exactQueryScopeUnderSharedDeployment).toBe(true);
       expect(proof.analysisWorkerLoads).toBe(2);
       expect(proof.missingRelationPortWorkerLoads).toBe(1);
       expect(proof.missingRelationPortFailedClosed).toBe(true);

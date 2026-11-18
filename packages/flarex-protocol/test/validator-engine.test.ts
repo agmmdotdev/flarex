@@ -72,6 +72,20 @@ describe("ValidatorJsonV1 execution", () => {
     ))).toBe(true);
   });
 
+  it("keeps Int64 literals distinct from Float64 and diagnoses nested mismatches", () => {
+    const options = { path: "$args.amount", idPolicy: { mode: "shapeOnly" as const } };
+    for (const value of [-(1n << 63n), -1n, 0n, 1n, (1n << 63n) - 1n]) {
+      expect(Result.isSuccess(validateValidatorValueV1({ type: "literal", value }, normalizeFlarexValueV1(value).value, options))).toBe(true);
+    }
+    expect(validateValidatorValueV1({ type: "literal", value: 1n }, 1, options)).toMatchObject({ failure: { issue: { reason: "literalMismatch", path: "$args.amount", literalType: "bigint" } } });
+    expect(validateValidatorValueV1({ type: "literal", value: 1 }, 1n, options)).toMatchObject({ failure: { issue: { reason: "literalMismatch", literalType: "number" } } });
+    expect(Result.isSuccess(validateValidatorValueV1({ type: "literal", value: -0 }, -0, options))).toBe(true);
+    expect(Result.isFailure(validateValidatorValueV1({ type: "literal", value: -0 }, 0, options))).toBe(true);
+    const positive = float64FromBits(0x7ff8_0000_0000_0001n);
+    const negative = float64FromBits(0xfff8_0000_0000_0001n);
+    expect(Result.isFailure(validateValidatorValueV1({ type: "literal", value: positive }, negative, options))).toBe(true);
+    expect(Result.isSuccess(validateValidatorValueV1({ type: "literal", value: negative }, negative, options))).toBe(true);
+  });
   it("enforces strict objects, optional omission, arrays, and records", () => {
     const validator: ValidatorJsonV1 = {
       type: "object",

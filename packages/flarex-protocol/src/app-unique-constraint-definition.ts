@@ -4,13 +4,17 @@ import { Result, Schema, type SchemaAST } from "effect";
 import {
   ORDERED_INDEX_KEY_CODEC_VERSION_V1,
   OrderedIndexKeyCodecVersionSchema,
+  AppIndexNullAndBooleanEqualsPredicateV1Schema,
+  AppIndexAllNullPredicateV1Schema,
   type OrderedIndexKeyCodecVersion,
 } from "./ordered-index";
 import {
   MAX_SCHEMA_MANIFEST_APP_INDEX_DECLARED_FIELDS,
   SchemaManifestAppIndexFieldPathSchema,
+  SchemaManifestAppTableNameSchema,
   type SchemaManifestAppIndexFieldPath,
 } from "./schema-manifest";
+import { CatalogDefinitionNameSchema } from "./catalog";
 import {
   StrictParseOptions,
   StrictStructOptions,
@@ -44,6 +48,21 @@ const UniqueConstraintFieldsV1Schema = Schema.Array(
       : "Expected unique ordered field paths"
   ),
 );
+const NullPredicateSchema = Schema.Struct({
+  kind: Schema.Literal("fieldIsNull"), field: SchemaManifestAppIndexFieldPathSchema,
+}).annotate(StrictStructOptions);
+
+/** Semantic producer intent; stable identities and physical generations are
+ * assigned by the shared catalog, never by a framework's configuration. */
+export const LogicalDocumentUniqueConstraintDeclarationSchema = Schema.Struct({
+  tableLogicalName: SchemaManifestAppTableNameSchema,
+  descriptor: CatalogDefinitionNameSchema,
+  fields: UniqueConstraintFieldsV1Schema,
+  sparse: Schema.Boolean,
+  nullsDistinct: Schema.Boolean,
+  predicate: Schema.optionalKey(NullPredicateSchema),
+}).annotate(StrictStructOptions);
+export type LogicalDocumentUniqueConstraintDeclaration = typeof LogicalDocumentUniqueConstraintDeclarationSchema.Type;
 
 /**
  * First target-native unique-constraint generation.
@@ -57,6 +76,8 @@ export const AppUniqueConstraintPhysicalSpecV1Schema = Schema.Struct({
   specVersion: Schema.Literal(1),
   orderedFields: UniqueConstraintFieldsV1Schema,
   sparse: Schema.Boolean,
+  nullsDistinct: Schema.optionalKey(Schema.Literal(true)),
+  predicate: Schema.optionalKey(Schema.Union([NullPredicateSchema, AppIndexNullAndBooleanEqualsPredicateV1Schema, AppIndexAllNullPredicateV1Schema])),
   localePolicy: Schema.Struct({ kind: Schema.Literal("none") }).annotate(
     StrictStructOptions,
   ),
@@ -65,6 +86,18 @@ export const AppUniqueConstraintPhysicalSpecV1Schema = Schema.Struct({
 }).annotate(StrictStructOptions);
 export type AppUniqueConstraintPhysicalSpecV1 =
   typeof AppUniqueConstraintPhysicalSpecV1Schema.Type;
+
+export function lowerLogicalDocumentUniqueConstraint(
+  declaration: LogicalDocumentUniqueConstraintDeclaration,
+): AppUniqueConstraintPhysicalSpecV1 {
+  return Object.freeze({ kind: "appUniqueConstraint", specVersion: 1,
+    orderedFields: declaration.fields, sparse: declaration.sparse,
+    ...(declaration.nullsDistinct ? { nullsDistinct: true as const } : {}),
+    ...(declaration.predicate === undefined ? {} : { predicate: declaration.predicate }),
+    localePolicy: { kind: "none" as const }, keyCodecIdentity: APP_UNIQUE_KEY_CODEC_IDENTITY_V1,
+    keyCodecVersion: APP_UNIQUE_KEY_CODEC_VERSION_V1,
+  });
+}
 const decodeAppUniqueConstraintPhysicalSpecV1ShapeResult =
   Schema.decodeUnknownResult(
     AppUniqueConstraintPhysicalSpecV1Schema,
@@ -179,6 +212,11 @@ function snapshotPhysicalSpec(
     specVersion: spec.specVersion,
     orderedFields: Object.freeze(Array.from(spec.orderedFields)),
     sparse: spec.sparse,
+    ...(spec.nullsDistinct === undefined ? {} : { nullsDistinct: spec.nullsDistinct }),
+    ...(spec.predicate === undefined ? {} : { predicate: spec.predicate.kind === "fieldsAreNull"
+      ? Object.freeze({ kind: spec.predicate.kind,
+        fields: Object.freeze([spec.predicate.fields[0], spec.predicate.fields[1]] as const) })
+      : Object.freeze({ ...spec.predicate }) }),
     localePolicy: Object.freeze({ kind: spec.localePolicy.kind }),
     keyCodecIdentity: spec.keyCodecIdentity,
     keyCodecVersion: spec.keyCodecVersion,
@@ -191,9 +229,23 @@ function encodePhysicalSpec(spec: AppUniqueConstraintPhysicalSpecV1): string {
     `{"keyCodecIdentity":"${APP_UNIQUE_KEY_CODEC_IDENTITY_V1}",` +
     `"keyCodecVersion":1,"kind":"appUniqueConstraint",` +
     `"localePolicy":{"kind":"none"},` +
-    `"orderedFields":[${fields}],"sparse":${String(spec.sparse)},` +
+    (spec.nullsDistinct === undefined ? "" : `"nullsDistinct":true,`) +
+    `"orderedFields":[${fields}],` +
+    (spec.predicate === undefined ? "" : `"predicate":${encodePhysicalPredicate(spec.predicate)},`) +
+    `"sparse":${String(spec.sparse)},` +
     `"specVersion":1}`
   );
+}
+
+function encodePhysicalPredicate(predicate: NonNullable<AppUniqueConstraintPhysicalSpecV1["predicate"]>): string {
+  switch (predicate.kind) {
+    case "fieldsAreNull":
+      return `{"fields":[${predicate.fields.map(encodeJsonString).join(",")}],"kind":"fieldsAreNull"}`;
+    case "fieldIsNull":
+      return `{"field":${encodeJsonString(predicate.field)},"kind":"fieldIsNull"}`;
+    case "fieldIsNullAndBooleanEquals":
+      return `{"booleanField":${encodeJsonString(predicate.booleanField)},"kind":"fieldIsNullAndBooleanEquals","nullField":${encodeJsonString(predicate.nullField)},"value":${String(predicate.value)}}`;
+  }
 }
 
 function encodeJsonString(value: SchemaManifestAppIndexFieldPath): string {

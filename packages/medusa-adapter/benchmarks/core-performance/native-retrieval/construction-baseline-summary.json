@@ -1,0 +1,151 @@
+{
+  "checkpoint": "e6bd105ea",
+  "scope": "Protected standalone scalar/collection native Product retrieval; full request preparation included",
+  "methods": {
+    "quiet": "5 warmups/30 samples per lane/case; alternating serial pairs; median middle-pair mean, p95 nearest-rank",
+    "trace": "Separate diagnostic sample, all driver statements/rows/JSON bytes",
+    "server": "Separate diagnostic sample, all-role authenticated database coverage; top-level totals; nested entries separate"
+  },
+  "provenanceSupplement": "construction-baseline-source-supplement.json",
+  "modes": [
+    {
+      "mode": "quiet",
+      "status": "measurementPassed",
+      "sourceStable": true,
+      "sourceEvidenceSha256": "58024526264fd85307226054bf0083400bb64548fc37f61d743b66252f766a7c",
+      "runtimeStable": true,
+      "sampleFailures": 0
+    },
+    {
+      "mode": "trace",
+      "status": "measurementPassed",
+      "sourceStable": true,
+      "sourceEvidenceSha256": "58024526264fd85307226054bf0083400bb64548fc37f61d743b66252f766a7c",
+      "runtimeStable": true,
+      "sampleFailures": 0
+    },
+    {
+      "mode": "server",
+      "status": "measurementPassed",
+      "sourceStable": true,
+      "sourceEvidenceSha256": "58024526264fd85307226054bf0083400bb64548fc37f61d743b66252f766a7c",
+      "runtimeStable": true,
+      "sampleFailures": 0
+    }
+  ],
+  "quiet": {
+    "scalar/native": {
+      "n": 30,
+      "medianMs": 1.4614500000006956,
+      "p95Ms": 1.9140000000006694,
+      "minMs": 0.8991000000023632,
+      "maxMs": 2.0833999999995285
+    },
+    "scalar/flarex": {
+      "n": 30,
+      "medianMs": 77.74790000000212,
+      "p95Ms": 89.36169999999765,
+      "minMs": 71.9439999999995,
+      "maxMs": 92.93449999999939
+    },
+    "collection/native": {
+      "n": 30,
+      "medianMs": 1.9399499999999534,
+      "p95Ms": 2.4582999999984168,
+      "minMs": 1.1637999999984459,
+      "maxMs": 2.981100000000879
+    },
+    "collection/flarex": {
+      "n": 30,
+      "medianMs": 80.10995000000003,
+      "p95Ms": 108.83799999999974,
+      "minMs": 70.84370000000126,
+      "maxMs": 125.10459999999875
+    }
+  },
+  "trace": [
+    {
+      "demand": "scalar",
+      "lane": "native",
+      "dispatches": 1,
+      "transactions": 0,
+      "rows": 1,
+      "jsonBytes": 146
+    },
+    {
+      "demand": "scalar",
+      "lane": "flarex",
+      "dispatches": 106,
+      "transactions": 6,
+      "rows": 222,
+      "jsonBytes": 248243
+    },
+    {
+      "demand": "collection",
+      "lane": "native",
+      "dispatches": 1,
+      "transactions": 0,
+      "rows": 1,
+      "jsonBytes": 186
+    },
+    {
+      "demand": "collection",
+      "lane": "flarex",
+      "dispatches": 108,
+      "transactions": 6,
+      "rows": 224,
+      "jsonBytes": 250350
+    }
+  ],
+  "server": [
+    {
+      "demand": "scalar",
+      "lane": "native",
+      "topLevelCalls": 1,
+      "topLevelPlanningMs": 0.10159999999999997,
+      "topLevelExecutionMs": 0.017499999999999998,
+      "nestedEntries": 0,
+      "sharedBlockReads": 0
+    },
+    {
+      "demand": "scalar",
+      "lane": "flarex",
+      "topLevelCalls": 106,
+      "topLevelPlanningMs": 10.060899999999998,
+      "topLevelExecutionMs": 2.7809999999999935,
+      "nestedEntries": 0,
+      "sharedBlockReads": 0
+    },
+    {
+      "demand": "collection",
+      "lane": "native",
+      "topLevelCalls": 1,
+      "topLevelPlanningMs": 0.18009999999999998,
+      "topLevelExecutionMs": 0.0298,
+      "nestedEntries": 0,
+      "sharedBlockReads": 0
+    },
+    {
+      "demand": "collection",
+      "lane": "flarex",
+      "topLevelCalls": 108,
+      "topLevelPlanningMs": 10.14940000000001,
+      "topLevelExecutionMs": 2.5681999999999996,
+      "nestedEntries": 0,
+      "sharedBlockReads": 0
+    }
+  ],
+  "setup": {
+    "flarexFixtureAndHostConstructionMs": 12994.477799999999,
+    "nativeSchemaPreparationMs": 234.1876000000011,
+    "nativeSchemaAndModuleConstructionMs": 354.4508999999998,
+    "nativePublicSeedMs": 41.64200000000346,
+    "flarexPublicSeedMs": 337.02679999999964
+  },
+  "limitations": [
+    "Independent diagnostic modes are not additive CPU/latency causation.",
+    "All original raw reports retained unchanged.",
+    "Supplemented owner hashes are exact e6bd105ea Git tree evidence, not original harness observations.",
+    "No separate nested entries does not prove absence of function/trigger work."
+  ]
+}

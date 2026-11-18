@@ -6,9 +6,9 @@ import {
   type AbandonPushRequest,
   DeploymentBadRequestErrorResponse,
   DeploymentConflictErrorResponse,
-  decodeActiveDeploymentStatusEffect,
-  decodeFinishPushResponseEffect,
-  decodePushStatusEffect,
+  captureActiveDeploymentStatusEffect,
+  captureFinishPushResponseEffect,
+  capturePushStatusEffect,
   DeploymentHealthResponse,
   DeploymentNotFoundErrorResponse,
   DeploymentProtocolValidationError,
@@ -407,17 +407,17 @@ function deploymentStartProtocolFailure(
 export const decodePushStatusForHttpApi = Effect.fn(
   "DeploymentApiHandlers.decodePushStatusForHttpApi",
 )(function* (value: unknown) {
-  return yield* mapDeploymentProtocolResponseFailure(decodePushStatusEffect(value));
+  return yield* mapDeploymentProtocolResponseFailure(capturePushStatusEffect(value));
 });
 
 export const decodeActiveDeploymentStatusForHttpApi = Effect.fn(
   "DeploymentApiHandlers.decodeActiveDeploymentStatusForHttpApi",
 )(function* (value: unknown) {
-  return yield* mapDeploymentProtocolResponseFailure(decodeActiveDeploymentStatusEffect(value));
+  return yield* mapDeploymentProtocolResponseFailure(captureActiveDeploymentStatusEffect(value));
 });
 
 export const decodeFinishPushResponseForHttpApi = Effect.fn(
   "DeploymentApiHandlers.decodeFinishPushResponseForHttpApi",
 )(function* (value: unknown) {
-  return yield* mapDeploymentProtocolResponseFailure(decodeFinishPushResponseEffect(value));
+  return yield* mapDeploymentProtocolResponseFailure(captureFinishPushResponseEffect(value));
 });

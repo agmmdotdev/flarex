@@ -1,0 +1,48 @@
+{
+  "checkpoint": "e6bd105ea",
+  "disposition": "Fresh pre-change request-construction baseline; original raw reports retained byte-for-byte; derived summary and explicit Git-source supplement separate",
+  "originalSourceEvidenceSha256": "58024526264fd85307226054bf0083400bb64548fc37f61d743b66252f766a7c",
+  "compression": "gzip; exact compressed/content bytes and hashes",
+  "logSegment": {
+    "source": "work/validation/read-construction-postgres/server.log",
+    "startByte": 688,
+    "endByteExclusive": 63528824,
+    "scope": "bootstrap, seed, parity and server diagnostic samples; not a quiet interval"
+  },
+  "files": [
+    {
+      "name": "quiet-construction-baseline.json",
+      "bytes": 99776,
+      "sha256": "e88c79d8c5175f316917c81b241c919f6d18cfcf67235fd79deef1f31b44a8b2"
+    },
+    {
+      "name": "trace-construction-baseline.json",
+      "bytes": 265342,
+      "sha256": "9b37958f45f52ff17988a1c8413501a147c4499d29b453edd00f9af1bfa993b7"
+    },
+    {
+      "name": "server-construction-baseline.json.gz",
+      "bytes": 1660269,
+      "sha256": "c57eeebb497e5769b6b4d5028f4465ffaaadc2334ea86d7d79f20e509db8ac6c",
+      "contentBytes": 15850966,
+      "contentSha256": "a817671f3a23c0bb1a3369b3ff87a3aebd93bd8771b8f463bca304a52a97f03b"
+    },
+    {
+      "name": "server-plans-construction-baseline.log.gz",
+      "bytes": 2712494,
+      "sha256": "796b015679c9e6635e60e9a92db955e4551b6fc124a2d9d727edd97f3eb555a1",
+      "contentBytes": 63528136,
+      "contentSha256": "2e9acfcc91ed1e37c1583f1360e00f128dcd1481672b33502f43737b090fb25b"
+    },
+    {
+      "name": "construction-baseline-summary.json",
+      "bytes": 4363,
+      "sha256": "8b390d875b361c9e022e38a80b75803a2412b88c6e4609f2bf76ac3be64f2233"
+    },
+    {
+      "name": "construction-baseline-source-supplement.json",
+      "bytes": 2841,
+      "sha256": "1fdc3bd96abea52fbbc107fbeab049c0dc67abcfdc4d44e448ac8fc6716bf137"
+    }
+  ]
+}

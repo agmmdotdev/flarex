@@ -1,9 +1,12 @@
 import { Result } from "effect";
 import { describe, expect, it } from "vitest";
+import type { ValidatorJsonV1 } from "../src/validator-json";
 
 import {
   canonicalizeApplicationRuntimeTargetV1,
   decodeApplicationRuntimeTargetV1,
+  captureApplicationRuntimeTargetV1,
+  applicationRuntimeTargetWireV1,
 } from "../src/application-runtime-target-v1";
 
 describe("ApplicationRuntimeTargetV1", () => {
@@ -28,6 +31,25 @@ describe("ApplicationRuntimeTargetV1", () => {
       new TextDecoder().decode(canonical.canonicalBytes),
     );
     expect(canonical.canonicalText).not.toContain("semantic");
+  });
+
+  it("selects current record wire admission independently from semantic capture", () => {
+    const base = target();
+    const record = { type: "record", keys: { type: "string" }, values: { type: "number" } };
+    const semantic = { ...base, function: { ...base.function,
+      args: { type: "object", value: { scores: { fieldType: record, optional: false } } },
+      returns: { type: "union", value: [{ type: "null" }, record] },
+    } };
+    const captured = Result.getOrThrow(captureApplicationRuntimeTargetV1(semantic));
+    const wire = applicationRuntimeTargetWireV1(captured);
+    expect(Result.getOrThrow(decodeApplicationRuntimeTargetV1(wire))).toEqual(captured);
+    expect(Result.getOrThrow(canonicalizeApplicationRuntimeTargetV1(captured)).target).toEqual(captured);
+    expect(wire.function).toMatchObject({
+      args: { value: { scores: { fieldType: { type: "record", values: { fieldType: { type: "number" }, optional: false } } } } },
+      returns: { type: "union", value: [{ type: "null" }, { type: "record", values: { fieldType: { type: "number" }, optional: false } }] },
+    });
+    expect(Result.isFailure(decodeApplicationRuntimeTargetV1(semantic))).toBe(true);
+    expect(Result.isFailure(captureApplicationRuntimeTargetV1(wire))).toBe(true);
   });
 
   it("rejects a function path that disagrees with module and export", () => {
@@ -66,7 +88,7 @@ describe("ApplicationRuntimeTargetV1", () => {
     expect(third.canonicalText).not.toBe(first.canonicalText);
   });
 
-  it("rejects validator graphs beyond the admitted protocol profile", () => {
+  it("admits deep semantic declaration graphs within the actual runtime-target byte budget", () => {
     let validator: unknown = { type: "string" };
     for (let depth = 0; depth < 256; depth += 1) {
       validator = { type: "array", value: validator };
@@ -78,10 +100,15 @@ describe("ApplicationRuntimeTargetV1", () => {
     };
     const result = decodeApplicationRuntimeTargetV1(input);
 
-    expect(Result.isFailure(result)).toBe(true);
-    if (Result.isFailure(result)) {
-      expect(result.failure.reason).toBe("invalidShape");
-    }
+    expect(Result.isSuccess(result)).toBe(true);
+  });
+
+  it("measures shared validator expansion against the target byte budget before rendering", () => {
+    let validator: ValidatorJsonV1 = { type: "string" };
+    for (let index = 0; index < 40; index++) validator = { type: "union", value: [validator, validator] };
+    const base = target();
+    const canonical = canonicalizeApplicationRuntimeTargetV1({ ...base, function: { ...base.function, args: validator } });
+    expect(Result.isFailure(canonical) && canonical.failure).toMatchObject({ reason: "bytesExceeded" });
   });
 
   it("rejects accessor-backed and changing validator input without invoking it", () => {
@@ -129,6 +156,7 @@ describe("ApplicationRuntimeTargetV1", () => {
 function target() {
   return {
     format: "flarex.application-runtime-target" as const,
+    validatorIdentityEncoding: 2 as const,
     version: 1 as const,
     scopeId: "scope",
     revisionId: "revision",

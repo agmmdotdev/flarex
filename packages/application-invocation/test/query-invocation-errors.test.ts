@@ -1,12 +1,34 @@
 import type { InvokeApplicationQueryError } from
   "@flarex/standard-application-invocation/internal/application-query-system";
 import { Data } from "effect";
+import { CoreApplicationAdmissionError } from "@flarex/standard-application-invocation/internal/application-mutation-system";
+import { CoreApplicationQueryError } from "@flarex/standard-application-invocation/internal/application-query-system";
 import { describe, expect, it } from "vitest";
 
 import {
   projectQueryInvocationError,
   type QueryInvocationErrorReason,
 } from "../src/QueryInvocationError.js";
+
+class CoreTransactionFailure extends Data.TaggedError("CoreTransactionError")<Pick<
+  Extract<InvokeApplicationQueryError, { readonly _tag: "CoreTransactionError" }>, "reason" | "cause"
+>> {}
+class CorePersistenceFailure extends Data.TaggedError("CorePersistenceError")<Pick<
+  Extract<InvokeApplicationQueryError, { readonly _tag: "CorePersistenceError" }>, "reason" | "cause"
+>> {}
+class CoreSchemaFailure extends Data.TaggedError("CoreSchemaError")<Pick<
+  Extract<InvokeApplicationQueryError, { readonly _tag: "CoreSchemaError" }>, "reason" | "message" | "cause"
+>> {}
+class CoreProgramFailure extends Data.TaggedError("CoreApplicationProgramError")<Pick<
+  Extract<InvokeApplicationQueryError, { readonly _tag: "CoreApplicationProgramError" }>, "reason" | "cause"
+>> {}
+class CoreReferenceFailure extends Data.TaggedError("CoreNativeReferenceError")<Pick<
+  Extract<InvokeApplicationQueryError, { readonly _tag: "CoreNativeReferenceError" }>,
+  "reason" | "forwardName" | "sourceTable" | "targetTable" | "sourceId" | "targetId"
+>> {}
+class CoreReferencePlanFailure extends Data.TaggedError("CoreNativeReferencePlanError")<Pick<
+  Extract<InvokeApplicationQueryError, { readonly _tag: "CoreNativeReferencePlanError" }>, "reason"
+>> {}
 
 class QueryInputFailure extends Data.TaggedError("ApplicationQueryInputError")<{
   readonly reason: "invalidFunction" | "invalidArguments" | "invalidIdentity";
@@ -20,7 +42,8 @@ class QueryCompositionFailure extends Data.TaggedError(
     | "invalidExecutionContext"
     | "invalidTarget"
     | "sourceReadFailed"
-    | "workerDefinitionFailed";
+    | "workerDefinitionFailed"
+    | "requestResourceFailed";
   readonly cause?: unknown;
 }> {}
 
@@ -221,6 +244,16 @@ type DirectQueryOwnerError = Exclude<
 type DirectQueryOwnerTag = DirectQueryOwnerError["_tag"];
 
 const DIRECT_QUERY_OWNER_REASON = Object.freeze({
+  InvalidAppRowReadInputError: "invalidConfiguration",
+  CommitFeedInputErrorV1: "invalidConfiguration",
+  CommitFeedCursorResetRequiredErrorV1: "historyUnavailable",
+  AppRowScopeAuthorityUnavailableError: "staleScopeAuthority",
+  CommitFeedScopeNotFoundErrorV1: "staleScopeAuthority",
+  AppRowReadPersistenceError: "unavailable",
+  CommitFeedSqlErrorV1: "unavailable",
+  AppRowTableFrontierCorruptionError: "corruptData",
+  AppRowStorageCorruptionError: "corruptData",
+  CommitFeedCorruptionErrorV1: "corruptData",
   TrustedScopeAuthorityResolutionError: "staleScopeAuthority",
   ScopeClockNotFoundError: "staleScopeAuthority",
   ScopeExecutionAuthorityError: "staleScopeAuthority",
@@ -231,6 +264,7 @@ const DIRECT_QUERY_OWNER_REASON = Object.freeze({
   AppSchemaVersionIndexBindingPersistenceError: "unavailable",
   AppUniqueConstraintCatalogPersistenceError: "unavailable",
   AppUniqueConstraintSetClosurePersistenceV1Error: "unavailable",
+  AppUniqueConstraintSetClosureResourceError: "unavailable",
   PhysicalDefinitionLifecyclePersistenceError: "unavailable",
   SchemaVersionArtifactPersistenceError: "unavailable",
   ScopeClockCorruptionError: "corruptData",
@@ -283,6 +317,42 @@ class LocatedTransactionFailure extends Error {
 }
 
 describe("clean Query invocation-error projection", () => {
+  it.each([
+    [new CoreTransactionFailure({ reason: "programUnavailable" }), "queryNotFound"],
+    [new CoreTransactionFailure({ reason: "capacity" }), "budgetExceeded"],
+    [new CoreTransactionFailure({ reason: "tooManyTables" }), "budgetExceeded"],
+    [new CoreTransactionFailure({ reason: "documentExists" }), "invalidInput"],
+    [new CoreTransactionFailure({ reason: "documentDeleted" }), "invalidInput"],
+    [new CoreReferenceFailure({ reason: "relationTargetMissing", forwardName: "sourceTarget",
+      sourceTable: "sources", targetTable: "targets", sourceId: "source", targetId: "target" }), "invalidConfiguration"],
+    [new CoreReferenceFailure({ reason: "relationDeleteRestricted", forwardName: "sourceTarget",
+      sourceTable: "sources", targetTable: "targets", sourceId: "source", targetId: "target" }), "invalidConfiguration"],
+    [new CoreReferencePlanFailure({ reason: "invalidAuthority" }), "invalidConfiguration"],
+    [new CoreTransactionFailure({ reason: "indexUnavailable" }), "indexUnavailable"],
+    [new CoreTransactionFailure({ reason: "authorityRevoked" }), "staleScopeAuthority"],
+    [new CoreTransactionFailure({ reason: "closed" }), "unavailable"],
+    [new CorePersistenceFailure({ reason: "outOfRetention" }), "historyUnavailable"],
+    [new CorePersistenceFailure({ reason: "corruptData" }), "corruptData"],
+    [new CorePersistenceFailure({ reason: "timeout" }), "unavailable"],
+    [new CoreSchemaFailure({ reason: "invalidSchema", message: "invalid" }), "invalidInput"],
+    [new CoreSchemaFailure({ reason: "unsupportedCapability", message: "unsupported" }), "incompatibleRuntime"],
+    [new CoreSchemaFailure({ reason: "hashFailure", message: "hash" }), "unavailable"],
+    [new CoreSchemaFailure({ reason: "schemaNotFound", message: "missing" }), "applicationUnavailable"],
+    [new CoreSchemaFailure({ reason: "schemaFailed", message: "failed" }), "applicationUnavailable"],
+    [new CoreSchemaFailure({ reason: "schemaOverwritten", message: "overwritten" }), "applicationUnavailable"],
+    [new CoreSchemaFailure({ reason: "notValidated", message: "pending" }), "applicationUnavailable"],
+    [new CoreSchemaFailure({ reason: "stagedEnforcedConflict", message: "staged" }), "invalidInput"],
+    [new CoreProgramFailure({ reason: "metadataInvalid" }), "corruptData"],
+    [new CoreProgramFailure({ reason: "argumentsInvalid" }), "invalidInput"],
+    [new CoreApplicationQueryError({ reason: "functionUnsupported" }), "incompatibleRuntime"],
+  ] as const satisfies readonly (readonly [InvokeApplicationQueryError, QueryInvocationErrorReason])[])(
+    "preserves fresh owner refusal $0 as %s", (source, reason) => {
+      expect(projectQueryInvocationError(source)).toMatchObject({
+        _tag: "QueryInvocationError", reason, cause: source,
+      });
+    },
+  );
+
   it.each(Object.entries(DIRECT_QUERY_OWNER_REASON))(
     "maps direct owner tag %s",
     (sourceTag, reason) => {
@@ -450,6 +520,7 @@ describe("clean Query invocation-error projection", () => {
     ["invalidTarget", "invalidConfiguration"],
     ["sourceReadFailed", "unavailable"],
     ["workerDefinitionFailed", "unavailable"],
+    ["requestResourceFailed", "unavailable"],
   ] as const satisfies readonly (readonly [
     QueryCompositionFailure["reason"],
     QueryInvocationErrorReason,
@@ -685,4 +756,18 @@ describe("clean Query invocation-error projection", () => {
     expect(projected.reason).toBe(reason);
     expect(projected.cause).toBe(source);
   });
+});
+
+it.each([
+  ["invalidConfiguration", "invalidConfiguration"],
+  ["overloaded", "transient"],
+  ["waitExpired", "transient"],
+  ["closed", "unavailable"],
+  ["callbackCapacity", "budgetExceeded"],
+  ["queryCapacity", "budgetExceeded"],
+] as const)("projects admission reason %s and retains the owning error", (sourceReason, reason) => {
+  const source = new CoreApplicationAdmissionError({ reason: sourceReason, kind: "query" });
+  const projected = projectQueryInvocationError(source);
+  expect(projected.reason).toBe(reason);
+  expect(projected.cause).toBe(source);
 });

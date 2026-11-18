@@ -1,0 +1,291 @@
+{
+  "scope": "bounded relation-free native Product update/retrieve/list and mixed graph, one framework accepting owner",
+  "recordedAt": "2026-10-27T05:21:00.7085334+06:30",
+  "base": "db72b59d27f23dc41bed4592b588394b8cad3c0b",
+  "source": [
+    {
+      "path": "experiments/core/src/application-conflicts.ts",
+      "sha256": "06e27592e1001d4576ecb669f9153a6d0dc67838d079a4eb10129fedad1276ee"
+    },
+    {
+      "path": "experiments/core/src/application-root.ts",
+      "sha256": "0069d08af3b9015c574de80b9d39ede7c5953e19d1112d4dad8b812cf1c21cbc"
+    },
+    {
+      "path": "experiments/core/src/application-storage.ts",
+      "sha256": "5a3fe714e1ffbd6a7fee3fb069e3351199ad8bc307beb0c200c9cbadadbc03d8"
+    },
+    {
+      "path": "experiments/core/src/application-values.ts",
+      "sha256": "467bded5a029f6b12b97467b9f891b594f087071647663d3763271e0cc9857dc"
+    },
+    {
+      "path": "experiments/core/src/application.ts",
+      "sha256": "b69dc990401e051be2276baac9691cb99f4ccba8725382ac1d25f6b18086f025"
+    },
+    {
+      "path": "experiments/core/src/budget.ts",
+      "sha256": "4078af4bcc9a31510b7cc8eeb3faa5a8b0c3fa0faa7c6292c3829b9f06348e52"
+    },
+    {
+      "path": "experiments/core/src/callback.ts",
+      "sha256": "fcbaf6239543b947d4501665672fc81b8f64b80a843d9dd819b9c5953e1d90b5"
+    },
+    {
+      "path": "experiments/core/src/changes.ts",
+      "sha256": "653ab702ba086d0b4f1e00ba7703766222edce0aee78fa1ec64b88ab32615afc"
+    },
+    {
+      "path": "experiments/core/src/definition.ts",
+      "sha256": "84f652a5b262b89eed376d2cc6ebadef3606c8be94fac7247fdded819fd0ba62"
+    },
+    {
+      "path": "experiments/core/src/equality-key.ts",
+      "sha256": "5f24e50860ba8f001b9530c4545efe5787f8ede0e952a539d0b2fc40aa09e214"
+    },
+    {
+      "path": "experiments/core/src/equality-storage.ts",
+      "sha256": "1df911c127ee330ec7f60f020b94a9486c719a7f5e1057484d3ba5d196b0e31b"
+    },
+    {
+      "path": "experiments/core/src/errors.ts",
+      "sha256": "deab518380783142357f4cad6951881622f6aed6ac8dc91c4d79607c41401826"
+    },
+    {
+      "path": "experiments/core/src/framework-command.ts",
+      "sha256": "f0dc117aa795254432a63625fadbba27cb172321c2da265d0336f69983549442"
+    },
+    {
+      "path": "experiments/core/src/framework-read.ts",
+      "sha256": "7315b28cabf6f9a77e53880e652509aa9e8ce041bf6a57497a186a01d556629b"
+    },
+    {
+      "path": "experiments/core/src/group-root.ts",
+      "sha256": "134832211600bae80b40121162a11d966668f79a145c492f5f1ff6970c9e05da"
+    },
+    {
+      "path": "experiments/core/src/group-storage.ts",
+      "sha256": "c7a33b7e4aec2094592e30edb28a214ef5e61b736c643b4866cd83062bffa328"
+    },
+    {
+      "path": "experiments/core/src/materialization.ts",
+      "sha256": "762fca3815f880d952e45a67bbfa988ff13f6d1bf92a566be57929d053a7f2fb"
+    },
+    {
+      "path": "experiments/core/src/medusa-definition.ts",
+      "sha256": "a3dbbe5d6f2b083aa91965b42c0eebe6c9fd62e4caac2d46fb6383be4d882cb4"
+    },
+    {
+      "path": "experiments/core/src/medusa-product.ts",
+      "sha256": "7186f1746ce8c412da13a15251c717e9383521514c83cd9199c25a7de7a03ec2"
+    },
+    {
+      "path": "experiments/core/src/mixed.ts",
+      "sha256": "35bce29cde6af722d9fe81ec1d65c0f7e87e7710db241ea4b6e6de849a463e28"
+    },
+    {
+      "path": "experiments/core/src/payload-definition.ts",
+      "sha256": "7a2041cb065006b66e648b1839af26d6a6422a2b614e2152cb0159c8ed40fb01"
+    },
+    {
+      "path": "experiments/core/src/payload-host.ts",
+      "sha256": "5b1d6fef0dd43883fea0a12ad041826b042b02710e5d054639892a1033caa986"
+    },
+    {
+      "path": "experiments/core/src/payload-preferences.ts",
+      "sha256": "b7f1306bef3df3275c11c8c2c4a2175f4af1680581fafe510b1fdc97977a7848"
+    },
+    {
+      "path": "experiments/core/src/payload.ts",
+      "sha256": "5e5b6bb0fe06bb522914f1d4c64b275701ce6bf30a04304b934fe4a924351f1c"
+    },
+    {
+      "path": "experiments/core/src/pending-index.ts",
+      "sha256": "7903042ea65bed9991ca41bfa2e2a192d48cc1dfa04fb123611e62c76b736dc6"
+    },
+    {
+      "path": "experiments/core/src/persistence.ts",
+      "sha256": "1d441894449f79656bcceb312cb775ed6448d087e9dc5f89a882095049dbaa82"
+    },
+    {
+      "path": "experiments/core/src/query.ts",
+      "sha256": "63dcbe333ff59c2706117be41c72f777d7515d9de216f83dcbbbdaf277fc8096"
+    },
+    {
+      "path": "experiments/core/src/root.ts",
+      "sha256": "187f9c7aff8b5d0100e9b428235210e5b3162e19a9c905443a41a748092646ca"
+    },
+    {
+      "path": "experiments/core/src/schema.ts",
+      "sha256": "31f154a17cb477734286611a39a4f19b0751e7bd2fa8ad4e6424ed9b18306cf2"
+    },
+    {
+      "path": "experiments/core/src/session.ts",
+      "sha256": "50b5255b4524fcc327ad354b5518c7109cf8b2d8700b0d364226405d77d252f2"
+    },
+    {
+      "path": "experiments/core/src/storage.ts",
+      "sha256": "9f89e3f3a2d9df06ae36b9b524e118ff0c7a9d9201fccc3c10d36e3a346d1489"
+    },
+    {
+      "path": "experiments/core/src/value.ts",
+      "sha256": "28211c4e4e42d29906f538f23be0ae7332d3382ab7ee205504d1edd439823838"
+    },
+    {
+      "path": "experiments/core/src/write-conflicts.ts",
+      "sha256": "a8cc1f154cc1380eb7988264fc132be5daf45e50beb1becf26d60cd3b9313ab0"
+    },
+    {
+      "path": "experiments/core/test/application-corpus.ts",
+      "sha256": "20363f1ec88bfd0571899394e0ee063ef530923ff2c98b50582078c12569a45a"
+    },
+    {
+      "path": "experiments/core/test/application.test.ts",
+      "sha256": "a7cc0c1493a2a7038f41a087f50fb17042483f1270ad53bc20867aba6f0e58ef"
+    },
+    {
+      "path": "experiments/core/test/comparison.test.mjs",
+      "sha256": "0e806a92c3b7c6cb108d6c1af08148ab55e3f399de5c49370f5ed306405fd1a1"
+    },
+    {
+      "path": "experiments/core/test/contracts.test.ts",
+      "sha256": "cce3f29ea8057d73651867c13e27c29c80b9893211fa00fb3d709353d1f63161"
+    },
+    {
+      "path": "experiments/core/test/create.test.ts",
+      "sha256": "3d86be30dfec6d4fdcf35187fc066298467f0422f588fb046ac30321a3b85f8b"
+    },
+    {
+      "path": "experiments/core/test/equality.test.ts",
+      "sha256": "c8011d1737e6fffdbab190ee956cfae6a6c3bdf5f002b4532e84632a3f50c53a"
+    },
+    {
+      "path": "experiments/core/test/fixture.ts",
+      "sha256": "303ab5fa724a5184a9d5ab9247117396c3f3aa9bd9d29f1ebfbf930cde95d9ed"
+    },
+    {
+      "path": "experiments/core/test/group.test.ts",
+      "sha256": "f2d65b847e4180cbfe1ced1cd6df87ecc33803e103a80456e5ca76f6efaef2ef"
+    },
+    {
+      "path": "experiments/core/test/mixed.test.ts",
+      "sha256": "fdb846634ccf7235199e302b4017b2ad1872379447f2d8b266c478af0e14ff5f"
+    },
+    {
+      "path": "experiments/core/test/native-product.mjs",
+      "sha256": "637f7dca37e4ed4061a9483df97e27738aee7541258b9602f333ebd45f62d856"
+    },
+    {
+      "path": "experiments/core/test/ownership.test.ts",
+      "sha256": "4107bd4b07e61cd6ecb054797ba542e3760dc81a744517e44e8ffbf1097fa738"
+    },
+    {
+      "path": "experiments/core/test/payload-crud.test.ts",
+      "sha256": "95dcda0d08aae5674e27b142475fc57f4d2453c8723b5a8b108fa8f2ac36bdbb"
+    },
+    {
+      "path": "experiments/core/test/postgres.ts",
+      "sha256": "d868523fc6816497f078ce62600cbc61b0fb4265504db4d8139f631f1355c3e6"
+    },
+    {
+      "path": "experiments/core/test/product-comparison.test.mjs",
+      "sha256": "16317511b4392cfca41d2e511af31ba8c10d6af91da188a6e0f0a7f6d13dac2c"
+    },
+    {
+      "path": "experiments/core/test/product.test.ts",
+      "sha256": "695ba4213a823afa749d5b8ab7f2e5b9ca5e9ef01a2a288674100472ddaeca25"
+    }
+  ],
+  "sourceScope": "Owned candidate source at completion. Foundation files ran before final native-only corrections; final Product, mixed and genuine native parity ran on corrected frozen source.",
+  "reports": [
+    {
+      "passed": 33,
+      "report": "product-final-product.json",
+      "skipped": 1,
+      "processExitCode": 0
+    },
+    {
+      "passed": 28,
+      "report": "product-final-mixed.json",
+      "skipped": 0,
+      "processExitCode": 0
+    },
+    {
+      "passed": 1,
+      "report": "product-final-native.json",
+      "skipped": 0,
+      "processExitCode": 0
+    },
+    {
+      "passed": 34,
+      "report": "product-connected-equality.json",
+      "skipped": 0,
+      "processExitCode": 0
+    },
+    {
+      "passed": 34,
+      "report": "product-connected-group.json",
+      "skipped": 0,
+      "processExitCode": 0
+    },
+    {
+      "passed": 6,
+      "report": "product-connected-ownership.json",
+      "skipped": 0,
+      "processExitCode": 0
+    },
+    {
+      "passed": 34,
+      "report": "product-connected-payload-crud.json",
+      "skipped": 0,
+      "processExitCode": 0
+    },
+    {
+      "passed": 22,
+      "report": "product-connected-create.json",
+      "skipped": 2,
+      "processExitCode": 0
+    },
+    {
+      "passed": 73,
+      "report": "product-connected-application.json",
+      "skipped": 1,
+      "processExitCode": 0
+    },
+    {
+      "passed": 10,
+      "report": "product-connected-contracts.json",
+      "skipped": 0,
+      "processExitCode": 0
+    }
+  ],
+  "passedByDriver": {
+    "postgres": 135,
+    "pglite": 130,
+    "unit": 10
+  },
+  "failures": [
+    {
+      "report": "product-graph-initial-pglite.json",
+      "disposition": "Migrated revocation fixture nested an admin transaction inside PGlite active physical transaction. Moved the administrative action after the completed physical unique observation, retaining accepting refusal."
+    },
+    {
+      "report": "product-graph-native-initial.json",
+      "disposition": "Exact native parity found collection/type null references omitted from candidate reads. Restored native shape and strict read decoder; retained full-key comparison."
+    }
+  ],
+  "checks": {
+    "reviews": "Both required read-only reviewers statically clear; final runtime reports supplied after clearance",
+    "rootLintCore": "passed",
+    "candidateLint": "passed, adjudicated warnings",
+    "rootLintDiff": "passed",
+    "schemaGenerate": "no drift",
+    "typecheck": "tsc-rs passed"
+  },
+  "limits": [
+    "No latency/CPU/SQL performance result",
+    "No populated Product relations or workflow promotion",
+    "Mixed native deletion/preferences remain pending",
+    "No production deployment or active-core changes"
+  ]
+}

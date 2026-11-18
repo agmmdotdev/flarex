@@ -6,9 +6,11 @@ import {
   ApplicationPointMutationRunnerHostV1Error,
   PointMutationOccApplicationErrorV1,
   PointMutationOccUserCodeV1Error,
-  type PointMutationOccRuntimeNeutralRunnerInputV1,
-  type PointMutationOccRuntimeNeutralRunnerV1,
-  type PointMutationOccRuntimeNeutralRunnerV1Error,
+} from "@flarex/executor/internal/point-mutation-runner-errors";
+import type {
+  PointMutationOccRuntimeNeutralRunnerInputV1,
+  PointMutationOccRuntimeNeutralRunnerV1,
+  PointMutationOccRuntimeNeutralRunnerV1Error,
 } from "@flarex/executor/internal/application-point-mutation-runner";
 import {
   bytesEqualFullScan,
@@ -193,7 +195,7 @@ const projectApplicationMutationRequest = Effect.fn(
   ));
 });
 
-function projectApplicationAuth(
+export function projectApplicationAuth(
   auth: TransactionGrantInertAuthV1,
 ): ApplicationWorkerAuthV1 | TransactionGrantInertAuthV1 {
   switch (auth.kind) {
@@ -228,7 +230,7 @@ const runWithJournalSettlement = Effect.fn(
       definition,
       request,
       capability: session.target,
-    }).pipe(Effect.mapError(mapHostFailure))).pipe(
+    }).pipe(Effect.mapError(mapApplicationPointMutationHostFailure))).pipe(
       Effect.exit,
       Effect.flatMap(hostExit =>
         session.closeAndDrain.pipe(
@@ -267,7 +269,7 @@ function resolveRunnerExits(
     : Effect.failCause(hostExit.cause);
 }
 
-function mapHostFailure(
+export function mapApplicationPointMutationHostFailure(
   error: ApplicationExecutionHostError,
 ):
   | ApplicationPointMutationRunnerHostV1Error

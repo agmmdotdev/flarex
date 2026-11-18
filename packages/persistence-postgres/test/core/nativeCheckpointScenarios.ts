@@ -1,0 +1,885 @@
+import { randomBytes } from "node:crypto";
+import { Effect, Result } from "effect";
+import { describe, expect, it, vi } from "vitest";
+import { captureLogicalSchemaSource } from "@flarex/analysis/internal/logical-schema-candidate";
+import { normalizeRelationalSchema, relationalSchemaSourceFromDefinition } from "flarex-protocol/internal/relational-schema";
+import type { CoreError, CoreNativeOperations, CoreNativeSetNullIntent, CoreRequestIdentity } from "../../src/core/api";
+import { openCoreDatabase } from "../../src/core/database";
+import { makeCoreRelationalNativeDefinition } from "../../src/core/nativePolicy";
+import { CORE_NATIVE_ANNOUNCED_FINDS } from "../../src/core/nativePrefetch";
+import * as nativeQuery from "../../src/core/nativeQuery";
+import * as nativeRelationalQuery from "../../src/core/nativeRelationalQuery";
+import { makeCoreSchemaBundle } from "../../src/core/schemaBundle";
+import { inspectReferenceFailure } from "../../src/values/referenceFailure";
+import { inspectRelationalFailure } from "../../src/values/relationalFailure";
+import { projectCoreCommerceFailure } from "../../src/frameworks/commerceTransaction/nativeFailure";
+import { makeNativeCommerceParticipant } from "../../src/frameworks/commerceTransaction/nativeStore";
+import { commerceError, commerceLimits } from "../../src/frameworks/commerceTransaction/model";
+import { makeBoundedRequestLifetime } from "../../src/execution/preparation/boundedRequestLifetime";
+import type { CorePersistenceFixture } from "./fixture";
+import { coreNativeTestBudget } from "./nativeTestBudget";
+import { CORE_SCHEMA_WORKER_TEST_OPTIONS } from "./schemaFixture";
+
+const target = { scopeUuid: "2beec849-aec4-4f91-8b57-3ad10cc44080", epochUuid: "99695e9e-97df-4353-aa16-50c99263ef53" };
+const origin = { kind: "synthetic", sourceId: "neutral-native-checkpoint" };
+const schema = Result.getOrThrow(normalizeRelationalSchema({ owner: "medusa", lineageId: origin.sourceId, capabilities: [], tables: [
+  { tableId: "parent", origin, columns: [
+    { columnId: "id", type: "text", nullable: false, default: { kind: "none" }, origin },
+  ], keys: [{ keyId: "parent.primary", kind: "primary", columns: ["id"], origin }], indexes: [], constraints: [], relationships: [] },
+  { tableId: "child", origin, columns: [
+    { columnId: "id", type: "text", nullable: false, default: { kind: "none" }, origin },
+    { columnId: "parent_id", type: "text", nullable: false, default: { kind: "none" }, origin },
+    { columnId: "code", type: "text", nullable: false, default: { kind: "none" }, origin },
+    { columnId: "count", type: "integer", nullable: false, default: { kind: "integerLiteral", value: 1 }, origin },
+  ], keys: [{ keyId: "child.primary", kind: "primary", columns: ["id"], origin }], indexes: [], constraints: [
+    { constraintId: "child.parent", kind: "foreignKey", sourceColumns: ["parent_id"], targetColumns: [{ tableId: "parent", columnId: "id" }],
+      onDelete: "noAction", onUpdate: "noAction", origin },
+    { constraintId: "child.count", kind: "integerRange", columnId: "count", minimum: 0, maximum: 10, origin },
+  ], relationships: [] },
+] }));
+
+const lifecycleOrigin = { kind: "implicit", sourceId: `${origin.sourceId}.lifecycle` };
+const lifecycleSchema = Result.getOrThrow(normalizeRelationalSchema({ owner: "medusa", lineageId: origin.sourceId, tables: [
+  { tableId: "parent", origin, columns: [
+    { columnId: "id", type: "text", nullable: false, default: { kind: "none" }, origin },
+    ...["created_at", "updated_at"].map(columnId => ({ columnId, type: "timestamptz" as const, nullable: false,
+      default: { kind: "currentTimestamp" as const }, origin: lifecycleOrigin })),
+    { columnId: "deleted_at", type: "timestamptz", nullable: true, default: { kind: "none" }, origin: lifecycleOrigin },
+  ], keys: [{ keyId: "parent.primary", kind: "primary", columns: ["id"], origin }], indexes: [
+    { indexId: "parent.active", kind: "btree", columns: ["deleted_at"], predicate: { kind: "isNull", columnId: "deleted_at" }, origin: lifecycleOrigin },
+  ], constraints: [], relationships: [] },
+], capabilities: [
+  { capabilityId: "parent.timestamps", kind: "managedTimestamps", createdAtColumn: { tableId: "parent", columnId: "created_at" },
+    updatedAtColumn: { tableId: "parent", columnId: "updated_at" }, updateBehavior: "currentTimestampOnUpdate", origin: lifecycleOrigin },
+  { capabilityId: "parent.lifecycle", kind: "softDelete", deletedAtColumn: { tableId: "parent", columnId: "deleted_at" },
+    activeRowsIndex: { tableId: "parent", indexId: "parent.active" }, origin: lifecycleOrigin },
+] }));
+
+const replacementSchema = Result.getOrThrow(normalizeRelationalSchema({ owner: "medusa", lineageId: origin.sourceId,
+  tables: ["parent", "child"].map(tableId => ({ tableId, origin, columns: [
+    { columnId: "id", type: "text", nullable: false, default: { kind: "none" }, origin },
+    ...(tableId === "child" ? [{ columnId: "parent_id", type: "text", nullable: true, default: { kind: "none" }, origin }] : []),
+    ...["created_at", "updated_at"].map(columnId => ({ columnId, type: "timestamptz", nullable: false,
+      default: { kind: "currentTimestamp" }, origin: lifecycleOrigin })),
+    { columnId: "deleted_at", type: "timestamptz", nullable: true, default: { kind: "none" }, origin: lifecycleOrigin },
+  ], keys: [{ keyId: `${tableId}.primary`, kind: "primary", columns: ["id"], origin }], indexes: [
+    { indexId: `${tableId}.active`, kind: "btree", columns: ["deleted_at"], predicate: { kind: "isNull", columnId: "deleted_at" }, origin: lifecycleOrigin },
+  ], constraints: tableId === "child" ? [{ constraintId: "child.parent", kind: "foreignKey", sourceColumns: ["parent_id"],
+    targetColumns: [{ tableId: "parent", columnId: "id" }], onDelete: "noAction", onUpdate: "noAction", origin }] : [], relationships: [],
+  })), capabilities: ["parent", "child"].flatMap(tableId => [
+    { capabilityId: `${tableId}.timestamps`, kind: "managedTimestamps", createdAtColumn: { tableId, columnId: "created_at" },
+      updatedAtColumn: { tableId, columnId: "updated_at" }, updateBehavior: "currentTimestampOnUpdate", origin: lifecycleOrigin },
+    { capabilityId: `${tableId}.lifecycle`, kind: "softDelete", deletedAtColumn: { tableId, columnId: "deleted_at" },
+      activeRowsIndex: { tableId, indexId: `${tableId}.active` }, origin: lifecycleOrigin },
+  ]),
+}));
+
+const setup = Effect.fn("NativeCheckpointTest.setup")(function* (fixture: CorePersistenceFixture, nullableReference = false,
+  baseSchema: typeof schema = schema, now: Effect.Effect<bigint> = Effect.succeed(1_000_000_000n)) {
+  const nativeSchema = nullableReference ? yield* Effect.fromResult(normalizeRelationalSchema(relationalSchemaSourceFromDefinition({ ...baseSchema,
+    tables: baseSchema.tables.map(table => table.identity.tableId !== "child" ? table : { ...table,
+      columns: table.columns.map(column => column.identity.columnId !== "parent_id" ? column : { ...column, nullable: true }) }),
+  }))) : baseSchema;
+  const source = yield* captureLogicalSchemaSource({ key: "medusa.neutral-native-checkpoint", owner: "medusa",
+    writeProfile: "medusa.neutral-native-checkpoint", evidence: { provenance: origin }, definition: { kind: "relational", schema: nativeSchema },
+    bindings: nativeSchema.tables.map(table => ({ kind: "definition", localName: table.identity.tableId,
+      table: { namespace: "medusa", logicalName: `${origin.sourceId}/${table.identity.tableId}` } })) });
+  const definition = yield* makeCoreRelationalNativeDefinition({ ...target, source, provenance: origin, commands: [] });
+  const foreignOrigin = { kind: "synthetic", sourceId: "neutral-checkpoint-foreign" };
+  const foreignSchema = yield* Effect.fromResult(normalizeRelationalSchema({ owner: "medusa", lineageId: foreignOrigin.sourceId,
+    capabilities: [], tables: [{ tableId: "foreign", origin: foreignOrigin, columns: [
+      { columnId: "id", type: "text", nullable: false, default: { kind: "none" }, origin: foreignOrigin },
+    ], keys: [{ keyId: "foreign.primary", kind: "primary", columns: ["id"], origin: foreignOrigin }], indexes: [], constraints: [], relationships: [] }] }));
+  const foreignSource = yield* captureLogicalSchemaSource({ key: "medusa.neutral-checkpoint-foreign", owner: "medusa",
+    writeProfile: "medusa.neutral-checkpoint-foreign", evidence: { provenance: foreignOrigin }, definition: { kind: "relational", schema: foreignSchema },
+    bindings: [{ kind: "definition", localName: "foreign", table: { namespace: "medusa", logicalName: "neutral-checkpoint-foreign/foreign" } }] });
+  const foreign = yield* makeCoreRelationalNativeDefinition({ ...target, source: foreignSource, provenance: foreignOrigin, commands: [] });
+  const bundle = yield* makeCoreSchemaBundle({ sources: [{ kind: "native", definition }, { kind: "native", definition: foreign }] });
+  const database = yield* Effect.acquireRelease(openCoreDatabase(fixture.persistence, { schemaBundles: [bundle],
+    now, randomBytes: length => Effect.sync(() => randomBytes(length)),
+    schemaWorker: CORE_SCHEMA_WORKER_TEST_OPTIONS, maxConcurrentSaves: 2, maxBatchDelayMilliseconds: 0 }), db => db.close());
+  const proposal = yield* database.prepareSchema({ bundle });
+  let ready = false;
+  for (let step = 0; step < 128; step++) {
+    const status = yield* database.schemaStatus(proposal);
+    if ((status.state === "validated" || status.state === "active") && status.indexesReady) {
+      yield* database.activateSchema(proposal, { programs: [], bundle }); ready = true; break;
+    }
+    if (status.state === "failed" || status.state === "overwritten") return yield* Effect.die(new Error("Neutral checkpoint schema refused"));
+    yield* database.advanceSchema(proposal, { pageSize: 32, maxPages: 8 });
+  }
+  if (!ready) return yield* Effect.die(new Error("Neutral checkpoint schema did not activate"));
+  const binding = yield* database.bindNative({ definition, commands: [{ name: "checkpoint-write", mode: "write" }, { name: "checkpoint-read", mode: "read" }] });
+  const foreignBinding = yield* database.bindNative({ definition: foreign, commands: [{ name: "foreign-read", mode: "read" }, { name: "foreign-write", mode: "write" }] });
+  const metadata = yield* database.readNativeBinding(binding);
+  const table = (name: string) => {
+    const selected = definition.tables.find(table => table.localName === name);
+    if (selected === undefined) throw new Error("Missing neutral checkpoint table");
+    return selected.name;
+  };
+  const begin = () => database.beginNative(binding, { commandName: "checkpoint-write", ...coreNativeTestBudget() });
+  const write = <A>(body: (operations: CoreNativeOperations) => Effect.Effect<A, CoreError>) => Effect.acquireUseRelease(begin(), operation =>
+    Effect.gen(function* () { const result = yield* body(operation.operations); yield* database.commit(yield* operation.finalize()); return result; }), operation => operation.abort());
+  const read = (name: string) => Effect.acquireUseRelease(database.beginNative(binding,
+    { commandName: "checkpoint-read", ...coreNativeTestBudget() }), operation => Effect.gen(function* () {
+    const rows = yield* operation.operations.find(table(name), {}); yield* operation.finishRead(); return rows;
+  }), operation => operation.abort());
+  return { database, bundle, metadata, binding, foreignBinding, foreign, table, begin, write, read };
+});
+
+const failed = <A>(result: Result.Result<A, CoreError>) => Result.isFailure(result) ? result.failure : undefined;
+const statementReferences = { statementReferenceChecks: true } as const;
+
+export function registerNativeCheckpointScenarios(label: string, createFixture: () => Promise<CorePersistenceFixture>) {
+  describe(label, () => {
+    const run = <Failure>(body: (fixture: CorePersistenceFixture) => Effect.Effect<void, Failure, import("effect").Scope.Scope>) => async () => {
+      const fixture = await createFixture();
+      try { await Effect.runPromise(Effect.scoped(body(fixture))); } finally { await fixture.close(); }
+    };
+
+    it("checks the actual pending outgoing graph without publishing or requiring parent-first insertion", run(fixture => Effect.gen(function* () {
+      const graph = yield* setup(fixture);
+      yield* graph.write(operations => Effect.gen(function* () {
+        yield* operations.writeRows(graph.table("child"), "insert", [{ id: "child", parent_id: "parent", code: "valid" }]);
+        yield* operations.writeRows(graph.table("parent"), "insert", [{ id: "parent" }]);
+        yield* operations.checkpointReferences(graph.table("child"));
+        expect(yield* graph.read("parent")).toEqual([]);
+        expect(yield* graph.read("child")).toEqual([]);
+      }));
+      expect(yield* graph.read("child")).toMatchObject([{ id: "child", parent_id: "parent", code: "valid" }]);
+    })), 120_000);
+
+    it("issues exact checkpoint provenance and refuses foreign sources and copied failures", run(fixture => Effect.gen(function* () {
+      const graph = yield* setup(fixture), operation = yield* graph.begin();
+      yield* operation.operations.writeRows(graph.table("child"), "insert", [{ id: "missing-child", parent_id: "missing", code: "valid" }]);
+      const refusal = failed(yield* Effect.result(operation.operations.checkpointReferences(graph.table("child"))));
+      if (refusal === undefined) return yield* Effect.die(new Error("Expected outgoing checkpoint refusal"));
+      expect(refusal).toMatchObject({ _tag: "CoreNativeForeignKeyError", reason: "targetMissing", descriptor: "child.parent" });
+      const projected = projectCoreCommerceFailure(refusal);
+      expect(inspectReferenceFailure(projected)).toMatchObject({ storage: "core", origin: "checkpoint", descriptor: "child.parent",
+        child: { tableName: "child", identity: { tableId: "child" } }, sourceColumns: ["parent_id"],
+        target: { tableName: "parent", columns: ["id"], values: ["missing"] } });
+      expect(inspectReferenceFailure({ ...projected })).toBeUndefined();
+      expect(inspectReferenceFailure({ cause: projected })).toBeUndefined();
+      const foreign = graph.foreign.tables[0];
+      if (foreign === undefined) return yield* Effect.die(new Error("Missing foreign source"));
+      expect(failed(yield* Effect.result(operation.operations.checkpointReferences(foreign.name))))
+        .toMatchObject({ reason: "authorityRevoked" });
+      expect(failed(yield* Effect.result(operation.operations.writeRows(foreign.name, "insert", [{ id: "foreign" }], statementReferences))))
+        .toMatchObject({ reason: "authorityRevoked" });
+      yield* operation.abort();
+      expect(yield* graph.read("child")).toEqual([]);
+    })), 120_000);
+
+    it("rechecks a target removed after checkpoint before accepting the child", run(fixture => Effect.gen(function* () {
+      const graph = yield* setup(fixture);
+      yield* graph.write(operations => operations.writeRows(graph.table("parent"), "insert", [{ id: "racing-parent" }]));
+      const operation = yield* graph.begin();
+      yield* operation.operations.writeRows(graph.table("child"), "insert", [{ id: "racing-child", parent_id: "racing-parent", code: "valid" }]);
+      yield* operation.operations.checkpointReferences(graph.table("child"));
+      yield* graph.write(operations => operations.deleteRows(graph.table("parent"), ["racing-parent"]));
+      const refusal = failed(yield* Effect.result(operation.finalize().pipe(Effect.flatMap(graph.database.commit))));
+      if (refusal === undefined) return yield* Effect.die(new Error("Expected final checkpoint race refusal"));
+      expect(["conflict", "targetMissing"]).toContain(refusal.reason);
+      yield* operation.abort();
+      expect(yield* graph.read("child")).toEqual([]);
+      expect(yield* graph.read("parent")).toEqual([]);
+    })), 120_000);
+
+    it("keeps entity-group required and row CHECK phases ahead of the selected identity conflict", run(fixture => Effect.gen(function* () {
+      const graph = yield* setup(fixture), child = graph.table("child");
+      yield* graph.write(operations => Effect.gen(function* () {
+        yield* operations.writeRows(graph.table("parent"), "insert", [{ id: "parent" }]);
+        yield* operations.writeRows(child, "insert", [{ id: "existing", parent_id: "parent", code: "original" }]);
+      }));
+      const operation = yield* graph.begin();
+      const input = [{ id: "existing", parent_id: "parent", code: "valid" }, { id: "later", parent_id: "parent" }];
+      const ordinary = failed(yield* Effect.result(operation.operations.writeRows(child, "insert", input)));
+      expect(ordinary).toMatchObject({ _tag: "CoreNativeUniqueConflict", descriptor: "child.primary" });
+      const required = failed(yield* Effect.result(operation.operations.writeRows(child, "insert", input, { insertValidation: "entityBatch" })));
+      if (required === undefined) return yield* Effect.die(new Error("Expected required group failure"));
+      expect(inspectRelationalFailure(projectCoreCommerceFailure(required))).toMatchObject({ origin: "row", kind: "missing", column: "code",
+        candidate: { id: "later", parent_id: "parent", count: 1 } });
+      const checked = failed(yield* Effect.result(operation.operations.writeRows(child, "insert",
+        [{ id: "existing", parent_id: "parent", code: "valid", count: -1 }], { insertValidation: "entityBatch" })));
+      if (checked === undefined) return yield* Effect.die(new Error("Expected CHECK-before-identity failure"));
+      expect(inspectRelationalFailure(projectCoreCommerceFailure(checked))).toMatchObject({ kind: "check", constraint: { constraintId: "child.count" },
+        candidate: { id: "existing", count: -1 } });
+      expect((yield* operation.operations.find(child, {})).map(row => row.code)).toEqual(["original"]);
+      yield* operation.abort();
+    })), 120_000);
+
+    it("refuses the first insert statement before reaching a later occupied identity", run(fixture => Effect.gen(function* () {
+      const graph = yield* setup(fixture), child = graph.table("child");
+      const existing = { id: "occupied", parent_id: "parent", code: "original" };
+      yield* graph.write(operations => Effect.gen(function* () {
+        yield* operations.writeRows(graph.table("parent"), "insert", [{ id: "parent" }]);
+        yield* operations.writeRows(child, "insert", [existing]);
+      }));
+      const operation = yield* graph.begin(), operations = operation.operations;
+      const cursor = operations.nativeActivityCursor();
+      const missing = { id: "missing-target", parent_id: "absent", code: "valid" };
+      const refusal = failed(yield* Effect.result(operations.writeRows(child, "insert", [missing, existing], statementReferences)));
+      if (refusal === undefined) return yield* Effect.die(new Error("Expected a first-row reference refusal"));
+      expect(refusal).toMatchObject({ _tag: "CoreNativeForeignKeyError", reason: "targetMissing", descriptor: "child.parent" });
+      expect(inspectReferenceFailure(projectCoreCommerceFailure(refusal))).toMatchObject({
+        storage: "core", origin: "checkpoint", child: { tableName: "child" }, sourceColumns: ["parent_id"],
+        target: { tableName: "parent", columns: ["id"], values: ["absent"] },
+      });
+      expect(failed(yield* Effect.result(operations.writeRows(child, "insert", [existing, missing], statementReferences))))
+        .toMatchObject({ _tag: "CoreNativeUniqueConflict", descriptor: "child.primary" });
+      for (const mode of ["upsert", "upsertPreservingDeletion"] as const)
+        expect(failed(yield* Effect.result(operations.writeRows(child, mode, [missing], statementReferences))))
+          .toMatchObject({ _tag: "CoreNativeQueryError", reason: "invalidInput" });
+      expect((yield* operations.nativeActivitySince(cursor)).mutations).toEqual([]);
+      expect(yield* operations.find(child, {})).toMatchObject([existing]);
+      yield* operation.abort();
+      expect(yield* graph.read("child")).toMatchObject([existing]);
+    })), 120_000);
+
+    it("checks the actual update afterimage and records only this write's target", run(fixture => Effect.gen(function* () {
+      const graph = yield* setup(fixture), child = graph.table("child"), parent = graph.table("parent");
+      const existing = { id: "current", parent_id: "initial", code: "original" };
+      yield* graph.write(operations => Effect.gen(function* () {
+        yield* operations.writeRows(parent, "insert", [{ id: "initial" }, { id: "selected" }, { id: "prior-only" }]);
+        yield* operations.writeRows(child, "insert", [existing]);
+      }));
+      const operation = yield* graph.begin(), operations = operation.operations;
+      yield* operations.writeRows(child, "insert", [{ id: "prior", parent_id: "prior-only", code: "valid" }], statementReferences);
+      const cursor = operations.nativeActivityCursor();
+      yield* operations.writeRows(child, "update", [{ id: "current", parent_id: "selected" }], statementReferences);
+      const activity = yield* operations.nativeActivitySince(cursor);
+      expect(activity.observedRows.filter(observation => observation.table === parent)).toEqual([
+        { table: parent, row: { id: "selected" } },
+      ]);
+      expect(activity.mutations).toMatchObject([{ ordinal: 0, table: child, operation: "patch",
+        before: existing, after: { ...existing, parent_id: "selected" } }]);
+
+      const partial = operations.nativeActivityCursor();
+      yield* operations.writeRows(child, "update", [{ id: "current", code: "partial" }], statementReferences);
+      expect((yield* operations.nativeActivitySince(partial)).observedRows.filter(observation => observation.table === parent)).toEqual([
+        { table: parent, row: { id: "selected" } },
+      ]);
+
+      const next = operations.nativeActivityCursor();
+      const refusal = failed(yield* Effect.result(operations.writeRows(child, "update", [{ id: "current", parent_id: "absent" }], statementReferences)));
+      if (refusal === undefined) return yield* Effect.die(new Error("Expected a retarget refusal"));
+      expect(inspectReferenceFailure(projectCoreCommerceFailure(refusal))).toMatchObject({ origin: "checkpoint",
+        child: { tableName: "child" }, sourceColumns: ["parent_id"],
+        target: { tableName: "parent", columns: ["id"], values: ["absent"] } });
+      expect((yield* operations.nativeActivitySince(next)).mutations).toEqual([]);
+      expect(yield* operations.find(child, { id: "current" })).toMatchObject([{ ...existing, parent_id: "selected", code: "partial" }]);
+      yield* operation.abort();
+      expect(yield* graph.read("child")).toMatchObject([existing]);
+    })), 120_000);
+
+    it("records actual source-confined rows and rebased native operations without extra lookups", run(fixture => Effect.gen(function* () {
+      const graph = yield* setup(fixture), operation = yield* graph.begin(), operations = operation.operations;
+      const cursor = operations.nativeActivityCursor();
+      yield* operations.writeRows(graph.table("parent"), "insert", [{ id: "traced-parent" }]);
+      const afterParent = operations.nativeActivityCursor();
+      yield* operations.writeRows(graph.table("child"), "insert", [{ id: "traced-child", parent_id: "traced-parent", code: "valid" }]);
+      yield* operations.checkpointReferences(graph.table("child"));
+      const activity = yield* operations.nativeActivitySince(afterParent);
+      expect(activity.mutations).toMatchObject([{ ordinal: 0, table: graph.table("child"), operation: "insert", before: null,
+        after: { id: "traced-child", parent_id: "traced-parent", code: "valid", count: 1 } }]);
+      expect(activity.observedRows).toEqual(expect.arrayContaining([
+        { table: graph.table("parent"), row: { id: "traced-parent" } },
+        { table: graph.table("child"), row: { id: "traced-child", parent_id: "traced-parent", code: "valid", count: 1 } },
+      ]));
+      expect((yield* operations.nativeActivitySince(cursor)).mutations).toHaveLength(2);
+      const foreign = yield* graph.database.beginNative(graph.foreignBinding, { commandName: "foreign-read", ...coreNativeTestBudget() });
+      expect(failed(yield* Effect.result(foreign.operations.nativeActivitySince(cursor)))).toMatchObject({ reason: "authorityRevoked" });
+      yield* foreign.abort();
+      yield* operation.abort();
+      expect(yield* graph.read("child")).toEqual([]);
+    })), 120_000);
+
+    it("poisons the owning native request before a caught checkpoint error can reach later callbacks", run(fixture => Effect.gen(function* () {
+      const graph = yield* setup(fixture), operation = yield* graph.begin();
+      const lifetime = yield* Effect.acquireRelease(makeBoundedRequestLifetime(commerceError, commerceLimits, {}, {}, "checkpoint-native-request", "write"), value => value.close);
+      const participant = yield* makeNativeCommerceParticipant(operation.operations, graph.metadata, lifetime, lifetime.context,
+        "checkpoint-native-request", operation.unixTime, undefined, { allowReferenceCheckpoints: true });
+      const child = yield* participant.table(lifetime.context, "child");
+      yield* child.write(lifetime.context, "insert", [{ id: "caught-child", parent_id: "missing", code: "valid" }]);
+      const checkpoint = participant.checkpointRelationalReferences;
+      if (checkpoint === undefined) return yield* Effect.die(new Error("Missing selected checkpoint capability"));
+      expect(Result.isFailure(yield* Effect.result(checkpoint(lifetime.context, "child")))).toBe(true);
+      let callbacks = 0;
+      const later = yield* Effect.result(lifetime.operation(lifetime.context, "checkpoint-native-request", "write", Effect.sync(() => { callbacks++; })));
+      expect(Result.isFailure(later)).toBe(true);
+      expect(callbacks).toBe(0);
+      expect(Result.isFailure(yield* Effect.result(lifetime.seal))).toBe(true);
+      yield* operation.abort();
+      expect(yield* graph.read("child")).toEqual([]);
+    })), 120_000);
+
+    describe("announcements through the native commerce participant", () => {
+      const rows = (prefix: string) => [{ id: `${prefix}-a` }, { id: `${prefix}-b` }];
+      const children = (prefix: string) => [{ id: `${prefix}-c`, parent_id: `${prefix}-a`, code: "one" }, { id: `${prefix}-d`, parent_id: `${prefix}-a`, code: "two" }];
+      /** Counts the first pages the participant's transaction asks persistence for. */
+      const observedFixture = (fixture: CorePersistenceFixture) => {
+        const preloads: number[] = [];
+        const observed: CorePersistenceFixture = { ...fixture, persistence: { ...fixture.persistence,
+          readSnapshot: (...input) => Effect.map(fixture.persistence.readSnapshot(...input), snapshot => ({ ...snapshot,
+            preload: requests => Effect.andThen(Effect.sync(() => { preloads.push(requests.length); }), snapshot.preload(requests)) })) } };
+        return { observed, preloads };
+      };
+      /** One announced find: the table and the query its later find receives. */
+      const byIds = (tableName: string, ids: readonly string[]) => ({ tableName,
+        query: { take: 8, order: { column: "id", direction: "asc" }, predicate: { kind: "in", column: "id", values: [...ids] } } });
+      const participate = Effect.fnUntraced(function* (fixture: CorePersistenceFixture, request: string, mode: "read" | "write" = "write") {
+        const { observed, preloads } = observedFixture(fixture);
+        const graph = yield* setup(observed), operation = yield* graph.begin();
+        const lifetime = yield* Effect.acquireRelease(makeBoundedRequestLifetime(commerceError, commerceLimits, {}, {}, request, mode), value => value.close);
+        const participant = yield* makeNativeCommerceParticipant(operation.operations, graph.metadata, lifetime, lifetime.context, request, operation.unixTime);
+        preloads.length = 0;
+        return { graph, operation, lifetime, participant, preloads };
+      });
+      const reason = (result: Result.Result<void, unknown>) => Result.isFailure(result) ? (result.failure as { reason?: string }).reason : "accepted";
+
+      it("translates the adapter's table names, reads once and charges neither a call nor a byte", run(fixture => Effect.gen(function* () {
+        const { operation, lifetime, participant, preloads } = yield* participate(fixture, "announce-native-request");
+        const calls = lifetime.usedCalls(), bytes = lifetime.remainingBytes();
+        yield* participant.announce(lifetime.context, { inserts: [{ tableName: "parent", rows: rows("named") }, { tableName: "child", rows: children("named") }] });
+        expect(preloads).toHaveLength(1);
+        expect(preloads[0]).toBeGreaterThanOrEqual(4);
+        expect(lifetime.usedCalls()).toBe(calls);
+        expect(lifetime.remainingBytes()).toBe(bytes);
+        // Both covered tables insert from the planned pages; each write is one charged call as before.
+        yield* (yield* participant.table(lifetime.context, "parent")).write(lifetime.context, "insert", rows("named"));
+        yield* (yield* participant.table(lifetime.context, "child")).write(lifetime.context, "insert", children("named"));
+        expect(preloads).toHaveLength(1);
+        expect(lifetime.usedCalls()).toBe(calls + 4);
+        yield* operation.abort();
+      })), 120_000);
+
+      it("stops the announcement at a table the participant does not hold", run(fixture => Effect.gen(function* () {
+        const { operation, lifetime, participant, preloads } = yield* participate(fixture, "stopped-native-request");
+        yield* participant.announce(lifetime.context, { inserts: [{ tableName: "parent", rows: rows("alone") }] });
+        const alone = preloads[0];
+        expect(alone).toBeGreaterThanOrEqual(2);
+        yield* participant.announce(lifetime.context, { inserts: [{ tableName: "parent", rows: rows("stopped") },
+          { tableName: "foreign", rows: rows("stopped") }, { tableName: "child", rows: children("stopped") }] });
+        // The child table announced after the unknown one was not read.
+        expect(preloads).toEqual([alone, alone]);
+        yield* participant.announce(lifetime.context, { inserts: [{ tableName: "foreign", rows: rows("none") }, { tableName: "parent", rows: rows("none") }] });
+        expect(preloads).toEqual([alone, alone]);
+        yield* operation.abort();
+      })), 120_000);
+
+      it("refuses a foreign context, a rollback-only request and a closed request's revoked context without reading", run(fixture => Effect.gen(function* () {
+        const groups = { inserts: [{ tableName: "parent", rows: rows("refused") }], finds: [byIds("parent", ["refused-a", "refused-b"])] };
+        const { operation, lifetime, participant, preloads } = yield* participate(fixture, "refused-native-request");
+        const other = yield* Effect.acquireRelease(makeBoundedRequestLifetime(commerceError, commerceLimits, {}, {}, "other-native-request", "write"), value => value.close);
+        expect(reason(yield* Effect.result(participant.announce(other.context, groups)))).toBe("invalidAuthority");
+        // The foreign context's refusal left this request rollback-only.
+        expect(reason(yield* Effect.result(participant.announce(lifetime.context, groups)))).toBe("rollbackOnly");
+        // Closing revokes the request's context; the lifetime answers a revoked context this way.
+        yield* lifetime.close;
+        expect(reason(yield* Effect.result(participant.announce(lifetime.context, groups)))).toBe("invalidAuthority");
+        expect(preloads).toEqual([]);
+        yield* operation.abort();
+      })), 120_000);
+
+      it("refuses a read request's announced inserts, whatever finds accompany them, and retains the refusal", run(fixture => Effect.gen(function* () {
+        const { operation, lifetime, participant, preloads } = yield* participate(fixture, "read-native-request", "read");
+        const calls = lifetime.usedCalls();
+        expect(reason(yield* Effect.result(participant.announce(lifetime.context, { finds: [byIds("parent", ["read-a", "read-b"])],
+          inserts: [{ tableName: "parent", rows: rows("read") }] })))).toBe("invalidAuthority");
+        expect(preloads).toEqual([]);
+        expect(lifetime.usedCalls()).toBe(calls);
+        expect(Result.isFailure(yield* Effect.result(lifetime.seal))).toBe(true);
+        yield* operation.abort();
+      })), 120_000);
+
+      it.each(["read", "write"] as const)("reads a %s request's announced finds of both tables once, uncharged, and serves the finds that follow", mode => run(fixture => Effect.gen(function* () {
+        const { observed, preloads } = observedFixture(fixture);
+        const graph = yield* setup(observed);
+        yield* graph.write(operations => Effect.gen(function* () {
+          yield* operations.writeRows(graph.table("parent"), "insert", rows("found"));
+          yield* operations.writeRows(graph.table("child"), "insert", children("found"));
+        }));
+        const parents = byIds("parent", ["found-a", "found-b", "found-missing"]), kids = byIds("child", ["found-c", "found-d"]);
+        const attempt = Effect.fnUntraced(function* (announced: boolean) {
+          const request = `finds-${mode}-${announced}-request`, operation = yield* graph.begin();
+          const lifetime = yield* Effect.acquireRelease(makeBoundedRequestLifetime(commerceError, commerceLimits, {}, {}, request, mode), value => value.close);
+          const participant = yield* makeNativeCommerceParticipant(operation.operations, graph.metadata, lifetime, lifetime.context, request, operation.unixTime);
+          preloads.length = 0;
+          const calls = lifetime.usedCalls(), bytes = lifetime.remainingBytes();
+          if (announced) yield* participant.announce(lifetime.context, { finds: [parents, kids] });
+          const planned = { preloads: [...preloads], calls: lifetime.usedCalls() - calls, bytes: bytes - lifetime.remainingBytes() };
+          const parent = yield* (yield* participant.table(lifetime.context, "parent")).find(lifetime.context, parents.query);
+          const child = yield* (yield* participant.table(lifetime.context, "child")).find(lifetime.context, kids.query);
+          yield* operation.abort();
+          return { planned, parent, child, preloads: [...preloads] };
+        });
+        const control = yield* attempt(false), tested = yield* attempt(true);
+        expect(control.parent.map(row => row.id)).toEqual(["found-a", "found-b"]);
+        expect(control.child.map(row => row.id)).toEqual(["found-c", "found-d"]);
+        // Unannounced, each find overlaps only its own selections.
+        expect(control.preloads).toEqual([3, 2]);
+        // Announced, one batch carries every selection of both tables and the finds start none.
+        expect(tested.planned).toEqual({ preloads: [5], calls: 0, bytes: 0 });
+        expect(tested.preloads).toEqual([5]);
+        expect(tested.parent).toEqual(control.parent);
+        expect(tested.child).toEqual(control.child);
+      }))(), 120_000);
+
+      it("prepares an announced query once for the find handed that same unchanged object, and every other find afresh", run(fixture => Effect.gen(function* () {
+        const graph = yield* setup(fixture);
+        yield* graph.write(operations => Effect.gen(function* () {
+          yield* operations.writeRows(graph.table("parent"), "insert", rows("kept"));
+          yield* operations.writeRows(graph.table("child"), "insert", children("kept"));
+        }));
+        const prepared = vi.spyOn(nativeRelationalQuery, "prepareCoreNativeRelationalRead"), planned = vi.spyOn(nativeQuery, "planCoreNativeQuery");
+        const attempt = Effect.fnUntraced(function* (announced: boolean) {
+          const request = `kept-${announced}-request`, operation = yield* graph.begin();
+          const lifetime = yield* Effect.acquireRelease(makeBoundedRequestLifetime(commerceError, commerceLimits, {}, {}, request, "write"), value => value.close);
+          const participant = yield* makeNativeCommerceParticipant(operation.operations, graph.metadata, lifetime, lifetime.context, request, operation.unixTime);
+          const parent = yield* participant.table(lifetime.context, "parent"), child = yield* participant.table(lifetime.context, "child");
+          const parents = byIds("parent", ["kept-a", "kept-b", "kept-missing"]), kids = byIds("child", ["kept-c", "kept-d"]);
+          const again = byIds("parent", ["kept-b", "kept-a"]);
+          const counted = (store: typeof parent, query: unknown) => Effect.gen(function* () {
+            prepared.mockClear(); planned.mockClear();
+            const found = yield* store.find(lifetime.context, query);
+            return { ids: found.map(row => row.id), prepared: prepared.mock.calls.length, planned: planned.mock.calls.length };
+          });
+          const calls = lifetime.usedCalls(), bytes = lifetime.remainingBytes();
+          if (announced) yield* participant.announce(lifetime.context, { finds: [parents, kids, again] });
+          const same = yield* counted(parent, parents.query);
+          const equal = yield* counted(parent, byIds("parent", ["kept-a", "kept-b", "kept-missing"]).query);
+          // The parent's announced query handed to the other table's store.
+          const elsewhere = yield* counted(child, parents.query);
+          // The announced object now says something else: the find prepares what it says.
+          kids.query.predicate.values.length = 1;
+          const changed = yield* counted(child, kids.query);
+          if (announced) yield* participant.announce(lifetime.context, { finds: [byIds("parent", ["next-a", "next-b"])] });
+          const replaced = yield* counted(parent, again.query);
+          const used = { calls: lifetime.usedCalls() - calls, bytes: bytes - lifetime.remainingBytes() };
+          yield* operation.abort();
+          return { same, equal, elsewhere, changed, replaced, used };
+        });
+        const control = yield* attempt(false), tested = yield* attempt(true);
+        prepared.mockRestore(); planned.mockRestore();
+        // Unannounced, the read prepares its query and derives each selection for its batch and its find.
+        expect(control.same).toEqual({ ids: ["kept-a", "kept-b"], prepared: 1, planned: 6 });
+        // Announced, it takes the announcement's preparation and Core's derivations of its conditions.
+        expect(tested.same).toEqual({ ids: ["kept-a", "kept-b"], prepared: 0, planned: 0 });
+        for (const attempted of [control, tested]) {
+          expect(attempted.equal).toMatchObject({ ids: ["kept-a", "kept-b"], prepared: 1 });
+          expect(attempted.elsewhere).toMatchObject({ ids: [], prepared: 1 });
+          expect(attempted.changed).toMatchObject({ ids: ["kept-c"], prepared: 1 });
+          expect(attempted.replaced).toMatchObject({ ids: ["kept-a", "kept-b"], prepared: 1 });
+        }
+        // The announcements charged nothing, and every find charged what it charges unannounced.
+        expect(tested.used).toEqual(control.used);
+      })), 120_000);
+
+      it("announces a query only whole within Core's find bound, ends the list at the first that does not fit and asks nothing for a lone find", run(fixture => Effect.gen(function* () {
+        const { operation, lifetime, participant, preloads } = yield* participate(fixture, "bounded-finds-request");
+        const ids = (prefix: string, count: number) => Array.from({ length: count }, (_, position) => `${prefix}-${position}`);
+        const parent = yield* participant.table(lifetime.context, "parent");
+        const prepared = vi.spyOn(nativeRelationalQuery, "prepareCoreNativeRelationalRead");
+        // Whole queries while they fit. One that Core would cover in part is not announced:
+        // it ends the list, also for a later one that would fit, which is not even prepared.
+        const fits = byIds("parent", ids("fits", 200)), cut = byIds("child", ids("cut", CORE_NATIVE_ANNOUNCED_FINDS - 199)), late = byIds("child", ["late-c", "late-d"]);
+        yield* participant.announce(lifetime.context, { finds: [fits, cut, late] });
+        expect(preloads).toEqual([200]);
+        expect(prepared.mock.calls).toHaveLength(2);
+        // The query left out reads as it does unannounced, in one batch of its own.
+        expect(yield* (yield* participant.table(lifetime.context, "child")).find(lifetime.context, cut.query)).toEqual([]);
+        expect(preloads).toEqual([200, cut.query.predicate.values.length]);
+        // A lone find shares a statement with nothing: Core is not asked and keeps the pages it holds.
+        yield* participant.announce(lifetime.context, { finds: [byIds("child", ["lone-c"])] });
+        expect(yield* parent.find(lifetime.context, fits.query)).toEqual([]);
+        expect(preloads).toEqual([200, cut.query.predicate.values.length]);
+        // Exactly the bound is announced whole, and nothing after it is captured or prepared.
+        preloads.length = 0; prepared.mockClear();
+        yield* participant.announce(lifetime.context, { finds: [byIds("parent", ids("exact", 200)), byIds("child", ids("exact", CORE_NATIVE_ANNOUNCED_FINDS - 200)), late] });
+        expect(preloads).toEqual([CORE_NATIVE_ANNOUNCED_FINDS]);
+        expect(prepared.mock.calls).toHaveLength(2);
+        prepared.mockRestore();
+        yield* operation.abort();
+      })), 120_000);
+
+      it("ends the announced finds at a table the participant does not hold and at a query the read would refuse", run(fixture => Effect.gen(function* () {
+        const { operation, lifetime, participant, preloads } = yield* participate(fixture, "stopped-finds-request");
+        yield* participant.announce(lifetime.context, { finds: [byIds("parent", ["stop-a", "stop-b"]), byIds("foreign", ["stop-a"]), byIds("child", ["stop-c", "stop-d"])] });
+        expect(preloads).toEqual([2]);
+        yield* participant.announce(lifetime.context, { finds: [byIds("parent", ["bad-a", "bad-b"]),
+          { tableName: "parent", query: { take: 4, predicate: { kind: "in", column: "not-a-column", values: ["x"] } } }, byIds("child", ["bad-c", "bad-d"])] });
+        expect(preloads).toEqual([2, 2]);
+        // Neither refusal is the request's: it still accepts calls.
+        expect(yield* (yield* participant.table(lifetime.context, "parent")).find(lifetime.context, byIds("parent", ["bad-a", "bad-b"]).query)).toEqual([]);
+        yield* operation.abort();
+      })), 120_000);
+    });
+
+    it("keeps a caught statement reference refusal sticky without granting table checkpoint authority", run(fixture => Effect.gen(function* () {
+      const graph = yield* setup(fixture), operation = yield* graph.begin();
+      const request = "statement-native-request";
+      const lifetime = yield* Effect.acquireRelease(makeBoundedRequestLifetime(commerceError, commerceLimits, {}, {}, request, "write"), value => value.close);
+      const participant = yield* makeNativeCommerceParticipant(operation.operations, graph.metadata, lifetime, lifetime.context,
+        request, operation.unixTime, undefined, statementReferences);
+      expect(participant.checkpointRelationalReferences).toBeUndefined();
+      const child = yield* participant.table(lifetime.context, "child");
+      const refusal = yield* Effect.result(child.write(lifetime.context, "insert", [{ id: "caught-child", parent_id: "missing", code: "valid" }]));
+      if (Result.isSuccess(refusal)) return yield* Effect.die(new Error("Expected the selected native Store to check the statement reference"));
+      expect(inspectReferenceFailure(refusal.failure)).toMatchObject({ origin: "checkpoint", target: { values: ["missing"] } });
+      let callbacks = 0;
+      expect(Result.isFailure(yield* Effect.result(lifetime.operation(lifetime.context, request, "write", Effect.sync(() => { callbacks++; }))))).toBe(true);
+      expect(callbacks).toBe(0);
+      expect(Result.isFailure(yield* Effect.result(lifetime.seal))).toBe(true);
+      yield* operation.abort();
+      expect(yield* graph.read("child")).toEqual([]);
+    })), 120_000);
+
+    it("advances an active restore only through the authentic selected invocation policy", run(fixture => Effect.gen(function* () {
+      const graph = yield* setup(fixture, false, lifecycleSchema), parent = graph.table("parent");
+      const before = "1970-01-01T00:00:00.000Z";
+      yield* graph.write(operations => operations.writeRows(parent, "insert", [{ id: "active", created_at: before, updated_at: before }]));
+      const operation = yield* graph.begin(), cursor = operation.operations.nativeActivityCursor();
+      const forged = { allowActiveRestoreUpdate: true as const, unexpected: true };
+      expect(failed(yield* Effect.result(operation.operations.lifecycle(parent, "restore", ["active"], forged))))
+        .toMatchObject({ _tag: "CoreNativeQueryError", reason: "invalidInput" });
+      const ordinary = yield* operation.operations.lifecycle(parent, "restore", ["active"]);
+      expect(ordinary[0]?.updated_at).toBe(before);
+      expect((yield* operation.operations.nativeActivitySince(cursor)).mutations).toEqual([]);
+      const lifetime = yield* Effect.acquireRelease(makeBoundedRequestLifetime(commerceError, commerceLimits, {}, {}, "active-restore-native-request", "write"), value => value.close);
+      const participant = yield* makeNativeCommerceParticipant(operation.operations, graph.metadata, lifetime, lifetime.context,
+        "active-restore-native-request", operation.unixTime, undefined, { allowActiveRestoreUpdate: true });
+      const active = yield* participant.store.lifecycle(lifetime.context, "restore", ["active"]);
+      const timestamp = new Date(operation.unixTime).toISOString();
+      expect(active).toMatchObject([{ id: "active", created_at: before, updated_at: timestamp, deleted_at: null }]);
+      expect(timestamp).not.toBe(before);
+      const activity = yield* operation.operations.nativeActivitySince(cursor);
+      expect(activity.mutations).toMatchObject([{ ordinal: 0, operation: "patch", before: { updated_at: before }, after: { updated_at: timestamp } }]);
+      expect(activity.lifecycle).toMatchObject([{ operation: "restore", attemptOrdinal: null },
+        { operation: "restore", attemptOrdinal: 0, beforeDeletedAt: null, afterDeletedAt: null, rowAtOperation: null }]);
+      yield* graph.database.commit(yield* operation.finalize());
+      yield* operation.abort();
+      expect(yield* graph.read("parent")).toMatchObject([{ id: "active", created_at: before, updated_at: timestamp, deleted_at: null }]);
+    })), 120_000);
+
+    it("retains loaded native page candidates before offset and successor projection", run(fixture => Effect.gen(function* () {
+      const graph = yield* setup(fixture), parent = graph.table("parent");
+      yield* graph.write(operations => operations.writeRows(parent, "insert", [{ id: "a" }, { id: "b" }, { id: "c" }]));
+      const table = graph.metadata.tables.find(candidate => candidate.name === parent);
+      const index = table?.indexes.find(candidate => candidate.fields[0] === "id");
+      if (index === undefined) return yield* Effect.die(new Error("Missing declared neutral identity index"));
+      const operation = yield* graph.begin();
+      yield* operation.operations.writeRows(parent, "insert", [{ id: "z-pending-outside-range" }]);
+      const cursor = operation.operations.nativeActivityCursor();
+      const page = yield* operation.operations.findPage(parent, { id: { lt: "m" } }, { indexName: index.name, offset: 1, limit: 1 });
+      expect(page).toMatchObject({ documents: [{ id: "b" }], hasMore: true });
+      const activity = yield* operation.operations.nativeActivitySince(cursor);
+      expect(activity.observedRows.map(observation => observation.row.id).sort()).toEqual(["a", "b", "c"]);
+      expect(activity.mutations).toEqual([]);
+      yield* operation.abort();
+      expect((yield* graph.read("parent")).map(row => row.id).sort()).toEqual(["a", "b", "c"]);
+    })), 120_000);
+
+    it("refuses unselected native storage order before observing rows and keeps the refusal sticky", run(fixture => Effect.gen(function* () {
+      const graph = yield* setup(fixture), parent = graph.table("parent");
+      yield* graph.write(operations => operations.writeRows(parent, "insert", [{ id: "b" }, { id: "a" }]));
+      const operation = yield* graph.begin();
+      const standaloneLifetime = yield* Effect.acquireRelease(makeBoundedRequestLifetime(commerceError, commerceLimits, {}, {}, "standalone-order", "write"), value => value.close);
+      const standalone = yield* makeNativeCommerceParticipant(operation.operations, graph.metadata, standaloneLifetime,
+        standaloneLifetime.context, "standalone-order", operation.unixTime);
+      const standaloneStore = yield* standalone.table(standaloneLifetime.context, "parent");
+      const selectedLifetime = yield* Effect.acquireRelease(makeBoundedRequestLifetime(commerceError, commerceLimits, {}, {}, "selected-order", "write"), value => value.close);
+      const selected = yield* makeNativeCommerceParticipant(operation.operations, graph.metadata, selectedLifetime,
+        selectedLifetime.context, "selected-order", operation.unixTime, undefined, { allowStorageInsertionOrder: true });
+      const selectedStore = yield* selected.table(selectedLifetime.context, "parent");
+      const query = { predicate: { kind: "in", column: "id", values: ["a", "b"] }, order: { kind: "storageInsertion", direction: "asc" } };
+      expect((yield* standaloneStore.find(standaloneLifetime.context, query)).map(row => row.id)).toEqual(["b", "a"]);
+      expect((yield* selectedStore.find(selectedLifetime.context, query)).map(row => row.id)).toEqual(["b", "a"]);
+      const deniedLifetime = yield* Effect.acquireRelease(makeBoundedRequestLifetime(commerceError, commerceLimits, {}, {}, "unselected-order", "write"), value => value.close);
+      const denied = yield* makeNativeCommerceParticipant(operation.operations, graph.metadata, deniedLifetime,
+        deniedLifetime.context, "unselected-order", operation.unixTime, undefined, {});
+      const deniedStore = yield* denied.table(deniedLifetime.context, "parent");
+      const cursor = operation.operations.nativeActivityCursor();
+      const refused = yield* Effect.result(deniedStore.find(deniedLifetime.context, query));
+      expect(Result.isFailure(refused)).toBe(true);
+      if (Result.isFailure(refused)) expect(refused.failure.reason).toBe("invalidAuthority");
+      expect((yield* operation.operations.nativeActivitySince(cursor)).observedRows).toEqual([]);
+      let callbacks = 0;
+      expect(Result.isFailure(yield* Effect.result(deniedLifetime.operation(deniedLifetime.context, "unselected-order", "read",
+        Effect.sync(() => { callbacks++; }))))).toBe(true);
+      expect(callbacks).toBe(0);
+      expect(Result.isFailure(yield* Effect.result(deniedLifetime.seal))).toBe(true);
+      yield* operation.abort();
+    })), 120_000);
+
+    it("exposes native reference replacement only for the selected invocation while preserving standalone capability", run(fixture => Effect.gen(function* () {
+      const graph = yield* setup(fixture, true), operation = yield* graph.begin();
+      const standaloneLifetime = yield* Effect.acquireRelease(makeBoundedRequestLifetime(commerceError, commerceLimits, {}, {}, "standalone-replacement", "write"), value => value.close);
+      const standalone = yield* makeNativeCommerceParticipant(operation.operations, graph.metadata, standaloneLifetime,
+        standaloneLifetime.context, "standalone-replacement", operation.unixTime);
+      expect(standalone.planReferenceReplacement).toBeTypeOf("function");
+      const selectedLifetime = yield* Effect.acquireRelease(makeBoundedRequestLifetime(commerceError, commerceLimits, {}, {}, "selected-replacement", "write"), value => value.close);
+      const selected = yield* makeNativeCommerceParticipant(operation.operations, graph.metadata, selectedLifetime,
+        selectedLifetime.context, "selected-replacement", operation.unixTime, undefined, { allowReferenceReplacement: true });
+      expect(selected.planReferenceReplacement).toBeTypeOf("function");
+      const deniedLifetime = yield* Effect.acquireRelease(makeBoundedRequestLifetime(commerceError, commerceLimits, {}, {}, "unselected-replacement", "write"), value => value.close);
+      const denied = yield* makeNativeCommerceParticipant(operation.operations, graph.metadata, deniedLifetime,
+        deniedLifetime.context, "unselected-replacement", operation.unixTime, undefined, {});
+      expect(denied.planReferenceReplacement).toBeUndefined();
+      yield* operation.abort();
+    })), 120_000);
+
+    it("refuses unselected native preserving-deletion upsert before capturing its input", run(fixture => Effect.gen(function* () {
+      const graph = yield* setup(fixture), operation = yield* graph.begin();
+      const standaloneLifetime = yield* Effect.acquireRelease(makeBoundedRequestLifetime(commerceError, commerceLimits, {}, {}, "standalone-preserving-upsert", "write"), value => value.close);
+      const standalone = yield* makeNativeCommerceParticipant(operation.operations, graph.metadata, standaloneLifetime,
+        standaloneLifetime.context, "standalone-preserving-upsert", operation.unixTime);
+      const standaloneStore = yield* standalone.table(standaloneLifetime.context, "parent");
+      expect(yield* standaloneStore.write(standaloneLifetime.context, "upsertPreservingDeletion", [{ id: "standalone-supported" }]))
+        .toEqual([{ id: "standalone-supported" }]);
+      const deniedLifetime = yield* Effect.acquireRelease(makeBoundedRequestLifetime(commerceError, commerceLimits, {}, {}, "unselected-preserving-upsert", "write"), value => value.close);
+      const denied = yield* makeNativeCommerceParticipant(operation.operations, graph.metadata, deniedLifetime,
+        deniedLifetime.context, "unselected-preserving-upsert", operation.unixTime, undefined, {});
+      const deniedStore = yield* denied.table(deniedLifetime.context, "parent");
+      const cursor = operation.operations.nativeActivityCursor();
+      const refused = yield* Effect.result(deniedStore.write(deniedLifetime.context, "upsertPreservingDeletion", undefined));
+      expect(Result.isFailure(refused)).toBe(true);
+      if (Result.isFailure(refused)) expect(refused.failure.reason).toBe("invalidAuthority");
+      const activity = yield* operation.operations.nativeActivitySince(cursor);
+      expect(activity.observedRows).toEqual([]);
+      expect(activity.mutations).toEqual([]);
+      let callbacks = 0;
+      expect(Result.isFailure(yield* Effect.result(deniedLifetime.operation(deniedLifetime.context, "unselected-preserving-upsert", "write",
+        Effect.sync(() => { callbacks++; }))))).toBe(true);
+      expect(callbacks).toBe(0);
+      expect(Result.isFailure(yield* Effect.result(deniedLifetime.seal))).toBe(true);
+      yield* operation.abort();
+      expect(yield* graph.read("parent")).toEqual([]);
+    })), 120_000);
+
+    it("advances only the selected preserving-deletion timestamp on identity-only upserts", run(fixture => Effect.gen(function* () {
+      let wallTime = 1_000_000_000n;
+      const graph = yield* setup(fixture, false, lifecycleSchema, Effect.sync(() => wallTime));
+      const parent = graph.table("parent");
+      const created = "1970-01-01T00:00:00.100Z", updated = "1970-01-01T00:00:00.200Z", deleted = "1970-01-01T00:00:00.300Z";
+      yield* graph.write(operations => operations.writeRows(parent, "insert", [
+        { id: "active", created_at: created, updated_at: updated, deleted_at: null },
+        { id: "tombstone", created_at: created, updated_at: updated, deleted_at: deleted },
+        { id: "preserved", created_at: created, updated_at: updated, deleted_at: deleted },
+      ]));
+      const before = yield* graph.read("parent");
+      wallTime = 3_000_000_000n;
+      const operation = yield* Effect.acquireRelease(graph.begin(), operation => operation.abort());
+      const { operations, unixTime } = operation;
+      const timestamp = new Date(unixTime).toISOString(), cursor = operations.nativeActivityCursor();
+      const advanced = [
+        { id: "active", created_at: created, updated_at: timestamp, deleted_at: null },
+        { id: "tombstone", created_at: created, updated_at: timestamp, deleted_at: deleted },
+        { id: "inserted", created_at: timestamp, updated_at: timestamp, deleted_at: null },
+      ];
+      expect(timestamp).not.toBe(updated);
+      for (const policy of [true, "preserveTimestamps"] as const) {
+        const name = policy === true ? "advance-upsert" : "preserve-upsert";
+        const lifetime = yield* Effect.acquireRelease(makeBoundedRequestLifetime(commerceError, commerceLimits, {}, {}, name, "write"), value => value.close);
+        const selected = yield* makeNativeCommerceParticipant(operations, graph.metadata, lifetime, lifetime.context, name, unixTime,
+          undefined, { allowPreservingDeletionUpsert: policy });
+        const store = yield* selected.table(lifetime.context, "parent");
+        const identities = policy === true ? [{ id: "active" }, { id: "tombstone" }, { id: "inserted" }] : [{ id: "preserved" }];
+        const rows = yield* store.write(lifetime.context, "upsertPreservingDeletion", identities);
+        expect(rows).toEqual(policy === true ? advanced : [{ id: "preserved", created_at: created, updated_at: updated, deleted_at: deleted }]);
+        yield* lifetime.seal;
+      }
+      const activity = yield* operations.nativeActivitySince(cursor);
+      expect(activity.mutations.slice(0, 3)).toMatchObject(advanced.map((row, index) => ({
+        table: parent, operation: index === 2 ? "insert" : "patch", after: row,
+      })));
+      expect(yield* graph.read("parent")).toEqual(before);
+      yield* graph.database.commit(yield* operation.finalize());
+      const committed = yield* graph.read("parent");
+      expect(committed).toHaveLength(4);
+      for (const row of advanced) expect(committed.find(candidate => candidate.id === row.id)).toMatchObject(row);
+      expect(committed.find(row => row.id === "preserved")).toEqual(before.find(row => row.id === "preserved"));
+    })), 120_000);
+
+    it("projects every actual replacement patch including a kept reference with a managed update", run(fixture => Effect.gen(function* () {
+      let wallTime = 1_000_000_000n;
+      const graph = yield* setup(fixture, false, replacementSchema, Effect.sync(() => wallTime)), parent = graph.table("parent"), child = graph.table("child");
+      yield* graph.write(operations => Effect.gen(function* () {
+        yield* operations.writeRows(parent, "insert", [{ id: "target" }, { id: "other" }]);
+        yield* operations.writeRows(child, "insert", [
+          { id: "detach", parent_id: "target" }, { id: "kept", parent_id: "target" },
+          { id: "moved", parent_id: "other" }, { id: "unrelated", parent_id: "other" }, { id: "deleted-desired", parent_id: "other" },
+        ]);
+      }));
+      yield* graph.write(operations => operations.lifecycle(child, "softDelete", ["deleted-desired"]));
+      const before = yield* graph.read("child"), previous = new Map(before.map(document => [document.id, document]));
+      wallTime = 3_000_000_000n;
+      const operation = yield* graph.begin(), operations = operation.operations, cursor = operations.nativeActivityCursor();
+      yield* operations.writeRows(parent, "update", [{ id: "target" }]);
+      const selection = { sourceTable: child, sourceColumn: "parent_id", targetTable: parent, targetColumn: "id", targetKey: "target",
+        desiredKeys: ["moved", "kept", "missing", "deleted-desired", "kept"] };
+      const replaced = yield* operations.replaceReferenceSet(selection);
+      const projected = yield* operations.referenceReplacementChanges();
+      expect(replaced.map(document => document.id).sort()).toEqual(["detach", "kept", "moved"]);
+      expect(projected).toHaveLength(1);
+      expect(projected[0]?.sourceTable).toBe(child);
+      expect(projected[0]?.documents).toEqual(replaced);
+      const timestamp = new Date(operation.unixTime).toISOString();
+      for (const document of replaced) {
+        const original = previous.get(document.id);
+        expect(original).toBeDefined();
+        expect(document._id).toBe(original?._id);
+        expect(document.created_at).toBe(original?.created_at);
+        expect(document.updated_at).toBe(timestamp);
+        expect(document.updated_at).not.toBe(original?.updated_at);
+        expect(document.parent_id).toBe(document.id === "detach" ? null : "target");
+      }
+      const activity = yield* operations.nativeActivitySince(cursor);
+      expect(activity.mutations).toMatchObject([{ table: parent, operation: "patch", before: { id: "target" }, after: { id: "target" } }]);
+      expect(activity.mutations).toHaveLength(1);
+      expect(activity.referenceReplacements).toEqual([{ ...selection, desiredKeys: ["moved", "kept", "missing", "deleted-desired"] }]);
+      expect(failed(yield* Effect.result(operations.find(child, {})))).toMatchObject({ reason: "invalidAuthority" });
+      expect(yield* graph.read("child")).toEqual(before);
+      yield* operations.prepareDeleteClosure();
+      yield* graph.database.commit(yield* operation.finalize());
+      yield* operation.abort();
+      const committed = yield* graph.read("child");
+      expect(committed).toHaveLength(5);
+      for (const document of committed) {
+        if (document.id === "unrelated" || document.id === "deleted-desired") expect(document).toEqual(previous.get(document.id));
+        else expect(document).toEqual(replaced.find(replacement => replacement.id === document.id));
+      }
+    })), 120_000);
+
+    it("queues only an actual deleted-target intent, seals native DAL and prepares derived patches without native child calls", run(fixture => Effect.gen(function* () {
+      const graph = yield* setup(fixture, true), parent = graph.table("parent"), child = graph.table("child");
+      yield* graph.write(operations => Effect.gen(function* () {
+        yield* operations.writeRows(parent, "insert", [{ id: "detach-parent" }]);
+        yield* operations.writeRows(child, "insert", [{ id: "detach-child", parent_id: "detach-parent", code: "valid" }]);
+      }));
+      const operation = yield* graph.begin(), operations = operation.operations, cursor = operations.nativeActivityCursor();
+      yield* operations.deleteRows(parent, ["detach-parent"]);
+      const selection: CoreNativeSetNullIntent = { sourceTable: child, sourceColumn: "parent_id", targetTable: parent,
+        targetColumn: "id", targetKey: "detach-parent", managedUpdate: "advance" };
+      yield* operations.planSetNullReferences(selection);
+      const native = yield* operations.nativeActivitySince(cursor);
+      expect(native.mutations).toMatchObject([{ table: parent, operation: "delete", before: { id: "detach-parent" }, after: null }]);
+      expect(native.setNull).toEqual([selection]);
+      expect(failed(yield* Effect.result(operations.find(child, {})))).toMatchObject({ reason: "invalidAuthority" });
+      yield* operations.prepareDeleteClosure();
+      const prepared = yield* operations.nativeActivitySince(cursor);
+      expect(prepared.mutations).toHaveLength(1);
+      expect(prepared.setNull).toEqual([selection]);
+      expect(prepared.observedRows).toEqual(expect.arrayContaining([{ table: child,
+        row: { id: "detach-child", parent_id: null, code: "valid", count: 1 } }]));
+      expect((yield* graph.read("child"))[0]?.parent_id).toBe("detach-parent");
+      yield* graph.database.commit(yield* operation.finalize());
+      yield* operation.abort();
+      expect(yield* graph.read("parent")).toEqual([]);
+      expect((yield* graph.read("child"))[0]?.parent_id).toBeNull();
+    })), 120_000);
+
+    it("seals only the set-null source while another native source can still use the same pending root", run(fixture => Effect.gen(function* () {
+      const graph = yield* setup(fixture, true), parent = graph.table("parent"), child = graph.table("child");
+      yield* graph.write(operations => Effect.gen(function* () {
+        yield* operations.writeRows(parent, "insert", [{ id: "source-parent" }]);
+        yield* operations.writeRows(child, "insert", [{ id: "source-child", parent_id: "source-parent", code: "valid" }]);
+      }));
+      const root = yield* graph.database.bindNativeRoot({ bundle: graph.bundle, contract: { name: "native-set-null-source-seal" },
+        participants: [{ binding: graph.binding, commands: ["checkpoint-write"], limits: coreNativeTestBudget().limits },
+          { binding: graph.foreignBinding, commands: ["foreign-write"], limits: coreNativeTestBudget().limits }], maxFinalUserDocuments: 128 });
+      const metadata = yield* graph.database.readNativeRootBinding(root);
+      const identity: CoreRequestIdentity = { kind: "nativeRoot", root: metadata.identity, key: "source-seal-control", requestHash: "source-seal-control" };
+      const acquired = yield* graph.database.claimRequest(identity, root);
+      if (acquired.kind !== "claimed") return yield* Effect.die(new Error("Fresh source seal request was not claimed"));
+      const operation = yield* graph.database.beginNativeRoot(root, { claim: acquired.claim, ...coreNativeTestBudget() });
+      const source = yield* operation.native(graph.binding), other = yield* operation.native(graph.foreignBinding);
+      yield* source.deleteRows(parent, ["source-parent"]);
+      yield* source.planSetNullReferences({ sourceTable: child, sourceColumn: "parent_id", targetTable: parent,
+        targetColumn: "id", targetKey: "source-parent", managedUpdate: "advance" });
+      expect(failed(yield* Effect.result(source.find(child, {})))).toMatchObject({ reason: "invalidAuthority" });
+      const foreign = graph.foreign.tables[0];
+      if (foreign === undefined) return yield* Effect.die(new Error("Missing other source"));
+      yield* other.writeRows(foreign.name, "insert", [{ id: "other-source-still-open" }]);
+      expect((yield* other.find(foreign.name, {})).map(row => row.id)).toEqual(["other-source-still-open"]);
+      yield* operation.abort();
+      yield* graph.database.abortRequest(acquired.claim);
+      expect((yield* graph.read("child"))[0]?.parent_id).toBe("source-parent");
+    })), 120_000);
+
+    it.each(["nondeleted", "wrong FK", "nonnullable", "replacement", "earlier transient reference", "missing key", "foreign source"] as const)(
+      "refuses the %s set-null plan without retaining a fabricated intent", mode => run(fixture => Effect.gen(function* () {
+        const graph = yield* setup(fixture, mode !== "nonnullable"), parent = graph.table("parent"), child = graph.table("child");
+        yield* graph.write(operations => Effect.gen(function* () {
+          yield* operations.writeRows(parent, "insert", [{ id: "parent-p" }, { id: "parent-q" }]);
+          yield* operations.writeRows(child, "insert", [{ id: "child", parent_id: "parent-q", code: "valid" }]);
+        }));
+        const operation = yield* graph.begin(), operations = operation.operations, cursor = operations.nativeActivityCursor();
+        if (mode === "earlier transient reference") {
+          yield* operations.writeRows(child, "update", [{ id: "child", parent_id: "parent-p" }]);
+          yield* operations.writeRows(child, "update", [{ id: "child", parent_id: null }]);
+        }
+        if (mode !== "nondeleted") yield* operations.deleteRows(parent, ["parent-p"]);
+        if (mode === "replacement") yield* operations.writeRows(parent, "insert", [{ id: "parent-p" }]);
+        const foreign = graph.foreign.tables[0];
+        if (foreign === undefined) return yield* Effect.die(new Error("Missing foreign source"));
+        const refusal = failed(yield* Effect.result(operations.planSetNullReferences({ sourceTable: mode === "foreign source" ? foreign.name : child,
+          sourceColumn: mode === "wrong FK" ? "count" : "parent_id", targetTable: parent, targetColumn: "id",
+          targetKey: mode === "missing key" ? "never-deleted" : "parent-p", managedUpdate: "advance" })));
+        expect(refusal).toMatchObject({ reason: mode === "foreign source" ? "authorityRevoked" : "invalidAuthority" });
+        expect((yield* operations.nativeActivitySince(cursor)).setNull).toEqual([]);
+        yield* operation.abort();
+        expect((yield* graph.read("child"))[0]?.parent_id).toBe("parent-q");
+        expect(yield* graph.read("parent")).toHaveLength(2);
+      }))(), 120_000);
+
+    it("keeps the sixteen-intent bound and refuses duplicate or replacement-plan coexistence", run(fixture => Effect.gen(function* () {
+      const graph = yield* setup(fixture, true), parent = graph.table("parent"), child = graph.table("child");
+      const keys = Array.from({ length: 17 }, (_, index) => `bounded-${index}`);
+      yield* graph.write(operations => operations.writeRows(parent, "insert", keys.map(id => ({ id }))));
+      const operation = yield* graph.begin(), operations = operation.operations, cursor = operations.nativeActivityCursor();
+      yield* operations.deleteRows(parent, keys);
+      for (const key of keys.slice(0, 16)) yield* operations.planSetNullReferences({ sourceTable: child, sourceColumn: "parent_id",
+        targetTable: parent, targetColumn: "id", targetKey: key, managedUpdate: "advance" });
+      const last = keys.at(-1);
+      if (last === undefined) return yield* Effect.die(new Error("Missing bounded intent"));
+      expect(failed(yield* Effect.result(operations.planSetNullReferences({ sourceTable: child, sourceColumn: "parent_id",
+        targetTable: parent, targetColumn: "id", targetKey: last, managedUpdate: "advance" })))).toMatchObject({ reason: "capacity" });
+      expect((yield* operations.nativeActivitySince(cursor)).setNull).toHaveLength(16);
+      expect(failed(yield* Effect.result(operations.replaceReferenceSet({ sourceTable: child, sourceColumn: "parent_id",
+        targetTable: parent, targetColumn: "id", targetKey: last, desiredKeys: [] })))).toMatchObject({ reason: "invalidAuthority" });
+      yield* operation.abort();
+      const duplicate = yield* graph.begin();
+      yield* duplicate.operations.deleteRows(parent, [last]);
+      const selection: CoreNativeSetNullIntent = { sourceTable: child, sourceColumn: "parent_id", targetTable: parent,
+        targetColumn: "id", targetKey: last, managedUpdate: "preserve" };
+      yield* duplicate.operations.planSetNullReferences(selection);
+      expect(failed(yield* Effect.result(duplicate.operations.planSetNullReferences(selection)))).toMatchObject({ reason: "invalidAuthority" });
+      yield* duplicate.abort();
+      expect(yield* graph.read("parent")).toHaveLength(17);
+    })), 120_000);
+
+    it("refuses an incoming member after derived set-null preparation instead of widening the frozen graph", run(fixture => Effect.gen(function* () {
+      const graph = yield* setup(fixture, true), parent = graph.table("parent"), child = graph.table("child");
+      yield* graph.write(operations => Effect.gen(function* () {
+        yield* operations.writeRows(parent, "insert", [{ id: "frozen-parent" }]);
+        yield* operations.writeRows(child, "insert", [{ id: "prepared-child", parent_id: "frozen-parent", code: "valid" }]);
+      }));
+      const operation = yield* graph.begin();
+      yield* operation.operations.deleteRows(parent, ["frozen-parent"]);
+      yield* operation.operations.planSetNullReferences({ sourceTable: child, sourceColumn: "parent_id", targetTable: parent,
+        targetColumn: "id", targetKey: "frozen-parent", managedUpdate: "advance" });
+      yield* operation.operations.prepareDeleteClosure();
+      yield* graph.write(operations => operations.writeRows(child, "insert", [{ id: "late-child", parent_id: "frozen-parent", code: "valid" }]));
+      const refusal = failed(yield* Effect.result(operation.finalize().pipe(Effect.flatMap(graph.database.commit))));
+      if (refusal === undefined) return yield* Effect.die(new Error("Expected frozen set-null race refusal"));
+      expect(["conflict", "deleteRestricted"]).toContain(refusal.reason);
+      yield* operation.abort();
+      expect(yield* graph.read("parent")).toHaveLength(1);
+      expect((yield* graph.read("child")).map(row => [row.id, row.parent_id])
+        .sort(([left], [right]) => String(left).localeCompare(String(right)))).toEqual([
+        ["late-child", "frozen-parent"], ["prepared-child", "frozen-parent"],
+      ]);
+    })), 120_000);
+  });
+}

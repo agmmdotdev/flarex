@@ -1,5 +1,13 @@
 # DTE07 Task lifecycle-event history
 
+> **Legacy Task record - superseded direction.**
+> The [Task System design](../../../design-notes/task-system/README.md) and
+> [current roadmap](../../task-system/README.md) own replacement work.
+> This body is historical baseline/source evidence; its statuses, approvals and
+> next steps apply to the former initiative. Preserve applicable behavior and
+> tests until consumer cutover. Do not use this record to extend the custom
+> engine or retain Task-specific physical tables.
+
 Status: DTE07-B4/C14 implemented privately on 2026-08-30. The connected
 PGlite instance proof is complete. The checked-in disposable PostgreSQL lane
 remains unexecuted because `FLAREX_POSTGRES_DATABASE_URL` is unavailable in

@@ -183,13 +183,8 @@ export const prepareApplicationFromSdk: (
     ));
     const tables: Record<string, TableDefinition> = Object.create(null);
     for (const table of analyzedSchema.tables) {
-      if (table.validator.type !== "object") {
-        return yield* Effect.die(new Error(
-          `Analyzed SDK table ${table.name} lost its object validator invariant.`,
-        ));
-      }
       tables[table.name] = defineTable(
-        validatorRecordFromObjectJson(table.validator),
+        requiredValidatorFromJson(table.validator),
       );
     }
     for (const index of analyzedSchema.indexes) {
@@ -475,6 +470,12 @@ function requiredValidatorFromJson(
     case "null": return v.null();
     case "number": return v.number();
     case "bigint": return v.bigint();
+    case "commitTs": return v.commitTs();
+    case "function": return v.function({
+      ...(json.fnType === undefined ? {} : { fnType: json.fnType }),
+      ...(json.args === undefined ? {} : { args: requiredValidatorFromJson(json.args) }),
+      ...(json.returns === undefined ? {} : { returns: requiredValidatorFromJson(json.returns) }),
+    });
     case "boolean": return v.boolean();
     case "string": return v.string();
     case "bytes": return v.bytes();
@@ -489,14 +490,7 @@ function requiredValidatorFromJson(
       );
     case "object": return v.object(validatorRecordFromObjectJson(json));
     case "union": {
-      const [first, ...rest] = json.value;
-      if (first === undefined) {
-        throw new TypeError("SDK validator union must not be empty.");
-      }
-      return v.union(
-        requiredValidatorFromJson(first),
-        ...rest.map(requiredValidatorFromJson),
-      );
+      return v.union(...json.value.map(requiredValidatorFromJson));
     }
   }
 }

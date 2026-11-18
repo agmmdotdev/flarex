@@ -1,0 +1,1228 @@
+import {
+  InvalidPointMutationJournalCapabilityV1Error,
+  PointMutationJournalRelationConflictError,
+  UnsupportedPointMutationJournalOperationV1Error,
+  PointMutationJournalPersistenceV1Error,
+  PointMutationJournalAdmittedOperationRejectedV1Error,
+  PointMutationJournalParticipantRejectedV1Error,
+  PointMutationJournalParticipantSetV1Error,
+  PointMutationJournalParticipantSelectionV1Error,
+  PointMutationJournalAttemptPinsV1Error,
+  PointMutationJournalAttemptUnavailableV1Error,
+} from "./errors";
+import type {
+  PinnedDeveloperIndexV1,
+  PinnedApplicationRelationRead,
+  PinnedPointTableV1,
+  RunSessionJournalRelationIncomingV1Result,
+  RunSessionJournalIndexedQueryV1Result,
+  RunSessionJournalPointOperationV1Result,
+  SessionJournalIndexedQuerySuccessV1,
+  SessionJournalRelationConflictV1,
+  SessionJournalRelationIncomingRequestEvidenceV1,
+  SessionJournalRelationIncomingOperationV1,
+  SessionJournalPointSuccessV1,
+  SessionJournalAttempt,
+  SessionJournalStorePersistence,
+  ConfirmedFiniteRootEntryCapture,
+  PreparedFiniteSessionJournalEntry,
+  FrozenFiniteAttempt,
+} from "@flarex/persistence-postgres/internal/session-journal";
+import {
+  decodePointOperation,
+  decodeIndexedQueryOperationResult,
+} from "@flarex/persistence-postgres/internal/session-journal-operation-input";
+import {
+  InvalidSessionJournalCapabilityV1Error,
+  ApplicationTableWriteDeniedError,
+  InvalidSessionJournalInputV1Error,
+  PinnedPointTableCorruptionV1Error,
+  PinnedPointTableNotFoundV1Error,
+  SessionJournalAttemptUnavailableV1Error,
+  SessionJournalIdentityGenerationV1Error,
+  SessionJournalLeasePromotionV1Error,
+  SessionJournalPersistenceV1Error,
+  SessionJournalSealV1Error,
+  SessionJournalStorageCorruptionV1Error,
+  SessionJournalTargetUnavailableV1Error,
+  inspectPrivateReferenceSaveAccess,
+  type PrivateReferenceSaveAccess,
+  inspectPrivateReverseReadAccess,
+  PRIVATE_REFERENCE_PAGE,
+  type PrivateReverseReadAccess,
+} from "@flarex/persistence-postgres/internal/session-journal";
+import {
+  type RecoveredRunningRelationConflictEvidence,
+} from "@flarex/persistence-postgres/point-commit-transaction";
+import type {
+  PointMutationExecutionProfile,
+} from "@flarex/persistence-postgres/internal/session";
+import {
+  type ApplicationRevisionSyscallValidatorV1,
+} from "@flarex/persistence-postgres/internal/application-revision-syscall-validator-v1";
+import {
+  ApplicationRevisionSyscallDocumentValidationV1Error,
+  ApplicationRevisionSyscallValidatorCorruptionV1Error,
+  ApplicationRevisionSyscallValidatorIntegrationV1Error,
+  ApplicationRevisionSyscallValidatorStaleV1Error,
+  InvalidApplicationRevisionSyscallValidatorV1Error,
+} from "@flarex/persistence-postgres/internal/application-syscall-errors";
+import {
+  LogicalParticipantAdmissionError,
+  LogicalParticipantInvocationError,
+} from "@flarex/persistence-postgres/internal/logical-participant-errors";
+import { Cause, Effect, Result, Schema, Semaphore, type Scope } from "effect";
+
+import {
+  canonicalizeSessionJournalEffect,
+  canonicalizeSuccessfulResultV1Effect,
+  type CommitProtocolV1Error,
+  type CommitSyscallSequenceV1,
+  CommitSyscallSequenceV1Schema,
+  type StoredForSessionAttemptCommitEnvelopeV1,
+} from "flarex-protocol/commit-protocol";
+import type { AdmittedFrameworkOperationV1 } from "flarex-protocol/internal/admitted-framework-operation-v1";
+import type { Json } from "flarex-protocol/json";
+import { AppDocumentIdV1Schema } from "flarex-protocol/app-document-id";
+
+import {
+  inspectLoadedPointMutationSessionAttemptV1,
+  InvalidLoadedPointMutationSessionAttemptV1Error,
+  type LoadedPointMutationSessionAttemptInspectionV1,
+  type LoadedPointMutationSessionAttemptV1,
+} from "../session/pointMutationSessionActivation";
+import { isPlainRecord } from "../../mechanics/plainRecord";
+import {
+  InvalidPointMutationExecutionClaimV1Error,
+  type PointMutationExecutionScopeV1,
+  type PointMutationExecutionClaimV1,
+  type PointMutationExecutionClaimAdmissionV1,
+} from "../claims/pointMutationExecutionClaim";
+
+const pointMutationJournalAttemptBrand: unique symbol = Symbol(
+  "FlarexExecutor/PointMutationJournalAttemptV1",
+);
+
+export interface PointMutationJournalAttemptV1 {
+  readonly [pointMutationJournalAttemptBrand]: true;
+}
+
+const pointMutationJournalTableBrand: unique symbol = Symbol(
+  "FlarexExecutor/PointMutationJournalTableV1",
+);
+
+export interface PointMutationJournalTableV1 {
+  readonly [pointMutationJournalTableBrand]: true;
+}
+
+const pointMutationJournalIndexBrand: unique symbol = Symbol(
+  "FlarexExecutor/PointMutationJournalIndexV1",
+);
+
+export interface PointMutationJournalIndexV1 {
+  readonly [pointMutationJournalIndexBrand]: true;
+}
+
+const pointMutationJournalRelationBrand: unique symbol = Symbol(
+  "FlarexExecutor/PointMutationJournalRelation",
+);
+
+export interface PointMutationJournalRelation {
+  readonly [pointMutationJournalRelationBrand]: true;
+}
+
+export type PointMutationJournalApplicationRelationReadCapability = Parameters<
+  SessionJournalStorePersistence["resolveApplicationRelationReadEffect"]
+>[1];
+
+type AdmittedOperationInvoke = Parameters<SessionJournalStorePersistence["runAdmittedOperationEffect"]>[3];
+
+/** Trusted composition for one selector and its exact ordered source bundle.
+ * The sandbox frame can choose only the admitted operation and JSON arguments. */
+export interface PointMutationJournalAdmittedParticipantV1 {
+  readonly participant: string;
+  readonly admission: Omit<Parameters<SessionJournalStorePersistence["admitLogicalParticipantsEffect"]>[1], "sources"> & {
+    readonly sources: readonly (Omit<Parameters<SessionJournalStorePersistence["admitLogicalParticipantsEffect"]>[1]["sources"][number], "application"> & {
+      readonly application?: Parameters<SessionJournalStorePersistence["admitLogicalParticipantsEffect"]>[1]["sources"][number]["application"];
+    })[];
+  };
+  readonly borrow: AdmittedOperationInvoke;
+}
+
+export interface PointMutationJournalAdmittedOperationInputV1 {
+  readonly syscallSequence: CommitSyscallSequenceV1;
+  readonly operation: AdmittedFrameworkOperationV1;
+  readonly requestBytes: Uint8Array;
+  readonly requestSha256: Uint8Array;
+}
+
+interface BoundPrivateParticipant {
+  readonly profileRevision: string;
+  readonly runAdmittedOperation: (input: PointMutationJournalAdmittedOperationInputV1) =>
+    Effect.Effect<Json, PointMutationJournalBoundaryV1Error>;
+}
+
+export type PointMutationJournalBoundaryV1Error =
+  | InvalidPointMutationJournalCapabilityV1Error
+  | InvalidPointMutationExecutionClaimV1Error
+  | InvalidLoadedPointMutationSessionAttemptV1Error
+  | UnsupportedPointMutationJournalOperationV1Error
+  | PointMutationJournalAttemptPinsV1Error
+  | PointMutationJournalAttemptUnavailableV1Error
+  | PointMutationJournalRelationConflictError
+  | PointMutationJournalPersistenceV1Error
+  | PointMutationJournalAdmittedOperationRejectedV1Error
+  | PointMutationJournalParticipantRejectedV1Error
+  | PointMutationJournalParticipantSetV1Error
+  | PointMutationJournalParticipantSelectionV1Error
+  | InvalidSessionJournalCapabilityV1Error
+  | InvalidSessionJournalInputV1Error
+  | PinnedPointTableCorruptionV1Error
+  | PinnedPointTableNotFoundV1Error
+  | SessionJournalIdentityGenerationV1Error
+  | SessionJournalLeasePromotionV1Error
+  | SessionJournalSealV1Error
+  | SessionJournalStorageCorruptionV1Error
+  | SessionJournalTargetUnavailableV1Error
+  | InvalidApplicationRevisionSyscallValidatorV1Error
+  | ApplicationRevisionSyscallValidatorStaleV1Error
+  | ApplicationRevisionSyscallValidatorCorruptionV1Error
+  | ApplicationRevisionSyscallValidatorIntegrationV1Error
+  | ApplicationRevisionSyscallDocumentValidationV1Error
+  | ApplicationTableWriteDeniedError;
+
+export interface PointMutationJournalV1 {
+  /** Trusted finite composition only. The opaque save access never enters RPC. */
+  readonly bindPrivateReferenceSave?: (attempt: PointMutationJournalAttemptV1, participant: string,
+    access: PrivateReferenceSaveAccess, borrow: AdmittedOperationInvoke) => Effect.Effect<
+      BoundPrivateParticipant,
+      PointMutationJournalBoundaryV1Error>;
+  /** Trusted finite composition only. Read evidence and cursors remain root-bound. */
+  readonly bindPrivateReverseReferenceRead?: (attempt: PointMutationJournalAttemptV1, participant: string,
+    access: PrivateReverseReadAccess, borrow: AdmittedOperationInvoke) => Effect.Effect<
+      BoundPrivateParticipant,
+      PointMutationJournalBoundaryV1Error>;
+  readonly inspectFiniteExecutionEntry?: (capture: ConfirmedFiniteRootEntryCapture, preparation: PreparedFiniteSessionJournalEntry) =>
+    Result.Result<Result.Result.Success<ReturnType<SessionJournalStorePersistence["confirmedFiniteEntryAttempt"]>>, PointMutationJournalBoundaryV1Error>;
+  readonly freezeFiniteAttempt?: (attempt: PointMutationJournalAttemptV1, successfulResult: unknown) =>
+    Effect.Effect<FrozenFiniteAttempt, PointMutationJournalBoundaryV1Error>;
+  readonly prepareInitialFiniteEntry?: () =>
+    Effect.Effect<PreparedFiniteSessionJournalEntry, PointMutationJournalBoundaryV1Error, Scope.Scope>;
+  readonly prepareFiniteEntry?: (admittedParticipants: readonly PointMutationJournalAdmittedParticipantV1[]) =>
+    Effect.Effect<PreparedFiniteSessionJournalEntry, PointMutationJournalBoundaryV1Error, Scope.Scope>;
+  readonly openConfirmedFiniteEntry?: (capture: ConfirmedFiniteRootEntryCapture,
+    preparation: PreparedFiniteSessionJournalEntry, executionClaim: PointMutationExecutionScopeV1, originalClaim: PointMutationExecutionClaimV1) =>
+    Effect.Effect<PointMutationJournalAttemptV1, PointMutationJournalBoundaryV1Error>;
+  /** Present only after this finite root's seal confirms database COMMIT. */
+  readonly openAttempt: (
+    attempt: LoadedPointMutationSessionAttemptV1,
+    executionClaim: PointMutationExecutionScopeV1,
+  ) => Effect.Effect<
+    PointMutationJournalAttemptV1,
+    PointMutationJournalBoundaryV1Error
+  >;
+  readonly runAdmittedOperation?: (
+    attempt: PointMutationJournalAttemptV1,
+    input: PointMutationJournalAdmittedOperationInputV1,
+  ) => Effect.Effect<Json, PointMutationJournalBoundaryV1Error>;
+  readonly runApplicationPointOperation: (
+    attempt: PointMutationJournalAttemptV1,
+    tableName: unknown,
+    operation: unknown,
+  ) => Effect.Effect<RunSessionJournalPointOperationV1Result, PointMutationJournalBoundaryV1Error>;
+  readonly runApplicationIndexedQuery: (
+    attempt: PointMutationJournalAttemptV1,
+    tableName: unknown,
+    indexDescriptor: unknown,
+    operation: unknown,
+  ) => Effect.Effect<RunSessionJournalIndexedQueryV1Result, PointMutationJournalBoundaryV1Error>;
+  readonly resolvePointTable: (
+    attempt: PointMutationJournalAttemptV1,
+    tableName: unknown,
+  ) => Effect.Effect<
+    PointMutationJournalTableV1,
+    PointMutationJournalBoundaryV1Error
+  >;
+  readonly runPointOperation: (
+    table: PointMutationJournalTableV1,
+    operation: unknown,
+  ) => Effect.Effect<
+    RunSessionJournalPointOperationV1Result,
+    PointMutationJournalBoundaryV1Error
+  >;
+  readonly resolveDeveloperIndex: (
+    table: PointMutationJournalTableV1,
+    indexDescriptor: unknown,
+  ) => Effect.Effect<
+    PointMutationJournalIndexV1,
+    PointMutationJournalBoundaryV1Error
+  >;
+  readonly runIndexedQuery: (
+    index: PointMutationJournalIndexV1,
+    operation: unknown,
+  ) => Effect.Effect<
+    RunSessionJournalIndexedQueryV1Result,
+    PointMutationJournalBoundaryV1Error
+  >;
+  readonly resolveApplicationRelationRead: (
+    attempt: PointMutationJournalAttemptV1,
+    capability: PointMutationJournalApplicationRelationReadCapability,
+  ) => Effect.Effect<
+    PointMutationJournalRelation,
+    PointMutationJournalBoundaryV1Error
+  >;
+  readonly runApplicationRelationIncomingRead: (
+    relation: PointMutationJournalRelation,
+    operation: unknown,
+  ) => Effect.Effect<
+    Exclude<
+      RunSessionJournalRelationIncomingV1Result,
+      { readonly kind: "conflicted" }
+    >,
+    PointMutationJournalBoundaryV1Error
+  >;
+  readonly claimPersistedRelationConflictForRetry: (
+    input: unknown,
+  ) => Result.Result<
+    Readonly<{
+      readonly error: PointMutationJournalRelationConflictError;
+      readonly request: Readonly<
+        SessionJournalRelationIncomingRequestEvidenceV1
+      >;
+      readonly conflict: SessionJournalRelationConflictV1;
+    }>,
+    InvalidPointMutationJournalCapabilityV1Error
+  >;
+  readonly sealSuccessfulResult: (
+    attempt: PointMutationJournalAttemptV1,
+    successfulResult: unknown,
+  ) => Effect.Effect<
+    StoredForSessionAttemptCommitEnvelopeV1,
+    PointMutationJournalBoundaryV1Error | CommitProtocolV1Error
+  >;
+  readonly discardTentativeRoot: (
+    attempt: PointMutationJournalAttemptV1,
+  ) => Effect.Effect<void, PointMutationJournalBoundaryV1Error>;
+}
+
+export interface PointMutationJournalRelationConflictRecovery {
+  readonly captureRecoveredRelationConflict: (
+    evidence: RecoveredRunningRelationConflictEvidence,
+  ) => PointMutationJournalRelationConflictError;
+}
+
+export type PointMutationJournalLogicalOutcomeV1 =
+  SessionJournalPointSuccessV1;
+
+export type PointMutationJournalIndexedQueryLogicalOutcomeV1 =
+  SessionJournalIndexedQuerySuccessV1;
+
+interface JournalAttemptCoordinatorV1 {
+  readonly inspection: LoadedPointMutationSessionAttemptInspectionV1;
+  readonly semaphore: Semaphore.Semaphore;
+}
+
+interface JournalAttemptStateV1 {
+  readonly executionClaim: PointMutationExecutionScopeV1;
+  readonly persistenceAttempt: SessionJournalAttempt;
+  readonly coordinator: JournalAttemptCoordinatorV1;
+  readonly participants: ReadonlyMap<string, PointMutationJournalAdmittedParticipantV1>;
+  readonly participantAdmissions: ReadonlyMap<string, Effect.Success<ReturnType<
+    SessionJournalStorePersistence["admitLogicalParticipantsEffect"]>>>;
+}
+
+interface JournalTableStateV1 {
+  readonly attempt: JournalAttemptStateV1;
+  readonly persistenceTable: PinnedPointTableV1;
+}
+
+interface JournalIndexStateV1 {
+  readonly attempt: JournalAttemptStateV1;
+  readonly persistenceIndex: PinnedDeveloperIndexV1;
+}
+
+interface JournalRelationState {
+  readonly attempt: JournalAttemptStateV1;
+  readonly persistenceRelation: PinnedApplicationRelationRead;
+}
+
+const decodeSyscallSequenceResult = Schema.decodeUnknownResult(
+  Schema.toType(CommitSyscallSequenceV1Schema),
+);
+const decodeAppDocumentIdResult = Schema.decodeUnknownResult(
+  AppDocumentIdV1Schema,
+);
+
+// Trusted input capture owns eager field access, detached arrays and nominal
+// first-refusal order. Opaque source capabilities stay with their native issuer.
+function captureJournalParticipants(admittedParticipants: readonly PointMutationJournalAdmittedParticipantV1[]) {
+  const selectedParticipants = new Map<string, PointMutationJournalAdmittedParticipantV1>();
+  let participantSetError: PointMutationJournalParticipantSetV1Error | undefined;
+  if (admittedParticipants.length > 3) {
+    participantSetError = new PointMutationJournalParticipantSetV1Error({ reason: "tooMany" });
+  } else for (const participant of admittedParticipants) {
+    if (typeof participant.participant !== "string" || participant.participant.length === 0 ||
+      participant.participant.trim() !== participant.participant) {
+      participantSetError = new PointMutationJournalParticipantSetV1Error({
+        reason: "invalidSelector", participant: participant.participant,
+      });
+      break;
+    }
+    if (selectedParticipants.has(participant.participant)) {
+      participantSetError = new PointMutationJournalParticipantSetV1Error({
+        reason: "duplicate", participant: participant.participant,
+      });
+      break;
+    }
+    if (participant.admission.participant !== participant.participant) {
+      participantSetError = new PointMutationJournalParticipantSetV1Error({
+        reason: "invalidSelector", participant: participant.participant,
+      });
+      break;
+    }
+    selectedParticipants.set(participant.participant, Object.freeze({
+      participant: participant.participant,
+      admission: Object.freeze({ ...participant.admission,
+        operationMethods: Object.freeze([...participant.admission.operationMethods]),
+        sources: Object.freeze(participant.admission.sources.map(source => Object.freeze({
+          ...source, methods: Object.freeze([...source.methods]),
+        }))),
+      }),
+      borrow: participant.borrow,
+    }));
+  }
+  return { selectedParticipants, participantSetError };
+}
+
+export function createPointMutationJournalV1(
+  persistence: SessionJournalStorePersistence,
+  executionClaims: PointMutationExecutionClaimAdmissionV1,
+  syscallValidator: ApplicationRevisionSyscallValidatorV1,
+  admittedParticipants: readonly PointMutationJournalAdmittedParticipantV1[] = [],
+  executionProfile: PointMutationExecutionProfile = "durableOperations",
+): PointMutationJournalV1 & PointMutationJournalRelationConflictRecovery {
+  const { selectedParticipants, participantSetError } = captureJournalParticipants(admittedParticipants);
+  const attemptStates = new WeakMap<object, JournalAttemptStateV1>();
+  const finitePreparations = new WeakMap<PreparedFiniteSessionJournalEntry,
+    ReadonlyMap<string, PointMutationJournalAdmittedParticipantV1>>();
+  const tableStates = new WeakMap<object, JournalTableStateV1>();
+  const indexStates = new WeakMap<object, JournalIndexStateV1>();
+  const relationStates = new WeakMap<object, JournalRelationState>();
+  const persistedRelationConflicts = new WeakMap<
+    object,
+    Readonly<{
+      readonly error: PointMutationJournalRelationConflictError;
+      readonly request: Readonly<
+        SessionJournalRelationIncomingRequestEvidenceV1
+      >;
+      readonly conflict: SessionJournalRelationConflictV1;
+    }>
+  >();
+  const openedByExecutionClaim = new WeakMap<
+    object,
+    PointMutationJournalAttemptV1
+  >();
+  const coordinatorsByExactAttempt = new Map<
+    string,
+    WeakRef<JournalAttemptCoordinatorV1>
+  >();
+  const coordinatorFinalizer = new FinalizationRegistry<Readonly<{
+    readonly identityKey: string;
+    readonly reference: WeakRef<JournalAttemptCoordinatorV1>;
+  }>>(({ identityKey, reference }) => {
+    if (coordinatorsByExactAttempt.get(identityKey) === reference) {
+      coordinatorsByExactAttempt.delete(identityKey);
+    }
+  });
+
+  const requireAttempt = (
+    value: PointMutationJournalAttemptV1,
+  ): JournalAttemptStateV1 => {
+    const state = typeof value === "object" && value !== null
+      ? attemptStates.get(value)
+      : undefined;
+    if (state === undefined) {
+      throw new InvalidPointMutationJournalCapabilityV1Error({
+        capability: "attempt",
+      });
+    }
+    return state;
+  };
+
+  const openAttempt: PointMutationJournalV1["openAttempt"] = Effect.fn(
+    "PointMutationJournal.openAttempt",
+  )(function* (loadedAttempt, executionClaim) {
+    if (executionProfile !== "durableOperations") return yield* Effect.fail(new InvalidPointMutationJournalCapabilityV1Error({ capability: "attempt" }));
+    if (participantSetError !== undefined) return yield* Effect.fail(participantSetError);
+    const claimState = yield* Effect.fromResult(
+      executionClaims.inspect(executionClaim, "execute"),
+    );
+    const existing = openedByExecutionClaim.get(executionClaim);
+    const inspection = yield* Effect.try({
+      try: () => inspectLoadedPointMutationSessionAttemptV1(loadedAttempt),
+      catch: mapPersistenceFailure,
+    });
+    const identityKey = exactAttemptIdentityKey(inspection);
+    if (!attemptSelectorEquals(inspection.selector, claimState.selector)) {
+      return yield* Effect.fail(new PointMutationJournalAttemptPinsV1Error({
+        reason: "immutablePinsMismatch",
+      }));
+    }
+    const durableSelections = [];
+    for (const participant of selectedParticipants.values()) {
+      const sources = [];
+      for (const source of participant.admission.sources) {
+        const application = source.application;
+        if (application === undefined) return yield* Effect.fail(new PointMutationJournalParticipantSelectionV1Error({ participant: participant.participant }));
+        sources.push(Object.freeze({ ...source, application }));
+      }
+      durableSelections.push(Object.freeze({ ...participant.admission, sources }));
+    }
+    if (existing !== undefined) return existing;
+    const existingReference = coordinatorsByExactAttempt.get(identityKey);
+    const existingCoordinator = existingReference?.deref();
+    if (existingReference !== undefined && existingCoordinator === undefined) {
+      coordinatorsByExactAttempt.delete(identityKey);
+    }
+    if (
+      existingCoordinator !== undefined &&
+      !immutableAttemptPinsEqual(existingCoordinator.inspection, inspection)
+    ) {
+      return yield* Effect.fail(new PointMutationJournalAttemptPinsV1Error({
+        reason: "immutablePinsMismatch",
+      }));
+    }
+    const coordinator = existingCoordinator ?? Object.freeze({
+      inspection,
+      semaphore: Semaphore.makeUnsafe(1),
+    } satisfies JournalAttemptCoordinatorV1);
+    if (existingCoordinator === undefined) {
+      const reference = new WeakRef(coordinator);
+      coordinatorsByExactAttempt.set(identityKey, reference);
+      coordinatorFinalizer.register(coordinator, Object.freeze({
+        identityKey,
+        reference,
+      }));
+    }
+    const persistenceAttempt = yield* persistence.openAttemptEffect({
+      selector: inspection.selector,
+      snapshotToken: inspection.snapshotToken,
+      schemaVersionId: inspection.schemaVersionId,
+      executionClaim: claimState.observation,
+      executionProfile,
+    }).pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, mapAdmittedFailure))));
+    const participantAdmissions = new Map<string, Effect.Success<ReturnType<
+      SessionJournalStorePersistence["admitLogicalParticipantsEffect"]>>>();
+    for (const participant of durableSelections) {
+      const admission = yield* persistence.admitLogicalParticipantsEffect(persistenceAttempt,
+        participant).pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, mapAdmittedFailure))));
+      participantAdmissions.set(participant.participant, admission);
+    }
+    const state = Object.freeze({
+      executionClaim,
+      persistenceAttempt,
+      coordinator,
+      participants: selectedParticipants,
+      participantAdmissions,
+    } satisfies JournalAttemptStateV1);
+    const handle = Object.freeze({
+      [pointMutationJournalAttemptBrand]: true as const,
+    });
+    attemptStates.set(handle, state);
+    openedByExecutionClaim.set(executionClaim, handle);
+    return handle;
+  });
+
+  const issueFiniteEntry = Effect.fn("PointMutationJournal.issueFiniteEntry")(
+    function* (participants: ReadonlyMap<string, PointMutationJournalAdmittedParticipantV1>) {
+      const preparation = yield* persistence.prepareFiniteEntryEffect([...participants.values()].map(participant => ({
+        ...participant.admission, sources: participant.admission.sources.map(source => ({ selection: source.selection, methods: source.methods })),
+      }))).pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, mapAdmittedFailure))));
+      finitePreparations.set(preparation, participants);
+      return preparation;
+    });
+  const prepareInitialFiniteEntry: NonNullable<PointMutationJournalV1["prepareInitialFiniteEntry"]> =
+    Effect.fn("PointMutationJournal.prepareInitialFiniteEntry")(function* () {
+      if (executionProfile !== "finiteRoot") return yield* Effect.fail(new InvalidPointMutationJournalCapabilityV1Error({ capability: "attempt" }));
+      if (participantSetError !== undefined) return yield* Effect.fail(participantSetError);
+      return yield* issueFiniteEntry(selectedParticipants);
+    });
+  const prepareFiniteEntry: NonNullable<PointMutationJournalV1["prepareFiniteEntry"]> =
+    Effect.fn("PointMutationJournal.prepareFiniteEntry")(function* (freshParticipants) {
+      if (executionProfile !== "finiteRoot") return yield* Effect.fail(new InvalidPointMutationJournalCapabilityV1Error({ capability: "attempt" }));
+      if (participantSetError !== undefined) return yield* Effect.fail(participantSetError);
+      const captured = yield* Effect.sync(() => captureJournalParticipants(freshParticipants));
+      if (captured.participantSetError !== undefined) return yield* Effect.fail(captured.participantSetError);
+      // Fresh capabilities may change, but this journal's declared operation
+      // and ordered source topology cannot expand or change profiles.
+      if (captured.selectedParticipants.size !== selectedParticipants.size)
+        return yield* Effect.fail(new PointMutationJournalParticipantSetV1Error({ reason: "invalidSelector" }));
+      const declared = selectedParticipants.values();
+      for (const participant of captured.selectedParticipants.values()) {
+        const initial = declared.next().value;
+        if (initial === undefined || participant.participant !== initial.participant ||
+          participant.admission.profileRevision !== initial.admission.profileRevision ||
+          participant.admission.operationMethods.length !== initial.admission.operationMethods.length ||
+          participant.admission.operationMethods.some((method, index) => method !== initial.admission.operationMethods[index]) ||
+          participant.admission.sources.length !== initial.admission.sources.length ||
+          participant.admission.sources.some((source, index) => {
+            const original = initial.admission.sources[index];
+            return original === undefined || source.methods.length !== original.methods.length ||
+              source.methods.some((method, methodIndex) => method !== original.methods[methodIndex]);
+          }))
+          return yield* Effect.fail(new PointMutationJournalParticipantSelectionV1Error({ participant: participant.participant }));
+      }
+      return yield* issueFiniteEntry(captured.selectedParticipants);
+    });
+  const openConfirmedFiniteEntry: NonNullable<PointMutationJournalV1["openConfirmedFiniteEntry"]> =
+    Effect.fn("PointMutationJournal.openConfirmedFiniteEntry")(function* (capture, preparation, executionClaim, originalClaim) {
+      const participants = finitePreparations.get(preparation);
+      if (executionProfile !== "finiteRoot" || participants === undefined)
+        return yield* Effect.fail(new InvalidPointMutationJournalCapabilityV1Error({ capability: "attempt" }));
+      const claimState = yield* Effect.fromResult(executionClaims.inspectOriginalStoredAttempt(executionClaim, originalClaim));
+      if (claimState.mode !== "execute") return yield* Effect.fail(new InvalidPointMutationExecutionClaimV1Error({ reason: "modeUnavailable" }));
+      const confirmed = yield* Effect.fromResult(persistence.confirmedFiniteEntryAttempt(capture, preparation)).pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, mapAdmittedFailure))));
+      const context = confirmed.context;
+      if (!attemptSelectorEquals(context.anchor, claimState.selector) || context.executionClaim.claimOwner !== claimState.observation.claimOwner ||
+        context.executionClaim.claimFence !== claimState.observation.claimFence)
+        return yield* Effect.fail(new PointMutationJournalAttemptPinsV1Error({ reason: "immutablePinsMismatch" }));
+      const existing = openedByExecutionClaim.get(executionClaim);
+      if (existing !== undefined) return existing;
+      const inspection: LoadedPointMutationSessionAttemptInspectionV1 = Object.freeze({
+        selector: context.anchor, storageGeneration: context.anchor.storageGeneration,
+        storageGenerationFence: context.anchor.storageGenerationFence, snapshotToken: context.anchor.snapshotToken,
+        schemaVersionId: context.executionPin.schemaVersionId,
+      });
+      const coordinator: JournalAttemptCoordinatorV1 = Object.freeze({ inspection, semaphore: yield* Semaphore.make(1) });
+      const state: JournalAttemptStateV1 = Object.freeze({ executionClaim, persistenceAttempt: confirmed.attempt, coordinator,
+        participants, participantAdmissions: confirmed.admissions });
+      const handle = Object.freeze({ [pointMutationJournalAttemptBrand]: true as const });
+      attemptStates.set(handle, state);
+      openedByExecutionClaim.set(executionClaim, handle);
+      return handle;
+    });
+  const inspectFiniteExecutionEntry: NonNullable<PointMutationJournalV1["inspectFiniteExecutionEntry"]> = (capture, preparation) => {
+    if (executionProfile !== "finiteRoot" || !finitePreparations.has(preparation))
+      return Result.fail(new InvalidPointMutationJournalCapabilityV1Error({ capability: "attempt" }));
+    return persistence.confirmedFiniteEntryAttempt(capture, preparation).pipe(Result.mapError(mapAdmittedFailure));
+  };
+
+  const requireLiveExecution = Effect.fn("PointMutationJournal.requireLiveExecution")((state: JournalAttemptStateV1) => Effect.fromResult(
+    executionClaims.inspect(state.executionClaim, "execute").pipe(Result.mapError(() =>
+      new PointMutationJournalAttemptUnavailableV1Error({ issue: { reason: "executionClaimUnavailable" } })))));
+  const invokeSelected = Effect.fn("PointMutationJournal.invokeSelected")(function* (
+    state: JournalAttemptStateV1, admission: NonNullable<ReturnType<JournalAttemptStateV1["participantAdmissions"]["get"]>>,
+    profileRevision: string, borrow: AdmittedOperationInvoke, input: PointMutationJournalAdmittedOperationInputV1,
+  ) {
+    return yield* state.coordinator.semaphore.withPermit(
+      persistence.runAdmittedOperationEffect(state.persistenceAttempt, admission, {
+        syscallSequence: input.syscallSequence, requestBytes: input.requestBytes,
+        requestSha256: input.requestSha256, participant: input.operation.participant,
+        method: input.operation.operation, profileRevision,
+      }, borrow).pipe(
+        Effect.flatMap(result => result.kind === "completed" ? Effect.succeed(result.result)
+          : Effect.fail(new PointMutationJournalAdmittedOperationRejectedV1Error({ result }))),
+        Effect.catchCause(cause => Effect.failCause(Cause.map(cause, mapAdmittedFailure))),
+      ),
+    );
+  });
+  const runAdmittedOperation: NonNullable<PointMutationJournalV1["runAdmittedOperation"]> =
+    Effect.fn("PointMutationJournal.runAdmittedOperation")(function* (attempt, input) {
+      const state = yield* Effect.try({ try: () => requireAttempt(attempt),
+        catch: mapPersistenceFailure });
+      yield* requireLiveExecution(state);
+      const selected = state.participants.get(input.operation.participant);
+      const admission = state.participantAdmissions.get(input.operation.participant);
+      if (selected === undefined || admission === undefined)
+        return yield* Effect.fail(new PointMutationJournalParticipantSelectionV1Error({
+          participant: input.operation.participant,
+        }));
+      return yield* invokeSelected(state, admission, selected.admission.profileRevision, selected.borrow, input);
+    });
+  const bindPrivateReferenceSave: NonNullable<PointMutationJournalV1["bindPrivateReferenceSave"]> =
+    Effect.fn("PointMutationJournal.bindPrivateReferenceSave")(function* (attempt, participant, access, borrow) {
+      const state = yield* Effect.try({ try: () => requireAttempt(attempt), catch: mapPersistenceFailure });
+      const grant = inspectPrivateReferenceSaveAccess(access, state.persistenceAttempt);
+      const selected = state.participants.get(participant);
+      if (executionProfile !== "finiteRoot" || grant === undefined || selected === undefined ||
+        grant.participant !== participant || grant.nativeProfileRevision !== selected.admission.profileRevision)
+        return yield* Effect.fail(new PointMutationJournalParticipantSelectionV1Error({ participant }));
+      return Object.freeze({ profileRevision: grant.profileRevision,
+        runAdmittedOperation: Effect.fn("PointMutationJournal.runPrivateReferenceSave")(function* (input) {
+          yield* requireLiveExecution(state);
+          if (input.operation.participant !== participant ||
+            !selected.admission.operationMethods.includes(input.operation.operation))
+            return yield* Effect.fail(new PointMutationJournalParticipantSelectionV1Error({ participant: input.operation.participant }));
+          return yield* invokeSelected(state, grant.admission, grant.profileRevision, borrow, input);
+        }) });
+    });
+
+  const bindPrivateReverseReferenceRead: NonNullable<PointMutationJournalV1["bindPrivateReverseReferenceRead"]> =
+    Effect.fn("PointMutationJournal.bindPrivateReverseReferenceRead")(function* (attempt, participant, access, borrow) {
+      const state = yield* Effect.try({ try: () => requireAttempt(attempt), catch: mapPersistenceFailure });
+      const grant = inspectPrivateReverseReadAccess(access, state.persistenceAttempt);
+      const selected = state.participants.get(participant);
+      if (executionProfile !== "finiteRoot" || grant === undefined || selected === undefined ||
+        grant.participant !== participant || grant.method !== PRIVATE_REFERENCE_PAGE ||
+        grant.nativeProfileRevision !== selected.admission.profileRevision ||
+        !selected.admission.operationMethods.includes(grant.method))
+        return yield* Effect.fail(new PointMutationJournalParticipantSelectionV1Error({ participant }));
+      return Object.freeze({ profileRevision: grant.profileRevision,
+        runAdmittedOperation: Effect.fn("PointMutationJournal.runPrivateReverseReferenceRead")(function* (input) {
+          yield* requireLiveExecution(state);
+          if (input.operation.participant !== participant || input.operation.operation !== grant.method)
+            return yield* Effect.fail(new PointMutationJournalParticipantSelectionV1Error({ participant: input.operation.participant }));
+          return yield* invokeSelected(state, grant.admission, grant.profileRevision, borrow, input);
+        }) });
+    });
+
+  const runApplicationPointOperation: PointMutationJournalV1["runApplicationPointOperation"] =
+    Effect.fn("PointMutationJournal.runApplicationPointOperation")(function* (attempt, tableName, operation) {
+      const state = yield* Effect.try({
+        try: () => requireAttempt(attempt),
+        catch: mapPersistenceFailure,
+      });
+      return yield* state.coordinator.semaphore.withPermit(
+        Effect.uninterruptible(
+          persistence.runApplicationPointOperationEffect(
+            state.persistenceAttempt, tableName, operation, syscallValidator,
+          ).pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, mapPersistenceFailure)))),
+        ),
+      );
+    });
+  const runApplicationIndexedQuery: PointMutationJournalV1["runApplicationIndexedQuery"] =
+    Effect.fn("PointMutationJournal.runApplicationIndexedQuery")(function* (attempt, tableName, descriptor, operation) {
+      const state = yield* Effect.try({
+        try: () => requireAttempt(attempt),
+        catch: mapPersistenceFailure,
+      });
+      return yield* state.coordinator.semaphore.withPermit(
+        Effect.uninterruptible(
+          persistence.runApplicationIndexedQueryEffect(
+            state.persistenceAttempt, tableName, descriptor, operation,
+          ).pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, mapPersistenceFailure)))),
+        ),
+      );
+    });
+
+  const resolvePointTable: PointMutationJournalV1["resolvePointTable"] =
+    Effect.fn("PointMutationJournal.resolvePointTable")(
+      function* (attempt, tableName) {
+        const state = yield* Effect.try({
+          try: () => requireAttempt(attempt),
+          catch: mapPersistenceFailure,
+        });
+        const persistenceTable = yield* state.coordinator.semaphore.withPermit(
+          Effect.uninterruptible(
+            persistence.resolvePointTableEffect(
+              state.persistenceAttempt,
+              tableName,
+            ).pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, mapPersistenceFailure)))),
+          ),
+        );
+        const handle = Object.freeze({
+          [pointMutationJournalTableBrand]: true as const,
+        });
+        tableStates.set(handle, Object.freeze({
+          attempt: state,
+          persistenceTable,
+        }));
+        return handle;
+      },
+    );
+
+  const runPointOperation: PointMutationJournalV1["runPointOperation"] =
+    Effect.fn("PointMutationJournal.runPointOperation")(
+      function* (table, input) {
+        const captured = yield* Effect.try({
+          try: () => {
+            const state = typeof table === "object" && table !== null
+              ? tableStates.get(table)
+              : undefined;
+            if (state === undefined) {
+              throw new InvalidPointMutationJournalCapabilityV1Error({
+                capability: "table",
+              });
+            }
+            return Object.freeze({
+              state,
+              operation: decodePointOperation(input),
+            });
+          },
+          catch: mapPersistenceFailure,
+        });
+        return yield* captured.state.attempt.coordinator.semaphore.withPermit(
+          Effect.uninterruptible(
+            persistence.runPointOperationEffect(
+              captured.state.persistenceTable,
+              captured.operation,
+              syscallValidator,
+            ).pipe(
+              Effect.catchCause(cause => Effect.failCause(Cause.map(cause, mapPersistenceFailure))),
+            ),
+          ),
+        );
+      },
+    );
+
+  const resolveDeveloperIndex: PointMutationJournalV1[
+    "resolveDeveloperIndex"
+  ] = Effect.fn("PointMutationJournal.resolveDeveloperIndex")(
+    function* (table, indexDescriptor) {
+      const tableState = yield* Effect.try({
+        try: () => {
+          const state = typeof table === "object" && table !== null
+            ? tableStates.get(table)
+            : undefined;
+          if (state === undefined) {
+            throw new InvalidPointMutationJournalCapabilityV1Error({
+              capability: "table",
+            });
+          }
+          return state;
+        },
+        catch: mapPersistenceFailure,
+      });
+      const persistenceIndex = yield* tableState.attempt.coordinator.semaphore
+        .withPermit(
+          Effect.uninterruptible(
+            persistence.resolveDeveloperIndexEffect(
+              tableState.persistenceTable,
+              indexDescriptor,
+            ).pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, mapPersistenceFailure)))),
+          ),
+        );
+      const handle = Object.freeze({
+        [pointMutationJournalIndexBrand]: true as const,
+      });
+      indexStates.set(handle, Object.freeze({
+        attempt: tableState.attempt,
+        persistenceIndex,
+      }));
+      return handle;
+    },
+  );
+
+  const runIndexedQuery: PointMutationJournalV1["runIndexedQuery"] =
+    Effect.fn("PointMutationJournal.runIndexedQuery")(
+      function* (index, input) {
+        const state = yield* Effect.try({
+          try: () => {
+            const indexState = typeof index === "object" && index !== null
+              ? indexStates.get(index)
+              : undefined;
+            if (indexState === undefined) {
+              throw new InvalidPointMutationJournalCapabilityV1Error({
+                capability: "index",
+              });
+            }
+            return indexState;
+          },
+          catch: mapPersistenceFailure,
+        });
+        const operation = yield* Effect.fromResult(
+          decodeIndexedQueryOperationResult(input),
+        );
+        return yield* state.attempt.coordinator.semaphore.withPermit(
+          Effect.uninterruptible(
+            persistence.runIndexedQueryEffect(
+              state.persistenceIndex,
+              operation,
+            ).pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, mapPersistenceFailure)))),
+          ),
+        );
+      },
+    );
+
+  const resolveApplicationRelationRead: PointMutationJournalV1[
+    "resolveApplicationRelationRead"
+  ] = Effect.fn("PointMutationJournal.resolveApplicationRelationRead")(
+    function* (attempt, capability) {
+      const state = yield* Effect.try({
+        try: () => requireAttempt(attempt),
+        catch: mapPersistenceFailure,
+      });
+      const persistenceRelation = yield* state.coordinator.semaphore.withPermit(
+        Effect.uninterruptible(
+          persistence.resolveApplicationRelationReadEffect(
+            state.persistenceAttempt,
+            capability,
+          ).pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, mapPersistenceFailure)))),
+        ),
+      );
+      const handle = Object.freeze({
+        [pointMutationJournalRelationBrand]: true as const,
+      });
+      relationStates.set(handle, Object.freeze({
+        attempt: state,
+        persistenceRelation,
+      }));
+      return handle;
+    },
+  );
+
+  const runApplicationRelationIncomingRead: PointMutationJournalV1[
+    "runApplicationRelationIncomingRead"
+  ] = Effect.fn("PointMutationJournal.runApplicationRelationIncomingRead")(
+    function* (relation, input) {
+      const state = typeof relation === "object" && relation !== null
+        ? relationStates.get(relation)
+        : undefined;
+      if (state === undefined) {
+        return yield* Effect.fail(
+          new InvalidPointMutationJournalCapabilityV1Error({
+            capability: "relation",
+          }),
+        );
+      }
+      const operation = yield* Effect.fromResult(
+        decodeRelationIncomingOperationResult(input),
+      );
+      const result = yield* state.attempt.coordinator.semaphore
+        .withPermit(
+          Effect.uninterruptible(
+            persistence.runApplicationRelationIncomingReadEffect(
+              state.persistenceRelation,
+              operation,
+            ).pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, mapPersistenceFailure)))),
+          ),
+        );
+      if (result.kind !== "conflicted") return result;
+      const error = captureRelationConflict(result.request, result.conflict);
+      return yield* Effect.fail(error);
+    },
+  );
+
+  function captureRelationConflict(
+    requestInput: SessionJournalRelationIncomingRequestEvidenceV1,
+    conflictInput: SessionJournalRelationConflictV1,
+  ): PointMutationJournalRelationConflictError {
+    const request = Object.freeze(structuredClone(requestInput));
+    const conflict = Object.freeze(structuredClone(conflictInput));
+    const error = new PointMutationJournalRelationConflictError({ conflict });
+    persistedRelationConflicts.set(error, Object.freeze({
+      error,
+      request,
+      conflict,
+    }));
+    return error;
+  }
+
+  const captureRecoveredRelationConflict:
+    PointMutationJournalRelationConflictRecovery[
+      "captureRecoveredRelationConflict"
+    ] = (evidence) =>
+      captureRelationConflict(evidence.request, evidence.conflict);
+
+  const claimPersistedRelationConflictForRetry: PointMutationJournalV1[
+    "claimPersistedRelationConflictForRetry"
+  ] = (input) => {
+    if (typeof input !== "object" || input === null) {
+      return Result.fail(new InvalidPointMutationJournalCapabilityV1Error({
+        capability: "relationConflict",
+      }));
+    }
+    const claimed = persistedRelationConflicts.get(input);
+    if (claimed === undefined) {
+      return Result.fail(new InvalidPointMutationJournalCapabilityV1Error({
+        capability: "relationConflict",
+      }));
+    }
+    persistedRelationConflicts.delete(input);
+    return Result.succeed(claimed);
+  };
+
+  const sealSuccessfulResult: PointMutationJournalV1["sealSuccessfulResult"] =
+    Effect.fn("PointMutationJournal.sealSuccessfulResult")(
+      function* (attempt, successfulResult) {
+        const state = yield* Effect.try({
+          try: () => requireAttempt(attempt),
+          catch: mapPersistenceFailure,
+        });
+        return yield* state.coordinator.semaphore.withPermit(
+          Effect.gen(function* () {
+            if (executionProfile === "finiteRoot") return yield* Effect.fail(new InvalidPointMutationJournalCapabilityV1Error({ capability: "attempt" }));
+            const prepared = yield* Effect.uninterruptible(
+              persistence
+                .prepareSealEffect(state.persistenceAttempt)
+                .pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, mapPersistenceFailure)))),
+            );
+            const journal = yield* canonicalizeSessionJournalEffect(
+              prepared.journal,
+            );
+            const result =
+              yield* canonicalizeSuccessfulResultV1Effect(successfulResult);
+            return yield* Effect.uninterruptible(
+              persistence
+                .completeSealEffect(prepared.preparation, journal, result)
+                .pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, mapPersistenceFailure)))),
+            );
+          }),
+        );
+      },
+    );
+
+  const discardTentativeRoot: PointMutationJournalV1["discardTentativeRoot"] =
+    Effect.fn("PointMutationJournal.discardTentativeRoot")(function* (attempt) {
+      if (executionProfile !== "finiteRoot") return;
+      const state = yield* Effect.try({
+        try: () => requireAttempt(attempt), catch: mapPersistenceFailure,
+      });
+      return yield* state.coordinator.semaphore.withPermit(
+        persistence.discardFiniteRootEffect(state.persistenceAttempt).pipe(
+          Effect.catchCause(cause => Effect.failCause(Cause.map(cause, mapPersistenceFailure))),
+        ),
+      );
+    });
+
+  const freezeFiniteAttempt: NonNullable<PointMutationJournalV1["freezeFiniteAttempt"]> =
+    Effect.fn("PointMutationJournal.freezeFiniteAttempt")(function* (attempt, successfulResult) {
+      if (executionProfile !== "finiteRoot") return yield* Effect.fail(
+        new InvalidPointMutationJournalCapabilityV1Error({ capability: "attempt" }));
+      const state = yield* Effect.try({ try: () => requireAttempt(attempt), catch: mapPersistenceFailure });
+      return yield* state.coordinator.semaphore.withPermit(Effect.gen(function* () {
+        const result = yield* canonicalizeSuccessfulResultV1Effect(successfulResult === undefined ? null : successfulResult).pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, mapPersistenceFailure))));
+        return yield* persistence.freezeFiniteRootEffect(state.persistenceAttempt, result).pipe(
+          Effect.catchCause(cause => Effect.failCause(Cause.map(cause, mapPersistenceFailure))));
+      }));
+    });
+
+  const journal = Object.freeze({
+    openAttempt,
+    ...(executionProfile === "finiteRoot" ? { prepareInitialFiniteEntry, prepareFiniteEntry, openConfirmedFiniteEntry, inspectFiniteExecutionEntry, freezeFiniteAttempt, bindPrivateReferenceSave, bindPrivateReverseReferenceRead } : {}),
+    ...(selectedParticipants.size === 0 ? {} : { runAdmittedOperation }),
+    runApplicationPointOperation,
+    runApplicationIndexedQuery,
+    resolvePointTable,
+    runPointOperation,
+    resolveDeveloperIndex,
+    runIndexedQuery,
+    resolveApplicationRelationRead,
+    runApplicationRelationIncomingRead,
+    captureRecoveredRelationConflict,
+    claimPersistedRelationConflictForRetry,
+    sealSuccessfulResult,
+    discardTentativeRoot,
+  });
+  return journal;
+}
+
+function decodeRelationIncomingOperationResult(
+  input: unknown,
+): Result.Result<
+  SessionJournalRelationIncomingOperationV1,
+  PointMutationJournalBoundaryV1Error
+> {
+  return Result.gen(function* () {
+    const record = yield* Result.try({
+      try: () => isPlainRecord(input) ? input : null,
+      catch: mapPersistenceFailure,
+    });
+    if (record === null) {
+      return yield* Result.fail(
+        new UnsupportedPointMutationJournalOperationV1Error({
+          reason: "notPlainObject",
+        }),
+      );
+    }
+    const kind = yield* Result.try({
+      try: () => readDataProperty(record, "kind"),
+      catch: mapPersistenceFailure,
+    });
+    if (kind !== "relationIncoming") {
+      return yield* Result.fail(
+        new UnsupportedPointMutationJournalOperationV1Error({
+          reason: "invalidKind",
+          operationKind: kind,
+        }),
+      );
+    }
+    const actualFields = yield* Result.try({
+      try: () => Reflect.ownKeys(record),
+      catch: mapPersistenceFailure,
+    });
+    const expectedFields = new Set([
+      "kind",
+      "syscallSequence",
+      "targetDocumentId",
+      "limit",
+    ]);
+    if (
+      actualFields.length !== expectedFields.size ||
+      actualFields.some((field) =>
+        typeof field !== "string" || !expectedFields.has(field))
+    ) {
+      return yield* Result.fail(
+        new UnsupportedPointMutationJournalOperationV1Error({
+          reason: "unexpectedFields",
+          operationKind: kind,
+        }),
+      );
+    }
+    const syscallSequenceInput = yield* readRelationOperationFieldResult(
+      record,
+      "syscallSequence",
+      kind,
+    );
+    const syscallSequence = yield* decodeSyscallSequenceResult(
+      syscallSequenceInput,
+    ).pipe(Result.mapError(cause => relationOperationFieldError(kind, cause)));
+    const targetDocumentIdInput = yield* readRelationOperationFieldResult(
+      record,
+      "targetDocumentId",
+      kind,
+    );
+    const targetDocumentId = yield* decodeAppDocumentIdResult(
+      targetDocumentIdInput,
+    ).pipe(Result.mapError(cause => relationOperationFieldError(kind, cause)));
+    const limit = yield* readRelationOperationFieldResult(
+      record,
+      "limit",
+      kind,
+    );
+    if (!Number.isSafeInteger(limit) || Number(limit) <= 0) {
+      return yield* Result.fail(relationOperationFieldError(
+        kind,
+        new Error("Invalid relation read limit."),
+      ));
+    }
+    return Object.freeze({
+      kind,
+      syscallSequence,
+      targetDocumentId,
+      limit: Number(limit),
+    });
+  });
+}
+
+function readRelationOperationFieldResult(
+  input: Readonly<Record<string, unknown>>,
+  field: string,
+  operationKind: unknown,
+): Result.Result<unknown, UnsupportedPointMutationJournalOperationV1Error> {
+  return Result.try({
+    try: () => readDataProperty(input, field),
+    catch: cause => relationOperationFieldError(operationKind, cause),
+  });
+}
+
+function relationOperationFieldError(
+  operationKind?: unknown,
+  cause?: unknown,
+): UnsupportedPointMutationJournalOperationV1Error {
+  return new UnsupportedPointMutationJournalOperationV1Error({
+    reason: "invalidFieldShape",
+    ...(operationKind === undefined ? {} : { operationKind }),
+    ...(cause === undefined ? {} : { cause }),
+  });
+}
+
+function attemptSelectorEquals(
+  left: LoadedPointMutationSessionAttemptInspectionV1["selector"],
+  right: LoadedPointMutationSessionAttemptInspectionV1["selector"],
+): boolean {
+  return left.deploymentId === right.deploymentId &&
+    left.scopeId === right.scopeId &&
+    left.sessionId === right.sessionId &&
+    left.attemptFence === right.attemptFence;
+}
+
+function exactAttemptIdentityKey(
+  inspection: LoadedPointMutationSessionAttemptInspectionV1,
+): string {
+  const selector = inspection.selector;
+  return JSON.stringify([
+    selector.deploymentId,
+    selector.scopeId,
+    selector.sessionId,
+    selector.attemptFence.toString(),
+  ]);
+}
+
+function immutableAttemptPinsEqual(
+  left: LoadedPointMutationSessionAttemptInspectionV1,
+  right: LoadedPointMutationSessionAttemptInspectionV1,
+): boolean {
+  return left.storageGeneration === right.storageGeneration &&
+    left.storageGenerationFence === right.storageGenerationFence &&
+    left.schemaVersionId === right.schemaVersionId &&
+    left.snapshotToken.scopeId === right.snapshotToken.scopeId &&
+    left.snapshotToken.epoch === right.snapshotToken.epoch &&
+    left.snapshotToken.commitSeq === right.snapshotToken.commitSeq;
+}
+
+function readDataProperty(
+  input: Readonly<Record<string, unknown>>,
+  field: string,
+): unknown {
+  const descriptor = Object.getOwnPropertyDescriptor(input, field);
+  if (
+    descriptor === undefined ||
+    descriptor.enumerable !== true ||
+    !("value" in descriptor)
+  ) {
+    throw new UnsupportedPointMutationJournalOperationV1Error({
+      reason: "invalidFieldShape",
+    });
+  }
+  return descriptor.value;
+}
+
+function mapPersistenceFailure(
+  cause: unknown,
+): PointMutationJournalBoundaryV1Error {
+  if (cause instanceof SessionJournalAttemptUnavailableV1Error) {
+    return new PointMutationJournalAttemptUnavailableV1Error({
+      issue: cause.issue,
+      cause,
+    });
+  }
+  if (cause instanceof SessionJournalPersistenceV1Error) {
+    return new PointMutationJournalPersistenceV1Error({
+      cause: cause.cause,
+    });
+  }
+  if (
+    cause instanceof InvalidLoadedPointMutationSessionAttemptV1Error ||
+    cause instanceof InvalidPointMutationJournalCapabilityV1Error ||
+    cause instanceof UnsupportedPointMutationJournalOperationV1Error ||
+    cause instanceof PointMutationJournalAttemptPinsV1Error ||
+    cause instanceof PointMutationJournalRelationConflictError ||
+    cause instanceof PointMutationJournalAdmittedOperationRejectedV1Error ||
+    cause instanceof PointMutationJournalParticipantRejectedV1Error ||
+    cause instanceof PointMutationJournalParticipantSetV1Error ||
+    cause instanceof PointMutationJournalParticipantSelectionV1Error ||
+    cause instanceof InvalidSessionJournalCapabilityV1Error ||
+    cause instanceof InvalidSessionJournalInputV1Error ||
+    cause instanceof PinnedPointTableCorruptionV1Error ||
+    cause instanceof PinnedPointTableNotFoundV1Error ||
+    cause instanceof SessionJournalIdentityGenerationV1Error ||
+    cause instanceof SessionJournalLeasePromotionV1Error ||
+    cause instanceof SessionJournalSealV1Error ||
+    cause instanceof SessionJournalStorageCorruptionV1Error ||
+    cause instanceof SessionJournalTargetUnavailableV1Error ||
+    cause instanceof InvalidApplicationRevisionSyscallValidatorV1Error ||
+    cause instanceof ApplicationRevisionSyscallValidatorStaleV1Error ||
+    cause instanceof ApplicationRevisionSyscallValidatorCorruptionV1Error ||
+    cause instanceof ApplicationRevisionSyscallValidatorIntegrationV1Error ||
+    cause instanceof ApplicationRevisionSyscallDocumentValidationV1Error ||
+    cause instanceof ApplicationTableWriteDeniedError
+  ) {
+    return cause;
+  }
+  return new PointMutationJournalPersistenceV1Error({ cause });
+}
+
+function mapAdmittedFailure(cause: unknown): PointMutationJournalBoundaryV1Error {
+  if (cause instanceof LogicalParticipantInvocationError) {
+    return cause.kind === "rejection"
+      ? new PointMutationJournalParticipantRejectedV1Error({ cause: cause.cause })
+      : mapPersistenceFailure(cause.cause);
+  }
+  if (cause instanceof LogicalParticipantAdmissionError) {
+    return cause.reason === "resourceFailure" || cause.reason === "storedCorruption"
+      ? mapPersistenceFailure(cause)
+      : new PointMutationJournalParticipantRejectedV1Error({ cause });
+  }
+  return mapPersistenceFailure(cause);
+}

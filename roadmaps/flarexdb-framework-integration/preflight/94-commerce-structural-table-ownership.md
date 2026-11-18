@@ -43,8 +43,8 @@ The previous `validateCommerceProfileSet` in
 `descriptor.tables`. For the Price-to-PriceList FK,
 the source has a Pricing owner and the target has none; the validator rejects the
 binding with `DataBindingError`, reason `unsupportedProfile`, before activation.
-The connected witness is
-`packages/medusa-adapter/test/product-variant-pricing-workflow.test.ts`.
+The retained physical Pricing witness is
+`packages/medusa-adapter/test/pricing.test.ts`.
 
 `commerceTransaction/profile.ts` retains its `scalar`, `readInsert` and
 `readInsertUpdate` data capabilities. The local issuer now captures a separate
@@ -53,10 +53,11 @@ contract encoding 7. Empty and omitted selections retain existing encodings.
 `registerCommerceSchemaProfile` remains an installation token, not a member of
 an execution-profile binding.
 
-The connected acceptance test retains its successful-workflow expectation.
-Structural selection participates in authenticated ownership and complete FK
-closure, while store construction still uses data capabilities alone. Pricing's
-connected acceptance and native-test admission remain preflight 93B gates.
+The Pricing acceptance test retains successful native base-price creation and
+the structural-only PriceList assertion. Structural selection participates in
+authenticated ownership and complete FK closure, while store construction still
+uses data capabilities alone. The connected Product–Variant–Pricing workflow is
+now covered by the logical suite under the shared-storage cutover.
 
 ## Recommended correction
 

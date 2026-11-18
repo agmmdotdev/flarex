@@ -36,6 +36,42 @@ and [active case inventory](./preflight/product-upstream-test-cases.json) own th
 current suite boundary and retained skips; earlier partial-suite counts are
 historical checkpoints.
 
+The [native Order foundation and archive profile](./preflight/order-archive-foundation.md)
+preserves the complete 23-model schema and genuine Order service while admitting
+only zero to four raw existing Order IDs through `archiveOrderWorkflow` and its
+retained inverse. Complete immediate/replayed DTOs preserve serial display IDs
+and owning Address references. The approved native step correction captures
+primitive prior statuses before archive mutates its returned Orders. The profile
+uses shared serial-value preservation, empty-object defaults and ordered non-null
+partial indexes, with the existing atomic event-capture/settlement owner.
+The [native Order completion profile](./preflight/order-completion-workflow.md)
+adds `completeOrderWorkflow` over the same bounded existing Orders, genuine
+status inverse, complete DTO and atomic settlement owners. Its finite trusted
+`ordersCompleted` hook admits selected reads and optional JSON additional data;
+extra status writes or workflow messages refuse and roll back.
+The [native Order Change scalar update profile](./preflight/order-change-update-workflow.md)
+adds `updateOrderChangesWorkflow` for zero to four existing Change patches,
+with genuine selected preimages and repeated compensation. Metadata, dates,
+creation and Action mutations remain outside this profile. The
+[native Order Change cancellation profile](./preflight/order-change-cancellation-workflow.md)
+adds single existing pending/requested Change cancellation and an approved native
+exact inverse for status, cancellation fields and submitted metadata. General
+metadata updates retain their separate undo gate.
+The [native Decline Order Change profile](./preflight/order-change-decline-workflow.md)
+adds one existing pending/requested Change decline, native forward metadata
+assignment and exact retained status, decline fields and submitted metadata
+restoration. The shared native step also retains this inverse for transfer;
+transfer workflow activation remains a separate gate.
+The [native Delete Order Change profile](./preflight/order-change-deletion-workflow.md)
+adds zero to four raw Change IDs and at most eight Actions in their complete
+historical closure. It preserves native soft deletion, cascade result maps
+and historical restoration, including revival of pre-existing tombstones.
+Forward eligibility follows the PostgreSQL active-Order relation; mutation and
+event semantics use the portable managed lifecycle profile. This inverse does
+not restore a prior snapshot. Whole-root failure still rolls back atomically.
+Creation/display-ID allocation, line-item mutations, returns/claims/exchanges,
+general Order composition and public/hosted activation remain separate gates.
+
 The [shared persistence adapter](./preflight/47-medusa-shared-persistence-adapter.md)
 now centralizes checked runtime metadata, schema lowering, JSON-field decoding,
 repository reads/projections, keyed updates, graph writes, mutation dispatch and
@@ -53,7 +89,270 @@ same-installation atomic participants and is complete. Arbitrary configured
 module sets remain unadmitted. Medusa services
 remain above the existing Flarex transaction and publication owners.
 
-The user-selected next integration outcome is full Product workflow execution.
+The private inline Product import is complete for its bounded admitted profile.
+The bounded [native Sales Channel creation](./preflight/110-native-sales-channel-creation-workflow.md)
+profile, [native Sales Channel selector update](./preflight/111-native-sales-channel-update-workflow.md)
+and [native Sales Channel deletion](./preflight/112-native-sales-channel-delete-workflow.md)
+are complete. Deletion retains the genuine Store default-channel guard and both
+supported Link families, their native lifecycle and transaction-covered
+compensation callbacks. Its four-ID/eight-pivot-per-family profile keeps existing
+resource limits. The bounded
+[native Stock Location update](./preflight/113-native-stock-location-update-workflow.md)
+profile implements optional Address reads, native partial patches and mixed
+Address upsert. It preserves scalar-first results, successful absence, standalone
+Address creation and cumulative selector metadata. Its explicit borrowed-operation
+scheduling selects the shared owner without changing existing profiles or limits.
+The bounded
+[native Stock Location deletion](./preflight/114-native-stock-location-delete-workflow.md)
+profile includes the installed Sales Channel and Location–Fulfillment Set Link
+graph through [137](./preflight/137-native-location-fulfillment-set-workflow.md). It retains
+actual-result Link cleanup, native module lifecycle events, retained compensation
+and Addresses/Inventory/Store data. Its shared composite-key reverse path keeps
+active partial-index access distinct from all-row restoration. The complete
+bounded Fulfillment forest participates in the same atomic root. The connected
+[Shipping Option creation slice](./preflight/138-native-shipping-option-creation.md)
+adds installed Provider and Pricing Links with genuine Pricing lifecycle
+callbacks as implemented private bounded support.
+The bounded
+[native Inventory Item update](./preflight/115-native-inventory-item-update-workflow.md)
+profile preserves keyed final patches, native preimages and compensation,
+scalar/array service results and ID-only no-op behavior. Its finite dimensions
+use the shared binary64 representation selected by generic DML lowering;
+existing int32, exact-decimal and populated-source admission remain distinct.
+Inventory levels, reservations and rich Variant links retain their stored data.
+The bounded
+[native absolute Inventory Level update](./preflight/116-native-inventory-level-update-workflow.md)
+profile preserves native tuple lookup, caller-ID precedence, keyed final patches,
+exact quantities, reserved stock and tuple-only writes/events. Shared conjunctive
+point planning keeps complete tuple reads confined to their existing compound
+index, including absent tuples, without weakening receipts or resource limits.
+The bounded
+[native Inventory Level deletion](./preflight/117-native-inventory-level-delete-workflow.md)
+profile preserves selected native IDs, exact four-field guard projection,
+Level-only soft deletion and retained restoration. Its named graph admission
+authenticates complete bodies before the native field mask; shared
+[call-local activity](../shared-logical-storage/62-call-local-row-observations.md)
+distinguishes genuine cached and pending candidate use from earlier calls while
+retaining complete settlement dependencies. Existing OCC, calls and events stay
+with their current owners. The bounded
+[native Inventory Item deletion](./preflight/118-native-inventory-item-delete-workflow.md)
+profile retains computed reservation guards, complete Item/Level/Reservation
+cascades, eight rich Links and native retained inverses. Link preparation binds
+complete-history admission to its genuine immutable repository owner. Native
+raw-ID results and batched Link events retain their existing semantics. The
+bounded [native Level batch workflow](./preflight/119-native-inventory-level-batch-workflow.md)
+combines eight creates, four updates and four raw deletes through the genuine
+parallel composer and one Inventory participant. It preserves omitted deleted
+output, the direct create branch's scalar Location behavior, and distinct
+physical-create, update and restoration inverses within existing resource limits.
+The bounded
+[standalone Inventory Item creation](./preflight/120-native-inventory-item-create-workflow.md)
+profile preserves native ordinal association for four Items and eight nested
+Levels, including unconditional empty Stock Location reads. Shared Item-create
+receipts authenticate complete ordered DTOs before association; Stock Location
+read receipts authenticate IDs, projections and pagination counts against actual
+call-local observations. Retained physical Item compensation removes its complete
+bounded history while emitting only native root Item events. Existing resource
+limits remain unchanged. The bounded
+[standalone Inventory Level creation](./preflight/121-native-inventory-level-create-workflow.md)
+profile creates up to eight Levels for existing Items and Locations through a
+dedicated two-method Inventory profile. It retains the required empty Location
+query, complete native DTOs, physical creation inverse and existing resource
+limits. Shared Level event decoding preserves batch receipt error classification
+while each profile keeps its own publication actions. The bounded
+[Reservation deletion by Line Item](./preflight/122-native-reservation-line-item-delete-workflow.md)
+profile admits four raw Line Item IDs, four complete matching Reservation history
+rows and four affected Level tuples. It preserves native selectors, grouping,
+events and retained inverse behavior, with the approved native correction using
+deleted-only preimages to restore reserved demand. An unconditional derived Line
+Item index provides complete-history access through existing storage owners.
+The trusted workflow host explicitly selects identity-bound scope exclusion
+before native callbacks; existing resource limits remain unchanged. The native
+inverse also restores older matching tombstones, so external saga safety remains
+unclaimed. By-ID restore and populated-schema upgrades remain separate gates.
+The bounded [Store deletion workflow](./preflight/123-native-store-delete-workflow.md)
+admits four raw Store IDs and complete history of eight Currency and eight Locale
+children through the genuine module lifecycle and required empty-family Link
+routing. Native module registration owns maps and events; the existing read-only
+Store guard and scalar default endpoints retain their separate authority.
+The deletion profile retains existing resource limits. The bounded
+[Store creation workflow](./preflight/124-native-store-create-workflow.md) admits
+four Stores, eight Currencies and eight Locales in total, and four distinct raw
+Pricing preference keys. Native normalization, cross-Store raw-key selection,
+complete DTOs, required empty calls and retained physical/previous-DTO inverses
+use existing shared owners under one settlement. Its separate trusted profile
+selects 128 calls and existing root/borrowed FIFO scheduling; other resource
+limits retain their defaults. The bounded
+[Store update workflow](./preflight/125-native-store-update-workflow.md) admits
+four selected Stores with eight historical rows per child family and at most
+two active children per family per Store. Native selector/projection,
+normalization, physical replacement and original-input Pricing behavior remain
+intact. A separate identity-bound profile selects scope exclusion, FIFO
+scheduling and 128 calls. An explicitly admitted neutral core operation proves
+same-root deleted-row identity and managed fields for the genuine retained
+full-child inverse. Native dotted-metadata and historical-tombstone inverse
+limitations remain; exact failed-root rollback is separate from external saga
+compensation, which is not admitted.
+Chunked File import and Product
+export are explicitly deferred; their File and Region dependencies are outside
+the current integration goal.
+With performance optimization paused, the approved bounded connected admission is
+[Product Variant Inventory](./preflight/95-product-variant-inventory-workflow.md):
+managed/default InventoryItems and rich Variant–InventoryItem Links, retaining
+the native empty inventory-level and Stock Location query dependencies. This
+executes the actual native variant composer for one to four variants on an
+existing Product, including Pricing and both stored Link families under one
+root. Its named 256-call profile preserves the smaller existing profiles.
+Nonempty levels and reservations remain subsequent admissions. The Pricing-only branch retains its named Product-launch consumer
+until that existing-Product/Tag operation has an explicitly selected replacement.
+The approved [native Product root](./preflight/96-native-create-products-workflow.md)
+executes the actual `createProductsWorkflow` for one to four new Products and
+zero to four variants across the batch, including the complete variant child.
+One native Link resource delegates to the two existing logical Link sources,
+preserving their identities and command/receipt owners. The named root selects
+512 calls and the separately approved 128-event allowance; other profiles and
+resource limits remain unchanged. Sales Channel and ShippingProfile references
+use previously created endpoints. This is bounded private admission. The Pricing-only
+launch graph retains its distinct existing-Product/Tag and measurement consumers
+until those consumers migrate explicitly; new-Product creation alone does not
+displace that behavior.
+The [Stock Location and Inventory-level admission](./preflight/97-stock-location-inventory-levels.md)
+stocks existing Inventory items through the actual native Location and level
+workflows. Its separate root admits up to four locations with optional inline
+addresses and eight levels, resolves new location ordinals from authentic native
+results, and retains the default 64-call/64-event envelope. Native location
+validation, exact quantities, computed availability and module events retain
+their owners. Existing Product/Variant item-only profiles and Stock Location
+read profiles keep their refusals; nonempty levels are not invented as inputs
+to the Product composer. Sales Channel/location links remain subsequent
+admissions. The
+[stock-adjustment and reservation preflight](./preflight/98-stock-adjustments-and-reservations.md)
+admits up to four native sequential stock deltas and individual reservation
+create/update/release workflows. Its explicit identity-bound scope-exclusive
+atomic profile reuses the existing writer clock before native callbacks; other
+profiles and limits retain their behavior. Inventory owns exact arithmetic,
+numeric DTO serialization and native events/lifecycle, with one shared outer
+publication. Native batch availability and relocation gaps retain their
+Inventory owner and remain excluded. Reservation updates keep the same item,
+location and backorder flag; zero quantities and native backorder creation are
+included. This is bounded private support, not general Locking/Cart/Order or
+hosted compatibility.
+The [Sales Channel and Stock Location Link admission](./preflight/99-sales-channel-stock-location-links.md)
+implements the native add-then-remove workflow, named many-to-many Link and
+attached/detached event families. Its bounded private facade selects one location
+and up to four additions and four removals under existing default atomic limits,
+with a separate logical source and Link-root reads. Its connected admission is
+complete within those bounds; cross-module hydration, stronger endpoint liveness
+enforcement and hosted activation remain separate admissions.
+The [native Product Variant update profile](./preflight/100-native-product-variant-update-workflow.md)
+implements existing-variant edits, native base-price replacement, Inventory-Link
+dismissal and ordered workflow events/hooks. Its explicit Pricing and Link
+mutation profiles retain existing creation consumers and endpoint identities.
+The bounded root admits at most four variants, two base prices and two Inventory
+links per variant under a named 256-call/64-event allowance and default atomic
+OCC. The [whole-Product update profile](./preflight/101-native-product-update-workflow.md)
+now executes the native parent and Pricing child, owned-graph reconciliation,
+Product Link replacement and endpoint-selected Pricing cascades. Its bounded
+four-Product/four-Variant root selects 512 calls, 2 MiB and 256 events under
+default OCC. Explicit queued root operations preserve native Link concurrency;
+identity-bound mixed publication supports Product and Pricing while retaining
+their 256/128 identity allowances and the existing commit packet limits.
+The [native Product deletion slice](./preflight/102-native-product-deletion-workflows.md)
+implements native Product and Variant soft-deletion roots, complete
+Inventory ownership reads, the native reservation guard and Link/Pricing
+cascades. Its named four-target/four-Variant profile retains 512 calls,
+128 events, 2 MiB and ordinary participant working sets under default OCC.
+General deletion, restoration and hosted activation remain unadmitted.
+The [native Product batch slice](./preflight/103-native-product-batch-workflows.md)
+joins the actual create/update/delete children through native Product and
+Variant composers. Explicit SDK sibling regions share one queued atomic root
+over authentic Product, Pricing, Inventory and Link capabilities. Its named
+four-entry profile admits 1,024 calls, 256 events and 2 MiB, with Product's
+256-identity working set and ordinary 128-identity sets elsewhere. It bounds
+request-initial and incoming Variants separately and refuses Item attachment
+and deletion intersections. General batch size and hosted activation remain
+unadmitted.
+The [native Product Type slice](./preflight/104-native-product-type-workflows.md)
+implements creation, complete selector updates and soft deletion through the
+real native composers. Its four-Type profile admits 64 calls and 64 events
+with ordinary 128-identity working sets and one authentic native write per
+root. Type soft deletion preserves Product references and uses the genuine
+empty native Link route. Selector updates preserve native ID-array order,
+including native first-occurrence deduplication, with independently ordered receipts.
+General restoration, custom Type Links and hosted
+activation remain unadmitted.
+The [native Product Collection slice](./preflight/105-native-product-collection-workflows.md)
+implements creation, complete selector updates and soft deletion through the
+real native composers. Creation admits four Collections and four total Product
+references; updates admit four selected Collections, four requested Product
+entries and four prior members per Collection. Genuine ordered native Product
+updates preserve last-target membership, hook-visible pending reads and
+first-touch events. Creation/deletion retain 64 calls; updates select a named
+128-call allowance. Each retains 64 events and ordinary 128-identity working
+sets under default OCC. Soft deletion preserves Product references and uses
+the genuine empty native Link route. General restoration, larger membership
+graphs, custom Collection Links and hosted activation remain unadmitted.
+The [native Product Category slice](./preflight/106-native-product-category-workflows.md)
+implements creation, complete selector updates and leaf soft deletion through
+the real native composers. It admits four requested entries, four total Product
+references on creation, sixteen existing Categories touched by native tree
+preparation and depth four. Only actual new Categories expand the identity bound
+to twenty. Each operation selects a named 128-call/64-event allowance with
+ordinary 128-identity working sets and default OCC. Native rank/path maintenance,
+duplicate deletion requests, metadata replacement, event/hook order and the
+genuine empty Link route remain intact. Shared creation receipts authenticate
+native identity, rank, path and ordered sibling shifts. Physical deletion retains
+complete soft-deleted descendant and pivot cleanup while returning and emitting
+callbacks for requested roots only. General restoration, custom Category Links,
+larger trees and hosted activation remain unadmitted.
+
+The [native Product Option slice](./preflight/107-native-product-option-workflows.md)
+implements creation, complete selector updates and soft deletion through the
+actual native composers. It bounds four roots, four persisted and four incoming
+Values per Option, four Product parents and two pivots per removed Value.
+Complete preparation precedes writes. Creation/update select named 128-call
+allowances; deletion retains 64 calls. All retain 64 events, ordinary
+128-identity working sets and default OCC. Matching active Values retain their
+identities; omitted Values preserve storage while explicit replacement removes
+omitted Values and their pivots, including already-deleted Values. Default
+presentation hides deleted children without discarding replacement evidence.
+Soft deletion preserves pivots and classifies retimestamped deleted Values from
+actual preimages. Hooks precede workflow events and use the genuine empty Link
+route. The selected portable fork's DTO/order/event distinctions from fresh ORM
+execution remain explicit. Reassignment, restoration, custom Option Links,
+larger graphs and hosted activation remain unadmitted.
+
+The [native Image-to-Variants slice](./preflight/108-native-image-variant-workflow.md)
+implements the inverse image-association composer with one Image and four raw
+additions/removals each. Duplicate requests, distinct assignment identities,
+cross-Product pairs and genuine parallel intersections retain native behavior.
+Full-row removal sees only assignments with active Image and Variant endpoints;
+native URL-filtered thumbnail updates retain complete sibling/Option preparation.
+The named profile admits sixteen prepared sibling Variants, four read Product
+parents, four total Options, four selected Values per Option, four pivots per
+Variant and eight selected assignment deletions. Its authenticated facade selects
+128 calls with ordinary 64 events, 128-identity working sets and default OCC.
+SDK resolution authenticates closure-returned references before capture and
+bounds descriptor inspection and expanded traversal. Existing Variant-to-Images
+admission and portable endpoint integrity remain intact. Larger graphs, File
+import/export execution, general restoration and hosted activation remain
+unadmitted.
+
+The [inline Product import preflight](./preflight/109-native-inline-product-import-workflow.md)
+implements the bounded private native composer and interpreter, durable
+confirmation with lease-free waits, cold checkpoint recovery, one finite atomic
+Product batch, persisted local-feed Notification phases and Task-bound parent
+event eligibility. Trusted Task lifecycle and fresh ordinary/control subjects
+own continuation, cancellation and cleanup authority. Native CSV normalization
+and complete graph admission precede the confirmation wait.
+Native orchestration distinguishes
+a completed default batch from its subsequently failed parent invocation:
+the uncheckpointed child cannot be found for cancellation, so business undo
+must not be invented. Recovery covers business commit, confirmation, child DONE
+and terminal parent checkpoints before native event release. Unknown provider
+outcomes retain their uncertainty and cannot be redispatched as fresh. Chunked File import and Region/File
+export are deferred, with their separate dependencies excluded from this goal.
+
 The [Sales Channel and first stored Link preflight](./preflight/50-product-workflow-sales-channel-foundation.md)
 traces `createProductsWorkflow` and defines the connected Sales Channel endpoint,
 ProductSalesChannel Link and native association-step milestone. Customer is a
@@ -81,7 +380,8 @@ associates returned IDs, and reads pending Product, Sales Channel and Link roots
 through the existing atomic workflow host. Module-owned registrations hide
 method/repository assembly; root rollback restores pre-existing Link state rather
 than executing inverse callbacks. This gate adds no core/schema/engine changes.
-Cross-module graph hydration and full `createProductsWorkflow` remain unadmitted.
+Cross-module graph hydration remains unadmitted; the bounded native Product root
+is admitted separately by the record above.
 The [shipping-profile foundation](./preflight/59-product-shipping-profile-foundation.md)
 implements its shared text-inequality prerequisite and native cardinality
 characterization, not Fulfillment/ProductShippingProfile activation. Inequality
@@ -108,6 +408,799 @@ one native router. The private workflow creates the endpoints, associates Sales
 Channels before ShippingProfiles, reads five pending roots and settles once.
 The source closure remains broader than table/API grants; provider execution,
 deletion, hydration, full Fulfillment and public activation remain unadmitted.
+
+The [native Shipping Option Rule batch](./preflight/136-native-shipping-option-rule-batch-workflow.md)
+root and private adapter implement genuine create/update/delete branches and
+retained callbacks over existing Options. The bounded profile admits zero to
+four raw entries per branch, twelve distinct Rules and four selected parents,
+with a named 128-call/64-event allowance. Native projection, duplicate selectors,
+historical physical deletion, fresh recreation and storage-ordered deletion
+events retain their separate contracts. Existing trusted queuing admits DAL
+jobs without serializing native workflow branches or changing overlap/inverse
+failures. The finite SDK preserves native referenced void/null envelopes and
+explicit undefined StepResponse omission through private reference provenance.
+The slice reuses the existing eight-table source and native validator, with no
+Option/provider authority or new schema inventory. Native in-process scheduler
+characterization and portable atomic settlement remain distinct evidence
+boundaries. Chunked Product import and Product export remain deferred.
+
+The [Location–Fulfillment Set slice](./preflight/137-native-location-fulfillment-set-workflow.md)
+implements genuine linked creation, stored Link installation and both existing
+StockLocation and Fulfillment Set deletion compositions. Creation admits one new Set and Link, preserves ignored composer
+extras and accepts native missing or historical Location endpoints. Its inverse
+dismisses the actual pair and physically deletes the Set. Both deletion routers
+retain full native Fulfillment metadata and genuine callbacks, including the
+Set inverse's repeated restoration. Complete Link history admits eight physical
+rows and four distinct Sets. The approved native return-map correction selects
+the first declared key actually returned, retaining traversal and writes.
+Fresh Link storage keeps preflight 63's accepted active-cardinality contract
+and its explicit native restore divergence. The expanded installed deletion
+resource selections and Provider/Pricing closure belong to the connected
+Shipping Option profile below. Additional Shipping Option/provider workflows,
+populated upgrades and public/hosted activation remain separate.
+
+The [native Shipping Option creation slice](./preflight/138-native-shipping-option-creation.md)
+is implemented as private bounded support. Its genuine workflow executes both
+validators, native Option upsert, Region-aware PriceSet creation, Link replacement
+and the ordered creation event. Seven selected participants supply Fulfillment,
+Pricing, read-only Region and Stock Location, and the full native
+LocationFulfillmentSet, LocationFulfillmentProvider and ShippingOptionPriceSet
+Link definitions. The selected provider is genuine Manual fulfillment; its
+calculated-price refusal remains native, and external fulfillment effects are
+outside this profile.
+
+Creation admits zero to four Options, four Rules and two prices per Option,
+with up to 24 normalized PriceRules and eight distinct Regions across the root. It supports flat currency
+and Region prices, numeric rules, inline Types without supplied identities and
+the native declared type_id reference branch. The shared graph write owner
+creates an owned inline Type before binding its FK and inserting the Option and
+Rules. Identity-bearing inline Type objects remain refused because native upsert
+would update the referenced Type. Native creation output retains hydrated Type
+and Rules, empty to-many fields and nullable to-one initialization.
+
+The callable Query boundary executes genuine selected reads for both the
+entryPoint ABI and the native Link service-name ABI. Checked native alias
+selection preserves the plural availability path across a local relation and
+both Location Links, including native singleton alias behavior and actual
+hydration keys. The ordinary graph API keeps its existing field mask. A bounded
+own positional undefined in an ID array uses native scalar coercion before
+strict command capture; object undefined omission does not admit unknown
+fields, arbitrary prototypes or unbounded values. Pure extraction proofs keep
+the native coercion, alias merge/selection and relation initializer algorithms
+with their Medusa owners.
+
+The actual retained creation callbacks clear this root's pending external
+creation event, dismiss its new Links and physically delete its PriceSets and
+Options. Internal module evidence and event resource charges remain. Native
+explicit compensation retains inline Types and dismissed Link history;
+whole-root atomic failure still rolls back all staged participants.
+
+Installing both new Link families also migrates the existing Stock Location and
+Fulfillment Set deletion compositions together. Their complete Fulfillment
+history remains four Sets, four Zones, sixteen GeoZones, eight Options and
+sixteen Rules. Pricing lifecycle admits eight PriceSets, sixteen Prices and
+48 PriceRules. The new Link families admit eight physical history rows and up
+to eight distinct endpoint IDs; the existing LocationFulfillmentSet deletion
+profile retains eight history rows and four distinct Sets. Availability reads
+admit eight Locations and Providers. These lifecycle bounds remain distinct from the four-root
+creation and physical creation-inverse bounds.
+
+The routers retain complete generated native routing metadata and genuine
+callbacks. Stock Location deletion reaches Pricing through actual returned
+Fulfillment identities. The literal Set root soft-deletes Sets before common
+Link cleanup; that already-deleted Set call yields no invented forward Pricing
+cascade. Its actual retained Link inverse can restore Option-linked Pricing
+history before the root's repeated Set restoration. Provider endpoints remain
+protected. Only the authenticated Shipping Pricing participant selects the
+existing identity-bound mixed-publication profile; other participants receive
+no override. Packet ceilings, component grouping and singular settlement stay
+with the existing shared owner.
+
+The currently selected creation allowance is 512 calls, 128 events and 2 MiB of
+command bytes. Both installed deletion compositions select 512 calls, 256 events,
+2 MiB and the existing 30-second logical request allowance through their named
+trusted profiles; shared defaults, SQL statement and lock timeouts remain unchanged.
+These selections and the connected creation and installed deletion outcomes are
+implemented as private bounded support. Populated upgrades, arbitrary provider
+execution, public/hosted activation, Product file import and Product export
+remain separate.
+
+The [native Shipping Option update](./preflight/139-native-shipping-option-updates.md)
+root also implements private bounded support for four existing Options, sixteen
+active Option Rules, eight Prices, 24 PriceRules and eight distinct Regions.
+Both validators, native normalization, omitted/empty distinctions, final batch
+relation hydration and genuine retained callbacks remain native-owned. The
+approved native compensation correction captures complete Option Rule and
+PriceRule preimages and restores original identities and creation timestamps.
+Explicit compensation retains native inline-Type orphans; atomic failure still
+rolls back the entire root. The selected update root uses 768 calls, 256 events,
+2 MiB and 30 seconds through the existing identity-bound resource API.
+
+The shared graph owner now supports direct Link-root endpoint projection through
+authenticated target reads and checked native relationship keys; captured join
+paths and bounds participate in durable workflow identity. The selected Pricing
+receipt correlates requested normalized prices, mutations, results and exact
+read coverage. Native Pricing owns the extracted normalization algorithm. These
+extensions preserve the separate creation, Product, Store and lifecycle profiles.
+Public/hosted activation and populated upgrades remain separate.
+
+The [native Shipping Option deletion](./preflight/140-native-shipping-option-deletion.md)
+root implements private bounded Option→Rule deletion, actual stored Link and
+Pricing cascades, raw-string workflow events and all three genuine retained
+callbacks in one outer settlement. It admits zero to four raw Option IDs,
+sixteen historical Rules, eight stored Link histories/eight PriceSets, sixteen
+Prices and 48 PriceRules. Missing and duplicate requested IDs retain their
+native workflow-message behavior independently of actual affected-row maps.
+The empty branch still executes genuine Link delete/restore with the exact
+private SDK void marker; the public input remains strict `{ ids }`.
+
+Retained inverses preserve native historical revival rather than snapshot undo.
+Conflicting historical Link restoration remains an atomic refusal under the
+accepted scalar-Link invariant; caught native Pricing cascade errors remain
+atomic root failures under the existing authenticated tuple/sticky-refusal
+boundary. The selected root uses 512 calls, 256 events, 2 MiB and 30 seconds
+through the existing identity-bound API. Shared Fulfillment routing metadata
+and lifecycle owners also retain the existing Set/Zone profiles and bounds.
+Fresh private installation is reused without a new schema or migration;
+public/hosted activation and populated upgrades remain separate.
+
+The [native Fulfillment creation](./preflight/141-native-fulfillment-creation.md)
+root is implemented for one private local Manual fulfillment, an optional
+delivery Address, up to four Items and four Labels. Genuine singleton Location
+Query, provider creation, exception cleanup and retained native cancellation
+borrow one outer settlement. Signed/fractional quantities, original creation
+DTOs, provider-updated storage, optional-field omissions and native cancellation
+guards remain distinct. Historical Shipping Option visibility masks read DTOs without
+rewriting stored FKs. The named profile uses 128 calls, the existing 64-event
+and 1 MiB limits, and a 30-second command lifetime.
+
+Fresh composition selects the complete twelve-table native Fulfillment source;
+the integrated Shipping Option consumers reuse it. Real standalone eight-table
+consumers retain their named selection. This is no populated-source upgrade.
+Public/hosted activation, external providers and broader Fulfillment workflows
+remain separate.
+
+The [physical reference-detachment preflight](./preflight/142-native-shipping-option-reference-detachment.md)
+implements the named fresh twelve-table Option/Zone/Set inverse profile against
+unchanged default native PostgreSQL. Direct Option deletion agrees across both
+native backends; referenced parent cascades succeed on PostgreSQL and roll back
+with an FK error on comparison-only Drizzle. Original comparison outcomes are
+preserved, and no Drizzle-cascade parity is claimed. Shared lifecycle metadata
+selects exact native nullable references; the core eager operation authenticates
+same-call deletion and complete current, pending and historical source selection.
+It clears only the FK while preserving source timestamps and emits no source
+update event. The actual retained inverses and the combined native
+Option/Fulfillment preparation support later reads, cancellation and target
+recreation without reattaching sources. Existing eight-table selections and
+terminal Product/ShippingProfile set-null contracts remain unchanged.
+Independently durable execution, populated source upgrades and public/hosted
+activation remain separate gates.
+
+The [native standalone Fulfillment cancellation](./preflight/143-native-fulfillment-cancellation.md)
+root admits one ID using only the existing authenticated cancellation method,
+normal resource limits and the fresh twelve-table source. Genuine eligibility,
+provider lookup, idempotence, module events and void workflow output remain
+native; its retained step ID supplies no business inverse. Private late-failure
+rollback remains an outer settlement obligation. The existing metadata-derived
+DAL and receipt preserve historical Provider/Address owning ID references,
+Shipping Option visibility masking, and native read-versus-assignment nullable
+FK presentation. No extra query, transaction, schema or source lineage is added.
+Public/hosted activation, populated upgrades and external providers remain
+separate.
+
+The [native Fulfillment shipment](./preflight/144-native-fulfillment-shipment.md)
+root admits one existing ID, zero to four complete new Labels and an optional
+shipment marker. Genuine shipment guards, nested update, native collection order
+and retained step compensation use the existing local Fulfillment constructor
+and twelve-table source. The selected root borrows only retrieve/update methods.
+The approved [update preimage correction](./preflight/147-native-fulfillment-update.md)
+retains complete Labels for both empty and nonempty replacement. Authenticated
+same-root reconstitution restores both original timestamps; the earlier native
+projected-preimage recreation branch remains comparison evidence. Empty
+replacement and active-only membership are explicit shared graph policies.
+Other reconstitution consumers retain their selected timestamp policies.
+The named shipment allowance uses 128 calls with the normal 64-event, 1 MiB and
+ten-second limits. No extra Query, lock, provider call or schema is introduced.
+Public/hosted activation and populated upgrades remain separate gates.
+
+The [native Fulfillment delivery](./preflight/145-native-fulfillment-delivery.md)
+profile implements one existing Fulfillment with up to four Items and four
+Labels through the genuine durable parent and stored synchronous update child.
+Both run outside SQL. Three short authenticated commerce calls perform native
+count-free singleton Query, preimage retrieval and update; confirmed settlement
+precedes native release. The local factory retains the same twelve-table source.
+Its explicit list-result capability never supplies a synthetic count; consumers
+requiring counts refuse list-only reads. The combined Option/Fulfillment factory
+is outside this singleton profile.
+
+The existing Task owner supplies input commitments, grants, heartbeat, subject
+replacement/revocation, cancellation and completion. Its CAS compound checkpoint
+codec stores the native parent and one child under the existing 1 MiB cap.
+Genuine current control invokes the retained native null-assignment inverse;
+only that exact command admits Task control. Each commerce child reuses the
+shipment 128-call allowance with normal 64-event, 1 MiB and ten-second limits.
+Native guard ordering, full DTOs and original compensation remain preserved.
+
+The real native Locking module and static in-memory provider execute through
+the existing callback journal, with the explicitly approved transaction-derived
+owner on acquire, release and retained compensation. The host binding owns their
+lifecycle and close. Ordinary database work requires a same-host, same-subject
+acquisition observation with conservative monotonic age below ten seconds;
+callback receipts confer no live claim. Lock waits hold no SQL loan.
+
+Cold terminal recovery can finish event policy without repeating business writes
+or acquisition. A fresh ordinary subject refuses in-flight work based on an old
+acquisition receipt. Forward events remain held until successful terminal policy;
+cancellation clears held inverse events and preserves already published forward
+events. In-flight reacquisition, full host/provider restart, distributed
+exclusion, resource fencing, general coordination, Order delivery, populated
+upgrades and public/hosted activation remain separate. Product chunked file import
+and Product export remain deferred.
+
+The [native Return Fulfillment creation](./preflight/146-native-return-fulfillment-creation.md)
+root implements one local Manual creation with up to four Items and four Labels,
+using the same twelve-table source, singleton Stock Location Query and creation
+admission owner as ordinary Fulfillment creation. Its selected native method
+retrieves the active Shipping Option's `id`, `name`, `data` and `metadata` after
+insertion. That internal capability is read-only and bound to the created root;
+it adds no graph alias, Option mutation, schema or separate module constructor.
+The mixed Option/Fulfillment constructor retains its existing methods.
+
+Native Manual data merging, persistent input Labels, detached initial DTO and
+ordinary retained cancellation remain preserved. The native independent-
+transaction witness retains the residual graphs from failed post-create Option
+retrieval. No native cleanup correction is selected; a failed Flarex atomic root
+publishes no staged graph or event through its existing settlement owner.
+Return creation reuses 128 calls, 64 events, 1 MiB and the thirty-second command
+deadline. The finite callback's transaction-covered classification does not
+admit delayed compensation or a durable Return scheduler. Order/Return modules,
+external providers, populated upgrades and public/hosted activation remain
+separate gates.
+
+The [standalone Fulfillment update](./preflight/147-native-fulfillment-update.md)
+root implements all declared update fields and the connected module/Shipment
+Label branch through the existing twelve-table constructor and authenticated
+retrieve/update pair. Its approved finite/durable preimage correction selects
+whole JSON values and complete Labels. Standalone execution is finite and
+atomic, retaining the existing 128-call allowance and ordinary event, byte and
+deadline limits. Native JSON merging and introduced-key cancellation residuals
+remain preserved; exact JSON snapshot restoration is a separate native contract.
+
+The native DAL assignment seam handles constructor-bearing JSON consistently
+for ordinary/Return creation and updates; recursive own `__proto__` remains
+outside its supported domain. Explicit shared replacement policies admit
+identical existing owned references and managed update-time signals without
+caller timestamp authority. Actual filtered hasOne hydration retains native
+root update events while preserving stored reference identities. Shipment and
+Delivery retain their own bounded contracts; no endpoint mutation, provider,
+Query, delayed compensation or hosted activation follows from this root.
+
+The [native Product–Sales Channel membership](./preflight/148-native-product-sales-channel-membership.md)
+root manages existing endpoint identities with up to four raw additions and
+four raw removals. It reuses the selected Link constructor and only its
+create/dismiss methods; endpoint reads/mutations and graph access are absent.
+Native order, duplicate refusals, tombstones, replacement IDs, batched events
+and asymmetric empty inverses remain preserved. Retained definitions can
+create an originally absent pair or dismiss an existing attachment; this is
+native compensation, not snapshot restoration. Failed finite roots retain
+atomic rollback and publication through the existing owner. Default concurrent
+callbacks retain OCC rather than selecting scope exclusion; normal call,
+event, byte and deadline limits remain unchanged. The earlier authored
+endpoint-creation workflow remains a distinct consumer. Durable scheduling,
+delayed compensation and public/hosted activation remain separate gates.
+
+The [native Price Preference creation](./preflight/149-native-price-preference-creation.md)
+root admits zero to four raw attribute/value inputs through the existing
+Pricing factory. Its shared `pricing-price-preferences` profile owns complete
+DML-derived preference rows and receipts for both ordinary creation and Store
+workflows; Store pair lookup/upsert grammar remains separate. The root selects
+only creation and physical deletion, with graph access off. Native empty calls,
+nullable values, tax defaults, raw case, nulls-distinct uniqueness, retained IDs
+and physical cancellation remain preserved. The existing physical lifecycle
+uses canonical selected-row order where native deletion has no ordering promise.
+Native public DTOs remain unchanged; the checked private boundary admits the
+witnessed nullable runtime inputs and refuses managed caller fields. Normal
+64-call/64-event, byte and deadline limits remain unchanged. Region lookup,
+other Pricing methods, providers, durable scheduling and public/hosted
+activation remain separate gates.
+
+The [native Price Preference update](./preflight/150-native-price-preference-update.md)
+root is implemented for bounded private execution. Its explicit profile uses the
+[PostgreSQL predicate owner](../shared-logical-storage/68-postgres-relational-predicates.md),
+core-produced selected identities, sparse retained preimages, dirty-row events
+and the original inverse upsert. Store and creation retain their own grammars;
+the preference write owner preserves native equal-value no-ops across them.
+
+The [native Price Preference deletion](./preflight/151-native-price-preference-deletion.md)
+root is implemented for bounded private execution. It includes
+native soft deletion, raw-ID restore compensation and required empty-family Link
+deletion/restoration calls, including empty inputs. The original compensation
+can restore previously deleted requested rows; that native behavior remains
+explicit rather than being silently corrected in the adapter.
+
+The [native Price List creation](./preflight/152-native-price-list-creation.md)
+root is implemented for connected bounded private execution. The
+connected branch includes stored Variant–PriceSet validation, complete Pricing
+graphs and retained physical deletion. Original defaults, generic rules,
+deduplication, complete DTOs and root-only inverse events remain native-owned.
+Existing resource limits remain unchanged. Historical inverse cleanup uses the
+shared resource bounds while protecting unrelated Pricing and stored Links.
+
+The [native Price List update](./preflight/153-native-price-list-update.md)
+root is implemented for connected bounded private execution. The selected
+Pricing-only profile uses list/update with graph
+access off. Its contract retains sparse union preimages, fresh replacement
+Rule IDs, all-history orphan deletion, unchanged root timestamps and updated
+actions for equal/ID-only upserts. Shared graph ownership supplies existing-root
+upsert and authenticated global child-deletion order; the portable SDK retains
+the original implicit-void composer. Null description reaches the native update
+and nonnullable DML refusal; the bound service and outer workflow retain sticky
+rollback-only behavior. Existing resource limits remain unchanged. The actual
+two-step root and retained callbacks have separate bounded execution proofs.
+
+The [native Price List deletion](./preflight/154-native-price-list-deletion.md)
+root and private adapter admit zero to four raw IDs through Pricing soft
+deletion/restoration and the required empty-family native Link calls. The bounded
+contract preserves historical-descendant restamping, complete unmapped ListRule
+objects, raw-ID restoration, original retained callbacks and zero restore events.
+It uses the approved Price List → Price → List Rule → Price Rule group order and
+a named 128-call allowance through the existing identity-bound API. Events remain
+limited to 64; all other limits and profiles remain unchanged. Native MikroORM
+flushes interleave those families; the unchanged native baseline remains separate
+from this portable contract. Shared publication preserves the actual emitted
+sequence.
+
+The [native Price List Price creation](./preflight/155-native-price-list-price-creation.md)
+root and private adapter admit zero to four List entries, two Prices per entry
+and two raw Rule attributes per Price, using up to eight raw Variant selectors
+over four distinct stored Link endpoints. The connected branch uses only Pricing
+List reads, add/remove and genuine stored Variant-PriceSet Query. The approved
+native DAL correction and shared native planner preserve existing/mixed reuse,
+sparse duplicate response positions, managed stamps and native events. Reused
+existing Price IDs retain their destructive physical inverse, including complete
+all-history Rule cleanup and root-only deletion events. This profile alone
+selects the approved storage-insertion-ordered deletion cohort. Its named
+128-call allowance retains 64 events and all other default limits. Empty Rule
+records retain the private invalid-input refusal and rollback boundary.
+The unchanged native baselines remain separate from the approved portable
+contract. Hosted activation, external delivery and arbitrary scale remain gated.
+
+The [native Price List Price removal](./preflight/157-native-price-list-price-removal.md)
+root and private adapter admit zero to eight raw Price selectors with default
+64-call and 64-event limits. Native reads require active PriceSets and mask
+historical nullable Lists without changing stored foreign keys. Current-graph
+restoration includes Rule history, preserves active descendant clocks and emits
+no module events. The approved portable order emits Prices by ID, then Rules by
+parent Price ID and Rule ID. Pricing is the sole commerce resource; stored Links
+remain untouched. The scoped 158 correction lets native 156 replace Rules under
+an existing historical Price; the original refusal witness remains preserved.
+The genuine retained removal inverse restores that current graph and preserves
+already-active Rule clocks, independently of canonical mixed-history restoration.
+Hosted activation, external delivery and arbitrary scale remain gated.
+
+The [Price List Price update](./preflight/156-native-price-list-price-update.md)
+root and private adapter implement the same bounded List/Price/Rule input graph.
+The approved native correction captures complete Price/Rule preimages, restores
+original native IDs and managed content, and removes only genuinely created
+Prices on cancellation. Repeated committed replacement and compensation preserve
+retired Application identities through the shared recorded-row replay owner.
+This profile selects approved storage-insertion order for active candidate Rules;
+native matching, input order and ID-ordered snapshot history retain their owners.
+Its named 128-call allowance includes the retained inverse, with 64 events and
+all other limits unchanged. Original native defects remain separate witnesses.
+Standalone concurrent native execution, unbounded history and hosted delivery
+remain outside this admission; ordinary PostgreSQL timeout reliability remains
+unproven.
+
+The [Price List Price batch preflight](./preflight/158-native-price-list-price-batch.md)
+traces the native parallel parent and its combined Pricing/Link Query closure.
+It preserves demonstrated destructive reuse compensation and mixed-time native
+update snapshots separately from finite atomic rollback. The bounded private
+root admits one List, up to two creation inputs, two update inputs and eight
+raw removal selectors, with up to two Rule attributes per supplied Price.
+Pricing's replacement owner now accepts existing historical parents for update
+Rule writes while creation retains active-parent visibility. The original
+default64 parent-capacity refusal and the historical-parent mismatch remain
+preserved witnesses. Corrected external candidate evidence covers the bounded
+native maximum and genuine aggregate disjoint inverses on PGlite and ordinary-role
+PostgreSQL. Its independently approved named 256-call profile keeps 64 events and
+all other defaults unchanged; hosted activation, restart and scale remain
+separate gates.
+
+The [native Variant and line-item pricing preflight](./preflight/159-native-variant-item-price-calculation.md)
+is implemented for its bounded private profile on PGlite and ordinary-role
+PostgreSQL. Its unchanged
+read workflow joins six native service owners and three stored-Link owners,
+including the complete default Inventory/Location/Channel projection and native
+to-one PriceSet/ShippingProfile relationships. Cart, Customer and Region remain
+supplied values. Currency stays optional for empty/manual paths without Pricing
+groups; actual groups preserve the original required-currency guard and native
+`MedusaError` type/message through the Commerce failure cause. Native Query
+aliases, exact cache hints, omitted/null fields,
+implicit join keys, context grouping and complete Pricing DTOs retain their
+owners; the private host remains cache disabled and admits zero business events.
+The finite candidate selects up to four effective items/Variant IDs, four
+Products, four Inventory Items, sixteen Levels and at most ten flattened
+non-control Pricing attributes. An identity-bound nine-logical-participant allowance leaves default
+and physical compositions capped at eight. The original 64-call refusal remains
+preserved; this root selects its own named 256-call allowance under the standing
+core authorization. Its existing 64-event ceiling, ten-second command deadline,
+participant resources and other limits remain unchanged. Both default-profile
+refusals remain part of the admitted boundary.
+Native sale/override behavior is preserved, including lower equally specific
+sale Prices retaining a non-List original. The separate PostgreSQL `57014`
+publication failure for one Product with four Variants remains an unresolved
+Product creation reliability gate; independent native setup roots for this
+read fixture do not resolve it. Arbitrary Cart writes, hosted activation and
+scale remain outside this slice.
+
+The [Inventory confirmation branch](./preflight/160-native-cart-creation-workflow.md#implemented-inventory-confirmation-branch)
+is implemented as a private bounded read capability. It composes the genuine
+Variant/item pricing child and `confirmVariantInventoryWorkflow`, preserving
+full native quantity precision and read-only confirmation under the existing
+queued transaction owner. Its named 256-call child profile reuses 159's
+nine-logical-participant allowance and retains the default 64-event ceiling.
+The source/configuration and native arithmetic loading closure is independent
+of the prepared Cart context branch. Acceptance is complete on PGlite and
+ordinary-role PostgreSQL. The native method-error
+identity diagnostic gap and complete Cart gates remain explicit in the preflight.
+This capability admits no Cart writes, Country-ordering decision or resource
+allowance for the complete Cart root.
+
+The bounded [Customer selection child](./preflight/162-native-cart-customer-selection.md)
+implements the genuine native selection step, scalar guest creation and retained
+physical compensation over all four Customer models. It reuses implemented
+Boolean-and-active partial unique indexes, identity-bound requested Caching
+absence and the unchanged native cache utility. Reads return complete scalar
+Customer DTOs; creation preserves native empty Address calls and creation-only
+empty relation initialization. Its inverse admits one Customer and complete
+history of at most one Address. Any active or deleted Group membership refuses
+before writes because the original native inverse leaves explicit membership
+rows orphaned; a native business correction remains a separate decision. The
+profile retains default resource limits and existing queued scheduling. This
+private bounded child is admitted; complete Cart admission and its other
+business decisions remain separate.
+
+The bounded [item and shipping Tax child](./preflight/163-native-item-tax-lines.md)
+admits the genuine native step, four-model read-only Tax participant and
+local SystemTax provider on PGlite and ordinary-role PostgreSQL. The native
+service and call receipt reuse exact extracted selection and formatting owners.
+It accepts supplied Cart/Order values and complete cohorts of at most four item
+lines, four shipping lines, two Regions, eight Rates and sixteen Rules, with
+default resource limits. The portable native container preserves missing-provider
+errors and request isolation. Tax configuration writes, remote providers and
+complete Cart admission remain separate.
+
+The private bounded
+[native Tax Rate creation](./preflight/164-native-tax-rate-creation-workflow.md)
+profile is admitted on PGlite and ordinary-role PostgreSQL for existing Regions,
+including nested Rule creation and the genuine retained physical inverse. The
+complete four-Rate/eight-Rule cohort retains default resource limits, native
+immediate REAL presentation and explicitly approved inverse storage insertion
+order. Shared authenticated conversion evidence and checked managed values
+preserve the native contract. The admitted calculation profile remains read-only;
+standalone Rule creation and other Tax administration remain separate.
+
+The private bounded
+[standalone Tax Rate Rule creation](./preflight/165-native-tax-rate-rule-creation-workflow.md)
+profile is admitted on PGlite and ordinary-role PostgreSQL, including its genuine
+retained physical inverse. It accepts up to eight Rules across four existing
+Rates, preserves Rule-local creators, general JSON metadata and managed values,
+and uses separately approved Rule inverse storage insertion order. Default
+resource limits remain unchanged. Parent and unrelated rows remain intact;
+Rule soft-delete/restore and other Tax administration remain separate.
+
+The bounded
+[native Tax Rate Rule deletion](./preflight/166-native-tax-rate-rule-deletion-workflow.md)
+profile is complete for up to eight requested Rule IDs across four existing
+Rates, including retained restore compensation. It preserves requested-ID
+history behavior, active no-op restore maps and zero restored events. Complete
+historical selection binds explicitly approved storage insertion ordering;
+default resource limits remain unchanged. Shared scalar receipts correlate
+unchanged operation rows with independent observations and retain established
+decoded preimages. Rule replacement and other Tax administration remain separate.
+
+The private bounded
+[native Tax Rate Rule replacement](./preflight/167-native-tax-rate-rule-replacement-workflow.md)
+profile is admitted on PGlite and ordinary-role PostgreSQL. One confined Tax
+participant runs the genuine list/delete/create root and both retained inverses,
+with at most four raw Rate positions, two templates, eight active old Rules and
+eight new Rule positions under unchanged 64-call/64-event limits. Support bodies
+are decoded before authenticating the complete active selected cohort. Existing
+Rule inverse and lifecycle ordering remain explicit portable policies, separate
+from original SQL observations. Empty Rate IDs are admitted only without templates; the original
+nonempty-template ORM `RangeError` stays outside the profile. Shared fresh-batch
+identity sharing and fresh-schema one-to-one constraints remain admitted; no
+cross-call identity cache or populated-schema conversion is introduced.
+
+The private bounded
+[native Tax Rate selector update](./preflight/168-native-tax-rate-update-workflow.md)
+profile is admitted on PGlite and ordinary-role PostgreSQL. One confined Tax
+instance handles up to four Rate preimages and actual updates across two Regions,
+eight active old Rules, two templates and eight expanded new Rules. Forward and
+separately committed retained inverse roots keep default 64-call/64-event limits.
+Region visibility follows the native projection; sparse retained upserts preserve
+required-field failures. Exact extracted native metadata preparation retains
+shared mutable update aliases, and checked receipts distinguish immediate REAL
+presentation from cold stored values. Synthetic forward-plus-manual-undo work in
+one request is outside the root allowance and is atomically refused. No native
+business correction or additional allowance is introduced.
+
+The private bounded
+[native Tax Rate deletion and retained restore](./preflight/169-native-tax-rate-deletion-workflow.md)
+profile is admitted on PGlite and ordinary-role PostgreSQL. One confined Tax
+instance admits four raw ID positions, four selected Rates across two Regions
+and eight complete Rule descendants, including history. The genuine empty
+forward call and raw retained IDs are preserved. Retained restoration reselects
+current history, including later descendants; restoration emits no module events.
+The approved order is Rate IDs first, then Rule IDs by parent Rate ID and Rule
+ID. Historical children retain native updated-versus-deleted action classification.
+Forward and separately committed inverse roots each retain default
+64-call/64-event limits. Region/provider administration and Cart admission remain
+separate.
+
+The private bounded
+[native Tax Region creation](./preflight/170-native-tax-region-creation-workflow.md)
+profile is admitted on PGlite and ordinary-role PostgreSQL. It creates up to four
+Regions, four default Rates and eight nested Rules through the genuine native
+root. Its retained physical inverse includes current and historical descendants,
+with complete bounds of eight Regions, eight Rates and sixteen Rules. Native
+parent/provider behavior, approved portable required-field and CHECK diagnostics,
+and scoped explicit-Region inverse ordering are preserved. Forward and separately
+committed inverse roots retain default 64-call/64-event limits. General Region
+lifecycle, remote providers, Cart admission and hosted activation remain separate.
+
+The [native Cart creation preflight](./preflight/160-native-cart-creation-workflow.md)
+records the next connected objective. Its selected original-native cohort is
+characterized, including genuine local SystemTax, the fresh Cart's empty
+Payment branch, native failures and retained inverses. Native cancellation
+leaves orphan Addresses and Cart-Promotion Links; proposed Cart/Link owner
+corrections require explicit native business decisions and native inverse proofs.
+The complete Cart persistence, Promotion and Cart Link graph still need adapter
+owners; these Customer and Tax children do not establish Cart-root readiness.
+Complete capacity, remaining call-detail coverage and
+conditional provider/Locking lifecycles must be proved before choosing a
+profile. This preflight does not admit the complete Cart creation root or its
+populated resource branches. Existing-Cart checkout has a separate bounded
+profile below. The connected
+[Promise/Cause preservation correction](./preflight/161-native-promise-cause-preservation.md)
+is implemented at the existing failure/lifetime owners; it does not repair
+native Cart business compensation or establish Cart admission.
+
+The private native source prerequisites are promoted for Cart, Customer, Tax
+and Payment, with native totals, provider helpers and complete selected types.
+Promotion exposes its models, pure calculators, genuine service constructor and
+bounded checkout reads. Its native SQL prefilter refuses execution without the
+unadmitted ORM manager; populated promotion computation remains gated.
+Payment's genuine System provider and service have portable entrypoints; its
+native provider-registration loader remains host-specific. Source promotion
+alone does not admit additional persistence operations or the Cart root.
+
+The [native Payment session slice](./preflight/payment-session-workflows.md)
+implements the bounded System-provider creation root and deletion child over an
+existing collection, using the complete nine-table Payment metadata and shared
+logical persistence. Retained native inverses, replacement and atomic rollback
+remain distinct obligations. Supporting collection creation is a native module
+operation. The [Payment financial slice](./preflight/payment-lifecycle-and-order-finance.md)
+adds System-provider authorization, capture and single/batch refund over genuine
+stored Order–PaymentCollection links, native transactions, summaries and
+credit-line changes. Its bounded atomic profile retains native inverses, exact
+refund identities and replay.
+
+The [Payment collection slice](./preflight/payment-collection-workflows.md) adds
+native Cart/Order collection creation and genuine stored Links, Cart amount and
+currency refresh with session invalidation, and collection cancellation. Its
+Cart read profile uses complete native metadata and genuine totals; Cart roots
+execute as actual children so native lock steps skip inside the atomic owner.
+Retained update compensation preserves the exact raw amount and omission.
+Customer association, complete Cart creation, remote providers, independently
+committed best-effort batches and hosted activation retain separate gates.
+
+The [native checkout profile](./preflight/checkout-workflow.md) completes existing
+guest or existing-Customer Carts with nullable billing/shipping Addresses and up
+to four digital Line Items, including
+manual items and actual Product Variants, and local System payments. Its genuine
+eighteen-source graph includes stored
+Order-Cart and Order-Payment Collection Links, native totals, Order creation,
+Cart completion and `order.placed`. Capture and pre-existing Refund transactions
+retain their separate identities and exact raw amounts in native Order
+accounting. Native Inventory preparation selects channel Locations, calculates
+component demand and creates at most four Reservations, retaining unmanaged
+and backorder behavior. Native availability checks combined non-backorder demand
+per Item/Location; retained physical deletion releases stored native quantities.
+One trusted atomic owner retains settlement, durable outcomes and
+replay; the actual native child supplies parent metadata for native lock skips.
+The explicit logical-source allowance is eighteen, while physical participants
+retain their eight-member ceiling. Complete catalog admission uses the bounded
+index-owned 1024-definition policy and transaction-local cohort checks.
+Native stored declarations select the approved atomic outcome profile, without
+resumable step history or automatic three-day expiry. Customer identity reaches
+the Order through the native Cart graph; Order creates independent Address copies
+and its native inverse deletes them without changing the original Cart Addresses
+or Customer. Complete Cart creation, Promotion, shipping, tax and credit-line
+branches, larger Inventory cohorts, remote gateways and hosted activation remain
+separately gated.
+
+The [Customer Address and payment-account profile](./preflight/customer-address-payment-accounts.md)
+adds genuine Address creation, update and physical deletion, including native
+default replacement, hooks and retained inverses, within four-Address cohorts.
+Its approved native corrections retain scalar metadata and restore it exactly,
+while preserving forward merge behavior and stable default selectors. A separate
+three-source Session profile uses native Customer reads, saved Addresses and the
+genuine Customer-AccountHolder Link to create or reuse a local System account.
+It admits the selected nonnull-email Customer view and retains native billing
+Address fallback, Session replacement and atomic rollback/replay. Customerless
+Session and existing complete-Cart resource boundaries remain separate.
+
+The [Customer-context checkout profile](./preflight/checkout-customer-context.md)
+extends the private native complete-Cart closure with the genuine Customer-
+AccountHolder Link as its nineteenth logical source. Its retained native
+refund/recreate child reads persisted Customer context, saved Addresses and
+linked local System accounts, preserving exact amounts and historical Sessions.
+Checkout exposes graph-only Customer access; each native Link router is
+authenticated for its exact family profile. An explicit resource-digest identity
+covers every method, graph and composed Link field under the unchanged 64 KiB
+proof and policy limits. The eighteen-source identity/resource profile and
+physical eight-member ceiling remain unchanged. General Customer CRUD, remote
+providers, saved payment methods and hosted activation remain separately gated.
+
+The [native ShippingProfile creation](./preflight/135-native-shipping-profile-create-workflow.md)
+root and private adapter implement the bounded portable slice.
+The genuine creation step remains unchanged and returns complete native rows,
+including creation-only empty shipping_options initialization. The existing
+private creation repository and its consumers migrate at that owner; the authored
+Product/ShippingProfile workflow still returns its own scalar Query projection.
+No parallel omission-compatibility profile or persisted inverse-relation field
+is introduced. Native scalar list/projection/update results remain distinct.
+
+The selected root admits zero to four creates and retains their actual IDs for
+physical deletion. That inverse runs the genuine active Option guard, then
+imperatively detaches nullable Option references across history while preserving
+Option timestamps and emitting only Profile deletion events. Its existing
+validation cohort is bounded to eight Options; complete historical detachment
+uses the shared reference/materialization/resource bounds rather than an
+invented eight-child physical ceiling. The physical FK stays NO ACTION.
+The neutral [fan-out owner](../shared-logical-storage/28-core-relational-fanout-transition.md)
+implements explicit timestamp mode, born/delete targets and read-only source
+observations; Product consumers retain advance and Profile
+selects preserve. Matching pending source mutation and post-plan reads/writes
+remain unadmitted. The selected profile retains 64 calls and 64 events: the full
+four-create plus genuine retained inverse consumes 36 calls and eight events on
+both drivers, and the mixed four-Profile/eight-Option physical inverse consumes
+21 calls. Existing source lineage and required Option schema are
+reused; no populated upgrade, provider, Link or public/hosted activation follows.
+
+The separate [native Shipping Profile update](./preflight/126-native-shipping-profile-update-workflow.md)
+admits an explicit selector of up to four raw IDs and native name/type/metadata
+patches through the genuine update and retained upsert callbacks. It preserves
+array results, metadata merge/key removal, empty/null clearing, true empty-patch
+no-ops and projected metadata inverse limitations. Complete row/projection,
+mutation and event receipts retain the existing optimistic atomic owner and
+default 64-call allowance. Both profiles share the genuine constructor while
+keeping sibling Fulfillment tables, providers and relationship hydration denied.
+
+The [native Shipping Profile deletion](./preflight/127-native-shipping-profile-delete-workflow.md)
+admits up to four raw Profile IDs through the real Product-Link Query guard,
+Shipping Option hydration and retained endpoint Link compensation. Its explicit
+fresh six-table Fulfillment composition preserves all five native Option FKs
+and the existing scalar profiles; populated schema evolution remains separately
+gated. Shared evidence of executed relational selections authenticates empty
+guards and complete historical Link restoration for this profile and the
+existing Inventory Item Link lifecycle. The complete root and retained inverse
+use the existing optimistic atomic profile and default 64-call/event allowances.
+
+The [native Shipping Option Type creation](./preflight/128-native-shipping-option-type-create-workflow.md)
+slice admits zero to four Types under the existing optimistic 64-call/event
+profile. It reuses the installed six-table source
+and genuine Fulfillment constructor, with native scalar insert semantics,
+empty-to-many result initialization, the named creation hook and separate module
+and workflow events. Its retained inverse physically deletes bounded Type IDs;
+required Option references, including soft-deleted Options, refuse deletion
+through the shared reference owner without partial settlement. Wider Shipping
+Option/provider execution retains its separate admission gates.
+
+The [native Shipping Option Type update](./preflight/129-native-shipping-option-type-update-workflow.md)
+slice admits four selected Types and one possible outside retarget under the
+existing optimistic 64-call/event profile. It preserves native projected preimages,
+selector order and explicit ID retargeting, including an outside target's
+retained-inverse limitation. Type compensation uses genuine insert-or-update,
+with native tombstone, missing-row and ID-only event behavior; creation's empty
+to-many presentation does not apply to scalar update/list/upsert results.
+Exact shared read evidence authenticates complete selector/target queries and
+each sequential physical upsert read. A distinct identity-bound shared write
+mode preserves native tombstones and advances managed update time without changing
+ordinary upsert or granting lifecycle authority to the native resource.
+
+The [native Shipping Option Type deletion](./preflight/130-native-shipping-option-type-delete-workflow.md)
+slice admits zero to four raw Type IDs with the existing optimistic 64-call/event
+profile and installed six-table source. It preserves the real paginated active
+Option guard, raw-ID hook/workflow events, genuine empty Link delete/restore and
+parallel event sibling. Historical indexed candidates remain authenticated read
+evidence while only active Options contribute to the guard's actual count/page.
+Type soft deletion preserves Option rows and FKs. The native raw-ID inverse can
+revive Types deleted before forward execution and retimestamps already-active
+matches; a distinct identity-bound logical active-restore selection supplies
+that write while existing profiles retain their authenticated no-op behavior.
+Native inverse capabilities remain bounded separately from exact failed-root
+rollback; arbitrary Option workflows, custom Type Links and hosted activation
+remain unadmitted.
+
+The [native Service Zone creation](./preflight/131-native-service-zone-create-workflow.md)
+slice admits zero to four Zones with up to four new GeoZones each, covering all
+four native geographic types under existing FulfillmentSets. It reuses the
+genuine native workflow, validation and constructor through a fresh eight-table
+composition in the existing source lineage. Native module-event infrastructure
+remains mandatory even though the root has no external workflow event or hook.
+Returned child order, actual empty relations and parent-FK semantics stay native.
+Its bounded physical inverse removes complete history for four Zones, sixteen
+GeoZones, eight Options and sixteen Rules, with root-only native delete messages
+and unchanged FK targets. Both complete root-plus-inverse and historical inverse
+use the existing optimistic 64-call/event profile. Profile update and Type
+creation can execute sequentially on the same installed binding; duplicate participants
+for that source in one atomic root remain unadmitted. Populated schema upgrades,
+public/hosted activation retain their separate gates.
+
+The [native Service Zone deletion](./preflight/132-native-service-zone-delete-workflow.md)
+slice admits zero to four raw Zone IDs with complete historical closure for
+sixteen GeoZones, eight Options and sixteen Rules in the same eight-table source.
+The genuine raw-ID restore inverse can revive previously deleted roots and
+descendants beyond the forward changed set. Reached historical children are
+re-deleted, and already-active restore matches advance update time; native
+deleted/restored message families and checked model-group order remain intact.
+Within-family SQL order remains unspecified. The complete maximum root plus
+genuine retained inverse selects the scoped identity-bound optimistic
+256-call/128-event profile through the existing trusted resource API; all other
+profiles and resource limits remain unchanged. It reuses the selected logical
+active-restore capability and shared graph receipt owner without a new core
+mechanism or schema upgrade. Global active-name restore conflicts retain full
+atomic refusal through the typed host error boundary, distinct from native
+backend SQL error formatting. Module-only event infrastructure remains required.
+General Shipping Option/provider workflows, populated upgrades and public/hosted
+activation remain unadmitted. Chunked Product file import and Product export
+remain deferred.
+
+The [native Service Zone update](./preflight/133-native-service-zone-update-workflow.md)
+slice admits zero to four selected Zones and four replacement entries per Zone.
+Its sixteen-row current GeoZone limit counts active rows and the physical
+history required by an explicit replacement. It preserves genuine scalar
+updates, all four geographic types, projected originals, JSON reference-driven
+child writes and insertion-order relation hydration. Complete old/new replacement
+covers thirty-two distinct Geo identities. The genuine retained inverse removes
+new children but refuses old IDs that forward execution physically deleted;
+that refusal makes a containing atomic root rollback-only. A separate named
+128-call profile admits the complete root and inverse; the default event and
+other resource limits remain unchanged.
+
+The neutral [insertion-generation contract](../shared-logical-storage/67-insertion-generation-order.md)
+owns protected revision metadata, root-global allocation, accepting-commit
+assignment and explicitly selected complete indexed ordering. Additive physical
+migration 149 leaves old generations unknown; it does not backfill order or
+admit a populated framework schema upgrade. Zone creation/deletion and existing
+Product/Store replacement profiles retain their behavior. General Shipping
+Option workflows retain their separate preflight gates.
+
+The [native Fulfillment Set deletion](./preflight/134-native-fulfillment-set-delete-workflow.md)
+slice supports zero to four raw Set IDs and the complete aggregate history of
+four Sets, four Zones, sixteen GeoZones, eight Options and
+sixteen Rules in the same eight-table Fulfillment source. The genuine root keeps
+serial Set soft deletion then common Link cleanup; its retained callbacks restore
+Link then the exact raw Set IDs. Historical roots can be skipped forward yet
+revived by that broader native inverse, and reached historical descendants and
+already-active restores retain native timestamp writes and deleted/restored
+events. The installed LocationFulfillmentSet composition in
+[137](./preflight/137-native-location-fulfillment-set-workflow.md) selects a scoped
+identity-bound 512-call/256-event profile for the complete root and genuine
+retained callbacks. The actual stored Link router preserves mandatory empty
+endpoint calls and full native Fulfillment metadata.
+Module event infrastructure and active-restore policy remain required. Shared
+Fulfillment receipts authenticate actual final observations against final
+mutation afterimages separately from planning preimages for both Set and Zone
+lifecycle consumers. Linked Set creation and both deletion migrations share
+137's connected outcome. The installed Provider/Pricing Link migration and native
+Pricing lifecycle are implemented by [138](./preflight/138-native-shipping-option-creation.md)
+within the private bounded profile described above. Further Shipping
+Option/provider workflows, populated upgrades and public/hosted activation remain separate;
+chunked Product file import and Product export remain deferred.
 
 The [framework installation core redesign](./preflight/76-framework-installation-core-redesign.md)
 is complete within its approved bounded profiles. Persistence now owns protected
@@ -150,9 +1243,11 @@ by the native FK and deliberately has no row grant. The approved
 provides explicit zero-access ownership at the shared profile/binding owner.
 The finite native closure and three unchanged test bodies retain their actual
 seed data. All three profiles and the root use the approved 128-call contract.
-The bounded private admission is complete. Price calculation,
-PriceList operations, cross-module cascades, Inventory/Stock Location and the
-complete Product composer remain subsequent admission gates.
+The bounded private admission is complete. This Pricing-only profile does not
+grant price calculation, PriceList operations, cross-module cascades, Inventory
+level writes, Stock Location writes or complete Product composition. The later
+workflow admissions above own their selected capabilities without broadening
+this profile.
 
 The approved [JSON identity and retained-outcome correction](./preflight/60-commerce-json-identity-and-outcomes.md)
 gives both commerce hosts domain-separated ordinary JSON identity and result

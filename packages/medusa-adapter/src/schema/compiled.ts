@@ -1,4 +1,6 @@
 import { Schema } from "effect";
+import { CompiledIndexWhere } from "./index-predicate";
+import { CompiledCheckConstraint } from "./check-constraint";
 
 /** Shared checked compiler grammar. Module owners still admit their exact model set. */
 const strings = Schema.Array(Schema.String);
@@ -21,12 +23,24 @@ const RawDefault = Schema.Struct({
   precision: Schema.Number.check(Schema.isInt(), Schema.isBetween({ minimum: 1, maximum: 100 })),
 });
 const Column = Schema.Union([
+  Schema.Struct({ ...columnFields, type: Schema.Literal("array"),
+    defaultValue: Schema.optionalKey(Schema.Tuple([])),
+  }),
   Schema.Struct({ ...columnFields,
     type: Schema.Literals(["id", "text", "number", "boolean", "dateTime", "enum"]),
     defaultValue: Schema.optionalKey(Schema.Union([Schema.String, Schema.Number, Schema.Boolean])),
   }),
+  Schema.Struct({ ...columnFields, type: Schema.Literal("float"),
+    defaultValue: Schema.optionalKey(Schema.Never),
+  }),
+  // Serial values may be preserved by an admitted module profile. Allocation
+  // needs a separate capability; accepting metadata does not supply a default.
+  Schema.Struct({ ...columnFields, type: Schema.Literal("serial"),
+    generated: Schema.optionalKey(Schema.Literal(false)),
+    defaultValue: Schema.optionalKey(Schema.Never),
+  }),
   Schema.Struct({ ...columnFields, type: Schema.Literal("json"),
-    defaultValue: Schema.optionalKey(Schema.Union([Schema.String, Schema.Number, Schema.Boolean, Schema.Null, RawDefault])),
+    defaultValue: Schema.optionalKey(Schema.Union([Schema.String, Schema.Number, Schema.Boolean, Schema.Null, RawDefault, Schema.Record(Schema.String, Schema.Never)])),
   }),
   Schema.Struct({ ...columnFields, type: Schema.Literal("bigNumber"),
     defaultValue: Schema.optionalKey(Schema.Union([Schema.String, Schema.Number, Schema.Null])),
@@ -36,7 +50,8 @@ const Index = Schema.Struct({
   name: Schema.String,
   columns: strings,
   unique: Schema.Boolean,
-  where: Schema.optionalKey(Schema.Literals(["deleted_at IS NULL", "deleted_at IS NULL AND status = 'active'"])),
+  where: Schema.optionalKey(CompiledIndexWhere),
+  type: Schema.optionalKey(Schema.String),
 });
 const ForeignKey = Schema.Struct({
   name: Schema.String,
@@ -47,7 +62,7 @@ const ForeignKey = Schema.Struct({
 });
 const Relationship = Schema.Struct({
   name: Schema.String,
-  type: Schema.Literals(["belongsTo", "hasMany", "manyToMany"]),
+  type: Schema.Literals(["belongsTo", "hasMany", "hasOne", "hasOneWithFK", "manyToMany"]),
   targetModel: Schema.String,
   targetTable: Schema.String,
   mappedBy: Schema.optionalKey(Schema.String),
@@ -67,7 +82,7 @@ const CompiledSchema = Schema.Struct({
       name: Schema.String,
       columns: Schema.Array(Column),
       indexes: Schema.Array(Index),
-      checks: Schema.Tuple([]),
+      checks: Schema.Array(CompiledCheckConstraint),
       foreignKeys: Schema.Array(ForeignKey),
       relationships: Schema.Array(Relationship),
       cascades: Schema.Struct({ delete: strings, detach: strings }),
@@ -80,6 +95,9 @@ const CompiledSchema = Schema.Struct({
           (raw[0].generated === true || (raw[0].generated === undefined && raw[0].nullable === column.nullable));
       }
       if (typeof column.defaultValue === "object" && column.defaultValue !== null) {
+        if (column.type === "array") return true;
+        if (column.type === "json" && Object.keys(column.defaultValue).length === 0) return !table.columns.some(candidate =>
+          candidate.type === "bigNumber" && column.name === "raw_" + candidate.name);
         return table.columns.some(candidate =>
           candidate.type === "bigNumber" && column.name === "raw_" + candidate.name);
       }

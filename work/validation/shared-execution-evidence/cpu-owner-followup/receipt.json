@@ -1,0 +1,2289 @@
+{
+  "status": "Complete diagnostic; no runtime optimization or savings claim",
+  "initialHead": "79867dc39",
+  "finalHead": "51097b058f7a9a4f209a5f6f29de627f40b896ca",
+  "runtimeHashes": {
+    "packages/persistence-postgres/src/storage/documents/logicalDocuments/relationalRows.ts": "47c9a04ace2724d39e3c9714cf8b1c7422307bec3ff665af4c06dd0689d47dfc",
+    "packages/medusa-adapter/src/commerce-relations.ts": "7cc68e2f7e75682ca12a03237f9a1fef890fb4c466f0503ac1065f0ce532c0eb",
+    "packages/persistence-postgres/src/storage/indexes/appIndexEntries.ts": "9457104e406a4b02d77075b7cbb72af37ffe51a2fd6f2919fa6359cb859fc590",
+    "packages/persistence-postgres/src/database/physicalSession/drizzle.ts": "4f1824df01b1788590d93935c71e7832279b5e0f45f8bdcd8add913a19730198"
+  },
+  "sources": {
+    "digest": "0885b1310abe9d8d4272df03924d333dcbeb9c9908bbf35a87d5a60cc24395d0",
+    "files": 6962
+  },
+  "processes": [
+    16128,
+    17748,
+    14620,
+    11280,
+    9720,
+    15800
+  ],
+  "counterOnly": {
+    "pairs": 30,
+    "blocks": [
+      {
+        "lane": "control",
+        "runId": "b27303eb-bc76-47df-9233-819c35453530",
+        "addedCpu": {
+          "count": 15,
+          "mean": 154,
+          "median": 156,
+          "min": 93,
+          "max": 233
+        }
+      },
+      {
+        "lane": "control-repeat",
+        "runId": "4d766165-416c-40a9-85aa-71d8962ddfd4",
+        "addedCpu": {
+          "count": 15,
+          "mean": 108.2,
+          "median": 95,
+          "min": 78,
+          "max": 172
+        }
+      }
+    ],
+    "addedCpu": {
+      "count": 30,
+      "mean": 131.1,
+      "median": 125,
+      "min": 78,
+      "max": 233
+    },
+    "nativeCpu": {
+      "count": 30,
+      "mean": 27.666666666666668,
+      "median": 31,
+      "min": 0,
+      "max": 47
+    },
+    "flarexCpu": {
+      "count": 30,
+      "mean": 158.76666666666668,
+      "median": 156.5,
+      "min": 109,
+      "max": 265
+    },
+    "actualPairs": [
+      {
+        "lane": "control",
+        "index": 5,
+        "nativeRequestId": "b27303eb-bc76-47df-9233-819c35453530:native:5",
+        "flarexRequestId": "b27303eb-bc76-47df-9233-819c35453530:flarex:5",
+        "nativeCpuMs": 47,
+        "flarexCpuMs": 219,
+        "addedCpuMs": 172
+      },
+      {
+        "lane": "control",
+        "index": 6,
+        "nativeRequestId": "b27303eb-bc76-47df-9233-819c35453530:native:6",
+        "flarexRequestId": "b27303eb-bc76-47df-9233-819c35453530:flarex:6",
+        "nativeCpuMs": 47,
+        "flarexCpuMs": 234,
+        "addedCpuMs": 187
+      },
+      {
+        "lane": "control",
+        "index": 7,
+        "nativeRequestId": "b27303eb-bc76-47df-9233-819c35453530:native:7",
+        "flarexRequestId": "b27303eb-bc76-47df-9233-819c35453530:flarex:7",
+        "nativeCpuMs": 32,
+        "flarexCpuMs": 125,
+        "addedCpuMs": 93
+      },
+      {
+        "lane": "control",
+        "index": 8,
+        "nativeRequestId": "b27303eb-bc76-47df-9233-819c35453530:native:8",
+        "flarexRequestId": "b27303eb-bc76-47df-9233-819c35453530:flarex:8",
+        "nativeCpuMs": 31,
+        "flarexCpuMs": 203,
+        "addedCpuMs": 172
+      },
+      {
+        "lane": "control",
+        "index": 9,
+        "nativeRequestId": "b27303eb-bc76-47df-9233-819c35453530:native:9",
+        "flarexRequestId": "b27303eb-bc76-47df-9233-819c35453530:flarex:9",
+        "nativeCpuMs": 46,
+        "flarexCpuMs": 172,
+        "addedCpuMs": 126
+      },
+      {
+        "lane": "control",
+        "index": 10,
+        "nativeRequestId": "b27303eb-bc76-47df-9233-819c35453530:native:10",
+        "flarexRequestId": "b27303eb-bc76-47df-9233-819c35453530:flarex:10",
+        "nativeCpuMs": 16,
+        "flarexCpuMs": 187,
+        "addedCpuMs": 171
+      },
+      {
+        "lane": "control",
+        "index": 11,
+        "nativeRequestId": "b27303eb-bc76-47df-9233-819c35453530:native:11",
+        "flarexRequestId": "b27303eb-bc76-47df-9233-819c35453530:flarex:11",
+        "nativeCpuMs": 31,
+        "flarexCpuMs": 203,
+        "addedCpuMs": 172
+      },
+      {
+        "lane": "control",
+        "index": 12,
+        "nativeRequestId": "b27303eb-bc76-47df-9233-819c35453530:native:12",
+        "flarexRequestId": "b27303eb-bc76-47df-9233-819c35453530:flarex:12",
+        "nativeCpuMs": 15,
+        "flarexCpuMs": 171,
+        "addedCpuMs": 156
+      },
+      {
+        "lane": "control",
+        "index": 13,
+        "nativeRequestId": "b27303eb-bc76-47df-9233-819c35453530:native:13",
+        "flarexRequestId": "b27303eb-bc76-47df-9233-819c35453530:flarex:13",
+        "nativeCpuMs": 32,
+        "flarexCpuMs": 265,
+        "addedCpuMs": 233
+      },
+      {
+        "lane": "control",
+        "index": 14,
+        "nativeRequestId": "b27303eb-bc76-47df-9233-819c35453530:native:14",
+        "flarexRequestId": "b27303eb-bc76-47df-9233-819c35453530:flarex:14",
+        "nativeCpuMs": 31,
+        "flarexCpuMs": 157,
+        "addedCpuMs": 126
+      },
+      {
+        "lane": "control",
+        "index": 15,
+        "nativeRequestId": "b27303eb-bc76-47df-9233-819c35453530:native:15",
+        "flarexRequestId": "b27303eb-bc76-47df-9233-819c35453530:flarex:15",
+        "nativeCpuMs": 32,
+        "flarexCpuMs": 157,
+        "addedCpuMs": 125
+      },
+      {
+        "lane": "control",
+        "index": 16,
+        "nativeRequestId": "b27303eb-bc76-47df-9233-819c35453530:native:16",
+        "flarexRequestId": "b27303eb-bc76-47df-9233-819c35453530:flarex:16",
+        "nativeCpuMs": 31,
+        "flarexCpuMs": 141,
+        "addedCpuMs": 110
+      },
+      {
+        "lane": "control",
+        "index": 17,
+        "nativeRequestId": "b27303eb-bc76-47df-9233-819c35453530:native:17",
+        "flarexRequestId": "b27303eb-bc76-47df-9233-819c35453530:flarex:17",
+        "nativeCpuMs": 16,
+        "flarexCpuMs": 172,
+        "addedCpuMs": 156
+      },
+      {
+        "lane": "control",
+        "index": 18,
+        "nativeRequestId": "b27303eb-bc76-47df-9233-819c35453530:native:18",
+        "flarexRequestId": "b27303eb-bc76-47df-9233-819c35453530:flarex:18",
+        "nativeCpuMs": 32,
+        "flarexCpuMs": 187,
+        "addedCpuMs": 155
+      },
+      {
+        "lane": "control",
+        "index": 19,
+        "nativeRequestId": "b27303eb-bc76-47df-9233-819c35453530:native:19",
+        "flarexRequestId": "b27303eb-bc76-47df-9233-819c35453530:flarex:19",
+        "nativeCpuMs": 31,
+        "flarexCpuMs": 187,
+        "addedCpuMs": 156
+      },
+      {
+        "lane": "control-repeat",
+        "index": 5,
+        "nativeRequestId": "4d766165-416c-40a9-85aa-71d8962ddfd4:native:5",
+        "flarexRequestId": "4d766165-416c-40a9-85aa-71d8962ddfd4:flarex:5",
+        "nativeCpuMs": 46,
+        "flarexCpuMs": 156,
+        "addedCpuMs": 110
+      },
+      {
+        "lane": "control-repeat",
+        "index": 6,
+        "nativeRequestId": "4d766165-416c-40a9-85aa-71d8962ddfd4:native:6",
+        "flarexRequestId": "4d766165-416c-40a9-85aa-71d8962ddfd4:flarex:6",
+        "nativeCpuMs": 31,
+        "flarexCpuMs": 124,
+        "addedCpuMs": 93
+      },
+      {
+        "lane": "control-repeat",
+        "index": 7,
+        "nativeRequestId": "4d766165-416c-40a9-85aa-71d8962ddfd4:native:7",
+        "flarexRequestId": "4d766165-416c-40a9-85aa-71d8962ddfd4:flarex:7",
+        "nativeCpuMs": 32,
+        "flarexCpuMs": 110,
+        "addedCpuMs": 78
+      },
+      {
+        "lane": "control-repeat",
+        "index": 8,
+        "nativeRequestId": "4d766165-416c-40a9-85aa-71d8962ddfd4:native:8",
+        "flarexRequestId": "4d766165-416c-40a9-85aa-71d8962ddfd4:flarex:8",
+        "nativeCpuMs": 31,
+        "flarexCpuMs": 109,
+        "addedCpuMs": 78
+      },
+      {
+        "lane": "control-repeat",
+        "index": 9,
+        "nativeRequestId": "4d766165-416c-40a9-85aa-71d8962ddfd4:native:9",
+        "flarexRequestId": "4d766165-416c-40a9-85aa-71d8962ddfd4:flarex:9",
+        "nativeCpuMs": 0,
+        "flarexCpuMs": 125,
+        "addedCpuMs": 125
+      },
+      {
+        "lane": "control-repeat",
+        "index": 10,
+        "nativeRequestId": "4d766165-416c-40a9-85aa-71d8962ddfd4:native:10",
+        "flarexRequestId": "4d766165-416c-40a9-85aa-71d8962ddfd4:flarex:10",
+        "nativeCpuMs": 32,
+        "flarexCpuMs": 156,
+        "addedCpuMs": 124
+      },
+      {
+        "lane": "control-repeat",
+        "index": 11,
+        "nativeRequestId": "4d766165-416c-40a9-85aa-71d8962ddfd4:native:11",
+        "flarexRequestId": "4d766165-416c-40a9-85aa-71d8962ddfd4:flarex:11",
+        "nativeCpuMs": 31,
+        "flarexCpuMs": 109,
+        "addedCpuMs": 78
+      },
+      {
+        "lane": "control-repeat",
+        "index": 12,
+        "nativeRequestId": "4d766165-416c-40a9-85aa-71d8962ddfd4:native:12",
+        "flarexRequestId": "4d766165-416c-40a9-85aa-71d8962ddfd4:flarex:12",
+        "nativeCpuMs": 32,
+        "flarexCpuMs": 125,
+        "addedCpuMs": 93
+      },
+      {
+        "lane": "control-repeat",
+        "index": 13,
+        "nativeRequestId": "4d766165-416c-40a9-85aa-71d8962ddfd4:native:13",
+        "flarexRequestId": "4d766165-416c-40a9-85aa-71d8962ddfd4:flarex:13",
+        "nativeCpuMs": 0,
+        "flarexCpuMs": 172,
+        "addedCpuMs": 172
+      },
+      {
+        "lane": "control-repeat",
+        "index": 14,
+        "nativeRequestId": "4d766165-416c-40a9-85aa-71d8962ddfd4:native:14",
+        "flarexRequestId": "4d766165-416c-40a9-85aa-71d8962ddfd4:flarex:14",
+        "nativeCpuMs": 15,
+        "flarexCpuMs": 110,
+        "addedCpuMs": 95
+      },
+      {
+        "lane": "control-repeat",
+        "index": 15,
+        "nativeRequestId": "4d766165-416c-40a9-85aa-71d8962ddfd4:native:15",
+        "flarexRequestId": "4d766165-416c-40a9-85aa-71d8962ddfd4:flarex:15",
+        "nativeCpuMs": 32,
+        "flarexCpuMs": 156,
+        "addedCpuMs": 124
+      },
+      {
+        "lane": "control-repeat",
+        "index": 16,
+        "nativeRequestId": "4d766165-416c-40a9-85aa-71d8962ddfd4:native:16",
+        "flarexRequestId": "4d766165-416c-40a9-85aa-71d8962ddfd4:flarex:16",
+        "nativeCpuMs": 0,
+        "flarexCpuMs": 125,
+        "addedCpuMs": 125
+      },
+      {
+        "lane": "control-repeat",
+        "index": 17,
+        "nativeRequestId": "4d766165-416c-40a9-85aa-71d8962ddfd4:native:17",
+        "flarexRequestId": "4d766165-416c-40a9-85aa-71d8962ddfd4:flarex:17",
+        "nativeCpuMs": 15,
+        "flarexCpuMs": 109,
+        "addedCpuMs": 94
+      },
+      {
+        "lane": "control-repeat",
+        "index": 18,
+        "nativeRequestId": "4d766165-416c-40a9-85aa-71d8962ddfd4:native:18",
+        "flarexRequestId": "4d766165-416c-40a9-85aa-71d8962ddfd4:flarex:18",
+        "nativeCpuMs": 31,
+        "flarexCpuMs": 125,
+        "addedCpuMs": 94
+      },
+      {
+        "lane": "control-repeat",
+        "index": 19,
+        "nativeRequestId": "4d766165-416c-40a9-85aa-71d8962ddfd4:native:19",
+        "flarexRequestId": "4d766165-416c-40a9-85aa-71d8962ddfd4:flarex:19",
+        "nativeCpuMs": 32,
+        "flarexCpuMs": 172,
+        "addedCpuMs": 140
+      }
+    ]
+  },
+  "campaigns": [
+    {
+      "lane": "control",
+      "runId": "b27303eb-bc76-47df-9233-819c35453530",
+      "pairs": 15,
+      "execution": "complete",
+      "gates": [
+        {
+          "name": "sourceStability",
+          "passed": true,
+          "detail": "Authored package code, locks and loaded native sources remain stable"
+        },
+        {
+          "name": "settingsStability",
+          "passed": true,
+          "detail": "Ordinary-role durable settings are retained before and after"
+        },
+        {
+          "name": "cleanup",
+          "passed": true,
+          "detail": "Owned command resources drained"
+        }
+      ],
+      "cleanup": "completed",
+      "source": {
+        "before": "0885b1310abe9d8d4272df03924d333dcbeb9c9908bbf35a87d5a60cc24395d0",
+        "after": "0885b1310abe9d8d4272df03924d333dcbeb9c9908bbf35a87d5a60cc24395d0",
+        "files": 6962
+      },
+      "rawArtifact": "work/validation/shared-execution-evidence/cpu-owner-followup/control/b27303eb-bc76-47df-9233-819c35453530.json"
+    },
+    {
+      "lane": "profiles",
+      "runId": "abb0da7f-7979-4b44-8834-adacb799a7ea",
+      "pairs": 10,
+      "execution": "complete",
+      "gates": [
+        {
+          "name": "sourceStability",
+          "passed": true,
+          "detail": "Authored package code, locks and loaded native sources remain stable"
+        },
+        {
+          "name": "settingsStability",
+          "passed": true,
+          "detail": "Ordinary-role durable settings are retained before and after"
+        },
+        {
+          "name": "cleanup",
+          "passed": true,
+          "detail": "Owned command resources drained"
+        }
+      ],
+      "cleanup": "completed",
+      "source": {
+        "before": "0885b1310abe9d8d4272df03924d333dcbeb9c9908bbf35a87d5a60cc24395d0",
+        "after": "0885b1310abe9d8d4272df03924d333dcbeb9c9908bbf35a87d5a60cc24395d0",
+        "files": 6962
+      },
+      "rawArtifact": "work/validation/shared-execution-evidence/cpu-owner-followup/profiles/abb0da7f-7979-4b44-8834-adacb799a7ea.json"
+    },
+    {
+      "lane": "synchronous",
+      "runId": "8d49d264-6f2d-4e96-bfbf-6cc34bf9fef5",
+      "pairs": 20,
+      "execution": "complete",
+      "gates": [
+        {
+          "name": "sourceStability",
+          "passed": true,
+          "detail": "Authored package code, locks and loaded native sources remain stable"
+        },
+        {
+          "name": "settingsStability",
+          "passed": true,
+          "detail": "Ordinary-role durable settings are retained before and after"
+        },
+        {
+          "name": "cleanup",
+          "passed": true,
+          "detail": "Owned command resources drained"
+        }
+      ],
+      "cleanup": "completed",
+      "source": {
+        "before": "0885b1310abe9d8d4272df03924d333dcbeb9c9908bbf35a87d5a60cc24395d0",
+        "after": "0885b1310abe9d8d4272df03924d333dcbeb9c9908bbf35a87d5a60cc24395d0",
+        "files": 6962
+      },
+      "rawArtifact": "work/validation/shared-execution-evidence/cpu-owner-followup/synchronous/8d49d264-6f2d-4e96-bfbf-6cc34bf9fef5.json"
+    },
+    {
+      "lane": "focused",
+      "runId": "37f80a21-a649-4b51-a3b7-43723fa759be",
+      "pairs": 16,
+      "execution": "complete",
+      "gates": [
+        {
+          "name": "sourceStability",
+          "passed": true,
+          "detail": "Authored package code, locks and loaded native sources remain stable"
+        },
+        {
+          "name": "settingsStability",
+          "passed": true,
+          "detail": "Ordinary-role durable settings are retained before and after"
+        },
+        {
+          "name": "cleanup",
+          "passed": true,
+          "detail": "Owned command resources drained"
+        }
+      ],
+      "cleanup": "completed",
+      "source": {
+        "before": "0885b1310abe9d8d4272df03924d333dcbeb9c9908bbf35a87d5a60cc24395d0",
+        "after": "0885b1310abe9d8d4272df03924d333dcbeb9c9908bbf35a87d5a60cc24395d0",
+        "files": 6962
+      },
+      "rawArtifact": "work/validation/shared-execution-evidence/cpu-owner-followup/focused/37f80a21-a649-4b51-a3b7-43723fa759be.json"
+    },
+    {
+      "lane": "owners",
+      "runId": "a1dd5f76-533c-4b7c-b7ea-4b6897e1c35d",
+      "pairs": 16,
+      "execution": "complete",
+      "gates": [
+        {
+          "name": "sourceStability",
+          "passed": true,
+          "detail": "Authored package code, locks and loaded native sources remain stable"
+        },
+        {
+          "name": "settingsStability",
+          "passed": true,
+          "detail": "Ordinary-role durable settings are retained before and after"
+        },
+        {
+          "name": "cleanup",
+          "passed": true,
+          "detail": "Owned command resources drained"
+        }
+      ],
+      "cleanup": "completed",
+      "source": {
+        "before": "0885b1310abe9d8d4272df03924d333dcbeb9c9908bbf35a87d5a60cc24395d0",
+        "after": "0885b1310abe9d8d4272df03924d333dcbeb9c9908bbf35a87d5a60cc24395d0",
+        "files": 6962
+      },
+      "rawArtifact": "work/validation/shared-execution-evidence/cpu-owner-followup/owners/a1dd5f76-533c-4b7c-b7ea-4b6897e1c35d.json"
+    },
+    {
+      "lane": "control-repeat",
+      "runId": "4d766165-416c-40a9-85aa-71d8962ddfd4",
+      "pairs": 15,
+      "execution": "complete",
+      "gates": [
+        {
+          "name": "sourceStability",
+          "passed": true,
+          "detail": "Authored package code, locks and loaded native sources remain stable"
+        },
+        {
+          "name": "settingsStability",
+          "passed": true,
+          "detail": "Ordinary-role durable settings are retained before and after"
+        },
+        {
+          "name": "cleanup",
+          "passed": true,
+          "detail": "Owned command resources drained"
+        }
+      ],
+      "cleanup": "completed",
+      "source": {
+        "before": "0885b1310abe9d8d4272df03924d333dcbeb9c9908bbf35a87d5a60cc24395d0",
+        "after": "0885b1310abe9d8d4272df03924d333dcbeb9c9908bbf35a87d5a60cc24395d0",
+        "files": 6962
+      },
+      "rawArtifact": "work/validation/shared-execution-evidence/cpu-owner-followup/control-repeat/4d766165-416c-40a9-85aa-71d8962ddfd4.json"
+    }
+  ],
+  "phaseCpu": [
+    {
+      "name": "request admission",
+      "cpu": {
+        "count": 10,
+        "min": 0,
+        "median": 16,
+        "max": 31
+      },
+      "wall": {
+        "count": 10,
+        "min": 19.702900000003865,
+        "median": 21.976300000002084,
+        "max": 27.463199999998324
+      }
+    },
+    {
+      "name": "portable runtime execution",
+      "cpu": {
+        "count": 10,
+        "min": 78,
+        "median": 117,
+        "max": 172
+      },
+      "wall": {
+        "count": 10,
+        "min": 151.16169999999693,
+        "median": 166.10829999999987,
+        "max": 223.21900000001187
+      }
+    },
+    {
+      "name": "runtime result validation",
+      "cpu": {
+        "count": 10,
+        "min": 0,
+        "median": 0,
+        "max": 0
+      },
+      "wall": {
+        "count": 10,
+        "min": 0.3845000000001164,
+        "median": 0.4577999999964959,
+        "max": 0.5553000000072643
+      }
+    },
+    {
+      "name": "finite freeze and validation",
+      "cpu": {
+        "count": 10,
+        "min": 0,
+        "median": 0,
+        "max": 16
+      },
+      "wall": {
+        "count": 10,
+        "min": 2.193299999998999,
+        "median": 2.4729999999981374,
+        "max": 6.910499999998137
+      }
+    },
+    {
+      "name": "authoritative publication",
+      "cpu": {
+        "count": 10,
+        "min": 31,
+        "median": 32,
+        "max": 47
+      },
+      "wall": {
+        "count": 10,
+        "min": 78.72840000000724,
+        "median": 83.15980000000127,
+        "max": 95.19770000000426
+      }
+    },
+    {
+      "name": "complete call cleanup",
+      "cpu": {
+        "count": 10,
+        "min": 0,
+        "median": 0,
+        "max": 0
+      },
+      "wall": {
+        "count": 10,
+        "min": 0.24339999999210704,
+        "median": 0.29535000000032596,
+        "max": 0.5498999999981606
+      }
+    }
+  ],
+  "profileLocations": {
+    "nonIdle": 1083,
+    "groups": [
+      {
+        "name": "(idle)",
+        "count": 740
+      },
+      {
+        "name": "Effect",
+        "count": 345
+      },
+      {
+        "name": "persistence-postgres",
+        "count": 246
+      },
+      {
+        "name": "flarex-protocol",
+        "count": 130
+      },
+      {
+        "name": "Node",
+        "count": 85
+      },
+      {
+        "name": "Drizzle",
+        "count": 56
+      },
+      {
+        "name": "Medusa",
+        "count": 54
+      },
+      {
+        "name": "other",
+        "count": 46
+      },
+      {
+        "name": "pg",
+        "count": 43
+      },
+      {
+        "name": "(garbage collector)",
+        "count": 26
+      },
+      {
+        "name": "(program)",
+        "count": 25
+      },
+      {
+        "name": "executor",
+        "count": 11
+      },
+      {
+        "name": "utils",
+        "count": 9
+      },
+      {
+        "name": "Payload",
+        "count": 6
+      },
+      {
+        "name": "time",
+        "count": 1
+      }
+    ],
+    "alignmentUncertaintyMs": 0.4866999685764313,
+    "gcOverlap": {
+      "count": 10,
+      "min": 2.3581999987363815,
+      "median": 3.140949994325638,
+      "max": 4.131400004029274
+    }
+  },
+  "stableCounts": {
+    "loopOperations": 36288,
+    "loopChunks": 826,
+    "continuationOperations": 12826,
+    "contextOperations": 3629,
+    "resultGenerators": 1768,
+    "resultNextCalls": 5507,
+    "privateJsonCaptures": 478,
+    "capturedObjectIdentities": 428,
+    "repeatedObjectIdentities": 30,
+    "maximumIdentityRepeats": 5,
+    "rootMetadataConsumptions": 899,
+    "cachedMetadataComparisons": 694,
+    "metadataCaptures": 207,
+    "structuredClones": 315,
+    "workflowCaptures": 42
+  },
+  "synchronousCalibration": {
+    "on": {
+      "addedCpu": {
+        "count": 10,
+        "mean": 201.3,
+        "median": 195,
+        "min": 171,
+        "max": 235
+      },
+      "flarexCpu": {
+        "count": 10,
+        "mean": 230.9,
+        "median": 233.5,
+        "min": 202,
+        "max": 266
+      },
+      "phase": [
+        {
+          "name": "request admission",
+          "cpu": {
+            "count": 10,
+            "mean": 16.9,
+            "median": 15.5,
+            "min": 15,
+            "max": 30
+          },
+          "wall": {
+            "count": 10,
+            "mean": 22.996540000002277,
+            "median": 22.52150000000256,
+            "min": 20.361799999998766,
+            "max": 27.861700000001292
+          }
+        },
+        {
+          "name": "portable runtime execution",
+          "cpu": {
+            "count": 10,
+            "mean": 167.1,
+            "median": 172,
+            "min": 140,
+            "max": 187
+          },
+          "wall": {
+            "count": 10,
+            "mean": 208.25672999999952,
+            "median": 206.19750000000204,
+            "min": 198.07309999999416,
+            "max": 228.4082999999955
+          }
+        },
+        {
+          "name": "runtime result validation",
+          "cpu": {
+            "count": 10,
+            "mean": 0,
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "wall": {
+            "count": 10,
+            "mean": 0.6026599999968312,
+            "median": 0.5475999999980559,
+            "min": 0.5081999999965774,
+            "max": 1.0527000000001863
+          }
+        },
+        {
+          "name": "finite freeze and validation",
+          "cpu": {
+            "count": 10,
+            "mean": 0,
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "wall": {
+            "count": 10,
+            "mean": 2.7476599999994504,
+            "median": 2.7039000000004307,
+            "min": 2.5745000000024447,
+            "max": 3.13289999999688
+          }
+        },
+        {
+          "name": "authoritative publication",
+          "cpu": {
+            "count": 10,
+            "mean": 46.9,
+            "median": 47,
+            "min": 31,
+            "max": 63
+          },
+          "wall": {
+            "count": 10,
+            "mean": 89.10844000000289,
+            "median": 88.54494999999952,
+            "min": 87.10160000000906,
+            "max": 92.18919999999343
+          }
+        },
+        {
+          "name": "complete call cleanup",
+          "cpu": {
+            "count": 10,
+            "mean": 0,
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "wall": {
+            "count": 10,
+            "mean": 0.43403999999791265,
+            "median": 0.42360000000189757,
+            "min": 0.3702999999950407,
+            "max": 0.6033999999999651
+          }
+        }
+      ],
+      "indexes": [
+        5,
+        8,
+        9,
+        12,
+        13,
+        16,
+        17,
+        20,
+        21,
+        24
+      ]
+    },
+    "off": {
+      "addedCpu": {
+        "count": 10,
+        "mean": 135.9,
+        "median": 140.5,
+        "min": 94,
+        "max": 203
+      },
+      "flarexCpu": {
+        "count": 10,
+        "mean": 168.8,
+        "median": 172,
+        "min": 125,
+        "max": 219
+      },
+      "phase": [
+        {
+          "name": "request admission",
+          "cpu": {
+            "count": 10,
+            "mean": 17.3,
+            "median": 16,
+            "min": 0,
+            "max": 32
+          },
+          "wall": {
+            "count": 10,
+            "mean": 20.879270000002,
+            "median": 20.306500000006054,
+            "min": 18.491800000003423,
+            "max": 23.861900000003516
+          }
+        },
+        {
+          "name": "portable runtime execution",
+          "cpu": {
+            "count": 10,
+            "mean": 112.6,
+            "median": 101.5,
+            "min": 78,
+            "max": 157
+          },
+          "wall": {
+            "count": 10,
+            "mean": 165.78813000000227,
+            "median": 164.22350000000733,
+            "min": 154.1582000000053,
+            "max": 189.27040000000852
+          }
+        },
+        {
+          "name": "runtime result validation",
+          "cpu": {
+            "count": 10,
+            "mean": 0,
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "wall": {
+            "count": 10,
+            "mean": 0.4117900000012014,
+            "median": 0.40249999999650754,
+            "min": 0.3695000000006985,
+            "max": 0.5068000000028405
+          }
+        },
+        {
+          "name": "finite freeze and validation",
+          "cpu": {
+            "count": 10,
+            "mean": 1.5,
+            "median": 0,
+            "min": 0,
+            "max": 15
+          },
+          "wall": {
+            "count": 10,
+            "mean": 2.413489999999001,
+            "median": 2.2929500000027474,
+            "min": 2.1123999999981606,
+            "max": 3.062900000004447
+          }
+        },
+        {
+          "name": "authoritative publication",
+          "cpu": {
+            "count": 10,
+            "mean": 37.4,
+            "median": 38.5,
+            "min": 16,
+            "max": 47
+          },
+          "wall": {
+            "count": 10,
+            "mean": 82.56074999999836,
+            "median": 82.23989999999321,
+            "min": 76.52580000000307,
+            "max": 87.74549999998999
+          }
+        },
+        {
+          "name": "complete call cleanup",
+          "cpu": {
+            "count": 10,
+            "mean": 0,
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "wall": {
+            "count": 10,
+            "mean": 0.2789499999998952,
+            "median": 0.27395000000251457,
+            "min": 0.2565000000031432,
+            "max": 0.3425999999890337
+          }
+        }
+      ],
+      "indexes": [
+        6,
+        7,
+        10,
+        11,
+        14,
+        15,
+        18,
+        19,
+        22,
+        23
+      ]
+    }
+  },
+  "focusedCalibration": {
+    "on": {
+      "addedCpu": {
+        "count": 8,
+        "mean": 177.75,
+        "median": 180,
+        "min": 125,
+        "max": 250
+      },
+      "flarexCpu": {
+        "count": 8,
+        "mean": 199,
+        "median": 203,
+        "min": 156,
+        "max": 250
+      },
+      "phase": [
+        {
+          "name": "request admission",
+          "cpu": {
+            "count": 8,
+            "mean": 9.625,
+            "median": 15,
+            "min": 0,
+            "max": 16
+          },
+          "wall": {
+            "count": 8,
+            "mean": 21.77597500000138,
+            "median": 21.18285000000469,
+            "min": 19.766799999997602,
+            "max": 27.78940000000148
+          }
+        },
+        {
+          "name": "portable runtime execution",
+          "cpu": {
+            "count": 8,
+            "mean": 136.75,
+            "median": 125.5,
+            "min": 94,
+            "max": 188
+          },
+          "wall": {
+            "count": 8,
+            "mean": 189.61492499999713,
+            "median": 184.8365999999951,
+            "min": 179.74719999999797,
+            "max": 208.3162999999986
+          }
+        },
+        {
+          "name": "runtime result validation",
+          "cpu": {
+            "count": 8,
+            "mean": 0,
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "wall": {
+            "count": 8,
+            "mean": 0.5647875000004206,
+            "median": 0.5611500000013621,
+            "min": 0.5380000000004657,
+            "max": 0.5956999999980326
+          }
+        },
+        {
+          "name": "finite freeze and validation",
+          "cpu": {
+            "count": 8,
+            "mean": 3.875,
+            "median": 0,
+            "min": 0,
+            "max": 16
+          },
+          "wall": {
+            "count": 8,
+            "mean": 2.8862874999995256,
+            "median": 2.641750000002503,
+            "min": 2.399199999999837,
+            "max": 3.569600000002538
+          }
+        },
+        {
+          "name": "authoritative publication",
+          "cpu": {
+            "count": 8,
+            "mean": 48.75,
+            "median": 47,
+            "min": 16,
+            "max": 78
+          },
+          "wall": {
+            "count": 8,
+            "mean": 86.75403749999805,
+            "median": 85.64585000000079,
+            "min": 82.48519999999553,
+            "max": 92.35229999999865
+          }
+        },
+        {
+          "name": "complete call cleanup",
+          "cpu": {
+            "count": 8,
+            "mean": 0,
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "wall": {
+            "count": 8,
+            "mean": 0.3353750000005675,
+            "median": 0.3083500000066124,
+            "min": 0.28800000000046566,
+            "max": 0.4331999999994878
+          }
+        }
+      ],
+      "indexes": [
+        5,
+        8,
+        9,
+        12,
+        13,
+        16,
+        17,
+        20
+      ]
+    },
+    "off": {
+      "addedCpu": {
+        "count": 8,
+        "mean": 128.75,
+        "median": 140,
+        "min": 93,
+        "max": 172
+      },
+      "flarexCpu": {
+        "count": 8,
+        "mean": 164.125,
+        "median": 172,
+        "min": 125,
+        "max": 204
+      },
+      "phase": [
+        {
+          "name": "request admission",
+          "cpu": {
+            "count": 8,
+            "mean": 10,
+            "median": 16,
+            "min": 0,
+            "max": 16
+          },
+          "wall": {
+            "count": 8,
+            "mean": 19.933112500002608,
+            "median": 19.007550000002084,
+            "min": 17.94789999999921,
+            "max": 24.69690000000992
+          }
+        },
+        {
+          "name": "portable runtime execution",
+          "cpu": {
+            "count": 8,
+            "mean": 117.125,
+            "median": 125,
+            "min": 78,
+            "max": 156
+          },
+          "wall": {
+            "count": 8,
+            "mean": 162.6574500000006,
+            "median": 159.03624999999738,
+            "min": 151.69019999999728,
+            "max": 192.58460000000196
+          }
+        },
+        {
+          "name": "runtime result validation",
+          "cpu": {
+            "count": 8,
+            "mean": 0,
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "wall": {
+            "count": 8,
+            "mean": 0.3832875000007334,
+            "median": 0.38105000000359723,
+            "min": 0.3448999999964144,
+            "max": 0.4584000000031665
+          }
+        },
+        {
+          "name": "finite freeze and validation",
+          "cpu": {
+            "count": 8,
+            "mean": 3.875,
+            "median": 0,
+            "min": 0,
+            "max": 16
+          },
+          "wall": {
+            "count": 8,
+            "mean": 2.2133750000029977,
+            "median": 2.182300000000396,
+            "min": 2.062400000009802,
+            "max": 2.4531000000133645
+          }
+        },
+        {
+          "name": "authoritative publication",
+          "cpu": {
+            "count": 8,
+            "mean": 33.125,
+            "median": 31.5,
+            "min": 15,
+            "max": 47
+          },
+          "wall": {
+            "count": 8,
+            "mean": 80.58357499999875,
+            "median": 80.6623499999987,
+            "min": 76.70259999998962,
+            "max": 84.24890000000596
+          }
+        },
+        {
+          "name": "complete call cleanup",
+          "cpu": {
+            "count": 8,
+            "mean": 0,
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "wall": {
+            "count": 8,
+            "mean": 0.2966000000014901,
+            "median": 0.27294999999867287,
+            "min": 0.25630000000819564,
+            "max": 0.4089000000094529
+          }
+        }
+      ],
+      "indexes": [
+        6,
+        7,
+        10,
+        11,
+        14,
+        15,
+        18,
+        19
+      ]
+    }
+  },
+  "ownerCalibration": {
+    "on": {
+      "cpu": {
+        "count": 8,
+        "mean": 156.625,
+        "median": 164,
+        "min": 78,
+        "max": 219
+      },
+      "phases": [
+        {
+          "name": "request admission",
+          "cpu": {
+            "count": 8,
+            "mean": 13.5,
+            "median": 15,
+            "min": 0,
+            "max": 32
+          }
+        },
+        {
+          "name": "portable runtime execution",
+          "cpu": {
+            "count": 8,
+            "mean": 136.875,
+            "median": 125,
+            "min": 78,
+            "max": 188
+          }
+        },
+        {
+          "name": "runtime result validation",
+          "cpu": {
+            "count": 8,
+            "mean": 0,
+            "median": 0,
+            "min": 0,
+            "max": 0
+          }
+        },
+        {
+          "name": "finite freeze and validation",
+          "cpu": {
+            "count": 8,
+            "mean": 3.875,
+            "median": 0,
+            "min": 0,
+            "max": 16
+          }
+        },
+        {
+          "name": "authoritative publication",
+          "cpu": {
+            "count": 8,
+            "mean": 33.25,
+            "median": 31,
+            "min": 16,
+            "max": 62
+          }
+        },
+        {
+          "name": "complete call cleanup",
+          "cpu": {
+            "count": 8,
+            "mean": 0,
+            "median": 0,
+            "min": 0,
+            "max": 0
+          }
+        }
+      ]
+    },
+    "off": {
+      "cpu": {
+        "count": 8,
+        "mean": 138.5,
+        "median": 155.5,
+        "min": 62,
+        "max": 172
+      },
+      "phases": [
+        {
+          "name": "request admission",
+          "cpu": {
+            "count": 8,
+            "mean": 13.75,
+            "median": 16,
+            "min": 0,
+            "max": 16
+          }
+        },
+        {
+          "name": "portable runtime execution",
+          "cpu": {
+            "count": 8,
+            "mean": 119.125,
+            "median": 125,
+            "min": 62,
+            "max": 157
+          }
+        },
+        {
+          "name": "runtime result validation",
+          "cpu": {
+            "count": 8,
+            "mean": 0,
+            "median": 0,
+            "min": 0,
+            "max": 0
+          }
+        },
+        {
+          "name": "finite freeze and validation",
+          "cpu": {
+            "count": 8,
+            "mean": 0,
+            "median": 0,
+            "min": 0,
+            "max": 0
+          }
+        },
+        {
+          "name": "authoritative publication",
+          "cpu": {
+            "count": 8,
+            "mean": 37,
+            "median": 47,
+            "min": 15,
+            "max": 47
+          }
+        },
+        {
+          "name": "complete call cleanup",
+          "cpu": {
+            "count": 8,
+            "mean": 0,
+            "median": 0,
+            "min": 0,
+            "max": 0
+          }
+        }
+      ]
+    }
+  },
+  "selectedOwnerCounters": [
+    {
+      "name": "LogicalDocuments.readRelationalSelection",
+      "calls": {
+        "count": 8,
+        "mean": 43,
+        "median": 43,
+        "min": 43,
+        "max": 43
+      },
+      "cpu": {
+        "count": 8,
+        "mean": 48.625,
+        "median": 47,
+        "min": 0,
+        "max": 93
+      },
+      "wall": {
+        "count": 8,
+        "mean": 98.02160000000367,
+        "median": 83.5557999999437,
+        "min": 75.63400000002002,
+        "max": 200.01610000010987
+      }
+    },
+    {
+      "name": "FiniteStorageCapture.run",
+      "calls": {
+        "count": 8,
+        "mean": 38,
+        "median": 38,
+        "min": 38,
+        "max": 38
+      },
+      "cpu": {
+        "count": 8,
+        "mean": 36.875,
+        "median": 46,
+        "min": 0,
+        "max": 62
+      },
+      "wall": {
+        "count": 8,
+        "mean": 90.69672500000979,
+        "median": 75.24804999998378,
+        "min": 68.45050000004994,
+        "max": 193.41540000005625
+      }
+    },
+    {
+      "name": "MedusaRead.execute",
+      "calls": {
+        "count": 8,
+        "mean": 14,
+        "median": 14,
+        "min": 14,
+        "max": 14
+      },
+      "cpu": {
+        "count": 8,
+        "mean": 31.125,
+        "median": 31,
+        "min": 0,
+        "max": 62
+      },
+      "wall": {
+        "count": 8,
+        "mean": 55.264799999996285,
+        "median": 55.036449999999604,
+        "min": 50.64069999998901,
+        "max": 64.6246999999712
+      }
+    },
+    {
+      "name": "LogicalDocuments.relationalChange",
+      "calls": {
+        "count": 8,
+        "mean": 7,
+        "median": 7,
+        "min": 7,
+        "max": 7
+      },
+      "cpu": {
+        "count": 8,
+        "mean": 25.625,
+        "median": 31,
+        "min": 15,
+        "max": 32
+      },
+      "wall": {
+        "count": 8,
+        "mean": 30.998162499995487,
+        "median": 30.60049999998955,
+        "min": 29.76610000000801,
+        "max": 33.32650000001013
+      }
+    },
+    {
+      "name": "FlarexValue.canonicalizeV1",
+      "calls": {
+        "count": 8,
+        "mean": 42,
+        "median": 42,
+        "min": 42,
+        "max": 42
+      },
+      "cpu": {
+        "count": 8,
+        "mean": 11.75,
+        "median": 0,
+        "min": 0,
+        "max": 48
+      },
+      "wall": {
+        "count": 8,
+        "mean": 6.897362500011695,
+        "median": 6.773600000014994,
+        "min": 4.286499999972875,
+        "max": 9.389500000004773
+      }
+    },
+    {
+      "name": "ApplicationDocument.acceptPublication",
+      "calls": {
+        "count": 8,
+        "mean": 1,
+        "median": 1,
+        "min": 1,
+        "max": 1
+      },
+      "cpu": {
+        "count": 8,
+        "mean": 9.875,
+        "median": 15.5,
+        "min": 0,
+        "max": 16
+      },
+      "wall": {
+        "count": 8,
+        "mean": 14.247224999998252,
+        "median": 14.315099999999802,
+        "min": 13.322899999999208,
+        "max": 15.272299999996903
+      }
+    },
+    {
+      "name": "FlarexValue.canonicalizeJsonV1",
+      "calls": {
+        "count": 8,
+        "mean": 22,
+        "median": 22,
+        "min": 22,
+        "max": 22
+      },
+      "cpu": {
+        "count": 8,
+        "mean": 9.75,
+        "median": 15,
+        "min": 0,
+        "max": 16
+      },
+      "wall": {
+        "count": 8,
+        "mean": 4.411287499993705,
+        "median": 3.7558500000013737,
+        "min": 3.217900000003283,
+        "max": 6.900000000008731
+      }
+    },
+    {
+      "name": "ApplicationDocument.materializeAcceptedPublication",
+      "calls": {
+        "count": 8,
+        "mean": 1,
+        "median": 1,
+        "min": 1,
+        "max": 1
+      },
+      "cpu": {
+        "count": 8,
+        "mean": 9.75,
+        "median": 15,
+        "min": 0,
+        "max": 16
+      },
+      "wall": {
+        "count": 8,
+        "mean": 33.14210000000185,
+        "median": 32.476300000002084,
+        "min": 30.122300000002724,
+        "max": 37.623899999998685
+      }
+    },
+    {
+      "name": "MedusaWorkflow.captureValue",
+      "calls": {
+        "count": 8,
+        "mean": 42,
+        "median": 42,
+        "min": 42,
+        "max": 42
+      },
+      "cpu": {
+        "count": 8,
+        "mean": 6,
+        "median": 0,
+        "min": 0,
+        "max": 16
+      },
+      "wall": {
+        "count": 8,
+        "mean": 4.139687499998217,
+        "median": 4.132050000007439,
+        "min": 3.743799999982002,
+        "max": 4.931299999974726
+      }
+    },
+    {
+      "name": "LogicalDocuments.compileRelationalRead",
+      "calls": {
+        "count": 8,
+        "mean": 43,
+        "median": 43,
+        "min": 43,
+        "max": 43
+      },
+      "cpu": {
+        "count": 8,
+        "mean": 3.875,
+        "median": 0,
+        "min": 0,
+        "max": 31
+      },
+      "wall": {
+        "count": 8,
+        "mean": 7.161549999991621,
+        "median": 7.073150000018359,
+        "min": 6.7902999999932945,
+        "max": 7.647199999977602
+      }
+    },
+    {
+      "name": "LogicalDocuments.make",
+      "calls": {
+        "count": 8,
+        "mean": 7,
+        "median": 7,
+        "min": 7,
+        "max": 7
+      },
+      "cpu": {
+        "count": 8,
+        "mean": 0,
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "wall": {
+        "count": 8,
+        "mean": 0.40836249999847496,
+        "median": 0.37469999998575076,
+        "min": 0.3580000000074506,
+        "max": 0.561600000000908
+      }
+    },
+    {
+      "name": "CommerceRepository.select",
+      "calls": {
+        "count": 8,
+        "mean": 20,
+        "median": 20,
+        "min": 20,
+        "max": 20
+      },
+      "cpu": {
+        "count": 8,
+        "mean": 0,
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "wall": {
+        "count": 8,
+        "mean": 0.44596249999904103,
+        "median": 0.4415000000008149,
+        "min": 0.4252000000415137,
+        "max": 0.48999999999796273
+      }
+    },
+    {
+      "name": "PointCommitTransaction.prepareFiniteSourceAcceptance",
+      "calls": {
+        "count": 8,
+        "mean": 1,
+        "median": 1,
+        "min": 1,
+        "max": 1
+      },
+      "cpu": {
+        "count": 8,
+        "mean": 0,
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "wall": {
+        "count": 8,
+        "mean": 0.37109999999847787,
+        "median": 0.35740000000078,
+        "min": 0.3328999999939697,
+        "max": 0.4290000000037253
+      }
+    }
+  ],
+  "readRemainder": {
+    "count": 8,
+    "mean": 23.375,
+    "median": 30.5,
+    "min": 0,
+    "max": 47
+  },
+  "perRootReadRemainders": [
+    {
+      "id": "a1dd5f76-533c-4b7c-b7ea-4b6897e1c35d:flarex:5",
+      "readCpuMs": 62,
+      "captureInsideReadsCpuMs": 31,
+      "readOutsideCapturesCpuMs": 31,
+      "capturesInsideReads": 25,
+      "allCaptures": 38
+    },
+    {
+      "id": "a1dd5f76-533c-4b7c-b7ea-4b6897e1c35d:flarex:8",
+      "readCpuMs": 78,
+      "captureInsideReadsCpuMs": 46,
+      "readOutsideCapturesCpuMs": 32,
+      "capturesInsideReads": 25,
+      "allCaptures": 38
+    },
+    {
+      "id": "a1dd5f76-533c-4b7c-b7ea-4b6897e1c35d:flarex:9",
+      "readCpuMs": 47,
+      "captureInsideReadsCpuMs": 0,
+      "readOutsideCapturesCpuMs": 47,
+      "capturesInsideReads": 25,
+      "allCaptures": 38
+    },
+    {
+      "id": "a1dd5f76-533c-4b7c-b7ea-4b6897e1c35d:flarex:12",
+      "readCpuMs": 93,
+      "captureInsideReadsCpuMs": 62,
+      "readOutsideCapturesCpuMs": 31,
+      "capturesInsideReads": 25,
+      "allCaptures": 38
+    },
+    {
+      "id": "a1dd5f76-533c-4b7c-b7ea-4b6897e1c35d:flarex:13",
+      "readCpuMs": 0,
+      "captureInsideReadsCpuMs": 0,
+      "readOutsideCapturesCpuMs": 0,
+      "capturesInsideReads": 25,
+      "allCaptures": 38
+    },
+    {
+      "id": "a1dd5f76-533c-4b7c-b7ea-4b6897e1c35d:flarex:16",
+      "readCpuMs": 16,
+      "captureInsideReadsCpuMs": 0,
+      "readOutsideCapturesCpuMs": 16,
+      "capturesInsideReads": 25,
+      "allCaptures": 38
+    },
+    {
+      "id": "a1dd5f76-533c-4b7c-b7ea-4b6897e1c35d:flarex:17",
+      "readCpuMs": 46,
+      "captureInsideReadsCpuMs": 16,
+      "readOutsideCapturesCpuMs": 30,
+      "capturesInsideReads": 25,
+      "allCaptures": 38
+    },
+    {
+      "id": "a1dd5f76-533c-4b7c-b7ea-4b6897e1c35d:flarex:20",
+      "readCpuMs": 47,
+      "captureInsideReadsCpuMs": 47,
+      "readOutsideCapturesCpuMs": 0,
+      "capturesInsideReads": 25,
+      "allCaptures": 38
+    }
+  ],
+  "selectedSyncTimings": [
+    {
+      "name": "Result.generatorBody",
+      "calls": {
+        "count": 8,
+        "mean": 5507,
+        "median": 5507,
+        "min": 5507,
+        "max": 5507
+      },
+      "totalMs": {
+        "count": 8,
+        "mean": 55.123324999932265,
+        "median": 54.22025000015128,
+        "min": 52.33679999997548,
+        "max": 59.16069999968022
+      },
+      "selfMs": {
+        "count": 8,
+        "mean": 19.713812499935557,
+        "median": 19.618500000076892,
+        "min": 18.57610000052955,
+        "max": 21.47300000020914
+      }
+    },
+    {
+      "name": "persistence-postgres/src/values/privateJsonData.ts:capture",
+      "calls": {
+        "count": 8,
+        "mean": 478,
+        "median": 478,
+        "min": 478,
+        "max": 478
+      },
+      "totalMs": {
+        "count": 8,
+        "mean": 8.768562499897598,
+        "median": 8.699500000016997,
+        "min": 8.268599999704747,
+        "max": 9.354499999957625
+      },
+      "selfMs": {
+        "count": 8,
+        "mean": 8.696124999895801,
+        "median": 8.625700000018696,
+        "min": 8.199499999696855,
+        "max": 9.272099999870989
+      }
+    },
+    {
+      "name": "Result.gen",
+      "calls": {
+        "count": 8,
+        "mean": 1768,
+        "median": 1768,
+        "min": 1768,
+        "max": 1768
+      },
+      "totalMs": {
+        "count": 8,
+        "mean": 61.06258749986591,
+        "median": 60.00379999978031,
+        "min": 58.1143999996566,
+        "max": 65.82880000006116
+      },
+      "selfMs": {
+        "count": 8,
+        "mean": 5.939262499933648,
+        "median": 5.79484999980923,
+        "min": 5.734500000602566,
+        "max": 6.668100000380946
+      }
+    },
+    {
+      "name": "persistence-postgres/src/storage/documents/logicalDocuments/rootEvaluator.ts:consumeLogicalDocumentRootMetadataDependency",
+      "calls": {
+        "count": 8,
+        "mean": 899,
+        "median": 899,
+        "min": 899,
+        "max": 899
+      },
+      "totalMs": {
+        "count": 8,
+        "mean": 7.263699999946766,
+        "median": 7.2716999998592655,
+        "min": 6.900300000139396,
+        "max": 7.761300000056508
+      },
+      "selfMs": {
+        "count": 8,
+        "mean": 2.9503999998578365,
+        "median": 2.9261999996961094,
+        "min": 2.8744999997579725,
+        "max": 3.1110000007029157
+      }
+    },
+    {
+      "name": "persistence-postgres/src/values/privateJsonData.ts:detachIssuedJson",
+      "calls": {
+        "count": 8,
+        "mean": 40,
+        "median": 40,
+        "min": 40,
+        "max": 40
+      },
+      "totalMs": {
+        "count": 8,
+        "mean": 0.12295000000085565,
+        "median": 0.12019999999029096,
+        "min": 0.11039999999047723,
+        "max": 0.15190000001166482
+      },
+      "selfMs": {
+        "count": 8,
+        "mean": 0.07243750000179716,
+        "median": 0.07024999999703141,
+        "min": 0.06480000000738073,
+        "max": 0.0925000000061118
+      }
+    }
+  ],
+  "groupTimers": {
+    "broad": [
+      {
+        "name": "Effect loop uncovered",
+        "selfMs": {
+          "count": 10,
+          "mean": 91.24668000011589,
+          "median": 90.2829499993968,
+          "min": 86.72300000037649,
+          "max": 103.11770000051183
+        }
+      },
+      {
+        "name": "Result composition",
+        "selfMs": {
+          "count": 10,
+          "mean": 22.19334999984567,
+          "median": 22.019399999648158,
+          "min": 21.29899999948975,
+          "max": 24.37399999999616
+        }
+      },
+      {
+        "name": "Protocol/value",
+        "selfMs": {
+          "count": 10,
+          "mean": 19.670619999992777,
+          "median": 19.57429999958549,
+          "min": 18.468000000415486,
+          "max": 22.487999999924796
+        }
+      },
+      {
+        "name": "Effect authored construction",
+        "selfMs": {
+          "count": 10,
+          "mean": 14.43341999995173,
+          "median": 14.451099999831058,
+          "min": 13.961899999674642,
+          "max": 14.691700000330457
+        }
+      },
+      {
+        "name": "Schema parsing",
+        "selfMs": {
+          "count": 10,
+          "mean": 12.61131999999634,
+          "median": 12.57909999966796,
+          "min": 11.88029999990249,
+          "max": 13.504999999931897
+        }
+      },
+      {
+        "name": "Private JSON capture",
+        "selfMs": {
+          "count": 10,
+          "mean": 9.346210000177233,
+          "median": 9.269249999786553,
+          "min": 8.850700000082725,
+          "max": 10.500600000093982
+        }
+      },
+      {
+        "name": "Other targeted persistence",
+        "selfMs": {
+          "count": 10,
+          "mean": 8.025389999965409,
+          "median": 7.93409999992582,
+          "min": 7.479199999652337,
+          "max": 9.159499999972468
+        }
+      },
+      {
+        "name": "Effect engine primitives",
+        "selfMs": {
+          "count": 10,
+          "mean": 7.322829999988608,
+          "median": 7.268600000119477,
+          "min": 7.133199999385397,
+          "max": 7.848899999982677
+        }
+      },
+      {
+        "name": "Node cloning",
+        "selfMs": {
+          "count": 10,
+          "mean": 4.411600000016188,
+          "median": 4.370450000031269,
+          "min": 4.189900000041234,
+          "max": 4.664399999950547
+        }
+      },
+      {
+        "name": "Schema decoder factory",
+        "selfMs": {
+          "count": 10,
+          "mean": 0.03407999998671585,
+          "median": 0.03129999998782296,
+          "min": 0.02569999999832362,
+          "max": 0.05699999998614658
+        }
+      }
+    ],
+    "focused": [
+      {
+        "name": "Effect loop uncovered",
+        "selfMs": {
+          "count": 8,
+          "mean": 86.69963750055467,
+          "median": 84.60215000091557,
+          "min": 81.54479999998875,
+          "max": 99.80709999996179
+        }
+      },
+      {
+        "name": "Result composition",
+        "selfMs": {
+          "count": 8,
+          "mean": 25.653074999869204,
+          "median": 25.402049999705923,
+          "min": 24.353700000210665,
+          "max": 28.141100000590086
+        }
+      },
+      {
+        "name": "Effect authored construction",
+        "selfMs": {
+          "count": 8,
+          "mean": 13.840387499890312,
+          "median": 13.834200000077544,
+          "min": 13.471300000026531,
+          "max": 14.497399999629124
+        }
+      },
+      {
+        "name": "Protocol/value",
+        "selfMs": {
+          "count": 8,
+          "mean": 12.575087499876645,
+          "median": 12.422999999849708,
+          "min": 11.847099999838974,
+          "max": 14.042899999702058
+        }
+      },
+      {
+        "name": "Schema parsing",
+        "selfMs": {
+          "count": 8,
+          "mean": 11.861774999929366,
+          "median": 11.596650000254158,
+          "min": 11.228599999900325,
+          "max": 12.931699999098782
+        }
+      },
+      {
+        "name": "Private JSON capture",
+        "selfMs": {
+          "count": 8,
+          "mean": 8.768562499897598,
+          "median": 8.699500000016997,
+          "min": 8.268599999704747,
+          "max": 9.354499999957625
+        }
+      },
+      {
+        "name": "Other targeted persistence",
+        "selfMs": {
+          "count": 8,
+          "mean": 8.136437499981184,
+          "median": 8.027999999809253,
+          "min": 7.702600000266102,
+          "max": 8.838400000153342
+        }
+      },
+      {
+        "name": "Node cloning",
+        "selfMs": {
+          "count": 8,
+          "mean": 4.218350000025566,
+          "median": 4.146500000002561,
+          "min": 4.028900000063004,
+          "max": 4.487499999842839
+        }
+      },
+      {
+        "name": "Schema decoder factory",
+        "selfMs": {
+          "count": 8,
+          "mean": 0.03401250001388689,
+          "median": 0.0334999999977299,
+          "min": 0.02459999998973217,
+          "max": 0.05440000008093193
+        }
+      }
+    ]
+  },
+  "cloneSites": [
+    {
+      "name": "Node.structuredClone:flarex-protocol/src/decoded-protocol-snapshot.ts:10",
+      "calls": {
+        "count": 8,
+        "mean": 121,
+        "median": 121,
+        "min": 121,
+        "max": 121
+      },
+      "totalMs": {
+        "count": 8,
+        "mean": 0.7735125000099288,
+        "median": 0.7656000000461063,
+        "min": 0.7378000000171596,
+        "max": 0.8486999999295222
+      },
+      "selfMs": {
+        "count": 8,
+        "mean": 0.7735125000099288,
+        "median": 0.7656000000461063,
+        "min": 0.7378000000171596,
+        "max": 0.8486999999295222
+      }
+    },
+    {
+      "name": "Node.structuredClone:persistence-postgres/src/storage/documents/logicalDocuments/detachChanges.ts:22",
+      "calls": {
+        "count": 8,
+        "mean": 8,
+        "median": 8,
+        "min": 8,
+        "max": 8
+      },
+      "totalMs": {
+        "count": 8,
+        "mean": 0.6942749999952866,
+        "median": 0.6820499999957974,
+        "min": 0.643099999986589,
+        "max": 0.7774999999819556
+      },
+      "selfMs": {
+        "count": 8,
+        "mean": 0.6942749999952866,
+        "median": 0.6820499999957974,
+        "min": 0.643099999986589,
+        "max": 0.7774999999819556
+      }
+    },
+    {
+      "name": "Node.structuredClone:medusa-adapter/src/workflow-value.ts:15",
+      "calls": {
+        "count": 8,
+        "mean": 42,
+        "median": 42,
+        "min": 42,
+        "max": 42
+      },
+      "totalMs": {
+        "count": 8,
+        "mean": 0.5290125000128683,
+        "median": 0.5288000000291504,
+        "min": 0.4945000000006985,
+        "max": 0.5553999999901862
+      },
+      "selfMs": {
+        "count": 8,
+        "mean": 0.5290125000128683,
+        "median": 0.5288000000291504,
+        "min": 0.4945000000006985,
+        "max": 0.5553999999901862
+      }
+    },
+    {
+      "name": "Node.structuredClone:persistence-postgres/src/application/activation/finiteIdentity.ts:76",
+      "calls": {
+        "count": 8,
+        "mean": 2,
+        "median": 2,
+        "min": 2,
+        "max": 2
+      },
+      "totalMs": {
+        "count": 8,
+        "mean": 0.17162499999903957,
+        "median": 0.16929999999410938,
+        "min": 0.1628000000055181,
+        "max": 0.18190000001050066
+      },
+      "selfMs": {
+        "count": 8,
+        "mean": 0.17162499999903957,
+        "median": 0.16929999999410938,
+        "min": 0.1628000000055181,
+        "max": 0.18190000001050066
+      }
+    },
+    {
+      "name": "Node.structuredClone:persistence-postgres/src/execution/journal/participantOperations.ts:1798",
+      "calls": {
+        "count": 8,
+        "mean": 7,
+        "median": 7,
+        "min": 7,
+        "max": 7
+      },
+      "totalMs": {
+        "count": 8,
+        "mean": 0.1729250000034881,
+        "median": 0.1684999999924912,
+        "min": 0.1638000000239117,
+        "max": 0.2063000000125612
+      },
+      "selfMs": {
+        "count": 8,
+        "mean": 0.1729250000034881,
+        "median": 0.1684999999924912,
+        "min": 0.1638000000239117,
+        "max": 0.2063000000125612
+      }
+    },
+    {
+      "name": "Node.structuredClone:persistence-postgres/src/storage/documents/logicalDocuments/detachChanges.ts:40",
+      "calls": {
+        "count": 8,
+        "mean": 26,
+        "median": 26,
+        "min": 26,
+        "max": 26
+      },
+      "totalMs": {
+        "count": 8,
+        "mean": 0.1572624999935215,
+        "median": 0.14954999999463325,
+        "min": 0.1311000000569038,
+        "max": 0.22509999996691477
+      },
+      "selfMs": {
+        "count": 8,
+        "mean": 0.1572624999935215,
+        "median": 0.14954999999463325,
+        "min": 0.1311000000569038,
+        "max": 0.22509999996691477
+      }
+    },
+    {
+      "name": "Node.structuredClone:persistence-postgres/src/execution/journal/finiteEntry.ts:186",
+      "calls": {
+        "count": 8,
+        "mean": 2,
+        "median": 2,
+        "min": 2,
+        "max": 2
+      },
+      "totalMs": {
+        "count": 8,
+        "mean": 0.15897500000573928,
+        "median": 0.14895000000979053,
+        "min": 0.1312000000034459,
+        "max": 0.20190000000002328
+      },
+      "selfMs": {
+        "count": 8,
+        "mean": 0.15897500000573928,
+        "median": 0.14895000000979053,
+        "min": 0.1312000000034459,
+        "max": 0.20190000000002328
+      }
+    },
+    {
+      "name": "Node.structuredClone:persistence-postgres/src/commit/point/capture.ts:195",
+      "calls": {
+        "count": 8,
+        "mean": 11,
+        "median": 11,
+        "min": 11,
+        "max": 11
+      },
+      "totalMs": {
+        "count": 8,
+        "mean": 0.10643750000053842,
+        "median": 0.10424999997485429,
+        "min": 0.10140000001410954,
+        "max": 0.12030000000959262
+      },
+      "selfMs": {
+        "count": 8,
+        "mean": 0.10643750000053842,
+        "median": 0.10424999997485429,
+        "min": 0.10140000001410954,
+        "max": 0.12030000000959262
+      }
+    }
+  ],
+  "sampledCallersArtifact": "sampled-callers.json",
+  "initializationFailures": [
+    "synchronous-compiler-api-init-failure.log",
+    "focused-import-hook-init-failure.log"
+  ],
+  "cleanup": "Owned PostgreSQL data directory stopped with pg_ctl fast stop; status confirms no server and no listener on port56434. No other clients remained before stop.",
+  "limitations": [
+    "Counter-only controls are their own current-source cohort, not a causal change from the earlier110ms control.",
+    "Observed timers include hook overhead and preemption; nested owners overlap and are not removable CPU. The loop remainder includes uninstrumented application/driver work.",
+    "Request source stability does not establish host exclusivity or absence of external contention. Windows counters quantize around16ms. One local mixed graph is not full acceptance.",
+    "No production source, schema, guarantee, request limit or failure order was changed. Proposed corrections require discussion and independent behavior/performance gates."
+  ]
+}

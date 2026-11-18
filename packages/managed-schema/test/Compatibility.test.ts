@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { Result } from "effect";
+import { encodeDocumentId } from "flarex-protocol/document-id";
 import {
   decodeSchemaManifestAppSchemaV1,
   type SchemaManifestAppSchemaV1,
@@ -19,6 +21,7 @@ const optionalStringField = Object.freeze({
   fieldType: Object.freeze({ type: "string" } as const),
   optional: true,
 });
+const functionHandle = `function://${Result.getOrThrow(encodeDocumentId(1, new Uint8Array(16)))}#advisory`;
 
 describe("managed app-schema compatibility", () => {
   it("classifies equal schemas and additive metadata without inventing readiness", () => {
@@ -117,6 +120,29 @@ describe("managed app-schema compatibility", () => {
     });
   });
 
+  it("preserves bigint and exact float literal identity in compatibility proofs", () => {
+    const literal = (value: number | bigint): ValidatorJsonV1 => ({ type: "literal", value });
+    const float = (bits: bigint) => { const view = new DataView(new ArrayBuffer(8)); view.setBigUint64(0, bits); return view.getFloat64(0); };
+    expect(classifyValidatorCompatibility(literal(1n), { type: "bigint" }).disposition).toBe("universallyCompatible");
+    const incompatible: readonly (readonly [ValidatorJsonV1, ValidatorJsonV1])[] = [[literal(1n), { type: "number" }], [literal(1), { type: "bigint" }],
+      [literal(0), literal(-0)], [literal(float(0x7ff8_0000_0000_0001n)), literal(float(0x7ff8_0000_0000_0002n))]];
+    for (const [active, candidate] of incompatible)
+      expect(classifyValidatorCompatibility(active, candidate).disposition).toBe("requiresDataValidation");
+    const nan = literal(float(0x7ff8_0000_0000_0001n));
+    expect(classifyValidatorCompatibility(nan, nan).disposition).toBe("universallyCompatible");
+  });
+  it("uses Function value equivalence and CommitTs int64 equivalence without treating literal strings as Functions", () => {
+    const functionValidator: ValidatorJsonV1 = { type: "function", fnType: "query", args: { type: "id", tableName: "signatureOnly" } };
+    for (const [active, candidate] of [
+      [functionValidator, { type: "function", fnType: "mutation", returns: { type: "number" } }],
+      [functionValidator, { type: "string" }],
+      [{ type: "commitTs" }, { type: "bigint" }],
+      [{ type: "bigint" }, { type: "commitTs" }],
+      [{ type: "literal", value: 1n }, { type: "commitTs" }],
+    ] satisfies readonly (readonly [ValidatorJsonV1, ValidatorJsonV1])[])
+      expect(classifyValidatorCompatibility(active, candidate).disposition).toBe("universallyCompatible");
+    expect(classifyValidatorCompatibility({ type: "literal", value: functionHandle }, functionValidator).disposition).toBe("requiresDataValidation");
+  });
   it("proves only conservative widening rules", () => {
     for (const [active, candidate] of [
       [
@@ -172,6 +198,11 @@ describe("managed app-schema compatibility", () => {
       identity: "consistent",
       changes: [{ kind: "indexDefinitionChanged" }],
     });
+    const projected = index(1, 1, "by_name", ["name"]);
+    expect(classifyAppSchemaEvolution(active, manifest([recipeTable], [{
+      ...projected, spec: { kind: "developerOrdered", specVersion: 1, fields: ["name"], decimalFields: ["name"] },
+    }]))).toMatchObject({ disposition: "managedBuildAndValidation", physicalRequirements: "requiresBuildOrRetirement",
+      changes: [{ kind: "indexDefinitionChanged" }] });
 
     const tableIdentity = classifyAppSchemaEvolution(
       manifest([table(1, "recipes", objectValidator({ name: stringField }))]),
@@ -282,9 +313,11 @@ describe("managed app-schema compatibility", () => {
       { type: "null" },
       { type: "number" },
       { type: "bigint" },
+      { type: "commitTs" },
       { type: "boolean" },
       { type: "string" },
       { type: "bytes" },
+      { type: "function" },
       { type: "any" },
       { type: "id", tableName: "users" },
       { type: "literal", value: "draft" },
@@ -467,7 +500,10 @@ function witnessesFor(validator: ValidatorJsonV1): ReadonlyArray<unknown> {
     case "number":
       return [0, -0, Number.NaN, Number.POSITIVE_INFINITY];
     case "bigint":
+    case "commitTs":
       return [0n, -1n];
+    case "function":
+      return [functionHandle];
     case "boolean":
       return [false, true];
     case "string":

@@ -54,6 +54,10 @@ describe("invoke protocol schemas", () => {
       kind: "action",
     }))).rejects.toBeInstanceOf(InvokeProtocolValidationError);
 
+    await expect(Effect.runPromise(decodePublicInvokeRequestBodyEffect({
+      path: "users:get", kind: "infer", idempotencyKey: "caller-key",
+    }))).rejects.toBeInstanceOf(InvokeProtocolValidationError);
+
     await expect(Effect.runPromise(decodePublicInvokeRequestBodyEffect(null)))
       .rejects.toMatchObject({
         schema: "PublicInvokeRequestBody",

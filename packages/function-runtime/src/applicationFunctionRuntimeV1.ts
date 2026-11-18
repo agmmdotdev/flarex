@@ -1,4 +1,4 @@
-import { validateValidatorValueIssueV1 } from
+import { validateValidatorValueIssueV1, type ValidatorIdPolicyV1 } from
   "flarex-protocol/internal/validator-engine-core";
 import type { UserIdentity } from "flarex-protocol/auth";
 import type {
@@ -20,6 +20,7 @@ import type {
   FunctionRuntimeMutationContextV1,
   FunctionRuntimePointDatabaseWriterV1,
   FunctionRuntimePointReaderV1,
+  FunctionRuntimeQueryReaderV1,
   FunctionRuntimeRunQueryContextV1,
 } from "./functionApiCore";
 import {
@@ -75,6 +76,8 @@ export interface ApplicationFunctionTransactionRuntimeInputV1 {
   readonly callBudget: ApplicationFunctionRuntimeCallBudgetV1;
   readonly arguments: CanonicalFlarexRuntimeObjectV1;
   readonly tables: ReadonlyArray<ApplicationFunctionRuntimeTableV1>;
+  /** Trusted host representation policy; never sourced from user arguments. */
+  readonly idPolicy?: Extract<ValidatorIdPolicyV1, { readonly mode: "tableAware" }>;
 }
 
 export interface ApplicationFunctionActionRuntimeInputV1 {
@@ -96,18 +99,15 @@ export interface ApplicationFunctionRuntimeQueryDatabaseV1
       string,
       CanonicalFlarexRuntimeObjectV1
     >,
-    FunctionRuntimeIndexRangeReaderV1<
-      string,
-      unknown,
-      unknown,
-      CanonicalFlarexRuntimeObjectV1
-    >,
+    FunctionRuntimeQueryReaderV1<object>,
     FunctionRuntimeIncomingRelationReaderV1<
       string,
       string,
       string,
       string
-    > {}
+    > {
+  readonly normalizeId: (table: string, id: string) => string | null;
+}
 
 export interface ApplicationFunctionRuntimeMutationDatabaseV1
   extends FunctionRuntimePointDatabaseWriterV1<
@@ -118,12 +118,17 @@ export interface ApplicationFunctionRuntimeMutationDatabaseV1
       unknown,
       unknown
     >,
-    FunctionRuntimeIndexRangeReaderV1<
-      string,
-      unknown,
-      unknown,
-      CanonicalFlarexRuntimeObjectV1
-    > {}
+    FunctionRuntimeQueryReaderV1<object> {
+  readonly normalizeId: (table: string, id: string) => string | null;
+}
+
+export interface LegacyApplicationFunctionRuntimeQueryDatabaseV1
+  extends Omit<ApplicationFunctionRuntimeQueryDatabaseV1, "query" | "normalizeId">,
+    FunctionRuntimeIndexRangeReaderV1<string, unknown, unknown, CanonicalFlarexRuntimeObjectV1> {}
+
+export interface LegacyApplicationFunctionRuntimeMutationDatabaseV1
+  extends Omit<ApplicationFunctionRuntimeMutationDatabaseV1, "query" | "normalizeId">,
+    FunctionRuntimeIndexRangeReaderV1<string, unknown, unknown, CanonicalFlarexRuntimeObjectV1> {}
 
 export type ApplicationFunctionRuntimeRunQueryV1 = (
   reference: unknown,
@@ -148,6 +153,19 @@ export interface ApplicationFunctionRuntimeMutationContextV1
     ApplicationFunctionRuntimeRunMutationV1
   > {}
 
+export interface LegacyApplicationFunctionRuntimeQueryContextV1
+  extends FunctionRuntimeRunQueryContextV1<
+    LegacyApplicationFunctionRuntimeQueryDatabaseV1,
+    ApplicationFunctionRuntimeRunQueryV1
+  > {}
+
+export interface LegacyApplicationFunctionRuntimeMutationContextV1
+  extends FunctionRuntimeMutationContextV1<
+    LegacyApplicationFunctionRuntimeMutationDatabaseV1,
+    ApplicationFunctionRuntimeRunQueryV1,
+    ApplicationFunctionRuntimeRunMutationV1
+  > {}
+
 export interface ApplicationFunctionRuntimeBoundaryV1 {
   readonly close: () => void;
   readonly drain: () => Promise<void>;
@@ -157,11 +175,11 @@ export interface ApplicationFunctionRuntimeInvocationV1 {
   readonly boundary: ApplicationFunctionRuntimeBoundaryV1;
   readonly createQueryContext: (
     runQuery: ApplicationFunctionRuntimeRunQueryV1,
-  ) => ApplicationFunctionRuntimeQueryContextV1;
+  ) => ApplicationFunctionRuntimeQueryContextV1 | LegacyApplicationFunctionRuntimeQueryContextV1;
   readonly createMutationContext: (
     runQuery: ApplicationFunctionRuntimeRunQueryV1,
     runMutation: ApplicationFunctionRuntimeRunMutationV1,
-  ) => ApplicationFunctionRuntimeMutationContextV1;
+  ) => ApplicationFunctionRuntimeMutationContextV1 | LegacyApplicationFunctionRuntimeMutationContextV1;
   readonly recordCallFrame: (frame: ApplicationFunctionRuntimeFrameV1) => void;
   readonly isApplicationError: (cause: unknown) => boolean;
   readonly isCoreApplicationError: (cause: unknown) => boolean;
@@ -316,12 +334,12 @@ export function inspectApplicationFunctionRuntimeFailureV1(
 }
 
 type QueryHandler = (
-  context: ApplicationFunctionRuntimeQueryContextV1,
+  context: ApplicationFunctionRuntimeQueryContextV1 | LegacyApplicationFunctionRuntimeQueryContextV1,
   argumentsValue: CanonicalFlarexRuntimeObjectV1,
 ) => unknown | PromiseLike<unknown>;
 
 type MutationHandler = (
-  context: ApplicationFunctionRuntimeMutationContextV1,
+  context: ApplicationFunctionRuntimeMutationContextV1 | LegacyApplicationFunctionRuntimeMutationContextV1,
   argumentsValue: CanonicalFlarexRuntimeObjectV1,
 ) => unknown | PromiseLike<unknown>;
 
@@ -361,6 +379,7 @@ export async function executeApplicationFunctionTransactionRuntimeV1(
     input.arguments,
     "$arguments",
     tableIdsByName,
+    input.idPolicy,
   );
   if (argumentIssue !== undefined) {
     throw new ApplicationFunctionRuntimeContractV1Error(
@@ -412,7 +431,7 @@ export async function executeApplicationFunctionTransactionRuntimeV1(
   const queryContextFor = (
     parentOrdinal: number,
     ancestry: ReadonlyArray<number>,
-  ): ApplicationFunctionRuntimeQueryContextV1 =>
+  ): ApplicationFunctionRuntimeQueryContextV1 | LegacyApplicationFunctionRuntimeQueryContextV1 =>
     invocation.createQueryContext((reference, argumentsValue) =>
       runInternal(parentOrdinal, ancestry, "query", reference, argumentsValue)
     );
@@ -420,7 +439,7 @@ export async function executeApplicationFunctionTransactionRuntimeV1(
   const mutationContextFor = (
     parentOrdinal: number,
     ancestry: ReadonlyArray<number>,
-  ): ApplicationFunctionRuntimeMutationContextV1 =>
+  ): ApplicationFunctionRuntimeMutationContextV1 | LegacyApplicationFunctionRuntimeMutationContextV1 =>
     invocation.createMutationContext(
       (reference, argumentsValue) =>
         runInternal(parentOrdinal, ancestry, "query", reference, argumentsValue),
@@ -477,6 +496,7 @@ export async function executeApplicationFunctionTransactionRuntimeV1(
       capturedArguments.value,
       "$internal.arguments",
       tableIdsByName,
+      input.idPolicy,
     );
     if (childArgumentIssue !== undefined) {
       throw new ApplicationFunctionRuntimeApplicationV1Error(
@@ -493,7 +513,7 @@ export async function executeApplicationFunctionTransactionRuntimeV1(
     if (candidate === undefined) return terminal("internalTargetInvalid");
     let childHandler: QueryHandler | MutationHandler;
     try {
-      childHandler = exactHandler(candidate, callee.kind, "internal");
+      childHandler = exactHandler(candidate, callee.kind, callee.visibility);
     } catch (cause) {
       return terminal("internalTargetInvalid", cause);
     }
@@ -544,6 +564,7 @@ export async function executeApplicationFunctionTransactionRuntimeV1(
         normalizedChild.value,
         "$internal.result",
         tableIdsByName,
+        input.idPolicy,
       );
       if (childResultIssue !== undefined) {
         throw new ApplicationFunctionRuntimeApplicationV1Error(
@@ -672,6 +693,7 @@ export async function executeApplicationFunctionTransactionRuntimeV1(
       normalizedRoot.value,
       "$result",
       tableIdsByName,
+      input.idPolicy,
     );
     if (rootResultIssue !== undefined) {
       throw new ApplicationFunctionRuntimeUserCodeV1Error(rootResultIssue);
@@ -856,7 +878,6 @@ function requireInternalCatalog(
   for (const definition of definitions) {
     requireFunctionContract(definition);
     if (
-      definition.visibility !== "internal" ||
       (definition.kind !== "query" && definition.kind !== "mutation") ||
       catalog.has(definition.path) ||
       ordinals.has(definition.ordinal) ||
@@ -874,20 +895,15 @@ function requireInternalCatalog(
   }
   const matchingRoot = catalog.get(root.path);
   if (
-    root.visibility === "internal" &&
-    (matchingRoot === undefined || matchingRoot.ordinal !== root.ordinal ||
-      matchingRoot.kind !== root.kind)
+    (root.visibility === "internal" && matchingRoot === undefined) ||
+    (matchingRoot !== undefined && (matchingRoot.ordinal !== root.ordinal ||
+      matchingRoot.kind !== root.kind || matchingRoot.visibility !== root.visibility))
   ) {
     throw new ApplicationFunctionRuntimeContractV1Error(
       "functionMetadataInvalid",
     );
   }
-  if (root.visibility === "public" && matchingRoot !== undefined) {
-    throw new ApplicationFunctionRuntimeContractV1Error(
-      "functionMetadataInvalid",
-    );
-  }
-  if (root.visibility === "public" && ordinals.has(root.ordinal)) {
+  if (matchingRoot === undefined && ordinals.has(root.ordinal)) {
     throw new ApplicationFunctionRuntimeContractV1Error(
       "functionMetadataInvalid",
     );
@@ -995,7 +1011,9 @@ function validatorIssue(
   value: CanonicalFlarexRuntimeValueV1,
   path: string,
   tableIdsByName: ReadonlyMap<string, number>,
+  idPolicy?: Extract<ValidatorIdPolicyV1, { readonly mode: "tableAware" }>,
 ) {
+  if (idPolicy !== undefined) return validateValidatorValueIssueV1(validator, value, { path, idPolicy });
   return validatePointRuntimeValueIssueV1(
     validator,
     value,

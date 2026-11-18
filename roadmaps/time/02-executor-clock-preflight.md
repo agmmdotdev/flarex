@@ -119,7 +119,7 @@ their own gate with branch-level observation and persistence evidence.
 
 ## Implementation Receipt
 
-`packages/executor/src/health.ts` now owns one named Effect health operation.
+`packages/executor/src/runtime/health.ts` now owns one named Effect health operation.
 It checks persistence through one narrow typed Promise adapter, folds the
 expected persistence failure into the existing degraded response, then reads
 `Clock.currentTimeMillis` and preserves the existing ISO response shape.

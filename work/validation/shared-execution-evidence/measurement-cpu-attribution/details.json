@@ -1,0 +1,1336 @@
+{
+  "method": "20,000-draw stratified four-pair block bootstrap, seed 137; retained original samples, no outlier removal. Categories use disjoint conservatively admitted self samples. Percentages are not owner CPU milliseconds or savings.",
+  "control": {
+    "meanAddedCpu": 125.35,
+    "mean95IntervalMs": [
+      115.375,
+      135.45
+    ]
+  },
+  "observer": [
+    {
+      "run": "engine",
+      "onMinusOffMs": 6.625,
+      "interval95Ms": [
+        -9.875,
+        22.5625
+      ]
+    },
+    {
+      "run": "generators-a",
+      "onMinusOffMs": 4.0625,
+      "interval95Ms": [
+        -10.0625,
+        19.75
+      ]
+    },
+    {
+      "run": "generators-b",
+      "onMinusOffMs": 8.75,
+      "interval95Ms": [
+        -10.6875,
+        23.0625
+      ]
+    }
+  ],
+  "generatorObserver": {
+    "onMinusOffMs": 6.40625,
+    "interval95Ms": [
+      -5.875,
+      17.59375
+    ]
+  },
+  "cyclePartition": {
+    "observedRoots": 32,
+    "totalCycles": 20190495036,
+    "bodyCalls": 519744,
+    "engineCalls": 26432,
+    "bodyCallsPerRoot": 16242,
+    "engineCallsPerRoot": 826,
+    "categories": [
+      {
+        "name": "packages/persistence-postgres",
+        "value": 8260783844,
+        "percent": 40.91422141592309
+      },
+      {
+        "name": "effect-engine-excluding-observed-bodies",
+        "value": 6119605512,
+        "percent": 30.309338632305142
+      },
+      {
+        "name": "outside-observed-execution",
+        "value": 3870801659,
+        "percent": 19.171405416748296
+      },
+      {
+        "name": "packages/medusa-adapter",
+        "value": 1272886434,
+        "percent": 6.30438447264627
+      },
+      {
+        "name": "packages/flarex-protocol",
+        "value": 345849584,
+        "percent": 1.7129326615486358
+      },
+      {
+        "name": "packages/executor",
+        "value": 129906417,
+        "percent": 0.6434038232761239
+      },
+      {
+        "name": "packages/payload-adapter",
+        "value": 95419702,
+        "percent": 0.47259713954444915
+      },
+      {
+        "name": "packages/medusa-workflows-sdk",
+        "value": 92222270,
+        "percent": 0.4567608165900148
+      },
+      {
+        "name": "packages/analysis",
+        "value": 3019614,
+        "percent": 0.014955621417978985
+      }
+    ],
+    "sites": [
+      {
+        "name": "effect-engine-excluding-observed-bodies",
+        "value": 6119605512,
+        "percent": 30.309338632305142
+      },
+      {
+        "name": "outside-observed-execution",
+        "value": 3870801659,
+        "percent": 19.171405416748296
+      },
+      {
+        "name": "packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:599:consumeAccessMetadataResult",
+        "value": 346463669,
+        "percent": 1.7159741174361962
+      },
+      {
+        "name": "packages/persistence-postgres/src/storage/unique/appUniqueConstraintCommitV1.ts:176:lowerCanonicalAppUniqueConstraintV1Result",
+        "value": 257421043,
+        "percent": 1.2749615229394518
+      },
+      {
+        "name": "packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:1610:readRelationalSelection",
+        "value": 236695017,
+        "percent": 1.1723091314896872
+      },
+      {
+        "name": "packages/persistence-postgres/src/frameworks/commerceTransaction/borrowedWorkflowAttempt.ts:229:context",
+        "value": 187331684,
+        "percent": 0.92782115379531
+      },
+      {
+        "name": "packages/persistence-postgres/src/storage/documents/logicalDocuments/relationalQuery.ts:157:visit",
+        "value": 181120321,
+        "percent": 0.897057356330587
+      },
+      {
+        "name": "packages/persistence-postgres/src/execution/journal/finiteRoot.ts:899:freezeFiniteRootEffect",
+        "value": 179455171,
+        "percent": 0.888810158839733
+      },
+      {
+        "name": "packages/persistence-postgres/src/storage/materialization/materialization.ts:713:materializeAcceptedApplicationPublicationRows",
+        "value": 177088728,
+        "percent": 0.8770895794493783
+      },
+      {
+        "name": "packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:1206:historicalUniqueSelection",
+        "value": 174779604,
+        "percent": 0.8656528910676284
+      },
+      {
+        "name": "packages/persistence-postgres/src/storage/indexes/appIndexEntries.ts:2085:captureRangeRowResult",
+        "value": 172195361,
+        "percent": 0.8528535862690474
+      },
+      {
+        "name": "packages/persistence-postgres/src/execution/finiteStorageCapture.ts:360:run",
+        "value": 160023998,
+        "percent": 0.7925709484322918
+      },
+      {
+        "name": "packages/persistence-postgres/src/storage/indexes/appIndexEntries.ts:1300:captureAppendInputResult",
+        "value": 154307651,
+        "percent": 0.7642588788678376
+      },
+      {
+        "name": "packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:1477:withAccessCandidates",
+        "value": 138490437,
+        "percent": 0.6859189769892673
+      },
+      {
+        "name": "packages/persistence-postgres/src/storage/documents/logicalDocuments/relationalQuery.ts:117:prepareLogicalRelationalRead",
+        "value": 130012673,
+        "percent": 0.6439300907094411
+      },
+      {
+        "name": "packages/persistence-postgres/src/storage/indexes/appIndexEntries.ts:711:prepareAppIndexKeyTransitionAcceptanceInTransactionEffect",
+        "value": 121088843,
+        "percent": 0.5997319173407909
+      },
+      {
+        "name": "packages/persistence-postgres/src/storage/materialization/settlementPlan.ts:81:prepareDeveloperIndexKeyPairsResult",
+        "value": 116591148,
+        "percent": 0.5774556185577222
+      },
+      {
+        "name": "packages/persistence-postgres/src/storage/indexes/appIndexEntries.ts:1509:captureIndexReadDefinitionResult",
+        "value": 100785309,
+        "percent": 0.49917205506996265
+      },
+      {
+        "name": "packages/persistence-postgres/src/storage/indexes/appIndexEntries.ts:1613:decodeRangeReadInputResult",
+        "value": 98634643,
+        "percent": 0.4885201815217147
+      },
+      {
+        "name": "packages/persistence-postgres/src/execution/preparation/boundedRequestLifetime.ts:153:enter",
+        "value": 97873499,
+        "percent": 0.48475036805927674
+      },
+      {
+        "name": "packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:1724:readRelationalSelection",
+        "value": 95122068,
+        "percent": 0.4711230102600046
+      },
+      {
+        "name": "packages/persistence-postgres/src/frameworks/commerceTransaction/borrowedWorkflowAttempt.ts:169:invoke",
+        "value": 93689754,
+        "percent": 0.4640290088625839
+      },
+      {
+        "name": "packages/persistence-postgres/src/execution/finiteStorageCapture.ts:467:accepted",
+        "value": 93059720,
+        "percent": 0.460908560360075
+      },
+      {
+        "name": "packages/persistence-postgres/src/database/physicalSession/postgres.ts:179:runReadOperation",
+        "value": 90796822,
+        "percent": 0.4497008212929287
+      },
+      {
+        "name": "packages/medusa-adapter/src/workflow-value.ts:9:captureWorkflowValue",
+        "value": 86547162,
+        "percent": 0.42865299659906764
+      },
+      {
+        "name": "packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:771:compileRelationalRead",
+        "value": 85939525,
+        "percent": 0.4256434765307554
+      },
+      {
+        "name": "packages/persistence-postgres/src/execution/journal/participantOperations.ts:1548:runAdmittedOperationEffect",
+        "value": 79933285,
+        "percent": 0.3958956175045613
+      },
+      {
+        "name": "packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:850:projectedOutput",
+        "value": 78443052,
+        "percent": 0.38851475340319636
+      },
+      {
+        "name": "packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:1023:readFiniteIndexPage",
+        "value": 75250127,
+        "percent": 0.37270075283358695
+      },
+      {
+        "name": "packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:1501:projected",
+        "value": 75136638,
+        "percent": 0.37213866161295245
+      },
+      {
+        "name": "packages/persistence-postgres/src/execution/preparation/boundedRequestLifetime.ts:173:operation",
+        "value": 74022694,
+        "percent": 0.36662149129090826
+      },
+      {
+        "name": "packages/persistence-postgres/src/execution/finiteMetadataDependencies.ts:769:prepareConsumedFiniteMetadataComparison",
+        "value": 70950342,
+        "percent": 0.3514046677582413
+      },
+      {
+        "name": "packages/persistence-postgres/src/storage/indexes/appIndexEntries.ts:814:decodeMembershipPositionsEffect",
+        "value": 70842202,
+        "percent": 0.35086906920155814
+      },
+      {
+        "name": "packages/medusa-adapter/src/query/projection.ts:118:projectRows",
+        "value": 66318310,
+        "percent": 0.32846302124714283
+      },
+      {
+        "name": "packages/persistence-postgres/src/execution/preparation/boundedRequestLifetime.ts:115:check",
+        "value": 60671288,
+        "percent": 0.3004943063150361
+      },
+      {
+        "name": "packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:2190:prepareActivity",
+        "value": 59965087,
+        "percent": 0.29699661594765864
+      },
+      {
+        "name": "packages/persistence-postgres/src/storage/documents/logicalDocuments/relationalRows.ts:196:lowerLogicalCanonicalUniqueKey",
+        "value": 59535670,
+        "percent": 0.29486978845167927
+      },
+      {
+        "name": "packages/medusa-adapter/src/query/read.ts:35:executeRead",
+        "value": 58471356,
+        "percent": 0.28959842686246456
+      },
+      {
+        "name": "packages/medusa-adapter/src/product-related.ts:25:findProductRelated",
+        "value": 58329564,
+        "percent": 0.2888961558198419
+      },
+      {
+        "name": "packages/medusa-workflows-sdk/src/runtime.ts:24:executeFrame",
+        "value": 57704450,
+        "percent": 0.2858000752191166
+      },
+      {
+        "name": "packages/medusa-adapter/src/commerce-relations.ts:84:populateRelationTree",
+        "value": 56862390,
+        "percent": 0.28162949892319816
+      },
+      {
+        "name": "packages/persistence-postgres/src/storage/documents/logicalDocuments/relationalRows.ts:334:captureLogicalRelationalCanonicalRow",
+        "value": 56802463,
+        "percent": 0.2813326909455178
+      },
+      {
+        "name": "packages/persistence-postgres/src/execution/journal/codecs.ts:427:canonicalizeStoredRequestEffect",
+        "value": 56242584,
+        "percent": 0.278559707920576
+      },
+      {
+        "name": "packages/flarex-protocol/src/admitted-framework-operation-v1.ts:67:encodeAdmittedFrameworkOperationV1Result",
+        "value": 55759750,
+        "percent": 0.2761683153413495
+      },
+      {
+        "name": "packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:2289:close",
+        "value": 55087649,
+        "percent": 0.27283951632576503
+      },
+      {
+        "name": "packages/persistence-postgres/src/frameworks/atomicCommerce/events.ts:274:retain",
+        "value": 53765776,
+        "percent": 0.2662925099366543
+      },
+      {
+        "name": "packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:1038:readFiniteIndexRows",
+        "value": 52962434,
+        "percent": 0.2623136971409917
+      },
+      {
+        "name": "packages/persistence-postgres/src/storage/documents/logicalDocuments/relationalRows.ts:354:captureLogicalRelationalActivityJson",
+        "value": 52714375,
+        "percent": 0.2610851041839705
+      },
+      {
+        "name": "packages/persistence-postgres/src/installation/frameworkSchema/privateCanonicalValue.ts:70:capturePrivateCanonicalValue",
+        "value": 52495491,
+        "percent": 0.2600010099128309
+      },
+      {
+        "name": "packages/medusa-adapter/src/product-query-profile.ts:53:decodeProductQuery",
+        "value": 52097997,
+        "percent": 0.2580322914673879
+      },
+      {
+        "name": "packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:1241:prepareUniqueStorageSelection",
+        "value": 52062750,
+        "percent": 0.25785771922467093
+      },
+      {
+        "name": "packages/persistence-postgres/src/execution/finiteMetadataDependencies.ts:667:matchesFiniteMetadataDependencyObservation",
+        "value": 51476319,
+        "percent": 0.2549532287753066
+      },
+      {
+        "name": "packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:1258:read",
+        "value": 51112566,
+        "percent": 0.2531516236172784
+      },
+      {
+        "name": "packages/persistence-postgres/src/commit/point/preparation.ts:489:prepareFiniteCommitCommand",
+        "value": 50991591,
+        "percent": 0.2525524555444585
+      },
+      {
+        "name": "packages/persistence-postgres/src/storage/unique/appUniqueKeys.ts:1380:{ identity, scope, canonical }",
+        "value": 50098337,
+        "percent": 0.24812832429652568
+      },
+      {
+        "name": "packages/persistence-postgres/src/commit/point/finitePublication.ts:339:runFinitePointCommitPublication",
+        "value": 49890852,
+        "percent": 0.24710068728401038
+      },
+      {
+        "name": "packages/persistence-postgres/src/installation/frameworkSchema/privateCanonicalValue.ts:125:verifyStoredPrivateCanonicalValue",
+        "value": 48934620,
+        "percent": 0.24236463698759605
+      },
+      {
+        "name": "packages/medusa-adapter/src/product-repository.ts:67:repository",
+        "value": 47719737,
+        "percent": 0.23634753340576786
+      },
+      {
+        "name": "packages/medusa-adapter/src/write/replace.ts:26:replaceGraphRows",
+        "value": 47469042,
+        "percent": 0.23510588480055533
+      },
+      {
+        "name": "packages/persistence-postgres/src/storage/indexes/appIndexEntries.ts:1745:prepareAppIndexSnapshotReadResult",
+        "value": 47420836,
+        "percent": 0.23486712889133146
+      }
+    ]
+  },
+  "profiles": {
+    "inside": 9143,
+    "boundary": 1791,
+    "outside": 67,
+    "nonIdle": 5850,
+    "idle": 3293,
+    "nativeInside": 167,
+    "nativeBoundary": 1596,
+    "nativeOutside": 69,
+    "categories": [
+      {
+        "name": "persistence",
+        "value": 1309,
+        "percent": 22.376068376068375
+      },
+      {
+        "name": "effect-engine",
+        "value": 1161,
+        "percent": 19.846153846153847
+      },
+      {
+        "name": "protocol",
+        "value": 655,
+        "percent": 11.196581196581196
+      },
+      {
+        "name": "effect-other",
+        "value": 471,
+        "percent": 8.051282051282051
+      },
+      {
+        "name": "unknown",
+        "value": 410,
+        "percent": 7.0085470085470085
+      },
+      {
+        "name": "node",
+        "value": 408,
+        "percent": 6.9743589743589745
+      },
+      {
+        "name": "effect-schema",
+        "value": 366,
+        "percent": 6.256410256410256
+      },
+      {
+        "name": "drizzle",
+        "value": 267,
+        "percent": 4.564102564102564
+      },
+      {
+        "name": "medusa",
+        "value": 228,
+        "percent": 3.8974358974358974
+      },
+      {
+        "name": "gc",
+        "value": 217,
+        "percent": 3.7094017094017095
+      },
+      {
+        "name": "postgres-driver",
+        "value": 212,
+        "percent": 3.623931623931624
+      },
+      {
+        "name": "other-authored",
+        "value": 100,
+        "percent": 1.7094017094017093
+      },
+      {
+        "name": "payload",
+        "value": 41,
+        "percent": 0.7008547008547008
+      },
+      {
+        "name": "measurement",
+        "value": 5,
+        "percent": 0.08547008547008547
+      }
+    ],
+    "frames": [
+      {
+        "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js:925 makePrimitive",
+        "value": 294,
+        "percent": 5.0256410256410255
+      },
+      {
+        "name": ":0 [redacted]",
+        "value": 261,
+        "percent": 4.461538461538462
+      },
+      {
+        "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js:854 ",
+        "value": 260,
+        "percent": 4.444444444444445
+      },
+      {
+        "name": ":0 (garbage collector)",
+        "value": 217,
+        "percent": 3.7094017094017095
+      },
+      {
+        "name": "./packages/persistence-postgres/src/values/privateJsonData.ts:67 visit",
+        "value": 179,
+        "percent": 3.0598290598290596
+      },
+      {
+        "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/Result.js:1062 gen",
+        "value": 143,
+        "percent": 2.4444444444444446
+      },
+      {
+        "name": "node:internal/worker/js_transferable:112 structuredClone",
+        "value": 119,
+        "percent": 2.034188034188034
+      },
+      {
+        "name": "./node_modules/.pnpm/drizzle-orm@0.45.2_@cloudfl_eb068ed2e871e66fe62f1ce4763351dc/node_modules/drizzle-orm/entity.js:3 is",
+        "value": 118,
+        "percent": 2.017094017094017
+      },
+      {
+        "name": ":0 (program)",
+        "value": 116,
+        "percent": 1.982905982905983
+      },
+      {
+        "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js:442 runLoop",
+        "value": 69,
+        "percent": 1.1794871794871795
+      },
+      {
+        "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/SchemaAST.js:1680 ",
+        "value": 67,
+        "percent": 1.1452991452991452
+      },
+      {
+        "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/SchemaParser.js:900 parseLocal",
+        "value": 64,
+        "percent": 1.0940170940170941
+      },
+      {
+        "name": "./packages/flarex-protocol/src/json.ts:94 encodeCanonicalJson",
+        "value": 49,
+        "percent": 0.8376068376068376
+      },
+      {
+        "name": "./node_modules/.pnpm/pg@8.22.0/node_modules/pg/lib/result.js:82 addFields",
+        "value": 47,
+        "percent": 0.8034188034188035
+      },
+      {
+        "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js:824 fn",
+        "value": 44,
+        "percent": 0.7521367521367521
+      },
+      {
+        "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js:1060 effectIsExit",
+        "value": 42,
+        "percent": 0.717948717948718
+      },
+      {
+        "name": "./packages/flarex-protocol/src/json.ts:332 checkedCanonicalByteAdd",
+        "value": 40,
+        "percent": 0.6837606837606838
+      },
+      {
+        "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/core.js:295 makeExit",
+        "value": 40,
+        "percent": 0.6837606837606838
+      },
+      {
+        "name": "node:internal/encoding:355 encode",
+        "value": 32,
+        "percent": 0.5470085470085471
+      },
+      {
+        "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js:890 fromIteratorEagerUnsafe",
+        "value": 31,
+        "percent": 0.5299145299145299
+      },
+      {
+        "name": "./packages/persistence-postgres/src/execution/finiteMetadataDependencies.ts:704 ",
+        "value": 31,
+        "percent": 0.5299145299145299
+      },
+      {
+        "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js:681 makePrimitive",
+        "value": 30,
+        "percent": 0.5128205128205128
+      },
+      {
+        "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/record.js:2 assignProperty",
+        "value": 30,
+        "percent": 0.5128205128205128
+      },
+      {
+        "name": "./packages/utils/src/bytes.ts:58 encodeBytesToLowercaseHex",
+        "value": 29,
+        "percent": 0.49572649572649574
+      },
+      {
+        "name": "./packages/flarex-protocol/src/json.ts:145 measureCanonicalJsonValue",
+        "value": 29,
+        "percent": 0.49572649572649574
+      },
+      {
+        "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js:487 getCont",
+        "value": 29,
+        "percent": 0.49572649572649574
+      },
+      {
+        "name": "./packages/flarex-protocol/src/commit-protocol.ts:153 logicalMetadataDependencyIdentity",
+        "value": 28,
+        "percent": 0.47863247863247865
+      },
+      {
+        "name": "./node_modules/.pnpm/pg@8.22.0/node_modules/pg/lib/connection-parameters.js:9 val",
+        "value": 28,
+        "percent": 0.47863247863247865
+      },
+      {
+        "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js:839 fn",
+        "value": 28,
+        "percent": 0.47863247863247865
+      },
+      {
+        "name": "./packages/flarex-protocol/src/ordered-index.ts:400 decodeOrderedIndexComponentsV1",
+        "value": 27,
+        "percent": 0.46153846153846156
+      },
+      {
+        "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js:514 setContext",
+        "value": 27,
+        "percent": 0.46153846153846156
+      },
+      {
+        "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/SchemaParser.js:799 ",
+        "value": 27,
+        "percent": 0.46153846153846156
+      },
+      {
+        "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/core.js:253 ",
+        "value": 26,
+        "percent": 0.4444444444444444
+      },
+      {
+        "name": "./packages/flarex-protocol/src/value.ts:324 ",
+        "value": 23,
+        "percent": 0.39316239316239315
+      },
+      {
+        "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/SchemaAST.js:1886 onItem",
+        "value": 21,
+        "percent": 0.358974358974359
+      },
+      {
+        "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js:374 getRef",
+        "value": 20,
+        "percent": 0.3418803418803419
+      },
+      {
+        "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/SchemaAST.js:1796 ",
+        "value": 19,
+        "percent": 0.3247863247863248
+      },
+      {
+        "name": "./packages/flarex-protocol/src/json.ts:342 isJson",
+        "value": 19,
+        "percent": 0.3247863247863248
+      },
+      {
+        "name": "./packages/persistence-postgres/src/execution/finiteStorageCapture.ts:500 ",
+        "value": 19,
+        "percent": 0.3247863247863248
+      },
+      {
+        "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js:757 ",
+        "value": 19,
+        "percent": 0.3247863247863248
+      },
+      {
+        "name": "./node_modules/.pnpm/drizzle-orm@0.45.2_@cloudfl_eb068ed2e871e66fe62f1ce4763351dc/node_modules/drizzle-orm/utils.js:10 ",
+        "value": 19,
+        "percent": 0.3247863247863248
+      },
+      {
+        "name": "./node_modules/.pnpm/pg@8.22.0/node_modules/pg/lib/connection-parameters.js:53 ConnectionParameters",
+        "value": 18,
+        "percent": 0.3076923076923077
+      },
+      {
+        "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/Function.js:80 ",
+        "value": 18,
+        "percent": 0.3076923076923077
+      },
+      {
+        "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js:414 evaluate",
+        "value": 18,
+        "percent": 0.3076923076923077
+      },
+      {
+        "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/Context.js:148 lookup",
+        "value": 18,
+        "percent": 0.3076923076923077
+      },
+      {
+        "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/core.js:356 Base",
+        "value": 17,
+        "percent": 0.2905982905982906
+      },
+      {
+        "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/Schema.js:894 ",
+        "value": 17,
+        "percent": 0.2905982905982906
+      },
+      {
+        "name": "./node_modules/.pnpm/drizzle-orm@0.45.2_@cloudfl_eb068ed2e871e66fe62f1ce4763351dc/node_modules/drizzle-orm/sql/sql.js:70 buildQueryFromSourceParams",
+        "value": 17,
+        "percent": 0.2905982905982906
+      },
+      {
+        "name": "node:internal/per_context/domexception:72 DOMException",
+        "value": 16,
+        "percent": 0.27350427350427353
+      },
+      {
+        "name": "./node_modules/.pnpm/drizzle-orm@0.45.2_@cloudfl_eb068ed2e871e66fe62f1ce4763351dc/node_modules/drizzle-orm/sql/sql.js:83 ",
+        "value": 16,
+        "percent": 0.27350427350427353
+      },
+      {
+        "name": "./packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:1164 ",
+        "value": 16,
+        "percent": 0.27350427350427353
+      },
+      {
+        "name": "./node_modules/.pnpm/drizzle-orm@0.45.2_@cloudfl_eb068ed2e871e66fe62f1ce4763351dc/node_modules/drizzle-orm/sql/sql.js:362 ",
+        "value": 15,
+        "percent": 0.2564102564102564
+      },
+      {
+        "name": "./packages/medusa-utils/dist/modules-sdk/medusa-internal-service.js:58 AbstractService_",
+        "value": 15,
+        "percent": 0.2564102564102564
+      },
+      {
+        "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/SchemaAST.js:2591 makeFilter.expected",
+        "value": 15,
+        "percent": 0.2564102564102564
+      },
+      {
+        "name": "./packages/flarex-protocol/src/value.ts:687 defineFrozenProperty",
+        "value": 15,
+        "percent": 0.2564102564102564
+      },
+      {
+        "name": "./packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:2289 ",
+        "value": 15,
+        "percent": 0.2564102564102564
+      },
+      {
+        "name": "./node_modules/.pnpm/pg-connection-string@2.14.0/node_modules/pg-connection-string/index.js:8 parse",
+        "value": 15,
+        "percent": 0.2564102564102564
+      },
+      {
+        "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js:2284 ",
+        "value": 14,
+        "percent": 0.23931623931623933
+      },
+      {
+        "name": "./packages/persistence-postgres/src/execution/preparation/boundedRequestLifetime.ts:124 ",
+        "value": 14,
+        "percent": 0.23931623931623933
+      },
+      {
+        "name": "./packages/flarex-protocol/src/value.ts:76 retainCanonicalFlarexValueOwnershipV1",
+        "value": 14,
+        "percent": 0.23931623931623933
+      },
+      {
+        "name": "./node_modules/.pnpm/pg@8.22.0/node_modules/pg/lib/utils.js:44 prepareValue",
+        "value": 14,
+        "percent": 0.23931623931623933
+      },
+      {
+        "name": "node:internal/crypto/util:533 normalizeAlgorithm",
+        "value": 13,
+        "percent": 0.2222222222222222
+      },
+      {
+        "name": "./packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:1778 ",
+        "value": 13,
+        "percent": 0.2222222222222222
+      },
+      {
+        "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/Result.js:190 try_",
+        "value": 13,
+        "percent": 0.2222222222222222
+      },
+      {
+        "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js:825 ",
+        "value": 13,
+        "percent": 0.2222222222222222
+      },
+      {
+        "name": "./packages/flarex-protocol/src/ordered-index.ts:346 orderedIndexKeyBytesHexV1ToBytes",
+        "value": 13,
+        "percent": 0.2222222222222222
+      },
+      {
+        "name": "./packages/persistence-postgres/src/storage/documents/logicalDocuments/rootEvaluator.ts:354 consumeLogicalDocumentRootMetadataDependency",
+        "value": 13,
+        "percent": 0.2222222222222222
+      },
+      {
+        "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js:855 ",
+        "value": 12,
+        "percent": 0.20512820512820512
+      },
+      {
+        "name": "./packages/persistence-postgres/src/execution/finiteStorageCaptureProjection.ts:64 ",
+        "value": 12,
+        "percent": 0.20512820512820512
+      },
+      {
+        "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/SchemaAST.js:2119 index",
+        "value": 12,
+        "percent": 0.20512820512820512
+      },
+      {
+        "name": "./packages/persistence-postgres/src/storage/indexes/appDeveloperIndexCommitV1.ts:73 lowerAppOrderedIndexPhysicalKeyV1",
+        "value": 12,
+        "percent": 0.20512820512820512
+      },
+      {
+        "name": "./packages/persistence-postgres/src/database/physicalSession/postgres.ts:41 ",
+        "value": 12,
+        "percent": 0.20512820512820512
+      },
+      {
+        "name": "./packages/flarex-protocol/src/ordered-index.ts:364 orderedIndexBoundHexV1ToBytes",
+        "value": 12,
+        "percent": 0.20512820512820512
+      },
+      {
+        "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/Result.js:515 ",
+        "value": 12,
+        "percent": 0.20512820512820512
+      },
+      {
+        "name": "node:internal/perf/observe:530 observerCallback",
+        "value": 12,
+        "percent": 0.20512820512820512
+      },
+      {
+        "name": "./packages/flarex-protocol/src/value-runtime-core.ts:236 ",
+        "value": 12,
+        "percent": 0.20512820512820512
+      },
+      {
+        "name": "./packages/flarex-protocol/src/ordered-index.ts:367 encodeOrderedIndexComponentsV1",
+        "value": 11,
+        "percent": 0.18803418803418803
+      },
+      {
+        "name": "node:events:456 emit",
+        "value": 11,
+        "percent": 0.18803418803418803
+      },
+      {
+        "name": "./packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:187 ",
+        "value": 11,
+        "percent": 0.18803418803418803
+      },
+      {
+        "name": "./packages/persistence-postgres/src/storage/documents/logicalDocuments/rootEvaluator.ts:337 recordDecodedMetadataDependency",
+        "value": 11,
+        "percent": 0.18803418803418803
+      },
+      {
+        "name": "./packages/persistence-postgres/src/storage/documents/logicalDocuments/relationalQuery.ts:119 ",
+        "value": 11,
+        "percent": 0.18803418803418803
+      },
+      {
+        "name": "node:internal/util:754 setOwnProperty",
+        "value": 11,
+        "percent": 0.18803418803418803
+      },
+      {
+        "name": "./packages/persistence-postgres/src/commit/point/finitePublication.ts:286 ",
+        "value": 11,
+        "percent": 0.18803418803418803
+      },
+      {
+        "name": "./packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:1230 ",
+        "value": 11,
+        "percent": 0.18803418803418803
+      },
+      {
+        "name": "./packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:504 ",
+        "value": 11,
+        "percent": 0.18803418803418803
+      },
+      {
+        "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js:772 makePrimitive",
+        "value": 10,
+        "percent": 0.17094017094017094
+      },
+      {
+        "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/Result.js:551 ",
+        "value": 10,
+        "percent": 0.17094017094017094
+      },
+      {
+        "name": "./packages/flarex-protocol/src/value.ts:233 canonicalizeNormalizedValue",
+        "value": 10,
+        "percent": 0.17094017094017094
+      },
+      {
+        "name": "node:internal/crypto/util:651 onDone",
+        "value": 10,
+        "percent": 0.17094017094017094
+      },
+      {
+        "name": "./packages/persistence-postgres/src/execution/finiteStorageCapture.ts:585 ",
+        "value": 10,
+        "percent": 0.17094017094017094
+      },
+      {
+        "name": "./packages/flarex-protocol/src/json.ts:141 measureCanonicalJsonUtf8Bytes",
+        "value": 10,
+        "percent": 0.17094017094017094
+      },
+      {
+        "name": "./packages/flarex-protocol/src/value-runtime-core.ts:408 defineFrozenProperty",
+        "value": 10,
+        "percent": 0.17094017094017094
+      },
+      {
+        "name": "./node_modules/.pnpm/pg@8.22.0/node_modules/pg/lib/client.js:51 Client",
+        "value": 10,
+        "percent": 0.17094017094017094
+      },
+      {
+        "name": "./packages/persistence-postgres/src/values/privateJsonData.ts:50 capture",
+        "value": 10,
+        "percent": 0.17094017094017094
+      },
+      {
+        "name": "./packages/persistence-postgres/src/storage/unique/appUniqueKeyContract.ts:37 try",
+        "value": 10,
+        "percent": 0.17094017094017094
+      },
+      {
+        "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js:939 makePrimitive",
+        "value": 10,
+        "percent": 0.17094017094017094
+      },
+      {
+        "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js:672 makePrimitive",
+        "value": 10,
+        "percent": 0.17094017094017094
+      },
+      {
+        "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/SchemaAST.js:1330 ",
+        "value": 10,
+        "percent": 0.17094017094017094
+      },
+      {
+        "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/core.js:150 annotate",
+        "value": 9,
+        "percent": 0.15384615384615385
+      },
+      {
+        "name": "./packages/flarex-protocol/src/app-document-id.ts:42 decodeAppDocumentIdPartsV1Result",
+        "value": 9,
+        "percent": 0.15384615384615385
+      }
+    ],
+    "specialCallers": [
+      {
+        "name": "./packages/persistence-postgres/src/values/privateJsonData.ts:67 visit <- ./packages/persistence-postgres/src/values/privateJsonData.ts:67 visit <- ./packages/persistence-postgres/src/values/privateJsonData.ts:67 visit <- ./packages/persistence-postgres/src/values/privateJsonData.ts:67 visit",
+        "value": 30,
+        "percent": 0.5128205128205128
+      },
+      {
+        "name": "node:internal/worker/js_transferable:112 structuredClone <- ./packages/persistence-postgres/src/storage/documents/logicalDocuments/detachChanges.ts:7 detachLogicalDocumentRootChanges <- ./packages/persistence-postgres/src/storage/documents/logicalDocuments/rootEvaluator.ts:304  <- ./packages/persistence-postgres/src/storage/documents/logicalDocuments/rootEvaluator.ts:298 takeLogicalDocumentRootSnapshot",
+        "value": 21,
+        "percent": 0.358974358974359
+      },
+      {
+        "name": "./packages/persistence-postgres/src/values/privateJsonData.ts:67 visit <- ./packages/persistence-postgres/src/values/privateJsonData.ts:67 visit <- ./packages/persistence-postgres/src/values/privateJsonData.ts:50 capture <- ./packages/persistence-postgres/src/values/privateJsonData.ts:35 useCapturedPrivateJsonData",
+        "value": 20,
+        "percent": 0.3418803418803419
+      },
+      {
+        "name": "./packages/persistence-postgres/src/values/privateJsonData.ts:67 visit <- ./packages/persistence-postgres/src/values/privateJsonData.ts:67 visit <- ./packages/persistence-postgres/src/values/privateJsonData.ts:67 visit <- ./packages/persistence-postgres/src/values/privateJsonData.ts:50 capture",
+        "value": 20,
+        "percent": 0.3418803418803419
+      },
+      {
+        "name": "node:internal/worker/js_transferable:112 structuredClone <- ./packages/medusa-adapter/src/workflow-value.ts:12 ",
+        "value": 13,
+        "percent": 0.2222222222222222
+      },
+      {
+        "name": "./packages/persistence-postgres/src/values/privateJsonData.ts:67 visit <- ./packages/persistence-postgres/src/values/privateJsonData.ts:50 capture <- ./packages/persistence-postgres/src/values/privateJsonData.ts:35 useCapturedPrivateJsonData <- ./packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:757 ",
+        "value": 13,
+        "percent": 0.2222222222222222
+      },
+      {
+        "name": "node:internal/worker/js_transferable:112 structuredClone <- ./packages/persistence-postgres/src/execution/journal/participantOperations.ts:708 ",
+        "value": 11,
+        "percent": 0.18803418803418803
+      },
+      {
+        "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js:854  <- ./packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:925  <- ./packages/persistence-postgres/src/database/physicalSession/postgres.ts:519 finish <- ./packages/persistence-postgres/src/database/physicalSession/postgres.ts:532 ",
+        "value": 10,
+        "percent": 0.17094017094017094
+      },
+      {
+        "name": "node:internal/worker/js_transferable:112 structuredClone <- ./packages/persistence-postgres/src/storage/documents/logicalDocuments/detachChanges.ts:7 detachLogicalDocumentRootChanges <- ./packages/persistence-postgres/src/storage/documents/logicalDocuments/detachChanges.ts:90 detachLogicalDocumentChanges <- ./packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:2397 ",
+        "value": 9,
+        "percent": 0.15384615384615385
+      },
+      {
+        "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js:854  <- ./packages/persistence-postgres/src/storage/unique/appUniqueKeys.ts:871 ",
+        "value": 8,
+        "percent": 0.13675213675213677
+      },
+      {
+        "name": "./packages/persistence-postgres/src/values/privateJsonData.ts:67 visit <- ./packages/persistence-postgres/src/values/privateJsonData.ts:67 visit <- ./packages/persistence-postgres/src/values/privateJsonData.ts:50 capture <- ./packages/medusa-adapter/src/commerce-input.ts:8 captureCommerceInput",
+        "value": 8,
+        "percent": 0.13675213675213677
+      },
+      {
+        "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js:854  <- no authored caller",
+        "value": 8,
+        "percent": 0.13675213675213677
+      },
+      {
+        "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js:854  <- ./packages/medusa-adapter/src/commerce-relations.ts:81 ",
+        "value": 8,
+        "percent": 0.13675213675213677
+      },
+      {
+        "name": "./packages/persistence-postgres/src/values/privateJsonData.ts:67 visit <- ./packages/persistence-postgres/src/values/privateJsonData.ts:50 capture <- ./packages/persistence-postgres/src/values/privateJsonData.ts:35 useCapturedPrivateJsonData <- ./packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:1654 ",
+        "value": 7,
+        "percent": 0.11965811965811966
+      },
+      {
+        "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js:854  <- ./packages/persistence-postgres/src/execution/journal/participantOperations.ts:708 ",
+        "value": 7,
+        "percent": 0.11965811965811966
+      },
+      {
+        "name": "./packages/persistence-postgres/src/values/privateJsonData.ts:67 visit <- ./packages/persistence-postgres/src/values/privateJsonData.ts:67 visit <- ./packages/persistence-postgres/src/values/privateJsonData.ts:50 capture <- ./packages/persistence-postgres/src/frameworks/commerceTransaction/request.ts:52 captureCommerceJsonData",
+        "value": 7,
+        "percent": 0.11965811965811966
+      },
+      {
+        "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js:854  <- ./packages/medusa-adapter/src/commerce-repository-context.ts:32  <- ./packages/medusa-adapter/src/commerce-promise-owner.ts:34 run <- ./packages/medusa-adapter/src/commerce-repository-context.ts:32 execute",
+        "value": 7,
+        "percent": 0.11965811965811966
+      },
+      {
+        "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js:854  <- ./packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:1524  <- ./packages/medusa-adapter/src/commerce-promise-owner.ts:34 run <- ./packages/medusa-adapter/src/commerce-repository-context.ts:32 execute",
+        "value": 7,
+        "percent": 0.11965811965811966
+      },
+      {
+        "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js:854  <- ./packages/persistence-postgres/src/execution/journal/codecs.ts:310 ",
+        "value": 7,
+        "percent": 0.11965811965811966
+      },
+      {
+        "name": "./packages/persistence-postgres/src/values/privateJsonData.ts:67 visit <- ./packages/persistence-postgres/src/values/privateJsonData.ts:50 capture <- ./packages/medusa-adapter/src/commerce-input.ts:8 captureCommerceInput <- ./packages/medusa-adapter/src/workflow-value.ts:14 ",
+        "value": 6,
+        "percent": 0.10256410256410256
+      },
+      {
+        "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js:854  <- ./packages/medusa-workflows-sdk/src/runtime.ts:19 ",
+        "value": 6,
+        "percent": 0.10256410256410256
+      },
+      {
+        "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js:854  <- ./packages/medusa-adapter/src/workflow-runtime.ts:19 capture <- ./packages/medusa-workflows-sdk/src/runtime.ts:28 ",
+        "value": 6,
+        "percent": 0.10256410256410256
+      },
+      {
+        "name": "node:internal/worker/js_transferable:112 structuredClone <- ./packages/persistence-postgres/src/execution/journal/finiteEntry.ts:101 claimConfirmedFiniteEntryAttempt <- ./packages/persistence-postgres/src/execution/sessionJournalStore.ts:76 confirmedFiniteEntryAttempt <- ./packages/executor/src/mutation/journal/pointMutationJournal.ts:242 inspectFiniteExecutionEntry",
+        "value": 6,
+        "percent": 0.10256410256410256
+      },
+      {
+        "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js:854  <- ./packages/persistence-postgres/src/scope/scopeAuthorityControlRead.ts:156 ",
+        "value": 5,
+        "percent": 0.08547008547008547
+      },
+      {
+        "name": "node:internal/worker/js_transferable:112 structuredClone <- ./packages/persistence-postgres/src/execution/journal/finiteEntry.ts:39 inspectPreparedFiniteSessionJournalEntry",
+        "value": 5,
+        "percent": 0.08547008547008547
+      },
+      {
+        "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js:854  <- ./packages/medusa-adapter/src/pricing-repository.ts:402 ",
+        "value": 5,
+        "percent": 0.08547008547008547
+      },
+      {
+        "name": "./packages/persistence-postgres/src/values/privateJsonData.ts:67 visit <- ./packages/persistence-postgres/src/values/privateJsonData.ts:50 capture <- ./packages/persistence-postgres/src/values/privateJsonData.ts:35 useCapturedPrivateJsonData <- ./packages/medusa-adapter/src/query/projection.ts:125 ",
+        "value": 5,
+        "percent": 0.08547008547008547
+      },
+      {
+        "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js:854  <- ./packages/medusa-adapter/src/query/read.ts:15  <- ./packages/medusa-adapter/src/commerce-promise-owner.ts:34 run <- ./packages/medusa-adapter/src/commerce-repository-context.ts:32 execute",
+        "value": 5,
+        "percent": 0.08547008547008547
+      },
+      {
+        "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js:854  <- ./packages/persistence-postgres/src/storage/unique/appUniqueKeys.ts:795 ",
+        "value": 5,
+        "percent": 0.08547008547008547
+      },
+      {
+        "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js:854  <- ./packages/persistence-postgres/src/storage/documents/logicalDocuments/relationalRows.ts:301  <- ./packages/persistence-postgres/src/database/physicalSession/postgres.ts:519 finish <- ./packages/persistence-postgres/src/database/physicalSession/postgres.ts:532 ",
+        "value": 4,
+        "percent": 0.06837606837606838
+      },
+      {
+        "name": "./packages/persistence-postgres/src/values/privateJsonData.ts:67 visit <- ./packages/persistence-postgres/src/values/privateJsonData.ts:50 capture <- ./packages/persistence-postgres/src/values/privateJsonData.ts:30 capturePrivateJsonData <- ./packages/persistence-postgres/src/storage/documents/logicalDocuments/relationalRows.ts:336 ",
+        "value": 4,
+        "percent": 0.06837606837606838
+      },
+      {
+        "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js:854  <- ./packages/persistence-postgres/src/frameworks/commerceTransaction/borrowedWorkflowAttempt.ts:131 ",
+        "value": 4,
+        "percent": 0.06837606837606838
+      },
+      {
+        "name": "./packages/persistence-postgres/src/values/privateJsonData.ts:67 visit <- ./packages/persistence-postgres/src/values/privateJsonData.ts:50 capture <- ./packages/persistence-postgres/src/values/privateJsonData.ts:30 capturePrivateJsonData <- ./packages/persistence-postgres/src/storage/documents/logicalDocuments/relationalRows.ts:314 ",
+        "value": 4,
+        "percent": 0.06837606837606838
+      },
+      {
+        "name": "node:internal/worker/js_transferable:112 structuredClone <- ./packages/persistence-postgres/src/execution/journal/finiteEntry.ts:101 claimConfirmedFiniteEntryAttempt <- ./packages/persistence-postgres/src/execution/sessionJournalStore.ts:76 confirmedFiniteEntryAttempt <- ./packages/executor/src/mutation/journal/pointMutationJournal.ts:209 ",
+        "value": 4,
+        "percent": 0.06837606837606838
+      },
+      {
+        "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js:854  <- ./packages/persistence-postgres/src/storage/documents/appRowCanonicalEvidence.ts:60 decodeStoredAppRowRevisionEvidenceEffect <- ./packages/persistence-postgres/src/storage/documents/appRows.ts:1068 decodeLiveRevisionEvidenceEffect <- ./packages/persistence-postgres/src/storage/documents/appRows.ts:366 ",
+        "value": 4,
+        "percent": 0.06837606837606838
+      },
+      {
+        "name": "./packages/persistence-postgres/src/values/privateJsonData.ts:67 visit <- ./packages/persistence-postgres/src/values/privateJsonData.ts:50 capture <- ./packages/persistence-postgres/src/values/privateJsonData.ts:35 useCapturedPrivateJsonData <- ./packages/persistence-postgres/src/storage/documents/logicalDocuments/relationalRows.ts:359 ",
+        "value": 4,
+        "percent": 0.06837606837606838
+      },
+      {
+        "name": "./packages/persistence-postgres/src/values/privateJsonData.ts:67 visit <- ./packages/persistence-postgres/src/values/privateJsonData.ts:50 capture <- ./packages/persistence-postgres/src/values/privateJsonData.ts:35 useCapturedPrivateJsonData <- ./packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:2113 ",
+        "value": 4,
+        "percent": 0.06837606837606838
+      },
+      {
+        "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js:854  <- ./packages/persistence-postgres/src/execution/journal/codecs.ts:302 ",
+        "value": 4,
+        "percent": 0.06837606837606838
+      },
+      {
+        "name": "node:internal/worker/js_transferable:112 structuredClone <- ./packages/persistence-postgres/src/commit/point/capture.ts:123 capturePointCommitEvents <- ./packages/persistence-postgres/src/commit/point/capture.ts:150  <- ./packages/persistence-postgres/src/commit/point/capture.ts:137 capturePointCommitTransactionProofOptionsV1",
+        "value": 4,
+        "percent": 0.06837606837606838
+      },
+      {
+        "name": "./packages/persistence-postgres/src/values/privateJsonData.ts:67 visit <- ./packages/persistence-postgres/src/values/privateJsonData.ts:67 visit <- ./packages/persistence-postgres/src/values/privateJsonData.ts:50 capture <- ./packages/persistence-postgres/src/values/privateJsonData.ts:30 capturePrivateJsonData",
+        "value": 4,
+        "percent": 0.06837606837606838
+      },
+      {
+        "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js:854  <- ./packages/persistence-postgres/src/installation/frameworkSchema/binding/canonical.ts:242 ",
+        "value": 4,
+        "percent": 0.06837606837606838
+      },
+      {
+        "name": "./packages/persistence-postgres/src/values/privateJsonData.ts:67 visit <- ./packages/persistence-postgres/src/values/privateJsonData.ts:50 capture <- ./packages/persistence-postgres/src/values/privateJsonData.ts:41 capturePrivateJsonDataOmittingUndefined <- ./packages/medusa-adapter/src/commerce-input.ts:8 captureCommerceInput",
+        "value": 4,
+        "percent": 0.06837606837606838
+      },
+      {
+        "name": "./packages/persistence-postgres/src/values/privateJsonData.ts:67 visit <- ./packages/persistence-postgres/src/values/privateJsonData.ts:50 capture <- ./packages/persistence-postgres/src/values/privateJsonData.ts:35 useCapturedPrivateJsonData <- ./packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:2007 ",
+        "value": 4,
+        "percent": 0.06837606837606838
+      },
+      {
+        "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js:854  <- ./packages/medusa-adapter/src/workflow-runtime.ts:19 capture <- ./packages/medusa-workflows-sdk/src/runtime.ts:19 ",
+        "value": 4,
+        "percent": 0.06837606837606838
+      },
+      {
+        "name": "./packages/persistence-postgres/src/values/privateJsonData.ts:67 visit <- ./packages/persistence-postgres/src/values/privateJsonData.ts:50 capture <- ./packages/persistence-postgres/src/frameworks/commerceTransaction/request.ts:52 captureCommerceJsonData <- ./packages/persistence-postgres/src/frameworks/commerceTransaction/borrowedWorkflowAttempt.ts:215 ",
+        "value": 4,
+        "percent": 0.06837606837606838
+      },
+      {
+        "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js:854  <- ./packages/persistence-postgres/src/execution/preparation/preparedMetadataEpoch.ts:219 ",
+        "value": 4,
+        "percent": 0.06837606837606838
+      },
+      {
+        "name": "node:internal/worker/js_transferable:112 structuredClone <- ./packages/persistence-postgres/src/storage/documents/logicalDocuments/detachChanges.ts:61  <- ./packages/persistence-postgres/src/storage/documents/logicalDocuments/detachChanges.ts:7 detachLogicalDocumentRootChanges <- ./packages/persistence-postgres/src/storage/documents/logicalDocuments/rootEvaluator.ts:304 ",
+        "value": 4,
+        "percent": 0.06837606837606838
+      },
+      {
+        "name": "node:internal/worker/js_transferable:112 structuredClone <- ./packages/persistence-postgres/src/commit/authority/materialization.ts:1061 ",
+        "value": 3,
+        "percent": 0.05128205128205128
+      },
+      {
+        "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js:854  <- ./packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:1524 ",
+        "value": 3,
+        "percent": 0.05128205128205128
+      },
+      {
+        "name": "./packages/persistence-postgres/src/values/privateJsonData.ts:67 visit <- ./packages/persistence-postgres/src/values/privateJsonData.ts:50 capture <- ./packages/persistence-postgres/src/values/privateJsonData.ts:35 useCapturedPrivateJsonData <- ./packages/medusa-adapter/src/pricing-repository.ts:402 ",
+        "value": 3,
+        "percent": 0.05128205128205128
+      },
+      {
+        "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js:854  <- ./packages/persistence-postgres/src/execution/session/finiteActivation.ts:68 ",
+        "value": 3,
+        "percent": 0.05128205128205128
+      },
+      {
+        "name": "node:internal/worker/js_transferable:112 structuredClone <- ./packages/medusa-adapter/src/product-commands/reads.ts:13  <- ./packages/medusa-adapter/src/commerce-promise-owner.ts:34 run <- ./packages/medusa-adapter/src/workflow/binding.ts:49 graph",
+        "value": 3,
+        "percent": 0.05128205128205128
+      },
+      {
+        "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js:854  <- ./packages/persistence-postgres/src/installation/frameworkSchema/privateCanonicalValue.ts:64 ",
+        "value": 3,
+        "percent": 0.05128205128205128
+      },
+      {
+        "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js:854  <- ./packages/medusa-adapter/src/product-related.ts:35  <- ./packages/medusa-adapter/src/commerce-promise-owner.ts:34 run <- ./packages/medusa-adapter/src/commerce-repository-context.ts:32 execute",
+        "value": 3,
+        "percent": 0.05128205128205128
+      },
+      {
+        "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js:854  <- ./packages/persistence-postgres/src/storage/documents/logicalDocuments/relationalAdmission.ts:78 ",
+        "value": 3,
+        "percent": 0.05128205128205128
+      },
+      {
+        "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js:854  <- ./packages/persistence-postgres/src/execution/session/finiteSession.ts:206 ",
+        "value": 3,
+        "percent": 0.05128205128205128
+      },
+      {
+        "name": "node:internal/worker/js_transferable:112 structuredClone <- ./packages/persistence-postgres/src/execution/journal/finiteEntry.ts:113 readOriginalFinitePublicationSession <- ./packages/persistence-postgres/src/execution/journal/finiteEntryPublication.ts:20  <- ./packages/persistence-postgres/src/execution/journal/finiteEntryPublication.ts:19 projectOriginalFinitePublicationSession",
+        "value": 3,
+        "percent": 0.05128205128205128
+      },
+      {
+        "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js:854  <- ./packages/medusa-adapter/src/query/read.ts:15 ",
+        "value": 3,
+        "percent": 0.05128205128205128
+      },
+      {
+        "name": "./packages/persistence-postgres/src/values/privateJsonData.ts:67 visit <- ./packages/persistence-postgres/src/values/privateJsonData.ts:67 visit <- ./packages/persistence-postgres/src/values/privateJsonData.ts:50 capture <- ./packages/persistence-postgres/src/values/privateJsonData.ts:41 capturePrivateJsonDataOmittingUndefined",
+        "value": 3,
+        "percent": 0.05128205128205128
+      },
+      {
+        "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js:854  <- ./packages/medusa-adapter/src/commerce-relations.ts:36 ",
+        "value": 3,
+        "percent": 0.05128205128205128
+      },
+      {
+        "name": "node:internal/worker/js_transferable:112 structuredClone <- ./packages/persistence-postgres/src/storage/documents/logicalDocuments/sourceAdmission.ts:743 ",
+        "value": 3,
+        "percent": 0.05128205128205128
+      },
+      {
+        "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js:854  <- ./packages/medusa-adapter/src/service-commands.ts:15  <- ./packages/medusa-adapter/src/commerce-promise-owner.ts:34 run <- ./packages/medusa-adapter/src/workflow/binding.ts:37 ",
+        "value": 3,
+        "percent": 0.05128205128205128
+      },
+      {
+        "name": "./packages/persistence-postgres/src/values/privateJsonData.ts:67 visit <- ./packages/persistence-postgres/src/values/privateJsonData.ts:50 capture <- ./packages/persistence-postgres/src/values/privateJsonData.ts:35 useCapturedPrivateJsonData <- ./packages/persistence-postgres/src/storage/documents/logicalDocuments/relationalRows.ts:333 captureLogicalRelationalCanonicalRow",
+        "value": 3,
+        "percent": 0.05128205128205128
+      },
+      {
+        "name": "node:internal/worker/js_transferable:112 structuredClone <- ./packages/persistence-postgres/src/execution/finiteEntryObservation.ts:227  <- ./packages/persistence-postgres/src/execution/finiteEntryObservation.ts:226 application <- ./packages/persistence-postgres/src/execution/finiteEntryObservation.ts:290 readFiniteEntryApplicationObservation",
+        "value": 2,
+        "percent": 0.03418803418803419
+      },
+      {
+        "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js:854  <- ./packages/persistence-postgres/src/storage/documents/appRowCanonicalEvidence.ts:48 decodeStoredAppDocumentEvidenceEffect <- ./packages/persistence-postgres/src/storage/documents/appRowCanonicalEvidence.ts:60 decodeStoredAppRowRevisionEvidenceEffect <- ./packages/persistence-postgres/src/storage/documents/appRows.ts:1068 decodeLiveRevisionEvidenceEffect",
+        "value": 2,
+        "percent": 0.03418803418803419
+      },
+      {
+        "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js:854  <- ./packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:1363  <- ./packages/payload-adapter/src/adapter.ts:46 run <- ./packages/payload-adapter/src/adapter.ts:278 updateOne",
+        "value": 2,
+        "percent": 0.03418803418803419
+      },
+      {
+        "name": "node:internal/worker/js_transferable:112 structuredClone <- ./packages/persistence-postgres/src/commit/point/capture.ts:123 capturePointCommitEvents <- ./packages/persistence-postgres/src/commit/point/capture.ts:154  <- ./packages/persistence-postgres/src/commit/point/capture.ts:137 capturePointCommitTransactionProofOptionsV1",
+        "value": 2,
+        "percent": 0.03418803418803419
+      },
+      {
+        "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js:854  <- ./packages/medusa-adapter/src/workflow/binding.ts:37 ",
+        "value": 2,
+        "percent": 0.03418803418803419
+      },
+      {
+        "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js:854  <- ./packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:1524  <- ./packages/persistence-postgres/src/database/physicalSession/postgres.ts:519 finish <- ./packages/persistence-postgres/src/database/physicalSession/postgres.ts:532 ",
+        "value": 2,
+        "percent": 0.03418803418803419
+      },
+      {
+        "name": "./node_modules/.pnpm/effect@4.0.0-rc.112/node_modules/effect/dist/internal/effect.js:854  <- ./packages/persistence-postgres/src/frameworks/commerceTransaction/commerceAdapter.ts:49 runCommerceCommand <- ./packages/medusa-adapter/src/product-attempt.ts:86 ",
+        "value": 2,
+        "percent": 0.03418803418803419
+      }
+    ]
+  }
+}

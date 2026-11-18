@@ -28,14 +28,133 @@ const requiredPackageFiles = [
 
 if (isCliEntrypoint()) {
   const report = inspectDurableTaskSourceMapRepository(process.cwd());
+  const adopted = inspectTriggerRunEngineSourceMapRepository(process.cwd());
+  report.errors.push(...adopted.errors);
   if (report.errors.length > 0) {
     console.error(report.errors.join("\n"));
     process.exitCode = 1;
   } else {
     console.log(
-      `Durable task source map check passed (${report.entryCount} entries, ${report.mode}).`,
+      `Task source maps passed (legacy ${report.entryCount} entries, ${report.mode}; adopted ${adopted.entryCount} sources).`,
     );
   }
+}
+
+/**
+ * The independent fork has its own adoption record; keep the legacy receipt
+ * unchanged while both packages have named consumers.
+ * @param {string} repoRoot
+ * @returns {{ errors: string[]; entryCount: number }}
+ */
+export function inspectTriggerRunEngineSourceMapRepository(repoRoot) {
+  const packageRoot = path.join(repoRoot, "packages/trigger-run-engine");
+  if (!existsSync(packageRoot)) return { errors: [], entryCount: 0 };
+  /** @type {string[]} */
+  const errors = [];
+  const label = "packages/trigger-run-engine/trigger-source-map.json";
+  const sourceMap = readJson(path.join(packageRoot, "trigger-source-map.json"), label, errors);
+  const metadata = readJson(path.join(repoRoot, sourceMetadataRelativePath), sourceMetadataRelativePath, errors);
+  if (!isRecord(sourceMap) || !isRecord(metadata)) {
+    errors.push(`${label}: source map and frozen source metadata must be objects.`);
+    return { errors, entryCount: 0 };
+  }
+  checkExactString(sourceMap.format, "flarex.trigger-source-map", `${label}.format`, errors);
+  if (sourceMap.version !== 1) errors.push(`${label}.version must be 1.`);
+  checkExactString(sourceMap.repository, "https://github.com/triggerdotdev/trigger.dev", `${label}.repository`, errors);
+  if (!isLowerHexSha(sourceMap.commit) || sourceMap.commit !== metadata.commit) {
+    errors.push(`${label}.commit must match the frozen Trigger source pin.`);
+  }
+  checkExactString(sourceMap.sourceRoot, "../../third_party/trigger.dev/upstream", `${label}.sourceRoot`, errors);
+  const commit = typeof sourceMap.commit === "string" ? sourceMap.commit : "";
+  if (!Array.isArray(sourceMap.sources) || sourceMap.sources.length === 0) {
+    errors.push(`${label}.sources must contain adopted source records.`);
+    return { errors, entryCount: 0 };
+  }
+  /** @type {Map<string, string[]>} */
+  const mappedPaths = new Map();
+  for (const [index, entry] of sourceMap.sources.entries()) {
+    const entryLabel = `${label}.sources[${index}]`;
+    if (!isRecord(entry) || !isSafeRelativePath(entry.path, ["internal-packages/", "packages/"])) {
+      errors.push(`${entryLabel}.path must be a normalized upstream source path.`);
+      continue;
+    }
+    const upstream = readRegularFile(path.join(repoRoot, sourceRootRelativePath, "upstream", entry.path));
+    if (upstream === undefined || !isSha256(entry.sha256) || sha256(upstream) !== entry.sha256) {
+      errors.push(`${entryLabel}.sha256 must match the frozen source file.`);
+    }
+    const lineCount = upstream?.toString("utf8").split("\n").length ?? 0;
+    if (!Array.isArray(entry.ranges) || entry.ranges.length === 0 || entry.ranges.some((range) =>
+      !isRecord(range) || typeof range.start !== "number" || typeof range.end !== "number"
+      || !Number.isSafeInteger(range.start) || !Number.isSafeInteger(range.end)
+      || range.start < 1 || range.end < range.start || range.end > lineCount || !isNonblankString(range.symbol))) {
+      errors.push(`${entryLabel}.ranges must name nonempty in-bounds source ranges.`);
+    }
+    if (!isNonemptyStringArray(entry.adaptations)) {
+      errors.push(`${entryLabel}.adaptations must describe the source changes.`);
+    }
+    if (!isNonemptyStringArray(entry.promotedPaths)) {
+      errors.push(`${entryLabel}.promotedPaths must name adopted package files.`);
+      continue;
+    }
+    for (const promotedPath of entry.promotedPaths) {
+      if (!isSafeRelativePath(promotedPath, ["src/", "test/"])
+        || readRegularFile(path.join(packageRoot, promotedPath)) === undefined) {
+        errors.push(`${entryLabel}.promotedPaths contains a missing or unsafe package path.`);
+        continue;
+      }
+      mappedPaths.set(promotedPath, [...(mappedPaths.get(promotedPath) ?? []), `upstream/${entry.path}`]);
+    }
+  }
+  const originalPaths = sourceMap.originalPaths;
+  if (!isStringArray(originalPaths) || originalPaths.some((entry) => !isSafeRelativePath(entry, ["src/", "test/"]))) {
+    errors.push(`${label}.originalPaths must list normalized Flarex-authored package paths.`);
+  }
+  for (const sourcePath of collectSourceFiles(packageRoot).filter((entry) => entry.startsWith("src/"))) {
+    const upstreamPaths = mappedPaths.get(sourcePath);
+    if (upstreamPaths === undefined) {
+      if (!Array.isArray(originalPaths) || !originalPaths.includes(sourcePath)) {
+        errors.push(`${sourcePath}: source must be mapped or explicitly Flarex-authored.`);
+      }
+    } else if (Array.isArray(originalPaths) && originalPaths.includes(sourcePath)) {
+      errors.push(`${sourcePath}: source cannot be both adapted and Flarex-authored.`);
+    } else if (!hasValidTriggerAttributionHeader(readFileSync(path.join(packageRoot, sourcePath), "utf8"), commit, upstreamPaths)) {
+      errors.push(`${sourcePath}: adapted source must retain its pinned Trigger attribution header.`);
+    }
+  }
+  if (!Array.isArray(sourceMap.licenses) || sourceMap.licenses.length === 0) {
+    errors.push(`${label}.licenses must retain upstream license copies.`);
+  } else {
+    for (const license of sourceMap.licenses) {
+      if (!isRecord(license) || !isSafeRelativePath(license.sourcePath, ["LICENSE", "internal-packages/", "packages/"])
+        || !isSafeRelativePath(license.path, ["licenses/"])) {
+        errors.push(`${label}.licenses contains an unsafe license path.`);
+        continue;
+      }
+      const original = readRegularFile(path.join(repoRoot, sourceRootRelativePath, "upstream", license.sourcePath));
+      const copied = readRegularFile(path.join(packageRoot, license.path));
+      if (original === undefined || copied === undefined || !isSha256(license.sha256)
+        || sha256(original) !== license.sha256 || sha256(copied) !== license.sha256) {
+        errors.push(`${license.path}: license copy/hash must match the frozen upstream file.`);
+      }
+    }
+  }
+  const notice = readRegularFile(path.join(packageRoot, "THIRD_PARTY_NOTICES.md"))?.toString("utf8") ?? "";
+  for (const fragment of ["Trigger.dev", sourceMap.commit, sourceMap.repository,
+    "Apache License 2.0", "Copyright (c) 2023 Trigger.dev", "trigger-source-map.json"]) {
+    if (typeof fragment !== "string" || !notice.includes(fragment)) {
+      errors.push(`${packageRoot}/THIRD_PARTY_NOTICES.md must retain source identity, attribution and license notices.`);
+      break;
+    }
+  }
+  if (!/\b(?:adapted|changed|modified|transformed)\b/i.test(notice)) {
+    errors.push("packages/trigger-run-engine/THIRD_PARTY_NOTICES.md must identify Flarex modifications.");
+  }
+  return { errors, entryCount: sourceMap.sources.length };
+}
+
+/** @param {string} file */
+function readRegularFile(file) {
+  return existsSync(file) && lstatSync(file).isFile() ? readFileSync(file) : undefined;
 }
 
 /**

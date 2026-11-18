@@ -146,7 +146,7 @@ The official native guide is specifically for Effect Postgres through
 official material does not establish a matching Effect-native PGlite driver.
 Do not infer parity from the shared Drizzle query API.
 
-A migration preflight must choose and prove one of these outcomes:
+A migration must choose and prove one of these outcomes:
 
 1. both real Postgres and PGlite receive compatible Effect-native adapters;
 2. the public persistence service is Effect-native while PGlite retains one
@@ -186,7 +186,7 @@ normalization and one encoder before driver parameters.
 
 ## Required Proof Gates
 
-A future implementation preflight should keep the work in this order:
+A future implementation should keep the work in this order:
 
 1. lock an exact Drizzle RC, Drizzle Kit RC, Effect, and `@effect/sql-pg`
    compatibility set in an isolated branch or spike;

@@ -1,4 +1,5 @@
 import { Data, Schema } from "effect";
+import { SchemaManifestAppIndexDescriptorSchema, SchemaManifestAppIndexFieldPathSchema, MAX_SCHEMA_MANIFEST_APP_INDEX_DECLARED_FIELDS } from "flarex-protocol/schema-manifest";
 
 const StrictStructOptions = { parseOptions: { onExcessProperty: "error" } } as const;
 
@@ -39,10 +40,11 @@ const ScalarField = Schema.Struct({
   name: Identity,
   kind: Schema.Literals(["text", "number", "boolean", "date"]),
   unique: Schema.optionalKey(Schema.Literal(true)),
+  nullable: Schema.optionalKey(Schema.Literal(true)),
   defaultValue: Schema.optionalKey(Schema.Union([Schema.String,
     Schema.Finite.check(Schema.makeFilter(value => Object.is(value, -0) ? "Negative zero is not canonical" : undefined)), Schema.Boolean])),
 }).annotate(StrictStructOptions).check(Schema.makeFilter(field => {
-  if (field.unique !== undefined && field.kind !== "text") return "Only required text fields support uniqueness";
+  if (field.unique !== undefined && field.kind !== "text") return "Only text fields support field-level uniqueness";
   const defaultType = field.kind === "text" || field.kind === "date" ? "string" : field.kind;
   return field.defaultValue === undefined || typeof field.defaultValue === defaultType ? undefined : "Default must match the scalar kind";
 }));
@@ -70,6 +72,11 @@ const ConfigurationFields = {
     logicalTableName: Identity,
     collectionSlug: PayloadCollectionSlugSchema,
     timestamps: Schema.Boolean,
+    indexes: Schema.optionalKey(Schema.Array(Schema.Struct({
+      name: SchemaManifestAppIndexDescriptorSchema,
+      fields: Schema.Array(SchemaManifestAppIndexFieldPathSchema).check(Schema.isMinLength(1), Schema.isMaxLength(MAX_SCHEMA_MANIFEST_APP_INDEX_DECLARED_FIELDS)),
+      unique: Schema.optionalKey(Schema.Literal(true)),
+    }).annotate(StrictStructOptions)).check(Schema.isMaxLength(16))),
     fields: Schema.Array(Schema.Union([ScalarField, OptionalRelationField, ManyPostRelationField])).check(Schema.isMaxLength(64)),
   }).annotate(StrictStructOptions)).check(
     Schema.isMinLength(1),
@@ -91,13 +98,15 @@ export const PayloadConfigurationSchema = Schema.Union([
   for (const table of config.tables) {
     if (table.logicalTableName !== payloadCollectionLogicalName(table.collectionSlug)) return "Collection-to-table mapping mismatch";
     if (new Set(table.fields.map(field => field.name)).size !== table.fields.length) return "Duplicate field name";
+    if (new Set(table.indexes?.map(index => index.name)).size !== (table.indexes?.length ?? 0) ||
+      table.indexes?.some(index => new Set(index.fields).size !== index.fields.length ||
+        index.fields.some(name => !table.fields.some(field => field.name === name && field.kind !== "relationship")))) {
+      return "Indexes require distinct declared scalar fields and names";
+    }
     const managed = table.fields.filter(field => field.name === "createdAt" || field.name === "updatedAt");
-    if (table.timestamps ? managed.length !== 2 || managed.some(field => field.kind !== "date" || field.defaultValue !== undefined || field.unique !== undefined) : managed.length !== 0) {
+    if (table.timestamps ? managed.length !== 2 || managed.some(field => field.kind !== "date" || field.defaultValue !== undefined || field.unique !== undefined || field.nullable !== undefined) : managed.length !== 0) {
       return "Managed timestamps must agree with the declared date fields";
     }
-  }
-  if (config.tables.some(table => table.fields.filter(field => field.kind !== "relationship" && field.unique === true).length > 1)) {
-    return "At most one unique text field is admitted per Payload table";
   }
   const many = config.profile === "payload.content-many" || config.profile === "payload.content-joins";
   const relations = config.tables.flatMap(table => table.fields.filter(field => field.kind === "relationship"));
@@ -121,6 +130,11 @@ export const ApplicationTableWritePolicySchema = Schema.Union([
   Schema.Struct({
     logicalTableName: Identity,
     owner: Schema.Literal("application"),
+  }).annotate(StrictStructOptions),
+  Schema.Struct({
+    logicalTableName: Identity,
+    owner: Schema.Literal("application-command"),
+    policyId: Schema.Literal("application.reference-permissions"),
   }).annotate(StrictStructOptions),
   Schema.Struct({
     logicalTableName: Identity,

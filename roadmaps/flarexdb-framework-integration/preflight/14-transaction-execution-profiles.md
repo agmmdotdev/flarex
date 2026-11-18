@@ -10,6 +10,15 @@ adapter workarounds. Target runtime migration is pending.
 
 ## Status And Scope
 
+The [selected standalone read redesign](../../core-performance/standalone-read-redesign-preflight.md)
+amends preparation, serving readiness and installation integrity for its named
+read-only Commerce/CMS consumers. It preserves actual native snapshot and
+callback lifetimes and creates no universal transaction/journal API. The
+installation maintenance interlock must protect all affected users of shared
+structures; other profiles keep their own acceptance and settlement contracts.
+This target is not yet implemented. The contracts below remain the baseline
+except where that coherent cutover explicitly replaces a named reader.
+
 Status: accepted architecture direction and source-backed preflight;
 the private scalar transaction/store is implemented under
 [its concrete contract](./15-scalar-relational-transaction-and-store.md).
@@ -49,7 +58,7 @@ is `payload@3.88.0`, release source
 | Payload's [transaction initializer](https://github.com/payloadcms/payload/blob/fea6f8a47a50ff1330d8a5071b43e7dcffb97b22/packages/payload/src/utilities/initTransaction.ts) distinguishes an existing request transaction from one created by the current operation. | Attach the admitted CMS operation to an authenticated outer session and preserve nested request reuse. |
 | Payload's [create lifecycle](https://github.com/payloadcms/payload/blob/fea6f8a47a50ff1330d8a5071b43e7dcffb97b22/packages/payload/src/collections/operations/create.ts) executes `afterChange` before commit and includes pre-commit upload and verification-email paths. | Preserve supported hook order and pending-write visibility. Keep these external-effect features outside the first scalar profile; arbitrary callback replay is unsafe. |
 | Payload's [rollback utility](https://github.com/payloadcms/payload/blob/fea6f8a47a50ff1330d8a5071b43e7dcffb97b22/packages/payload/src/utilities/killTransaction.ts) clears the request transaction ID; its [Drizzle lookup](https://github.com/payloadcms/payload/blob/fea6f8a47a50ff1330d8a5071b43e7dcffb97b22/packages/drizzle/src/utilities/getTransaction.ts) can fall back to the default connection if a session is missing. | Preserve command admission independently of that mutable request field. A lost borrowed session must abort the command, never become standalone data access. |
-| Flarex's [journal](../../../packages/flarex-protocol/src/commit-protocol.ts) carries `LogicalAppWriteV1`; [scoped execution](../../../packages/persistence-postgres/src/scopeExecution/ScopeExecution.ts) acquires the scope clock before Application-shaped operations. | Reuse existing authority through owned interfaces; neither source is an already neutral framework host. Preserve Application behavior and lock ordering during initial extraction. |
+| Flarex's [journal](../../../packages/flarex-protocol/src/commit-protocol.ts) carries `LogicalAppWriteV1`; [scoped execution](../../../packages/persistence-postgres/src/scope/execution/ScopeExecution.ts) acquires the scope clock before Application-shaped operations. | Reuse existing authority through owned interfaces; neither source is an already neutral framework host. Preserve Application behavior and lock ordering during initial extraction. |
 
 These are source findings and integration requirements, not executed adapter
 conformance or production compatibility claims.

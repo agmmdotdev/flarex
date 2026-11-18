@@ -1,0 +1,439 @@
+{
+  "scope": "Previous versus combined-read experimental cohorts, with per-cohort native controls",
+  "disposition": "Correct, fewer exchanges, no observed local latency improvement; reject performance promotion",
+  "workloads": [
+    {
+      "workload": "payload-crud",
+      "previous": {
+        "diagnosticOnly": false,
+        "referenceMs": {
+          "median": 4.328900000007707,
+          "p95": 4.799499999993714,
+          "minimum": 3.8778000000020256,
+          "maximum": 6.51950000000943
+        },
+        "candidateMs": {
+          "median": 32.848500000007334,
+          "p95": 35.976800000004005,
+          "minimum": 30.063000000009197,
+          "maximum": 39.262000000002445
+        },
+        "pairedAddedMs": {
+          "median": 28.200900000010733,
+          "p95": 31.916500000006636,
+          "minimum": 23.543499999999767,
+          "maximum": 34.61720000000787
+        }
+      },
+      "current": {
+        "diagnosticOnly": false,
+        "referenceMs": {
+          "median": 4.696899999995367,
+          "p95": 6.514799999989918,
+          "minimum": 3.946700000000419,
+          "maximum": 7.625899999999092
+        },
+        "candidateMs": {
+          "median": 41.03080000000773,
+          "p95": 46.66689999999653,
+          "minimum": 36.11479999999574,
+          "maximum": 47.34440000000177
+        },
+        "pairedAddedMs": {
+          "median": 35.47080000001006,
+          "p95": 41.418900000004214,
+          "minimum": 30.817599999994854,
+          "maximum": 42.16000000000349
+        }
+      },
+      "cpu": {
+        "diagnosticOnly": false,
+        "referenceMs": {
+          "median": 4.700299999996787,
+          "p95": 14.606400000004214,
+          "minimum": 4.108299999992596,
+          "maximum": 242.99610000000393
+        },
+        "candidateMs": {
+          "median": 41.63640000000305,
+          "p95": 58.73050000000512,
+          "minimum": 37.15320000000065,
+          "maximum": 161.59829999999783
+        },
+        "pairedAddedMs": {
+          "median": 36.15150000000722,
+          "p95": 54.13980000000447,
+          "minimum": -196.87679999999818,
+          "maximum": 146.99189999999362
+        },
+        "pairedAddedThreadCpuMs": {
+          "median": 16,
+          "p95": 47,
+          "minimum": 0,
+          "maximum": 47
+        }
+      },
+      "sql": [
+        {
+          "index": 0,
+          "candidate": [
+            {
+              "exchanges": 88,
+              "checkouts": 12,
+              "transactions": 12,
+              "returnedRows": 42,
+              "decodedJsonBytes": 6639,
+              "commandGuards": 5,
+              "snapshotOrReadGuards": 1
+            }
+          ],
+          "referenceApplication": [
+            0
+          ],
+          "nativePayload": [
+            15
+          ],
+          "nativeProductKnex": 0
+        },
+        {
+          "index": 1,
+          "candidate": [
+            {
+              "exchanges": 88,
+              "checkouts": 12,
+              "transactions": 12,
+              "returnedRows": 42,
+              "decodedJsonBytes": 6642,
+              "commandGuards": 5,
+              "snapshotOrReadGuards": 1
+            }
+          ],
+          "referenceApplication": [
+            0
+          ],
+          "nativePayload": [
+            15
+          ],
+          "nativeProductKnex": 0
+        }
+      ]
+    },
+    {
+      "workload": "product",
+      "previous": {
+        "diagnosticOnly": false,
+        "referenceMs": {
+          "median": 9.47379999999248,
+          "p95": 11.322299999999814,
+          "minimum": 8.804000000003725,
+          "maximum": 12.035700000007637
+        },
+        "candidateMs": {
+          "median": 17.257099999987986,
+          "p95": 19.61030000000028,
+          "minimum": 15.884799999999814,
+          "maximum": 20.143599999995786
+        },
+        "pairedAddedMs": {
+          "median": 7.775500000003376,
+          "p95": 9.97359999998298,
+          "minimum": 3.849099999992177,
+          "maximum": 10.720699999990757
+        }
+      },
+      "current": {
+        "diagnosticOnly": false,
+        "referenceMs": {
+          "median": 10.516499999997905,
+          "p95": 11.894100000004983,
+          "minimum": 9.37850000000617,
+          "maximum": 13.089200000002165
+        },
+        "candidateMs": {
+          "median": 20.681199999991804,
+          "p95": 25.273700000005192,
+          "minimum": 18.651699999987613,
+          "maximum": 25.552700000000186
+        },
+        "pairedAddedMs": {
+          "median": 9.776700000016717,
+          "p95": 13.288500000009662,
+          "minimum": 7.701999999990221,
+          "maximum": 13.546500000011292
+        }
+      },
+      "cpu": {
+        "diagnosticOnly": false,
+        "referenceMs": {
+          "median": 10.699599999992643,
+          "p95": 13.338900000002468,
+          "minimum": 9.712100000004284,
+          "maximum": 15.153900000004796
+        },
+        "candidateMs": {
+          "median": 21.027900000000955,
+          "p95": 82.44539999999688,
+          "minimum": 18.458599999998114,
+          "maximum": 125.9209000000119
+        },
+        "pairedAddedMs": {
+          "median": 9.985799999994924,
+          "p95": 69.65350000000035,
+          "minimum": 4.018800000005285,
+          "maximum": 113.98590000001423
+        },
+        "pairedAddedThreadCpuMs": {
+          "median": 1,
+          "p95": 31,
+          "minimum": -16,
+          "maximum": 32
+        }
+      },
+      "sql": [
+        {
+          "index": 0,
+          "candidate": [
+            {
+              "exchanges": 37,
+              "checkouts": 5,
+              "transactions": 5,
+              "returnedRows": 13,
+              "decodedJsonBytes": 2818,
+              "commandGuards": 3,
+              "snapshotOrReadGuards": 0
+            }
+          ],
+          "referenceApplication": [
+            0
+          ],
+          "nativePayload": [
+            0
+          ],
+          "nativeProductKnex": 10
+        },
+        {
+          "index": 1,
+          "candidate": [
+            {
+              "exchanges": 37,
+              "checkouts": 5,
+              "transactions": 5,
+              "returnedRows": 13,
+              "decodedJsonBytes": 2818,
+              "commandGuards": 3,
+              "snapshotOrReadGuards": 0
+            }
+          ],
+          "referenceApplication": [
+            0
+          ],
+          "nativePayload": [
+            0
+          ],
+          "nativeProductKnex": 10
+        }
+      ]
+    },
+    {
+      "workload": "mixed",
+      "previous": {
+        "diagnosticOnly": false,
+        "referenceMs": {
+          "median": 21.94210000000021,
+          "p95": 26.217600000003586,
+          "minimum": 20.94789999999921,
+          "maximum": 37.266499999997905
+        },
+        "candidateMs": {
+          "median": 32.53100000000268,
+          "p95": 36.99779999999737,
+          "minimum": 30.456399999995483,
+          "maximum": 43.26470000001427
+        },
+        "pairedAddedMs": {
+          "median": 10.579899999996996,
+          "p95": 14.233400000011898,
+          "minimum": 5.998200000016368,
+          "maximum": 15.701799999995274
+        }
+      },
+      "current": {
+        "diagnosticOnly": false,
+        "referenceMs": {
+          "median": 24.527699999991455,
+          "p95": 29.793499999999767,
+          "minimum": 22.6536000000051,
+          "maximum": 61.665600000007544
+        },
+        "candidateMs": {
+          "median": 37.75780000000668,
+          "p95": 41.83749999999418,
+          "minimum": 34.531199999997625,
+          "maximum": 42.073099999994156
+        },
+        "pairedAddedMs": {
+          "median": 12.222200000003795,
+          "p95": 18.86939999999595,
+          "minimum": -21.159800000008545,
+          "maximum": 19.169899999993504
+        }
+      },
+      "cpu": {
+        "diagnosticOnly": false,
+        "referenceMs": {
+          "median": 25.139999999999418,
+          "p95": 32.96710000000894,
+          "minimum": 22.17479999999341,
+          "maximum": 63.69680000000517
+        },
+        "candidateMs": {
+          "median": 38.90639999999257,
+          "p95": 55.771999999997206,
+          "minimum": 34.80910000001313,
+          "maximum": 66.69559999999183
+        },
+        "pairedAddedMs": {
+          "median": 13.7158999999956,
+          "p95": 30.80260000000999,
+          "minimum": -24.409899999998743,
+          "maximum": 33.72849999998289
+        },
+        "pairedAddedThreadCpuMs": {
+          "median": 15,
+          "p95": 47,
+          "minimum": -31,
+          "maximum": 47
+        }
+      },
+      "sql": [
+        {
+          "index": 0,
+          "candidate": [
+            {
+              "exchanges": 59,
+              "checkouts": 10,
+              "transactions": 10,
+              "returnedRows": 30,
+              "decodedJsonBytes": 6061,
+              "commandGuards": 4,
+              "snapshotOrReadGuards": 4
+            }
+          ],
+          "referenceApplication": [
+            27
+          ],
+          "nativePayload": [
+            15
+          ],
+          "nativeProductKnex": 10
+        },
+        {
+          "index": 1,
+          "candidate": [
+            {
+              "exchanges": 59,
+              "checkouts": 10,
+              "transactions": 10,
+              "returnedRows": 30,
+              "decodedJsonBytes": 6061,
+              "commandGuards": 4,
+              "snapshotOrReadGuards": 4
+            }
+          ],
+          "referenceApplication": [
+            27
+          ],
+          "nativePayload": [
+            15
+          ],
+          "nativeProductKnex": 10
+        }
+      ]
+    }
+  ],
+  "sourceComparison": {
+    "previous": {
+      "sha256": "d16c2d1fa5af0f9f9478d13745f490b68080e85f7e14e8e0465d8ff46c1c2a9e",
+      "files": 85950,
+      "artifact": "connected-source-d16c2d1fa5af0f9f9478d13745f490b68080e85f7e14e8e0465d8ff46c1c2a9e.json"
+    },
+    "current": {
+      "sha256": "61e7d809510ec1d77fc40d871830c742aae30a0d1773929d2ba17dd58f30bf04",
+      "files": 85956,
+      "artifact": "connected-source-61e7d809510ec1d77fc40d871830c742aae30a0d1773929d2ba17dd58f30bf04.json"
+    },
+    "differences": [
+      {
+        "path": "experiments/core/src/equality-storage.ts",
+        "status": "changed"
+      },
+      {
+        "path": "experiments/core/src/persistence.ts",
+        "status": "changed"
+      },
+      {
+        "path": "experiments/core/src/storage.ts",
+        "status": "changed"
+      },
+      {
+        "path": "experiments/core/test/application-corpus.ts",
+        "status": "changed"
+      },
+      {
+        "path": "experiments/core/test/measurement-contracts.test.mjs",
+        "status": "changed"
+      },
+      {
+        "path": "experiments/core/test/measurement-report.mjs",
+        "status": "added"
+      },
+      {
+        "path": "experiments/core/test/measurement.test.mjs",
+        "status": "changed"
+      },
+      {
+        "path": "experiments/core/test/ownership.test.ts",
+        "status": "changed"
+      },
+      {
+        "path": "experiments/core/test/product.test.ts",
+        "status": "changed"
+      },
+      {
+        "path": "experiments/core/test/scaling-corpus.test.mjs",
+        "status": "added"
+      },
+      {
+        "path": "experiments/core/test/scaling-corpus.ts",
+        "status": "added"
+      },
+      {
+        "path": "experiments/core/test/scaling.test.mjs",
+        "status": "added"
+      },
+      {
+        "path": "packages/medusa-adapter/src/local-graph/direct-paths.ts",
+        "status": "changed"
+      },
+      {
+        "path": "packages/medusa-adapter/src/workflows/cart/checkout-graph.ts",
+        "status": "added"
+      },
+      {
+        "path": "packages/medusa-adapter/src/workflows/cart/complete-cart.ts",
+        "status": "added"
+      },
+      {
+        "path": "packages/medusa-core-flows/src/cart/utils/prepare-line-item-data.ts",
+        "status": "changed"
+      }
+    ]
+  },
+  "limits": [
+    "Historical versus later cohorts, not interleaved old/new implementations on one identical source closure",
+    "Native reference medians also changed; cross-cohort added-latency deltas alone do not identify an exclusive cause",
+    "Windows thread CPU resolution approximately15-16ms; outliers retained, cause unproven",
+    "Native mixed reference independently commits and uses candidate Application implementation, now with combined snapshot reads",
+    "SQL counts measure pg exchanges; native Product counts Knex submissions; no exclusive server CPU/WAL/lock-wait measurement"
+  ]
+}

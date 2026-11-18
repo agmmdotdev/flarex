@@ -2,18 +2,71 @@ import { describe, expect, it } from "vitest";
 import { createHash } from "node:crypto";
 import { Effect, Result } from "effect";
 import { compileDmlSchema } from "@medusajs/drizzle/schema";
+import { captureProductSchema } from "../src/modules/product/schema";
+import { compileProductDefinition, productSchemaInput, productModels } from "../src/modules/product/definition";
+import { captureLogicalSchemaSource } from "@flarex/analysis/internal/logical-schema-candidate";
+import { compileLogicalSourceIndexes, compileLogicalSourceUniqueConstraints } from
+  "flarex-protocol/internal/logical-storage-requirements";
 import {
-  captureProductSchema,
-  productSchemaInput,
-  productModels,
-} from "../src/product-schema";
-import { normalizeRelationalSchema } from "@flarex/persistence-postgres/internal/relational-schema-values";
-import { authenticateStoredRelationalSchemaArtifactEffect } from "../../persistence-postgres/src/relationalSchema/artifact";
+  normalizeRelationalSchema,
+} from "flarex-protocol/internal/relational-schema";
+import { authenticateStoredRelationalSchemaArtifactEffect } from "../../persistence-postgres/src/storage/relationalSchema/artifact";
+import { prepareLogicalRelationalRows, relationalTextIdentity } from "../../persistence-postgres/src/storage/documents/logicalDocuments/relationalRows";
+import { compileLogicalRelationalRead } from "../../persistence-postgres/src/storage/documents/logicalDocuments/relationalQuery";
+import { prepareLogicalRelationalForeignKeys } from "../../persistence-postgres/src/storage/documents/logicalDocuments/relationalForeignKeys";
+import { decodeCatalogTableId } from "flarex-protocol/catalog";
 
 const compiled = () =>
   JSON.parse(JSON.stringify(compileDmlSchema([...productModels]))) as unknown;
 
 describe("actual Product schema", () => {
+  it("lowers every pinned Product key and index into shared logical definitions", async () => {
+    const { indexes, unique, schema } = await Effect.runPromise(Effect.gen(function* () {
+      const product = yield* compileProductDefinition();
+      const source = yield* captureLogicalSchemaSource({
+        key: "medusa.product", owner: "medusa", writeProfile: "medusa.product",
+        evidence: product.provenance, definition: { kind: "relational", schema: product.schema },
+        bindings: product.schema.tables.map(table => ({ kind: "definition", localName: table.identity.tableId,
+          table: { namespace: "medusa", logicalName: `${product.schema.coordinate.lineageId}/${table.identity.tableId}` } })),
+      });
+      return { indexes: yield* Effect.fromResult(compileLogicalSourceIndexes(source)),
+        unique: yield* Effect.fromResult(compileLogicalSourceUniqueConstraints(source)), schema: product.schema };
+    }));
+    expect(indexes).toHaveLength(60);
+    expect(unique).toHaveLength(24);
+    expect(indexes.filter(index => index.descriptor.startsWith("fk-reverse/"))
+      .map(index => `${index.localName}/${index.descriptor}`).sort()).toEqual([
+        "product/fk-reverse/collection_id", "product/fk-reverse/type_id", "product_variant/fk-reverse/product_id",
+      ]);
+    const productTable = schema.tables.find(table => table.identity.tableId === "product");
+    if (productTable === undefined) throw new Error("Missing Product table");
+    expect(Result.getOrThrow(compileLogicalRelationalRead(productTable, schema.capabilities,
+      { order: { column: "id", direction: "asc" }, predicate: { kind: "in", column: "collection_id", values: ["collection"] } },
+      256, reason => new Error(reason))).selections).toEqual([{ column: "collection_id", value: "collection" }]);
+    const rank = indexes.find(index => index.localName === "image" &&
+      index.descriptor === "index/IDX_product_image_rank");
+    expect(rank?.physicalSpec.orderedFields[0]).toMatchObject({ kind: "documentPath", path: "rank" });
+    const imageTable = schema.tables.find(table => table.identity.tableId === "image");
+    if (imageTable === undefined) throw new Error("Missing Product image table");
+    expect(Result.isSuccess(compileLogicalRelationalRead(imageTable, schema.capabilities,
+      { order: { column: "rank", direction: "asc" }, predicate: { kind: "in", column: "product_id", values: ["product"] } },
+      256, reason => new Error(reason)))).toBe(true);
+    expect(indexes.some(index => index.localName === "product" && index.descriptor === "index/product.active"))
+      .toBe(true);
+    expect(indexes.find(index => index.localName === "product" &&
+      index.descriptor === "index/product.deleted_at.range"))
+      .toMatchObject({ physicalSpec: { orderedFields: [
+        { kind: "documentPath", path: "deleted_at" }, { kind: "systemCreationTime" },
+      ] } });
+    expect(Result.getOrThrow(compileLogicalRelationalRead(productTable, schema.capabilities,
+      { order: { column: "id", direction: "asc" }, predicate: { kind: "greaterThan", column: "deleted_at",
+        value: "2022-01-01T00:00:00.000Z" } }, 256, reason => new Error(reason))).selections)
+      .toEqual([{ column: "deleted_at", value: { gt: "2022-01-01T00:00:00.000Z" } }]);
+    expect(unique.find(constraint => constraint.localName === "product" &&
+      constraint.descriptor === "index/IDX_product_handle_unique"))
+      .toMatchObject({ physicalSpec: { predicate: { kind: "fieldIsNull", field: "deleted_at" } } });
+  });
+
   it("captures all ten entities and three physical pivots without inventing pivot identities", async () => {
     const captured = await Effect.runPromise(
       captureProductSchema("product-schema-test"),
@@ -22,8 +75,19 @@ describe("actual Product schema", () => {
     // canonical artifact remains pinned, including all models and pivots.
     expect(captured.artifact.identity.lineageId).toBe("commerce.product");
     expect(createHash("sha256").update(captured.artifact.canonicalJson).digest("hex"))
-      .toBe("cfbe80cbf3c487dcb18b6af7019c7ffb8b9adc23d1b2984bd1fd7e6eaabf8d86");
+      .toBe("eefac3961a8ec412fd2c2720f356e397aa558e324bb5d984c130cd6c4ebe0185");
     expect(captured.schema.tables).toHaveLength(13);
+    const boundTables = captured.schema.tables.map((table, position) => ({
+      tableId: decodeCatalogTableId(position + 1), logicalName: `commerce.product/${table.identity.tableId}`, relational: table,
+    }));
+    const foreignKeys = Result.getOrThrow(prepareLogicalRelationalForeignKeys(boundTables, reason => new Error(reason)));
+    expect(foreignKeys).toHaveLength(15);
+    expect(foreignKeys.filter(binding => binding.onDelete === "cascade")).toHaveLength(11);
+    const restricted = boundTables.map(table => table.relational.identity.tableId !== "product_variant" ? table : {
+      ...table, relational: { ...table.relational, constraints: table.relational.constraints.map(constraint =>
+        constraint.kind === "foreignKey" ? { ...constraint, onDelete: "restrict" as const } : constraint) },
+    });
+    expect(Result.isFailure(prepareLogicalRelationalForeignKeys(restricted, reason => new Error(reason)))).toBe(true);
     const restored = await Effect.runPromise(
       authenticateStoredRelationalSchemaArtifactEffect(captured.artifact),
     );
@@ -44,6 +108,12 @@ describe("actual Product schema", () => {
       expect(pivot.columns).toHaveLength(2);
       expect(pivot.keys).toHaveLength(1);
       expect(pivot.keys[0]).toMatchObject({ kind: "unique" });
+      expect(Result.getOrThrow(relationalTextIdentity(pivot, reason => new Error(reason))))
+        .toEqual(pivot.keys[0]?.columns.map(column => column.columnId));
+      for (const column of pivot.keys[0]?.columns ?? []) expect(pivot.keys.some(key => key.columns[0]?.columnId === column.columnId) ||
+        pivot.indexes.some(index => index.predicate === null && index.columns[0]?.columnId === column.columnId)).toBe(true);
+      expect(Result.isSuccess(prepareLogicalRelationalRows(pivot, captured.schema.capabilities,
+        reason => new Error(reason)))).toBe(true);
       expect(pivot.constraints).toHaveLength(2);
       expect(
         pivot.constraints.every(

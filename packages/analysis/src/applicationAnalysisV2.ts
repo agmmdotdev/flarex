@@ -1,4 +1,5 @@
 import { isNonArrayRecord } from "@flarex/utils/records";
+import { snapshotDecodedProtocolPlainData } from "flarex-protocol/internal/decoded-protocol-snapshot";
 import {
   Effect,
   Result,
@@ -26,7 +27,10 @@ import {
   APPLICATION_MANIFEST_FORMAT_V1,
   ApplicationAnalysisContractError,
   ApplicationManifestV1Schema,
+  applicationManifestWireV1,
+  captureApplicationManifestV1,
   canonicalizeApplicationManifestV1,
+  canonicalizeApplicationManifestWireV1,
   decodeApplicationManifestV1,
   makeApplicationManifestV1,
   type ApplicationManifestSourceArtifactV1Input,
@@ -40,6 +44,7 @@ import type {
 } from "./index.ts";
 import {
   canonicalizeApplicationManifestV3,
+  canonicalizeApplicationManifestWireV3,
   ApplicationManifestV3Schema,
   makeApplicationManifestV3,
   verifyApplicationManifestV3,
@@ -52,6 +57,7 @@ const UTF8_ENCODER = new TextEncoder();
 export const APPLICATION_MANIFEST_VERSION_V2 = 2 as const;
 
 export interface ApplicationManifestV2 {
+  readonly validatorIdentityEncoding?: 2;
   readonly format: typeof APPLICATION_MANIFEST_FORMAT_V1;
   readonly version: typeof APPLICATION_MANIFEST_VERSION_V2;
   readonly sourceArtifact: ApplicationManifestV1["sourceArtifact"];
@@ -94,9 +100,18 @@ export const verifyApplicationManifestWithRelations = Effect.fn("ApplicationAnal
   },
 );
 
+export const verifyApplicationManifestWithRelationsWire = Effect.fn("ApplicationAnalysis.verifyCurrentManifestWire")(
+  function* (value: unknown): Effect.fn.Return<CanonicalApplicationManifestWithRelations, ApplicationAnalysisContractError> {
+    const canonical = yield* Effect.fromResult(canonicalizeApplicationManifestWire(value));
+    return yield* verifyApplicationManifestWithRelations(canonical.manifest);
+  },
+);
+
 const OwnedApplicationManifestV2Schema = Schema.declare<ApplicationManifestV2>(
   (value): value is ApplicationManifestV2 =>
-    isNonArrayRecord(value) && isDeeplyFrozenJson(value),
+    isNonArrayRecord(value) &&
+    Result.isSuccess(decodeApplicationManifestV2Worker(value, "decodeManifest", "semantic")) &&
+    isDeeplyFrozenData(value),
   { identifier: "OwnedApplicationManifestV2" },
 );
 
@@ -112,7 +127,7 @@ export const ApplicationManifestV2Schema = Schema.Unknown.pipe(
         onSuccess: Effect.succeed,
       }),
     ),
-    encode: SchemaGetter.transform(snapshotApplicationManifestV2),
+    encode: SchemaGetter.transform(applicationManifestWireV1),
   }),
 );
 
@@ -141,6 +156,12 @@ export function canonicalizeApplicationManifestV2(
   );
 }
 
+export function canonicalizeApplicationManifestWireV2(
+  value: unknown,
+): Result.Result<CanonicalApplicationManifestV2, ApplicationAnalysisContractError> {
+  return decodeApplicationManifestV2(value).pipe(Result.flatMap(canonicalizeApplicationManifestV2));
+}
+
 export function canonicalizeApplicationManifest(
   value: unknown,
 ): Result.Result<
@@ -153,6 +174,20 @@ export function canonicalizeApplicationManifest(
       case 1: return yield* canonicalizeApplicationManifestV1(value);
       case 2: return yield* canonicalizeApplicationManifestV2(value);
       case 3: return yield* canonicalizeApplicationManifestV3(value);
+    }
+  });
+}
+
+/** Canonicalizes serialized/authenticated input, never semantic builder input. */
+export function canonicalizeApplicationManifestWire(
+  value: unknown,
+): Result.Result<CanonicalApplicationManifest, ApplicationAnalysisContractError> {
+  return Result.gen(function* () {
+    const version = yield* manifestVersion(value);
+    switch (version) {
+      case 1: return yield* canonicalizeApplicationManifestWireV1(value);
+      case 2: return yield* canonicalizeApplicationManifestWireV2(value);
+      case 3: return yield* canonicalizeApplicationManifestWireV3(value);
     }
   });
 }
@@ -206,17 +241,20 @@ export const makeApplicationManifest = Effect.fn(
 function decodeApplicationManifestV2Worker(
   value: unknown,
   operation: "decodeManifest" | "lowerManifest",
+  representation: "wire" | "semantic" = "wire",
 ): Result.Result<ApplicationManifestV2, ApplicationAnalysisContractError> {
   return Result.gen(function* () {
     const manifestProperties = yield* strictOwnDataProperties(
       value,
-      ["format", "version", "sourceArtifact", "schema", "functions"],
+      ["format", "version", "validatorIdentityEncoding", "sourceArtifact", "schema", "functions"],
       "manifest",
       operation,
+      representation === "semantic" ? ["validatorIdentityEncoding"] : [],
     );
     if (
       manifestProperties.get("format") !== APPLICATION_MANIFEST_FORMAT_V1 ||
-      manifestProperties.get("version") !== APPLICATION_MANIFEST_VERSION_V2
+      manifestProperties.get("version") !== APPLICATION_MANIFEST_VERSION_V2 ||
+      (manifestProperties.has("validatorIdentityEncoding") && manifestProperties.get("validatorIdentityEncoding") !== 2)
     ) {
       return yield* Result.fail(contractFailure(
         operation,
@@ -239,10 +277,11 @@ function decodeApplicationManifestV2Worker(
     }
 
     const { base: canonicalV1, relations: expectedRelations } = yield*
-      decodeApplicationManifestRelationParts(manifestProperties, schemaProperties, operation, false);
+      decodeApplicationManifestRelationParts(manifestProperties, schemaProperties, operation, false, representation);
     return snapshotApplicationManifestV2({
       format: canonicalV1.format,
       version: APPLICATION_MANIFEST_VERSION_V2,
+      validatorIdentityEncoding: 2,
       sourceArtifact: canonicalV1.sourceArtifact,
       schema: {
         version: APPLICATION_MANIFEST_VERSION_V2,
@@ -261,14 +300,17 @@ export function decodeApplicationManifestRelationParts(
   schemaProperties: ReadonlyMap<string, unknown>,
   operation: "decodeManifest" | "lowerManifest",
   allowEmptyRelations: boolean,
+  representation: "wire" | "semantic" = "wire",
 ): Result.Result<Readonly<{
   readonly base: ApplicationManifestV1;
   readonly relations: ReadonlyArray<AnalyzedApplicationRelation>;
 }>, ApplicationAnalysisContractError> {
   return Result.gen(function* () {
-    const canonicalV1 = yield* decodeApplicationManifestV1({
+    const admitBase = representation === "wire" ? decodeApplicationManifestV1 : captureApplicationManifestV1;
+    const canonicalV1 = yield* admitBase({
       format: manifestProperties.get("format"),
       version: 1,
+      ...(manifestProperties.has("validatorIdentityEncoding") ? { validatorIdentityEncoding: manifestProperties.get("validatorIdentityEncoding") } : {}),
       sourceArtifact: manifestProperties.get("sourceArtifact"),
       schema: {
         version: 1,
@@ -420,15 +462,17 @@ function canonicalizeApplicationManifestV2ForOperation(
     const manifest = yield* decodeApplicationManifestV2Worker(
       value,
       decodeOperation,
+      "semantic",
     );
-    if (!isJson(manifest)) {
+    const wire = applicationManifestWireV1(manifest);
+    if (!isJson(wire)) {
       return yield* Result.fail(contractFailure(
         encodeOperation,
         "invalidInput",
       ));
     }
     const measurement = measureCanonicalJsonUtf8Bytes(
-      manifest,
+      wire,
       APPLICATION_ANALYSIS_MAXIMUM_MANIFEST_BYTES_V1,
     );
     if (measurement.kind !== "success") {
@@ -443,7 +487,7 @@ function canonicalizeApplicationManifestV2ForOperation(
           : {},
       ));
     }
-    const canonicalText = encodeCanonicalJson(manifest, issue => {
+    const canonicalText = encodeCanonicalJson(wire, issue => {
       throw new Error(
         `Validated Application Manifest V2 lost JSON: ${issue.reason}.`,
       );
@@ -463,6 +507,7 @@ export function strictOwnDataProperties(
   expectedKeys: ReadonlyArray<string>,
   path: string,
   operation: "decodeManifest" | "lowerManifest",
+  optionalKeys: ReadonlyArray<string> = [],
 ): Result.Result<
   ReadonlyMap<string, unknown>,
   ApplicationAnalysisContractError
@@ -473,7 +518,8 @@ export function strictOwnDataProperties(
     }
     const ownKeys = Reflect.ownKeys(value);
     if (
-      ownKeys.length !== expectedKeys.length ||
+      ownKeys.length < expectedKeys.length - optionalKeys.length ||
+      ownKeys.length > expectedKeys.length ||
       ownKeys.some(key => typeof key !== "string" || !expectedKeys.includes(key))
     ) {
       return Result.fail(contractFailure(operation, "invalidInput", { path }));
@@ -481,6 +527,7 @@ export function strictOwnDataProperties(
     const properties = new Map<string, unknown>();
     for (const key of expectedKeys) {
       const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      if (descriptor === undefined && optionalKeys.includes(key)) continue;
       if (
         descriptor === undefined || !("value" in descriptor) ||
         descriptor.enumerable !== true
@@ -653,36 +700,18 @@ function isPositiveSafeInteger(value: unknown): value is number {
 function snapshotApplicationManifestV2(
   manifest: ApplicationManifestV2,
 ): ApplicationManifestV2 {
-  const snapshot: ApplicationManifestV2 = structuredClone(manifest);
-  freezeOwnedApplicationManifestV2(snapshot);
-  return snapshot;
+  return snapshotDecodedProtocolPlainData(manifest);
 }
 
-function freezeOwnedApplicationManifestV2(value: unknown): void {
-  if (value === null || typeof value !== "object") return;
-  if (Array.isArray(value)) {
-    for (const item of value) freezeOwnedApplicationManifestV2(item);
-    Object.freeze(value);
-    return;
-  }
-  for (const item of Object.values(value)) {
-    freezeOwnedApplicationManifestV2(item);
-  }
-  Object.freeze(value);
-}
-
-function isDeeplyFrozenJson(value: unknown): boolean {
-  if (!isJson(value)) return false;
+function isDeeplyFrozenData(value: unknown): boolean {
   const pending: unknown[] = [value];
+  const visited = new WeakSet<object>();
   while (pending.length > 0) {
     const current = pending.pop();
-    if (current === null || typeof current !== "object") continue;
+    if (current === null || typeof current !== "object" || visited.has(current)) continue;
+    visited.add(current);
     if (!Object.isFrozen(current)) return false;
-    if (Array.isArray(current)) {
-      pending.push(...current);
-    } else {
-      pending.push(...Object.values(current));
-    }
+    for (const item of Object.values(current)) pending.push(item);
   }
   return true;
 }

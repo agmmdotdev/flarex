@@ -1,31 +1,103 @@
-import { Effect, Schema } from "effect";
+import { Effect, Result, Schema } from "effect";
 import { isPreparedWorkflow, type PreparedWorkflow } from "@medusajs/workflows-sdk";
-import { commerceCommandIdentity, defineAtomicCommerceCommand, defineCommerceEventContract, type AtomicCommerceHost, type AtomicCommerceHostInput,
-  type AtomicCommerceParticipantInput, type AtomicCommerceEvents, type AtomicCommerceCallObservation, type CommerceCommand, type CommerceEventContract } from "@flarex/persistence-postgres/internal/commerce-adapter";
-import type { LocalCommerceEventPolicy } from "@flarex/persistence-postgres/internal/commerce-profile";
-import { commerceError, isJsonObject, type CommerceTransactionError, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
+import { commerceCommandIdentity, defineAtomicCommerceCommand, defineCommerceEventContract, defineCommerceDerivedIdEventContract, type AtomicCommerceContext, type AtomicCommerceHost, type TaskAtomicCommerceHost, type AtomicCommerceHostInput,
+  type AtomicCommerceParticipantInput, type AtomicCommerceEvents, type AtomicCommerceCallObservation, type CommerceCommand, type CommerceEventContract,
+  } from "@flarex/persistence-postgres/internal/commerce-adapter";
+import { captureCommerceResources, commerceError, isJsonObject, type CommerceResources, type CommerceTransactionError, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
 import { prepareLocalGraph } from "../local-graph/query";
-import { runNativeMedusaWorkflow } from "../workflow-runtime";
-import { captureCommerceInput } from "../commerce-input";
-import { captureWorkflowArray, captureWorkflowRecord } from "./configuration";
+import { runNativeMedusaWorkflow } from "./runtime";
+import { captureCommerceInput } from "../value/input";
+import { captureWorkflowArray, captureWorkflowRecord, captureWorkflowPolicy, captureWorkflowResourceDigest } from "./configuration";
 import { workflowMethodDefinition, workflowModuleDefinition, type WorkflowMethod, type WorkflowModule } from "./module";
-import { workflowResourceSelections, type PreparedWorkflowResources } from "./resources";
+import { workflowResourceSelections, workflowComposedResources, workflowAbsentResources, type PreparedWorkflowResources } from "./resources";
+import { composedWorkflowResourceDefinition } from "./composed-resource";
 import { bindWorkflowResources, type BoundWorkflowEvent, type WorkflowEventDefinition } from "./binding";
-import { checkedCommerceValue } from "../commerce-checked-value";
-import { commerceDecoder } from "../commerce-decoder";
+import { checkedCommerceValue } from "../value/checked";
+import { requireAtomicCommerceScopeExclusion } from "@flarex/persistence-postgres/internal/commerce-adapter";
+import { commerceDecoder } from "../value/decoder";
+import type { TrustedWorkflowExecutionSubject, TrustedWorkflowControlSubject } from "@flarex/persistence-postgres/internal/trusted-workflow-execution-subject";
+import type { PreparedCommitEventEligibility } from "@flarex/persistence-postgres/internal/commit-event-eligibility";
 
-export type AtomicWorkflowHostComposition = Pick<AtomicCommerceHostInput<never>, "participants" | "commands" | "events" | "identityAndAccessPolicy" | "requestCallLimit">;
+const decodeIdentityEncoding = Schema.decodeUnknownEffect(Schema.UndefinedOr(Schema.Literal("resourceDigest")));
+const decodeOperationScheduling = Schema.decodeUnknownEffect(Schema.UndefinedOr(Schema.Literal("queued")));
+const decodeExecutionIsolation = Schema.decodeUnknownEffect(Schema.UndefinedOr(Schema.Literal("scopeExclusive")));
+const decodeLogicalPublication = Schema.decodeUnknownResult(Schema.UndefinedOr(Schema.Literal("mixed")));
+
+export type AtomicWorkflowHostComposition = Pick<AtomicCommerceHostInput<never>, "participants" | "commands" | "events" | "identityAndAccessPolicy" | "requestParticipantLimit" | "requestCallLimit" | "requestByteLimit" | "requestEventLimit" | "requestCommandMs" | "executionIsolation" | "operationScheduling" | "borrowedOperationScheduling" | "taskControlCommands">;
 /** The trusted database host closes its own database/session/authority inputs.
  * Only preparation data crosses this portable adapter boundary. */
-export interface AtomicWorkflowExecution {
+export interface AtomicWorkflowExecution<Host extends AtomicCommerceHost = AtomicCommerceHost> {
   readonly identityAndAccessPolicy: Json;
-  readonly prepare: (composition: AtomicWorkflowHostComposition) => Effect.Effect<AtomicCommerceHost, CommerceTransactionError>;
+  readonly prepare: (composition: AtomicWorkflowHostComposition) => Effect.Effect<Host, CommerceTransactionError>;
 }
-export interface InstalledWorkflowModule<Module extends WorkflowModule = WorkflowModule> {
+export type InstalledWorkflowModule<Module extends WorkflowModule = WorkflowModule> = {
   readonly module: Module;
-  readonly profile: AtomicCommerceParticipantInput["profile"];
-  readonly installation: AtomicCommerceParticipantInput["installation"];
-  readonly moduleEvents?: Pick<LocalCommerceEventPolicy, "capture" | "validate">;
+  /** Trusted selection of the existing identity-bound logical resource profile. */
+  readonly logicalResources?: CommerceResources;
+  /** Trusted opt-in to native upsert/delete publication within one logical participant. */
+  readonly logicalPublication?: "mixed";
+} & (
+  Readonly<{ logicalStorage: Extract<AtomicCommerceParticipantInput, { readonly logicalStorage: unknown }>["logicalStorage"]; nativeStorage?: never }>
+  | Readonly<{ nativeStorage: Extract<AtomicCommerceParticipantInput, { readonly nativeStorage: unknown }>["nativeStorage"]; logicalStorage?: never }>
+);
+
+export type OrdinaryNativeInstalledWorkflowModule<Module extends WorkflowModule = WorkflowModule> =
+  Extract<InstalledWorkflowModule<Module>, { readonly nativeStorage: unknown }> & {
+    readonly logicalResources?: never;
+    readonly logicalPublication?: never;
+  };
+
+/** Retained logical hosts return their actual storage branch, rather than
+ * widening portable selection metadata to an unissued native alternative. */
+export type LegacyInstalledWorkflowModules<Modules extends Readonly<Record<string, InstalledWorkflowModule>>> = {
+  readonly [Name in keyof Modules]: Extract<Modules[Name], { readonly logicalStorage: unknown }>;
+};
+
+/** Input has already passed own-data capture. Branch before object rest so
+ * removing publication policy preserves the required storage selection. */
+type WithoutWorkflowPublication<Binding extends InstalledWorkflowModule> = Binding extends unknown
+  ? Omit<Binding, "logicalPublication"> : never;
+export function withoutWorkflowPublication<Binding extends InstalledWorkflowModule>(binding: Binding): WithoutWorkflowPublication<Binding>;
+export function withoutWorkflowPublication(binding: InstalledWorkflowModule) {
+  if (binding.nativeStorage !== undefined) {
+    const { logicalPublication: _publication, ...selected } = binding;
+    return selected;
+  }
+  const { logicalPublication: _publication, ...selected } = binding;
+  return selected;
+}
+
+/** Capture selected installed bindings in declared order without invoking
+ * getters. The facade keeps its own record-size/hook checks in their original
+ * position; the host still authenticates every nested resource and capability. */
+export function captureInstalledWorkflowModules<Modules extends Readonly<Record<string, InstalledWorkflowModule>>,
+  const Keys extends readonly (keyof Modules & string)[]>(registrations: Modules, keys: Keys) {
+  return Result.gen(function* () {
+    const names = yield* captureWorkflowArray(keys);
+    const entries: [string, object][] = [];
+    for (const name of names) {
+      const property = yield* Result.try({
+        try: () => Object.getOwnPropertyDescriptor(registrations, name),
+        catch: cause => commerceError("unsupportedProfile", cause),
+      });
+      if (property === undefined || !Object.hasOwn(property, "value") || !property.enumerable)
+        return yield* Result.fail(commerceError("unsupportedProfile"));
+      const binding: unknown = property.value;
+      if (binding === null || typeof binding !== "object") return yield* Result.fail(commerceError("unsupportedProfile"));
+      const captured = yield* captureWorkflowRecord(binding);
+      const resourceInput: unknown = Object.getOwnPropertyDescriptor(captured, "logicalResources")?.value;
+      const logicalResources = resourceInput === undefined ? undefined
+        : yield* captureWorkflowPolicy(resourceInput).pipe(Result.flatMap(captureCommerceResources));
+      const logicalPublication = yield* decodeLogicalPublication(Object.getOwnPropertyDescriptor(captured, "logicalPublication")?.value)
+        .pipe(Result.mapError(cause => commerceError("unsupportedProfile", cause)));
+      const bindingFields = Object.fromEntries(Object.entries(captured).filter(([field]) => field !== "logicalPublication"));
+      entries.push([name, Object.freeze({ ...bindingFields, ...(logicalResources === undefined ? {} : { logicalResources }),
+        ...(logicalPublication === undefined ? {} : { logicalPublication }) })]);
+    }
+    // SAFETY: each selected own data binding is captured under its exact key.
+    // This retains the typed configuration, not authority over nested tokens.
+    return Object.freeze(Object.fromEntries(entries)) as Readonly<Pick<Modules, Keys[number]>>;
+  });
 }
 export interface WorkflowCallResults {
   /** Native encoded inputs and outputs of successful, validated outer calls. */
@@ -46,25 +118,48 @@ export interface AtomicWorkflowDefinition<Resources, Input extends Json, Output 
 
 /** Explicit multi-instance host: immutable preparation, fresh scoped resources
  * per invocation, and exactly one existing core transaction/recovery owner. */
-export const prepareAtomicWorkflowHost = Effect.fn("Workflow.prepareAtomicHost")(function* <Resources, Input extends Json, Output extends Json, EncodedInput extends Json>(input: {
-  readonly execution: AtomicWorkflowExecution;
+export const prepareWorkflowComposition = Effect.fn("Workflow.prepareComposition")(function* <Resources, Input extends Json, Output extends Json, EncodedInput extends Json>(input: {
+  readonly identityAndAccessPolicy: Json;
+  readonly identityEncoding?: "resourceDigest";
   readonly modules: Readonly<Record<string, InstalledWorkflowModule>>;
   readonly workflow: AtomicWorkflowDefinition<Resources, Input, Output, EncodedInput>;
   readonly revision: string;
   readonly subscribers?: AtomicCommerceEvents["subscribers"];
-  /** Trusted composition only; the atomic owner validates and caps this by every profile. */
+  /** Trusted composition only; the atomic owner validates the request budget. */
+  readonly requestParticipantLimit?: number;
   readonly requestCallLimit?: number;
+  readonly requestByteLimit?: number;
+  readonly requestEventLimit?: number;
+  readonly requestCommandMs?: number;
+  readonly operationScheduling?: "queued";
+  readonly borrowedOperationScheduling?: "queued";
+  /** Trusted native graphs can require the existing writer lock without a provider. */
+  readonly executionIsolation?: "scopeExclusive";
+  /** Trusted selection of this exact command for native cancellation work. */
+  readonly allowTaskControl?: true;
 }) {
   const options = yield* Effect.fromResult(captureWorkflowRecord(input));
-  const execution = yield* Effect.fromResult(captureWorkflowRecord(options.execution));
-  const policy = yield* Effect.fromResult(captureCommerceInput(execution.identityAndAccessPolicy));
+  const identityEncoding = yield* decodeIdentityEncoding(options.identityEncoding)
+    .pipe(Effect.mapError(cause => commerceError("unsupportedProfile", cause)));
+  const operationScheduling = yield* decodeOperationScheduling(options.operationScheduling)
+    .pipe(Effect.mapError(cause => commerceError("unsupportedProfile", cause)));
+  const borrowedOperationScheduling = yield* decodeOperationScheduling(options.borrowedOperationScheduling)
+    .pipe(Effect.mapError(cause => commerceError("unsupportedProfile", cause)));
+  const executionIsolation = yield* decodeExecutionIsolation(options.executionIsolation)
+    .pipe(Effect.mapError(cause => commerceError("unsupportedProfile", cause)));
+  if (options.allowTaskControl !== undefined && options.allowTaskControl !== true)
+    return yield* commerceError("unsupportedProfile");
+  if (borrowedOperationScheduling !== undefined && operationScheduling !== "queued")
+    return yield* Effect.fail(commerceError("unsupportedProfile"));
+  const policy = yield* Effect.fromResult(captureWorkflowPolicy(options.identityAndAccessPolicy));
   const workflow = yield* Effect.fromResult(captureWorkflowRecord(options.workflow));
   if (!isPreparedWorkflow(workflow.prepared)) return yield* Effect.fail(commerceError("invalidAuthority"));
-  const installed = yield* Effect.fromResult(captureWorkflowRecord(options.modules));
+  const registrations = yield* Effect.fromResult(captureWorkflowRecord(options.modules));
   const members = workflowResourceSelections(workflow.resources);
-  if (members === undefined || members.length < 1 || members.length !== Object.keys(installed).length || typeof execution.prepare !== "function"
+  if (members === undefined || members.length < 1 || members.length !== Object.keys(registrations).length
     || !Schema.isSchema(workflow.input) || !Schema.isSchema(workflow.output) || !/^[a-f0-9]{64}$/.test(options.revision)
     || workflow.resources.events !== (workflow.events !== undefined) || (!workflow.resources.events && options.subscribers !== undefined)) return yield* Effect.fail(commerceError("unsupportedProfile"));
+  const installed = yield* Effect.fromResult(captureInstalledWorkflowModules(registrations, members.map(member => member.name)));
   const eventDefinition = workflow.events === undefined ? undefined : yield* Effect.fromResult(captureWorkflowRecord(workflow.events));
   const emitted: BoundWorkflowEvent[] = [];
   const contracts = [];
@@ -75,7 +170,9 @@ export const prepareAtomicWorkflowHost = Effect.fn("Workflow.prepareAtomicHost")
       const event = yield* Effect.fromResult(captureWorkflowRecord(raw));
       if (typeof event.name !== "string" || names.has(event.name) || typeof event.decode !== "function") return yield* Effect.fail(commerceError("unsupportedProfile"));
       names.add(event.name);
-      const contract = defineCommerceEventContract({ name: event.name, revision: options.revision, internal: false, decode: value => Effect.fromResult(event.decode(value)) });
+      const contract = defineCommerceEventContract({ name: event.name, revision: options.revision, internal: false,
+        ...(event.pendingCancellation === undefined ? {} : { pendingCancellation: event.pendingCancellation }),
+        decode: value => Effect.fromResult(event.decode(value)) });
       emitted.push(Object.freeze({ ...event, contract })); contracts.push(contract);
     }
   }
@@ -83,14 +180,22 @@ export const prepareAtomicWorkflowHost = Effect.fn("Workflow.prepareAtomicHost")
   const graphMembers = [];
   const identities = [];
   const observed = new Map<WorkflowMethod, { participant: AtomicCommerceParticipantInput["participant"]; command: CommerceCommand }>();
+  let derivedEvents = false;
+  let requestEventLimit = options.requestEventLimit;
   for (const member of members) {
     const raw = installed[member.name];
     if (raw === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
     const binding = yield* Effect.fromResult(captureWorkflowRecord(raw));
     const definition = workflowModuleDefinition(member.module);
     if (binding.module !== member.module || definition === undefined) return yield* Effect.fail(commerceError("invalidAuthority"));
-    const moduleEvents = binding.moduleEvents === undefined ? undefined : yield* Effect.fromResult(captureWorkflowRecord(binding.moduleEvents));
-    if (moduleEvents !== undefined && (typeof moduleEvents.capture !== "function" || typeof moduleEvents.validate !== "function")) return yield* Effect.fail(commerceError("unsupportedProfile"));
+    if (Object.keys(binding).some(key => key !== "module" && key !== "logicalStorage" && key !== "nativeStorage" && key !== "logicalResources" && key !== "logicalPublication")
+      || binding.logicalStorage === undefined && binding.nativeStorage === undefined
+      || binding.logicalStorage !== undefined && binding.nativeStorage !== undefined)
+      return yield* Effect.fail(commerceError("unsupportedProfile"));
+    const moduleEvents = definition.logical;
+    const statementReferenceChecks = moduleEvents?.statementReferenceChecks;
+    if (statementReferenceChecks === true && (binding.nativeStorage === undefined || binding.logicalPublication !== undefined || options.allowTaskControl === true))
+      return yield* Effect.fail(commerceError("unsupportedProfile"));
     const commands = new Set<CommerceCommand>();
     const methodIdentities = [];
     const graphIdentities = [];
@@ -100,7 +205,8 @@ export const prepareAtomicWorkflowHost = Effect.fn("Workflow.prepareAtomicHost")
       const method = token === undefined ? undefined : workflowMethodDefinition(token);
       if (token === undefined || method === undefined) return yield* Effect.fail(commerceError("invalidAuthority"));
       const identity = commerceCommandIdentity(method.command);
-      if (identity === undefined) return yield* Effect.fail(commerceError("invalidAuthority"));
+      if (identity === undefined || (moduleEvents === undefined ? identity.mode === "write" :
+        !moduleEvents.commands.includes(method.command))) return yield* Effect.fail(commerceError("invalidAuthority"));
       methodIdentities.push({ name, command: identity, moduleEvents: method.moduleEvents });
       commands.add(method.command); observed.set(token, { participant: member.participant, command: method.command });
       for (const name of method.moduleEvents) moduleEventNames.add(name);
@@ -108,10 +214,21 @@ export const prepareAtomicWorkflowHost = Effect.fn("Workflow.prepareAtomicHost")
     if (moduleEventNames.size !== 0 && (eventDefinition === undefined || moduleEvents === undefined)) return yield* Effect.fail(commerceError("unsupportedProfile"));
     const capture = moduleEvents?.capture;
     const moduleContracts = new Map<string, CommerceEventContract>();
+    const replacement = moduleEvents?.referenceReplacement !== undefined &&
+      moduleEvents.referenceReplacement.commands.some(command => commands.has(command))
+      ? moduleEvents.referenceReplacement : undefined;
+    let derivedContract: CommerceEventContract | undefined;
+    if (replacement !== undefined) {
+      if (eventDefinition === undefined || !moduleEventNames.has(replacement.eventName)) return yield* Effect.fail(commerceError("unsupportedProfile"));
+      derivedContract = yield* Effect.fromResult(defineCommerceDerivedIdEventContract({ name: replacement.eventName,
+        revision: options.revision, internal: true, metadata: replacement.metadata }));
+      derivedEvents = true;
+      requestEventLimit = Math.max(requestEventLimit ?? 0, replacement.eventLimit);
+    }
     for (const name of moduleEventNames) {
       if (capture === undefined || names.has(name)) return yield* Effect.fail(commerceError("unsupportedProfile"));
-      const contract = defineCommerceEventContract({ name, revision: options.revision, internal: true,
-        decode: Effect.fn("Workflow.moduleEvent")(function* (value) {
+      const contract = name === replacement?.eventName && derivedContract !== undefined ? derivedContract : defineCommerceEventContract({ name, revision: options.revision, internal: true,
+        decode: Effect.fnUntraced(function* (value) {
           const message = yield* capture(value);
           if (!isJsonObject(message) || message.name !== name) return yield* Effect.fail(commerceError("unadmittedEvent"));
           return message;
@@ -123,35 +240,78 @@ export const prepareAtomicWorkflowHost = Effect.fn("Workflow.prepareAtomicHost")
       graphMembers.push({ participant: member.participant, module: definition.graph });
       for (const { command, decode: _decode, ...metadata } of definition.graph.reads) {
         const identity = commerceCommandIdentity(command);
-        if (identity === undefined) return yield* Effect.fail(commerceError("invalidAuthority"));
+        if (identity?.mode !== "read" || moduleEvents !== undefined && !moduleEvents.commands.includes(command))
+          return yield* Effect.fail(commerceError("invalidAuthority"));
         commands.add(command); graphIdentities.push({ ...metadata, command: identity });
       }
     }
-    participants.push({ participant: member.participant, profile: binding.profile, installation: binding.installation, commands: [...commands],
-      ...(moduleEvents === undefined ? {} : { validate: moduleEvents.validate }), ...(moduleContracts.size === 0 ? {} : { events: {
+    const selected = { participant: member.participant, commands: [...commands],
+      ...(moduleEvents?.detachDeletedReferences === true ? { detachDeletedReferences: true as const } : {}),
+      ...(moduleEvents?.setNullPolicy === undefined ? {} : { setNullPolicy: moduleEvents.setNullPolicy }),
+      ...(moduleEvents?.reconstitution === undefined ? {} : { reconstitution: moduleEvents.reconstitution }),
+      ...(moduleEvents?.allowPreservingDeletionUpsert === undefined ? {} : { allowPreservingDeletionUpsert: moduleEvents.allowPreservingDeletionUpsert }),
+      ...(moduleEvents?.allowActiveRestoreUpdate === true ? { allowActiveRestoreUpdate: true as const } : {}),
+      ...(moduleEvents?.allowStorageInsertionOrder === true ? { allowStorageInsertionOrder: true as const } : {}),
+      ...(moduleEvents?.allowReferenceCheckpoints === true ? { allowReferenceCheckpoints: true as const } : {}),
+      ...(moduleEvents?.insertValidation === undefined ? {} : { insertValidation: moduleEvents.insertValidation }),
+      ...(moduleEvents?.allowRecordedRowReplay === true ? { allowRecordedRowReplay: true as const } : {}),
+      ...(moduleEvents === undefined ? {} : { validateLogicalCall: moduleEvents.validateLogicalCall }),
+      ...(moduleEvents?.validateLogical === undefined ? {} : { validateLogical: moduleEvents.validateLogical }),
+      ...(derivedContract === undefined ? {} : { allowReferenceReplacement: true as const, derivedIdEvent: { contract: derivedContract } }),
+      ...(moduleContracts.size === 0 ? {} : { events: {
         contracts: [...moduleContracts.values()],
-        select: Effect.fn("Workflow.selectModuleEvent")(function* (message: Json) {
+        select: Effect.fnUntraced(function* (message: Json) {
           const token = isJsonObject(message) && typeof message.name === "string" ? moduleContracts.get(message.name) : undefined;
           if (token === undefined) return yield* Effect.fail(commerceError("unadmittedEvent"));
           return token;
         }),
       } }),
+    };
+    participants.push({ ...selected, ...(binding.nativeStorage === undefined ? { logicalStorage: binding.logicalStorage }
+      : { nativeStorage: binding.nativeStorage, ...(statementReferenceChecks === undefined ? {} : { statementReferenceChecks }) }),
+      ...(binding.logicalResources === undefined ? {} : { logicalResources: binding.logicalResources }),
+      ...(binding.logicalPublication === undefined ? {} : { logicalPublication: binding.logicalPublication }),
     });
     identities.push({ name: member.name, module: member.module.name, profile: definition.source.profile, methods: methodIdentities,
-      graph: member.graph ? { aliases: definition.graph.aliases, reads: graphIdentities } : null,
+      ...(member.expose === false ? { expose: false } : {}),
+      graph: member.graph ? { aliases: definition.graph.aliases, reads: graphIdentities,
+        ...(definition.graph.remotePaths === undefined ? {} : { remotePaths: definition.graph.remotePaths }),
+        ...(definition.graph.linkEndpoints === undefined ? {} : { linkEndpoints: definition.graph.linkEndpoints }),
+        ...(definition.graph.directPaths === undefined ? {} : { directPaths: definition.graph.directPaths }),
+        ...(definition.graph.services === undefined ? {} : { services: definition.graph.services }),
+      } : null,
     });
+  }
+  const composedIdentities = [];
+  for (const selected of workflowComposedResources(workflow.resources) ?? []) {
+    const definition = composedWorkflowResourceDefinition(selected.resource);
+    if (!definition) return yield* Effect.fail(commerceError("invalidAuthority"));
+    const dependencies = [];
+    for (const token of definition.dependencies) {
+      const method = observed.get(token);
+      const member = members.find(member => member.participant === method?.participant);
+      if (!method || !member) return yield* Effect.fail(commerceError("invalidAuthority"));
+      dependencies.push({ participant: member.name, command: commerceCommandIdentity(method.command) });
+    }
+    composedIdentities.push({ name: selected.name, identity: definition.identity, methods: Object.keys(definition.methods), dependencies,
+      ...(definition.scopeExclusive ? { scopeExclusive: true } : {}) });
   }
   const graph = graphMembers.length === 0 ? undefined : yield* Effect.fromResult(prepareLocalGraph(graphMembers));
   const decodeInput = commerceDecoder(workflow.input, "invalidInput");
   const decodeOutput = commerceDecoder(workflow.output, "storedCorruption");
   const decodeStoredOutput = commerceDecoder(Schema.toType(workflow.output), "storedCorruption");
-  const command = defineAtomicCommerceCommand(workflow.name, Effect.fn("Workflow.runAtomic")(function* (ctx, value) {
+  const scopeExclusive = executionIsolation === "scopeExclusive" ||
+    (workflowComposedResources(workflow.resources) ?? []).some(member => composedWorkflowResourceDefinition(member.resource)?.scopeExclusive);
+  const execute = Effect.fnUntraced(function* (ctx: AtomicCommerceContext, value: Json) {
+    if (scopeExclusive) yield* requireAtomicCommerceScopeExclusion(ctx);
     const args = yield* checkedCommerceValue(ctx, () => decodeInput(value));
     const result = yield* runNativeMedusaWorkflow(workflow.prepared, ctx, args, owner => bindWorkflowResources(workflow.resources, members, graph, emitted, ctx, owner));
     return yield* checkedCommerceValue(ctx, () => decodeOutput(result));
-  }));
+  }, effect => Effect.withSpan(effect, "Workflow.runAtomic", { captureStackTrace: false }));
+  const command = defineAtomicCommerceCommand(workflow.name, execute);
   const events: AtomicCommerceEvents | undefined = eventDefinition === undefined || options.subscribers === undefined ? undefined : {
     producerRevision: options.revision, contracts, subscribers: options.subscribers,
+    ...(derivedEvents ? { derivedIdValidation: "capturedOnly" as const } : {}),
     validate: (events, calls) => {
       const selected = (method: WorkflowMethod) => {
         const expected = observed.get(method);
@@ -163,14 +323,101 @@ export const prepareAtomicWorkflowHost = Effect.fn("Workflow.prepareAtomicHost")
       });
     },
   };
-  const identity = yield* Effect.fromResult(captureCommerceInput({ policy, workflow: {
-    revision: options.revision, definition: workflow.prepared.identity, resources: identities, events: [...names],
+  const absentResources = workflowAbsentResources(workflow.resources);
+  if (absentResources === undefined) return yield* Effect.fail(commerceError("invalidAuthority"));
+  const resourceProof = { resources: identities, ...(composedIdentities.length ? { composedResources: composedIdentities } : {}) };
+  const resourceIdentity = identityEncoding === undefined ? resourceProof
+    : { identityEncoding, resourceDigest: yield* captureWorkflowResourceDigest(resourceProof) };
+  const identity = yield* Effect.fromResult(captureWorkflowPolicy({ policy, workflow: {
+    revision: options.revision, definition: workflow.prepared.identity, ...resourceIdentity, events: [...names],
+    ...(absentResources.length ? { absentResources } : {}),
+    ...(executionIsolation === undefined ? {} : { executionIsolation }),
+    ...(operationScheduling === undefined ? {} : { operationScheduling }),
+    ...(borrowedOperationScheduling === undefined ? {} : { borrowedOperationScheduling }),
+    ...(options.requestByteLimit === undefined ? {} : { requestByteLimit: options.requestByteLimit }),
+    ...(options.requestCommandMs === undefined ? {} : { requestCommandMs: options.requestCommandMs }),
+    ...(options.allowTaskControl === undefined ? {} : { allowTaskControl: true }),
   } }));
-  const host = yield* execution.prepare({ participants, commands: [command], identityAndAccessPolicy: identity,
-    ...(options.requestCallLimit === undefined ? {} : { requestCallLimit: options.requestCallLimit }), ...(events === undefined ? {} : { events }) });
-  return Object.freeze({ newRequestKey: host.newRequestKey,
-    run: Effect.fn("Workflow.run")((key: string, value: EncodedInput) => Effect.fromResult(captureCommerceInput(value)).pipe(
-      Effect.flatMap(args => host.run(key, command, args)), Effect.flatMap(result => Effect.fromResult(decodeStoredOutput(result))),
-    )),
+  const composition = { participants, commands: [command], identityAndAccessPolicy: identity,
+    ...(options.allowTaskControl === true ? { taskControlCommands: [command] } : {}),
+    ...(operationScheduling === undefined ? {} : { operationScheduling }),
+    ...(borrowedOperationScheduling === undefined ? {} : { borrowedOperationScheduling }),
+    ...(scopeExclusive ? { executionIsolation: "scopeExclusive" as const } : {}),
+    ...(requestEventLimit === undefined ? {} : { requestEventLimit }),
+    ...(options.requestByteLimit === undefined ? {} : { requestByteLimit: options.requestByteLimit }),
+    ...(options.requestCommandMs === undefined ? {} : { requestCommandMs: options.requestCommandMs }),
+    ...(options.requestParticipantLimit === undefined ? {} : { requestParticipantLimit: options.requestParticipantLimit }),
+    ...(options.requestCallLimit === undefined ? {} : { requestCallLimit: options.requestCallLimit }), ...(events === undefined ? {} : { events }) };
+  return Object.freeze({ composition, command, decodeInput, decodeStoredOutput,
+    run: (ctx: AtomicCommerceContext, value: Json) => Effect.fromResult(captureCommerceInput(value)).pipe(
+      Effect.flatMap(args => execute(ctx, args)),
+      Effect.flatMap(result => Effect.fromResult(decodeStoredOutput(result))),
+    ) });
+});
+
+interface WorkflowHostInput<Resources, Input extends Json, Output extends Json, EncodedInput extends Json, Host extends AtomicCommerceHost> {
+  readonly execution: AtomicWorkflowExecution<Host>;
+  readonly identityEncoding?: "resourceDigest";
+  readonly modules: Readonly<Record<string, InstalledWorkflowModule>>;
+  readonly workflow: AtomicWorkflowDefinition<Resources, Input, Output, EncodedInput>;
+  readonly revision: string;
+  readonly subscribers?: AtomicCommerceEvents["subscribers"];
+  readonly requestParticipantLimit?: number;
+  readonly requestCallLimit?: number;
+  readonly requestByteLimit?: number;
+  readonly requestEventLimit?: number;
+  readonly requestCommandMs?: number;
+  readonly operationScheduling?: "queued";
+  readonly borrowedOperationScheduling?: "queued";
+  readonly executionIsolation?: "scopeExclusive";
+  readonly allowTaskControl?: true;
+}
+const prepareBoundWorkflowHost = Effect.fn("Workflow.prepareBoundHost")(function* <Resources, Input extends Json, Output extends Json, EncodedInput extends Json, Host extends AtomicCommerceHost>(input: WorkflowHostInput<Resources, Input, Output, EncodedInput, Host>) {
+  const options = yield* Effect.fromResult(captureWorkflowRecord(input));
+  const execution = yield* Effect.fromResult(captureWorkflowRecord(options.execution));
+  if (typeof execution.prepare !== "function") return yield* Effect.fail(commerceError("unsupportedProfile"));
+  const prepared = yield* prepareWorkflowComposition({ identityAndAccessPolicy: execution.identityAndAccessPolicy,
+    modules: options.modules, workflow: options.workflow, revision: options.revision,
+    ...(options.identityEncoding === undefined ? {} : { identityEncoding: options.identityEncoding }),
+    ...(options.subscribers === undefined ? {} : { subscribers: options.subscribers }),
+    ...(options.requestParticipantLimit === undefined ? {} : { requestParticipantLimit: options.requestParticipantLimit }),
+    ...(options.requestCallLimit === undefined ? {} : { requestCallLimit: options.requestCallLimit }),
+    ...(options.requestByteLimit === undefined ? {} : { requestByteLimit: options.requestByteLimit }),
+    ...(options.requestEventLimit === undefined ? {} : { requestEventLimit: options.requestEventLimit }),
+    ...(options.requestCommandMs === undefined ? {} : { requestCommandMs: options.requestCommandMs }),
+    ...(options.operationScheduling === undefined ? {} : { operationScheduling: options.operationScheduling }),
+    ...(options.borrowedOperationScheduling === undefined ? {} : { borrowedOperationScheduling: options.borrowedOperationScheduling }),
+    ...(options.executionIsolation === undefined ? {} : { executionIsolation: options.executionIsolation }),
+    ...(options.allowTaskControl === undefined ? {} : { allowTaskControl: options.allowTaskControl }),
+  });
+  const host = yield* execution.prepare(prepared.composition);
+  return { host, prepared };
+});
+
+export const prepareAtomicWorkflowHost = Effect.fn("Workflow.prepareAtomicHost")(function* <Resources, Input extends Json, Output extends Json, EncodedInput extends Json>(input: WorkflowHostInput<Resources, Input, Output, EncodedInput, AtomicCommerceHost>) {
+  const { host, prepared } = yield* prepareBoundWorkflowHost(input);
+  return Object.freeze({ newRequestKey: host.newRequestKey, close: host.close,
+    run: (key: string, value: EncodedInput) => Effect.withSpan(Effect.suspend(() => Effect.fromResult(captureCommerceInput(value)).pipe(
+      Effect.flatMap(args => host.run(key, prepared.command, args)),
+      Effect.flatMap(result => Effect.fromResult(prepared.decodeStoredOutput(result))),
+    )), "Workflow.run", { captureStackTrace: false }),
+  });
+});
+
+/** Genuine Task child invocation over the same prepared business graph and
+ * resource/event contracts. The supplied core host owns binding admission. */
+export const prepareTaskAtomicWorkflowHost = Effect.fn("Workflow.prepareTaskHost")(function* <Resources, Input extends Json, Output extends Json, EncodedInput extends Json>(input: WorkflowHostInput<Resources, Input, Output, EncodedInput, TaskAtomicCommerceHost>) {
+  const { host, prepared } = yield* prepareBoundWorkflowHost(input);
+  return Object.freeze({ close: host.close, decodeInput: prepared.decodeInput,
+    runTaskChild: Effect.fn("Workflow.runTaskChild")((subject: TrustedWorkflowExecutionSubject, occurrence: bigint,
+      value: EncodedInput, eligibility?: PreparedCommitEventEligibility) => Effect.fromResult(captureCommerceInput(value)).pipe(
+        Effect.flatMap(args => host.runTaskChild(subject, occurrence, prepared.command, args, eligibility)),
+        Effect.flatMap(result => Effect.fromResult(prepared.decodeStoredOutput(result))),
+      )),
+    runControlChild: Effect.fn("Workflow.runControlChild")((subject: TrustedWorkflowControlSubject, occurrence: bigint,
+      value: EncodedInput, eligibility?: PreparedCommitEventEligibility) => Effect.fromResult(captureCommerceInput(value)).pipe(
+        Effect.flatMap(args => host.runControlChild(subject, occurrence, prepared.command, args, eligibility)),
+        Effect.flatMap(result => Effect.fromResult(prepared.decodeStoredOutput(result))),
+      )),
   });
 });

@@ -20,13 +20,18 @@
     "./internal/point-mutation-internal-call-exact-runtime-host-v1": "./src/artifactRuntime/PointMutationInternalCallExactRuntimeHost.ts",
     "./internal/point-query-internal-call-exact-runtime-host-v1": "./src/artifactRuntime/PointQueryInternalCallExactRuntimeHost.ts",
     "./internal/system-test/declarative-v2-authenticated-verifier-read-session-v1": "./src/declarativeV2/AuthenticatedVerifierReadSession.ts",
+    "./internal/public-application-source": "./src/sourceArtifactV2/PublicApplicationSource.ts",
     "./internal/application-analysis-source-reader": "./src/sourceArtifactV2/ApplicationAnalysisReader.ts",
+    "./internal/source-artifact-upload-attempt-store": "./src/sourceArtifactV2/AttemptStore.ts",
+    "./internal/source-artifact-r2-store": "./src/sourceArtifactV2/R2Store.ts",
+    "./internal/source-artifact-sha256": "./src/sourceArtifactV2/Sha256.ts",
+    "./internal/source-artifact-upload": "./src/sourceArtifactV2/UploadCore.ts",
+    "./internal/deployment-storage": "./src/deployment/StorageSchema.ts",
     "./internal/application-execution-host": "./src/artifactRuntime/ApplicationExecutionHost.ts",
     "./internal/application-worker-definition": "./src/artifactRuntime/ApplicationWorkerDefinition.ts",
     "./internal/application-task-execution-host": "./src/artifactRuntime/ApplicationTaskExecutionHost.ts",
     "./internal/application-task-worker-definition": "./src/artifactRuntime/ApplicationTaskWorkerDefinition.ts",
     "./internal/legacy-task-worker-definition": "./src/artifactRuntime/LegacyTaskWorkerDefinition.ts",
-    "./internal/legacy-task-execution-host": "./src/artifactRuntime/LegacyTaskExecutionHost.ts",
     "./internal/task-worker-session-host": "./src/artifactRuntime/TaskWorkerSessionHost.ts",
     "./internal/application-point-mutation-runner": "./src/artifactRuntime/ApplicationPointMutationRunner.ts",
     "./internal/application-action-runner": "./src/artifactRuntime/ApplicationActionRunner.ts",
@@ -41,19 +46,12 @@
     "./internal/task-execution-principal-store": "./src/taskExecutionPrincipal/TaskExecutionPrincipalStore.ts",
     "./internal/task-runtime-launch": "./src/taskRuntimeLaunch/index.ts",
     "./internal/task-runtime-object-store": "./src/taskRuntimePublication/TaskRuntimeObjectStore.ts",
-    "./internal/candidate-bound-point-mutation-runtime-target-v1": "./src/artifactRuntime/CandidateBoundPointMutationRuntimeTargetV1.ts",
     "./internal/candidate-bound-edge-action-runtime-target-v1": "./src/artifactRuntime/CandidateBoundEdgeActionRuntimeTargetV1.ts",
     "./internal/edge-action-route-independent-coordinator-v1": "./src/artifactRuntime/EdgeActionRouteIndependentCoordinatorV1.ts",
-    "./internal/candidate-bound-point-query-runtime-target-v1": "./src/artifactRuntime/CandidateBoundPointQueryRuntimeTargetV1.ts",
-    "./internal/candidate-bound-point-query-internal-call-runtime-target-v1": "./src/artifactRuntime/CandidateBoundPointQueryInternalCallRuntimeTargetV1.ts",
-    "./internal/candidate-bound-point-mutation-internal-query-runtime-target-v1": "./src/artifactRuntime/CandidateBoundPointMutationInternalQueryRuntimeTargetV1.ts",
-    "./internal/candidate-bound-point-mutation-internal-call-runtime-target-v1": "./src/artifactRuntime/CandidateBoundPointMutationInternalCallRuntimeTargetV1.ts",
     "./internal/point-mutation-grant-preparation-v1": "./src/pointMutationGrantPreparation.ts",
     "./internal/point-mutation-transaction-grant-issuer-v1": "./src/transactionGrantIssuer.ts",
     "./internal/query-sync-source-v1": "./src/deploymentSync/QuerySyncSource.ts",
     "./internal/query-sync-model-v1": "./src/deploymentSync/QuerySyncModel.ts",
-    "./internal/system-test/application-revision-readiness-coordinator-v1": "./src/deployment/PrivateApplicationRevisionReadinessCoordinatorV1.ts",
-    "./internal/system-test/application-revision-activation-coordinator-v1": "./src/deployment/PrivateApplicationRevisionActivationCoordinatorV1.ts",
     "./worker": "./src/worker.ts",
     "./types": "./src/types.ts",
     "./test/backendHarness": "./test/backendHarness.ts",
@@ -96,7 +94,7 @@
     "test": "vitest run",
     "test:dte06-c3": "vitest run test/taskComputeDispatchRecoveryDecision.test.ts test/taskComputeDeliveryTrustedDirectory.test.ts test/taskComputeDeliveryCandidateRunner.test.ts test/taskComputeDeliveryConnectedContinuation.test.ts test/taskComputeDeliveryConnectedRunner.test.ts --no-file-parallelism",
     "test:dte06-d1": "vitest run test/taskRuntimeLaunchAuthority.test.ts --no-file-parallelism",
-    "test:dte06-d3b-i": "vitest run test/legacyTaskWorkerDefinition.miniflare.test.ts test/legacyTaskExecutionHost.test.ts --no-file-parallelism",
+    "test:dte06-d3b-i": "vitest run test/legacyTaskWorkerDefinition.miniflare.test.ts test/taskWorkerSessionHost.test.ts test/workerLoaderTaskComputeProvider.test.ts test/applicationExecutionHost.test.ts --no-file-parallelism",
     "test:dte06-d3b-iii": "vitest run test/workerLoaderTaskComputeProvider.test.ts --no-file-parallelism",
     "test:dte06-f0a": "vitest run test/applicationExecutionHost.test.ts test/taskWorkerSessionHost.test.ts --no-file-parallelism",
     "test:dte06-f0b:worker-bridge": "vitest run test/applicationTaskMutationCallback.test.ts test/applicationTaskQueryCallback.test.ts test/applicationTaskWorkerDefinition.miniflare.test.ts test/taskWorkerSessionHost.test.ts test/workerLoaderTaskComputeProvider.test.ts --no-file-parallelism",
@@ -117,7 +115,8 @@
     "@flarex/utils": "workspace:*",
     "effect": "catalog:",
     "flarex": "workspace:*",
-    "flarex-protocol": "workspace:*"
+    "flarex-protocol": "workspace:*",
+    "@flarex/payload-adapter": "workspace:*"
   },
   "peerDependencies": {
     "miniflare": "catalog:",
@@ -132,6 +131,8 @@
     }
   },
   "devDependencies": {
+    "@flarex/medusa-adapter": "workspace:*",
+    "drizzle-orm": "^0.45.2",
     "@flarex/declarative-materializer": "workspace:*",
     "@flarex/declarative-program": "workspace:*",
     "miniflare": "catalog:",
@@ -139,6 +140,7 @@
     "typescript": "catalog:",
     "vite": "catalog:",
     "vitest": "catalog:",
-    "workerd": "1.20260611.1"
+    "workerd": "1.20260611.1",
+    "@flarex/application-schema-definition": "workspace:*"
   }
 }

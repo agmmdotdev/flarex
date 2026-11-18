@@ -1,6 +1,13 @@
 import { Context, EventBusTypes } from "@medusajs/types"
 import { buildModuleResourceEventName } from "../event-bus/utils"
 
+/** Native event payload shape: one message per action batch, with row order intact. */
+export function moduleEventData(data: readonly { id: string }[]): { id: string | string[] } | undefined {
+  const first = data[0]
+  if (first === undefined) return undefined
+  return { id: data.length === 1 ? first.id : data.map(item => item.id) }
+}
+
 // TODO should that move closer to the event bus? and maybe be rename to modulemoduleEventBuilderFactory
 
 /**
@@ -45,7 +52,8 @@ export function moduleEventBuilderFactory({
   }) {
     data = Array.isArray(data) ? data : [data]
 
-    if (!data.length) {
+    const eventData = moduleEventData(data)
+    if (eventData === undefined) {
       return
     }
 
@@ -64,9 +72,7 @@ export function moduleEventBuilderFactory({
       source,
       action,
       context: sharedContext,
-      data: {
-        id: data.length === 1 ? data[0].id : data.map((item) => item.id),
-      },
+      data: eventData,
       eventName: eventName!,
       object,
     })

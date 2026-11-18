@@ -2,6 +2,16 @@
 
 ## Shared Logical Storage Authority
 
+The accepted [shared schema lifecycle](./flarexdb-shared-schema-lifecycle.md)
+governs logical installation/evolution for Flarex Application, Payload, Medusa
+and platform Tasks. Native producers supply definitions, dependencies and
+explicit conversion meaning; shared core APIs own admission, planning,
+build/validation, progress/recovery, readiness and activation. This updates the
+logical destination of the installation/coordinator discussion below. Preserve
+justified physical-core maintenance separately; do not retain overlapping
+framework migration authorities or add a Task installer. Consolidation and Task
+system admission remain pending, with advanced evolution separately scoped.
+
 The accepted [shared logical storage decision](./flarexdb-shared-logical-storage.md)
 and [redesign roadmap](../roadmaps/shared-logical-storage/README.md)
 replace the former deployment-owned commerce physical-table destination.

@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Effect, Result } from "effect";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -19,10 +19,38 @@ import {
   decodeApplicationActionWorkerRequestV1Effect,
   decodeApplicationTransactionWorkerRequestV1Effect,
   decodeApplicationWorkerResultV1Effect,
+  decodeCoreApplicationInsertResult,
 } from "../src/application-worker-v1";
 import { normalizeFlarexValueV1 } from "../src/value";
+import { encodeDocumentId } from "../src/document-id";
 
 describe("Application worker V1 protocol", () => {
+  it("selects the source mapping cap only through a trusted fresh-core profile", async () => {
+    const request = transactionRequest("query", "public");
+    request.tables = Array.from({ length: 10_000 }, (_, ordinal) => ({ tableId: ordinal + 10001, logicalName: "table" + ordinal }));
+    expect((await Effect.runPromise(decodeApplicationTransactionWorkerRequestV1Effect(request, "convex"))).tables).toHaveLength(10_000);
+    expect((await Effect.runPromise(Effect.result(decodeApplicationTransactionWorkerRequestV1Effect(request))))._tag).toBe("Failure");
+    const maxNumber = transactionRequest("query", "public");
+    maxNumber.tables = [{ tableId: 0xffff_ffff, logicalName: "maxNumber" }];
+    expect((await Effect.runPromise(decodeApplicationTransactionWorkerRequestV1Effect(maxNumber, "convex"))).tables[0]?.tableId).toBe(0xffff_ffff);
+    expect((await Effect.runPromise(Effect.result(decodeApplicationTransactionWorkerRequestV1Effect(maxNumber))))._tag).toBe("Failure");
+    request.tables.push({ tableId: 20001, logicalName: "excess" });
+    expect((await Effect.runPromise(Effect.result(decodeApplicationTransactionWorkerRequestV1Effect(request, "convex"))))._tag).toBe("Failure");
+  });
+
+  it("captures authoritative insert deltas and refuses mismatched or excess fields", () => {
+    const id = Result.getOrThrow(encodeDocumentId(10001, new Uint8Array(16)));
+    const table = { tableId: 10001, logicalName: "created" };
+    expect(Result.isSuccess(decodeCoreApplicationInsertResult({ kind: "tooManyTables" }))).toBe(true);
+    expect(Result.isFailure(decodeCoreApplicationInsertResult({ kind: "tooManyTables", table }))).toBe(true);
+    const maximumId = Result.getOrThrow(encodeDocumentId(0xffff_ffff, new Uint8Array(16)));
+    expect(Result.isSuccess(decodeCoreApplicationInsertResult({ kind: "inserted", id: maximumId, table: { ...table, tableId: 0xffff_ffff } }))).toBe(true);
+    expect(Result.isSuccess(decodeCoreApplicationInsertResult({ kind: "inserted", id, table }))).toBe(true);
+    expect(Result.isSuccess(decodeCoreApplicationInsertResult({ kind: "documentValidation", table }))).toBe(true);
+    expect(Result.isFailure(decodeCoreApplicationInsertResult({ kind: "inserted", id, table: { ...table, tableId: 10002 } }))).toBe(true);
+    expect(Result.isFailure(decodeCoreApplicationInsertResult({ kind: "documentValidation", table, capability: {} }))).toBe(true);
+  });
+
   it("owns one exact public query request", async () => {
     const input = transactionRequest("query", "public");
     const decoded = await Effect.runPromise(
@@ -45,6 +73,21 @@ describe("Application worker V1 protocol", () => {
     expect(decoded.context.randomSeed[0]).toBe(7);
     expect(Object.isFrozen(decoded)).toBe(true);
     expect(Object.isFrozen(decoded.tables)).toBe(true);
+  });
+
+  it("keeps fresh snapshot timestamps distinct from legacy query commit sequences", async () => {
+    const input = transactionRequest("query", "public");
+    const { snapshotCommitSeq: _legacy, ...context } = queryContext();
+    const fresh = { ...input, context: { ...context, snapshotTimestamp: 1_900_000_000_000_000_000n } };
+    const decoded = await Effect.runPromise(decodeApplicationTransactionWorkerRequestV1Effect(fresh));
+    expect(decoded.context).toMatchObject({ mode: "query", snapshotTimestamp: fresh.context.snapshotTimestamp });
+    expect(decoded.context).not.toHaveProperty("snapshotCommitSeq");
+    await expect(Effect.runPromise(decodeApplicationTransactionWorkerRequestV1Effect({
+      ...fresh, context: { ...fresh.context, snapshotCommitSeq: 9n },
+    }))).rejects.toMatchObject({ reason: "invalidShape", path: "context" });
+    await expect(Effect.runPromise(decodeApplicationTransactionWorkerRequestV1Effect({
+      ...fresh, context: { ...fresh.context, snapshotTimestamp: -1n },
+    }))).rejects.toMatchObject({ reason: "invalidShape", path: "context" });
   });
 
   it.each([
@@ -692,6 +735,7 @@ function userIdentityAtSemanticSize(size: number): Record<string, unknown> {
 function target(kind: FunctionKind, visibility: Visibility) {
   return {
     format: "flarex.application-runtime-target" as const,
+    validatorIdentityEncoding: 2 as const,
     version: 1 as const,
     scopeId: "scope",
     revisionId: "revision",

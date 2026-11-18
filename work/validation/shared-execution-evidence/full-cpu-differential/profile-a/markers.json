@@ -1,0 +1,832 @@
+{
+  "before": [
+    {
+      "file": "markers.ts",
+      "sha256": "e6e245ba94eda495607d743664a786e94ec707dd4f465b305116df0b899c6180"
+    },
+    {
+      "file": "profile.config.ts",
+      "sha256": "fa71c13ff9d0c94dc2b7c4e0ec085ccf1bac3956e6fd157df42693dac0c4142f"
+    },
+    {
+      "file": "run-campaign.ps1",
+      "sha256": "631bb2f0dbe02d1eb435df225ba43b3ff758d6d9b099ddeb0c2b0dbe6d54c448"
+    }
+  ],
+  "after": [
+    {
+      "file": "markers.ts",
+      "sha256": "e6e245ba94eda495607d743664a786e94ec707dd4f465b305116df0b899c6180"
+    },
+    {
+      "file": "profile.config.ts",
+      "sha256": "fa71c13ff9d0c94dc2b7c4e0ec085ccf1bac3956e6fd157df42693dac0c4142f"
+    },
+    {
+      "file": "run-campaign.ps1",
+      "sha256": "631bb2f0dbe02d1eb435df225ba43b3ff758d6d9b099ddeb0c2b0dbe6d54c448"
+    }
+  ],
+  "markers": [
+    {
+      "name": "clockMarkerA",
+      "start": 62480.3968,
+      "end": 62486.4505
+    },
+    {
+      "name": "clockMarkerB",
+      "start": 62541.6742,
+      "end": 62547.6951
+    },
+    {
+      "name": "clockMarkerA",
+      "start": 63383.8532,
+      "end": 63389.9158
+    },
+    {
+      "name": "clockMarkerB",
+      "start": 63697.6449,
+      "end": 63703.6901
+    },
+    {
+      "name": "clockMarkerA",
+      "start": 65795.4588,
+      "end": 65801.4592
+    },
+    {
+      "name": "clockMarkerB",
+      "start": 66063.1721,
+      "end": 66069.1724
+    },
+    {
+      "name": "clockMarkerA",
+      "start": 67793.4872,
+      "end": 67799.4875
+    },
+    {
+      "name": "clockMarkerB",
+      "start": 67844.3935,
+      "end": 67850.394
+    },
+    {
+      "name": "clockMarkerA",
+      "start": 68332.4399,
+      "end": 68338.4403
+    },
+    {
+      "name": "clockMarkerB",
+      "start": 68377.8662,
+      "end": 68383.8667
+    },
+    {
+      "name": "clockMarkerA",
+      "start": 69154.6745,
+      "end": 69160.6748
+    },
+    {
+      "name": "clockMarkerB",
+      "start": 69394.4653,
+      "end": 69400.4657
+    },
+    {
+      "name": "clockMarkerA",
+      "start": 71360.6232,
+      "end": 71366.6237
+    },
+    {
+      "name": "clockMarkerB",
+      "start": 71605.162,
+      "end": 71611.1623
+    },
+    {
+      "name": "clockMarkerA",
+      "start": 73315.304,
+      "end": 73321.3043
+    },
+    {
+      "name": "clockMarkerB",
+      "start": 73361.6845,
+      "end": 73367.6937
+    },
+    {
+      "name": "clockMarkerA",
+      "start": 73918.5922,
+      "end": 73924.5927
+    },
+    {
+      "name": "clockMarkerB",
+      "start": 73962.8164,
+      "end": 73968.8167
+    },
+    {
+      "name": "clockMarkerA",
+      "start": 74800.8184,
+      "end": 74806.8189
+    },
+    {
+      "name": "clockMarkerB",
+      "start": 75038.9306,
+      "end": 75044.9309
+    },
+    {
+      "name": "clockMarkerA",
+      "start": 77066.3614,
+      "end": 77072.3618
+    },
+    {
+      "name": "clockMarkerB",
+      "start": 77300.1441,
+      "end": 77306.1444
+    },
+    {
+      "name": "clockMarkerA",
+      "start": 79078.6451,
+      "end": 79084.6455
+    },
+    {
+      "name": "clockMarkerB",
+      "start": 79122.7905,
+      "end": 79128.7909
+    },
+    {
+      "name": "clockMarkerA",
+      "start": 79791.4947,
+      "end": 79797.495
+    },
+    {
+      "name": "clockMarkerB",
+      "start": 79839.5181,
+      "end": 79845.5188
+    },
+    {
+      "name": "clockMarkerA",
+      "start": 80827.0702,
+      "end": 80833.0705
+    },
+    {
+      "name": "clockMarkerB",
+      "start": 81083.5208,
+      "end": 81089.5211
+    },
+    {
+      "name": "clockMarkerA",
+      "start": 83317.8619,
+      "end": 83323.8623
+    },
+    {
+      "name": "clockMarkerB",
+      "start": 83557.9607,
+      "end": 83563.9611
+    },
+    {
+      "name": "clockMarkerA",
+      "start": 85286.3415,
+      "end": 85292.3421
+    },
+    {
+      "name": "clockMarkerB",
+      "start": 85333.5541,
+      "end": 85339.5547
+    },
+    {
+      "name": "clockMarkerA",
+      "start": 85775.7101,
+      "end": 85781.712
+    },
+    {
+      "name": "clockMarkerB",
+      "start": 85818.8147,
+      "end": 85824.8152
+    },
+    {
+      "name": "clockMarkerA",
+      "start": 86583.7982,
+      "end": 86589.7987
+    },
+    {
+      "name": "clockMarkerB",
+      "start": 86829.4777,
+      "end": 86835.4782
+    },
+    {
+      "name": "clockMarkerA",
+      "start": 88796.4234,
+      "end": 88802.4239
+    },
+    {
+      "name": "clockMarkerB",
+      "start": 89027.8574,
+      "end": 89033.8578
+    },
+    {
+      "name": "clockMarkerA",
+      "start": 90725.126,
+      "end": 90731.1276
+    },
+    {
+      "name": "clockMarkerB",
+      "start": 90768.2706,
+      "end": 90774.2711
+    },
+    {
+      "name": "clockMarkerA",
+      "start": 91293.4136,
+      "end": 91299.4144
+    },
+    {
+      "name": "clockMarkerB",
+      "start": 91335.583,
+      "end": 91341.5836
+    },
+    {
+      "name": "clockMarkerA",
+      "start": 92144.7563,
+      "end": 92150.8505
+    },
+    {
+      "name": "clockMarkerB",
+      "start": 92381.236,
+      "end": 92387.2367
+    },
+    {
+      "name": "clockMarkerA",
+      "start": 94423.6321,
+      "end": 94429.6328
+    },
+    {
+      "name": "clockMarkerB",
+      "start": 94657.8962,
+      "end": 94663.8969
+    },
+    {
+      "name": "clockMarkerA",
+      "start": 96380.7805,
+      "end": 96386.781
+    },
+    {
+      "name": "clockMarkerB",
+      "start": 96423.4385,
+      "end": 96429.4392
+    },
+    {
+      "name": "clockMarkerA",
+      "start": 97006.0924,
+      "end": 97012.0928
+    },
+    {
+      "name": "clockMarkerB",
+      "start": 97049.4938,
+      "end": 97055.4943
+    },
+    {
+      "name": "clockMarkerA",
+      "start": 97927.1061,
+      "end": 97933.1066
+    },
+    {
+      "name": "clockMarkerB",
+      "start": 98160.746,
+      "end": 98166.7468
+    },
+    {
+      "name": "clockMarkerA",
+      "start": 100195.4676,
+      "end": 100201.4682
+    },
+    {
+      "name": "clockMarkerB",
+      "start": 100427.5061,
+      "end": 100433.5065
+    },
+    {
+      "name": "clockMarkerA",
+      "start": 102288.637,
+      "end": 102294.638
+    },
+    {
+      "name": "clockMarkerB",
+      "start": 102338.8738,
+      "end": 102344.8744
+    },
+    {
+      "name": "clockMarkerA",
+      "start": 103007.0266,
+      "end": 103013.0273
+    },
+    {
+      "name": "clockMarkerB",
+      "start": 103049.5542,
+      "end": 103055.5546
+    },
+    {
+      "name": "clockMarkerA",
+      "start": 103993.5839,
+      "end": 103999.5856
+    },
+    {
+      "name": "clockMarkerB",
+      "start": 104230.9713,
+      "end": 104236.9718
+    },
+    {
+      "name": "clockMarkerA",
+      "start": 106360.487,
+      "end": 106366.4874
+    },
+    {
+      "name": "clockMarkerB",
+      "start": 106591.8991,
+      "end": 106597.8996
+    },
+    {
+      "name": "clockMarkerA",
+      "start": 108427.4204,
+      "end": 108433.421
+    },
+    {
+      "name": "clockMarkerB",
+      "start": 108470.8252,
+      "end": 108476.8257
+    },
+    {
+      "name": "clockMarkerA",
+      "start": 109181.51,
+      "end": 109187.5108
+    },
+    {
+      "name": "clockMarkerB",
+      "start": 109222.5763,
+      "end": 109228.5769
+    },
+    {
+      "name": "clockMarkerA",
+      "start": 110211.6719,
+      "end": 110217.6725
+    },
+    {
+      "name": "clockMarkerB",
+      "start": 110449.5126,
+      "end": 110455.5132
+    },
+    {
+      "name": "clockMarkerA",
+      "start": 112787.3773,
+      "end": 112793.3786
+    },
+    {
+      "name": "clockMarkerB",
+      "start": 113022.9554,
+      "end": 113028.956
+    },
+    {
+      "name": "clockMarkerA",
+      "start": 114961.5539,
+      "end": 114967.5556
+    },
+    {
+      "name": "clockMarkerB",
+      "start": 115008.2738,
+      "end": 115014.2744
+    },
+    {
+      "name": "clockMarkerA",
+      "start": 115786.0285,
+      "end": 115792.029
+    },
+    {
+      "name": "clockMarkerB",
+      "start": 115827.5599,
+      "end": 115833.5604
+    },
+    {
+      "name": "clockMarkerA",
+      "start": 116870.7749,
+      "end": 116876.7754
+    },
+    {
+      "name": "clockMarkerB",
+      "start": 117107.0631,
+      "end": 117113.0637
+    },
+    {
+      "name": "clockMarkerA",
+      "start": 119327.1494,
+      "end": 119333.1511
+    },
+    {
+      "name": "clockMarkerB",
+      "start": 119563.6891,
+      "end": 119569.6896
+    },
+    {
+      "name": "clockMarkerA",
+      "start": 121512.0203,
+      "end": 121518.0208
+    },
+    {
+      "name": "clockMarkerB",
+      "start": 121554.6246,
+      "end": 121560.6252
+    },
+    {
+      "name": "clockMarkerA",
+      "start": 122342.4237,
+      "end": 122348.4242
+    },
+    {
+      "name": "clockMarkerB",
+      "start": 122384.7727,
+      "end": 122390.7732
+    },
+    {
+      "name": "clockMarkerA",
+      "start": 123489.0788,
+      "end": 123495.0793
+    },
+    {
+      "name": "clockMarkerB",
+      "start": 123725.786,
+      "end": 123731.7866
+    },
+    {
+      "name": "clockMarkerA",
+      "start": 125809.3517,
+      "end": 125815.378
+    },
+    {
+      "name": "clockMarkerB",
+      "start": 126049.2156,
+      "end": 126055.2162
+    },
+    {
+      "name": "clockMarkerA",
+      "start": 127751.1147,
+      "end": 127757.1162
+    },
+    {
+      "name": "clockMarkerB",
+      "start": 127801.3645,
+      "end": 127807.365
+    },
+    {
+      "name": "clockMarkerA",
+      "start": 128332.2466,
+      "end": 128338.2478
+    },
+    {
+      "name": "clockMarkerB",
+      "start": 128372.7843,
+      "end": 128378.7848
+    },
+    {
+      "name": "clockMarkerA",
+      "start": 129309.3818,
+      "end": 129315.3832
+    },
+    {
+      "name": "clockMarkerB",
+      "start": 129560.7994,
+      "end": 129566.7998
+    },
+    {
+      "name": "clockMarkerA",
+      "start": 131662.7059,
+      "end": 131668.7069
+    },
+    {
+      "name": "clockMarkerB",
+      "start": 131925.4034,
+      "end": 131931.404
+    },
+    {
+      "name": "clockMarkerA",
+      "start": 133658.4568,
+      "end": 133664.4573
+    },
+    {
+      "name": "clockMarkerB",
+      "start": 133700.1859,
+      "end": 133706.1866
+    },
+    {
+      "name": "clockMarkerA",
+      "start": 134274.4751,
+      "end": 134280.4756
+    },
+    {
+      "name": "clockMarkerB",
+      "start": 134314.2663,
+      "end": 134320.2672
+    },
+    {
+      "name": "clockMarkerA",
+      "start": 135195.0228,
+      "end": 135201.0232
+    },
+    {
+      "name": "clockMarkerB",
+      "start": 135425.1346,
+      "end": 135431.1351
+    },
+    {
+      "name": "clockMarkerA",
+      "start": 137451.3386,
+      "end": 137457.3391
+    },
+    {
+      "name": "clockMarkerB",
+      "start": 137694.8934,
+      "end": 137700.8939
+    },
+    {
+      "name": "clockMarkerA",
+      "start": 139425.3986,
+      "end": 139431.3991
+    },
+    {
+      "name": "clockMarkerB",
+      "start": 139467.9775,
+      "end": 139473.978
+    },
+    {
+      "name": "clockMarkerA",
+      "start": 139973.1886,
+      "end": 139979.1898
+    },
+    {
+      "name": "clockMarkerB",
+      "start": 140015.5149,
+      "end": 140021.5155
+    },
+    {
+      "name": "clockMarkerA",
+      "start": 140856.9098,
+      "end": 140862.9104
+    },
+    {
+      "name": "clockMarkerB",
+      "start": 141100.9699,
+      "end": 141106.9704
+    },
+    {
+      "name": "clockMarkerA",
+      "start": 143234.1928,
+      "end": 143240.1934
+    },
+    {
+      "name": "clockMarkerB",
+      "start": 143475.6331,
+      "end": 143481.6337
+    },
+    {
+      "name": "clockMarkerA",
+      "start": 145230.2206,
+      "end": 145236.2227
+    },
+    {
+      "name": "clockMarkerB",
+      "start": 145270.7896,
+      "end": 145276.79
+    },
+    {
+      "name": "clockMarkerA",
+      "start": 145827.2859,
+      "end": 145833.6721
+    },
+    {
+      "name": "clockMarkerB",
+      "start": 145869.9175,
+      "end": 145875.918
+    },
+    {
+      "name": "clockMarkerA",
+      "start": 146736.85,
+      "end": 146742.8505
+    },
+    {
+      "name": "clockMarkerB",
+      "start": 146978.9669,
+      "end": 146984.9673
+    },
+    {
+      "name": "clockMarkerA",
+      "start": 149014.516,
+      "end": 149020.5166
+    },
+    {
+      "name": "clockMarkerB",
+      "start": 149267.9149,
+      "end": 149273.9154
+    },
+    {
+      "name": "clockMarkerA",
+      "start": 151034.6481,
+      "end": 151040.6487
+    },
+    {
+      "name": "clockMarkerB",
+      "start": 151076.5666,
+      "end": 151082.5672
+    },
+    {
+      "name": "clockMarkerA",
+      "start": 151688.4431,
+      "end": 151694.4437
+    },
+    {
+      "name": "clockMarkerB",
+      "start": 151727.8643,
+      "end": 151733.8651
+    },
+    {
+      "name": "clockMarkerA",
+      "start": 152646.1491,
+      "end": 152652.1496
+    },
+    {
+      "name": "clockMarkerB",
+      "start": 152879.5462,
+      "end": 152885.5467
+    },
+    {
+      "name": "clockMarkerA",
+      "start": 154987.6828,
+      "end": 154993.6834
+    },
+    {
+      "name": "clockMarkerB",
+      "start": 155231.1002,
+      "end": 155237.1007
+    },
+    {
+      "name": "clockMarkerA",
+      "start": 157094.0702,
+      "end": 157100.0707
+    },
+    {
+      "name": "clockMarkerB",
+      "start": 157134.4077,
+      "end": 157140.4084
+    },
+    {
+      "name": "clockMarkerA",
+      "start": 157822.2017,
+      "end": 157828.2023
+    },
+    {
+      "name": "clockMarkerB",
+      "start": 157864.8444,
+      "end": 157870.8449
+    },
+    {
+      "name": "clockMarkerA",
+      "start": 158833.6872,
+      "end": 158839.6876
+    },
+    {
+      "name": "clockMarkerB",
+      "start": 159070.7079,
+      "end": 159076.7087
+    },
+    {
+      "name": "clockMarkerA",
+      "start": 161195.5165,
+      "end": 161201.5175
+    },
+    {
+      "name": "clockMarkerB",
+      "start": 161431.9397,
+      "end": 161437.9402
+    },
+    {
+      "name": "clockMarkerA",
+      "start": 163324.6855,
+      "end": 163330.686
+    },
+    {
+      "name": "clockMarkerB",
+      "start": 163366.3703,
+      "end": 163372.3709
+    },
+    {
+      "name": "clockMarkerA",
+      "start": 164102.3346,
+      "end": 164108.3363
+    },
+    {
+      "name": "clockMarkerB",
+      "start": 164142.6904,
+      "end": 164148.6911
+    },
+    {
+      "name": "clockMarkerA",
+      "start": 165178.8626,
+      "end": 165184.8631
+    },
+    {
+      "name": "clockMarkerB",
+      "start": 165413.92,
+      "end": 165419.9206
+    },
+    {
+      "name": "clockMarkerA",
+      "start": 167607.5357,
+      "end": 167613.5362
+    },
+    {
+      "name": "clockMarkerB",
+      "start": 167841.0819,
+      "end": 167847.083
+    },
+    {
+      "name": "clockMarkerA",
+      "start": 169750.1527,
+      "end": 169756.1533
+    },
+    {
+      "name": "clockMarkerB",
+      "start": 169790.1397,
+      "end": 169796.1402
+    },
+    {
+      "name": "clockMarkerA",
+      "start": 170581.95,
+      "end": 170587.9505
+    },
+    {
+      "name": "clockMarkerB",
+      "start": 170621.3003,
+      "end": 170627.3008
+    },
+    {
+      "name": "clockMarkerA",
+      "start": 171719.6123,
+      "end": 171725.6128
+    },
+    {
+      "name": "clockMarkerB",
+      "start": 172076.0299,
+      "end": 172082.0305
+    },
+    {
+      "name": "clockMarkerA",
+      "start": 174341.701,
+      "end": 174347.7019
+    },
+    {
+      "name": "clockMarkerB",
+      "start": 174583.273,
+      "end": 174589.2734
+    },
+    {
+      "name": "clockMarkerA",
+      "start": 176374.5596,
+      "end": 176380.5601
+    },
+    {
+      "name": "clockMarkerB",
+      "start": 176423.489,
+      "end": 176429.4894
+    },
+    {
+      "name": "clockMarkerA",
+      "start": 176905.1781,
+      "end": 176911.1786
+    },
+    {
+      "name": "clockMarkerB",
+      "start": 176945.2233,
+      "end": 176951.2374
+    },
+    {
+      "name": "clockMarkerA",
+      "start": 177788.7604,
+      "end": 177794.7624
+    },
+    {
+      "name": "clockMarkerB",
+      "start": 178030.9979,
+      "end": 178036.9986
+    },
+    {
+      "name": "clockMarkerA",
+      "start": 180072.5036,
+      "end": 180078.5054
+    },
+    {
+      "name": "clockMarkerB",
+      "start": 180311.0897,
+      "end": 180317.0902
+    },
+    {
+      "name": "clockMarkerA",
+      "start": 182016.2184,
+      "end": 182022.2195
+    },
+    {
+      "name": "clockMarkerB",
+      "start": 182056.0722,
+      "end": 182062.0727
+    }
+  ]
+}

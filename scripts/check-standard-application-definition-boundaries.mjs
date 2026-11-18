@@ -77,6 +77,7 @@ const expectedApplicationDefinitionRuntimeDependencies = new Map([
   ["@flarex/standard-application-definition", "workspace:*"],
   ["@flarex/utils", "workspace:*"],
   ["effect", "catalog:"],
+  ["flarex-protocol", "workspace:*"],
 ]);
 const expectedApplicationInvocationRuntimeDependencies = new Map([
   ["@flarex/application-definition", "workspace:*"],
@@ -932,6 +933,9 @@ function isAllowedApplicationDefinitionProductionImport(
 ) {
   if (specifier.includes("\\")) return false;
   const normalizedSourcePath = relativePath.replaceAll("\\", "/");
+  // The Source document-validator translator is a pure authoring dependency.
+  if (normalizedSourcePath === "packages/application-definition/src/Authoring.ts"
+    && specifier === "flarex-protocol/internal/validator-source") return true;
   if (
     specifier === applicationDefinitionRelationBridgeImport &&
     applicationDefinitionRelationBridgeSources.has(normalizedSourcePath)

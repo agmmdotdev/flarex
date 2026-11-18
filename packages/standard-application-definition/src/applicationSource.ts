@@ -359,11 +359,19 @@ function validatorSource(
       case "null":
       case "number":
       case "bigint":
+      case "commitTs":
       case "boolean":
       case "string":
       case "bytes":
       case "any":
         return `v.${validator.type}()`;
+      case "function": {
+        const signature: string[] = [];
+        if (validator.fnType !== undefined) signature.push(`fnType: ${JSON.stringify(validator.fnType)}`);
+        if (validator.args !== undefined) signature.push(`args: ${yield* validatorSource(validator.args)}`);
+        if (validator.returns !== undefined) signature.push(`returns: ${yield* validatorSource(validator.returns)}`);
+        return `v.function({ ${signature.join(", ")} })`;
+      }
       case "id":
         return `v.id(${JSON.stringify(validator.tableName)})`;
       case "literal":
@@ -402,6 +410,7 @@ function literalSource(
   value: string | number | bigint | boolean,
 ): Result.Result<string, Readonly<{ readonly invalid: true }>> {
   if (typeof value === "bigint") return Result.succeed(`${value}n`);
+  if (typeof value === "number" && Object.is(value, -0)) return Result.succeed("-0");
   if (typeof value === "number" && !Number.isFinite(value)) {
     return Result.fail({ invalid: true });
   }

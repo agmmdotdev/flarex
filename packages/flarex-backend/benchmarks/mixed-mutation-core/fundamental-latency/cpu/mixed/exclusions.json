@@ -1,0 +1,8 @@
+{
+  "format": "flarex.mixed-mutation-cpu-diagnostic-exclusions",
+  "excludedFromLatencyAcceptance": true,
+  "reason": "Node Inspector overhead and two warm samples; profile span includes start/stop sampling outside invocation wall",
+  "failedSamples": [],
+  "setupFailures": [],
+  "cpuSummaryIncludedSamples": 4
+}

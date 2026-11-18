@@ -7,7 +7,7 @@ export const FulfillmentSet = model
     id: model.id({ prefix: "fuset" }).primaryKey(),
     name: model.text(),
     type: model.text(),
-    service_zones: model.hasMany(() => ServiceZone, {
+    service_zones: model.hasMany((): typeof ServiceZone => ServiceZone, {
       mappedBy: "fulfillment_set",
     }),
     metadata: model.json().nullable(),
